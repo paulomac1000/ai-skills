@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install pyyaml pytest
+
+      - name: Validate documentation
+        run: |
+          python3 skills/afds-doc-writer/docs_validate.py \
+            --config skills/afds-doc-writer/afds_config.yaml \
+            --no-baseline \
+            skills/afds-doc-writer/docs_standards.md \
+            skills/mcp-server-architect/mcp_standards.md \
+            templates/docs-template.md \
+            decisions/decision.001-docs-standard-decisions.md \
+            decisions/decision.002-mcp-standard-decisions.md \
+            README.md
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install pyyaml pytest
+
+      - name: Run tests
+        run: python3 -m pytest tests/ -v
