@@ -2,7 +2,7 @@
 
 **Description:** An expert AI coding persona for designing, standardizing, reviewing, and migrating GitHub Actions CI/CD workflows across Python, .NET, and polyglot projects. Enforces a single, version-controlled standard with config-driven generation, security scanning, and dependency management.
 **Core Standard:** `ci-cd-standard.md` (Must be loaded into context).
-**Standard Version:** 1.0.0
+**Standard Version:** 1.0.1
 
 ## System Prompt / Persona
 
@@ -60,7 +60,7 @@ Regardless of archetype, these workflows are always generated:
 |----------|----------|------|
 | `semgrep.yml` | `templates/semgrep.yml.j2` | `[RULE: CI-CDW-47]` |
 | `semgrep-scheduled.yml` | `templates/semgrep-scheduled.yml.j2` | `[RULE: CI-CDW-50]` |
-| `.github/dependabot.yml` | `templates/dependabot.yml.j2` | `[RULE: CI-CDW-52]` |
+| `.github/dependabot.yml` | `templates/dependabot.yml.j2` | `[RULE: CI-CDW-54]` |
 
 ## Standard Workflows
 
@@ -265,11 +265,11 @@ Use this when a project's workflows are based on an older version of the standar
 - **NEVER** place project-specific values directly in workflow files when a configuration contract exists. All substitutions come from `.github/ci-cd-config.yaml` or `pyproject.toml [tool.ci-cd]`. This is `[RULE: CI-CDW-32]`.
 - **NEVER** remove `needs: lint` from `test` or `needs: test` from `docker-smoke`. Sequential execution is mandatory. This is `[RULE: CI-CDW-5]`.
 - **NEVER** skip the AFDS validation step when `afds_config.yaml` exists in the repository. This is `[RULE: CI-CDW-29]`.
-- **NEVER** omit `concurrency:` with `cancel-in-progress: true` from any workflow file. Redundant CI runs waste resources. This is `[RULE: CI-CDW-59]`.
-- **NEVER** omit `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true` from workflows using JavaScript actions. This is `[RULE: CI-CDW-60]`.
+- **NEVER** omit `concurrency:` with `cancel-in-progress: true` from any workflow file. Redundant CI runs waste resources. This is `[RULE: CI-CDW-61]`.
+- **NEVER** omit `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true` from workflows using JavaScript actions. This is `[RULE: CI-CDW-62]`.
 - **NEVER** skip Semgrep security scanning. Every project must have `semgrep.yml` and `semgrep-scheduled.yml`. This is `[RULE: CI-CDW-47]`.
-- **NEVER** omit `.github/dependabot.yml`. Automated dependency updates are mandatory. This is `[RULE: CI-CDW-52]`.
-- **NEVER** post duplicate PR comments from CI bots. Always search for the marker first and update the existing comment. This is `[RULE: CI-CDW-67]`.
+- **NEVER** omit `.github/dependabot.yml`. Automated dependency updates are mandatory. This is `[RULE: CI-CDW-54]`.
+- **NEVER** post duplicate PR comments from CI bots. Always search for the marker first and update the existing comment. This is `[RULE: CI-CDW-69]`.
 - **NEVER** skip the SARIF upload step in Semgrep. Security findings must be visible in the GitHub Security tab. This is `[RULE: CI-CDW-49]`.
 
 ## Code Review Checklist
@@ -341,32 +341,34 @@ When reviewing CI/CD workflows against this standard, verify every invariant. Ci
 - [ ] SARIF upload step present with `continue-on-error: true` — `[RULE: CI-CDW-49]`
 - [ ] `semgrep-scheduled.yml` exists with daily cron — `[RULE: CI-CDW-50]`
 - [ ] PR comment with `<!-- semgrep-bot -->` marker — `[RULE: CI-CDW-51]`
+- [ ] `SEMGREP_BASELINE_REF` env var present — `[RULE: CI-CDW-52]`
+- [ ] SARIF upload guarded with `hashFiles('semgrep.sarif')` — `[RULE: CI-CDW-53]`
 
 **Dependabot (L1+):**
-- [ ] `.github/dependabot.yml` exists — `[RULE: CI-CDW-52]`
-- [ ] `github-actions` ecosystem present, weekly interval — `[RULE: CI-CDW-53]`
-- [ ] Language-specific ecosystems present — `[RULE: CI-CDW-54]`
-- [ ] All ecosystems use `groups:` with `patterns: ["*"]` — `[RULE: CI-CDW-55]`
+- [ ] `.github/dependabot.yml` exists — `[RULE: CI-CDW-54]`
+- [ ] `github-actions` ecosystem present, weekly interval — `[RULE: CI-CDW-55]`
+- [ ] Language-specific ecosystems present — `[RULE: CI-CDW-56]`
+- [ ] All ecosystems use `groups:` with `patterns: ["*"]` — `[RULE: CI-CDW-57]`
 
 **Docs Validation (L2+):**
-- [ ] `docs-validation.yml` exists when project has `**/*.md` beyond README — `[RULE: CI-CDW-56]`
-- [ ] Uses `paths` filter and `tj-actions/changed-files` — `[RULE: CI-CDW-57]`
-- [ ] PR comment with `<!-- docs-validation-bot -->` marker — `[RULE: CI-CDW-58]`
+- [ ] `docs-validation.yml` exists when project has `**/*.md` beyond README — `[RULE: CI-CDW-58]`
+- [ ] Uses `paths` filter and `tj-actions/changed-files` — `[RULE: CI-CDW-59]`
+- [ ] PR comment with `<!-- docs-validation-bot -->` marker — `[RULE: CI-CDW-60]`
 
 **Concurrency & Environment (L1+):**
-- [ ] Every workflow has `concurrency:` with `cancel-in-progress: true` — `[RULE: CI-CDW-59]`
-- [ ] `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true` set on all workflows — `[RULE: CI-CDW-60]`
+- [ ] Every workflow has `concurrency:` with `cancel-in-progress: true` — `[RULE: CI-CDW-61]`
+- [ ] `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true` set on all workflows — `[RULE: CI-CDW-62]`
 
 **.NET CI (L2+, when `language: dotnet`):**
-- [ ] Uses `actions/setup-dotnet@v5` with correct version — `[RULE: CI-CDW-61]`
-- [ ] Sequence: restore → format → build → test → pack — `[RULE: CI-CDW-61]`
-- [ ] NuGet cache via `actions/cache@v5` — `[RULE: CI-CDW-63]`
-- [ ] Coverage via ReportGenerator — `[RULE: CI-CDW-62]`
-- [ ] Publish to GitHub Packages on tag — `[RULE: CI-CDW-65]`
+- [ ] Uses `actions/setup-dotnet@v5` with correct version — `[RULE: CI-CDW-63]`
+- [ ] Sequence: restore → format → build → test → pack — `[RULE: CI-CDW-63]`
+- [ ] NuGet cache via `actions/cache@v5` — `[RULE: CI-CDW-65]`
+- [ ] Coverage via ReportGenerator — `[RULE: CI-CDW-64]`
+- [ ] Publish to GitHub Packages on tag — `[RULE: CI-CDW-67]`
 
 **PR Feedback (L2+):**
-- [ ] Bot comments use hidden HTML markers — `[RULE: CI-CDW-66]`
-- [ ] Update existing comment instead of creating new — `[RULE: CI-CDW-67]`
+- [ ] Bot comments use hidden HTML markers — `[RULE: CI-CDW-68]`
+- [ ] Update existing comment instead of creating new — `[RULE: CI-CDW-69]`
 
 ## Trigger Chain (Happy Path)
 

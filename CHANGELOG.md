@@ -1,5 +1,19 @@
 # Changelog
 
+## 2026-05-21
+
+### ci-cd-architect: standard v1.0.1
+
+Updated `ci-cd-standard.md`, `SKILL.md`, and three Jinja2 templates based on real-world deployment feedback from ha-mcp-readonly PR #12.
+
+- **Fixed:** Rule ID collision — Dependabot CI-CDW-52/53 overlapped with Semgrep CI-CDW-52/53. Renumbered Dependabot →54-57, Docs →58-60, Concurrency →61-62, .NET →63-67, PR Feedback →68-69. Total: 72 rules.
+- **Added `[CI-CDW-52]` (L1+):** `SEMGREP_BASELINE_REF` for diff-aware Semgrep scanning — prevents pre-existing findings from blocking main-branch CI.
+- **Added `[CI-CDW-53]` (L2+):** `hashFiles('semgrep.sarif')` guard on SARIF upload — prevents spurious `Path does not exist` failures.
+- **Added `[CI-CDW-53a]` (SHOULD):** `.semgrep.yml` triage file for accepted unfixable findings.
+- **Added `[CI-CDW-70,71,72]` (Rule 22):** pyproject.toml classifier consistency, mypy config completeness, cross-source Python version agreement.
+- **Added edge cases:** `# nosemgrep` in Dockerfiles must be on a separate line (inline `#` is part of directive argument); direct push to main without PR requires manual tag creation.
+- **Template fixes:** `semgrep.yml.j2` — added `SEMGREP_BASELINE_REF`, `hashFiles` guard, `SEMGREP_EXIT_CODE`→`SEMGREP_OUTCOME`. `semgrep-scheduled.yml.j2` — added `hashFiles` guard.
+
 ## 2026-05-13
 
 ### Validator: 3 new checks

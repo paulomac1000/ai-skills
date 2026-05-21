@@ -13,9 +13,9 @@ owners: ["backend-team"]
 upstream:
   - ref.mcp-server-standards
 source_of_truth: true
-last_verified: "2026-05-20"
+last_verified: "2026-05-21"
 doc_kind: atomic
-standard_version: "1.0.0"
+standard_version: "1.0.1"
 ---
 
 # CI/CD Standard — Unified Pipelines for Python, .NET, and Polyglot Projects
@@ -489,6 +489,12 @@ Every project MUST include automated security scanning via Semgrep. This is a la
 
 **[RULE: CI-CDW-51] [L2+]** On PR, a status comment MUST be posted or updated using `actions/github-script@v9` with a persistent marker (`<!-- semgrep-bot -->`). The comment updates on subsequent runs instead of creating duplicates.
 
+**[RULE: CI-CDW-52] [L1+]** The `semgrep.yml` workflow MUST include `SEMGREP_BASELINE_REF: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || '' }}` in its `env` block so that Semgrep CI reports only NEW findings on PRs (diff-aware mode). On push to main, the variable evaluates to an empty string and Semgrep performs a full scan of the entire codebase. This prevents green PRs from being silently rejected by a red main-branch scan due to pre-existing findings.
+
+**[RULE: CI-CDW-53] [L2+]** The SARIF upload step in both `semgrep.yml` and `semgrep-scheduled.yml` MUST be guarded with `if: always() && hashFiles('semgrep.sarif') != ''` to prevent spurious failures when `semgrep-action@v1` does not produce a SARIF output file.
+
+**[RULE: CI-CDW-53a] [SHOULD]** Projects SHOULD include a `.semgrep.yml` project-level triage config at the repository root to document accepted findings that are not fixable (e.g., HTTP-only IoT devices on a local LAN, root-required Docker containers). Each entry requires a `rule_id`, `paths`, and `reason`. Without a triage file, unfixable findings MUST be triaged in the GitHub Security tab after each push-to-main scan.
+
 **`semgrep.yml` template:**
 
 ```yaml
@@ -506,6 +512,7 @@ concurrency:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  SEMGREP_BASELINE_REF: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || '' }}
 
 jobs:
   semgrep:
@@ -534,64 +541,7 @@ jobs:
 
       - name: Upload SARIF to GitHub Security
         id: upload-sarif
-        if: always()
-        continue-on-error: true
-        uses: github/codeql-action/upload-sarif@v4
-        with:
-          sarif_file: semgrep.sarif
-          category: semgrep
-
-      - name: Post or update PR comment
-        if: always() && github.event_name == 'pull_request'
-        uses: actions/github-script@v9
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            // See templates/semgrep.yml.j2 for full PR comment script
-```
-
-**`semgrep-scheduled.yml` template:**
-
-```yaml
-name: Semgrep Full Scan (Scheduled)
-
-on:
-  schedule:
-    - cron: "0 3 * * *"
-  workflow_dispatch:
-
-concurrency:
-  group: semgrep-full
-  cancel-in-progress: true
-
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
-jobs:
-  semgrep-full:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      security-events: write
-      actions: read
-
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      - name: Semgrep Full Scan
-        uses: semgrep/semgrep-action@v1
-        env:
-          SEMGREP_RULES: p/auto p/secrets p/owasp-top-ten
-        with:
-          config: >-
-            p/auto
-            p/secrets
-            p/owasp-top-ten
-
-      - name: Upload SARIF to GitHub Security
-        if: always()
+        if: always() && hashFiles('semgrep.sarif') != ''
         continue-on-error: true
         uses: github/codeql-action/upload-sarif@v4
         with:
@@ -603,13 +553,13 @@ jobs:
 
 Automated dependency updates reduce the maintenance burden and ensure security patches are applied promptly.
 
-**[RULE: CI-CDW-52] [L1+]** Every compliant repository MUST have a `.github/dependabot.yml` file.
+**[RULE: CI-CDW-54] [L1+]** Every compliant repository MUST have a `.github/dependabot.yml` file.
 
-**[RULE: CI-CDW-53] [L1+]** The `github-actions` ecosystem MUST be present with `interval: "weekly"` and grouped updates.
+**[RULE: CI-CDW-55] [L1+]** The `github-actions` ecosystem MUST be present with `interval: "weekly"` and grouped updates.
 
-**[RULE: CI-CDW-54] [L1+]** Language-specific ecosystems (`pip` for Python, `nuget` for .NET) MUST be declared in the configuration contract's `package_ecosystems` field and included in `dependabot.yml`.
+**[RULE: CI-CDW-56] [L1+]** Language-specific ecosystems (`pip` for Python, `nuget` for .NET) MUST be declared in the configuration contract's `package_ecosystems` field and included in `dependabot.yml`.
 
-**[RULE: CI-CDW-55] [L1+]** All ecosystems MUST use `groups:` to batch updates and reduce PR noise. Each group uses `patterns: ["*"]` to catch all packages.
+**[RULE: CI-CDW-57] [L1+]** All ecosystems MUST use `groups:` to batch updates and reduce PR noise. Each group uses `patterns: ["*"]` to catch all packages.
 
 **`dependabot.yml` template:**
 
@@ -641,11 +591,11 @@ updates:
 
 Documentation quality is enforced through automated validation in CI. This is a content-focused check, independent of programming language.
 
-**[RULE: CI-CDW-56] [L2+]** Projects with documentation files (`**/*.md` beyond `README.md`) MUST have a `docs-validation.yml` workflow.
+**[RULE: CI-CDW-58] [L2+]** Projects with documentation files (`**/*.md` beyond `README.md`) MUST have a `docs-validation.yml` workflow.
 
-**[RULE: CI-CDW-57] [L2+]** The workflow MUST use `paths` filters (`**/*.md`) and `tj-actions/changed-files@v47` for incremental validation — only changed documentation files are validated.
+**[RULE: CI-CDW-59] [L2+]** The workflow MUST use `paths` filters (`**/*.md`) and `tj-actions/changed-files@v47` for incremental validation — only changed documentation files are validated.
 
-**[RULE: CI-CDW-58] [L2+]** On PR, a status comment MUST be posted or updated via `actions/github-script@v9` with marker `<!-- docs-validation-bot -->`. The comment lists failed files and provides fix instructions.
+**[RULE: CI-CDW-60] [L2+]** On PR, a status comment MUST be posted or updated via `actions/github-script@v9` with marker `<!-- docs-validation-bot -->`. The comment lists failed files and provides fix instructions.
 
 **`docs-validation.yml` template:**
 
@@ -714,7 +664,7 @@ jobs:
 
 Every workflow must prevent redundant runs and ensure Node compatibility for JavaScript-based actions.
 
-**[RULE: CI-CDW-59] [L1+]** Every workflow file MUST declare a `concurrency:` block with `cancel-in-progress: true` to prevent redundant CI runs on rapid pushes. The concurrency group MUST be scoped to the workflow and Git ref:
+**[RULE: CI-CDW-61] [L1+]** Every workflow file MUST declare a `concurrency:` block with `cancel-in-progress: true` to prevent redundant CI runs on rapid pushes. The concurrency group MUST be scoped to the workflow and Git ref:
 
 ```yaml
 concurrency:
@@ -729,7 +679,7 @@ concurrency:
   cancel-in-progress: true
 ```
 
-**[RULE: CI-CDW-60] [L1+]** Every workflow or job that uses JavaScript-based actions (all `actions/github-script`, `tj-actions/*`, `dorny/*`, `marocchino/*`) MUST set `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true` as an environment variable. This forces the GitHub Actions runner to use Node 24, avoiding compatibility issues with older Node versions bundled in the runner image.
+**[RULE: CI-CDW-62] [L1+]** Every workflow or job that uses JavaScript-based actions (all `actions/github-script`, `tj-actions/*`, `dorny/*`, `marocchino/*`) MUST set `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true` as an environment variable. This forces the GitHub Actions runner to use Node 24, avoiding compatibility issues with older Node versions bundled in the runner image.
 
 ```yaml
 env:
@@ -740,11 +690,11 @@ env:
 
 For .NET projects (`language: dotnet` in the configuration contract), the CI pipeline follows a different structure optimized for the .NET ecosystem.
 
-**[RULE: CI-CDW-61] [L2+]** For .NET projects, the `ci.yml` MUST include these sequential steps: restore, format check, build, test with coverage, and (on tag) pack.
+**[RULE: CI-CDW-63] [L2+]** For .NET projects, the `ci.yml` MUST include these sequential steps: restore, format check, build, test with coverage, and (on tag) pack.
 
-**[RULE: CI-CDW-62] [L2+]** Coverage MUST be collected via `dotnet test` with `--collect:"XPlat Code Coverage"` and reported via `dotnet-reportgenerator-globaltool`. A minimum coverage gate (`check_aggregate_coverage.py`) SHOULD enforce ≥75% line and ≥60% branch coverage.
+**[RULE: CI-CDW-64] [L2+]** Coverage MUST be collected via `dotnet test` with `--collect:"XPlat Code Coverage"` and reported via `dotnet-reportgenerator-globaltool`. A minimum coverage gate (`check_aggregate_coverage.py`) SHOULD enforce ≥75% line and ≥60% branch coverage.
 
-**[RULE: CI-CDW-63] [L2+]** NuGet packages MUST be cached via `actions/cache@v5` with a key based on `**/*.csproj` and `Directory.Packages.props` hashes:
+**[RULE: CI-CDW-65] [L2+]** NuGet packages MUST be cached via `actions/cache@v5` with a key based on `**/*.csproj` and `Directory.Packages.props` hashes:
 
 ```yaml
 - uses: actions/cache@v5
@@ -754,9 +704,9 @@ For .NET projects (`language: dotnet` in the configuration contract), the CI pip
     restore-keys: nuget-
 ```
 
-**[RULE: CI-CDW-64] [SHOULD]** Test results SHOULD be published to PR via `dorny/test-reporter@v3` with `reporter: dotnet-trx`.
+**[RULE: CI-CDW-66] [SHOULD]** Test results SHOULD be published to PR via `dorny/test-reporter@v3` with `reporter: dotnet-trx`.
 
-**[RULE: CI-CDW-65] [L2+]** On tag push (`v*`), the pipeline MUST pack NuGet packages and publish to GitHub Packages:
+**[RULE: CI-CDW-67] [L2+]** On tag push (`v*`), the pipeline MUST pack NuGet packages and publish to GitHub Packages:
 
 ```yaml
 - name: Pack Packages
@@ -775,9 +725,9 @@ For .NET projects (`language: dotnet` in the configuration contract), the CI pip
 
 CI workflows that communicate results back to the PR via comments MUST follow a consistent pattern to avoid comment spam.
 
-**[RULE: CI-CDW-66] [L2+]** Every CI bot that posts PR comments MUST use a hidden HTML marker (`<!-- bot-name -->`) as the first line of the comment body. This marker uniquely identifies the bot and enables the "update, don't duplicate" pattern.
+**[RULE: CI-CDW-68] [L2+]** Every CI bot that posts PR comments MUST use a hidden HTML marker (`<!-- bot-name -->`) as the first line of the comment body. This marker uniquely identifies the bot and enables the "update, don't duplicate" pattern.
 
-**[RULE: CI-CDW-67] [L2+]** Before posting a new comment, the bot MUST search for an existing comment with the same marker and update it. If no existing comment is found, a new comment is created. If the check passes, the bot SHOULD update the existing failure comment to indicate success rather than leaving stale failure messages.
+**[RULE: CI-CDW-69] [L2+]** Before posting a new comment, the bot MUST search for an existing comment with the same marker and update it. If no existing comment is found, a new comment is created. If the check passes, the bot SHOULD update the existing failure comment to indicate success rather than leaving stale failure messages.
 
 **Canonical implementation** (JavaScript, via `actions/github-script@v9`):
 
@@ -824,6 +774,16 @@ if (existing) {
 | `[L2+]` — CI SHOULD run ruff check, format, mypy, bandit | `lint` job runs all four tools |
 | `[L1+]` — Unit tests MUST run in CI on every commit | `test` job runs `pytest tests/unit/` |
 
+### Rule 22: Python Project Metadata Consistency
+
+**[RULE: CI-CDW-70] [L2+]** The `pyproject.toml` classifiers MUST include the Python version used in CI. When `python_version` is set to `"3.14"` in the configuration contract, classifiers SHALL include `"Programming Language :: Python :: 3.14"` and SHOULD include the two preceding stable versions (`3.13`, `3.12`). Outdated classifiers create confusion between the declared and actual runtime.
+
+**[RULE: CI-CDW-71] [L2+]** The `[tool.mypy]` section MUST include:
+- `python_version` set to the same value as the CI Python version (currently `"3.14"`)
+- `warn_unused_ignores = true` — stale `# type: ignore` comments are tech debt
+
+**[RULE: CI-CDW-72] [L2+]** The `python-version` in `ci.yml`, the `python_version` in `ci-cd-config.yaml`, `[tool.mypy].python_version`, `[tool.ruff].target-version`, and `pyproject.toml` classifiers MUST all agree on the same Python version. Version drift between these sources causes CI failures or false passes.
+
 ## INTERFACES
 
 - INPUT: GitHub repository with configuration contract (`.github/ci-cd-config.yaml` or `pyproject.toml [tool.ci-cd]`), source code, and test suite.
@@ -848,6 +808,8 @@ if (existing) {
 - CASE: Project has a non-standard Dockerfile path or target → EXPECTED: Use `dockerfile_target` parameter in configuration contract. Use `file:` parameter on `docker/build-push-action`.
 - CASE: Project is not an MCP server but has a REST API → EXPECTED: Set `is_mcp: false`. Use `health_port` for the health endpoint. Smoke test verifies health only.
 - CASE: Configuration contract is missing → EXPECTED: The project is treated as non-compliant. See SKILL.md migration workflow for how to add the config contract retroactively.
+- CASE: Semgrep `# nosemgrep` suppression in Dockerfiles → EXPECTED: In Dockerfiles, `# nosemgrep:` comments MUST be placed on a SEPARATE line BEFORE the directive they suppress. Inline `#` characters on Dockerfile directive lines (e.g., `USER root  # nosemgrep: ...`) are parsed as part of the directive argument, not as comments. This causes Docker build failures (`unable to find user`). Correct form: `# nosemgrep: rule-id` on a separate preceding line.
+- CASE: Direct push to main without a pull request → EXPECTED: The auto-tag workflow fires only on PR merge (`pull_request.closed + merged == true`). Direct pushes to main do NOT create a version tag. To publish after a direct push: (1) verify `pyproject.toml` version is correct, then (2) manually create and push the tag via `git tag -a vX.Y.Z -m "..." && git push origin vX.Y.Z`. The publish workflow will then create the release and Docker image from the tag push.
 
 ## EXAMPLES
 
@@ -916,8 +878,18 @@ See `templates/auto-tag.yml.j2` for the Jinja2 template.
 
 ## CHANGELOG
 
+### 1.0.1 (2026-05-21)
+- Fixed: Rule ID collision — Dependabot rules CI-CDW-52/53 overlapped with Semgrep rules CI-CDW-52/53. Renumbered Dependabot (52→54, 53→55, 54→56, 55→57), Docs (56→58, 57→59, 58→60), Concurrency (59→61, 60→62), .NET (61→63, 62→64, 63→65, 64→66, 65→67), PR Feedback (66→68, 67→69).
+- Added: `[CI-CDW-52]` (L1+) — `SEMGREP_BASELINE_REF` env var for diff-aware Semgrep scanning, upgraded from L3+ to L1+.
+- Added: `[CI-CDW-53]` (L2+) — `hashFiles('semgrep.sarif')` guard on SARIF upload to prevent spurious failures.
+- Added: `[CI-CDW-53a]` (SHOULD) — `.semgrep.yml` triage file for accepted unfixable findings.
+- Added: `[CI-CDW-70]`, `[CI-CDW-71]`, `[CI-CDW-72]` (Rule 22) — pyproject.toml classifier consistency, mypy configuration completeness, and cross-source Python version agreement.
+- Added: Edge cases for `# nosemgrep` in Dockerfiles (must be on separate line) and direct push to main without PR.
+- Updated: Semgrep templates — added `SEMGREP_BASELINE_REF` env, `hashFiles` guard, and fixed `SEMGREP_EXIT_CODE` → `SEMGREP_OUTCOME` variable naming.
+- Updated: Code Review Checklist in SKILL.md — all rule references updated to new numbering.
+
 ### 1.0.0 (2026-05-20)
 - Initial standard: Unicode CI pipeline (lint, test, docker-smoke), Docker publish, auto-tag, unified action versions, Semgrep security scanning, Dependabot dependency management, documentation validation (CAFDS), Codecov integration, .NET CI variant, PR feedback patterns, concurrency best practices.
 - Scope: Python + Docker (primary), .NET + NuGet (variant), polyglot projects.
-- Rules: `[CI-CDW-1]` through `[CI-CDW-67]` covering workflow files, action versions, Python version, CI structure (3 jobs), lint quality gates, test coverage, Docker smoke, publish (multi-arch + attestation), auto-tag, documentation validation, project config contract, customizations, source layout variants, Docker-less projects, service integration, standard versioning, non-MCP smoke, Semgrep scanning, Dependabot, docs validation, concurrency, .NET variant, PR feedback.
+- Rules: `[CI-CDW-1]` through `[CI-CDW-69]` covering workflow files, action versions, Python version, CI structure (3 jobs), lint quality gates, test coverage, Docker smoke, publish (multi-arch + attestation), auto-tag, documentation validation, project config contract, customizations, source layout variants, Docker-less projects, service integration, standard versioning, non-MCP smoke, Semgrep scanning, Dependabot, docs validation, concurrency, .NET variant, PR feedback.
 - Action versions pinned: checkout@v6, setup-python@v6, buildx@v4, login@v4, metadata@v6, build-push@v7, attest@v4, gh-release@v3, codecov@v6, upload-artifact@v4, semgrep-action@v1, upload-sarif@v4, cache@v5, setup-dotnet@v5, github-script@v9, changed-files@v47, test-reporter@v3.
