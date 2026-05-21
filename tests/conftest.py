@@ -10,13 +10,17 @@ SCRIPTS_DIR = REPO_ROOT / "skills" / "afds-doc-writer"
 sys.path.insert(0, str(SCRIPTS_DIR))
 
 from docs_validate import (
+    _extract_all_section_names,
     _make_check_registry,
     calculate_fitness_score,
+    check_balanced_fences,
+    check_mandatory_sections,
     load_config,
     load_markdown_file,
     validate_file,
 )
 from docs_validate import ValidationResult
+from copy import deepcopy
 
 
 @pytest.fixture(scope="session")
@@ -60,7 +64,7 @@ def standard_body(standard_fm_body):
 
 @pytest.fixture(scope="session")
 def template_path(repo_root):
-    return repo_root / "templates" / "docs-template.md"
+    return repo_root / "skills" / "afds-doc-writer" / "docs-template.md"
 
 
 @pytest.fixture(scope="session")
@@ -93,7 +97,7 @@ def template_result(template_path, config, check_registry):
 
 @pytest.fixture(scope="session")
 def mcp_path(repo_root):
-    return repo_root / "skills" / "mcp-server-architect" / "mcp_standards.md"
+    return repo_root / "skills" / "mcp-server-architect" / "mcp-server-standards.md"
 
 
 @pytest.fixture(scope="session")

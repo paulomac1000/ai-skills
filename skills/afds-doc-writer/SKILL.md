@@ -39,6 +39,11 @@ WRITE PROTOCOL:
 3. If new: generate unique doc_id, populate mandatory sections per type + tier.
 4. Set status: "draft". Set doc_kind and derived_from if non-atomic.
 5. Identify upstream references. Add to frontmatter.
+6. After section merge, remove duplicate sections (e.g., keep ALL_CAPS, delete mixed-case).
+
+CONFIG PLACEMENT:
+- The canonical `afds_config.yaml` lives in `.agents/skills/afds-doc-writer/`.
+- For agent discoverability, create a root-level symlink: `ln -s .agents/skills/afds-doc-writer/afds_config.yaml afds_config.yaml`
 
 UPDATE PROTOCOL:
 1. Read target document. Follow upstream only if RULES or INTERFACES changed.
@@ -80,7 +85,7 @@ Rigor tier defaults:
 
 <document_templates>
 
-Ready-to-copy structural template: `templates/docs-template.md`. Contains complete frontmatter YAML and body section headers for all 6 document types. Copy it, fill in placeholders, and remove unused sections.
+Ready-to-copy structural template: `docs-template.md`. Contains complete frontmatter YAML and body section headers for all 6 document types. Copy it, fill in placeholders, and remove unused sections.
 
 ### Template: workflow.* (Agent Procedure)
 ```yaml

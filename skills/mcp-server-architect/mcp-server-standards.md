@@ -12,8 +12,9 @@ tags: ["mcp", "server", "standards", "core", "testing", "security"]
 owners: ["backend-team"]
 upstream:
   - ref.documentation-standard
+  - ref.ci-cd-standard
 source_of_truth: true
-last_verified: 2026-05-08
+last_verified: 2026-05-17
 ---
 
 # MCP Server Core Standard
@@ -72,6 +73,26 @@ This document is the CORE.
 
 1. [L2+] The server SHOULD expose a health endpoint returning `{"status": "healthy"}` with tool count and version information. At L1 this is optional.
 2. [L2+] If a REST API is provided, it SHOULD expose: `GET /api/health`, `GET /api/tools`, `POST /api/tools/{tool_name}`. At L1, health-only is sufficient.
+2a. [L2+] The REST API SHOULD expose `GET /api/tools/{tool_name}/manifest` returning the tool's manifest entry from `TOOL_MANIFESTS`. This enables AI agents to inspect capability metadata without invoking the tool itself (see L3+ Exposure rule).
+2b. [L3+] The server SHOULD expose a capability-introspection MCP tool (naming convention: `describe_<domain>_capabilities`) that returns the full tool catalog with manifests, supported transports, and `schema_version`. The REST manifest endpoint (2a) is unreachable for agents connected over pure MCP/SSE; an MCP tool exposes the same metadata over the MCP transport itself. The introspection tool MUST be zero-I/O, `[READ]`, and `instant` latency. Reference: `openwrt-mcp` `describe_router_capabilities` at `src/openwrt_mcp/tools/registration.py`.
+2c. [L2+] `GET /api/tools` MUST return a JSON object with BOTH `total` and `tool_count` keys for backward compatibility. `GET /api/health` MUST include `tool_count` (not `total`). Implementations that use `total` alone (legacy) MUST add `tool_count` as an alias. This ensures CI smoke tests and AI agents can rely on a single key name across all MCP servers.
+
+```json
+{
+  "total": 24,
+  "tool_count": 24,
+  "tools": [...]
+}
+```
+
+```json
+{
+  "status": "healthy",
+  "tool_count": 24,
+  "tools_version": "1.2.0"
+}
+```
+
 3. [L2+] The server SHOULD expose MCP transport on a dedicated port. SSE and REST ports MUST be distinct when both are used.
 4. [L1+] All HTTP requests to external services MUST include a timeout parameter. The default timeout SHOULD be between 5 and 10 seconds.
 
@@ -151,13 +172,13 @@ Every MCP tool MUST communicate its operational profile to AI agents. This enabl
 
 Every tool description MUST include a risk prefix as the first text.
 
-| Prefix         | Meaning                                  |
-|----------------|------------------------------------------|
-| `[READ]`       | Read-only, no side effects               |
-| `[WRITE]`      | Modifies server state or files           |
-| `[DANGEROUS]`  | Executes arbitrary shell commands        |
-| `[DESTRUCTIVE]`| Kills processes or deletes data          |
-| `[SENSITIVE]`  | Returns credentials or tokens            |
+| Prefix         | Meaning                                  | When to use                                     | Examples                                    |
+|----------------|------------------------------------------|-------------------------------------------------|---------------------------------------------|
+| `[READ]`       | Read-only, no side effects               | Pure diagnostics, queries, data listings        | `get_status`, `list_items`, `ping_host`     |
+| `[WRITE]`      | Modifies state — designed as **reversible** or **idempotent** | Config changes, service restarts, value updates | `update_config`, `restart_service`, `set_setting` |
+| `[DESTRUCTIVE]`| Kills processes, deletes data, or causes service outage — designed as **irreversible** | Deleting files, factory reset, device reboot  | `delete_item`, `reboot_device`, `factory_reset` |
+| `[DANGEROUS]`  | Executes arbitrary shell commands        | Unrestricted command execution                  | `run_command`, `execute_script`             |
+| `[SENSITIVE]`  | Returns credentials, tokens, or personal data | Auth tokens, passwords, PII                  | `get_token`, `read_secret`, `list_wifi_passwords` |
 
 Rules:
 
@@ -168,12 +189,12 @@ Rules:
 
 #### Side Effects (L3+)
 
-| Class       | Meaning                                              |
-|-------------|------------------------------------------------------|
-| `none`      | Pure read; no state mutation on any system           |
-| `read`      | Reads from external systems (caches, network calls)  |
-| `write`     | Mutates persistent state (files, DB, config)         |
-| `destructive` | Destroys or permanently deletes data                |
+| Class       | Meaning                                              | Guidance                                      |
+|-------------|------------------------------------------------------|-----------------------------------------------|
+| `none`      | Pure read; no state mutation on any system           | Always `[READ]` tools                         |
+| `read`      | Reads from external systems (caches, network calls)  | Always `[READ]` tools                         |
+| `write`     | Mutates persistent state (files, DB, config)         | `[WRITE]` — **reversible** in normal operation   |
+| `destructive` | Destroys or permanently deletes data                | Always `[DESTRUCTIVE]` — designed as **irreversible** |
 
 #### Determinism Classes (L3+)
 
@@ -230,7 +251,10 @@ Rules:
   "requires_confirmation": true,
   "determinism": "env-dependent",
   "latency": "moderate",
-  "cost": "expensive"
+  "cost": "expensive",
+  "impact": "service_outage",
+  "privacy": "none",
+  "reversible": false
 }
 ```
 
@@ -246,10 +270,32 @@ Rules:
 | `retryable`              | bool    | L3+    | Whether a failed invocation can safely be retried         |
 | `concurrent_safe`        | bool    | L3+    | Whether multiple concurrent invocations are safe          |
 | `timeout_ms`             | int     | L3+    | Expected maximum execution time in milliseconds           |
-| `requires_confirmation`  | bool    | L3+    | Whether the agent SHOULD request user confirmation        |
+| `requires_confirmation`  | bool    | L3+    | Whether the agent SHOULD request user confirmation. This is an **agent-level** hint, distinct from a server-level enable flag (see Write Guard). The agent MUST request user confirmation when this is `true`, even if the server has otherwise authorized the operation. |
+| `impact`                 | string  | L3+    | none / transient / persistent / service_outage. Describes the operational impact of the tool on system availability. |
+| `privacy`                | string  | L3+    | none / metadata / personal. Describes whether the tool accesses personally identifiable or sensitive data. |
+| `reversible`             | bool    | L3+    | Whether the tool's effects can be reversed or undone at the application level. `true` for idempotent writes, `false` for destructive operations. |
 | `determinism`            | string  | L3+    | deterministic / probabilistic / env-dependent / eventually-consistent |
 | `latency`                | string  | L3+    | instant / fast / moderate / slow / long-running           |
 | `cost`                   | string  | L3+    | cheap / moderate / expensive                              |
+
+#### Risk Consistency Matrix
+
+[L3+] The manifest fields are not independent. `risk`, `side_effects`, `idempotent`, `retryable`, `reversible`, `requires_confirmation`, and `impact` MUST form a consistent profile. A compliance test SHOULD assert each registered tool against this matrix.
+
+| `risk`         | `side_effects`          | `idempotent` | `retryable` | `reversible` | `requires_confirmation` | `impact`                        |
+|----------------|-------------------------|--------------|-------------|--------------|-------------------------|---------------------------------|
+| `READ`         | `none` / `read`         | `true`       | `true`      | `true`       | `false`                 | `none`                          |
+| `WRITE`        | `write`                 | `true`       | `true`      | `true`       | `true`                  | `transient` / `persistent`      |
+| `DESTRUCTIVE`  | `destructive`           | `false`      | `false`     | `false`      | `true`                  | `persistent` / `service_outage` |
+| `DANGEROUS`    | `write` / `destructive` | `false`      | `false`     | `false`      | `true`                  | depends on command              |
+| `SENSITIVE`    | `none` / `read`         | `true`       | `true`      | `true`       | `true`                  | `none` (set `privacy` accordingly) |
+
+Rules:
+
+1. [L1+] `[DANGEROUS]` is reserved EXCLUSIVELY for tools that execute arbitrary, unbounded shell commands. A device reboot, service restart, or factory reset is NOT `[DANGEROUS]` — it is `[DESTRUCTIVE]`, because the command set is fixed and known.
+2. [L3+] A tool whose effect cannot be undone at the application level (reboot, reset, delete) MUST have `risk: DESTRUCTIVE`, `reversible: false`, `idempotent: false`, `retryable: false`. It MUST NOT be created with the WRITE manifest factory — use `_make_destructive_manifest()` (Canonical Template 5c).
+3. [L3+] `requires_confirmation` MUST be `true` for every non-`READ` tool.
+4. [L3+] A tool returning credentials, tokens, or PII MUST have `risk: SENSITIVE` and `privacy` set to `metadata` or `personal`.
 
 #### Exposure
 
@@ -365,6 +411,12 @@ The `"success"` boolean MUST be the first layer the agent checks. Its absence is
 - `UNSUPPORTED` — operation not available for this target
 - `DEPENDENCY_MISSING` — required optional dependency not installed
 - `INTERNAL_ERROR` — unexpected failure, retry may help
+- `HTTP_ERROR` — external HTTP endpoint returned a non-2xx status
+- `DEVICE_NOT_FOUND` — target device not found in discovery cache; suggest running a scan first
+- `VALIDATION_FAILED` — server-side schema validation against existing config failed
+- `RESOURCE_LOCKED` — optimistic locking failure (config_hash mismatch); re-read and retry
+- `RESOURCE_ALREADY_EXISTS` — attempted to create a resource that already exists
+- `RESOURCE_NOT_FOUND` — attempted to update or delete a resource that does not exist
 
 [L2+] `error.retryable` MUST be a boolean. `true` means the agent SHOULD retry with backoff. `false` means retry is pointless or dangerous.
 
@@ -433,6 +485,7 @@ MCP tools that manage multiple backend connections need a parameter to select th
 4. [L2+] Tools specific to one backend type SHOULD validate the client type with `isinstance()`.
 5. [L2+] Parameter descriptions in docstrings SHOULD state the default behavior when `server` is omitted.
 6. [L2+] Multi-server tools MUST NOT hardcode server-specific logic. Differentiation lives in the client class.
+7. [L2+] Timeout parameters MUST use `int = <DEFAULT_TIMEOUT>` (a concrete integer), never `int | None = None`. JSON Schema handles plain integer defaults correctly across all MCP framework versions, but `int | None` may be rejected depending on the framework's schema validation implementation, causing MCP SSE transport errors. Use the project's timeout constant (e.g., `SSH_TIMEOUT`) as the default value.
 
 ### Code Quality Stack
 
@@ -509,6 +562,21 @@ def _error_response_extended(code: str, message: str, retryable: bool,
     return json.dumps({"success": False, "error": error})
 ```
 
+[L2+] For internal function composition (before JSON serialization), provide a dict-returning variant:
+
+```python
+def _error_dict_extended(code: str, message: str, retryable: bool,
+                          suggestion: str | None = None,
+                          available_names: list[str] | None = None) -> dict:
+    """Return an error dict for internal function composition (before JSON serialization)."""
+    error = {"code": code, "message": message, "retryable": retryable}
+    if suggestion:
+        error["suggestion"] = suggestion
+    if available_names:
+        error["available_names"] = available_names[:50]
+    return {"success": False, "error": error}
+```
+
 ### Testing Standards
 
 **[RULE: TEST-REG-1] [L1+]** Each tool module MUST export one `register_<category>_tools(mcp)` function that registers all tools in that category.
@@ -552,7 +620,7 @@ markers =
 
 #### CI Pipeline
 
-**[RULE: TEST-CI-1] [L2+]** CI MUST run linting and format checking before tests.
+**[RULE: TEST-CI-1] [L2+]** CI MUST run linting and format checking before tests. Implementation is delegated to `ref.ci-cd-standard` — the CI/CD Architect standard defines the exact workflow structure, action versions, and quality gates.
 **[RULE: TEST-CI-2] [L2+]** CI MUST run unit tests.
 **[RULE: TEST-CI-3] [L2+]** CI MUST build a Docker image and verify tool count.
 **[RULE: TEST-CI-4] [L3+]** CI MUST run a Docker-based smoke test.
@@ -567,6 +635,24 @@ markers =
 4. [L2+] SSE transport SHOULD use a configurable port via `MCP_PORT`.
 5. [L2+] The SSE port and the REST API port MUST be distinct.
 6. [L2+] Health checks MUST be available without SSE transport initialization.
+
+#### Write Guard
+
+Write and destructive operations present a security risk: an agent could invoke them without user awareness. A two-layer defense is RECOMMENDED: a server-level enable flag and an agent-level confirmation hint.
+
+1. [L2+] Write/destructive tools MUST be gated behind an explicit server-level enable flag
+   (e.g., `ENABLE_WRITE_OPERATIONS` or equivalent), defaulting to `false`. When the flag is
+   `false`, the tool MUST return a structured error before any I/O. This is a **server-level
+   authorization check**, not a user-consent mechanism.
+2. [L3+] The enable flag check MUST run before any I/O operation. ValidationError
+   (or equivalent) MUST be raised if the flag is `false`.
+3. [L2+] The `requires_confirmation` manifest field is distinct from the enable flag:
+   - `ENABLE_WRITE_OPERATIONS=false`: tool returns error at the server level — agent never
+     gets to ask the user.
+   - `ENABLE_WRITE_OPERATIONS=true` + `requires_confirmation=false`: agent MAY call directly.
+   - `ENABLE_WRITE_OPERATIONS=true` + `requires_confirmation=true`: agent MUST request user
+     confirmation before calling.
+   Both layers MUST be implemented for defense in depth.
 
 #### Cancellation and Timeouts
 
@@ -618,6 +704,38 @@ def load_registry(registry_name, config_path):
 3. [L4] Enforce maximum file size and maximum directory depth.
 4. [L4] Detect binary files and return a controlled error.
 
+#### Command Execution Allowlist
+
+[L2+] MCP servers that execute shell commands on a backend (SSH, `subprocess`) MUST NOT build a command from agent input and pass it to a shell unchecked. Every command MUST be validated against an explicit allowlist before execution. This is the command-level analogue of Filesystem Access Control.
+
+1. [L2+] Define a regex allowlist of permitted commands. A command runs ONLY when it `re.fullmatch`-es an allowlist entry. Default-deny: anything unmatched is rejected. Substring/prefix matching is forbidden — `fullmatch` only.
+2. [L2+] Define a denylist of dangerous metacharacters (`;`, `|`, `&&`, `||`, `$(`, `` ` ``, `{`, `}`) and dangerous operations. The denylist MUST be checked BEFORE the allowlist — defense in depth, so an input crafted to slip a loose allowlist regex is still caught.
+3. [L2+] Read commands and write commands MUST use SEPARATE allowlists (`ALLOWED_PATTERNS` vs `ALLOWED_WRITE_PATTERNS`) and SEPARATE execution methods (`execute()` vs `execute_write()`). This structurally prevents a write command from being smuggled through the read path. The write method MUST be unreachable unless the server-level write guard (`ENABLE_WRITE_OPERATIONS`) is enabled.
+4. [L2+] Validation MUST return a controlled `(allowed: bool, message: str)` result, never raise into the transport. A rejected command MUST be logged at WARNING with the reason.
+5. [L3+] Unit tests MUST cover: an allowed read command passes; an allowed write command passes only via the write path; an unknown command is rejected; a metacharacter-injected command is rejected by the denylist before the allowlist is consulted.
+
+```python
+class SecurityValidator:
+    ALLOWED_PATTERNS = [r"^uci show$", r"^uci get [a-zA-Z0-9._@:\[\]-]+$", ...]
+    ALLOWED_WRITE_PATTERNS = [r"^uci commit [a-zA-Z0-9._-]+$", r"^ubus call system reboot$", ...]
+    DANGEROUS_METACHARACTERS = [";", "&&", "||", "|", "$(", "`", "{", "}"]
+
+    @classmethod
+    def validate_command(cls, command: str) -> tuple[bool, str]:
+        cmd = (command or "").strip()
+        if not cmd:
+            return False, "Empty command"
+        for ch in cls.DANGEROUS_METACHARACTERS:          # denylist FIRST
+            if ch in cmd:
+                return False, f"Blocked dangerous character: '{ch}'"
+        for pattern in cls.ALLOWED_PATTERNS:             # then allowlist
+            if re.fullmatch(pattern, cmd):
+                return True, "Command approved"
+        return False, f"Unsupported command: '{cmd[:50]}'"
+```
+
+Reference: `openwrt-mcp` `src/openwrt_mcp/validators.py` (`validate_command` / `validate_write_command`) and `tools/ssh_client.py` (`execute` / `execute_write`).
+
 #### Secret Management
 
 1. [L3+] CI/CD pipelines MUST inject credentials through sealed secrets or environment variables.
@@ -633,9 +751,12 @@ def load_registry(registry_name, config_path):
 3. [L3+] Response `_meta` envelope SHOULD include the `request_id`.
 4. [L4] Every tool invocation MUST produce an audit log entry.
 5. [L4] Write operations SHOULD produce additional audit detail.
-6. [L3+] The health endpoint SHOULD include per-tool invocation counts.
-7. [L4] Log output returned to AI agents MUST be sanitized.
+6. [L3+] The health endpoint SHOULD include per-tool invocation counts (see Canonical Template 4c).
+7. [L4] Log output returned to AI agents MUST be sanitized. Log sanitization protects log files only — the payload returned to the agent is a separate boundary, see Canonical Template 4b.
 8. [L1+] All log output MUST target stderr.
+9. [L3+] The `request_id` context MUST be stored in a `contextvars.ContextVar` (async servers) or `threading.local()` (sync-only servers), NEVER a module-level global variable. A module global is shared across all in-flight invocations: a concurrent call overwrites it and every subsequent log line is misattributed. `contextvars` is REQUIRED when tool handlers are `async` — `threading.local()` does not isolate concurrent asyncio tasks running on the same thread.
+10. [L3+] The `request_id` placed in the `_meta` envelope MUST be the SAME id written to that invocation's log lines. Generating a fresh UUID inside the `_meta` builder breaks log-to-response correlation — set the id once at tool entry, then read it in both the logger and `build_meta()`.
+11. [L4] Audit logging MUST be gated by an `ENABLE_AUDIT_LOGGING` flag (default `false`). The audit write MUST be wrapped in `try/except` and fail open — an unwritable audit file MUST NOT crash the tool.
 
 ```python
 import re
@@ -651,6 +772,40 @@ def sanitize_log_line(line: str) -> str:
     for pattern, replacement in _SENSITIVE_PATTERNS:
         line = re.sub(pattern, replacement, line, flags=re.IGNORECASE)
     return line
+```
+
+Request-id context — use `contextvars`, not a module global (Observability rule 9):
+
+```python
+import contextvars, uuid
+
+_request_id: contextvars.ContextVar[str] = contextvars.ContextVar("request_id", default="-")
+
+def set_request_id(value: str) -> None:
+    _request_id.set(value)
+
+def get_request_id() -> str:
+    return _request_id.get()
+
+def start_tool_context() -> str:
+    """Call at the start of every tool wrapper, before any I/O or logging."""
+    rid = str(uuid.uuid4())
+    _request_id.set(rid)
+    return rid
+```
+
+Audit log — gated, fail-open (Observability rule 11):
+
+```python
+def log_audit(actor: str, command: str) -> None:
+    if not ENABLE_AUDIT_LOGGING:
+        return
+    try:
+        from datetime import datetime
+        with open(AUDIT_LOG_FILE, "a", encoding="utf-8") as f:
+            f.write(f"{datetime.now().isoformat()} | {get_request_id()} | {actor} | {command}\n")
+    except Exception:
+        pass  # fail open — audit failure MUST NOT break the tool
 ```
 
 ### Python/FastMCP Implementation Notes
@@ -767,6 +922,10 @@ For maximum compatibility across MCP frameworks (including version upgrades):
 | **Blocking I/O in async context** | Event loop stalls, all tools slow down | Use `run_in_executor` or `to_thread` for blocking operations. |
 | **Resource leak on cancellation** | Temp files, connections accumulate after cancelled operations | Cleanup in `finally` blocks. Exception-safe. |
 | **Missing cancellation check** | Agent disconnects but tool keeps running for minutes | Check cancellation signal periodically in long operations. |
+| **`request_id` in a module global** | Concurrent invocations overwrite each other's id; log lines misattributed | Store `request_id` in `contextvars.ContextVar` (async) or `threading.local()` (sync). Observability rule 9. |
+| **Shell command built from agent input** | Crafted input reaches the shell — command injection | Validate against an explicit `fullmatch` allowlist; deny by default; separate read/write allowlists. See Command Execution Allowlist. |
+| **Destructive tool typed as `[WRITE]`** | Manifest says `retryable: true`; agent re-issues a reboot or skips confirmation | Use `_make_destructive_manifest()`. Verify against the Risk Consistency Matrix. |
+| **Secrets sanitized in logs but not in payload** | Credential read from a backend is returned to the agent in `data` | Sanitize the response payload at the `_success_response()` boundary. Canonical Template 4b. |
 
 ## EXAMPLES
 
@@ -815,6 +974,88 @@ for env_path in env_paths:
 
 [L1+] All tools MUST use helper functions. See RESPONSE_HELPERS above.
 
+#### Canonical Template 4a — Auto-Sanitizing Log Formatter
+
+[L3+] Log sanitization enforced at the logging infrastructure level is stronger than manual `sanitize_log_line()` calls — it cannot be bypassed by a developer forgetting to call it.
+
+Implementation — from tasmota-openbk-mcp `tools/constants.py:92-149`:
+
+```python
+class RequestIdFilter(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        record.request_id = getattr(_request_id_context, "value", "-")
+        return True
+
+class SanitizingFormatter(logging.Formatter):
+    def format(self, record: logging.LogRecord) -> str:
+        return sanitize_log_line(super().format(record))
+
+def setup_logging() -> None:
+    handler = logging.StreamHandler(sys.stderr)
+    handler.setFormatter(SanitizingFormatter(
+        "%(asctime)s [%(levelname)s] [%(request_id)s] %(name)s: %(message)s"
+    ))
+    handler.addFilter(RequestIdFilter())
+    logging.getLogger().addHandler(handler)
+    logging.getLogger().setLevel(getattr(logging, LOG_LEVEL.upper(), logging.INFO))
+```
+
+#### Canonical Template 4b — Response Payload Sanitization
+
+[L3+] `sanitize_log_line()` (Template 4a) protects log output only. The payload RETURNED to the agent is a separate trust boundary — a credential or IP read from a backend reaches the agent even when logging is clean. Apply recursive sanitization to the response `data` inside `_success_response()`.
+
+Implementation — from mikrus-mcp `src/mikrus_mcp/sanitizer.py` and `tools/response.py`:
+
+```python
+def sanitize_response_data(data: object) -> object:
+    """Recursively sanitize a response structure before returning it to the agent."""
+    if isinstance(data, str):
+        return sanitize_log_line(data)
+    if isinstance(data, dict):
+        return {k: sanitize_response_data(v) for k, v in data.items()}
+    if isinstance(data, list):
+        return [sanitize_response_data(item) for item in data]
+    return data
+
+def _success_response(data: Any, _meta: dict | None = None) -> str:
+    response: dict[str, Any] = {"success": True, "data": sanitize_response_data(data)}
+    if _meta is not None:
+        response["_meta"] = _meta
+    return json.dumps(response)
+```
+
+The sanitization MUST run at the wrapper boundary, not in each tool — a tool that forgets to call it is the failure mode this template eliminates.
+
+#### Canonical Template 4c — Per-Tool Invocation Counter and `build_meta`
+
+[L3+] The health endpoint exposes per-tool invocation counts (see Observability). The counter is shared mutable state and MUST be lock-protected. `build_meta()` centralizes `_meta` construction and records the invocation as a side effect.
+
+```python
+import threading, time
+from collections import defaultdict
+
+_invocation_counts: dict[str, int] = defaultdict(int)
+_counter_lock = threading.Lock()
+
+def record_invocation(tool_name: str) -> None:
+    with _counter_lock:
+        _invocation_counts[tool_name] += 1
+
+def get_invocation_counts() -> dict[str, int]:
+    with _counter_lock:
+        return dict(_invocation_counts)
+
+def build_meta(tool_name: str, start_time: float) -> dict:
+    record_invocation(tool_name)
+    return {
+        "request_id": get_request_id(),   # the SAME id set at tool entry — see Observability
+        "duration_ms": int((time.monotonic() - start_time) * 1000),
+        "tool_version": TOOLS_VERSION,
+    }
+```
+
+`build_meta()` MUST read the current `request_id` from the context (Observability rule 10), NOT generate a fresh UUID — a new UUID here would not match the id in the log lines for the same invocation.
+
 #### Canonical Template 5 — Multi-Client Lifespan Architecture
 
 [L2+] For MCP servers managing multiple backends, provide graceful degradation when some backends are unreachable.
@@ -847,6 +1088,93 @@ async def app_lifespan(server: FastMCP) -> AsyncIterator[dict]:
     for c in clients.values():
         await c.close()
 ```
+
+#### Canonical Template 5a — Dynamic Risk Prefix Injection from Manifest
+
+[L2+] Risk annotations (`[READ]`, `[WRITE]`, and others) MUST NOT be manually authored in docstrings when manifests exist. They MUST be dynamically injected from `TOOL_MANIFESTS`.
+
+Implementation — from openwrt-mcp `src/openwrt_mcp/tools/registration.py:73-104`:
+
+```python
+KNOWN_PREFIXES = frozenset({"[READ]", "[WRITE]", "[DANGEROUS]", "[DESTRUCTIVE]", "[SENSITIVE]"})
+
+def _inject_risk_prefixes(registered_tools: dict, manifest_map: dict) -> None:
+    for name, fn in registered_tools.items():
+        manifest = manifest_map.get(name, {})
+        risk = manifest.get("risk", "READ")
+        raw_fn = fn
+        for attr in ("fn", "func", "_func", "function"):
+            if hasattr(fn, attr):
+                inner = getattr(fn, attr)
+                if callable(inner):
+                    raw_fn = inner
+                    break
+        doc = (raw_fn.__doc__ or "").strip()
+        for prefix in KNOWN_PREFIXES:
+            if doc.startswith(prefix):
+                doc = doc[len(prefix):].lstrip()
+                break
+        new_doc = f"[{risk}] {doc}"
+        raw_fn.__doc__ = new_doc
+        if hasattr(fn, "description"):
+            fn.description = new_doc.split("\n")[0].rstrip(".")
+```
+
+#### Canonical Template 5b — Write Operations Enable Guard
+
+[L2+] Every write/destructive tool MUST call `check_write_enabled()` before any I/O.
+
+Implementation — from openwrt-mcp `src/openwrt_mcp/tools/writer.py:113-118`:
+
+```python
+def check_write_enabled() -> None:
+    if not ENABLE_WRITE_OPERATIONS:
+        raise ValidationError(
+            "Write operations are disabled. "
+            "Set ENABLE_WRITE_OPERATIONS=1 to enable."
+        )
+```
+
+#### Canonical Template 5c — Manifest Factory Functions
+
+[L2+] Factory functions create manifests with sensible defaults, reducing boilerplate and preventing field omissions.
+
+Implementation — from openwrt-mcp `src/openwrt_mcp/tools/registration.py:23-70`:
+
+```python
+def _make_manifest(name: str, timeout_ms: int = 15000, latency: str = "moderate") -> dict:
+    return {
+        "name": name, "version": TOOLS_VERSION, "risk": "READ",
+        "side_effects": "read", "idempotent": True, "retryable": True,
+        "concurrent_safe": False, "timeout_ms": timeout_ms,
+        "requires_confirmation": False, "determinism": "env-dependent",
+        "latency": latency, "cost": "cheap",
+        "impact": "none", "privacy": "none", "reversible": True,
+    }
+
+def _make_write_manifest(name: str, timeout_ms: int = 15000, latency: str = "moderate") -> dict:
+    return {
+        "name": name, "version": TOOLS_VERSION, "risk": "WRITE",
+        "side_effects": "write", "idempotent": True, "retryable": True,
+        "concurrent_safe": False, "timeout_ms": timeout_ms,
+        "requires_confirmation": True, "determinism": "env-dependent",
+        "latency": latency, "cost": "moderate",
+        "impact": "persistent", "privacy": "none", "reversible": True,
+    }
+
+def _make_destructive_manifest(name: str, timeout_ms: int = 30000, latency: str = "slow") -> dict:
+    """Manifest for irreversible operations: reboot, factory reset, delete."""
+    return {
+        "name": name, "version": TOOLS_VERSION, "risk": "DESTRUCTIVE",
+        "side_effects": "destructive", "idempotent": False, "retryable": False,
+        "concurrent_safe": False, "timeout_ms": timeout_ms,
+        "requires_confirmation": True, "determinism": "env-dependent",
+        "latency": latency, "cost": "expensive",
+        "impact": "service_outage", "privacy": "none", "reversible": False,
+    }
+```
+
+[L3+] Three factories are REQUIRED, one per non-`SENSITIVE` risk class. Picking the factory IS the criticality decision — there MUST NOT be a fourth ad-hoc path. A tool whose effect is irreversible (reboot, reset, delete) MUST use `_make_destructive_manifest()`. Using `_make_write_manifest()` for such a tool is a defect: it advertises `retryable: true` and `reversible: true`, so an agent may safely re-issue a reboot or skip confirmation. Each factory's output MUST satisfy the Risk Consistency Matrix; a compliance test SHOULD verify this.
 
 #### Canonical Template 6 — Centralized Input Validation
 
@@ -981,13 +1309,37 @@ if items:
 
 #### Canonical Template 12 — Response Format Compliance Test
 
-[L3+] A single compliance test verifies all registered tools return a `success` field.
+[L3+] A single compliance test verifies all registered tools return a `success` field. Run against the REST API at smoke-test time.
 
-1. Define `ALL_TOOLS` listing every registered tool name.
-2. Define `call_map` mapping each tool to its required arguments.
-3. Define `_REQUIRES_PARAMS` set for tools that cannot be called with zero arguments.
-4. For each tool not in the skip set, call it via the REST API or MCP wrapper.
-5. Assert `data.get("success") is not None` — the field must exist even on failure.
+Implementation — adapted from tasmota-openbk-mcp `tests/smoke/test_critical_tools.py:95-140`:
+
+```python
+class TestResponseFormat:
+    ALL_TOOLS = [
+        "tool_one",
+        "tool_two",
+    ]
+    _REQUIRES_PARAMS = frozenset({"tool_two"})
+
+    def _call_safe(self, tool_name, **kwargs):
+        try:
+            resp = requests.post(
+                f"{REST_API_URL}/api/tools/{tool_name}",
+                json={"params": kwargs}, timeout=10
+            )
+            return resp.json() if resp.ok else None
+        except Exception:
+            return None
+
+    def test_all_tools_return_success_field(self):
+        call_map = {
+            "tool_two": {"param1": "value1"},
+        }
+        for tool_name in self.ALL_TOOLS:
+            data = self._call_safe(tool_name, **call_map.get(tool_name, {}))
+            assert data is not None, f"{tool_name}: no response"
+            assert data.get("success") is not None, f"{tool_name}: missing success field"
+```
 
 #### Canonical Template 13 — MCP Context Mocking for Tool Handler Tests
 

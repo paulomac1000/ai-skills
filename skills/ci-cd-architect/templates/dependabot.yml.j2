@@ -1,0 +1,34 @@
+# .github/dependabot.yml — Automated Dependency Updates
+#
+# Template for ci-cd-architect standard v1.0.0, Rule 17.
+# Language-agnostic. Supports multiple package ecosystems.
+#
+# Substitution variables (from .github/ci-cd-config.yaml):
+#   {{ package_ecosystems }} — list of ecosystems, e.g. ["github-actions", "pip", "nuget"]
+#
+# Ecosystems are iterated in order. github-actions is always first (mandatory).
+# pip, nuget, docker, gomod, npm, etc. are added if present in package_ecosystems.
+
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+
+{% for ecosystem in package_ecosystems %}
+{% if ecosystem != "github-actions" %}
+  - package-ecosystem: "{{ ecosystem }}"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      {{ ecosystem }}:
+        patterns:
+          - "*"
+{% endif %}
+{% endfor %}

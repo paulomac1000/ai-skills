@@ -221,6 +221,25 @@ version: 1.0.0
 ---
 ```
 
+### Integration (`int.*`)
+
+```yaml
+---
+description: <one sentence, no period>
+doc_id: int.<name>
+type: integration
+status: active
+rigor_tier: L2
+ttl_days: 180
+stability: stable
+ai_scope: editable
+source_of_truth: true
+upstream: []
+last_verified: <YYYY-MM-DD>
+owners: ["<team-name>"]
+---
+```
+
 ---
 
 ## Frontmatter Quick Reference
@@ -231,7 +250,7 @@ version: 1.0.0
 | ----- | ---- | ------------ |
 | `description` | string | One sentence, no trailing period |
 | `doc_id` | string | `<type>.<name>` — lowercase, dots |
-| `type` | enum | `workflow` \| `ref` \| `system` \| `guide` \| `decision` \| `contract` |
+| `type` | enum | `workflow` \| `ref` \| `system` \| `guide` \| `decision` \| `contract` \| `integration` |
 | `status` | enum | `active` \| `draft` \| `deprecated` \| `evolving` \| `archived` |
 | `rigor_tier` | enum | `L0` \| `L1` \| `L2` \| `L3` |
 | `ttl_days` | integer | `0`–`365`; `0` for permanent or deprecated |

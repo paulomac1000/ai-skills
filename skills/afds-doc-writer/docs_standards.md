@@ -121,11 +121,11 @@ GUIDELINE: PREFER ATOMICITY, ACCEPT LOCALITY
   Prefer one file per independent concept.
   One section = one responsibility.
   One paragraph = one idea.
-  
+
   Composite documents are an equal citizen — aggregate when
   locality improves understanding. Splitting a file requires
   human approval. No document is auto-split.
-  
+
   For AI retrieval:
     - Retrieval boundaries prevent graph traversal explosions (see 9.2)
     - Context budgets enforce bounded reads (max 8 files per query)
@@ -157,12 +157,12 @@ AXIOM 6: EVOLUTIONARY INTEGRITY
 AXIOM 7: CANONICAL LANGUAGE
   Structural elements (frontmatter, section headers, field names, doc_id) MUST be in English.
   Body content SHOULD be in English. The English version is the canonical source of truth.
-  
+
   Translations are permitted as derived documents:
     - `doc_kind: translation`, `derived_from: <canonical doc_id>`
     - `source_of_truth: false` (enforced)
     - CI flags stale translations when canonical doc is updated
-  
+
   Multilingual projects MUST designate the English version as `source_of_truth: true`.
   Translated versions link to canonical via `derived_from`. Canonical lists translations
   in the `translations` array.
@@ -260,11 +260,11 @@ doc_id: ref.code-style  → CODE_STYLE.md     ❌
 doc_id: ref.code-style  → code_style.md     ❌
 ```
 
-Root-level project files (optional, not schema-enforced) MAY use `SCREAMING_SNAKE`:
+Root-level project files that are NOT AFDS documents (permanently excluded from validation):
 
 | File | Convention |
 |------|-----------|
-| `README.md` | Root-level overview |
+| `README.md` | **Human-first project overview.** Not an AFDS document — no frontmatter, no rigor tier, no AI-oriented sections. Written for humans discovering the project. Structure is free-form but SHOULD include: project name, badges (CI, Docker, Python, License), one-line description, requirements, quick start, available features/tools, configuration reference, development/testing instructions, and license. |
 | `AGENTS.md` | Agent command index |
 | `CHANGELOG.md` | Project changelog |
 
@@ -1147,7 +1147,10 @@ CI validation scales with rigor_tier. Only 6 checks block merges. L0 documents a
 | Check | L1 Action | L2 Action | L3 Action |
 |-------|-----------|-----------|-----------|
 | YAML valid + required fields | Warn | Block | Block |
+| Frontmatter present (even if minimal) | Warn | Block | Block |
 | Mandatory sections present (per tier) | Warn | Block | Block |
+| No duplicate section headings (case-normalized) | Warn | Warn | Block |
+| Sections match declared type schema | Info | Info | Warn |
 | Tier-independent banned words | Skipped | Warn | Block |
 | doc_id unique across repo | Block | Block | Block |
 | Upstream links resolve | Skipped | Block | Block |
@@ -1564,12 +1567,12 @@ events:
     doc_id: sys.auth
     user: alice@example.com
     source: search | link | direct
-  
+
   doc_search:
     query: "authentication flow"
     results_count: 5
     clicked: sys.auth
-  
+
   doc_feedback:
     doc_id: guide.onboarding
     rating: 1-5
