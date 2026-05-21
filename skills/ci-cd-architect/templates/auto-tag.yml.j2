@@ -1,0 +1,55 @@
+# auto-tag.yml — Automatic Version Tagging
+#
+# This template is part of the CI/CD Architect standard (ci-cd-standard.md v1.0.0).
+# It is designed to be processed by a Jinja2-compatible template engine.
+#
+# Substitution variables (from .github/ci-cd-config.yaml):
+#   {{ project }} — e.g. "my-project" (short project slug for bot name)
+
+name: Auto-tag on merge to main
+
+on:
+  pull_request:
+    branches: [main]
+    types: [closed]
+
+concurrency:
+  group: auto-tag-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  tag:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Extract version
+        id: version
+        run: |
+{% if version_source == "directory-build-props" %}
+          VERSION=$(grep '<Version>' Directory.Build.props | head -1 | sed 's/.*<Version>\(.*\)<\/Version>.*/\1/')
+{% else %}
+          VERSION=$(grep 'version = ' pyproject.toml | head -1 | sed 's/.*"\(.*\)"/\1/')
+{% endif %}
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Found version: $VERSION"
+
+      - name: Create and push tag
+        run: |
+          git config user.name "{{ project }}-bot"
+          git config user.email "bot@{{ project }}.local"
+          if git rev-parse "v${{ steps.version.outputs.version }}" >/dev/null 2>&1; then
+            echo "Tag v${{ steps.version.outputs.version }} already exists — skipping"
+            exit 0
+          fi
+          git tag "v${{ steps.version.outputs.version }}"
+          git push origin "v${{ steps.version.outputs.version }}"

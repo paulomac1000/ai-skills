@@ -1,4 +1,4 @@
-"""Tests for skills/mcp-server-architect/mcp_standards.md (ref.mcp-server-standards)."""
+"""Tests for skills/mcp-server-architect/mcp-server-standards.md (ref.mcp-server-standards)."""
 
 import re
 

@@ -1,0 +1,240 @@
+# CI/CD Configuration Contract — Example with all v3.0.0 fields
+#
+# This file is the Single Source of Truth for all CI/CD parameters.
+# Place it at: .github/ci-cd-config.yaml
+#
+# Workflow files (.github/workflows/*.yml) are GENERATED from this config
+# using the templates in the ci-cd-architect skill.
+# Do not manually edit workflow files after generation — update this file
+# and regenerate.
+
+# =============================================================================
+# EXAMPLE 1: Python MCP Server (all v3.0.0 features)
+# =============================================================================
+# language: "python"
+# src_dir: "tools/"
+# package: "tools"
+# project: "example-mcp"
+# python_version: "3.14"
+# image_name: "example-mcp:test"
+# smoke_name: "example-mcp-smoke"
+# health_port: 9091
+# rest_port: 9099
+# use_docker: true
+# is_mcp: true
+# expected_tools: 42
+# use_codecov: true
+# dockerfile_target: ""
+# use_semgrep: true
+# use_dependabot: true
+# package_ecosystems: ["github-actions", "pip"]
+# use_docs_validation: true
+# docs_paths: ["docs/", "*.md"]
+# docs_validation_script: "scripts/validate_docs.py"
+# services: null
+
+# =============================================================================
+# EXAMPLE 2: Non-MCP Python Web Service with Docker
+# =============================================================================
+# language: "python"
+# src_dir: "src/my_service/"
+# package: "my_service"
+# project: "my-service"
+# python_version: "3.14"
+# image_name: "my-service:test"
+# smoke_name: "my-service-smoke"
+# health_port: 8080
+# use_docker: true
+# is_mcp: false
+# use_codecov: true
+# dockerfile_target: "prod"
+# use_semgrep: true
+# use_dependabot: true
+# package_ecosystems: ["github-actions", "pip"]
+# use_docs_validation: false
+# services: null
+
+# =============================================================================
+# EXAMPLE 3: Python + MQTT Service Dependency
+# =============================================================================
+# language: "python"
+# src_dir: "tools/"
+# package: "tools"
+# project: "iot-mcp"
+# python_version: "3.14"
+# image_name: "iot-mcp:test"
+# smoke_name: "iot-mcp-smoke"
+# health_port: 9100
+# rest_port: 9102
+# use_docker: true
+# is_mcp: true
+# expected_tools: 14
+# use_codecov: true
+# dockerfile_target: ""
+# use_semgrep: true
+# use_dependabot: true
+# package_ecosystems: ["github-actions", "pip"]
+# use_docs_validation: false
+#
+# services:
+#   mosquitto:
+#     image: eclipse-mosquitto:latest
+#     ports:
+#       - "1883:1883"
+
+# =============================================================================
+# EXAMPLE 4: Python Dockerless Library
+# =============================================================================
+# language: "python"
+# src_dir: "src/my_lib/"
+# package: "my_lib"
+# project: "my-lib"
+# python_version: "3.14"
+# use_docker: false
+# is_mcp: false
+# use_codecov: true
+# use_semgrep: true
+# use_dependabot: true
+# package_ecosystems: ["github-actions", "pip"]
+# use_docs_validation: false
+#
+# # Not needed for dockerless:
+# # image_name, smoke_name, health_port, rest_port, expected_tools, dockerfile_target, services
+
+# =============================================================================
+# EXAMPLE 5: .NET Library
+# =============================================================================
+# language: "dotnet"
+# src_dir: "src/"
+# package: "MyApp"
+# project: "my-dotnet-app"
+# dotnet_version: "8.0.x"
+# dotnet_solution: "src/MyApp.sln"
+# use_docker: false
+# is_mcp: false
+# use_codecov: false
+# use_semgrep: true
+# use_dependabot: true
+# package_ecosystems: ["github-actions", "nuget"]
+# use_docs_validation: true
+# docs_paths: ["docs/", "*.md"]
+# docs_validation_script: "scripts/validate_docs.py"
+
+# =============================================================================
+# EXAMPLE 6: Polyglot Project (Python + .NET + Docker)
+# =============================================================================
+# language: "polyglot"
+# src_dir: "src/"
+# package: "polyglot_app"
+# project: "polyglot-project"
+# python_version: "3.14"
+# dotnet_version: "8.0.x"
+# dotnet_solution: "src/Polyglot.sln"
+# image_name: "polyglot-project:test"
+# smoke_name: "polyglot-smoke"
+# health_port: 8080
+# use_docker: true
+# is_mcp: false
+# use_codecov: false
+# use_semgrep: true
+# use_dependabot: true
+# package_ecosystems: ["github-actions", "pip", "nuget"]
+# use_docs_validation: true
+# docs_paths: ["docs/", "*.md"]
+# docs_validation_script: "scripts/validate_docs.py"
+# services: null
+
+# =============================================================================
+# CONFIGURATION FIELDS REFERENCE (v3.0.0)
+# =============================================================================
+#
+# REQUIRED FIELDS:
+#
+# language         (required)  Primary project language.
+#                              Values: "python", "dotnet", "polyglot"
+#                              Determines which CI template variant is used.
+#
+# src_dir          (required)  Source code directory for linting/scanning.
+#                              Must end with "/".
+#                              Examples: "src/my_package/", "tools/"
+#
+# package          (required)  Package/module name for --cov (Python) or
+#                              assembly prefix (.NET).
+#                              Examples: "my_package", "tools", "MyApp"
+#
+# project          (required)  Short project slug. Used for Docker tags and
+#                              auto-tag bot name. Hyphenated, lowercase.
+#                              Examples: "my-project", "example-mcp"
+#
+# ---
+# PYTHON FIELDS:
+#
+# python_version   (optional)  Python version for setup-python. Default: "3.14"
+#
+# image_name       (optional)  Docker image name for local smoke testing.
+#                              Default: "<project>:test"
+#
+# smoke_name       (optional)  Docker container name for smoke test.
+#                              Default: "<project>-smoke"
+#
+# health_port      (optional)  Port for health endpoint verification.
+#                              Required when use_docker=true.
+#
+# rest_port        (optional)  REST API port for MCP tool count verification.
+#                              Required when is_mcp=true.
+#
+# use_docker       (optional)  Whether to run docker-smoke job. Default: true.
+#                              When false, docker-smoke is replaced by a
+#                              smoke job that runs pytest tests/smoke/ directly.
+#
+# is_mcp           (optional)  Whether the project is an MCP server.
+#                              When true, includes tool count assertion.
+#                              Default: false.
+#
+# expected_tools   (optional)  Exact number of MCP tools registered.
+#                              Required when is_mcp=true.
+#
+# use_codecov      (optional)  Whether to upload coverage to Codecov.
+#                              Requires CODECOV_TOKEN secret.
+#                              Default: true for public repos.
+#
+# dockerfile_target (optional) Dockerfile build stage target.
+#                              For multi-stage Dockerfiles.
+#
+# services         (optional)  External services for integration tests.
+#                              Map of service name → {image, ports}.
+#
+# ---
+# .NET FIELDS:
+#
+# dotnet_version   (optional)  .NET SDK version. Default: "8.0.x"
+#                              Examples: "8.0.x", "9.0.x"
+#
+# dotnet_solution  (optional)  Path to .sln file. Required for dotnet CI.
+#                              Example: "src/MyApp.sln"
+#
+# ---
+# UNIVERSAL FIELDS (v3.0.0):
+#
+# use_semgrep      (optional)  Run Semgrep security scan on PR + push.
+#                              Creates semgrep.yml + semgrep-scheduled.yml.
+#                              Default: true.
+#
+# use_dependabot   (optional)  Generate .github/dependabot.yml.
+#                              Default: true.
+#
+# package_ecosystems (optional) Package ecosystems for Dependabot.
+#                              Default: ["github-actions", "pip"]
+#                              Add "nuget" for .NET, "docker" for Docker,
+#                              "gomod" for Go, "npm" for Node.js.
+#
+# use_docs_validation (optional) Validate documentation in CI.
+#                              Creates docs-validation.yml.
+#                              Default: false (auto-enabled when docs/ exists).
+#
+# docs_paths       (optional)  Paths to scan for documentation validation.
+#                              Default: ["docs/", "*.md"]
+#
+# docs_validation_script (optional) Path to validation script.
+#                              Example: "scripts/validate_docs.py"
+#                              If empty, docs validation step is skipped.

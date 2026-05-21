@@ -5,7 +5,7 @@ type: decision
 status: accepted
 rigor_tier: L3
 ttl_days: 0
-version: 1.0.0
+version: 1.1.0
 stability: stable
 ai_scope: review_only
 source_of_truth: true
@@ -157,6 +157,56 @@ Projects MAY remain at Phase 0 or Phase 1 permanently. Higher phases are optimiz
 - **Security and Access Control (Section 18):** Access tiers (Public/Internal/Confidential/Restricted), frontmatter fields for access control, agent access rules per tier.
 - **Metrics and Observability (Section 19):** Key metrics dashboard queries, alerting rules, user analytics events.
 
+### 10. Validation Checks — Three Additions (2026-05-13)
+
+**Problem:** The validator had two blind spots discovered during a large-scale documentation cleanup on a 33-file project:
+
+1. Files without any YAML frontmatter (no `---`) returned an empty dict `{}`, which is falsy in Python. All subsequent checks skipped those files entirely — they passed validation silently without a single warning. This meant files could lack `description`, `doc_id`, or any AFDS structure and the validator would report them as healthy.
+
+2. After automated migration from a previous standard, ~10 files developed duplicate section headings with identical content under different casing (e.g., `## Architecture` + `## ARCHITECTURE`, `## Edge Cases` + `## EDGE_CASES`). The difference was invisible to the validator because each section had valid content.
+
+3. Sections that did not match the declared type schema (e.g., `## Timeline` in a `ref.*` document) went completely unremarked, even when they indicated structural drift.
+
+**Decision:** Add three new checks with escalating severity:
+
+| Check | L1 Action | L2 Action | L3 Action |
+|-------|-----------|-----------|-----------|
+| Frontmatter present (even if minimal) | Warn | Block | Block |
+| No duplicate section headings (case-normalized) | Warn | Warn | Block |
+| Sections match declared type schema | Info | Info | Warn |
+
+- **frontmatter_minimal** (error, all tiers): detects files that lack YAML frontmatter entirely. Previously these files passed every other check silently because all check functions returned early on falsy frontmatter. This is an error because a file without frontmatter cannot participate in any AFDS governance (no type, no doc_id, no description).
+
+- **duplicate_sections** (warning): normalizes each section heading to ALL_CAPS + underscores, then checks for duplicates with different original casing. Only warns — merging duplicate content requires human judgment about which version has the canonical content. Does not block because some duplicate section names may be intentional (e.g., a reference to another section).
+
+- **unknown_sections** (info/warn): counts sections not in the type schema and reports a single summary line rather than listing all unknown names. Deliberately non-blocking at L1-L2 because most documents have rich body sections (Overview, Architecture, Troubleshooting) that are valid narrative content outside the AFDS schema footer. At L3, raises to Warn to flag structural drift.
+
+**Rationale:**
+- Frontmatter detection closes the largest silent-acceptance gap in the validator
+- Duplicate detection prevents content fragmentation that degrades AI retrieval quality (two sections with the same name == two possible answers)
+- Unknown-section count is deliberately light-touch to avoid false positives from legitimate body sections — the AFDS footer is a contract layer, not the entire document structure
+- The checks follow the existing tier-dependent model: L1 warns, L2 blocks critical issues, L3 blocks everything
+
+**Alternatives considered:**
+- Auto-merge duplicate sections in CI: rejected — content distribution is non-deterministic; requires human judgment
+- Make unknown-sections an error: rejected — many documents have long body sections that are not part of the type schema; this would create noise and discourage adoption
+- Make unknown-sections list every name: rejected — on a typical 100-section document this produces a wall of warnings; a single count line is actionable without drowning the output
+
+### 11. Integration Type — Expanded Schema (2026-05-13)
+
+**Problem:** The project-defined `int.*` type in `afds_config.yaml` had 6 required sections (PURPOSE, SCOPE, SETUP, CONFIGURATION, DEBUG_TRIGGERS, TESTING), but the project glossary defined it as requiring 10 sections (PURPOSE, SCOPE, ARCHITECTURE, CONFIGURATION, ENTITIES_CREATED, INTERFACES, TESTING, TROUBLESHOOTING, SECURITY_NOTES, CHANGELOG). The config was the source of truth for the validator, while the glossary was the source of truth for authors — they contradicted each other.
+
+**Decision:** Update the config to match the glossary in a single change, not gradual migration. The new section set:
+
+PURPOSE, SCOPE, ARCHITECTURE, CONFIGURATION, ENTITIES_CREATED, INTERFACES, TESTING, TROUBLESHOOTING, SECURITY_NOTES, CHANGELOG
+
+**Rationale:** The glossary is the authoritative definition of project-specific types per AFDS §2.3 ("Projects MAY define additional document types"). The config must follow the glossary, not the other way around. A single jump avoids extended drift where both sources differ.
+
+**Alternatives considered:**
+- Update glossary to match config: rejected — the glossary definition was more complete and covered all sections present in actual documents
+- Gradual migration (add 1 section per release): rejected — unnecessary overhead for a config file change; causes confusing CI failures during the transition period
+- Keep both sources diverging with a baseline exemption: rejected — baseline exemptions should be temporary; permanent divergence defeats SSOT
+
 ## ALTERNATIVES_CONSIDERED
 
 The alternative considered for each sub-decision is documented within the category above. Across all categories, the consistent rejection pattern was:
@@ -194,9 +244,11 @@ The alternative considered for each sub-decision is documented within the catego
 
 - `proposed: 2026-05-08` — Consolidated from all audit cycles and implementation sessions
 - `accepted: 2026-05-08` — Approved after full validation of docs_standards.md against AFDS rules
+- `amended: 2026-05-13` — Added sections 10 (Three New Validation Checks) and 11 (Integration Type Schema) based on findings from a 33-file documentation audit
 
 ## CHANGELOG
 
 | Version | Date | Change | Author |
 |---------|------|--------|--------|
 | 1.0.0 | 2026-05-08 | Initial ADR consolidating all architecture decisions for AFDS docs_standards.md | opencode |
+| 1.1.0 | 2026-05-13 | Added §10 (validation checks — frontmatter_minimal, duplicate_sections, unknown_sections) and §11 (integration type expanded to 10 sections) | opencode |

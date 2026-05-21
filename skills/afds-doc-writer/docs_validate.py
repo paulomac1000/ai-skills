@@ -24,7 +24,7 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import datetime, date
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 import yaml
 
@@ -201,7 +201,7 @@ def load_markdown_file(file_path: Path) -> tuple[Optional[dict], str]:
             return None, "Invalid frontmatter: missing closing ---"
 
         frontmatter_str = content[3:end_match.start() + 3]
-        body = content[end_match.end() + 4:]
+        body = content[3 + end_match.end():]
 
         try:
             frontmatter = yaml.safe_load(frontmatter_str)
@@ -229,7 +229,10 @@ def _extract_all_section_names(body: str) -> list[str]:
     """Extract all ## section names from body, preserving order."""
     body_cleaned = _blank_code_blocks(body)
     pattern = re.compile(r"^## (.+)$", re.MULTILINE)
-    return [m.group(1).strip().upper() for m in pattern.finditer(body_cleaned)]
+    return [
+        m.group(1).strip().upper().replace(" ", "_")
+        for m in pattern.finditer(body_cleaned)
+    ]
 
 
 def _clean_prose(text: str) -> str:
@@ -238,6 +241,7 @@ def _clean_prose(text: str) -> str:
     prose = re.sub(r"\|[^|\n]+\|[^|\n]+\|", "", prose)
     prose = re.sub(r"^- `?\w+`?:", "", prose, flags=re.MULTILINE)
     prose = re.sub(r"`[^`]+`", "", prose)
+    prose = re.sub(r"/etc\b", "path_etc", prose)  # Prevent /etc from matching banned "etc"
     prose = re.sub(r"\b(SHOULD|MUST|MAY|ALWAYS|NEVER)\b", "", prose, flags=re.IGNORECASE)
     return prose
 
@@ -266,14 +270,29 @@ def is_exempt_file(file_path: Path, config: dict) -> bool:
 def check_frontmatter_present(
     result: ValidationResult, frontmatter: Optional[dict], body: str, file_path: Path, config: dict
 ) -> None:
+    if is_exempt_file(file_path, config):
+        return
     if frontmatter is None:
         result.errors.append("Missing or invalid YAML frontmatter")
+        result.passed = False
+
+
+def check_frontmatter_minimal(
+    result: ValidationResult, frontmatter: Optional[dict], body: str, file_path: Path, config: dict
+) -> None:
+    """Warn when file has no frontmatter at all (empty dict)."""
+    if is_exempt_file(file_path, config):
+        return
+    if frontmatter is not None and not frontmatter:
+        result.errors.append("No YAML frontmatter detected — add AFDS frontmatter for full validation")
         result.passed = False
 
 
 def check_description_exists(
     result: ValidationResult, frontmatter: Optional[dict], body: str, file_path: Path, config: dict
 ) -> None:
+    if is_exempt_file(file_path, config):
+        return
     if not frontmatter:
         return
     if "description" not in frontmatter:
@@ -290,6 +309,8 @@ def check_description_exists(
 def check_doc_id_format(
     result: ValidationResult, frontmatter: Optional[dict], body: str, file_path: Path, config: dict
 ) -> None:
+    if is_exempt_file(file_path, config):
+        return
     if not frontmatter or "doc_id" not in frontmatter:
         return
 
@@ -465,6 +486,9 @@ def check_mandatory_sections(
     doc_type = frontmatter.get("type")
     if not doc_type:
         return
+    rigor_tier = frontmatter.get("rigor_tier", "L1")
+    if rigor_tier == "L0":
+        return  # L0 documents are free-form
     type_config = config["types"].get(doc_type)
     if not type_config:
         return
@@ -472,10 +496,13 @@ def check_mandatory_sections(
     if not required:
         return
     present_sections = _extract_all_section_names(body)
+    present_ordered = [s for s in present_sections if s in required]
     missing = [sec for sec in required if sec not in present_sections]
     if missing:
         result.errors.append(
-            f"Missing mandatory sections for type '{doc_type}': {', '.join(missing)}"
+            f"Missing mandatory sections for type '{doc_type}': "
+            f"expected {required}, found {present_ordered}, "
+            f"missing {missing}"
         )
         result.passed = False
 
@@ -520,10 +547,75 @@ def check_section_order(
             return
 
 
+def check_duplicate_sections(
+    result: ValidationResult, frontmatter: Optional[dict], body: str, file_path: Path, config: dict
+) -> None:
+    """Detect sections with identical normalized names but different casing."""
+    if not frontmatter:
+        return
+    sections = re.findall(r"^## (.+)$", body, re.MULTILINE)
+    norm = [s.strip().upper().replace(" ", "_") for s in sections]
+    seen: dict = {}
+    for normalized, original in zip(norm, sections):
+        orig_stripped = original.strip()
+        if normalized in seen:
+            prev = seen[normalized]
+            if prev.lower() != orig_stripped.lower() or normalized != prev.upper().replace(" ", "_"):
+                result.warnings.append(
+                    f"Duplicate section heading '{normalized}': "
+                    f"appears as '## {prev}' and '## {orig_stripped}' — "
+                    f"consolidate into a single ALL_CAPS section"
+                )
+                return
+        else:
+            seen[normalized] = orig_stripped
+
+
+def check_unknown_sections(
+    result: ValidationResult, frontmatter: Optional[dict], body: str, file_path: Path, config: dict
+) -> None:
+    """Flag sections that do not match the declared type's schema.
+    Tier-dependent:
+      L1 — silent (body sections are expected additional content)
+      L2 — single summary line (count only)
+      L3 — list unknown section names
+    """
+    if not frontmatter:
+        return
+    rigor_tier = frontmatter.get("rigor_tier", "L1")
+    if rigor_tier == "L1":
+        return
+    if is_exempt_file(file_path, config):
+        return
+    doc_type = frontmatter.get("type")
+    if not doc_type:
+        return
+    type_config = config["types"].get(doc_type)
+    if not type_config:
+        return
+    allowed = set(type_config.get("sections", []))
+    if not allowed:
+        return
+    # CHANGELOG is a universal trailing section (Section 3.7) allowed in any type
+    allowed.add("CHANGELOG")
+    present = _extract_all_section_names(body)
+    unknown = [s for s in present if s not in allowed]
+    if not unknown:
+        return
+    if rigor_tier == "L3":
+        result.warnings.append(
+            f"Non-standard sections for type '{doc_type}': "
+            f"{', '.join(unknown)}"
+        )
+    else:
+        result.warnings.append(
+            f"{len(unknown)} section(s) do not match the type '{doc_type}' schema"
+        )
+
+
 def check_no_banned_words(
     result: ValidationResult, frontmatter: Optional[dict], body: str, file_path: Path, config: dict
 ) -> None:
-    normative = set(config["normative_sections"])
     non_normative = set(config["non_normative_sections"])
 
     body_for_split = _blank_code_blocks(body)
@@ -594,6 +686,8 @@ def check_project_terminology(
 def check_source_of_truth_valid(
     result: ValidationResult, frontmatter: Optional[dict], body: str, file_path: Path, config: dict
 ) -> None:
+    if is_exempt_file(file_path, config):
+        return
     if not frontmatter or "source_of_truth" not in frontmatter:
         return
     value = frontmatter["source_of_truth"]
@@ -681,11 +775,11 @@ def check_future_dates(
                 pass
     future_pattern = re.compile(r"20[2-9]\d-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])")
     for match in future_pattern.finditer(body):
-        dt = match.group()
+        dt_str = match.group()
         try:
-            dt_date = datetime.strptime(dt, "%Y-%m-%d").date()
+            dt_date = datetime.strptime(dt_str, "%Y-%m-%d").date()
             if dt_date > today:
-                result.warnings.append(f"Future date in body: {dt}")
+                result.warnings.append(f"Future date in body: {dt_str}")
                 break
         except ValueError:
             pass
@@ -807,6 +901,17 @@ def check_rigor_tier_valid(
         result.passed = False
 
 
+def check_balanced_fences(
+    result: ValidationResult, frontmatter: Optional[dict], body: str, file_path: Path, config: dict
+) -> None:
+    fences = re.findall(r"```", body)
+    if len(fences) % 2 != 0:
+        result.warnings.append(
+            f"Unbalanced code fences ({len(fences)} ``` markers) — "
+            "section parsing may be unreliable; fix stray ``` in document"
+        )
+
+
 # ---------------------------------------------------------------------------
 # Fitness calculation
 # ---------------------------------------------------------------------------
@@ -879,10 +984,11 @@ def apply_baseline(
 # Check registry
 # ---------------------------------------------------------------------------
 
-def _make_check_registry(config: dict) -> list[tuple[str, str, callable]]:
+def _make_check_registry(config: dict) -> list[tuple[str, str, Callable]]:
     """Build the check registry using the given config."""
     return [
         ("frontmatter_present", "error", check_frontmatter_present),
+        ("frontmatter_minimal", "error", check_frontmatter_minimal),
         ("description_exists", "error", check_description_exists),
         ("doc_id_format", "error", check_doc_id_format),
         ("type_valid", "error", check_type_valid),
@@ -898,6 +1004,8 @@ def _make_check_registry(config: dict) -> list[tuple[str, str, callable]]:
         ("workflow_has_timeout", "error", check_workflow_has_timeout),
         ("mandatory_sections", "error", check_mandatory_sections),
         ("section_order", "error", check_section_order),
+        ("duplicate_sections", "warning", check_duplicate_sections),
+        ("unknown_sections", "warning", check_unknown_sections),
         ("no_banned_words", "error", check_no_banned_words),
         ("source_of_truth_valid", "error", check_source_of_truth_valid),
         ("doc_kind_consistency", "error", check_doc_kind_consistency),

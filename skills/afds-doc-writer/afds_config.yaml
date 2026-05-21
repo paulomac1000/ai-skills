@@ -51,6 +51,20 @@ types:
       - WALKTHROUGH
       - PITFALLS
       - RELATED_DOCS
+  integration:
+    id_prefix: int
+    default_ttl: 180
+    sections:
+      - PURPOSE
+      - SCOPE
+      - ARCHITECTURE
+      - CONFIGURATION
+      - ENTITIES_CREATED
+      - INTERFACES
+      - TESTING
+      - TROUBLESHOOTING
+      - SECURITY_NOTES
+      - CHANGELOG
   decision:
     id_prefix: decision
     default_ttl: 0
@@ -127,6 +141,7 @@ allowed_fields:
   - language
   - canonical
   - version
+  - standard_version
 
 forbidden_fields:
   - downstream
@@ -151,7 +166,7 @@ root_files: {}
 
 default_paths:
   - docs/
-  - docs/decisions/
+  - .agents/workflows/
 
 excluded_dirs:
   - archived
@@ -159,6 +174,8 @@ excluded_dirs:
 
 exempt_files:
   - README.md
+  - docs_standards.md
+  - docs-template.md
 
 normative_sections:
   - RULES

@@ -1,0 +1,57 @@
+# semgrep-scheduled.yml — Daily Full Security Scan
+#
+# Template for ci-cd-architect standard v1.0.0, Rule 16, Rule CI-CDW-50.
+# Scheduled daily scan + manual trigger. Same rules as PR scan but full repository.
+# Catches issues introduced by newly published Semgrep rules without requiring a PR.
+
+name: Semgrep Full Scan (Scheduled)
+
+on:
+  schedule:
+    - cron: "0 3 * * *"  # Daily at 03:00 UTC
+  workflow_dispatch:
+
+concurrency:
+  group: semgrep-full
+  cancel-in-progress: true
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  semgrep-full:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Semgrep Full Scan
+        id: semgrep
+        uses: semgrep/semgrep-action@v1
+        env:
+          SEMGREP_RULES: p/auto p/secrets p/owasp-top-ten
+        with:
+          config: >-
+            p/auto
+            p/secrets
+            p/owasp-top-ten
+          publishToken: ${{ secrets.SEMGREP_APP_TOKEN || '' }}
+
+      - name: Upload SARIF to GitHub Security
+        id: upload-sarif
+        if: always()
+        continue-on-error: true
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: semgrep.sarif
+          category: semgrep-full
+
+      - name: Warn if SARIF upload failed
+        if: always() && steps.upload-sarif.outcome == 'failure'
+        run: echo "::warning::SARIF upload failed — check codeql-action reference or permissions"

@@ -5,7 +5,7 @@ type: decision
 status: accepted
 rigor_tier: L3
 ttl_days: 0
-version: 1.0.0
+version: 1.2.0
 stability: stable
 ai_scope: review_only
 source_of_truth: true
@@ -13,9 +13,10 @@ tags: ["adr", "mcp", "standards", "architecture"]
 upstream:
   - ref.documentation-standard
   - ref.mcp-server-standards
+  - ref.ci-cd-standard
 supersedes: null
 superseded_by: null
-last_verified: 2026-05-08
+last_verified: 2026-05-20
 owners: ["backend-team"]
 verification_status:
   - human_reviewed
@@ -101,7 +102,7 @@ The MCP Server Core Standard (ref.mcp-server-standards) documents canonical temp
 
 **Decision:** Merge testing content as `### Testing Standards` under RULES with four sub-sections: Registration Functions, Test Hierarchy, Skip Patterns, Coverage Requirements, CI Pipeline. The existing examples from testing are merged as Canonical Templates 8-17 under EXAMPLES. Testing rules use `**[RULE: TEST-*]**` semantic anchor format — each rule has a unique ID (e.g., `[RULE: TEST-SKIP-1]`) enabling CI logs to reference specific rules. Coverage policy mandates ≥80% line coverage; 100% reachable path coverage is explicitly prohibited as an anti-pattern.
 
-**Rationale:** Testing is a first-class concern of MCP server development, not an optional companion topic. MCP tools are consumed by AI agents — incorrect responses are not just bugs but operating errors. Coverage targets and CI rules define the expected quality bar.
+**Rationale:** Testing is a first-class concern of MCP server development, not an optional companion topic. MCP tools are consumed by AI agents — incorrect responses are not only bugs but operating errors. Coverage targets and CI rules define the expected quality bar.
 
 ### 6. Security Integration
 
@@ -175,9 +176,70 @@ The MCP Server Core Standard (ref.mcp-server-standards) documents canonical temp
 
 - `proposed: 2026-05-08` — Consolidated from MCP standard audit, restructuring, and merge sessions
 - `accepted: 2026-05-08` — Approved after full validation of merged mcp_standards.md against AFDS rules
+- `updated: 2026-05-12` — v1.1.0: Write Guard, manifest fields, risk table expansion (see CHANGELOG)
+
+### 10. Write Guard — Server-Level Enable Flag (v1.1.0)
+
+**Problem:** The standard had no rule requiring write or destructive tools to be gated behind a server-level enable flag. Implementations could expose write tools that execute without any authorization check. The existing `requires_confirmation` manifest field was an agent-level hint (asking the AI to confirm), but there was no server-level mechanism to prevent execution entirely.
+
+**Decision:** Add a new `Write Guard` subsection under `Security and Operational Safety` with three rules:
+1. [L2+] Write/destructive tools MUST be gated behind an explicit server-level enable flag (e.g., `ENABLE_WRITE_OPERATIONS`), defaulting to `false`. When `false`, the tool MUST return a structured error before any I/O.
+2. [L3+] The enable flag check MUST run before any I/O operation, raising `ValidationError` (or equivalent) when disabled.
+3. [L2+] Distinguish between the enable flag (server authorization) and `requires_confirmation` (agent consent hint). Both are required for defense in depth.
+
+**Rationale:** The enable flag is a server-level authorization check — the admin decides whether write tools can execute at all. `requires_confirmation` is an agent-level consent hint — the AI agent asks the user. They are complementary layers:
+- `ENABLE_WRITE_OPERATIONS=false`: server returns error — agent never asks.
+- `ENABLE_WRITE_OPERATIONS=true` + `requires_confirmation=false`: agent MAY call directly.
+- `ENABLE_WRITE_OPERATIONS=true` + `requires_confirmation=true`: agent MUST request user confirmation.
+
+This pattern was validated in the openwrt-mcp project where `check_write_enabled()` runs before any SSH execution, returning a structured `INVALID_PARAM` error when write operations are disabled.
+
+### 11. Manifest Schema — 3 New Optional Fields (v1.1.0)
+
+**Problem:** The 12-field manifest schema lacked metadata for operational impact (`impact`), data privacy sensitivity (`privacy`), and effect reversibility (`reversible`). AI agents evaluating whether to call a write tool had no machine-readable way to assess the consequence.
+
+**Decision:** Add three new optional L3+ fields to the manifest schema:
+- `impact: "none" | "transient" | "persistent" | "service_outage"` — describes operational impact on system availability
+- `privacy: "none" | "metadata" | "personal"` — describes whether tool accesses personally identifiable or sensitive data
+- `reversible: bool` — whether tool's effects can be reversed or undone at the application level
+
+**Rationale:** KISS principle — no new risk prefixes, only extended capability descriptors. These fields are optional and backward-compatible (agents ignore unknown fields per L1+ rule).
+
+### 12. Risk Table Expansion — When-to-Use and Examples (v1.1.0)
+
+**Problem:** The risk prefix table had only a single-column meaning description. Authors choosing between `[WRITE]` and `[DESTRUCTIVE]` for borderline tools (e.g., `reboot_device`) had no guidance. AI agents parsing the table had no example tool names to anchor against.
+
+**Decision:** Expand the risk prefix table with two new columns: `When to use` (guidance for authors) and `Examples` (concrete tool name patterns). `[DESTRUCTIVE]` reordered before `[DANGEROUS]` for severity progression: READ → WRITE → DESTRUCTIVE → DANGEROUS → SENSITIVE.
+
+**Rationale:** Examples reduce classification errors. Explicit ordering prevents ambiguity about which risk is higher.
+
+### 13. CI/CD Delegation to ci-cd-architect (v1.2.0)
+
+**Problem:** The MCP standard defines CI requirements (`[TEST-CI-1]` through `[TEST-CI-4]`) — linting before tests, unit tests in CI, Docker build with tool count verification, Docker smoke test. However, it does not define *how* these requirements are implemented in GitHub Actions. Each MCP server project independently implemented its own CI/CD pipeline with divergent action versions, job structures, and trigger chains. Three of four projects were missing `auto-tag.yml`; one used `docker-publish.yml` instead of `publish.yml`; one had a hardcoded Docker version tag; action versions ranged from `checkout@v4` to `checkout@v6` across projects.
+
+**Decision:** The MCP standard delegates CI/CD implementation to `ref.ci-cd-standard`. The MCP standard retains the WHAT — test hierarchy requirements, coverage targets, smoke test expectations. The CI/CD standard defines the HOW — workflow file structure, action versions, job ordering, Docker publish triggers, auto-tag mechanism, and now Semgrep security scanning, Dependabot dependency management, and PR feedback patterns.
+
+The `upstream` field in `ci-cd-standard.md` references `ref.mcp-server-standards`. The CI/CD standard's Rule 15 (`[CI-CDW-34]`) explicitly maps each `[TEST-CI-N]` requirement to its CI/CD implementation. The relationship is documented in `SKILL.md` under "Integration with Other Standards".
+
+**Rationale:** Separation of concerns — MCP defines server design (tool contracts, testing, security); CI/CD defines pipeline automation (workflows, Docker, releases). Mixing them would bloat both standards and create confusing maintenance boundaries. The CI/CD standard serves all Python + Docker projects, not only MCP servers; MCP-specific smoke test behavior is controlled by the `is_mcp` flag in the project configuration contract, not by the MCP standard itself.
+
+**Alternatives considered:**
+- Embed CI/CD rules in MCP standard: rejected — creates coupling; every CI/CD change (action version bump, new security scanner) would require updating the MCP standard
+- No standard at all, per-project CI freedom: rejected — was the status quo; produced the divergence that motivated the CI/CD standard
+- MCP standard references CI/CD standard as a SHOULD: rejected — projects adopted it as L1+ mandatory; a SHOULD would not have driven the unification
+
+### 14. Frontmatter Rename — mcp_standards.md to mcp-server-standards.md (v1.2.0)
+
+**Problem:** The filename `mcp_standards.md` was ambiguous — it could refer to the MCP protocol specification, an MCP client standard, or the MCP server standard. The `doc_id` field in frontmatter was `ref.mcp-server-standards`, creating a mismatch between the file path and the doc_id.
+
+**Decision:** Rename the file from `mcp_standards.md` to `mcp-server-standards.md` to match the `doc_id` (`ref.mcp-server-standards`). Update the skill file (`skill.md`) to reference the new name. Update `ci-cd-standard.md` upstream reference to use `ref.mcp-server-standards`.
+
+**Rationale:** Filename-doc_id alignment is a discoverability concern — AI agents and humans should find a document at the path implied by its doc_id. The `ref.mcp-server-standards` doc_id implies `mcp-server-standards.md`. The rename closes this gap.
 
 ## CHANGELOG
 
 | Version | Date | Change | Author |
 |---------|------|--------|--------|
 | 1.0.0 | 2026-05-08 | Initial ADR documenting all architecture decisions for the MCP server standard | opencode |
+| 1.1.0 | 2026-05-12 | Added Write Guard rules (decisions 10-12), manifest fields expansion, risk table column additions, requires_confirmation clarification | opencode |
+| 1.2.0 | 2026-05-20 | Added §13 (CI/CD delegation to ci-cd-architect) and §14 (frontmatter rename mcp_standards.md → mcp-server-standards.md) | opencode |
