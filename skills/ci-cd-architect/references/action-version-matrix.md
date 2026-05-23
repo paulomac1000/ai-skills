@@ -43,7 +43,7 @@ Updating commit SHAs requires a new standard version.
 | `actions/upload-artifact` | `v7` | Upload build artifacts |
 | `actions/download-artifact` | `v8` | Download artifacts between jobs |
 | `actions/cache` | `v5` | Cache dependencies (NuGet, pip) |
-| `semgrep/semgrep` | `v1` | Security scanning (official Semgrep Supply Chain) |
+| `semgrep/semgrep-action` | `v1` | Security scanning (archived Apr 2024, still functional) |
 | `github/codeql-action/upload-sarif` | `v4` | Upload SARIF to Security tab |
 | `actions/setup-dotnet` | `v5` | Set up .NET SDK |
 | `actions/github-script` | `v9` | Post/update PR comments |

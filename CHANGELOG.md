@@ -7,8 +7,8 @@
 Major update driven by deployment feedback from 5 projects (4 MCP servers + hand-codec .NET).
 
 **BREAKING changes:**
-- Replaced `semgrep/semgrep-action@v1` with `semgrep/semgrep@v1` (upstream repo archived Apr 2024)
 - All action references now follow full commit SHA format (`owner/repo@<sha>  # vX`)
+- **NOTE:** `semgrep/semgrep-action@v1` remains the canonical action — `semgrep/semgrep` does NOT exist as a GitHub Action (migration attempted via hybrid-therapist, reverted). Archived repo still resolves tags.
 
 **Action version bumps:**
 - `actions/upload-artifact` v4 → v7
@@ -41,6 +41,16 @@ Major update driven by deployment feedback from 5 projects (4 MCP servers + hand
 
 **Skill:**
 - Added YAML frontmatter (`name`, `description`, `standard_version`) to SKILL.md
+
+### hybrid-therapist deployment patches (merged into v2.0.0)
+
+- **semgrep revert:** `semgrep/semgrep` does not exist — kept `semgrep/semgrep-action@v1` (archived but functional)
+- **auto-tag.j2:** `gh workflow run` uses filename (`publish.yml`) not display name → CI-CDW-76c
+- **auto-tag.j2:** Job condition supports `workflow_dispatch` standalone → CI-CDW-76d
+- **auto-tag.j2:** SKIP_TAG env var pattern replaces `exit 0` — enables conditional downstream trigger skip
+- **docs-validation:** `--strict` must be configurable, should default to off → CI-CDW-77
+- **AFDS:** `CHANGELOG.md` MUST be exempt from validation → CI-CDW-78
+- **Rule 23:** Dependabot auto-pinning guidance added (tags auto-converted to SHAs)
 
 ## 2026-05-21
 
