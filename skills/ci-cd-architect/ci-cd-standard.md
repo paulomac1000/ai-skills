@@ -285,6 +285,16 @@ jobs:
 
 **[RULE: CI-CDW-76b] [SHOULD]** The `auto-tag.yml` workflow SHOULD include `workflow_dispatch` trigger to allow manual tag creation from the GitHub Actions UI.
 
+**[RULE: CI-CDW-76c] [L2+]** The `gh workflow run` target MUST use the workflow filename (e.g., `publish.yml`) rather than the workflow display name (e.g., `"Create and publish a Docker image"`). Filenames are immutable references in version control; display names can change independently and would silently break the auto-tag→publish chain.
+
+**[RULE: CI-CDW-76d] [L2+]** The `auto-tag.yml` job condition MUST include `github.event_name == 'workflow_dispatch'` as an alternative entry point. When triggered manually via `workflow_dispatch`, there is no `github.event.pull_request` object — `github.event.pull_request.merged == true` evaluates to `false` and the job is silently skipped. Full condition: `github.event_name == 'workflow_dispatch' || github.event.pull_request.merged == true`.
+
+### Rule 6a: Documentation Validation Tuning (`CI-CDW-77`, `CI-CDW-78`)
+
+**[RULE: CI-CDW-77] [L2+]** The `--strict` flag on documentation validation MUST be configurable per-project (via `ci-cd-config.yaml` or workflow variable) and SHOULD default to off in CI. Warnings such as duplicate section headers or unknown sections in L2-tier validation are advisory and should not fail CI. Strict mode is for projects that want zero-tolerance enforcement.
+
+**[RULE: CI-CDW-78] [L1+]** `CHANGELOG.md` MUST be listed in `afds_config.yaml exempt_files`. Changelogs are version-history documents, not AFDS-compliant structured documents. AFDS §2.2 explicitly lists `CHANGELOG.md` as a root-level non-AFDS file. Without this exemption, AFDS validation fails on CHANGELOG.md because it lacks YAML frontmatter. Projects using the standard SHOULD also exempt `README.md` (already documented in AFDS spec).
+
 ### Rule 7: Documentation Validation (AFDS)
 
 **[RULE: CI-CDW-29] [L2+]** Every project that contains documentation files with YAML frontmatter (excluding `README.md`) MUST validate them against the AFDS standard in CI.
@@ -899,14 +909,17 @@ See `templates/auto-tag.yml.j2` for the Jinja2 template.
 
 ## CHANGELOG
 
-### v2.0.0 (2026-05-23) — Security hardening + version bumps
+### v2.0.0 (2026-05-23) — Security hardening + version bumps + deployment patches
 
-- **BREAKING:** Replaced `semgrep/semgrep-action@v1` with `semgrep/semgrep@v1` (upstream repo archived Apr 2024)
+- **NOTE:** `semgrep/semgrep-action@v1` remains the canonical action. The upstream repo is archived (Apr 2024) but still resolves tags and executes correctly. The `semgrep/semgrep` repository does NOT exist as a GitHub Action — migration was attempted and reverted based on hybrid-therapist deployment.
 - **BREAKING:** All action references now use full commit SHA format (`owner/repo@<sha>  # vX`)
 - Bumped `actions/upload-artifact` from v4 → v7
 - Bumped `actions/download-artifact` from v4 → v8
 - Updated .NET SDK from 8.0.x → 10.0.x
 - Added rules CI-CDW-73, CI-CDW-74, CI-CDW-75 (commit SHA pinning)
+- Added rules CI-CDW-76,76a,76b,76c,76d: auto-tag→publish chain with gh workflow run (filename-based via publish.yml, workflow_dispatch standalone trigger, SKIP_TAG env var pattern)
+- Added rule CI-CDW-77: `--strict` flag on docs-validation MUST be configurable, SHOULD default to off (warnings are advisory, should not fail CI)
+- Added rule CI-CDW-78: `CHANGELOG.md` MUST be in `afds_config.yaml exempt_files` — changelogs are non-AFDS files per AFDS §2.2
 - Added rule requiring `docker` in `package_ecosystems` when `use_docker: true`
 - Added rule requiring `[tool.mypy].python_version` consistency with CI python_version
 - Fixed `SEMGREP_BASELINE_REF` and `publishToken` in deployed semgrep workflows

@@ -37,7 +37,7 @@ jobs:
 
       - name: Semgrep Scan
         id: semgrep
-        uses: semgrep/semgrep@v1
+        uses: semgrep/semgrep-action@v1
         env:
           SEMGREP_RULES: p/auto p/secrets p/owasp-top-ten
         with:
