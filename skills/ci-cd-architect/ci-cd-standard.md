@@ -15,7 +15,7 @@ upstream:
 source_of_truth: true
 last_verified: "2026-05-21"
 doc_kind: atomic
-standard_version: "1.0.1"
+standard_version: "2.0.0"
 ---
 
 # CI/CD Standard — Unified Pipelines for Python, .NET, and Polyglot Projects
@@ -80,7 +80,7 @@ All compliant CI/CD workflows MUST use the same pinned versions of GitHub Action
 | `actions/attest` | `v4` | Generate artifact attestation |
 | `softprops/action-gh-release` | `v3` | Create GitHub Release |
 | `codecov/codecov-action` | `v6` | Upload coverage to Codecov |
-| `actions/upload-artifact` | `v4` | Upload build artifacts |
+| `actions/upload-artifact` | `v7` | Upload build artifacts |
 
 **[RULE: CI-CDW-3] [L1+]** All workflow files MUST use the exact action versions listed above. Upgrading an action version requires updating this standard first, then propagating to all projects. For the full version history and upgrade policy, see `references/action-version-matrix.md`.
 
@@ -279,6 +279,12 @@ jobs:
 
 **[RULE: CI-CDW-28] [L1+]** The bot name MUST follow the pattern `<project-name>-bot` with email `bot@<project-name>.local`. The `<PROJECT>` placeholder is substituted from the project's configuration contract.
 
+**[RULE: CI-CDW-76] [L2+]** The `auto-tag.yml` workflow MUST include a `gh workflow run` step after tag creation to trigger the downstream publish workflow. GitHub's default `GITHUB_TOKEN` does not trigger workflow events (push, repository_dispatch) — a `git push` of a tag from a workflow WILL NOT trigger `publish.yml`'s `push: tags: ["v*"]` trigger. Using `gh workflow run` (which calls the GitHub API directly) bypasses this restriction. This step MUST NOT fail the auto-tag workflow if the publish workflow does not exist (non-Docker projects, .NET projects with inline pack-publish).
+
+**[RULE: CI-CDW-76a] [L2+]** The `auto-tag.yml` workflow MUST include `actions: write` permission for the `gh workflow run` step.
+
+**[RULE: CI-CDW-76b] [SHOULD]** The `auto-tag.yml` workflow SHOULD include `workflow_dispatch` trigger to allow manual tag creation from the GitHub Actions UI.
+
 ### Rule 7: Documentation Validation (AFDS)
 
 **[RULE: CI-CDW-29] [L2+]** Every project that contains documentation files with YAML frontmatter (excluding `README.md`) MUST validate them against the AFDS standard in CI.
@@ -327,7 +333,7 @@ The configuration contract defines these parameters:
 | `use_docs_validation` | No | Whether to validate documentation in CI (default: `false`, auto-enabled when `docs/` exists) | `true` / `false` |
 | `docs_paths` | No | Paths to scan for documentation validation | `["docs/", "*.md"]` |
 | `docs_validation_script` | No | Path to the documentation validation script | `scripts/validate_docs.py` |
-| `dotnet_version` | No | .NET SDK version (required when `language: dotnet`) | `"8.0.x"` |
+| `dotnet_version` | No | .NET SDK version (required when `language: dotnet`) | `"10.0.x"` |
 | `dotnet_solution` | No | Path to .NET solution file (required when `language: dotnet`) | `src/MyApp.sln` |
 | `version_source` | No | Source for auto-tag version extraction: `"pyproject"` (default) or `"directory-build-props"` (.NET) | `"pyproject"` |
 
@@ -342,7 +348,7 @@ The configuration contract defines these parameters:
 - Adding integration test execution in the `test` job (after unit tests)
 - Adding a manifest verification step in `docker-smoke` (for MCP projects)
 - Adding `--cov-fail-under=80` to pytest
-- Adding a bandit report upload as an artifact (using `actions/upload-artifact@v4`)
+- Adding a bandit report upload as an artifact (using `actions/upload-artifact@v7`)
 - Adding extra lint steps (e.g., `vulture` for dead code detection) after bandit
 - Adding platform-specific test steps (e.g., `pip install nmap` for network scan tests)
 - Adding a multi-stage Dockerfile target (`dockerfile_target` parameter)
@@ -491,7 +497,7 @@ Every project MUST include automated security scanning via Semgrep. This is a la
 
 **[RULE: CI-CDW-52] [L1+]** The `semgrep.yml` workflow MUST include `SEMGREP_BASELINE_REF: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || '' }}` in its `env` block so that Semgrep CI reports only NEW findings on PRs (diff-aware mode). On push to main, the variable evaluates to an empty string and Semgrep performs a full scan of the entire codebase. This prevents green PRs from being silently rejected by a red main-branch scan due to pre-existing findings.
 
-**[RULE: CI-CDW-53] [L2+]** The SARIF upload step in both `semgrep.yml` and `semgrep-scheduled.yml` MUST be guarded with `if: always() && hashFiles('semgrep.sarif') != ''` to prevent spurious failures when `semgrep-action@v1` does not produce a SARIF output file.
+**[RULE: CI-CDW-53] [L2+]** The SARIF upload step in both `semgrep.yml` and `semgrep-scheduled.yml` MUST be guarded with `if: always() && hashFiles('semgrep.sarif') != ''` to prevent spurious failures when `semgrep/semgrep@v1` does not produce a SARIF output file.
 
 **[RULE: CI-CDW-53a] [SHOULD]** Projects SHOULD include a `.semgrep.yml` project-level triage config at the repository root to document accepted findings that are not fixable (e.g., HTTP-only IoT devices on a local LAN, root-required Docker containers). Each entry requires a `rule_id`, `paths`, and `reason`. Without a triage file, unfixable findings MUST be triaged in the GitHub Security tab after each push-to-main scan.
 
@@ -530,7 +536,7 @@ jobs:
 
       - name: Semgrep Scan
         id: semgrep
-        uses: semgrep/semgrep-action@v1
+        uses: semgrep/semgrep@v1
         env:
           SEMGREP_RULES: p/auto p/secrets p/owasp-top-ten
         with:
@@ -784,6 +790,21 @@ if (existing) {
 
 **[RULE: CI-CDW-72] [L2+]** The `python-version` in `ci.yml`, the `python_version` in `ci-cd-config.yaml`, `[tool.mypy].python_version`, `[tool.ruff].target-version`, and `pyproject.toml` classifiers MUST all agree on the same Python version. Version drift between these sources causes CI failures or false passes.
 
+### Rule 23: Full Commit SHA Pinning (`CI-CDW-73`, `CI-CDW-74`, `CI-CDW-75`)
+
+**[RULE: CI-CDW-73] [L1+]** All GitHub Action references in workflow files MUST use the full immutable commit SHA, not a mutable version tag. Example: `uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v6`
+
+**[RULE: CI-CDW-74] [L1+]** The version tag MUST be appended as a YAML comment after the commit SHA for human readability. Mismatched SHA/comment pairs are a CI-CDW-74 violation.
+
+**[RULE: CI-CDW-75] [L2+]** When updating an action version, both the SHA and the comment MUST be updated together. Dependabot can auto-update SHAs when configured with `github-actions` ecosystem and `enable: true` for version updates.
+
+**Rationale:** Version tags like `@v6` are mutable references. An attacker who compromises an action repository can push malicious code to a version tag. Commit SHAs are cryptographically immutable. The trailing comment preserves human readability for code review.
+
+**How to resolve SHAs:**
+```bash
+git ls-remote https://github.com/<owner>/<repo>.git refs/tags/v<major> | awk '{print $1}'
+```
+
 ## INTERFACES
 
 - INPUT: GitHub repository with configuration contract (`.github/ci-cd-config.yaml` or `pyproject.toml [tool.ci-cd]`), source code, and test suite.
@@ -877,6 +898,20 @@ See `templates/auto-tag.yml.j2` for the Jinja2 template.
 - It does not prescribe a specific tool for generating workflow files from templates (Jinja2 is a suggestion; any template engine works).
 
 ## CHANGELOG
+
+### v2.0.0 (2026-05-23) — Security hardening + version bumps
+
+- **BREAKING:** Replaced `semgrep/semgrep-action@v1` with `semgrep/semgrep@v1` (upstream repo archived Apr 2024)
+- **BREAKING:** All action references now use full commit SHA format (`owner/repo@<sha>  # vX`)
+- Bumped `actions/upload-artifact` from v4 → v7
+- Bumped `actions/download-artifact` from v4 → v8
+- Updated .NET SDK from 8.0.x → 10.0.x
+- Added rules CI-CDW-73, CI-CDW-74, CI-CDW-75 (commit SHA pinning)
+- Added rule requiring `docker` in `package_ecosystems` when `use_docker: true`
+- Added rule requiring `[tool.mypy].python_version` consistency with CI python_version
+- Fixed `SEMGREP_BASELINE_REF` and `publishToken` in deployed semgrep workflows
+- Fixed `hashFiles` guard on SARIF upload in semgrep-scheduled workflows
+- Added YAML frontmatter to SKILL.md with name, description, standard_version
 
 ### 1.0.1 (2026-05-21)
 - Fixed: Rule ID collision — Dependabot rules CI-CDW-52/53 overlapped with Semgrep rules CI-CDW-52/53. Renumbered Dependabot (52→54, 53→55, 54→56, 55→57), Docs (56→58, 57→59, 58→60), Concurrency (59→61, 60→62), .NET (61→63, 62→64, 63→65, 64→66, 65→67), PR Feedback (66→68, 67→69).

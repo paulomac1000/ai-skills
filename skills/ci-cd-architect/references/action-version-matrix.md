@@ -1,6 +1,6 @@
 # Action Version Matrix
 
-> **Standard Version:** 1.0.0
+> **Standard Version:** 2.0.0
 > **Reference:** `ref.ci-cd-standard` Rule 2 and Rule 13
 
 This document tracks the history of GitHub Action versions used across CI/CD standard versions. It is the authoritative reference for which action versions belong to which standard version.
@@ -12,7 +12,22 @@ This document tracks the history of GitHub Action versions used across CI/CD sta
 3. Backward-incompatible action changes MUST be documented in the migration guide in SKILL.md.
 4. Minor/patch action upgrades within the same standard version are NOT allowed.
 
-## Current Versions (Standard v1.0.0)
+## Security: Full Commit SHA Pinning
+
+All workflows MUST pin GitHub Actions to their full immutable commit SHA, with the version tag as a trailing comment. Example:
+
+```yaml
+- uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v6
+```
+
+To obtain the commit SHA for any action version:
+```bash
+git ls-remote https://github.com/<owner>/<repo>.git refs/tags/<version> | awk '{print $1}'
+```
+
+Updating commit SHAs requires a new standard version.
+
+## Current Versions (Standard v2.0.0)
 
 | Action | Version | Purpose |
 |--------|---------|---------|
@@ -25,10 +40,10 @@ This document tracks the history of GitHub Action versions used across CI/CD sta
 | `actions/attest` | `v4` | Generate artifact attestation |
 | `softprops/action-gh-release` | `v3` | Create GitHub Release |
 | `codecov/codecov-action` | `v6` | Upload coverage to Codecov |
-| `actions/upload-artifact` | `v4` | Upload build artifacts |
-| `actions/download-artifact` | `v4` | Download artifacts between jobs |
+| `actions/upload-artifact` | `v7` | Upload build artifacts |
+| `actions/download-artifact` | `v8` | Download artifacts between jobs |
 | `actions/cache` | `v5` | Cache dependencies (NuGet, pip) |
-| `semgrep/semgrep-action` | `v1` | Security scanning |
+| `semgrep/semgrep` | `v1` | Security scanning (official Semgrep Supply Chain) |
 | `github/codeql-action/upload-sarif` | `v4` | Upload SARIF to Security tab |
 | `actions/setup-dotnet` | `v5` | Set up .NET SDK |
 | `actions/github-script` | `v9` | Post/update PR comments |
@@ -40,7 +55,7 @@ This document tracks the history of GitHub Action versions used across CI/CD sta
 | Language | Version |
 |----------|---------|
 | Python | `3.14` |
-| .NET | `8.0.x` |
+| .NET | `10.0.x` |
 
 ## Version History
 

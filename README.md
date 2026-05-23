@@ -12,7 +12,7 @@ Skills are persona-driven system prompts. Load them into AI agents to enforce st
 |-------|------|--------------|
 | AFDS Technical Writer | [`SKILL.md`](skills/afds-doc-writer/SKILL.md) | System prompt — AI agent writes documentation matching AFDS schema. Includes taxonomy router, document templates, and language rules. |
 | MCP Server Architect | [`skill.md`](skills/mcp-server-architect/skill.md) | System prompt — AI agent builds MCP servers per standard. Includes design directives, strict constraints, canonical template selection, and semantic rule anchors. |
-| CI/CD Architect | [`SKILL.md`](skills/ci-cd-architect/SKILL.md) | System prompt — AI agent designs and reviews GitHub Actions workflows per standard. Includes compliance audit, migration, and template generation. |
+| CI/CD Architect | [`SKILL.md`](skills/ci-cd-architect/SKILL.md) | System prompt — AI agent designs, audits, and generates GitHub Actions workflows per standard. v2.0.0: commit-SHA action pinning, auto-tag→publish chain, .NET 10 support, Semgrep migration. |
 
 ### Standards
 

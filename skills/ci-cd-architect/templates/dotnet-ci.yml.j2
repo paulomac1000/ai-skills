@@ -6,7 +6,7 @@
 #
 # Substitution variables (from .github/ci-cd-config.yaml):
 #   {{ project }}          — project slug
-#   {{ dotnet_version }}    — .NET SDK version, e.g. "8.0.x"
+#   {{ dotnet_version }}    — .NET SDK version, e.g. "10.0.x"
 #   {{ dotnet_solution }}   — path to .sln file, e.g. "src/MyApp.sln"
 #   {{ use_semgrep }}       — true/false (adds semgrep job if true)
 #   {{ python_version }}    — Python version for auxiliary scripts
@@ -16,6 +16,7 @@ name: .NET CI — Quality Gate
 on:
   push:
     branches: [main, develop]
+    tags: ["v*"]
     paths:
       - "src/**"
       - "tests/**"
@@ -62,7 +63,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: ~/.nuget/packages
-          key: nuget-${{ hashFiles('**/*.csproj', '**/Directory.Packages.props') }}
+          key: nuget-${{ hashFiles('**/*.csproj', '**/Directory.Packages.props', '**/Directory.Build.props') }}
           restore-keys: nuget-
 
       - name: Restore dependencies
@@ -109,7 +110,7 @@ jobs:
 
       - name: Upload coverage & test artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: coverage-${{ github.run_id }}
           path: |
@@ -158,7 +159,7 @@ jobs:
         run: dotnet pack {{ dotnet_solution }} --no-build -c Release -o ./nupkg -p:PackageVersion=${{ env.VERSION }}
 
       - name: Upload package artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: nuget-packages
           path: ./nupkg/*
@@ -206,7 +207,7 @@ jobs:
 
       - name: Semgrep Scan
         id: semgrep
-        uses: semgrep/semgrep-action@v1
+        uses: semgrep/semgrep@v1
         env:
           SEMGREP_RULES: p/auto p/secrets p/owasp-top-ten
         with:
