@@ -5,7 +5,7 @@ type: decision
 status: accepted
 rigor_tier: L3
 ttl_days: 0
-version: 1.1.0
+version: 1.2.0
 stability: stable
 ai_scope: review_only
 source_of_truth: true
@@ -179,6 +179,56 @@ The `src_dir` field drives three substitutions: `mypy <SRC_DIR>/ --strict`, `ban
 - Auto-detect layout in CI: rejected — fragile; CI should be deterministic, not dependent on runtime directory structure heuristics
 - Use `find` or glob patterns for all tools: rejected — `find` output ordering is non-deterministic and platform-dependent; explicit paths are reproducible
 
+### 11. Auto-Tag → Publish Chain with `gh workflow run`
+
+**Problem:** GitHub Actions has a security feature: pushes made using `GITHUB_TOKEN` (the token used by `auto-tag.yml` to push tags) do NOT trigger downstream workflow events. When `auto-tag.yml` pushed a semver tag via `git push origin "vX.Y.Z"`, the `publish.yml` workflow with `push: tags: ["v*"]` trigger never fired. This was discovered during hand-codec deployment where `auto-tag.yml` had 0 successful runs that resulted in a publish. The `workflow_run` trigger (which fires on CI completion on main) did work, but only created Docker images tagged with `sha-*` and `latest` — never semver tags.
+
+**Decision:** Add a `gh workflow run` step to `auto-tag.yml` that explicitly dispatches the publish workflow via the GitHub API. The `gh` CLI is pre-installed on `ubuntu-latest` runners. The step uses `GH_TOKEN: ${{ github.token }}` (same token) but calls the API directly — the event suppression only applies to `push` and `repository_dispatch` events, not to the `workflow_dispatch` API. The step uses `|| echo "::warning::..."` to never fail `auto-tag.yml` if the publish workflow does not exist (non-Docker projects, .NET projects with inline pack-publish).
+
+**Permissions:** `auto-tag.yml` requires `actions: write` in addition to the existing `contents: write` for the `gh workflow run` call.
+
+**Rationale:**
+- `gh workflow run` is the simplest fix — no PAT rotation, no secrets management, no external dependencies
+- PAT-based solutions were rejected because they require manual token rotation and broaden the attack surface
+- `workflow_call` was rejected because it makes auto-tag synchronous (blocked until publish completes, ~5-10 min)
+- This also fixes .NET projects where `pack-publish` is a job within `dotnet-ci.yml`, not a separate workflow
+
+**Discovered in:** hand-codec deployment (2026-05-23). Auto-tag had 0 runs in all 5 projects before this fix.
+
+**Alternatives considered:**
+- Use a Personal Access Token (PAT) instead of GITHUB_TOKEN for `git push`: rejected — PAT requires manual rotation, stores a long-lived secret, and violates the principle of least privilege
+- Use `workflow_call` from auto-tag to publish: rejected — synchronous; auto-tag would be blocked for the duration of the full publish pipeline; tight coupling between workflows
+- Accept semver-less publishes: rejected — the `latest` tag is mutable and not suitable for production deployments; semver tagging is a core requirement of the standard (Rule 5)
+
+### 12. .NET Coverage Gate — Beyond Template Generation
+
+**Problem:** The `dotnet-ci.yml.j2` template runs tests and generates coverage reports with ReportGenerator, but does not enforce a minimum coverage threshold. Projects could merge code with 0% coverage without CI failure. The hand-codec project demonstrated a practical implementation: a Python-based coverage gate that reads `Summary.json` from ReportGenerator, checks line coverage >= 75% and branch coverage >= 60%, and fails the CI if thresholds are not met.
+
+**Decision:** Document the coverage gate pattern as a recommended customization (Rule 9 allows project-specific additions) and reference it in the standard. The gate is intentionally NOT baked into the template — coverage thresholds are project-specific policy decisions, not universal CI/CD rules. A library with extensive error handling (e.g., a codec) needs different thresholds than a thin API wrapper.
+
+**Implementation pattern:**
+```yaml
+- name: Coverage gate
+  if: always() && hashFiles('coverage-report/Summary.json') != ''
+  run: |
+    python3 -c "
+    import json, sys
+    with open('coverage-report/Summary.json') as f:
+        data = json.load(f)
+    summary = data.get('summary', data)
+    line = summary.get('linecoverage', 0)
+    branch = summary.get('branchcoverage', 0)
+    if line < <THRESHOLD_LINE> or branch < <THRESHOLD_BRANCH>:
+        sys.exit(1)
+    "
+```
+
+**Rationale:** Coverage gates are policy, not infrastructure. The CI/CD standard provides the infrastructure (test execution, coverage collection, report generation); projects define the policy (threshold values, which metrics to enforce). This separation mirrors the config contract philosophy: the standard says HOW, the project says WHAT.
+
+**Alternatives considered:**
+- Add coverage gate to the dotnet-ci template with configurable thresholds: deferred — adds 2 more config fields to an already large contract; better to document as a pattern first and evaluate demand
+- Use a .NET tool instead of Python for the coverage gate: rejected — Python is already available on `ubuntu-latest`; a .NET tool would add restore/build overhead for a simple JSON read
+
 ## ALTERNATIVES_CONSIDERED
 
 The alternative considered for each sub-decision is documented within the category above. Across all categories, the consistent rejection patterns were:
@@ -221,10 +271,12 @@ The alternative considered for each sub-decision is documented within the catego
 
 - `proposed: 2026-05-20` — Consolidated from three design iterations (MCP-only → Python+Docker → Multi-language) and deployment across 4 production MCP servers
 - `accepted: 2026-05-20` — Approved after full deployment to openwrt-mcp, ha-mcp-readonly, tasmota-openbk-mcp, and mikrus-mcp
+- `updated: 2026-05-23` — v2.0.0: Semgrep migration (semgrep-action→semgrep), action version bumps (upload-artifact v4→v7, download-artifact v4→v8), .NET 10.0.x, full commit SHA pinning (CI-CDW-73-75), auto-tag→publish chain with gh workflow run (CI-CDW-76), dotnet-ci template bug fixes (tags trigger, Directory.Build.props cache, cache:pip removal), hand-codec .NET project onboarded
 
 ## CHANGELOG
 
 | Version | Date | Change | Author |
 |---------|------|--------|--------|
-| 1.0.0 | 2026-05-20 | Initial ADR documenting all architecture decisions for the CI/CD Architect standard | opencode |
+| 1.2.0 | 2026-05-23 | Added ADRs 11 (auto-tag→publish chain) and 12 (.NET coverage gate pattern); updated for standard v2.0.0 deployment across 5 projects | opencode |
 | 1.1.0 | 2026-05-20 | Post-deployment fixes: pull_request trigger base-branch behavior, Codecov secrets gating, mypy dependencies, Python 3.14 asyncio compat, exempt_files validator bugfix, banned word /etc handling, .NET auto-tag variant, duplicate tag guard, REST API format standardization, MCP standard upstream ref | opencode |
+| 1.0.0 | 2026-05-20 | Initial ADR documenting all architecture decisions for the CI/CD Architect standard | opencode |

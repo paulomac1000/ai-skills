@@ -1,5 +1,47 @@
 # Changelog
 
+## 2026-05-23
+
+### ci-cd-architect: standard v2.0.0 — security hardening + version bumps + bug fixes
+
+Major update driven by deployment feedback from 5 projects (4 MCP servers + hand-codec .NET).
+
+**BREAKING changes:**
+- Replaced `semgrep/semgrep-action@v1` with `semgrep/semgrep@v1` (upstream repo archived Apr 2024)
+- All action references now follow full commit SHA format (`owner/repo@<sha>  # vX`)
+
+**Action version bumps:**
+- `actions/upload-artifact` v4 → v7
+- `actions/download-artifact` v4 → v8
+- .NET SDK 8.0.x → 10.0.x
+
+**New rules:**
+- `CI-CDW-73,74,75` (Rule 23): Full commit SHA pinning for GitHub Actions — mutable tags replaced with immutable SHAs + version comments
+- `CI-CDW-76,76a,76b` (Rule 6): Auto-tag → publish chain — `gh workflow run` bypasses GITHUB_TOKEN event suppression
+
+**Bug fixes (templates):**
+- `dotnet-ci.yml.j2`: Added `tags: ["v*"]` to push trigger — `pack-publish` job was unreachable without tag trigger (discovered in hand-codec)
+- `dotnet-ci.yml.j2`: Added `Directory.Build.props` to NuGet cache key — version bumps didn't invalidate cache
+- `docs-validation.yml.j2`: Removed `cache: pip` from `setup-python` — failed on pure .NET repos with no pip deps
+
+**Template improvements:**
+- `auto-tag.yml.j2`: Added `workflow_dispatch` trigger for manual tag creation from GitHub UI
+- `auto-tag.yml.j2`: Added `gh workflow run` step to trigger publish after tag push
+- `auto-tag.yml.j2`: Added `actions: write` permission for workflow dispatch
+
+**Deployment fixes (all 4 MCP repos):**
+- Semgrep PR scan: Added `SEMGREP_BASELINE_REF` for diff-aware scanning
+- Semgrep PR scan: Added `publishToken` for Semgrep dashboard integration
+- Semgrep scheduled: Added `hashFiles('semgrep.sarif')` guard + `id: upload-sarif`
+- Dependabot: Added `docker` ecosystem to `package_ecosystems`
+- mikrus-mcp: Fixed `[tool.mypy].python_version` 3.11 → 3.14
+
+**New project onboarded:**
+- hand-codec (.NET C#): Updated to .NET 10.0.x, Semgrep v2.0.0 compliance, docs-validation with AFDS integration
+
+**Skill:**
+- Added YAML frontmatter (`name`, `description`, `standard_version`) to SKILL.md
+
 ## 2026-05-21
 
 ### ci-cd-architect: standard v1.0.1
