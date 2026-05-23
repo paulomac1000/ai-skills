@@ -42,6 +42,13 @@ Major update driven by deployment feedback from 5 projects (4 MCP servers + hand
 **Skill:**
 - Added YAML frontmatter (`name`, `description`, `standard_version`) to SKILL.md
 
+### post-v2.0.0: hybrid-therapist deployment feedback
+
+- **auto-tag.yml.j2**: Fixed `if` condition to support `workflow_dispatch` standalone trigger (not just merged PRs)
+- **auto-tag.yml.j2**: Changed `gh workflow run` to use workflow filename (`publish.yml`) instead of display name — filenames are immutable, display names can change
+- **auto-tag.yml.j2**: Changed `exit 0` on duplicate tag to `SKIP_TAG` env var — enables conditional skip of downstream trigger step
+- **ci-cd-standard.md, Rule 23**: Added dependabot auto-pinning guidance and semgrep migration note (old SHA from `semgrep-action` does not exist in `semgrep/semgrep`)
+
 ## 2026-05-21
 
 ### ci-cd-architect: standard v1.0.1

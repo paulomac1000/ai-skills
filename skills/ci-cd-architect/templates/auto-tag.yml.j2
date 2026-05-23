@@ -1,6 +1,6 @@
 # auto-tag.yml — Automatic Version Tagging
 #
-# This template is part of the CI/CD Architect standard (ci-cd-standard.md v1.0.0).
+# This template is part of the CI/CD Architect standard (ci-cd-standard.md v2.0.0).
 # It is designed to be processed by a Jinja2-compatible template engine.
 #
 # Substitution variables (from .github/ci-cd-config.yaml):
@@ -23,7 +23,7 @@ env:
 
 jobs:
   tag:
-    if: github.event.pull_request.merged == true
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.merged == true
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -47,19 +47,23 @@ jobs:
 
       - name: Create and push tag
         run: |
-          git config user.name "{{ project }}-bot"
-          git config user.email "bot@{{ project }}.local"
           if git rev-parse "v${{ steps.version.outputs.version }}" >/dev/null 2>&1; then
             echo "Tag v${{ steps.version.outputs.version }} already exists — skipping"
-            exit 0
+            echo "SKIP_TAG=true" >> "$GITHUB_ENV"
+          else
+            git config user.name "{{ project }}-bot"
+            git config user.email "bot@{{ project }}.local"
+            git tag "v${{ steps.version.outputs.version }}"
+            git push origin "v${{ steps.version.outputs.version }}"
           fi
-          git tag "v${{ steps.version.outputs.version }}"
-          git push origin "v${{ steps.version.outputs.version }}"
 
       - name: Trigger downstream publish
+        if: env.SKIP_TAG != 'true'
         run: |
-          gh workflow run "Create and publish a Docker image" \
+          # Use workflow filename (not display name) — filenames are immutable
+          # gh workflow run resolves by filename: publish.yml (Docker) or ci.yml (.NET)
+          gh workflow run publish.yml \
             --ref "v${{ steps.version.outputs.version }}" \
-            || echo "::warning::Publish workflow not found or failed to trigger (may not exist in non-Docker projects)"
+            || echo "::warning::Publish workflow not found (non-Docker/.NET project — expected)"
         env:
           GH_TOKEN: ${{ github.token }}

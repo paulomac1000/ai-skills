@@ -285,6 +285,10 @@ jobs:
 
 **[RULE: CI-CDW-76b] [SHOULD]** The `auto-tag.yml` workflow SHOULD include `workflow_dispatch` trigger to allow manual tag creation from the GitHub Actions UI.
 
+**[RULE: CI-CDW-76c] [L2+]** The `gh workflow run` target MUST use the workflow filename (e.g., `publish.yml`) rather than the workflow display name (e.g., `"Create and publish a Docker image"`). Filenames are immutable references in version control; display names can change independently and would silently break the auto-tag→publish chain.
+
+**[RULE: CI-CDW-76d] [L2+]** The `auto-tag.yml` job condition MUST include `github.event_name == 'workflow_dispatch'` as an alternative entry point to `github.event.pull_request.merged == true`. When triggered manually via `workflow_dispatch`, there is no `github.event.pull_request` object at all — the condition `github.event.pull_request.merged == true` evaluates to `false` and the job is skipped.
+
 ### Rule 7: Documentation Validation (AFDS)
 
 **[RULE: CI-CDW-29] [L2+]** Every project that contains documentation files with YAML frontmatter (excluding `README.md`) MUST validate them against the AFDS standard in CI.
@@ -805,6 +809,10 @@ if (existing) {
 git ls-remote https://github.com/<owner>/<repo>.git refs/tags/v<major> | awk '{print $1}'
 ```
 
+**Dependabot auto-pinning:** When `github-actions` ecosystem is configured with `groups:` in `dependabot.yml`, Dependabot will automatically detect action references using version tags and create PRs to pin them to immutable commit SHAs. Projects SHOULD use this as a two-step migration: (1) update to the new action with a version tag, (2) merge the subsequent Dependabot PR that pins the SHA.
+
+**Semgrep migration note:** When migrating from the archived `semgrep/semgrep-action@v1` to `semgrep/semgrep@v1`, the old commit SHA from `semgrep-action` does NOT exist in the `semgrep/semgrep` repository. Use `semgrep/semgrep@v1` (version tag) initially. Dependabot will resolve and pin the correct commit SHA in the next weekly run. Do NOT copy the old SHA across repos — it belongs to a different repository.
+
 ## INTERFACES
 
 - INPUT: GitHub repository with configuration contract (`.github/ci-cd-config.yaml` or `pyproject.toml [tool.ci-cd]`), source code, and test suite.
@@ -912,6 +920,14 @@ See `templates/auto-tag.yml.j2` for the Jinja2 template.
 - Fixed `SEMGREP_BASELINE_REF` and `publishToken` in deployed semgrep workflows
 - Fixed `hashFiles` guard on SARIF upload in semgrep-scheduled workflows
 - Added YAML frontmatter to SKILL.md with name, description, standard_version
+
+### post-v2.0.0 (2026-05-23) — hybrid-therapist deployment feedback
+
+- Added CI-CDW-76c: `gh workflow run` target must use workflow filename, not display name
+- Added CI-CDW-76d: auto-tag job condition must support `workflow_dispatch` as standalone entry point
+- Updated `auto-tag.yml.j2`: replaced `exit 0` duplicate-tag guard with `SKIP_TAG` env var for conditional downstream trigger skip
+- Updated `auto-tag.yml.j2`: `gh workflow run publish.yml` uses filename-based trigger
+- Rule 23: Added dependabot auto-pinning guidance and semgrep migration note (SHA from archived `semgrep-action` does not exist in `semgrep/semgrep`)
 
 ### 1.0.1 (2026-05-21)
 - Fixed: Rule ID collision — Dependabot rules CI-CDW-52/53 overlapped with Semgrep rules CI-CDW-52/53. Renumbered Dependabot (52→54, 53→55, 54→56, 55→57), Docs (56→58, 57→59, 58→60), Concurrency (59→61, 60→62), .NET (61→63, 62→64, 63→65, 64→66, 65→67), PR Feedback (66→68, 67→69).
