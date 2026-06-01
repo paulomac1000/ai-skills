@@ -518,7 +518,7 @@ These are strict decision templates for AI agents consuming MCP tools. They are 
 
 Every tool invocation starts with this decision tree. This template matches the implementation in `evaluate_decision()` from `decision_engine.py`. The function is table-driven — the pseudocode below shows the equivalent logic for clarity; the actual engine uses `DECISION_POLICY` (see C6) to produce identical results:
 
-```
+```python
 def evaluate_decision(risk: str, requires_confirmation: bool, user_intent: str) -> str:
     # The engine uses DECISION_POLICY (Canonical Template C6) as a lookup
     # table. This pseudocode produces the same results for illustration.

@@ -120,10 +120,9 @@ class TestConsumerBodyStructure:
         for block in section_blocks:
             stripped = block.strip()
             is_divider = re.match(r"^\s*---\s*$", stripped)
-            if stripped and not is_divider:
+            if is_divider:
                 continue
-            if stripped and is_divider:
-                continue
+            assert stripped, "Empty section found in consumer standards body"
 
 
 class TestConsumerContent:
