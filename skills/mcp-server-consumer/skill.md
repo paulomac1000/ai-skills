@@ -119,6 +119,8 @@ If `manifest.retryable == false`: ALL errors become non-retryable, regardless of
 
 When manifest says `retryable=false` but error says `retryable=true`: do NOT retry automatically. Escalate with explanation: the manifest declares this tool non-retryable; the error response contradicts it.
 
+> **HTTP_ERROR note:** `HTTP_ERROR` in the base error strategy matrix treats all HTTP errors as escalate. The 5xx sleep-and-retry behavior is handled by the separate `get_http_error_strategy()` function (see `decision_engine.py`), which inspects the status code. The consumer MUST use this function for HTTP errors, not the base matrix lookup.
+
 ## Code Review Checklist
 
 When reviewing agent behavior consuming MCP tools, verify every invariant below. Cite violations by their rule from `mcp-consumer-standards.md`:

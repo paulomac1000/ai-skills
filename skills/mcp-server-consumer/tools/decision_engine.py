@@ -363,23 +363,15 @@ def get_http_error_strategy(
 
 # ── Canonical Template C7: Capability-Based Tool Selection ────────────
 
-TASK_MATCHERS: dict[str, Any] = {}
-
-
-def _register_task_matchers():
-    global TASK_MATCHERS
-    TASK_MATCHERS = {
-        "diagnose": lambda m: (
-            m.get("risk") == "READ" and m.get("latency") in ("instant", "fast")
-        ),
-        "configure": lambda m: m.get("risk") == "WRITE" and m.get("reversible", False),
-        "destroy": lambda m: m.get("risk") == "DESTRUCTIVE",
-        "scan": lambda m: m.get("determinism") == "eventually-consistent",
-        "read_sensitive": lambda m: m.get("risk") == "SENSITIVE",
-    }
-
-
-_register_task_matchers()
+TASK_MATCHERS: dict[str, Any] = {
+    "diagnose": lambda m: (
+        m.get("risk") == "READ" and m.get("latency") in ("instant", "fast")
+    ),
+    "configure": lambda m: m.get("risk") == "WRITE" and m.get("reversible", False),
+    "destroy": lambda m: m.get("risk") == "DESTRUCTIVE",
+    "scan": lambda m: m.get("determinism") == "eventually-consistent",
+    "read_sensitive": lambda m: m.get("risk") == "SENSITIVE",
+}
 
 
 def select_tool_for_task(tools: list[dict], task_type: str) -> dict | None:

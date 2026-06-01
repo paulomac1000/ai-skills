@@ -89,6 +89,8 @@ This standard defines three compliance levels for consumers. Each rule, pattern,
 | L2    | Orchestrated | Multi-tool workflows, team agents | Retry policy, checkpoint/rollback, error strategy matrix |
 | L3    | Hardened   | Critical operations, multi-agent   | Full capability reasoning, version negotiation, audit trails |
 
+This document's own `rigor_tier` is `L2` — reflecting the authoring rigor (frontmatter compliance, test coverage, review requirements). The `[L3+]` annotations within describe rules that apply when consuming at L3, which this document commits to maintaining for reference.
+
 **Annotation convention:**
 
 - `[L1+]` — Required at all levels (core invariant)
@@ -514,38 +516,46 @@ These are strict decision templates for AI agents consuming MCP tools. They are 
 
 #### Canonical Template C1 — Risk-Based Decision Tree
 
-Every tool invocation starts with this decision tree. This template matches the implementation in `evaluate_decision()` from `decision_engine.py`:
+Every tool invocation starts with this decision tree. This template matches the implementation in `evaluate_decision()` from `decision_engine.py`. The function is table-driven — the pseudocode below shows the equivalent logic for clarity; the actual engine uses `DECISION_POLICY` (see C6) to produce identical results:
 
 ```
-def decide_invocation(manifest: dict, user_intent: str, workflow_confirmed: bool) -> str:
-    risk = manifest.get("risk", "READ")
-    requires_confirm = manifest.get("requires_confirmation", False)
+def evaluate_decision(risk: str, requires_confirmation: bool, user_intent: str) -> str:
+    # The engine uses DECISION_POLICY (Canonical Template C6) as a lookup
+    # table. This pseudocode produces the same results for illustration.
 
+    # DANGEROUS requires explicit user request by tool name
     if risk == "DANGEROUS":
         if user_intent != "explicit_by_name":
             return "reject"
         return "confirm_then_invoke"
 
+    # DESTRUCTIVE always requires confirmation
     if risk == "DESTRUCTIVE":
         return "confirm_then_invoke"
 
     # requires_confirmation overrides all lower risk classes
-    if requires_confirm:
+    if requires_confirmation:
         return "confirm_then_invoke"
 
+    # WRITE: confirm unless already in a confirmed workflow
     if risk == "WRITE":
-        if workflow_confirmed:
+        if user_intent == "confirmed_workflow":
             return "invoke"
         return "confirm_then_invoke"
 
+    # SENSITIVE: invoke with data handling constraints
     if risk == "SENSITIVE":
-        return "invoke"  # with data handling constraints
+        return "invoke"
 
+    # READ: invoke freely
     if risk == "READ":
         return "invoke"
 
-    return "defer"  # unknown risk — never invoke
+    # Unknown risk: defer (never invoke)
+    return "defer"
 ```
+
+Note: C1 takes pre-extracted `risk` and `requires_confirmation` as direct parameters. The caller (consumer) is responsible for extracting these from the manifest or capability profile before calling this function. Workflow confirmation state is passed via `user_intent="confirmed_workflow"` rather than a separate boolean parameter.
 
 #### Canonical Template C2 — Response Parsing with Error Branching
 

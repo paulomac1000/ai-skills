@@ -289,7 +289,7 @@ class TestConsumerCanonicalTemplates:
             consumer_body,
             "Canonical Template C1 — Risk-Based Decision Tree",
         )
-        requires_idx = block.index("if requires_confirm:")
+        requires_idx = block.index("if requires_confirmation:")
         write_idx = block.index('if risk == "WRITE":')
         sensitive_idx = block.index('if risk == "SENSITIVE":')
         assert requires_idx < write_idx
