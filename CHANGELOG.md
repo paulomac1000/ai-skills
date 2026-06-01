@@ -1,5 +1,41 @@
 # Changelog
 
+## 2026-06-01
+
+### mcp-server-consumer: new skill — safe and efficient MCP tool operator
+
+New counterpart to `mcp-server-architect`, teaching AI agents how to consume MCP servers.
+
+**New skill:**
+- `skill.md` — persona with 6 directives: decide before invoking, manifest/prefix fallback, token efficiency, fail safely, defense-in-depth, contract obedience. 4-phase workflow (Establish Capability Profile → Analyze Efficiently → Decide Safely → Execute → Verify). Decision policy quick reference (20-row table including unknown risk defer), error strategy matrix (14 codes), code review checklist.
+- `mcp-consumer-standards.md` — core standard (ref, L2+), 793 lines. 9 rule sections: Tool Discovery, Token-Aware Invocation (batch/composite preference, minimal detail first, progressive disclosure, pagination awareness, negative capability, parameter carry-forward, cross-server workflows), Manifest Intelligence, Capability Reasoning, Response Contract, Error Recovery, Workflow Orchestration, Observability, Version Compatibility. 10 canonical templates (C1–C10).
+- `tools/decision_engine.py` — reference implementation (722 lines): `evaluate_decision()`, `should_retry()`, `get_error_strategy()`, `get_retry_decision()`, `get_http_error_strategy()`, `infer_capability_profile()`, `prefer_batch_tool()`, `select_efficient_tool()`, `choose_initial_detail_params()`, `get_pagination_decision()`, `is_meaningful_empty_success()`, and more.
+
+**Key design decisions:**
+- Capability profile fallback: manifest → risk prefix annotation (`[READ]`, `[WRITE]`, etc.) → safe default (treat as `READ`). Supports L1 servers without full manifests.
+- Decision policy as a testable table: every `(risk, requires_confirmation, user_intent)` combination mapped to a deterministic outcome. Unknown risk values fall back to `defer`, never `invoke`. DANGEROUS tools reject unless user explicitly requests them by name.
+- Token efficiency as first-class directive: batch/composite before N individual calls, minimal detail first, progressive disclosure, pagination awareness, negative capability (empty `data` is meaningful, not error).
+- Compound error checking: retry requires agreement from manifest `retryable`, error response `retryable`, and error strategy matrix. HTTP errors distinguish 4xx (escalate) from 5xx (retry once).
+
+**Tests:** `test_consumer_standards.py` (32), `test_consumer_helpers.py` (58), `test_consumer_decisions.py` (26), `test_consumer_efficiency.py` (73). 131 total new tests — all pass with 0 warnings.
+
+### mcp-server-architect: Consumer Ergonomics section added
+
+Server standard updated to support efficient AI consumption.
+
+**`mcp-server-standards.md`:**
+- New section: *Consumer Ergonomics* (6 rules L1+/L2+) — list/summary before detail tools, minimal-detail parameters (`detail_level`, `compact`, `summary`), pagination metadata (`has_more`, `next_offset`, `next_cursor`), batch/composite READ tools, stable identifier carry-forward, empty-success contracts.
+- Added `ref.mcp-consumer-standards` to `upstream` frontmatter.
+- SCOPE extended to include consumer ergonomics.
+
+**`skill.md`:**
+- New directive 6: *Consumer Ergonomics*
+- New workflow step 2b: *Design Consumer-Friendly Shape*
+- Code review checklist: 6 new consumer ergonomics items
+- Description updated
+
+**Tests:** 0 regressions. Existing 232 tests still pass.
+
 ## 2026-05-23
 
 ### ci-cd-architect: standard v2.0.0 — security hardening + version bumps + bug fixes

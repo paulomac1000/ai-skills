@@ -11,7 +11,8 @@ Skills are persona-driven system prompts. Load them into AI agents to enforce st
 | Skill | File | What it does |
 |-------|------|--------------|
 | AFDS Technical Writer | [`SKILL.md`](skills/afds-doc-writer/SKILL.md) | System prompt — AI agent writes documentation matching AFDS schema. Includes taxonomy router, document templates, and language rules. |
-| MCP Server Architect | [`skill.md`](skills/mcp-server-architect/skill.md) | System prompt — AI agent builds MCP servers per standard. Includes design directives, strict constraints, canonical template selection, and semantic rule anchors. |
+| MCP Server Architect | [`skill.md`](skills/mcp-server-architect/skill.md) | System prompt — AI agent builds MCP servers per standard. Includes design directives, strict constraints, canonical template selection, consumer ergonomics, and semantic rule anchors. |
+| MCP Server Consumer | [`skill.md`](skills/mcp-server-consumer/skill.md) | System prompt — AI agent discovers, reasons about, and safely invokes MCP tools. Interprets manifests (or risk prefix fallback), applies decision policies, prefers batch/composite calls, starts with minimal detail, handles errors with defined recovery strategies. |
 | CI/CD Architect | [`SKILL.md`](skills/ci-cd-architect/SKILL.md) | System prompt — AI agent designs, audits, and generates GitHub Actions workflows per standard. v2.0.0: commit-SHA action pinning, auto-tag→publish chain, .NET 10 support, Semgrep migration. |
 
 ### Standards
@@ -21,7 +22,8 @@ Core reference documents — authoritative rules for their domains.
 | Document | Domain | Covers |
 |----------|--------|--------|
 | [`docs_standards.md`](skills/afds-doc-writer/docs_standards.md) | AFDS | Document taxonomy, frontmatter schema, body structure, controlled language, CI validation, AI protocol |
-| [`mcp-server-standards.md`](skills/mcp-server-architect/mcp-server-standards.md) | MCP Servers | Tool design, response contracts, testing hierarchy, security, canonical templates |
+| [`mcp-server-standards.md`](skills/mcp-server-architect/mcp-server-standards.md) | MCP Servers | Tool design, response contracts, testing hierarchy, security, canonical templates, consumer ergonomics |
+| [`mcp-consumer-standards.md`](skills/mcp-server-consumer/mcp-consumer-standards.md) | MCP Consumption | Capability reasoning, decision policies, token-aware invocation, error recovery, workflow orchestration, version compatibility |
 | [`ci-cd-standard.md`](skills/ci-cd-architect/ci-cd-standard.md) | CI/CD | GitHub Actions workflow structure, Docker publish, auto-tag, Semgrep, Dependabot, .NET variant |
 | [`action-version-matrix.md`](skills/ci-cd-architect/references/action-version-matrix.md) | CI/CD | Pinned action versions, upgrade policy, migration checklists |
 
@@ -53,6 +55,10 @@ skills/
 ├── mcp-server-architect/         ← MCP server skill
 │   ├── mcp-server-standards.md   Standard
 │   └── skill.md                  System prompt for AI agents
+├── mcp-server-consumer/          ← MCP consumer skill
+│   ├── mcp-consumer-standards.md Standard
+│   ├── skill.md                  System prompt for AI agents
+│   └── tools/                    Reference implementation (decision engine)
 └── ci-cd-architect/              ← CI/CD skill
     ├── ci-cd-standard.md         Standard
     ├── SKILL.md                  System prompt for AI agents
@@ -73,6 +79,7 @@ python3 skills/afds-doc-writer/docs_validate.py \
   --config skills/afds-doc-writer/afds_config.yaml \
   skills/afds-doc-writer/docs_standards.md \
   skills/mcp-server-architect/mcp-server-standards.md \
+  skills/mcp-server-consumer/mcp-consumer-standards.md \
   skills/ci-cd-architect/ci-cd-standard.md \
   decisions/
 

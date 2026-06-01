@@ -32,7 +32,7 @@ This document is the CORE.
 
 ## SCOPE
 
-- INCLUDED: tool implementation patterns, response contract design, capability descriptors, manifest schema, versioning policy, parameter design, logging, secret management, documentation conventions, testing standards (test hierarchy, skip patterns, coverage, CI, mock patterns), security standards (SSE transport security, cancellation, concurrency, blocked data, filesystem access control, secret management, observability)
+- INCLUDED: tool implementation patterns, response contract design, capability descriptors, manifest schema, versioning policy, parameter design, logging, secret management, documentation conventions, testing standards (test hierarchy, skip patterns, coverage, CI, mock patterns), security standards (SSE transport security, cancellation, concurrency, blocked data, filesystem access control, secret management, observability), consumer ergonomics (batch/composite tools, minimal-detail parameters, pagination, empty-success contracts, stable identifiers)
 - EXCLUDED: MCP protocol specification, deployment infrastructure, domain-specific business logic, network-level firewall rules, application-level authorization
 
 ## DEFINITIONS
@@ -175,7 +175,7 @@ Every tool description MUST include a risk prefix as the first text.
 | Prefix         | Meaning                                  | When to use                                     | Examples                                    |
 |----------------|------------------------------------------|-------------------------------------------------|---------------------------------------------|
 | `[READ]`       | Read-only, no side effects               | Pure diagnostics, queries, data listings        | `get_status`, `list_items`, `ping_host`     |
-| `[WRITE]`      | Modifies state — designed as **reversible** or **idempotent** | Config changes, service restarts, value updates | `update_config`, `restart_service`, `set_setting` |
+| `[WRITE]`      | Modifies state — designed as **reversible** or **idempotent** | Config changes, value updates, reversible toggles | `update_config`, `set_setting`, `enable_feature` |
 | `[DESTRUCTIVE]`| Kills processes, deletes data, or causes service outage — designed as **irreversible** | Deleting files, factory reset, device reboot  | `delete_item`, `reboot_device`, `factory_reset` |
 | `[DANGEROUS]`  | Executes arbitrary shell commands        | Unrestricted command execution                  | `run_command`, `execute_script`             |
 | `[SENSITIVE]`  | Returns credentials, tokens, or personal data | Auth tokens, passwords, PII                  | `get_token`, `read_secret`, `list_wifi_passwords` |
@@ -288,13 +288,13 @@ Rules:
 | `WRITE`        | `write`                 | `true`       | `true`      | `true`       | `true`                  | `transient` / `persistent`      |
 | `DESTRUCTIVE`  | `destructive`           | `false`      | `false`     | `false`      | `true`                  | `persistent` / `service_outage` |
 | `DANGEROUS`    | `write` / `destructive` | `false`      | `false`     | `false`      | `true`                  | depends on command              |
-| `SENSITIVE`    | `none` / `read`         | `true`       | `true`      | `true`       | `true`                  | `none` (set `privacy` accordingly) |
+| `SENSITIVE`    | `none` / `read`         | `true`       | `true`      | `true`       | `false` / `true`       | `none` (set `privacy` accordingly) |
 
 Rules:
 
 1. [L1+] `[DANGEROUS]` is reserved EXCLUSIVELY for tools that execute arbitrary, unbounded shell commands. A device reboot, service restart, or factory reset is NOT `[DANGEROUS]` — it is `[DESTRUCTIVE]`, because the command set is fixed and known.
 2. [L3+] A tool whose effect cannot be undone at the application level (reboot, reset, delete) MUST have `risk: DESTRUCTIVE`, `reversible: false`, `idempotent: false`, `retryable: false`. It MUST NOT be created with the WRITE manifest factory — use `_make_destructive_manifest()` (Canonical Template 5c).
-3. [L3+] `requires_confirmation` MUST be `true` for every non-`READ` tool.
+3. [L3+] `requires_confirmation` MUST be `true` for every `WRITE`, `DESTRUCTIVE`, and `DANGEROUS` tool. `SENSITIVE` tools MAY set it to `true` when the disclosure requires explicit user consent; consumers MUST honor the flag when present.
 4. [L3+] A tool returning credentials, tokens, or PII MUST have `risk: SENSITIVE` and `privacy` set to `metadata` or `personal`.
 
 #### Exposure
@@ -486,6 +486,17 @@ MCP tools that manage multiple backend connections need a parameter to select th
 5. [L2+] Parameter descriptions in docstrings SHOULD state the default behavior when `server` is omitted.
 6. [L2+] Multi-server tools MUST NOT hardcode server-specific logic. Differentiation lives in the client class.
 7. [L2+] Timeout parameters MUST use `int = <DEFAULT_TIMEOUT>` (a concrete integer), never `int | None = None`. JSON Schema handles plain integer defaults correctly across all MCP framework versions, but `int | None` may be rejected depending on the framework's schema validation implementation, causing MCP SSE transport errors. Use the project's timeout constant (e.g., `SSH_TIMEOUT`) as the default value.
+
+### Consumer Ergonomics
+
+[L2+] MCP servers are consumed by AI agents operating under token budgets and latency constraints. Tools SHOULD be designed to minimize round-trips and payload sizes.
+
+1. [L2+] Large collections SHOULD expose list, search, overview, summary, or diagnostic tools before detail tools. The consumer should be able to narrow scope before fetching full detail.
+2. [L2+] Tools returning potentially large payloads SHOULD support a lightweight initial response mode such as `detail_level="minimal"`, `compact=true`, `summary=true`, `fields=[...]`, or equivalent narrowing parameters. Full-detail payloads SHOULD be opt-in for large resources.
+3. [L2+] Tools returning potentially large collections SHOULD expose pagination metadata: `has_more`, `next_offset` or `next_cursor`, `limit`, `total`. The first page MUST NOT imply completeness when `has_more` is `true`.
+4. [L2+] When a common workflow requires calling the same READ tool over many identifiers, the server SHOULD provide a batch or composite READ tool. Batch tools MUST preserve the same response contract and SHOULD report per-item success/error when partial failure is possible. Batch tools MUST NOT silently drop results on partial failure.
+5. [L1+] `list_*` tools SHOULD return the stable identifier needed by the corresponding `get_*` tool. The identifier field name SHOULD match the parameter name of the get tool (already required by Tool Design Rule 10).
+6. [L1+] Empty query results are not errors. A tool that completes successfully and finds no matching items MUST return `success: true` with an empty data shape (`data: []`, `data: {}`, `null`, or an explicit `count: 0`). It MUST NOT return `success: false` solely because no items were found.
 
 ### Code Quality Stack
 
