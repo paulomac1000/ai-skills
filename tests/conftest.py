@@ -1,26 +1,28 @@
 """Shared fixtures for documentation validation tests."""
 
+import importlib.util
 import sys
 from pathlib import Path
 
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-SCRIPTS_DIR = REPO_ROOT / "skills" / "afds-doc-writer"
-sys.path.insert(0, str(SCRIPTS_DIR))
+CONSUMER_DIR = REPO_ROOT / "skills" / "mcp-server-consumer"
+DOCS_VALIDATE_PATH = REPO_ROOT / "skills" / "afds-doc-writer" / "docs_validate.py"
 
-from docs_validate import (
-    _extract_all_section_names,
-    _make_check_registry,
-    calculate_fitness_score,
-    check_balanced_fences,
-    check_mandatory_sections,
-    load_config,
-    load_markdown_file,
-    validate_file,
-)
-from docs_validate import ValidationResult
-from copy import deepcopy
+sys.path.insert(0, str(CONSUMER_DIR))
+
+spec = importlib.util.spec_from_file_location("docs_validate", DOCS_VALIDATE_PATH)
+if spec is None or spec.loader is None:
+    raise ImportError(f"Failed to load {DOCS_VALIDATE_PATH}")
+docs_validate = importlib.util.module_from_spec(spec)
+sys.modules[spec.name] = docs_validate
+spec.loader.exec_module(docs_validate)
+
+_make_check_registry = docs_validate._make_check_registry
+load_config = docs_validate.load_config
+load_markdown_file = docs_validate.load_markdown_file
+validate_file = docs_validate.validate_file
 
 
 @pytest.fixture(scope="session")
@@ -121,3 +123,31 @@ def mcp_body(mcp_fm_body):
 @pytest.fixture(scope="session")
 def mcp_result(mcp_path, config, check_registry):
     return validate_file(mcp_path, config, check_registry)
+
+
+@pytest.fixture(scope="session")
+def consumer_path(repo_root):
+    return repo_root / "skills" / "mcp-server-consumer" / "mcp-consumer-standards.md"
+
+
+@pytest.fixture(scope="session")
+def consumer_fm_body(consumer_path):
+    fm, body = load_markdown_file(consumer_path)
+    if fm is None:
+        raise ValueError(f"Failed to parse {consumer_path}: {body}")
+    return fm, body
+
+
+@pytest.fixture(scope="session")
+def consumer_fm(consumer_fm_body):
+    return consumer_fm_body[0]
+
+
+@pytest.fixture(scope="session")
+def consumer_body(consumer_fm_body):
+    return consumer_fm_body[1]
+
+
+@pytest.fixture(scope="session")
+def consumer_result(consumer_path, config, check_registry):
+    return validate_file(consumer_path, config, check_registry)
