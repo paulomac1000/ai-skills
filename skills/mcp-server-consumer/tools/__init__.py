@@ -1,1 +1,1 @@
-"""MCP Consumer decision engine — reference implementation for testing."""
+"""MCP Consumer decision engine — normative reference implementation."""

@@ -4,7 +4,12 @@ This module implements the decision logic described in
 ref.mcp-consumer-standards.md. It is the normative implementation
 against which tests measure compliance.
 
-Every function here corresponds to a Canonical Template in the standard.
+Covers: C1 (decision tree), C2 (response parsing), C3 (error strategy),
+C4 (confirmation gate), C5 (retry decision), C6 (decision policy table),
+C7 (tool selection), C9 (progressive disclosure), C10 (batch preference).
+
+Not covered: C8 (workflow orchestration) — requires async I/O and MCP runtime
+integration, intentionally kept out of this pure-logic engine.
 """
 
 from __future__ import annotations
@@ -88,7 +93,9 @@ def evaluate_decision(
 ) -> str:
     """Canonical Template C1 / C6: Decision Policy evaluator.
 
-    Returns one of: 'invoke', 'confirm_then_invoke', 'reject', 'defer'.
+    Accepts Risk enum values ('READ'/'WRITE'/'DESTRUCTIVE'/'DANGEROUS'/'SENSITIVE')
+    or raw strings. Returns a Decision enum value ('invoke'/'confirm_then_invoke'/
+    'reject'/'defer') as a string.
 
     Unknown risk values or unmatched combinations fall back to 'defer' —
     the consumer MUST NOT invoke a tool whose capability profile is unresolved.
@@ -441,10 +448,16 @@ def should_retry(
 
 
 def is_success(response: dict) -> bool:
+    """Return True if the response has success: true."""
     return response.get("success") is True
 
 
 def get_error_code(response: dict) -> str | None:
+    """Extract the machine-readable error code from a failed response.
+
+    Returns the error.code string for structured errors, 'UNKNOWN'
+    for string errors, or None if the response is a success.
+    """
     error = response.get("error")
     if isinstance(error, dict):
         return error.get("code")
@@ -454,6 +467,7 @@ def get_error_code(response: dict) -> str | None:
 
 
 def get_request_id(response: dict) -> str | None:
+    """Extract the request_id from the _meta envelope, or None."""
     meta = response.get("_meta", {})
     return meta.get("request_id")
 
@@ -465,6 +479,7 @@ def parse_manifest(tool_info: dict) -> dict:
 
 
 def classify_risk(manifest: dict) -> str:
+    """Return the risk class from a manifest, defaulting to READ."""
     return manifest.get("risk", "READ")
 
 

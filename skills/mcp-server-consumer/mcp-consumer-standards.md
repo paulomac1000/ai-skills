@@ -658,6 +658,9 @@ DECISION_POLICY = [
     ("READ",        True,   "any",                "confirm_then_invoke"),
     ("WRITE",       False,  "general",            "confirm_then_invoke"),
     ("WRITE",       False,  "confirmed_workflow", "invoke"),
+    ("WRITE",       False,  "any",                "confirm_then_invoke"),
+    ("WRITE",       True,   "confirmed_workflow", "confirm_then_invoke"),
+    ("WRITE",       True,   "general",            "confirm_then_invoke"),
     ("WRITE",       True,   "any",                "confirm_then_invoke"),
     ("DESTRUCTIVE", False,  "any",                "confirm_then_invoke"),
     ("DESTRUCTIVE", True,   "any",                "confirm_then_invoke"),
@@ -692,6 +695,7 @@ def select_tool_for_task(tools: list[dict], task_type: str) -> dict | None:
         "configure": lambda m: m.get("risk") == "WRITE" and m.get("reversible", False),
         "destroy": lambda m: m.get("risk") == "DESTRUCTIVE",
         "scan": lambda m: m.get("determinism") == "eventually-consistent",
+        "read_sensitive": lambda m: m.get("risk") == "SENSITIVE",
     }
 
     matcher = candidates.get(task_type)

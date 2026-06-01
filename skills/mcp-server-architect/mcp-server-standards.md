@@ -13,7 +13,6 @@ owners: ["backend-team"]
 upstream:
   - ref.documentation-standard
   - ref.ci-cd-standard
-  - ref.mcp-consumer-standards
 source_of_truth: true
 last_verified: 2026-05-17
 ---

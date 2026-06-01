@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from tools.decision_engine import (
     evaluate_decision,
     get_error_strategy,
+    handle_response,
     requires_user_confirmation,
     should_retry,
 )
@@ -28,7 +29,9 @@ DECISION_TABLE = [
     ("READ", True, "any", "confirm_then_invoke"),
     ("WRITE", False, "general", "confirm_then_invoke"),
     ("WRITE", False, "confirmed_workflow", "invoke"),
+    ("WRITE", False, "any", "confirm_then_invoke"),
     ("WRITE", True, "confirmed_workflow", "confirm_then_invoke"),
+    ("WRITE", True, "general", "confirm_then_invoke"),
     ("WRITE", True, "any", "confirm_then_invoke"),
     ("DESTRUCTIVE", False, "any", "confirm_then_invoke"),
     ("DESTRUCTIVE", True, "any", "confirm_then_invoke"),
@@ -81,6 +84,9 @@ ERROR_CODES = [
 
 RETRYABLE_CODES = {"TIMEOUT", "DEVICE_OFFLINE", "RESOURCE_LOCKED"}
 ONCE_CODES = {"INTERNAL_ERROR"}
+# HTTP_ERROR is classified as non-retryable in the base error strategy matrix
+# (all HTTP errors escalate by default). 5xx conditional retry is handled by
+# the separate get_http_error_strategy() function, not by this matrix.
 NON_RETRYABLE_CODES = [
     c for c in ERROR_CODES if c not in RETRYABLE_CODES and c not in ONCE_CODES
 ]
@@ -398,3 +404,31 @@ def test_config_workflow_with_rollback():
 
     # verify — can retry on DEVICE_OFFLINE
     assert should_retry("DEVICE_OFFLINE", verify_manifest, error_retryable=True) is True
+
+
+# ── Level 5A: Edge Case Tests ─────────────────────────────────────────
+
+
+def test_success_response_with_error_prose():
+    """EDGE_CASE: success: true with error text in data is still a success."""
+    from tools.decision_engine import is_success
+
+    response = {"success": True, "data": "Error: something failed"}
+    assert is_success(response) is True
+    result = handle_response(response)
+    assert result.success is True
+    assert result.data == "Error: something failed"
+
+
+def test_mid_workflow_destructive_reclassification():
+    """EDGE_CASE: WRITE-confirmed workflow must re-confirm when tool is DESTRUCTIVE.
+
+    A tool reclassified mid-workflow to DESTRUCTIVE must trigger a fresh
+    confirmation gate, regardless of prior WRITE scope confirmation.
+    """
+    assert evaluate_decision("DESTRUCTIVE", False, "any") == "confirm_then_invoke"
+    assert evaluate_decision("DESTRUCTIVE", True, "any") == "confirm_then_invoke"
+    assert (
+        evaluate_decision("DESTRUCTIVE", False, "confirmed_workflow")
+        == "confirm_then_invoke"
+    )

@@ -28,7 +28,7 @@ Your rulebook is `mcp-consumer-standards.md`. You enforce every `[L1+]` invarian
 
 - **NEVER** invoke a tool without checking its capability profile first: manifest, then risk prefix, then documented safe default. This is `[L1+]` Tool Discovery Rule 2.
 - **NEVER** invoke a DESTRUCTIVE or DANGEROUS tool without explicit user confirmation. DESTRUCTIVE requires confirmation for EVERY invocation. DANGEROUS additionally requires the user to have explicitly requested that tool by name. This is `[L1+]` Manifest Intelligence Rule 1.
-- **NEVER** retry a tool invocation when manifest says `retryable: false`, regardless of what the error response says. Compound error checking: both sides must agree. This is `[L2+]` Error Recovery Rule 5.
+- **NEVER** retry a tool invocation when manifest says `retryable: false`, regardless of what the error response says. Compound error checking: both sides must agree. This is `[L2+]` Error Recovery: Compound Error Checking Rule 1.
 - **NEVER** exceed 3 retries for any invocation. Maximum 3, with exponential backoff (1s → 2s → 4s → 8s cap). After max retries, escalate. This is `[L2+]` Error Recovery Rule 2.
 - **NEVER** log, cache, echo, or display SENSITIVE tool output. Pass it through, use it, discard it. SENSITIVE data stays within the SENSITIVE boundary. This is `[L1+]` Manifest Intelligence Rule 3.
 - **NEVER** execute tools marked `concurrent_safe: false` in parallel. Serialize them. This is `[L3+]` Concurrency Safety Rule 1.
