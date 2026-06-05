@@ -90,7 +90,7 @@ DEFAULT_CONFIG = {
     "stability_values": ["experimental", "stable", "frozen"],
     "rigor_tier_values": ["L0", "L1", "L2", "L3"],
     "allowed_fields": [
-        "description", "doc_id", "type", "status", "rigor_tier",
+        "name", "metadata", "description", "doc_id", "type", "status", "rigor_tier",
         "ttl_days", "ttl_policy", "stability", "ai_scope",
         "upstream", "last_verified",
         "trigger", "timeout", "scope", "supersedes", "superseded_by",
@@ -738,6 +738,8 @@ def check_ttl_exceeded(
 def check_no_verification_date(
     result: ValidationResult, frontmatter: Optional[dict], body: str, file_path: Path, config: dict
 ) -> None:
+    if file_path.name.lower() == "skill.md":
+        return
     if frontmatter and isinstance(frontmatter, dict) and "last_verified" not in frontmatter:
         result.errors.append("Missing required field: last_verified")
         result.passed = False
@@ -912,6 +914,80 @@ def check_balanced_fences(
         )
 
 
+def check_skill_frontmatter(
+    result: ValidationResult, frontmatter: Optional[dict], body: str, file_path: Path, config: dict
+) -> None:
+    if file_path.name.lower() != "skill.md":
+        return
+    if frontmatter is None:
+        return
+    if not frontmatter:
+        result.errors.append("skill.md: YAML frontmatter must not be empty (requires 'name' and 'description')")
+        result.passed = False
+        return
+    
+    # Check required fields
+    for field_name in ("name", "description"):
+        if field_name not in frontmatter:
+            result.errors.append(f"skill.md: Missing required field: {field_name}")
+            result.passed = False
+        elif not isinstance(frontmatter.get(field_name), str) or not str(frontmatter.get(field_name)).strip():
+            result.errors.append(f"skill.md: Field '{field_name}' must be a non-empty string")
+            result.passed = False
+
+
+def check_relative_links(
+    result: ValidationResult, frontmatter: Optional[dict], body: str, file_path: Path, config: dict
+) -> None:
+    if not config.get("_check_links"):
+        return
+    
+    # Find standard markdown links: [text](url) and ![alt](url)
+    md_links = re.findall(r'!?\[[^\]]*\]\(([^)]+)\)', body)
+    
+    # Find bare-path references in backticks: `../docs/...` or `docs/...` or `./docs/...`
+    backticks = re.findall(r'`([^`\n]+)`', body)
+    bare_paths = []
+    for path in backticks:
+        path = path.strip()
+        if path.startswith(('../', './', 'docs/')) and ' ' not in path:
+            bare_paths.append(path)
+            
+    all_links = md_links + bare_paths
+    
+    checked_targets = set()
+    for link in all_links:
+        link = link.strip()
+        if not link:
+            continue
+        
+        # Skip absolute web URLs, email links, and page-local anchors
+        if link.startswith(('http://', 'https://', 'mailto:', 'ftp://')) or link.startswith('#'):
+            continue
+            
+        # Parse file:// absolute paths
+        if link.startswith('file://'):
+            clean_link = link[7:]
+            if clean_link.startswith('localhost'):
+                clean_link = clean_link[9:]
+            clean_link = clean_link.split('#')[0]
+            target_path = Path(clean_link)
+        else:
+            # Strip anchor
+            clean_link = link.split('#')[0]
+            if not clean_link:
+                continue
+            # Resolve relative path relative to file_path's parent directory
+            target_path = (file_path.parent / clean_link).resolve()
+            
+        if target_path in checked_targets:
+            continue
+        checked_targets.add(target_path)
+        
+        if not target_path.exists():
+            result.warnings.append(f"Broken relative link: '{link}' (target does not exist: {target_path})")
+
+
 # ---------------------------------------------------------------------------
 # Fitness calculation
 # ---------------------------------------------------------------------------
@@ -1016,6 +1092,8 @@ def _make_check_registry(config: dict) -> list[tuple[str, str, Callable]]:
         ("ttl_exceeded", "warning", check_ttl_exceeded),
         ("future_dates", "warning", check_future_dates),
         ("project_terminology", "warning", check_project_terminology),
+        ("check_skill_frontmatter", "error", check_skill_frontmatter),
+        ("check_relative_links", "warning", check_relative_links),
     ]
 
 
@@ -1084,6 +1162,12 @@ def main():
         "--report", action="store_true", help="Output JSON report",
     )
     parser.add_argument(
+        "--json", action="store_true", help="Output JSON report (alias for --report)",
+    )
+    parser.add_argument(
+        "--check-links", action="store_true", help="Verify relative links in markdown files",
+    )
+    parser.add_argument(
         "--strict", action="store_true", help="Treat warnings as errors",
     )
     parser.add_argument(
@@ -1104,10 +1188,12 @@ def main():
     )
 
     args = parser.parse_args()
+    args.report = args.report or args.json
 
     # Load configuration
     config_path = Path(args.config) if args.config else None
     config = load_config(config_path)
+    config["_check_links"] = args.check_links
 
     # Determine baseline path
     if args.baseline:

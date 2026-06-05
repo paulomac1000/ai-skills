@@ -9,6 +9,8 @@ from docs_validate import (
     check_balanced_fences,
     check_mandatory_sections,
     load_markdown_file,
+    check_skill_frontmatter,
+    check_relative_links,
 )
 from docs_validate import ValidationResult
 from copy import deepcopy
@@ -205,3 +207,75 @@ class TestCheckMandatorySectionsErrorFormat:
         check_mandatory_sections(result, fm, body, Path("test.md"), config)
         assert result.passed
         assert len(result.errors) == 0
+
+
+class TestCheckSkillFrontmatter:
+    """Unit tests for check_skill_frontmatter."""
+
+    def test_non_skill_file_ignored(self):
+        result = ValidationResult(file_path="other.md")
+        check_skill_frontmatter(result, None, "", Path("other.md"), {})
+        assert result.passed
+
+    def test_missing_frontmatter(self):
+        result = ValidationResult(file_path="skill.md")
+        check_skill_frontmatter(result, None, "", Path("skill.md"), {})
+        assert result.passed  # check_frontmatter_present handles None, we return early
+
+    def test_empty_frontmatter(self):
+        result = ValidationResult(file_path="skill.md")
+        check_skill_frontmatter(result, {}, "", Path("skill.md"), {})
+        assert not result.passed
+        assert "empty" in result.errors[0]
+
+    def test_missing_name_or_description(self):
+        result = ValidationResult(file_path="skill.md")
+        check_skill_frontmatter(result, {"name": "Test"}, "", Path("skill.md"), {})
+        assert not result.passed
+        assert "Missing required field: description" in result.errors[0]
+
+    def test_valid_frontmatter(self):
+        result = ValidationResult(file_path="SKILL.md")
+        check_skill_frontmatter(result, {"name": "Test", "description": "Desc"}, "", Path("SKILL.md"), {})
+        assert result.passed
+
+
+class TestCheckRelativeLinks:
+    """Unit tests for check_relative_links."""
+
+    def test_disabled_by_default(self):
+        result = ValidationResult(file_path="test.md")
+        body = "[broken link](nonexistent.md)"
+        check_relative_links(result, {}, body, Path("test.md"), {"_check_links": False})
+        assert len(result.warnings) == 0
+
+    def test_remote_links_ignored(self):
+        result = ValidationResult(file_path="test.md")
+        body = "[remote](https://google.com) [anchor](#anchor) [mail](mailto:test@example.com)"
+        check_relative_links(result, {}, body, Path("test.md"), {"_check_links": True})
+        assert len(result.warnings) == 0
+
+    def test_valid_link_passes(self, tmp_path):
+        doc = tmp_path / "doc.md"
+        target = tmp_path / "target.md"
+        target.write_text("hello")
+        result = ValidationResult(file_path=str(doc))
+        body = f"[valid link](target.md)"
+        check_relative_links(result, {}, body, doc, {"_check_links": True})
+        assert len(result.warnings) == 0
+
+    def test_broken_link_warns(self, tmp_path):
+        doc = tmp_path / "doc.md"
+        result = ValidationResult(file_path=str(doc))
+        body = "[broken link](nonexistent.md)"
+        check_relative_links(result, {}, body, doc, {"_check_links": True})
+        assert len(result.warnings) == 1
+        assert "nonexistent.md" in result.warnings[0]
+
+    def test_bare_path_backticks(self, tmp_path):
+        doc = tmp_path / "doc.md"
+        result = ValidationResult(file_path=str(doc))
+        body = "Refer to `../docs/nonexistent.md` for details"
+        check_relative_links(result, {}, body, doc, {"_check_links": True})
+        assert len(result.warnings) == 1
+        assert "nonexistent.md" in result.warnings[0]
