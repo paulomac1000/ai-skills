@@ -178,7 +178,6 @@ exempt_files:
   - README.md
   - docs_standards.md
   - docs-template.md
-  - TODO.md
   - CHANGELOG.md
   - action-version-matrix.md
 

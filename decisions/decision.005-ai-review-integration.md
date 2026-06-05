@@ -27,8 +27,14 @@ AI code review tools integrated into CI/CD pipelines can suggest changes includi
 
 Every AI-suggested commit SHA for a GitHub Action MUST be verified before merging. The verification uses a two-tier fallback strategy:
 
-- **Primary:** `git ls-remote <repo-url> refs/tags/v<semver>` -- compares the resolved SHA to the AI-suggested SHA. Exact match required.
-- **Fallback:** `curl -s https://api.github.com/repos/<owner>/<repo>/git/ref/tags/v<semver> | jq -r '.object.sha'` -- used when `git ls-remote` is unavailable or the repo uses annotated tags where the SHA points to a tag object, not a commit.
+- **Primary:** `git ls-remote <repo-url> refs/tags/v<semver>^{}` -- requests the peeled (dereferenced) commit SHA. Annotated tags in Git store a tag object rather than directly pointing to a commit; without the `^{}` suffix, `git ls-remote` returns the tag object SHA, which will not match a commit SHA and causes false verification failures.
+  - If `^{}` returns a SHA, compare it to the AI-suggested SHA. Exact match required.
+  - If `^{}` returns nothing (lightweight tags or servers that do not support the peeled syntax), fall back to `git ls-remote <repo-url> refs/tags/v<semver>` (without `^{}`) and compare that SHA directly.
+- **Fallback: GitHub API v3** -- used when `git ls-remote` is unavailable or its output is unreliable:
+  1. `GET /repos/<owner>/<repo>/git/ref/tags/v<semver>` → inspect `.object.type`.
+     - If `"tag"` (annotated tag): dereference via `GET /repos/<owner>/<repo>/git/tags/<object.sha>` → use `.object.sha` from the response.
+     - If `"commit"` (lightweight tag): use `.object.sha` directly.
+  2. Compare the resolved commit SHA to the AI-suggested SHA. Exact match required.
 
 If neither method produces an exact match, the SHA MUST be rejected. The CI/CD standard's action-version-matrix reference serves as the ground truth for known-valid SHAs.
 

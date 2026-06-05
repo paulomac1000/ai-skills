@@ -84,7 +84,7 @@ The following actions have known SHA pinning issues or documented failures — u
 | Language | Version |
 |----------|---------|
 | Python | `3.14` |
-| .NET | `8.0.x` (current LTS) |
+| .NET | `10.0.x` (latest) |
 
 ## Version History
 
