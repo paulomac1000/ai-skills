@@ -97,7 +97,7 @@ All compliant CI/CD workflows MUST use the same pinned versions of GitHub Action
 | 3.12 | Supported | ✅ Available | Active maintenance |
 | 3.11 | **Minimum Supported** | ✅ Available | Legacy projects |
 
-**[RULE: CI-CDW-4a] All NEW projects SHOULD target the recommended version. Existing projects SHOULD use the minimum supported version for maximum compatibility.**
+**[RULE: CI-CDW-4a] [L1+]** New projects SHOULD target the latest stable version (3.13); teams MAY opt into the recommended pre-release version (3.14) if early adoption and potential CI risk are acceptable. Existing projects SHOULD continue using the minimum supported version (3.11) for maximum compatibility.
 
 ### Rule 4: CI Pipeline Structure (`ci.yml`)
 

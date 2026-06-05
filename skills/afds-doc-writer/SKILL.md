@@ -29,7 +29,7 @@ PRIME DIRECTIVES:
 0. METADATA: Never update version, last_verified, or other metadata fields. These are CI-managed. Agent writes content only.
 1. SSOT: Search before creating. Link, never duplicate.
 2. SCHEMA: Follow type-specific body schema. Narrative in guide.*, formal in ref.*/sys.*.
-3. LANGUAGE: Universal banned words only (`might`, `maybe`, `possibly`, `probably`, `often`, `simply`, `just`). Natural prose where clarity demands it.
+3. LANGUAGE: Universal banned words only (see AMBIGUITY KILLERS below for the canonical list). Natural prose where clarity demands it.
 4. EVOLUTION: Append CHANGELOG for contract.* and decision.* documents only. Update last_verified.
 5. INTEGRITY: Verify upstream references resolve to existing files. Do not verify bidirectional consistency.
 

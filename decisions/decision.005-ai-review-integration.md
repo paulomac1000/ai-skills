@@ -75,6 +75,8 @@ AI code review tools may suggest both SHA changes and structural workflow change
 - `proposed: 2026-06-05` -- Based on experience with AI-suggested SHAs during CI/CD standard adoption
 - `active: 2026-06-05` -- Approved as part of the CI/CD security baseline
 ## CHANGELOG
+
 | Version | Date | Change | Author |
 |---------|------|--------|--------|
 | 1.0.0 | 2026-06-05 | Initial decision -- SHA verification protocol, Dependabot review rules, AI suggestion verification requirement | ai-skills-maintainer |
+

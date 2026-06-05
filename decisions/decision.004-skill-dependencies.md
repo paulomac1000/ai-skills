@@ -28,7 +28,7 @@ Each Jinja2 template in `ci-cd-architect/templates/` has a one-to-one relationsh
 
 ### 2. CI/CD Architect Depends on AFDS Doc-Writer
 
-`docs-validation.yml.j2` consumes `docs_validate.py` and `afds_config.yaml` from `afds-doc-writer`. This is a runtime dependency: the CI pipeline calls the validator script with the config file. If the AFDS skill changes its validation script path or config schema, the CI/CD template must be updated in lockstep. The `upstream` field in `ref.ci-cd-standard` does not currently list `afds-doc-writer`; this is a gap documented in TODO.md.
+`docs-validation.yml.j2` consumes `docs_validate.py` and `afds_config.yaml` from `afds-doc-writer`. This is a runtime dependency: the CI pipeline calls the validator script with the config file. If the AFDS skill changes its validation script path or config schema, the CI/CD template must be updated in lockstep. The `upstream` field in `ref.ci-cd-standard` does not currently list `afds-doc-writer`; this is a gap tracked as decision.004 upstream gap.
 
 ### 3. SKILL.md `upstream` Field Convention
 
@@ -60,7 +60,7 @@ Every standard (MCP architect, MCP consumer, CI/CD) references `ref.documentatio
 
 **Negative:** Upstream fields are currently maintained manually. A standard rename (e.g., `ref.documentation-standard` to `std.afds-docs-v3`) requires updating every dependent file. The CI/CD-to-AFDS dependency gap (missing `afds-doc-writer` in `ci-cd-standard.md` upstream) means a breaking change in the validator could silently break docs-validation workflows.
 
-**Mitigations:** The `test_cross_refs.py` test suite catches doc_id mismatches. CI pipelines validate frontmatter schema at commit time. The TODO.md entry for the CI/CD-to-AFDS upstream gap serves as a reminder to formalize the relationship.
+**Mitigations:** The `test_cross_refs.py` test suite catches doc_id mismatches. CI pipelines validate frontmatter schema at commit time. The CI/CD-to-AFDS upstream gap serves as a reminder to formalize the relationship.
 
 ## STATUS
 

@@ -77,8 +77,8 @@ The following actions have known SHA pinning issues or documented failures — u
 | `codecov/codecov-action` | v6 | `e79a6962e0d4c0c17b229090214935d2e33f8354` | ✅ |
 | `returntocorp/semgrep-action` | v1 | `713efdd345f3035192eaa63f56867b88e63e4e5d` | ✅ |
 | `github/codeql-action/upload-sarif` | v4 | `411bbbe57033eedfc1a82d68c01345aa96c737d7` | ✅ |
-| `dorny/test-reporter` | v3 | — | ❌ |
-| `marocchino/sticky-pull-request-comment` | v3 | — | ❌ |
+| `dorny/test-reporter` | v3 | `1cc81a5edf733718d4850df304aaa21c05cd7280` | ✅ |
+| `marocchino/sticky-pull-request-comment` | v3.0.4 | `0ea0beb66eb9baf113663a64ec522f60e49231c0` | ✅ |
 
 **Language versions:**
 | Language | Version |

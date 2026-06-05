@@ -943,7 +943,11 @@ def check_relative_links(
         return
     
     # Find standard markdown links: [text](url) and ![alt](url)
-    md_links = re.findall(r'!?\[[^\]]*\]\(([^)]+)\)', body)
+    # Support optional titles: (target.md "title"), (target.md 'title'), (<target.md>)
+    link_pattern = re.compile(
+        r'!?\[[^\]]*\]\(\s*(<[^>]+>|[^)\s]+)(?:\s+(?:"[^"]*"|\'[^\']*\'))?\s*\)'
+    )
+    md_links = [m.group(1).strip('<>') for m in link_pattern.finditer(body)]
     
     # Find bare-path references in backticks: `../docs/...` or `docs/...` or `./docs/...`
     backticks = re.findall(r'`([^`\n]+)`', body)

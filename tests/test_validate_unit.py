@@ -260,7 +260,7 @@ class TestCheckRelativeLinks:
         target = tmp_path / "target.md"
         target.write_text("hello")
         result = ValidationResult(file_path=str(doc))
-        body = f"[valid link](target.md)"
+        body = "[valid link](target.md)"
         check_relative_links(result, {}, body, doc, {"_check_links": True})
         assert len(result.warnings) == 0
 

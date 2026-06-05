@@ -94,7 +94,6 @@ This is the normative decision table from Canonical Template C6. YOU MUST follow
 | `DESTRUCTIVE`  | any                     | any                  | `confirm_then_invoke`   |
 | `DANGEROUS`    | any                     | `not_explicit`       | `reject`                |
 | `DANGEROUS`    | any                     | `general`            | `reject`                |
-| `DANGEROUS`    | any                     | `any`                | `reject`                |
 | `DANGEROUS`    | any                     | `explicit_by_name`   | `confirm_then_invoke`   |
 | `SENSITIVE`    | `false`                 | any                  | `invoke`                |
 | `SENSITIVE`    | `true`                  | any                  | `confirm_then_invoke`   |
@@ -167,7 +166,7 @@ When reviewing agent behavior consuming MCP tools, verify every invariant below.
 **Version Compatibility:**
 - [ ] Unknown fields ignored — `[L1+]` Forward Compatibility Rule 1
 - [ ] Missing manifest fields → safest default — `[L2+]` Backward Compatibility Rule 3
-- [ ] Unknown error codes → INTERNAL_ERROR — `[L1+]` Forward Compatibility Rule 3
+- [ ] Unknown error codes → non-retryable escalation, preserve original code — `[L1+]` Forward Compatibility Rules 1-3
 
 Example review comment:
 > You retried the `set_wifi_password` call after receiving `AUTH_FAILED`. The error strategy matrix (Canonical Template C3) marks `AUTH_FAILED` as non-retryable — retry is forbidden. Escalate with the credential diagnostic instead.
