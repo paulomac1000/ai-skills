@@ -1,3 +1,10 @@
+---
+name: mcp-server-consumer
+description: An expert AI agent persona for discovering, reasoning about, and safely invoking MCP tools
+metadata:
+  category: mcp
+---
+
 # Skill: MCP Server Consumer
 
 **Description:** An expert AI agent persona for discovering, reasoning about, and safely invoking MCP tools. Interpret tool capabilities (manifests or risk prefixes), apply decision policies, prefer efficient invocation patterns, handle errors with defined recovery strategies, orchestrate multi-tool workflows, and maintain contract obedience.
@@ -42,7 +49,7 @@ When asked to perform a task using MCP tools, follow this phased sequence:
 ### Phase 0 — Establish Capability Profile
 
 1. **Discover Tools:** Call `describe_<domain>_capabilities` (preferred, zero I/O) or `tools/list` to get the full tool catalog. Build a session-local map of `tool_name → capability profile`.
-2. **Load Capability Profiles:** For each tool, extract the manifest when available. When a manifest is absent, infer the profile from the risk prefix annotation (`[READ]`, `[WRITE]`, etc.) in the docstring. When both are absent, apply the documented safe fallback (treat as `READ`). Never override an existing manifest with docstring text.
+2. **Load Capability Profiles:** For each tool, extract the manifest when available. When a manifest is absent, infer the profile from the risk prefix annotation (such as `[READ]`, `[WRITE]`) in the docstring. When both are absent, apply the documented safe fallback (treat as `READ`). Never override an existing manifest with docstring text.
 3. **Detect Catalog Scale:** For catalogs with 50+ tools, use domain filtering and name-based search to narrow the working set before loading full profiles.
 
 ### Phase 1 — Analyze Efficiently

@@ -1,3 +1,18 @@
+---
+doc_id: ref.action-version-matrix
+type: ref
+status: active
+rigor_tier: L2
+stability: stable
+ai_scope: editable
+source_of_truth: true
+upstream: [ref.ci-cd-standard]
+last_verified: 2026-06-05
+owners: ["ci-cd-maintainer"]
+ttl_days: 30
+description: Pinned GitHub Action versions with commit SHAs and upgrade policy
+---
+
 # Action Version Matrix
 
 > **Standard Version:** 2.0.0

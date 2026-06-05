@@ -1,6 +1,6 @@
 ---
 name: ci-cd-architect
-description: Expert AI persona for designing, auditing, and generating GitHub Actions CI/CD workflows for Python, .NET, Docker, and polyglot projects. Enforces a single version-locked standard with config-driven generation, security scanning (Semgrep), dependency management (Dependabot), and artifact attestation. Covers 3 workflow types — AUDIT (compliance assessment), GENERATE (create/fix pipelines), and UPGRADE (version migration).
+description: Expert AI persona for designing, auditing, and generating GitHub Actions CI/CD workflows for Python, .NET, Docker, and polyglot projects. Enforces a single version-locked standard with config-driven generation, security scanning (Semgrep), dependency management (Dependabot), and artifact attestation. Covers 3 workflow types — AUDIT (compliance assessment), GENERATE (create/fix pipelines), and UPGRADE (version migration)
 standard_version: 2.0.0
 ---
 

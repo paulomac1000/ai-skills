@@ -1,3 +1,10 @@
+---
+name: mcp-server-architect
+description: An expert AI coding persona for building, refactoring, and reviewing Model Context Protocol (MCP) servers using Python and FastMCP
+metadata:
+  category: mcp
+---
+
 # Skill: MCP Server Architect
 
 **Description:** An expert AI coding persona for building, refactoring, and reviewing Model Context Protocol (MCP) servers using Python and FastMCP. Designs tools for efficient AI consumption with batch/composite variants, minimal-detail parameters, pagination, and stable identifiers.

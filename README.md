@@ -11,8 +11,8 @@ Skills are persona-driven system prompts. Load them into AI agents to enforce st
 | Skill | File | What it does |
 |-------|------|--------------|
 | AFDS Technical Writer | [`SKILL.md`](skills/afds-doc-writer/SKILL.md) | System prompt — AI agent writes documentation matching AFDS schema. Includes taxonomy router, document templates, and language rules. |
-| MCP Server Architect | [`skill.md`](skills/mcp-server-architect/skill.md) | System prompt — AI agent builds MCP servers per standard. Includes design directives, strict constraints, canonical template selection, consumer ergonomics, and semantic rule anchors. |
-| MCP Server Consumer | [`skill.md`](skills/mcp-server-consumer/skill.md) | System prompt — AI agent discovers, reasons about, and safely invokes MCP tools. Interprets manifests (or risk prefix fallback), applies decision policies, prefers batch/composite calls, starts with minimal detail, handles errors with defined recovery strategies. |
+| MCP Server Architect | [`SKILL.md`](skills/mcp-server-architect/SKILL.md) | System prompt — AI agent builds MCP servers per standard. Includes design directives, strict constraints, canonical template selection, consumer ergonomics, and semantic rule anchors. |
+| MCP Server Consumer | [`SKILL.md`](skills/mcp-server-consumer/SKILL.md) | System prompt — AI agent discovers, reasons about, and safely invokes MCP tools. Interprets manifests (or risk prefix fallback), applies decision policies, prefers batch/composite calls, starts with minimal detail, handles errors with defined recovery strategies. |
 | CI/CD Architect | [`SKILL.md`](skills/ci-cd-architect/SKILL.md) | System prompt — AI agent designs, audits, and generates GitHub Actions workflows per standard. v2.0.0: commit-SHA action pinning, auto-tag→publish chain, .NET 10 support, Semgrep migration. |
 
 ### Standards
@@ -54,10 +54,10 @@ skills/
 │   └── afds_config.yaml          Validator configuration
 ├── mcp-server-architect/         ← MCP server skill
 │   ├── mcp-server-standards.md   Standard
-│   └── skill.md                  System prompt for AI agents
+│   └── SKILL.md                  System prompt for AI agents
 ├── mcp-server-consumer/          ← MCP consumer skill
 │   ├── mcp-consumer-standards.md Standard
-│   ├── skill.md                  System prompt for AI agents
+│   ├── SKILL.md                  System prompt for AI agents
 │   └── tools/                    Reference implementation (decision engine)
 └── ci-cd-architect/              ← CI/CD skill
     ├── ci-cd-standard.md         Standard

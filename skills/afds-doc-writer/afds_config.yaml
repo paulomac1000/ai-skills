@@ -180,6 +180,7 @@ exempt_files:
   - docs-template.md
   - TODO.md
   - CHANGELOG.md
+  - action-version-matrix.md
 
 normative_sections:
   - RULES

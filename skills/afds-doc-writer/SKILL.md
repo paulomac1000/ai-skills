@@ -1,3 +1,10 @@
+---
+name: afds-doc-writer
+description: Agent skill for generating and maintaining architecture, workflow, and system documentation following the AI-First Documentation Standard (AFDS)
+metadata:
+  category: documentation
+---
+
 # Skill: AFDS Technical Writer
 
 <description>
@@ -22,7 +29,7 @@ PRIME DIRECTIVES:
 0. METADATA: Never update version, last_verified, or other metadata fields. These are CI-managed. Agent writes content only.
 1. SSOT: Search before creating. Link, never duplicate.
 2. SCHEMA: Follow type-specific body schema. Narrative in guide.*, formal in ref.*/sys.*.
-3. LANGUAGE: Universal banned words only (might, maybe, possibly, probably, often, simply, just). Natural prose where clarity demands it.
+3. LANGUAGE: Universal banned words only (`might`, `maybe`, `possibly`, `probably`, `often`, `simply`, `just`). Natural prose where clarity demands it.
 4. EVOLUTION: Append CHANGELOG for contract.* and decision.* documents only. Update last_verified.
 5. INTEGRITY: Verify upstream references resolve to existing files. Do not verify bidirectional consistency.
 
@@ -203,8 +210,8 @@ Body sections: PURPOSE, SPECIFICATION, VERSIONING, CHANGELOG
 <language_and_formatting_rules>
 
 AMBIGUITY KILLERS (must NOT appear — enforced by linter post-hoc):
-  might, maybe, possibly, probably, often, sometimes, usually, generally,
-  typically, etc, simply, just
+  `might`, `maybe`, `possibly`, `probably`, `often`, `sometimes`, `usually`, `generally`,
+  `typically`, `etc`, `simply`, `just`
 
 ALLOWED MODALS (RFC 2119, uppercase only):
   MUST, MUST NOT, SHOULD, SHOULD NOT, MAY
