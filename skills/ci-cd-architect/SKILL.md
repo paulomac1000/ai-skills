@@ -286,6 +286,7 @@ When reviewing CI/CD workflows against this standard, verify every invariant. Ci
 - [ ] Exactly three workflow files exist (or two for dockerless): `ci.yml`, `publish.yml`, `auto-tag.yml` — `[RULE: CI-CDW-1]`
 - [ ] Workflow files are named correctly — `[RULE: CI-CDW-2]`
 - [ ] `.github/ci-cd-config.yaml` or `pyproject.toml [tool.ci-cd]` exists — `[RULE: CI-CDW-32]`
+- [ ] Every `actions/checkout` step includes `persist-credentials: false` — `[RULE: CI-CDW-79]`
 
 **Action Versions:**
 - [ ] `actions/checkout` is `v6` — `[RULE: CI-CDW-3]`
@@ -301,6 +302,7 @@ When reviewing CI/CD workflows against this standard, verify every invariant. Ci
 - [ ] Three sequential jobs: `lint`, `test`, `docker-smoke` — `[RULE: CI-CDW-5]`
 - [ ] Python is latest stable (currently `3.14`) — `[RULE: CI-CDW-4]`
 - [ ] Ruff check runs without `--ignore` flags — `[RULE: CI-CDW-7]`
+- [ ] When using `cache: pip`, a compatible dependency file exists in the repository — `[RULE: CI-CDW-81]`
 - [ ] Ruff format check runs — `[RULE: CI-CDW-6]`
 - [ ] Mypy runs with `--strict` — `[RULE: CI-CDW-8]`
 - [ ] Bandit runs with `-ll`, no `|| true` — `[RULE: CI-CDW-9]`
@@ -321,6 +323,7 @@ When reviewing CI/CD workflows against this standard, verify every invariant. Ci
 
 **publish.yml:**
 - [ ] Three triggers: `workflow_run`, `tags v*`, `workflow_dispatch` — `[RULE: CI-CDW-19]`
+- [ ] `workflow_run` trigger guarded with `branches: [main, master]`, `types: [completed]`, and `conclusion == 'success'` check — `[RULE: CI-CDW-80]`
 - [ ] Multi-arch: `linux/amd64,linux/arm64` — `[RULE: CI-CDW-20]`
 - [ ] Docker tags: semver + sha + latest (no hardcoded versions) — `[RULE: CI-CDW-21]`, `[RULE: CI-CDW-24]`
 - [ ] Artifact attestation with `push-to-registry: true` — `[RULE: CI-CDW-22]`

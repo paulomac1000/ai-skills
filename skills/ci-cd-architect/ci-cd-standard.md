@@ -826,6 +826,18 @@ if (existing) {
 git ls-remote https://github.com/<owner>/<repo>.git refs/tags/v<major> | awk '{print $1}'
 ```
 
+### Rule 24: Checkout Security (`CI-CDW-79`)
+
+**[RULE: CI-CDW-79] [L1+]** Every `actions/checkout` step in every workflow file MUST include `persist-credentials: false`. This prevents the GITHUB_TOKEN from being persisted to subsequent steps, reducing the risk of credential leaks in third-party actions and build scripts.
+
+### Rule 25: Workflow Run Trigger Guard (`CI-CDW-80`)
+
+**[RULE: CI-CDW-80] [L2+]** Workflows using the `workflow_run` trigger MUST guard with explicit `branches:` filter (`[main, master]`) to prevent execution on pull request CI runs. Additionally, the event type MUST be verified (`types: [completed]`) and the triggering workflow MUST have succeeded (`github.event.workflow_run.conclusion == 'success'`).
+
+### Rule 26: Cache Dependency Validation (`CI-CDW-81`)
+
+**[RULE: CI-CDW-81] [L2+]** When using `cache: pip` in `actions/setup-python`, a dependency file (`requirements.txt` or `pyproject.toml`) MUST exist in the repository. For repositories without pip dependencies (e.g., pure documentation repos, .NET-only repos), omit the `cache: pip` option to prevent CI failures from missing cache sources.
+
 ## INTERFACES
 
 - INPUT: GitHub repository with configuration contract (`.github/ci-cd-config.yaml` or `pyproject.toml [tool.ci-cd]`), source code, and test suite.
@@ -919,6 +931,12 @@ See `templates/auto-tag.yml.j2` for the Jinja2 template.
 - It does not prescribe a specific tool for generating workflow files from templates (Jinja2 is a suggestion; any template engine works).
 
 ## CHANGELOG
+
+### v2.0.1 (2026-06-05) — Checkout security, workflow_run guard, cache validation
+
+- Added Rule 24 / CI-CDW-79: `actions/checkout` MUST include `persist-credentials: false`
+- Added Rule 25 / CI-CDW-80: `workflow_run` trigger guard with explicit branches, event type, and conclusion check
+- Added Rule 26 / CI-CDW-81: `cache: pip` dependency validation — requires `requirements.txt` or `pyproject.toml`
 
 ### v2.0.0 (2026-05-23) — Security hardening + version bumps + deployment patches
 
