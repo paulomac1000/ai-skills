@@ -88,6 +88,17 @@ All compliant CI/CD workflows MUST use the same pinned versions of GitHub Action
 
 **[RULE: CI-CDW-4] [L1+]** All CI workflows MUST use the latest available stable Python version. At time of writing, this is `3.14`. The version MUST be set in the `with.python-version` field of `actions/setup-python` and MUST be read from the project's configuration contract (`ci-cd-config.yaml` or `pyproject.toml [tool.ci-cd]`). It MUST NOT be hardcoded differently per project.
 
+### Python Version Policy
+
+| Python Version | Status | GitHub Actions | Notes |
+|---------------|--------|---------------|-------|
+| 3.14 | **Recommended** (pre-release) | ⚠️ May need `allow-prereleases: true` | Bleeding edge, CI may fail if not available |
+| 3.13 | Stable (latest stable) | ✅ Available | Reliable fallback |
+| 3.12 | Supported | ✅ Available | Active maintenance |
+| 3.11 | **Minimum Supported** | ✅ Available | Legacy projects |
+
+**[RULE: CI-CDW-4a] All NEW projects SHOULD target the recommended version. Existing projects SHOULD use the minimum supported version for maximum compatibility.**
+
 ### Rule 4: CI Pipeline Structure (`ci.yml`)
 
 The CI pipeline consists of three sequential jobs. Each job depends on the previous one succeeding.
@@ -343,7 +354,7 @@ The configuration contract defines these parameters:
 | `use_docs_validation` | No | Whether to validate documentation in CI (default: `false`, auto-enabled when `docs/` exists) | `true` / `false` |
 | `docs_paths` | No | Paths to scan for documentation validation | `["docs/", "*.md"]` |
 | `docs_validation_script` | No | Path to the documentation validation script | `scripts/validate_docs.py` |
-| `dotnet_version` | No | .NET SDK version (required when `language: dotnet`) | `"10.0.x"` |
+| `dotnet_version` | No | .NET SDK version (required when `language: dotnet`) | `"8.0.x"` (10.0.x is preview, 8.0.x is current LTS) |
 | `dotnet_solution` | No | Path to .NET solution file (required when `language: dotnet`) | `src/MyApp.sln` |
 | `version_source` | No | Source for auto-tag version extraction: `"pyproject"` (default) or `"directory-build-props"` (.NET) | `"pyproject"` |
 
@@ -915,7 +926,7 @@ See `templates/auto-tag.yml.j2` for the Jinja2 template.
 - **BREAKING:** All action references now use full commit SHA format (`owner/repo@<sha>  # vX`)
 - Bumped `actions/upload-artifact` from v4 → v7
 - Bumped `actions/download-artifact` from v4 → v8
-- Updated .NET SDK from 8.0.x → 10.0.x
+- Updated .NET SDK from 10.0.x → 8.0.x (current LTS); 10.0.x is preview, not LTS
 - Added rules CI-CDW-73, CI-CDW-74, CI-CDW-75 (commit SHA pinning)
 - Added rules CI-CDW-76,76a,76b,76c,76d: auto-tag→publish chain with gh workflow run (filename-based via publish.yml, workflow_dispatch standalone trigger, SKIP_TAG env var pattern)
 - Added rule CI-CDW-77: `--strict` flag on docs-validation MUST be configurable, SHOULD default to off (warnings are advisory, should not fail CI)
