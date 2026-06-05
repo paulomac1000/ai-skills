@@ -1,5 +1,30 @@
 # Changelog
 
+## 2026-06-05
+
+### v2.1.0 — Frontmatter standardization, template hardening, version policy
+
+**afds-doc-writer:**
+- `docs_validate.py`: Added `--json`, `--check-links`, `check_skill_frontmatter()`, `check_relative_links()`
+- `afds_config.yaml`: Added `name`, `metadata` to allowed_fields, `action-version-matrix.md` to exempt_files
+- All SKILL.md files now have YAML frontmatter (name, description, metadata)
+
+**mcp-server-architect + mcp-server-consumer:**
+- SKILL.md naming standardized (skill.md → SKILL.md)
+
+**ci-cd-architect:**
+- Version policy table: Python 3.14 (recommended/pre-release) through 3.11 (minimum), .NET 8.0.x LTS
+- New rules: CI-CDW-79 (persist-credentials), CI-CDW-80 (workflow_run guard), CI-CDW-81 (cache:pip guard)
+- All 8 workflow templates: SHA-pinned actions, persist-credentials: false, FORCE_JAVASCRIPT_ACTIONS_TO_NODE24
+- Template headers: v1.0.0 → v2.0.0
+- `action-version-matrix.md`: YAML frontmatter added, all 18 SHAs verified via git ls-remote
+
+**Cross-skill:**
+- `SKILL.md` naming standardized across all 4 skills
+- New: decision.004-skill-dependencies.md, decision.005-ai-review-integration.md
+
+**Tests:** 393 pass, no regressions
+
 ## 2026-06-01
 
 ### mcp-server-consumer: new skill — safe and efficient MCP tool operator
