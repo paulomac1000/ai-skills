@@ -1,0 +1,209 @@
+{
+  "schema_version": 2,
+  "active_work_id": "ai-skills-vnext-89dd30e2",
+  "works": {
+    "ai-skills-vnext-8fadfcd2": {
+      "work_id": "ai-skills-vnext-8fadfcd2",
+      "active_plan": "/var/apps/ai-skills/.omo/plans/ai-skills-vnext.md",
+      "plan_name": "ai-skills-vnext",
+      "status": "active",
+      "started_at": "2026-06-05T19:14:00.925Z",
+      "updated_at": "2026-06-05T19:14:00.925Z",
+      "session_ids": [
+        "opencode:ses_166eb85aeffecB6zYJjwPcifyS"
+      ],
+      "session_origins": {
+        "opencode:ses_166eb85aeffecB6zYJjwPcifyS": "direct"
+      },
+      "agent": "atlas",
+      "task_sessions": {}
+    },
+    "ai-skills-vnext-89dd30e2": {
+      "work_id": "ai-skills-vnext-89dd30e2",
+      "active_plan": "/var/apps/ai-skills/.omo/plans/ai-skills-vnext.md",
+      "plan_name": "ai-skills-vnext",
+      "status": "active",
+      "started_at": "2026-06-05T19:14:00.981Z",
+      "updated_at": "2026-06-05T19:33:44.618Z",
+      "session_ids": [
+        "opencode:ses_166eb85aeffecB6zYJjwPcifyS"
+      ],
+      "session_origins": {
+        "opencode:ses_166eb85aeffecB6zYJjwPcifyS": "direct"
+      },
+      "agent": "atlas",
+      "task_sessions": {
+        "todo:1": {
+          "task_key": "todo:1",
+          "task_label": "1",
+          "task_title": "`templates/publish.yml.j2`: `docker/metadata-action@v6` and `actions/attest@v4` need SHA pinning",
+          "session_id": "opencode:ses_166bc13e7ffeHqv1JEroWTVaUu",
+          "agent": "Sisyphus-Junior",
+          "category": "quick",
+          "started_at": "2026-06-05T19:17:23.524Z",
+          "ended_at": "2026-06-05T19:31:20.997Z",
+          "elapsed_ms": 837473,
+          "status": "completed",
+          "updated_at": "2026-06-05T19:31:20.997Z"
+        },
+        "todo:2": {
+          "task_key": "todo:2",
+          "task_label": "2",
+          "task_title": "Fix `skills/mcp-server-architect/skill.md` → rename + add YAML frontmatter",
+          "session_id": "opencode:ses_166c7928cffeDX1rNaK94orCvl",
+          "agent": "Sisyphus-Junior",
+          "category": "quick",
+          "updated_at": "2026-06-05T19:20:08.492Z",
+          "started_at": "2026-06-05T19:20:00.685Z",
+          "status": "completed",
+          "ended_at": "2026-06-05T19:20:08.492Z",
+          "elapsed_ms": 7807
+        },
+        "todo:6": {
+          "task_key": "todo:6",
+          "task_label": "6",
+          "task_title": "`templates/ci.yml.j2` — SHA pinning + persist-credentials + --break-system-packages",
+          "session_id": "opencode:ses_166c1afb3fferxnH2VmguYG7tA",
+          "agent": "Sisyphus-Junior",
+          "category": "quick",
+          "started_at": "2026-06-05T19:23:59.464Z",
+          "status": "completed",
+          "updated_at": "2026-06-05T19:26:47.450Z",
+          "ended_at": "2026-06-05T19:26:47.450Z",
+          "elapsed_ms": 167986
+        },
+        "todo:9": {
+          "task_key": "todo:9",
+          "task_label": "9",
+          "task_title": "`templates/docs-validation.yml.j2` — SHA pinning + FORCE_JAVASCRIPT_ACTIONS_TO_NODE24 + --break-system-packages",
+          "session_id": "opencode:ses_166bef600ffe2Ux9Vgt5d0S511",
+          "agent": "Sisyphus-Junior",
+          "category": "quick",
+          "updated_at": "2026-06-05T19:29:50.275Z",
+          "started_at": "2026-06-05T19:28:22.395Z",
+          "status": "completed",
+          "ended_at": "2026-06-05T19:29:50.275Z",
+          "elapsed_ms": 87880
+        },
+        "todo:12": {
+          "task_key": "todo:12",
+          "task_label": "12",
+          "task_title": "`templates/semgrep-scheduled.yml.j2` — SHA pinning only",
+          "session_id": "opencode:ses_166bc29f6ffeIEQ9KmkcmRU1Kc",
+          "agent": "Sisyphus-Junior",
+          "category": "quick",
+          "updated_at": "2026-06-05T19:31:37.617Z",
+          "started_at": "2026-06-05T19:30:44.732Z",
+          "status": "completed",
+          "ended_at": "2026-06-05T19:31:37.617Z",
+          "elapsed_ms": 52885
+        },
+        "todo:18": {
+          "task_key": "todo:18",
+          "task_label": "18",
+          "task_title": "Create `decisions/decision.004-skill-dependencies.md`",
+          "session_id": "opencode:ses_166bac19cffeGMWWHE63vwVtna",
+          "agent": "Sisyphus-Junior",
+          "category": "writing",
+          "updated_at": "2026-06-05T19:33:44.618Z",
+          "started_at": "2026-06-05T19:33:33.171Z",
+          "status": "completed",
+          "ended_at": "2026-06-05T19:33:44.618Z",
+          "elapsed_ms": 11447
+        }
+      }
+    }
+  },
+  "active_plan": "/var/apps/ai-skills/.omo/plans/ai-skills-vnext.md",
+  "started_at": "2026-06-05T19:14:00.981Z",
+  "status": "active",
+  "updated_at": "2026-06-05T19:33:44.618Z",
+  "session_ids": [
+    "opencode:ses_166eb85aeffecB6zYJjwPcifyS"
+  ],
+  "session_origins": {
+    "opencode:ses_166eb85aeffecB6zYJjwPcifyS": "direct"
+  },
+  "plan_name": "ai-skills-vnext",
+  "task_sessions": {
+    "todo:1": {
+      "task_key": "todo:1",
+      "task_label": "1",
+      "task_title": "`templates/publish.yml.j2`: `docker/metadata-action@v6` and `actions/attest@v4` need SHA pinning",
+      "session_id": "opencode:ses_166bc13e7ffeHqv1JEroWTVaUu",
+      "agent": "Sisyphus-Junior",
+      "category": "quick",
+      "started_at": "2026-06-05T19:17:23.524Z",
+      "ended_at": "2026-06-05T19:31:20.997Z",
+      "elapsed_ms": 837473,
+      "status": "completed",
+      "updated_at": "2026-06-05T19:31:20.997Z"
+    },
+    "todo:2": {
+      "task_key": "todo:2",
+      "task_label": "2",
+      "task_title": "Fix `skills/mcp-server-architect/skill.md` → rename + add YAML frontmatter",
+      "session_id": "opencode:ses_166c7928cffeDX1rNaK94orCvl",
+      "agent": "Sisyphus-Junior",
+      "category": "quick",
+      "updated_at": "2026-06-05T19:20:08.492Z",
+      "started_at": "2026-06-05T19:20:00.685Z",
+      "status": "completed",
+      "ended_at": "2026-06-05T19:20:08.492Z",
+      "elapsed_ms": 7807
+    },
+    "todo:6": {
+      "task_key": "todo:6",
+      "task_label": "6",
+      "task_title": "`templates/ci.yml.j2` — SHA pinning + persist-credentials + --break-system-packages",
+      "session_id": "opencode:ses_166c1afb3fferxnH2VmguYG7tA",
+      "agent": "Sisyphus-Junior",
+      "category": "quick",
+      "started_at": "2026-06-05T19:23:59.464Z",
+      "status": "completed",
+      "updated_at": "2026-06-05T19:26:47.450Z",
+      "ended_at": "2026-06-05T19:26:47.450Z",
+      "elapsed_ms": 167986
+    },
+    "todo:9": {
+      "task_key": "todo:9",
+      "task_label": "9",
+      "task_title": "`templates/docs-validation.yml.j2` — SHA pinning + FORCE_JAVASCRIPT_ACTIONS_TO_NODE24 + --break-system-packages",
+      "session_id": "opencode:ses_166bef600ffe2Ux9Vgt5d0S511",
+      "agent": "Sisyphus-Junior",
+      "category": "quick",
+      "updated_at": "2026-06-05T19:29:50.275Z",
+      "started_at": "2026-06-05T19:28:22.395Z",
+      "status": "completed",
+      "ended_at": "2026-06-05T19:29:50.275Z",
+      "elapsed_ms": 87880
+    },
+    "todo:12": {
+      "task_key": "todo:12",
+      "task_label": "12",
+      "task_title": "`templates/semgrep-scheduled.yml.j2` — SHA pinning only",
+      "session_id": "opencode:ses_166bc29f6ffeIEQ9KmkcmRU1Kc",
+      "agent": "Sisyphus-Junior",
+      "category": "quick",
+      "updated_at": "2026-06-05T19:31:37.617Z",
+      "started_at": "2026-06-05T19:30:44.732Z",
+      "status": "completed",
+      "ended_at": "2026-06-05T19:31:37.617Z",
+      "elapsed_ms": 52885
+    },
+    "todo:18": {
+      "task_key": "todo:18",
+      "task_label": "18",
+      "task_title": "Create `decisions/decision.004-skill-dependencies.md`",
+      "session_id": "opencode:ses_166bac19cffeGMWWHE63vwVtna",
+      "agent": "Sisyphus-Junior",
+      "category": "writing",
+      "updated_at": "2026-06-05T19:33:44.618Z",
+      "started_at": "2026-06-05T19:33:33.171Z",
+      "status": "completed",
+      "ended_at": "2026-06-05T19:33:44.618Z",
+      "elapsed_ms": 11447
+    }
+  },
+  "agent": "atlas"
+}

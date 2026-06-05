@@ -3,7 +3,7 @@
 # Template for ci-cd-architect standard v2.0.0, Rule 18.
 # Language-agnostic. Validates Markdown documentation quality.
 # Uses tj-actions/changed-files for incremental validation (only changed docs).
-# PR comment posted/updated via actions/github-script@v9 with marker <!-- docs-validation-bot -->.
+# PR comment posted/updated via actions/github-script (SHA-pinned) with marker <!-- docs-validation-bot -->.
 #
 # Substitution variables (from .github/ci-cd-config.yaml):
 #   {{ docs_paths }}           — list of paths to scan, e.g. ["docs/", "*.md", ".agents/"]
@@ -45,6 +45,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
         with:
+          persist-credentials: false
           fetch-depth: 0
 
       - name: Set up Python
