@@ -103,7 +103,7 @@ jobs:
 
       - name: Publish test results to PR
         if: always() && hashFiles('TestResults/**/*.trx') != ''
-        uses: dorny/test-reporter@v3
+        uses: dorny/test-reporter@1cc81a5edf733718d4850df304aaa21c05cd7280  # v3
         with:
           name: Unit Tests
           path: "TestResults/**/*.trx"
@@ -121,7 +121,7 @@ jobs:
 
       - name: Post coverage summary to PR
         if: github.event_name == 'pull_request' && always() && hashFiles('coverage-report/SummaryGithub.md') != ''
-        uses: marocchino/sticky-pull-request-comment@v3
+        uses: marocchino/sticky-pull-request-comment@0ea0beb66eb9baf113663a64ec522f60e49231c0  # v3.0.4
         with:
           path: coverage-report/SummaryGithub.md
 
