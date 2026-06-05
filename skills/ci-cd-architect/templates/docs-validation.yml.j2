@@ -1,9 +1,9 @@
 # docs-validation.yml — Documentation Validation
 #
-# Template for ci-cd-architect standard v1.0.0, Rule 18.
+# Template for ci-cd-architect standard v2.0.0, Rule 18.
 # Language-agnostic. Validates Markdown documentation quality.
 # Uses tj-actions/changed-files for incremental validation (only changed docs).
-# PR comment posted/updated via actions/github-script@v9 with marker <!-- docs-validation-bot -->.
+# PR comment posted/updated via actions/github-script (SHA-pinned) with marker <!-- docs-validation-bot -->.
 #
 # Substitution variables (from .github/ci-cd-config.yaml):
 #   {{ docs_paths }}           — list of paths to scan, e.g. ["docs/", "*.md", ".agents/"]
@@ -43,23 +43,24 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
         with:
+          persist-credentials: false
           fetch-depth: 0
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6
         with:
           python-version: "3.14"
 
       - name: Install dependencies
         run: |
-          pip install --upgrade pip
-          pip install pyyaml
+          pip install --upgrade pip --break-system-packages
+          pip install pyyaml --break-system-packages
 
       - name: Get changed markdown files
         id: changed-files
-        uses: tj-actions/changed-files@v47
+        uses: tj-actions/changed-files@24d32ffd492484c1d75e0c0b894501ddb9d30d62  # v47
         with:
           files: |
             **/*.md
@@ -114,7 +115,7 @@ jobs:
 
       - name: Post or update PR comment
         if: github.event_name == 'pull_request'
-        uses: actions/github-script@v9
+        uses: actions/github-script@373c709c69115d41ff229c7e5df9f8788daa9553  # v9
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |

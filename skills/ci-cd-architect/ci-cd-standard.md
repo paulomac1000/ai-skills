@@ -88,6 +88,17 @@ All compliant CI/CD workflows MUST use the same pinned versions of GitHub Action
 
 **[RULE: CI-CDW-4] [L1+]** All CI workflows MUST use the latest available stable Python version. At time of writing, this is `3.14`. The version MUST be set in the `with.python-version` field of `actions/setup-python` and MUST be read from the project's configuration contract (`ci-cd-config.yaml` or `pyproject.toml [tool.ci-cd]`). It MUST NOT be hardcoded differently per project.
 
+### Python Version Policy
+
+| Python Version | Status | GitHub Actions | Notes |
+|---------------|--------|---------------|-------|
+| 3.14 | **Recommended** (pre-release) | ⚠️ May need `allow-prereleases: true` | Bleeding edge, CI may fail if not available |
+| 3.13 | Stable (latest stable) | ✅ Available | Reliable fallback |
+| 3.12 | Supported | ✅ Available | Active maintenance |
+| 3.11 | **Minimum Supported** | ✅ Available | Legacy projects |
+
+**[RULE: CI-CDW-4a] [L1+]** New projects SHOULD target the latest stable version (3.13); teams MAY opt into the recommended pre-release version (3.14) if early adoption and potential CI risk are acceptable. Existing projects SHOULD continue using the minimum supported version (3.11) for maximum compatibility.
+
 ### Rule 4: CI Pipeline Structure (`ci.yml`)
 
 The CI pipeline consists of three sequential jobs. Each job depends on the previous one succeeding.
@@ -815,6 +826,18 @@ if (existing) {
 git ls-remote https://github.com/<owner>/<repo>.git refs/tags/v<major> | awk '{print $1}'
 ```
 
+### Rule 24: Checkout Security (`CI-CDW-79`)
+
+**[RULE: CI-CDW-79] [L1+]** Every `actions/checkout` step in every workflow file MUST include `persist-credentials: false`. This prevents the GITHUB_TOKEN from being persisted to subsequent steps, reducing the risk of credential leaks in third-party actions and build scripts.
+
+### Rule 25: Workflow Run Trigger Guard (`CI-CDW-80`)
+
+**[RULE: CI-CDW-80] [L2+]** Workflows using the `workflow_run` trigger MUST guard with explicit `branches:` filter (`[main, master]`) to prevent execution on pull request CI runs. Additionally, the event type MUST be verified (`types: [completed]`) and the triggering workflow MUST have succeeded (`github.event.workflow_run.conclusion == 'success'`).
+
+### Rule 26: Cache Dependency Validation (`CI-CDW-81`)
+
+**[RULE: CI-CDW-81] [L2+]** When using `cache: pip` in `actions/setup-python`, a dependency file (`requirements.txt` or `pyproject.toml`) MUST exist in the repository. For repositories without pip dependencies (e.g., pure documentation repos, .NET-only repos), omit the `cache: pip` option to prevent CI failures from missing cache sources.
+
 ## INTERFACES
 
 - INPUT: GitHub repository with configuration contract (`.github/ci-cd-config.yaml` or `pyproject.toml [tool.ci-cd]`), source code, and test suite.
@@ -909,13 +932,19 @@ See `templates/auto-tag.yml.j2` for the Jinja2 template.
 
 ## CHANGELOG
 
+### v2.0.1 (2026-06-05) — Checkout security, workflow_run guard, cache validation
+
+- Added Rule 24 / CI-CDW-79: `actions/checkout` MUST include `persist-credentials: false`
+- Added Rule 25 / CI-CDW-80: `workflow_run` trigger guard with explicit branches, event type, and conclusion check
+- Added Rule 26 / CI-CDW-81: `cache: pip` dependency validation — requires `requirements.txt` or `pyproject.toml`
+
 ### v2.0.0 (2026-05-23) — Security hardening + version bumps + deployment patches
 
 - **NOTE:** `semgrep/semgrep-action@v1` remains the canonical action. The upstream repo is archived (Apr 2024) but still resolves tags and executes correctly. The `semgrep/semgrep` repository does NOT exist as a GitHub Action — migration was attempted and reverted based on hybrid-therapist deployment.
 - **BREAKING:** All action references now use full commit SHA format (`owner/repo@<sha>  # vX`)
 - Bumped `actions/upload-artifact` from v4 → v7
 - Bumped `actions/download-artifact` from v4 → v8
-- Updated .NET SDK from 8.0.x → 10.0.x
+- Updated .NET SDK to 10.0.x (latest)
 - Added rules CI-CDW-73, CI-CDW-74, CI-CDW-75 (commit SHA pinning)
 - Added rules CI-CDW-76,76a,76b,76c,76d: auto-tag→publish chain with gh workflow run (filename-based via publish.yml, workflow_dispatch standalone trigger, SKIP_TAG env var pattern)
 - Added rule CI-CDW-77: `--strict` flag on docs-validation MUST be configurable, SHOULD default to off (warnings are advisory, should not fail CI)

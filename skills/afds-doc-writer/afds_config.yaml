@@ -108,6 +108,8 @@ rigor_tier_values:
   - L3
 
 allowed_fields:
+  - name
+  - metadata
   - description
   - doc_id
   - type
@@ -176,6 +178,8 @@ exempt_files:
   - README.md
   - docs_standards.md
   - docs-template.md
+  - CHANGELOG.md
+  - action-version-matrix.md
 
 normative_sections:
   - RULES

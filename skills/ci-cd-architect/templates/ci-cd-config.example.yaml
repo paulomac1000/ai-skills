@@ -108,7 +108,7 @@
 # src_dir: "src/"
 # package: "MyApp"
 # project: "my-dotnet-app"
-# dotnet_version: "8.0.x"
+# dotnet_version: "10.0.x"
 # dotnet_solution: "src/MyApp.sln"
 # use_docker: false
 # is_mcp: false
@@ -128,7 +128,7 @@
 # package: "polyglot_app"
 # project: "polyglot-project"
 # python_version: "3.14"
-# dotnet_version: "8.0.x"
+# dotnet_version: "10.0.x"
 # dotnet_solution: "src/Polyglot.sln"
 # image_name: "polyglot-project:test"
 # smoke_name: "polyglot-smoke"
@@ -207,8 +207,8 @@
 # ---
 # .NET FIELDS:
 #
-# dotnet_version   (optional)  .NET SDK version. Default: "8.0.x"
-#                              Examples: "8.0.x", "9.0.x"
+# dotnet_version   (optional)  .NET SDK version. Default: "10.0.x"
+#                              Examples: "10.0.x"
 #
 # dotnet_solution  (optional)  Path to .sln file. Required for dotnet CI.
 #                              Example: "src/MyApp.sln"
