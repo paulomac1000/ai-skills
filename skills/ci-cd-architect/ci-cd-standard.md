@@ -92,12 +92,12 @@ All compliant CI/CD workflows MUST use the same pinned versions of GitHub Action
 
 | Python Version | Status | GitHub Actions | Notes |
 |---------------|--------|---------------|-------|
-| 3.14 | **Recommended** (pre-release) | ⚠️ May need `allow-prereleases: true` | Bleeding edge, CI may fail if not available |
-| 3.13 | Stable (latest stable) | ✅ Available | Reliable fallback |
+| 3.14 | **Stable (latest)** | ✅ Available | Default for new projects |
+| 3.13 | Supported | ✅ Available | Reliable fallback |
 | 3.12 | Supported | ✅ Available | Active maintenance |
 | 3.11 | **Minimum Supported** | ✅ Available | Legacy projects |
 
-**[RULE: CI-CDW-4a] [L1+]** New projects SHOULD target the latest stable version (3.13); teams MAY opt into the recommended pre-release version (3.14) if early adoption and potential CI risk are acceptable. Existing projects SHOULD continue using the minimum supported version (3.11) for maximum compatibility.
+**[RULE: CI-CDW-4a] [L1+]** New projects MUST target the latest stable version (3.14). Existing projects SHOULD continue using the minimum supported version (3.11) for maximum compatibility; teams MAY migrate to 3.13 or 3.14 as needed.
 
 ### Rule 4: CI Pipeline Structure (`ci.yml`)
 
