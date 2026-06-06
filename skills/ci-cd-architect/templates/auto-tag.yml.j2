@@ -43,11 +43,15 @@ jobs:
       - name: Extract version
         id: version
         run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" && -n "${{ github.event.inputs.version }}" ]]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
 {% if version_source == "directory-build-props" %}
-          VERSION=$(grep '<Version>' Directory.Build.props | head -1 | sed 's/.*<Version>\(.*\)<\/Version>.*/\1/')
+            VERSION=$(grep '<Version>' Directory.Build.props | head -1 | sed 's/.*<Version>\(.*\)<\/Version>.*/\1/')
 {% else %}
-          VERSION=$(grep 'version = ' pyproject.toml | head -1 | sed 's/.*"\(.*\)"/\1/')
+            VERSION=$(grep 'version = ' pyproject.toml | head -1 | sed 's/.*"\(.*\)"/\1/')
 {% endif %}
+          fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "Found version: $VERSION"
 

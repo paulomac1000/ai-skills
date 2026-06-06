@@ -954,7 +954,7 @@ def check_relative_links(
     bare_paths = []
     for path in backticks:
         path = path.strip()
-        if path.startswith(('../', './', 'docs/')) and ' ' not in path:
+        if path.startswith(('../', './', 'docs/', 'skills/', 'decisions/', 'tests/', 'templates/', '.github/')) and ' ' not in path:
             bare_paths.append(path)
             
     all_links = md_links + bare_paths

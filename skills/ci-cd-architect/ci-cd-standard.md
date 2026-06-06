@@ -77,7 +77,7 @@ All compliant CI/CD workflows MUST use the same pinned versions of GitHub Action
 | `docker/login-action` | `v4` | Log in to container registry |
 | `docker/metadata-action` | `v6` | Extract Docker tags and labels |
 | `docker/build-push-action` | `v7` | Build and push Docker image |
-| `actions/attest` | `v4` | Generate artifact attestation |
+| `actions/attest-build-provenance` | `v2` | Generate artifact attestation |
 | `softprops/action-gh-release` | `v3` | Create GitHub Release |
 | `codecov/codecov-action` | `v6` | Upload coverage to Codecov |
 | `actions/upload-artifact` | `v7` | Upload build artifacts |
@@ -214,7 +214,7 @@ tags: |
   type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') }}
 ```
 
-**[RULE: CI-CDW-22] [L1+]** The publish workflow MUST generate artifact attestation using `actions/attest@v4` with `push-to-registry: true`.
+**[RULE: CI-CDW-22] [L1+]** The publish workflow MUST generate artifact attestation using `actions/attest-build-provenance@v2` with `push-to-registry: true`.
 
 **[RULE: CI-CDW-23] [L1+]** The publish workflow MUST create a GitHub Release when triggered by a tag push:
 
