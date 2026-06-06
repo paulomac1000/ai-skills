@@ -656,12 +656,30 @@ app.post('/mcp', async (req, res) => {
 [L3+] Tools are registered with the server but schemas are not exposed until first use:
 
 ```typescript
+interface ToolDefinition {
+  description: string;
+  loader: () => ToolSchema;
+  loaded: boolean;
+  schema?: ToolSchema;
+}
+
+interface Tool {
+  name: string;
+  description: string;
+  inputSchema: Record<string, unknown>;
+}
+
+interface ToolSchema {
+  description: string;
+  inputSchema: Record<string, unknown>;
+}
+
 class LazyToolRegistry {
   private tools = new Map<string, ToolDefinition>();
   private loaded = new Set<string>();
 
-  register(name: string, loader: () => ToolDefinition): void {
-    this.tools.set(name, { loader, loaded: false });
+  register(name: string, description: string, loader: () => ToolSchema): void {
+    this.tools.set(name, { description, loader, loaded: false });
   }
 
   async listTools(detail: 'minimal' | 'full'): Promise<Tool[]> {
@@ -696,12 +714,10 @@ class LazyToolRegistry {
 const registry = new LazyToolRegistry();
 
 // Register tools with lazy loaders
-registry.register('search_files', async () => ({
-  description: 'Search files in the vault by name or content',
+registry.register('search_files', 'Search files in the vault by name or content', async () => ({
   inputSchema: { query: z.string(), path: z.string().optional() },
 }));
-registry.register('read_file', async () => ({
-  description: 'Read the contents of a file',
+registry.register('read_file', 'Read the contents of a file', async () => ({
   inputSchema: { path: z.string() },
 }));
 
