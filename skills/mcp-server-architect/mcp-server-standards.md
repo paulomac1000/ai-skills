@@ -932,7 +932,7 @@ export function createTransport(type: string, options?: TransportOptions) {
 | `prettier` | Formatting | Default config |
 | `vitest` | Testing | `coverage.provider: 'v8'`, `testTimeout: 30000` |
 
-[L2+] Every MCP server project SHOULD use a standardized code quality toolchain. Configuration lives in `pyproject.toml`.
+[L2+] Every Python/FastMCP MCP server project SHOULD use a standardized code quality toolchain. Configuration lives in `pyproject.toml`.
 
 | Tool   | Purpose              | Minimum Config                                              |
 |--------|----------------------|-------------------------------------------------------------|
@@ -943,7 +943,7 @@ export function createTransport(type: string, options?: TransportOptions) {
 
 #### Rules
 
-1. [L2+] Configuration for all tools SHOULD live in `pyproject.toml`. No separate config files.
+1. [L2+] Configuration for all Python tools SHOULD live in `pyproject.toml`. No separate config files.
 2. [L2+] Test files MAY be exempted from line-length limits.
 3. [L2+] CI SHOULD run `ruff check`, `ruff format --check`, `mypy`, and `bandit` before tests.
 4. [L1+] The project SHOULD target Python 3.11 or newer.

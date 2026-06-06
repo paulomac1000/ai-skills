@@ -24,7 +24,7 @@ The ai-skills repository contains four skills (AFDS doc-writer, MCP architect, M
 
 ### 1. Template-to-Standard Ownership
 
-Each Jinja2 template in `ci-cd-architect/templates/` has a one-to-one relationship with `ref.ci-cd-standard`. The standard defines the structure, action versions, and quality gates; the template implements them as executable YAML. Every template MUST be maintainable by reading only the standard. No template contains configurable values that are not documented in the standard.
+Each Jinja2 template in `skills/ci-cd-architect/templates/` has a one-to-one relationship with `ref.ci-cd-standard`. The standard defines the structure, action versions, and quality gates; the template implements them as executable YAML. Every template MUST be maintainable by reading only the standard. No template contains configurable values that are not documented in the standard.
 
 ### 2. CI/CD Architect Depends on AFDS Doc-Writer
 
