@@ -1,5 +1,5 @@
 ---
-description: Core architectural standard for MCP servers — tool design, response contracts, versioning, capability model, logging, testing, security, and operational safety
+description: Core architectural standard for MCP servers — tool design, response contracts, versioning, capability model, logging, testing, security, operational safety, transport architecture, middleware pipeline, progressive discovery, multi-language patterns
 doc_id: ref.mcp-server-standards
 type: ref
 status: active
@@ -8,13 +8,16 @@ rigor_tier: L2
 stability: stable
 ai_scope: editable
 domain: mcp
-tags: ["mcp", "server", "standards", "core", "testing", "security"]
+standard_version: 2.0.0
+tags: ["mcp", "server", "standards", "core", "testing", "security", "transport", "middleware", "typescript"]
 owners: ["backend-team"]
 upstream:
   - ref.documentation-standard
   - ref.ci-cd-standard
+  - ref.mcp-consumer-standards
+  - decision.006-mcp-enhanced-standard
 source_of_truth: true
-last_verified: 2026-05-17
+last_verified: 2026-06-06
 ---
 
 # MCP Server Core Standard
@@ -32,7 +35,7 @@ This document is the CORE.
 
 ## SCOPE
 
-- INCLUDED: tool implementation patterns, response contract design, capability descriptors, manifest schema, versioning policy, parameter design, logging, secret management, documentation conventions, testing standards (test hierarchy, skip patterns, coverage, CI, mock patterns), security standards (SSE transport security, cancellation, concurrency, blocked data, filesystem access control, secret management, observability), consumer ergonomics (batch/composite tools, minimal-detail parameters, pagination, empty-success contracts, stable identifiers)
+- INCLUDED: tool implementation patterns, response contract design, capability descriptors, manifest schema, versioning policy, parameter design, logging, secret management, documentation conventions, testing standards (test hierarchy, skip patterns, coverage, CI, mock patterns), security standards (SSE transport security, cancellation, concurrency, blocked data, filesystem access control, secret management, observability), consumer ergonomics (batch/composite tools, minimal-detail parameters, pagination, empty-success contracts, stable identifiers), **transport architecture** (Streamable HTTP, stateless design, multi-transport factory pattern, EventStore, OAuth 2.1), **middleware pipeline** (composable auth, rate limiting, logging, validation), **progressive tool discovery** (category listing, on-demand schema, lazy registration, tool search), **multi-server patterns** (tool namespacing, transport bridging, aggregation, meta-protocol gateways), **embedded MCP server pattern** (plugin lifecycle, port management), **TypeScript/Node.js implementation appendix** (McpServer API, Zod schemas, vitest testing)
 - EXCLUDED: MCP protocol specification, deployment infrastructure, domain-specific business logic, network-level firewall rules, application-level authorization
 
 ## DEFINITIONS
@@ -498,7 +501,436 @@ MCP tools that manage multiple backend connections need a parameter to select th
 5. [L1+] `list_*` tools SHOULD return the stable identifier needed by the corresponding `get_*` tool. The identifier field name SHOULD match the parameter name of the get tool (already required by Tool Design Rule 10).
 6. [L1+] Empty query results are not errors. A tool that completes successfully and finds no matching items MUST return `success: true` with an empty data shape (`data: []`, `data: {}`, `null`, or an explicit `count: 0`). It MUST NOT return `success: false` solely because no items were found.
 
-### Code Quality Stack
+### Transport Architecture (v2.0)
+
+[L2+] Every MCP server MUST support at least one transport. The server logic MUST be transport-agnostic — the same tool implementations work across stdio, Streamable HTTP, and SSE with zero code changes.
+
+#### Streamable HTTP — Primary Remote Transport
+
+[L2+] Streamable HTTP is the default remote transport for all new MCP servers. HTTP+SSE is deprecated (Atlassian Rovo cutoff: June 30, 2026; 2026-07-28 spec removes it from the standard).
+
+1. [L2+] The server MUST expose a single `/mcp` endpoint handling: POST (JSON-RPC messages), GET (SSE stream for server→client), DELETE (session termination).
+2. [L2+] Session management: assign `Mcp-Session-Id` on initialize; validate on every subsequent request; return HTTP 404 for stale sessions; terminate via DELETE.
+3. [L2+] Session IDs MUST be globally unique and cryptographically secure (UUID v4 minimum, 128-bit random preferred).
+4. [L3+] The server MUST implement an EventStore for SSE resumability: per-stream event IDs, `Last-Event-ID` replay, replay only on the same stream (never cross-stream). Reference: InMemoryEventStore pattern from `modelcontextprotocol/servers` (with fix for Issue #4087 — must not replay events from other streams).
+5. [L3+] The server SHOULD support OAuth 2.1 PKCE authentication. At minimum: Bearer token validation with `timingSafeEqual` comparison.
+6. [L2+] The server MUST validate the `Origin` header to prevent DNS rebinding. Bind to `127.0.0.1` by default.
+7. [SHOULD] The server SHOULD support `Mcp-Method` and `Mcp-Name` headers for stateless operation (2026-07-28 spec).
+
+#### Stateless Server Design (2026-07-28 Spec)
+
+[L3+] The 2026-07-28 spec makes the protocol stateless. Servers SHOULD be designed for horizontal scaling.
+
+1. [L3+] Server instances MUST NOT store session state in process memory. Use a shared session store (Redis, database, or in-memory with session affinity headers).
+2. [L3+] Any instance MUST be able to handle any request. No sticky-session assumption.
+3. [L3+] Tool list responses SHOULD include `ttlMs` and `cacheScope` annotations so clients can cache schemas.
+4. [L3+] `Mcp-Session-Id` header provides session affinity when needed but is OPTIONAL for stateless operation.
+5. [SHOULD] Use `Mcp-Method` and `Mcp-Name` headers for request routing in stateless deployments.
+
+#### Multi-Transport Factory Pattern
+
+[L2+] Use the factory pattern to isolate server logic from transport:
+
+```typescript
+// Transport-agnostic server factory
+function createServer(): { server: McpServer; cleanup: (sessionId: string) => void } {
+  const server = new McpServer({ name, version }, { capabilities });
+  registerTools(server);
+  registerResources(server);
+  return { server, cleanup };
+}
+
+// Transport-specific entry points
+// stdio.ts
+const transport = new StdioServerTransport();
+const { server, cleanup } = createServer();
+await server.connect(transport);
+
+// streamable-http.ts
+const app = express();
+app.all('/mcp', async (req, res) => {
+  const transport = new StreamableHTTPServerTransport({ sessionStore });
+  const { server, cleanup } = createServer();
+  await server.connect(transport);
+  await transport.handleRequest(req, res);
+});
+```
+
+#### Transport Selection Guide
+
+| Context | Transport | Rationale |
+|---------|-----------|-----------|
+| Local dev, Claude Desktop | stdio | Simplest, no network |
+| Production, cloud, multi-tenant | Streamable HTTP | Scalable, standard HTTP infra |
+| Legacy client support | SSE | Transitional only |
+| Docker/K8s | Streamable HTTP | Health checks, load balancing |
+| Edge/Serverless | Streamable HTTP | Stateless, cold-start friendly |
+
+### Middleware Pipeline (v2.0)
+
+[L2+] Cross-cutting concerns (auth, rate limiting, logging, observability) MUST be implemented as composable middleware, not inline checks in tool handlers. The middleware chain executes left-to-right: each middleware processes the request, calls `next()`, and post-processes the response.
+
+#### Pipeline Architecture
+
+```
+Request → [CORS] → [Auth] → [RateLimit] → [Logging] → [Validation] → [Tool Handler] → Response
+```
+
+#### Standard Middleware Interfaces
+
+**AuthMiddleware:** Validates credentials before tool execution reaches the handler.
+- Bearer token validation with `timingSafeEqual`
+- API key validation (X-Api-Key header)
+- OAuth 2.1 PKCE (token introspection endpoint)
+- MUST set authenticated context (`session.user`, `session.scopes`) for downstream middleware
+
+**RateLimitMiddleware:** Enforces per-session or per-tool quotas.
+- Per-session: max requests/minute
+- Per-tool: configurable per tool in manifest
+- MUST return structured error (`code: "RATE_LIMITED"`, `retryable: true`, `retry_after_ms`) on quota exceeded
+
+**LoggingMiddleware:** Structured logging with correlation IDs.
+- Assigns `request_id` (UUID) at the middleware boundary
+- Logs: method, tool name, session ID, duration, status
+- MUST target stderr (never stdout)
+- L3+: request_id stored in `contextvars` (async) or `threading.local()` (sync)
+
+**ValidationMiddleware:** Input schema validation before tool execution.
+- Validates against Zod/JSON Schema from tool manifest
+- MUST return structured error (`code: "INVALID_PARAM"`) on validation failure
+- MUST NOT execute the tool handler on invalid input
+
+#### Canonical Template 18 — Middleware Pipeline (TypeScript)
+
+```typescript
+interface MiddlewareContext {
+  session?: { id: string; userId?: string; scopes?: string[] };
+  requestId: string;
+  toolName: string;
+  startTime: number;
+}
+
+type Middleware = (ctx: MiddlewareContext, next: () => Promise<Response>) => Promise<Response>;
+
+function composeMiddleware(...middlewares: Middleware[]): Middleware {
+  return async (ctx, handler) => {
+    let index = -1;
+    const dispatch = async (i: number): Promise<Response> => {
+      if (i <= index) throw new Error('next() called multiple times');
+      index = i;
+      if (i >= middlewares.length) return handler();
+      return middlewares[i](ctx, () => dispatch(i + 1));
+    };
+    return dispatch(0);
+  };
+}
+
+// Usage
+const pipeline = composeMiddleware(
+  authMiddleware,
+  rateLimitMiddleware,
+  loggingMiddleware,
+  validationMiddleware,
+);
+app.post('/mcp', async (req, res) => {
+  const ctx = { requestId: crypto.randomUUID(), toolName: req.body.method, startTime: Date.now() };
+  const response = await pipeline(ctx, async () => handleToolCall(ctx, req.body));
+  res.json(response);
+});
+```
+
+### Progressive Tool Discovery (v2.0)
+
+[L3+] Servers with 20+ tools MUST implement progressive discovery to prevent context window bloat. Consumer research (Perplexity CTO, QCode MCP Ecosystem 2026) shows 40-50% of context is consumed by tool descriptions alone. The meta-gateway pattern (MikkoParkkola/mcp-gateway, lazy-mcp) proves hierarchical discovery saves 85-89% tokens.
+
+#### Discovery Levels
+
+1. [L3+] `tools/list` with `detail=minimal`: returns tool names + one-line descriptions only. Total output MUST fit under 2000 tokens.
+2. [L3+] `tools/list` with `detail=full` (default): returns complete schemas. Use for servers with < 20 tools.
+3. [L3+] `tools/list_categories`: returns category groupings (`{"categories": [{"name": "filesystem", "tool_count": 5}]}`). Agents discover by category, then drill down.
+4. [L3+] `tools/get_schema?name=<tool>`: returns full Zod/JSON Schema for a single tool. Fetched on demand when agent decides to use the tool.
+5. [SHOULD] `tools/search?query=<term>`: semantic search across tool names and descriptions. Returns ranked matches.
+
+#### Lazy Registration Pattern
+
+[L3+] Tools are registered with the server but schemas are not exposed until first use:
+
+```typescript
+class LazyToolRegistry {
+  private tools = new Map<string, ToolDefinition>();
+  private loaded = new Set<string>();
+
+  register(name: string, loader: () => ToolDefinition): void {
+    this.tools.set(name, { loader, loaded: false });
+  }
+
+  async listTools(detail: 'minimal' | 'full'): Promise<Tool[]> {
+    if (detail === 'minimal') {
+      return Array.from(this.tools.entries()).map(([name, def]) => ({
+        name, description: def.description  // one-liner only
+      }));
+    }
+    // Full detail: load all schemas (expensive — avoid for 20+ tools)
+    return Promise.all(Array.from(this.tools.entries()).map(([name, def]) => this.ensureLoaded(name)));
+  }
+
+  async getSchema(name: string): Promise<Tool> {
+    return this.ensureLoaded(name);
+  }
+
+  private async ensureLoaded(name: string): Promise<Tool> {
+    const def = this.tools.get(name);
+    if (!def) throw new Error(`Unknown tool: ${name}`);
+    if (!def.loaded) {
+      def.schema = await def.loader();
+      def.loaded = true;
+    }
+    return { name, ...def.schema };
+  }
+}
+```
+
+#### Canonical Template 19 — Progressive Discovery Setup
+
+```typescript
+const registry = new LazyToolRegistry();
+
+// Register tools with lazy loaders
+registry.register('search_files', async () => ({
+  description: 'Search files in the vault by name or content',
+  inputSchema: { query: z.string(), path: z.string().optional() },
+}));
+registry.register('read_file', async () => ({
+  description: 'Read the contents of a file',
+  inputSchema: { path: z.string() },
+}));
+
+// tools/list handler
+server.setRequestHandler(ListToolsRequestSchema, async (request) => {
+  const detail = request.params?.detail || 'full';
+  const tools = await registry.listTools(detail);
+  return { tools };
+});
+
+// tools/call handler — lazy-loads schema on first invocation
+server.setRequestHandler(CallToolRequestSchema, async (request) => {
+  const tool = await registry.getSchema(request.params.name);
+  const handler = toolHandlers.get(request.params.name);
+  return handler(request.params.arguments);
+});
+```
+
+### Multi-Server Patterns (v2.0)
+
+[L2+] When aggregating multiple MCP servers behind a single endpoint, follow these patterns.
+
+#### Tool Namespacing
+
+[L2+] Aggregated tools MUST use `{server_name}/{tool_name}` convention. Flat merging causes silent collisions.
+
+```json
+// CORRECT: namespaced
+{ "name": "github/create_issue", "server": "github" }
+{ "name": "jira/create_issue", "server": "jira" }
+
+// WRONG: collision — last writer wins
+{ "name": "create_issue" }
+{ "name": "create_issue" }
+```
+
+#### Transport Bridge Pattern
+
+[L2+] When bridging transports (stdio→Streamable HTTP), use session delegation — do NOT manually mirror every capability. The proxy server creates a client session to the backend and delegates requests:
+
+```typescript
+// PREFERRED: Delegate entire session
+const backendClient = new Client({ name: 'proxy', version: '1.0' }, {
+  capabilities: backendCapabilities  // mirrored from backend
+});
+await backendClient.connect(transport);
+// Proxy tools/call to backend
+server.setRequestHandler(CallToolRequestSchema, async (req) => {
+  return backendClient.callTool(req.params.name, req.params.arguments);
+});
+```
+
+#### Partial Failure Semantics
+
+[L3+] When a multi-backend operation partially fails, return per-server results:
+
+```json
+{
+  "success": true,
+  "data": {
+    "results": {
+      "github": { "success": true, "data": { "issue_id": 42 } },
+      "jira": { "success": false, "error": { "code": "AUTH_FAILED", "message": "..." } }
+    },
+    "summary": { "total": 2, "succeeded": 1, "failed": 1 }
+  }
+}
+```
+
+#### Meta-Protocol Gateway Pattern
+
+[SHOULD] For servers exposing 50+ backend tools, use fixed meta-tools instead of dumping all tools into `tools/list`:
+
+| Meta-Tool | Purpose |
+|-----------|---------|
+| `gateway_list_servers` | List available backends |
+| `gateway_list_tools` | List tools for a specific server |
+| `gateway_search_tools` | Semantic search across tool names/descriptions |
+| `gateway_invoke` | Call any discovered tool |
+
+Token savings: 100 tools × 150 tokens = 15,000 → 4 meta-tools × 100 = 400 (**~97% reduction**).
+
+### Embedded MCP Server Pattern (v2.0)
+
+[SHOULD] For MCP servers embedded in host applications (plugins, extensions, addons), follow the plugin lifecycle pattern.
+
+#### Plugin Lifecycle Integration
+
+1. **Start on host activation** (`onload`, `activate`): load settings → create MCP server → bind to port → register tools.
+2. **Stop on host deactivation** (`onunload`, `deactivate`): close all transports → release port → clean up sessions.
+3. **Restart on settings change**: detect config changes via host settings API → restart server cleanly.
+
+#### Port Management
+
+1. Use auto-port-detection: try preferred port, fall back to random available port on `EADDRINUSE`.
+2. Detect own server to avoid false conflicts (check if the process listening is yourself).
+3. Log the bound port at INFO level so users can configure their MCP clients.
+
+#### Canonical Template 20 — Embedded MCP Server (Obsidian Plugin)
+
+```typescript
+export default class MCPPlugin extends Plugin {
+  private server: McpServer | null = null;
+  private transport: StreamableHTTPServerTransport | null = null;
+
+  async onload() {
+    await this.loadSettings();
+    this.addCommand({ id: 'start-mcp', name: 'Start MCP Server', callback: () => this.startServer() });
+    if (this.settings.autoStart) await this.startServer();
+  }
+
+  async startServer() {
+    const port = await this.findAvailablePort(this.settings.port);
+    this.server = new McpServer({ name: 'obsidian-mcp', version: '1.0.0' }, { capabilities: { tools: {} } });
+    // Register tools using Obsidian API
+    registerVaultTools(this.server, this.app.vault);
+    // Bind transport
+    this.transport = new StreamableHTTPServerTransport({ sessionStore: new InMemorySessionStore() });
+    const app = express();
+    app.use(cors(), express.json(), authMiddleware(this.settings.apiKey));
+    app.all('/mcp', async (req, res) => { await this.transport!.handleRequest(req, res); });
+    app.listen(port, '127.0.0.1');
+    new Notice(`MCP server running on port ${port}`);
+  }
+
+  async onunload() {
+    await this.transport?.close();
+    this.server = null;
+  }
+}
+```
+
+### TypeScript/Node.js Implementation Appendix (v2.0)
+
+The rules in this standard are language-agnostic. This appendix provides TypeScript-specific canonical patterns using `@modelcontextprotocol/sdk`.
+
+#### Project Structure
+
+```
+src/
+  index.ts              — CLI entry point, transport selection
+  server.ts             — createServer() factory
+  transports/
+    stdio.ts            — StdioServerTransport
+    streamable-http.ts  — StreamableHTTPServerTransport
+  tools/
+    index.ts            — registerTools()
+    my-tool.ts          — one file per tool with schema + handler
+  resources/
+    index.ts            — registerResources()
+  middleware/
+    auth.ts             — AuthMiddleware
+    rate-limit.ts       — RateLimitMiddleware
+    logging.ts          — LoggingMiddleware
+  lib/
+    session-store.ts    — SessionStore implementation
+    event-store.ts      — EventStore implementation (for SSE resumability)
+```
+
+#### Tool Registration (TypeScript)
+
+```typescript
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { z } from 'zod';
+
+const SearchSchema = z.object({
+  query: z.string().min(1).max(500).describe('Search query'),
+  path: z.string().optional().describe('Directory to search in'),
+});
+
+export function registerSearchTool(server: McpServer) {
+  server.registerTool(
+    'search_files',
+    {
+      title: 'Search Files',
+      description: 'Search files in the vault by name or content',
+      inputSchema: SearchSchema,
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async (args): Promise<CallToolResult> => {
+      const validated = SearchSchema.parse(args);
+      try {
+        const results = await searchFiles(validated.query, validated.path);
+        return { content: [{ type: 'text', text: JSON.stringify({ success: true, data: results }) }] };
+      } catch (error) {
+        return {
+          content: [{ type: 'text', text: JSON.stringify({ success: false, error: (error as Error).message }) }],
+          isError: true,
+        };
+      }
+    }
+  );
+}
+```
+
+#### Transport Factory (TypeScript)
+
+```typescript
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+
+export function createTransport(type: string, options?: TransportOptions) {
+  switch (type) {
+    case 'stdio':
+      return new StdioServerTransport();
+    case 'streamable-http':
+      return new StreamableHTTPServerTransport({
+        sessionStore: options?.sessionStore,
+        eventStore: options?.eventStore,
+      });
+    default:
+      throw new Error(`Unknown transport: ${type}. Use 'stdio' or 'streamable-http'.`);
+  }
+}
+```
+
+#### TypeScript Quality Stack
+
+| Tool | Purpose | Config |
+|------|---------|--------|
+| `typescript` | Type checking | `strict: true`, `target: ES2022`, `module: Node16` |
+| `eslint` | Linting | `@typescript-eslint` with `strict-type-checked` |
+| `prettier` | Formatting | Default config |
+| `vitest` | Testing | `coverage.provider: 'v8'`, `testTimeout: 30000` |
 
 [L2+] Every MCP server project SHOULD use a standardized code quality toolchain. Configuration lives in `pyproject.toml`.
 
@@ -1491,14 +1923,253 @@ Coverage targets:
 - [L3+] Combined coverage (unit + integration) SHOULD exceed 85%.
 - [SHOULD] Coverage gaps in entrypoint modules and optional utilities are acceptable.
 
+### Security & Auth Architecture (v2.0)
+
+[L2+] MCP servers operate in a hostile environment. The ecosystem data (Censys Apr 2026: 12,520 exposed servers, Knostic Jul 2025: 1,862 servers with 0 auth, CVE rate: ~1 every 4 days through Apr 2026) proves that security-by-default is mandatory, not optional.
+
+#### Authentication: Mandatory, Not Optional
+
+1. [L2+] ALL HTTP/Streamable HTTP MCP servers MUST require authentication. Unauthenticated `tools/list` MUST return HTTP 401.
+2. [L2+] Default binding MUST be `127.0.0.1`. `0.0.0.0` requires explicit `MCP_PUBLIC_ACCESS_CONFIRMED=1` + CRITICAL log.
+3. [L2+] OAuth 2.1 with PKCE is the RECOMMENDED auth flow. Bearer token with `timingSafeEqual` is the minimum acceptable fallback.
+4. [L3+] Dynamic Client Registration (DCR) MUST validate `redirect_uris` against a strict allowlist — no wildcards, no non-HTTPS schemes (except loopback for local dev).
+5. [L3+] CORS MUST be restricted to known origins. `Access-Control-Allow-Origin: *` on token endpoints is a security vulnerability (Obsidian Security, Jul 2025).
+
+#### Per-Tool Authorization (Not All-or-Nothing)
+
+[L3+] The current MCP security model is binary: a session either has access to all tools or none. This is insufficient. A "read Gmail" token should not authorize "send email."
+
+1. [L3+] Each tool MUST declare `securitySchemes` in its manifest: which scopes/roles are required.
+2. [L3+] Scoped tokens: server validates `scope` claim against tool requirements before execution.
+3. [L3+] Step-up auth: tools MAY return `AUTH_STEP_UP_REQUIRED` error when the current session lacks sufficient scope, triggering re-authentication.
+
+```json
+{
+  "name": "send_email",
+  "security": {
+    "required_scopes": ["gmail.send"],
+    "step_up_auth": true
+  }
+}
+```
+
+#### Confused Deputy Prevention (Token Passthrough)
+
+[L3+] MCP servers MUST NOT forward received tokens to downstream services. This is the #1 confused deputy vector.
+
+1. [L3+] Use token exchange (RFC 8693): server exchanges the client's MCP token for a scoped downstream token.
+2. [L3+] Audience validation: tokens MUST include `aud` claim tied to the specific server.
+3. [L3+] MCP servers that proxy to third-party APIs MUST use separate, server-owned credentials — never the client's SaaS token.
+
+#### Message-Level Integrity
+
+[SHOULD] Transport-level TLS is insufficient when proxies terminate TLS. Message-level signing prevents replay and tampering.
+
+1. [SHOULD] JSON-RPC payloads SHOULD include `nonce` (cryptographic random), `timestamp` (ISO 8601 UTC), and `signature` (ECDSA P-256 over canonical JSON).
+2. [L3+] Replay detection: server MUST reject requests with duplicate nonces or timestamps outside a 5-minute window.
+3. [L3+] Tool definition pinning: client SHOULD verify `sha256(tool_definition)` before executing a tool.
+
+#### Credential Storage
+
+1. [L1+] NEVER store credentials in MCP client config files (`mcp.json`, `claude_desktop_config.json`). Use OS-native secure storage (Keychain, Credential Manager, `secret-tool`).
+2. [L1+] `.env` MUST be in `.gitignore`. `.env.example` documents variables with placeholder values only.
+3. [L3+] Short-lived tokens with rotation: access tokens ≤ 1 hour, refresh tokens rotated on each use.
+
+### Error Taxonomy & Recovery (v2.0)
+
+[L2+] MCP currently uses JSON-RPC's minimal error codes (`-32600` to `-32603`). This is insufficient for production — LLMs cannot distinguish "invalid input" from "server crashed" from "rate limited." Adopt a structured error taxonomy.
+
+#### Error Code Taxonomy (gRPC + RFC 9457 Inspired)
+
+| Code | Name | When to Use | Retry? | HTTP Status |
+|------|------|-------------|--------|-------------|
+| `-32001` | `DEADLINE_EXCEEDED` | Tool call exceeded deadline | Yes (with backoff) | 504 |
+| `-32002` | `NOT_FOUND` | Tool/resource/session not found | No | 404 |
+| `-32003` | `RESOURCE_EXHAUSTED` | Rate limited, quota exceeded | Yes (after Retry-After) | 429 |
+| `-32004` | `UNAVAILABLE` | Server overloaded, transient | Yes (with backoff) | 503 |
+| `-32005` | `CANCELLED` | Request was cancelled | No | 499 |
+| `-32006` | `UNAUTHENTICATED` | Missing or invalid credentials | No | 401 |
+| `-32007` | `PERMISSION_DENIED` | Insufficient scope/role | No (unless step-up) | 403 |
+| `-32008` | `AUTH_STEP_UP_REQUIRED` | Tool needs higher auth level | Yes (after re-auth) | 403 |
+| `-32009` | `TOOL_POISONING_DETECTED` | Suspicious tool description | No | 400 |
+| `-32010` | `VALIDATION_FAILED` | Input schema validation failed | No (fix input) | 400 |
+| `-32011` | `PRECONDITION_FAILED` | State not ready for operation | No (fix state) | 412 |
+
+1. [L2+] Every error MUST include `code` (one of the above), `message` (human-readable), and `retryable` (boolean).
+2. [L3+] Errors SHOULD include `suggestion` (one-sentence actionable step) and `retry_after_ms` (for RESOURCE_EXHAUSTED).
+3. [L3+] Errors SHOULD include `type` URI per RFC 9457 (e.g., `mcp://errors/tool-not-found`). LLMs branch on structured types more reliably than message strings.
+
+#### Retry Semantics
+
+| Condition | Action |
+|-----------|--------|
+| `retryable: true` + manifest `idempotent: true` | Retry up to 3 times with exponential backoff |
+| `retryable: true` + manifest `idempotent: false` | Retry ONCE only if no side effects yet |
+| `retryable: false` | Do NOT retry. Report error to user. |
+
+#### Deadline Propagation
+
+[L3+] Tool calls MUST support deadlines. Modeled on gRPC's `grpc-timeout` header.
+
+1. [L3+] `tools/call` SHOULD accept `deadline_ms` parameter. Server MUST stop processing after deadline.
+2. [L3+] If a server calls downstream services, it SHOULD propagate a shortened deadline.
+3. [L3+] On deadline exceeded: return `DEADLINE_EXCEEDED` error, release resources, cancel child operations.
+
+### Health Checking & Lifecycle Contracts (v2.0)
+
+[L2+] MCP servers MUST expose health status. Modeled on gRPC Health Checking Protocol and Kubernetes probes.
+
+#### Three-Probe Model
+
+| Probe | Purpose | When Failing | Endpoint |
+|-------|---------|--------------|----------|
+| **Startup** | Server is initializing | Don't route traffic yet | `GET /health/startup` → 503 until ready, then 200 |
+| **Liveness** | Process is not deadlocked | Kill and restart | `GET /health/live` → 200 always (or kill if 500) |
+| **Readiness** | Server can serve requests | Stop routing traffic | `GET /health/ready` → 200 (or 503 if degraded) |
+
+[L2+] The health endpoint MUST return structured JSON with `tool_count` and `tools_version` for client verification.
+[L3+] Health endpoint SHOULD return per-backend status when aggregating multiple servers.
+
+#### Process Lifecycle Contract
+
+[L1+] Every MCP server MUST handle these signals:
+- **SIGTERM**: graceful shutdown — stop accepting requests, drain in-flight operations (max 30s), close transports, exit 0
+- **SIGINT**: same as SIGTERM
+- **SIGHUP**: reload configuration without dropping connections (SHOULD)
+
+[L2+] Stdio servers MUST detect parent process death and exit. On POSIX: monitor `ppid` becoming 1. On all platforms: periodic heartbeat check.
+[L3+] Stdio servers MUST NOT orphan child processes. Use process groups or `prctl(PR_SET_PDEATHSIG)` on Linux.
+
+#### Ping/Heartbeat
+
+[L2+] Servers MUST respond to JSON-RPC ping. Clients SHOULD ping every 30 seconds.
+[L3+] If ping fails 3 consecutive times, client SHOULD mark server as dead and attempt reconnection with exponential backoff (1s, 2s, 4s, 8s, max 60s).
+
+### Tool Poisoning Prevention (v2.0)
+
+[L3+] Tool poisoning (Tool Poisoning Attack / TPA, Invariant Labs 2025) is the most insidious MCP vulnerability. The entire tool schema — description, parameter names, enum values, error messages, return content — is a potential injection vector.
+
+#### Attack Surface
+
+| Vector | Mechanism | Mitigation |
+|--------|-----------|------------|
+| **Description injection** | Hidden instructions in tool description | Validate descriptions against pattern allowlist; strip control characters |
+| **Parameter name abuse** | Parameter named `system_prompt` leaks chain-of-thought | Blocklist reserved parameter names |
+| **Enum value injection** | Malicious values in enum lists | Validate enum values; no free-form enums |
+| **Error message exploitation** | Dynamic error text carries injection | Sanitize error messages; never reflect user input unescaped |
+| **Return value poisoning** | Tool output contains hidden instructions | Sanitize outputs before LLM context; detect instruction-like patterns |
+| **Cross-server shadowing** | Malicious server poisons context for other servers' tools | Isolate context per server; tool namespacing |
+
+#### Prevention Rules
+
+1. [L3+] `additionalProperties: false` on ALL tool input schemas. Closed schema prevents parameter injection.
+2. [L3+] Parameter name blocklist: `system_prompt`, `conversation_history`, `internal_context`, `instructions`, `chain_of_thought` — these names suggest injection intent.
+3. [L3+] `maxLength`, `pattern`, and `enum` constraints on ALL string parameters. Prevents unbounded injection.
+4. [L3+] Output sanitization: tool outputs MUST be scanned for instruction-like patterns (`<system>`, `[SYSTEM:`, `ignore prior`, `new instructions`) before inclusion in LLM context.
+5. [L3+] Tool definition integrity: client SHOULD compute `sha256(tool.description + tool.inputSchema)` on first approval and re-verify on every invocation. Changes trigger re-approval.
+6. [SHOULD] Require human-in-the-loop for ALL tool executions. Auto-approve only for tools with `risk: READ` + `readOnlyHint: true` + verified definition hash.
+
+#### Tool Identity Verification
+
+```typescript
+interface VerifiedTool {
+  name: string;
+  serverId: string;        // cryptographic server identity
+  definitionHash: string;   // sha256 of canonical definition
+  approvedAt: number;       // timestamp of user approval
+  lastVerifiedAt: number;   // timestamp of last hash check
+}
+```
+
+### Production Operations & Deployment (v2.0)
+
+[L2+] MCP servers in production require operational contracts beyond development patterns.
+
+#### Session Management
+
+1. [L3+] Session state MUST be externalized. Process-memory sessions are NOT production-grade. Use Redis, database, or stateless design.
+2. [L3+] `Mcp-Session-Id` MUST be set on every response. Clients MUST include it on every request.
+3. [L3+] Session expiry: default 24 hours, configurable via `MCP_SESSION_TTL`. Stale sessions return HTTP 404.
+4. [L3+] Load balancers MUST use `Mcp-Session-Id` for session affinity (ip_hash fallback acceptable).
+
+#### Observability
+
+1. [L3+] OpenTelemetry integration: propagate `traceparent` and `tracestate` headers. Standard span names: `mcp.server.tool.call`, `mcp.server.resource.read`, `mcp.server.prompt.get`.
+2. [L3+] Structured logging: every request gets `request_id`, `session_id`, `tool_name`, `duration_ms`, `outcome`.
+3. [L3+] Metrics: expose `mcp_tool_calls_total{tool,status}`, `mcp_tool_duration_ms{tool,quantile}`, `mcp_active_sessions`, `mcp_session_duration_ms`.
+4. [L3+] Audit logging: log `(timestamp, request_id, session_id, user_id, tool_name, args_hash, success)` for every tool invocation. Immutable append-only storage.
+
+#### Rate Limiting
+
+1. [L3+] Per-session rate limit: configurable `MCP_RATE_LIMIT_RPS` (default: 60 req/s).
+2. [L3+] Per-tool rate limit: defined in tool manifest `rateLimit: {rps: 10, burst: 20}`.
+3. [L3+] Rate-limit response: `RESOURCE_EXHAUSTED` error with `retry_after_ms` field. Client MUST respect Retry-After.
+
+#### Graceful Degradation
+
+1. [L2+] When a non-critical backend is unavailable, the server MUST continue serving other tools.
+2. [L3+] Health endpoint MUST report per-backend status: `{"backends": {"database": "healthy", "cache": "degraded"}}`.
+3. [L3+] Circuit breaker pattern: after N consecutive failures, stop routing to the failed backend (CLOSED→OPEN). After cooldown, try one request (OPEN→HALF_OPEN). On success, resume (HALF_OPEN→CLOSED).
+
+#### Docker & Kubernetes
+
+1. [L2+] Docker images MUST include `HEALTHCHECK` directive. Use JSON-RPC ping, not HTTP 200.
+2. [L2+] Container MUST run as non-root user.
+3. [L3+] Kubernetes: define liveness probe (JSON-RPC ping), readiness probe (health endpoint), startup probe (grace period for initialization).
+4. [SHOULD] Resource limits: CPU and memory limits defined in deployment manifests.
+
+### Problem-Solution Matrix (v2.0)
+
+This matrix maps common MCP server problems to the section and maturity level that prevents them. Use this for gap analysis: scan your server, find the problem you have, implement the solution at the indicated level.
+
+| # | Problem | Category | Root Cause | Solution Section | Level |
+|---|---------|----------|------------|-----------------|-------|
+| 1 | "Server works locally, fails in production" | Deployment | No health endpoints, no lifecycle management | Health Checking & Lifecycle | L2+ |
+| 2 | "Client hangs waiting for tool response" | Reliability | No deadline/timeout on tool calls | Error Taxonomy — Deadline Propagation | L3+ |
+| 3 | "Can't tell if error is my fault or server's" | DX | Ambiguous error codes | Error Taxonomy — Error Code Taxonomy | L2+ |
+| 4 | "Rate limited but don't know when to retry" | Reliability | No Retry-After in rate limit responses | Production Ops — Rate Limiting | L3+ |
+| 5 | "Server restarted, all sessions lost" | State | Session state in process memory | Production Ops — Session Management | L3+ |
+| 6 | "Two servers register the same tool name" | Integration | No tool namespacing | Multi-Server Patterns — Tool Namespacing | L2+ |
+| 7 | "LLM context consumed by tool descriptions" | Efficiency | tools/list returns everything | Progressive Tool Discovery | L3+ |
+| 8 | "Scaling server causes session loss" | Scaling | Sticky session assumption | Transport Architecture — Stateless Design | L3+ |
+| 9 | "Token leaked to downstream service" | Security | Token passthrough (confused deputy) | Security — Confused Deputy Prevention | L3+ |
+| 10 | "One tool failure crashes entire server" | Reliability | No try/except at top level | Tool Design Rule 6+8 | L1+ |
+| 11 | "stdout logging corrupts JSON-RPC" | DX | Log output targets stdout | Logging Standards Rule 1 | L1+ |
+| 12 | "Tool executes without user consent" | Security | No human-in-the-loop | Tool Poisoning Prevention | L3+ |
+| 13 | "Server silently dead, client keeps trying" | Reliability | No ping/heartbeat | Health Checking — Ping/Heartbeat | L2+ |
+| 14 | "Memory leak from orphaned processes" | Operations | No process lifecycle contract | Health Checking — Process Lifecycle | L2+ |
+| 15 | "Breaking tool change corrupts agent behavior" | Evolution | No tool versioning/deprecation | Tool Versioning Rules 1-6 | L2+ |
+| 16 | "Malicious server poisons tool descriptions" | Security | No tool definition integrity check | Tool Poisoning — Tool Identity | L3+ |
+| 17 | "Can't deploy to K8s — no health probes" | Deployment | No standard health endpoint | Health Checking — Three-Probe Model | L2+ |
+| 18 | "API key in config file committed to git" | Security | Credentials in plaintext config | Security — Credential Storage | L1+ |
+| 19 | "Server binds to 0.0.0.0 by default" | Security | Unsafe default binding | SSE Transport Security Rule 1 | L1+ |
+| 20 | "Concurrent tool calls corrupt shared state" | Concurrency | No locking on shared data | Concurrency Model Rules 3-5 | L3+ |
+| 21 | "Can't debug — MCP Inspector can't see traffic" | DX | No proxy-layer observability | Production Ops — Observability | L3+ |
+| 22 | "One backend fails, entire server returns 500" | Reliability | No graceful degradation | Production Ops — Graceful Degradation | L2+ |
+| 23 | "Tool calls fire twice for one request" | Reliability | Ambiguous timeout/cancellation | Error Taxonomy — Retry Semantics | L3+ |
+| 24 | "SSE disconnects silently, data lost" | Transport | No resumability | Transport — EventStore/Resumability | L3+ |
+| 25 | "New server version breaks existing clients" | Evolution | No capability negotiation | Transport — Multi-Transport Factory | L2+ |
+
+### Standard Version Mapping
+
+| Standard Version | MCP Spec Baseline | Key Additions |
+|-----------------|-------------------|---------------|
+| v1.0 | 2025-11-25 | Core tool design, response contracts, testing, security |
+| v1.1 | 2025-11-25 | Write Guard, manifest fields, risk table expansion |
+| v1.2 | 2025-11-25 | Consumer ergonomics, CI/CD delegation |
+| v2.0 | 2026-07-28 RC | Transport architecture, middleware, progressive discovery, multi-language, multi-server, security hardening, error taxonomy, health checking, tool poisoning prevention, production operations, problem-solution matrix |
+
 ## NON_GOALS
 
 - Does not cover MCP client implementation or client-side tool calling.
-- Does not specify the MCP wire protocol or message format.
-- Does not define deployment strategies, container orchestration, or production monitoring.
+- Does not specify the MCP wire protocol or message format (that's the MCP specification).
 - Does not replace project-specific `AGENTS.md` files.
 - Does not cover network-level firewall rules or physical security.
-- Does not replace application-level authorization checks.
-- Testing architecture is included in this document (see Testing Standards section).
-- Security and operational safety is included in this document (see Security and Operational Safety section).
-- Framework internals are documented in this file (see Python/FastMCP Implementation Notes). Other MCP frameworks (TypeScript, Go, Rust) are not covered.
+- Does not replace application-level authorization checks (defines the interface for them).
+- Agent-to-agent communication (A2A protocol) is out of scope — MCP is agent-to-tool.
+- Commerce protocol (ACP/UCP) and decentralized discovery (ANP) are separate protocols.
+- Testing architecture is included (see Testing Standards).
+- Security architecture, auth patterns, and operational safety are included (see Security & Auth Architecture, Security and Operational Safety).
+- Transport architecture, middleware pipeline, progressive discovery, multi-server patterns, embedded MCP, production operations, error taxonomy, health checking, and tool poisoning prevention are included (v2.0).
+- TypeScript/Node.js implementation patterns are documented (see TypeScript/Node.js Implementation Appendix).
+- Other MCP frameworks (Go, Rust, C#) have stub sections; reference official SDKs for up-to-date implementation details.

@@ -1,5 +1,51 @@
 # Changelog
 
+## 2026-06-06
+
+### mcp-server-architect: standard v2.0.0 — Multi-transport, middleware, progressive discovery, multi-language, security hardening, error taxonomy, health checking, tool poisoning prevention, production operations
+
+Major update based on two rounds of comprehensive analysis (11 parallel librarian agents, 50+ repos analyzed):
+
+**Round 1 — Architecture & Patterns (5 agents):**
+- 25+ MCP proxy repos (sparfenyuk, agentgateway, tbxark, microsoft, 20+ more) → identified 6 proxy archetypes, 7 protocol gaps
+- Official modelcontextprotocol/servers (7 servers, factory pattern, 16 improvement areas)
+- Streamable HTTP transport spec (2026-07-28 RC — stateless, single-endpoint, OAuth 2.1)
+- Embedded MCP patterns (Obsidian 337★, VS Code 372★, Godot 86★)
+- MCP SDK ecosystem (97M+ monthly downloads, 13,000+ servers, 9 pain points)
+
+**Round 2 — User Problems & Hardening (6 agents):**
+- Real user problems: 300+ GitHub issues analyzed across spec, SDKs, and community servers
+- Security: 119 exposed servers with 0 auth, 43% command injection rate, 40+ CVEs, tool poisoning taxonomy (TPA/FSP/ATPA)
+- Developer experience: No scaffolding, testing painful, stdout-as-protocol traps, no hot-reload
+- Protocol gaps: Tool versioning lifecycle missing, client capability discovery incomplete, agent-to-agent boundary undefined
+- Production operations: "Dead but connected" syndrome, orphaned process leaks, no health checking, session affinity breaks
+- Standards comparison: gRPC deadlines, Kubernetes conditions, RFC 9457 errors, CloudEvents extensions, Docker health probes
+
+**New Architecture Decisions:**
+- `decision.006-mcp-enhanced-standard.md` — 8 architecture decisions for v2.0
+
+**New Standard Sections (v2.0, ~600 lines added):**
+- Transport Architecture — Streamable HTTP primary, stateless design, factory pattern, EventStore, OAuth 2.1
+- Middleware Pipeline — Composable [Auth]→[RateLimit]→[Logging]→[Validation]→[Handler] chain
+- Progressive Tool Discovery — Category listing, on-demand schema, lazy registration (85-97% token savings)
+- Multi-Server Patterns — {server}/{tool} namespacing, transport bridging, meta-protocol gateways
+- Embedded MCP Server — Plugin lifecycle, port management, .mcpb installer
+- Security & Auth Architecture — Per-tool authorization, confused deputy prevention, message-level integrity, credential storage
+- Error Taxonomy & Recovery — gRPC-inspired codes, RFC 9457 Problem Details, deadline propagation, retry semantics
+- Health Checking & Lifecycle Contracts — Three-probe model, process lifecycle, ping/heartbeat
+- Tool Poisoning Prevention — TPA/FSP/ATPA attack surface, prevention rules, tool identity verification
+- Production Operations & Deployment — Session management, observability, rate limiting, graceful degradation, Docker/K8s
+- Problem-Solution Matrix — 25 common problems mapped to solutions with maturity levels
+- TypeScript/Node.js Implementation Appendix — McpServer API, Zod, vitest, project structure
+
+**SKILL.md — v2.0.0:**
+- 4 new core directives (#7-10): Transport-Agnostic Architecture, Stateless-First Design, Middleware Composition, Progressive Discovery by Default
+- 7 new strict constraints
+- 3 new workflow steps
+- Code review checklist: 40+ items across all v2.0 domains
+
+**Standard — 2173 lines total (was 1504)**
+
 ## 2026-06-05
 
 ### v2.1.0 — Frontmatter standardization, template hardening, version policy
