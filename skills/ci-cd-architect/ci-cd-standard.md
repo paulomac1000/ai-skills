@@ -15,7 +15,7 @@ upstream:
 source_of_truth: true
 last_verified: "2026-05-21"
 doc_kind: atomic
-standard_version: "2.0.0"
+standard_version: "2.0.1"
 ---
 
 # CI/CD Standard — Unified Pipelines for Python, .NET, and Polyglot Projects
