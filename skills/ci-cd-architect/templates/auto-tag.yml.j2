@@ -59,7 +59,7 @@ jobs:
             echo "Tag v${{ steps.version.outputs.version }} already exists — skipping"
             exit 0
           fi
-          git tag "v${{ steps.version.outputs.version }}"
+          git -c user.name="{{ project }}-bot" -c user.email="bot@{{ project }}.local" tag -a "v${{ steps.version.outputs.version }}" -m "Release v${{ steps.version.outputs.version }}"
           git push https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git "v${{ steps.version.outputs.version }}"
 
       - name: Trigger downstream publish
