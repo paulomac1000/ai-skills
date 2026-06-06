@@ -78,8 +78,7 @@ AI code review tools may suggest both SHA changes and structural workflow change
 
 ## STATUS
 
-- `proposed: 2026-06-05` -- Based on experience with AI-suggested SHAs during CI/CD standard adoption
-- `active: 2026-06-05` -- Approved as part of the CI/CD security baseline
+- `accepted: 2026-06-05` -- Approved as part of the CI/CD security baseline
 ## CHANGELOG
 
 | Version | Date | Change | Author |

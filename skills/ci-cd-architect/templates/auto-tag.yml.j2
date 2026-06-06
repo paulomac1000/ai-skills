@@ -43,24 +43,28 @@ jobs:
       - name: Extract version
         id: version
         run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" && -n "${{ github.event.inputs.version }}" ]]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
 {% if version_source == "directory-build-props" %}
-          VERSION=$(grep '<Version>' Directory.Build.props | head -1 | sed 's/.*<Version>\(.*\)<\/Version>.*/\1/')
+            VERSION=$(grep '<Version>' Directory.Build.props | head -1 | sed 's/.*<Version>\(.*\)<\/Version>.*/\1/')
 {% else %}
-          VERSION=$(grep 'version = ' pyproject.toml | head -1 | sed 's/.*"\(.*\)"/\1/')
+            VERSION=$(grep 'version = ' pyproject.toml | head -1 | sed 's/.*"\(.*\)"/\1/')
 {% endif %}
+          fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "Found version: $VERSION"
 
       - name: Create and push tag
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          git config user.name "{{ project }}-bot"
-          git config user.email "bot@{{ project }}.local"
           if git rev-parse "v${{ steps.version.outputs.version }}" >/dev/null 2>&1; then
             echo "Tag v${{ steps.version.outputs.version }} already exists — skipping"
             exit 0
           fi
-          git tag "v${{ steps.version.outputs.version }}"
-          git push origin "v${{ steps.version.outputs.version }}"
+          git -c user.name="{{ project }}-bot" -c user.email="bot@{{ project }}.local" tag -a "v${{ steps.version.outputs.version }}" -m "Release v${{ steps.version.outputs.version }}"
+          git push https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git "v${{ steps.version.outputs.version }}"
 
       - name: Trigger downstream publish
         run: |

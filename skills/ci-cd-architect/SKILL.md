@@ -295,7 +295,7 @@ When reviewing CI/CD workflows against this standard, verify every invariant. Ci
 - [ ] `docker/login-action` is `v4` — `[RULE: CI-CDW-3]`
 - [ ] `docker/metadata-action` is `v6` — `[RULE: CI-CDW-3]`
 - [ ] `docker/build-push-action` is `v7` — `[RULE: CI-CDW-3]`
-- [ ] `actions/attest` is `v4` — `[RULE: CI-CDW-3]`
+- [ ] `actions/attest-build-provenance` is `v2` — `[RULE: CI-CDW-3]`
 - [ ] `softprops/action-gh-release` is `v3` — `[RULE: CI-CDW-3]`
 
 **ci.yml — Lint Job:**
