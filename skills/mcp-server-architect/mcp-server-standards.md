@@ -959,7 +959,7 @@ export function createTransport(type: string, options?: TransportOptions) {
 
 #### Rules
 
-1. [L2+] Configuration for all Python tools SHOULD live in `pyproject.toml`. No separate config files.
+1. [L2+] Configuration for all Python quality tools (linters, formatters, type checkers) SHOULD live in `pyproject.toml`. Avoid separate config files where the tool supports `pyproject.toml`; `pytest.ini` is explicitly permitted for pytest markers.
 2. [L2+] Test files MAY be exempted from line-length limits.
 3. [L2+] CI SHOULD run `ruff check`, `ruff format --check`, `mypy`, and `bandit` before tests.
 4. [L1+] The project SHOULD target Python 3.11 or newer.
