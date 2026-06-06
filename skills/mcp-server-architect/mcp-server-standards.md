@@ -507,7 +507,7 @@ MCP tools that manage multiple backend connections need a parameter to select th
 
 #### Streamable HTTP — Primary Remote Transport
 
-[L2+] Streamable HTTP is the default remote transport for all new MCP servers. HTTP+SSE is deprecated (Atlassian Rovo cutoff: June 30, 2026; July 28, 2026 spec removes it from the standard).
+[L2+] Streamable HTTP is the default remote transport for all new MCP servers. HTTP+SSE is planned for deprecation (effective June 30, 2026 per Atlassian Rovo cutoff; planned for removal effective July 28, 2026 per spec RC).
 
 1. [L2+] The server MUST expose a single `/mcp` endpoint handling: POST (JSON-RPC messages), GET (SSE stream for server→client), DELETE (session termination).
 2. [L2+] Session management: assign `Mcp-Session-Id` on initialize; validate on every subsequent request; return HTTP 404 for stale sessions; terminate via DELETE.
@@ -1930,7 +1930,7 @@ Coverage targets:
 #### Authentication: Mandatory, Not Optional
 
 1. [L2+] ALL HTTP/Streamable HTTP MCP servers MUST require authentication. Unauthenticated `tools/list` MUST return HTTP 401.
-2. [L2+] Default binding MUST be `127.0.0.1`. `0.0.0.0` requires explicit `MCP_PUBLIC_ACCESS_CONFIRMED=1` + CRITICAL log.
+2. [L2+] Default binding MUST be `127.0.0.1`. `0.0.0.0` requires explicit `MCP_UNSAFE_PUBLIC_ACCESS_CONFIRMED=1` + CRITICAL log.
 3. [L2+] OAuth 2.1 with PKCE is the RECOMMENDED auth flow. Bearer token with `timingSafeEqual` is the minimum acceptable fallback.
 4. [L3+] Dynamic Client Registration (DCR) MUST validate `redirect_uris` against a strict allowlist — no wildcards, no non-HTTPS schemes (except loopback for local dev).
 5. [L3+] CORS MUST be restricted to known origins. `Access-Control-Allow-Origin: *` on token endpoints is a security vulnerability (Obsidian Security, Jul 2025).

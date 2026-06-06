@@ -76,7 +76,7 @@ However, the MCP ecosystem has evolved dramatically since its creation:
 
 **Decision:** Add a "Middleware Pipeline" section defining a **composable middleware chain** pattern:
 
-```
+```text
 Request → [Auth] → [RateLimit] → [Logging] → [Validation] → [Tool Handler] → Response
 ```
 
