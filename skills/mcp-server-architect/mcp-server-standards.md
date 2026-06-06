@@ -507,7 +507,7 @@ MCP tools that manage multiple backend connections need a parameter to select th
 
 #### Streamable HTTP — Primary Remote Transport
 
-[L2+] Streamable HTTP is the default remote transport for all new MCP servers. HTTP+SSE is deprecated (Atlassian Rovo cutoff: June 30, 2026; 2026-07-28 spec removes it from the standard).
+[L2+] Streamable HTTP is the default remote transport for all new MCP servers. HTTP+SSE is deprecated (Atlassian Rovo cutoff: June 30, 2026; July 28, 2026 spec removes it from the standard).
 
 1. [L2+] The server MUST expose a single `/mcp` endpoint handling: POST (JSON-RPC messages), GET (SSE stream for server→client), DELETE (session termination).
 2. [L2+] Session management: assign `Mcp-Session-Id` on initialize; validate on every subsequent request; return HTTP 404 for stale sessions; terminate via DELETE.
@@ -515,11 +515,11 @@ MCP tools that manage multiple backend connections need a parameter to select th
 4. [L3+] The server MUST implement an EventStore for SSE resumability: per-stream event IDs, `Last-Event-ID` replay, replay only on the same stream (never cross-stream). Reference: InMemoryEventStore pattern from `modelcontextprotocol/servers` (with fix for Issue #4087 — must not replay events from other streams).
 5. [L3+] The server SHOULD support OAuth 2.1 PKCE authentication. At minimum: Bearer token validation with `timingSafeEqual` comparison.
 6. [L2+] The server MUST validate the `Origin` header to prevent DNS rebinding. Bind to `127.0.0.1` by default.
-7. [SHOULD] The server SHOULD support `Mcp-Method` and `Mcp-Name` headers for stateless operation (2026-07-28 spec).
+7. [SHOULD] The server SHOULD support `Mcp-Method` and `Mcp-Name` headers for stateless operation (July 28, 2026 spec).
 
-#### Stateless Server Design (2026-07-28 Spec)
+#### Stateless Server Design (July 28, 2026 Spec)
 
-[L3+] The 2026-07-28 spec makes the protocol stateless. Servers SHOULD be designed for horizontal scaling.
+[L3+] The July 28, 2026 spec makes the protocol stateless. Servers SHOULD be designed for horizontal scaling.
 
 1. [L3+] Server instances MUST NOT store session state in process memory. Use a shared session store (Redis, database, or in-memory with session affinity headers).
 2. [L3+] Any instance MUST be able to handle any request. No sticky-session assumption.
@@ -782,7 +782,7 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
 | `gateway_search_tools` | Semantic search across tool names/descriptions |
 | `gateway_invoke` | Call any discovered tool |
 
-Token savings: 100 tools × 150 tokens = 15,000 → 4 meta-tools × 100 = 400 (**~97% reduction**).
+Token savings: 100 tools x 150 tokens = 15,000 → 4 meta-tools x 100 = 400 (**~97% reduction**).
 
 ### Embedded MCP Server Pattern (v2.0)
 
@@ -2157,7 +2157,7 @@ This matrix maps common MCP server problems to the section and maturity level th
 | v1.0 | 2025-11-25 | Core tool design, response contracts, testing, security |
 | v1.1 | 2025-11-25 | Write Guard, manifest fields, risk table expansion |
 | v1.2 | 2025-11-25 | Consumer ergonomics, CI/CD delegation |
-| v2.0 | 2026-07-28 RC | Transport architecture, middleware, progressive discovery, multi-language, multi-server, security hardening, error taxonomy, health checking, tool poisoning prevention, production operations, problem-solution matrix |
+| v2.0 | July 28, 2026 RC | Transport architecture, middleware, progressive discovery, multi-language, multi-server, security hardening, error taxonomy, health checking, tool poisoning prevention, production operations, problem-solution matrix |
 
 ## NON_GOALS
 
