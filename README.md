@@ -35,7 +35,7 @@ Templates are structural documents to copy and fill. They are not persona prompt
 
 | File | Purpose |
 |------|---------|
-| [`docs-template.md`](skills/afds-doc-writer/docs-template.md) | Fill-in-the-blank template for all 6 AFDS document types |
+| [`docs-template.md`](skills/afds-doc-writer/docs-template.md) | Fill-in-the-blank template for all 7 AFDS document types |
 | [`ci.yml.j2`](skills/ci-cd-architect/templates/ci.yml.j2) | Python CI pipeline (MCP/non-MCP/dockerless variants) |
 | [`publish.yml.j2`](skills/ci-cd-architect/templates/publish.yml.j2) | Docker publish + GitHub Release |
 | [`auto-tag.yml.j2`](skills/ci-cd-architect/templates/auto-tag.yml.j2) | Automatic version tagging (Python + .NET) |
@@ -64,16 +64,16 @@ skills/
 │   ├── mcp-consumer-standards.md Standard
 │   ├── SKILL.md                  System prompt for AI agents
 │   └── tools/                    Reference implementation (decision engine)
-    ├── pre-commit-architect/         ← Pre-commit hook skill
-    │   ├── precommit-standard.md     Standard
-    │   ├── SKILL.md                  System prompt for AI agents
-    │   ├── templates/                3 Jinja2 templates
-    │   └── references/               Hook catalog + pitfalls
-    └── ci-cd-architect/              ← CI/CD skill
-        ├── ci-cd-standard.md         Standard
-        ├── SKILL.md                  System prompt for AI agents
-        ├── templates/                Jinja2 workflow templates
-        └── references/               Action version matrix
+├── pre-commit-architect/         ← Pre-commit hook skill
+│   ├── precommit-standard.md     Standard
+│   ├── SKILL.md                  System prompt for AI agents
+│   ├── templates/                3 Jinja2 templates
+│   └── references/               Hook catalog + pitfalls
+└── ci-cd-architect/              ← CI/CD skill
+    ├── ci-cd-standard.md         Standard
+    ├── SKILL.md                  System prompt for AI agents
+    ├── templates/                Jinja2 workflow templates
+    └── references/               Action version matrix
 
 tests/                            Pytest tests covering all standards
 decisions/                        Architecture Decision Records

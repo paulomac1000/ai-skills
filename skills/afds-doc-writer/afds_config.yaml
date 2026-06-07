@@ -177,7 +177,6 @@ excluded_dirs:
 
 exempt_files:
   - README.md
-  - docs_standards.md
   - docs-template.md
   - CHANGELOG.md
   - action-version-matrix.md

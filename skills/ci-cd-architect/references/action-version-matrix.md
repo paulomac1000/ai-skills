@@ -7,7 +7,7 @@ stability: stable
 ai_scope: editable
 source_of_truth: true
 upstream: [ref.ci-cd-standard]
-last_verified: 2026-06-05
+last_verified: 2026-06-07
 owners: ["ci-cd-maintainer"]
 ttl_days: 30
 description: Pinned GitHub Action versions with commit SHAs and upgrade policy
@@ -15,7 +15,7 @@ description: Pinned GitHub Action versions with commit SHAs and upgrade policy
 
 # Action Version Matrix
 
-> **Standard Version:** 2.0.0
+> **Standard Version:** 2.1.0
 > **Reference:** `ref.ci-cd-standard` Rule 2 and Rule 13
 
 This document tracks the history of GitHub Action versions used across CI/CD standard versions. It is the authoritative reference for which action versions belong to which standard version.
@@ -55,7 +55,7 @@ The following actions have known SHA pinning issues or documented failures — u
 |--------|-------|
 | `docker/setup-buildx-action` | 3 documented SHA mismatch failures across version bumps (v3→v4). The action's release tags have been retagged after initial publication, causing SHA drift. Always verify via `git ls-remote` before updating. |
 
-## Current Versions (Standard v2.0.0)
+## Current Versions (Standard v2.1.0)
 
 | Action | Version | SHA | Verified |
 |--------|---------|-----|----------|

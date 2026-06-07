@@ -10,11 +10,11 @@ jobs:
   validate:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6
         with:
-          python-version: "3.11"
+          python-version: "3.14"
 
       - name: Install dependencies
         run: pip install pyyaml pytest
@@ -25,20 +25,34 @@ jobs:
             --config skills/afds-doc-writer/afds_config.yaml \
             --no-baseline \
             skills/afds-doc-writer/docs_standards.md \
-            skills/mcp-server-architect/mcp_standards.md \
-            templates/docs-template.md \
-            decisions/decision.001-docs-standard-decisions.md \
-            decisions/decision.002-mcp-standard-decisions.md \
+            skills/mcp-server-architect/mcp-server-standards.md \
+            skills/afds-doc-writer/docs-template.md \
+            decisions/decision.*.md \
             README.md
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
+
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6
+        with:
+          python-version: "3.14"
+
+      - name: Install dependencies
+        run: pip install ruff mypy bandit
+
+      - name: Run linters
+        run: ruff check . && mypy . && bandit -r .
 
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6
         with:
-          python-version: "3.11"
+          python-version: "3.14"
 
       - name: Install dependencies
         run: pip install pyyaml pytest

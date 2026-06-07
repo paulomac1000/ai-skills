@@ -2,11 +2,11 @@
 description: Architecture decisions for enhanced MCP server standard — Streamable HTTP, middleware pipeline, progressive discovery, multi-language support, transport bridging
 doc_id: decision.006-mcp-enhanced-standard
 type: decision
-status: proposed
+status: accepted
 rigor_tier: L3
 ttl_days: 0
 version: 1.0.0
-stability: volatile
+stability: stable
 ai_scope: editable
 source_of_truth: true
 tags: ["adr", "mcp", "standards", "architecture", "streamable-http", "middleware"]
