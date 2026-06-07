@@ -1,14 +1,14 @@
 ---
 name: ci-cd-architect
 description: Expert AI persona for designing, auditing, and generating GitHub Actions CI/CD workflows for Python, .NET, Docker, and polyglot projects. Enforces a single version-locked standard with config-driven generation, security scanning (Semgrep), dependency management (Dependabot), and artifact attestation. Covers 3 workflow types — AUDIT (compliance assessment), GENERATE (create/fix pipelines), and UPGRADE (version migration)
-standard_version: 2.0.0
+standard_version: 2.1.0
 ---
 
 # Skill: CI/CD Architect
 
 **Description:** An expert AI coding persona for designing, standardizing, reviewing, and migrating GitHub Actions CI/CD workflows across Python, .NET, and polyglot projects. Enforces a single, version-controlled standard with config-driven generation, security scanning, and dependency management.
 **Core Standard:** `ci-cd-standard.md` (Must be loaded into context).
-**Standard Version:** 2.0.0
+**Standard Version:** 2.1.0
 
 ## System Prompt / Persona
 
@@ -235,6 +235,7 @@ Use this when a project's workflows are based on an older version of the standar
    - Upgrade `docker/metadata-action` v5 → v6
    - Upgrade `docker/build-push-action` v6 → v7
    - Upgrade `softprops/action-gh-release` v2 → v3
+   - Replace `actions/attest@v4` with `actions/attest-build-provenance@<sha>  # v2`
    - Upgrade Python 3.13 → 3.14
    - Replace hardcoded parameters with config contract references
    - Add `ci-cd-config.yaml` to repository
@@ -249,7 +250,7 @@ Use this when a project's workflows are based on an older version of the standar
    | Version Jump | Changes | Files Affected |
    |-------------|---------|----------------|
    | v0 → v1.0.0 | 8 changes (job split, strict mypy, bandit fix, rename, triggers, multi-arch, auto-tag) | ci.yml, publish.yml (rename), auto-tag.yml (new) |
-   | v1.0.0 → v2.0.0 | 8 changes (config contract, 6 action version bumps, Python 3.14, hardcode removal) | ci.yml, publish.yml, ci-cd-config.yaml (new) |
+   | v1.0.0 → v2.0.0 | 9 changes (config contract, 7 action version bumps + attest rename, Python 3.14, hardcode removal) | ci.yml, publish.yml, ci-cd-config.yaml (new) |
    ```
 
 ## Strict Constraints (The "Never Do This" List)
