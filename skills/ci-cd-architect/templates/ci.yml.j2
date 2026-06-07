@@ -47,6 +47,7 @@ jobs:
           python-version: "{{ python_version }}"
 
       - name: Install dependencies and linting tools
+        # --break-system-packages: required on Python ≥3.14 (PEP 668, externally managed environment)
         run: |
           python -m pip install --upgrade pip --break-system-packages
           pip install --break-system-packages -e ".[dev]"
@@ -95,6 +96,7 @@ jobs:
           python-version: "{{ python_version }}"
 
       - name: Install dependencies
+        # --break-system-packages: required on Python ≥3.14 (PEP 668, externally managed environment)
         run: |
           python -m pip install --upgrade pip --break-system-packages
           pip install --break-system-packages -e ".[dev]"
@@ -154,6 +156,7 @@ jobs:
 {% endif %}
 
 {% if is_mcp %}
+      # MUST update .github/ci-cd-config.yaml expected_tools when adding/removing tools
       - name: Smoke test — tool count
         run: |
           docker run --rm {{ image_name }} python3 -c "
