@@ -8,7 +8,7 @@ rigor_tier: L2
 stability: stable
 ai_scope: editable
 domain: mcp
-standard_version: 2.0.0
+standard_version: 2.1.0
 tags: ["mcp", "server", "standards", "core", "testing", "security", "transport", "middleware", "typescript"]
 owners: ["backend-team"]
 upstream:
@@ -566,6 +566,59 @@ app.all('/mcp', async (req, res) => {
 | Docker/K8s | Streamable HTTP | Health checks, load balancing |
 | Edge/Serverless | Streamable HTTP | Stateless, cold-start friendly |
 
+#### Python Streamable HTTP (FastMCP + Starlette)
+
+The factory pattern translates to Python/Starlette with FastMCP. SSE runs on a separate port; the `/mcp` endpoint handles JSON-RPC via POST and SSE streaming via GET. Middleware chain executes sequentially — auth, rate-limit, logging, validation — before the tool handler:
+
+```python
+from fastmcp import FastMCP
+from starlette.applications import Starlette
+from starlette.routing import Route
+from starlette.responses import JSONResponse
+import uuid
+
+mcp = FastMCP("my-server")
+app = Starlette()
+
+# Middleware chain (sequential, no composeMiddleware in Python)
+async def auth_middleware(handler, request):
+    token = request.headers.get("Authorization", "")
+    if not _validate_bearer(token):
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    return await handler(request)
+
+async def rate_limit_middleware(handler, request):
+    session_id = request.headers.get("Mcp-Session-Id", "anon")
+    if _check_quota(session_id):
+        return JSONResponse({"error": "Rate limited"}, status_code=429)
+    return await handler(request)
+
+async def mcp_handler(request):
+    session_id = request.headers.get("Mcp-Session-Id") or str(uuid.uuid4())
+    if not validate_session(session_id):
+        return JSONResponse({"error": "Session not found"}, status_code=404)
+    body = await request.json()
+    result = await mcp.call_tool(body.get("method", ""), body.get("params", {}))
+    return JSONResponse(json.loads(result))
+
+# POST /mcp — JSON-RPC
+async def mcp_post(request):
+    handler = mcp_handler
+    handler = lambda r: auth_middleware(lambda rr: rate_limit_middleware(handler, rr), r)
+    return await handler(request)
+
+app.routes.append(Route("/mcp", mcp_post, methods=["POST"]))
+
+# SSE transport on separate port
+async def run_sse():
+    mcp.run(transport="sse", host="0.0.0.0", port=9101)
+
+# Start: sse in thread, Starlette on main
+import threading
+threading.Thread(target=lambda: asyncio.run(run_sse()), daemon=True).start()
+# Run app with: uvicorn.run(app, host="0.0.0.0", port=9100)
+```
+
 ### Middleware Pipeline (v2.0)
 
 [L2+] Cross-cutting concerns (auth, rate limiting, logging, observability) MUST be implemented as composable middleware, not inline checks in tool handlers. The middleware chain executes left-to-right: each middleware processes the request, calls `next()`, and post-processes the response.
@@ -637,6 +690,28 @@ app.post('/mcp', async (req, res) => {
   const response = await pipeline(ctx, async () => handleToolCall(ctx, req.body));
   res.json(response);
 });
+```
+
+**Python: Sequential middleware.** Python has no `composeMiddleware` equivalent — middleware calls chain manually. Each `async def middleware(handler, request)` wraps the next:
+
+```python
+async def auth_middleware(handler, request):
+    if not _validate_token(request.headers.get("Authorization", "")):
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    return await handler(request)
+
+async def rate_limit_middleware(handler, request):
+    if _quota_exceeded(request.headers.get("Mcp-Session-Id", "anon")):
+        return JSONResponse({"error": "Rate limited", "retry_after_ms": 1000}, status_code=429)
+    return await handler(request)
+
+# Chain: auth → rate-limit → logging → validation → handler
+async def mcp_endpoint(request):
+    handler = mcp_handler
+    for mw in [auth_middleware, rate_limit_middleware, logging_middleware, validation_middleware]:
+        prev = handler
+        handler = lambda r, mw=mw, ph=prev: mw(ph, r)
+    return await handler(request)
 ```
 
 ### Progressive Tool Discovery (v2.0)
@@ -1027,7 +1102,13 @@ def _error_response_extended(code: str, message: str, retryable: bool,
 def _error_dict_extended(code: str, message: str, retryable: bool,
                           suggestion: str | None = None,
                           available_names: list[str] | None = None) -> dict:
-    """Return an error dict for internal function composition (before JSON serialization)."""
+    """Return an error dict (not JSONResponse) for internal function composition.
+
+    Returns a plain dict — NOT a JSON string or Starlette JSONResponse.
+    Use this inside internal functions that compose responses before serialization.
+    The tool wrapper serializes the dict via _success_response() or json.dumps().
+    For HTTP/Starlette handlers, wrap with JSONResponse(**dict) at the boundary.
+    """
     error = {"code": code, "message": message, "retryable": retryable}
     if suggestion:
         error["suggestion"] = suggestion
@@ -1253,7 +1334,9 @@ def start_tool_context() -> str:
     return rid
 ```
 
-Audit log — gated, fail-open (Observability rule 11):
+**Python guidance — `contextvars` vs `threading.local()`:** Use `contextvars.ContextVar` for async servers (asyncio, FastMCP, Starlette) — it isolates concurrent tasks sharing a single OS thread. Use `threading.local()` for sync-only servers (thread-per-request, legacy WSGI) — simpler and sufficient when each request owns a dedicated thread. In hybrid servers (sync handlers in an async app), always prefer `contextvars` — it works correctly in both modes while `threading.local()` silently shares state across async tasks.
+
+**Audit log — gated, fail-open (Observability rule 11):**
 
 ```python
 def log_audit(actor: str, command: str) -> None:
@@ -1299,6 +1382,8 @@ Integration tests and REST bridges MUST use `FastMCP.call_tool()`, never `Server
 | Tool objects wrap callables instead of storing directly | `tools["name"]` is a Tool object, not a function | `_unwrap_tool()` must check `.fn`, `.func`, `._func` attributes |
 | `call_tool` signature changes | `TypeError` on existing integration tests | Use MCPWrapper to isolate from framework changes |
 | Lifespan context initialization delayed | REST bridge returns 503 on first request | Health endpoint is always available; tool calls wait for SSE |
+| FastMCP 2.0.0: `from fastmcp.mcp_config import ...` removed | `ImportError: cannot import name 'mcp_config'` from `fastmcp` | **TRANSIENT** — Patch `sys.modules['fastmcp.mcp_config']` with `types.ModuleType('fastmcp.mcp_config')`. Remove this workaround when FastMCP 2.x stabilizes and documents its config API replacement (expected: FastMCP ≥2.1.0). |
+| `mcp.run(host="0.0.0.0", port=9100)` mypy false-positive | `mypy: Unexpected keyword argument "host"` / `"port"` for `mcp.run()` | `mcp.run()` forwards kwargs to uvicorn.run() dynamically; mypy cannot resolve them. Suppress with `# type: ignore[call-arg]` or cast. Not a runtime error. |
 
 #### Framework-Agnostic Practices
 
@@ -1514,6 +1599,32 @@ def build_meta(tool_name: str, start_time: float) -> dict:
 ```
 
 `build_meta()` MUST read the current `request_id` from the context (Observability rule 10), NOT generate a fresh UUID — a new UUID here would not match the id in the log lines for the same invocation.
+
+#### Canonical Template 4d — Pure `_build_meta` Constructor (No Side Effects)
+
+[L3+] `_build_meta()` is the pure constructor: it takes inputs, returns a `dict`, and has zero side effects. It does NOT record invocations. The public `build_meta()` wraps it and adds `record_invocation()`:
+
+```python
+def _build_meta(request_id: str, start_time: float, tool_name: str = "") -> dict:
+    """Pure constructor — returns _meta dict. No side effects, no counter mutation.
+
+    Use this when you need _meta fields (e.g., for constructing error responses
+    that include request_id and duration_ms) without triggering the invocation
+    counter increment that build_meta() applies.
+    """
+    return {
+        "request_id": request_id,
+        "duration_ms": int((time.monotonic() - start_time) * 1000),
+        "tool_version": TOOLS_VERSION,
+    }
+
+def build_meta(tool_name: str, start_time: float) -> dict:
+    """Public wrapper: records invocation THEN constructs _meta."""
+    record_invocation(tool_name)
+    return _build_meta(get_request_id(), start_time, tool_name)
+```
+
+`_build_meta()` enables error-response construction with accurate timing without double-counting failures as successful invocations. `build_meta()` remains the standard tool-success path.
 
 #### Canonical Template 5 — Multi-Client Lifespan Architecture
 
@@ -2108,6 +2219,31 @@ interface VerifiedTool {
 3. [L3+] Session expiry: default 24 hours, configurable via `MCP_SESSION_TTL`. Stale sessions return HTTP 404.
 4. [L3+] Load balancers MUST use `Mcp-Session-Id` for session affinity (ip_hash fallback acceptable).
 
+**Python in-memory session store.** For development and single-instance deployments, a lock-protected dict with UUID keys and 3600-second TTL replaces Redis:
+
+```python
+import threading, uuid, time
+
+_session_lock = threading.Lock()
+_sessions: dict[str, dict] = {}
+
+def create_session() -> str:
+    session_id = str(uuid.uuid4())
+    with _session_lock:
+        _sessions[session_id] = {"created_at": time.monotonic(), "data": {}}
+    return session_id
+
+def validate_session(session_id: str) -> bool:
+    with _session_lock:
+        session = _sessions.get(session_id)
+        if session is None:
+            return False
+        if time.monotonic() - session["created_at"] > 3600:
+            del _sessions[session_id]
+            return False
+        return True
+```
+
 #### Observability
 
 1. [L3+] OpenTelemetry integration: propagate `traceparent` and `tracestate` headers. Standard span names: `mcp.server.tool.call`, `mcp.server.resource.read`, `mcp.server.prompt.get`.
@@ -2174,6 +2310,19 @@ This matrix maps common MCP server problems to the section and maturity level th
 | v1.1 | 2025-11-25 | Write Guard, manifest fields, risk table expansion |
 | v1.2 | 2025-11-25 | Consumer ergonomics, CI/CD delegation |
 | v2.0 | July 28, 2026 RC | Transport architecture, middleware, progressive discovery, multi-language, multi-server, security hardening, error taxonomy, health checking, tool poisoning prevention, production operations, problem-solution matrix |
+| v2.1 | 2026-06-07 | Python Streamable HTTP appendix (Starlette + FastMCP), Python middleware pattern (sequential chain), `_build_meta()` pure constructor (Template 4d), `_error_dict_extended` return-type clarification, `threading.local` vs `contextvars` Python guidance, Python session management template, FastMCP 2.0.0 import workaround (TRANSIENT), `mcp.run()` mypy false-positive documented |
+
+### 2.1.0 (2026-06-07)
+
+Python implementation coverage for the v2.0 standard:
+- **Python Streamable HTTP appendix:** Starlette + FastMCP pattern with SSE on separate port, manual `/mcp` endpoint, sequential middleware chain, session validation.
+- **Python middleware pattern:** Sequential async calls (`auth → rate-limit → logging → validation → handler`) — no `composeMiddleware` equivalent in Python.
+- **Canonical Template 4d — `_build_meta()`:** Pure constructor (returns `dict`, zero side effects). `build_meta()` wraps it with `record_invocation()`. Enables error-response meta construction without double-counting.
+- **`_error_dict_extended` docs:** Clarified return type (plain `dict`, not JSONResponse). Boundary serialization guidance.
+- **`threading.local` vs `contextvars`:** Explicit guidance — `contextvars` for async (FastMCP, Starlette), `threading.local()` for sync-only servers.
+- **Python session management:** In-memory session store with `threading.Lock`, `uuid`, `timeout=3600`.
+- **FastMCP 2.0.0 import workaround (TRANSIENT):** `sys.modules` patch for removed `fastmcp.mcp_config`. Removal condition: FastMCP ≥2.1.0.
+- **`mcp.run()` mypy false-positive:** `host`/`port` kwargs not resolvable by mypy; suppress with `# type: ignore[call-arg]`.
 
 ## NON_GOALS
 

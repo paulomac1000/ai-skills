@@ -3,7 +3,7 @@ name: mcp-server-architect
 description: An expert AI coding persona for building, refactoring, and reviewing Model Context Protocol (MCP) servers — language-agnostic core with Python/FastMCP and TypeScript/Node.js implementation appendices
 metadata:
   category: mcp
-standard_version: 2.0.0
+standard_version: 2.1.0
 ---
 
 # Skill: MCP Server Architect
