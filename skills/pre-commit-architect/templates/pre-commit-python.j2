@@ -1,0 +1,64 @@
+# pre-commit-config.yaml — Base Python configuration
+#
+# Template: pre-commit-python.j2
+# Generated from pre-commit-architect skill
+#
+# Substitution variables:
+#   {{ python_version }}  — Python version string, e.g. "3.14"
+#   {{ src_dirs }}         — List of source directories, e.g. ["src", "tests"]
+#   {{ has_docs }}         — Boolean, include AFDS documentation validation
+
+fail_fast: false
+
+repos:
+  # ── Remote: basic file hygiene ──
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: check-yaml
+
+  # ── Local: formatting, linting, types, security, tests ──
+  - repo: local
+    hooks:
+      - id: ruff-check
+        name: ruff check
+        entry: python3 -m ruff check --target-version py{{ python_version | replace('.', '') }} .
+        language: python
+        additional_dependencies: ["ruff>=0.11.0"]
+        pass_filenames: false
+
+      - id: ruff-format
+        name: ruff format --check
+        entry: python3 -m ruff format --check .
+        language: python
+        additional_dependencies: ["ruff>=0.11.0"]
+        pass_filenames: false
+
+      - id: mypy
+        name: mypy
+        entry: python3 -m mypy --python-version "{{ python_version }}" .
+        language: python
+        additional_dependencies: ["mypy>=1.0", "types-PyYAML"]
+        pass_filenames: false
+
+      - id: bandit
+        name: bandit
+        entry: python3 -m bandit -r .
+        language: python
+        additional_dependencies: ["bandit[toml]>=1.7"]
+        pass_filenames: false
+
+      - id: pytest
+        name: pytest
+        entry: bash -c 'python3 -m pytest tests/ -q 2>&1; if [ ${PIPESTATUS[0]} -ne 0 ]; then exit 1; fi'
+        language: system
+        pass_filenames: false
+
+{% if has_docs %}
+      - id: docs-validate
+        name: docs validate
+        entry: bash -c 'curl -sS https://raw.githubusercontent.com/paulomac1000/ai-skills/main/skills/afds-doc-writer/docs_validate.py | python3 - --config afds_config.yaml --strict .'
+        language: system
+        pass_filenames: false
+{% endif %}

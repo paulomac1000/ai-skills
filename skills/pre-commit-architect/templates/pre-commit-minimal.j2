@@ -1,0 +1,33 @@
+# pre-commit-config.yaml — Minimal configuration
+#
+# Template: pre-commit-minimal.j2
+# Minimal variant — fast checks only (<10s), no type/security/test hooks
+#
+# No substitution variables — fully static configuration.
+
+fail_fast: false
+
+repos:
+  # ── Remote: basic file hygiene ──
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: check-yaml
+
+  # ── Local: formatting & linting (fast only) ──
+  - repo: local
+    hooks:
+      - id: ruff-check
+        name: ruff check
+        entry: python3 -m ruff check .
+        language: python
+        additional_dependencies: ["ruff>=0.11.0"]
+        pass_filenames: false
+
+      - id: ruff-format
+        name: ruff format --check
+        entry: python3 -m ruff format --check .
+        language: python
+        additional_dependencies: ["ruff>=0.11.0"]
+        pass_filenames: false

@@ -1,0 +1,104 @@
+# pre-commit-config.yaml — MCP server configuration
+#
+# Template: pre-commit-mcp.j2
+# MCP variant — adds tool count and manifest validation
+#
+# Substitution variables:
+#   {{ python_version }}  — Python version string, e.g. "3.14"
+#   {{ src_dirs }}         — List of source directories, e.g. ["src", "tests"]
+#   {{ has_docs }}         — Boolean, include AFDS documentation validation
+#   {{ expected_tools }}   — Integer, expected number of MCP tools
+#   {{ has_manifests }}    — Boolean, validate .mcp/manifest.json
+
+fail_fast: false
+
+repos:
+  # ── Remote: basic file hygiene ──
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: check-yaml
+
+  # ── Local: formatting, linting, types, security, tests ──
+  - repo: local
+    hooks:
+      - id: ruff-check
+        name: ruff check
+        entry: python3 -m ruff check --target-version py{{ python_version | replace('.', '') }} .
+        language: python
+        additional_dependencies: ["ruff>=0.11.0"]
+        pass_filenames: false
+
+      - id: ruff-format
+        name: ruff format --check
+        entry: python3 -m ruff format --check .
+        language: python
+        additional_dependencies: ["ruff>=0.11.0"]
+        pass_filenames: false
+
+      - id: mypy
+        name: mypy
+        entry: python3 -m mypy --python-version "{{ python_version }}" .
+        language: python
+        additional_dependencies: ["mypy>=1.0", "types-PyYAML"]
+        pass_filenames: false
+
+      - id: bandit
+        name: bandit
+        entry: python3 -m bandit -r .
+        language: python
+        additional_dependencies: ["bandit[toml]>=1.7"]
+        pass_filenames: false
+
+      - id: pytest
+        name: pytest
+        entry: bash -c 'python3 -m pytest tests/ -q 2>&1; if [ ${PIPESTATUS[0]} -ne 0 ]; then exit 1; fi'
+        language: system
+        pass_filenames: false
+
+{% if has_docs %}
+      - id: docs-validate
+        name: docs validate
+        entry: bash -c 'curl -sS https://raw.githubusercontent.com/paulomac1000/ai-skills/main/skills/afds-doc-writer/docs_validate.py | python3 - --config afds_config.yaml --strict .'
+        language: system
+        pass_filenames: false
+{% endif %}
+
+  # ── Local: MCP-specific hooks ──
+  - repo: local
+    hooks:
+{% if expected_tools is defined %}
+      - id: tool-count-validate
+        name: tool count validate
+        entry: |
+          python3 -c "
+          import sys
+          sys.path.insert(0, 'src')
+          from server import get_tool_count
+          tc = get_tool_count()
+          assert tc == {{ expected_tools }}, f'Expected {{ expected_tools }} tools, got {tc}'
+          print(f'Tool count OK: {tc}')
+          "
+        language: python
+        additional_dependencies: ["."]
+        pass_filenames: false
+{% endif %}
+{% if has_manifests %}
+      - id: manifest-validate
+        name: manifest validate
+        entry: |
+          python3 -c "
+          import json, sys
+          with open('.mcp/manifest.json') as f:
+              m = json.load(f)
+          assert 'tools' in m, 'manifest missing tools array'
+          assert len(m['tools']) > 0, 'manifest has zero tools'
+          for t in m['tools']:
+              assert 'name' in t, f'tool missing name: {t}'
+              assert 'description' in t, f'tool {t[\"name\"]} missing description'
+          print(f'Manifest valid: {len(m[\"tools\"])} tools, all with name/description')
+          "
+        language: python
+        pass_filenames: false
+{% endif %}
