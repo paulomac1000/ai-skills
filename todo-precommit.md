@@ -56,6 +56,7 @@ Modeled after `ci-cd-standard.md` with semantic anchors `[RULE: PRECOMMIT-NN]`:
 | PRECOMMIT-09 | L2+ | Remote hooks use commit SHA, not version tags |
 | PRECOMMIT-10 | L1+ | `.pre-commit-config.yaml` committed to repo, AGENTS.md section present |
 | PRECOMMIT-11 | L1+ | `[[tool.mypy.overrides]]` MUST list every third-party dep. CI lint often has minimal env — do NOT assume packages are installed |
+| PRECOMMIT-12 | L1+ | CAFDS `excluded_dirs` in `afds_config.yaml` MUST match directories excluded by pre-commit doc hook |
 
 ---
 
@@ -71,6 +72,7 @@ Modeled after `ci-cd-standard.md` with semantic anchors `[RULE: PRECOMMIT-NN]`:
 | 6 | YAML parsing errors from complex bash in `entry:` | `entry: bash -c '...'` with special chars broke YAML | Use `entry: |` literal block |
 | 7 | `fastmcp` env issue blocked ALL tests | Pre-existing install bug, not code bug | Known env issue doc |
 | 8 | `mypy` passed locally but FAILED in CI lint job | CI lint job runs `pip install ruff mypy bandit` WITHOUT project deps. `ignore_missing_imports` was removed globally, but overrides only existed for `yaml.*` — missing `fastmcp.*`, `requests.*`, `pyyaml.*`, `starlette.*`, `uvicorn.*`, `dateutil.*`, `pydantic.*`. Local mypy found all deps (installed via `-e ".[dev]"`), so it passed. CI mypy couldn't resolve any third-party types. **Root cause**: pre-commit runs in full local env, CI lint runs in minimal env — overrides must cover ALL third-party packages. **Fix**: Added `[[tool.mypy.overrides]]` for all 7 third-party libs. | Add to standard: "PRECOMMIT-11: `[[tool.mypy.overrides]]` MUST list every third-party dependency used by the project. CI lint jobs often have minimal environments." |
+| 9 | CAFDS passed locally but FAILED in CI | Pre-commit hook excludes `.omo/` from CAFDS, but CI doesn't. `afds_config.yaml` lacked `.omo` in `excluded_dirs`. CI scanned `.omo/plans/*.md` which are planning docs without YAML frontmatter → FAIL. **Root cause**: Pre-commit and CI use different CAFDS targets. **Fix**: Add `.omo` to `excluded_dirs` in `afds_config.yaml`. | PRECOMMIT-12: CAFDS `excluded_dirs` in `afds_config.yaml` MUST match the directories excluded by pre-commit doc validation hook. |
 
 ---
 
