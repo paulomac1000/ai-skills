@@ -128,7 +128,7 @@ steps:
     run: |
       python -m pip install --upgrade pip
       pip install -e ".[dev]"
-      pip install ruff mypy bandit
+      pip install ruff mypy bandit  # <!-- VERIFY: Every tool invoked in this job MUST appear in pip install. Pre-commit virtualenv masks missing tools. -->
   - name: Ruff check
     run: ruff check .
   - name: Ruff format check
@@ -138,6 +138,9 @@ steps:
   - name: bandit
     run: bandit -r <SRC_DIR>/ -ll
 ```
+
+> [!WARNING]
+> Every tool invoked in this job MUST appear in `pip install`. Pre-commit hooks run in a virtualenv that can mask missing tools at pre-commit time; the only reliable verification is CI itself. A tool that runs in CI lint but is not in `pip install` was installed by the pre-commit virtualenv and will fail when the pre-commit virtualenv is deleted or rebuilt.
 
 **[RULE: CI-CDW-7] [L1+]** `ruff check` MUST NOT use `--ignore` flags. All linting rules apply uniformly. Projects configure exemptions in `pyproject.toml [tool.ruff]`, not in CI.
 
@@ -184,6 +187,8 @@ steps:
 #### 4.3 Job: `docker-smoke`
 
 **[RULE: CI-CDW-15] [L1+]** The `docker-smoke` job MUST build a Docker image exactly once and verify it via smoke tests. The Docker image MUST NOT be built in a separate job — building and testing share the same job.
+
+For multi-service Docker Compose projects, set `use_docker: compose` in the configuration contract. This replaces the standard `docker-smoke` job with `compose-smoke`: the job runs `docker compose up --build -d`, waits for health checks across all services, and runs `docker compose down` on cleanup. The `docker-smoke` job name becomes `compose-smoke`.
 
 **[RULE: CI-CDW-16] [L1+]** The smoke test MUST verify at least one health/readiness check. For MCP-compliant projects, this MUST include an exact tool count assertion and REST API health endpoint verification. For non-MCP projects (see Rule 14), this MUST verify the project's primary health endpoint.
 
@@ -358,6 +363,8 @@ The configuration contract defines these parameters:
 | `dotnet_version` | No | .NET SDK version (required when `language: dotnet`) | `"10.0.x"` |
 | `dotnet_solution` | No | Path to .NET solution file (required when `language: dotnet`) | `src/MyApp.sln` |
 | `version_source` | No | Source for auto-tag version extraction: `"pyproject"` (default) or `"directory-build-props"` (.NET) | `"pyproject"` |
+
+**[RULE: CI-CDW-32a] [L2+]** Numeric constants defined in the configuration contract (e.g., `expected_tools`, `health_port`, `rest_port`) MUST NOT be hardcoded in workflow files. Use template substitution only (`<EXPECTED_TOOLS>`, `<HEALTH_PORT>`, `<REST_PORT>`). Hardcoding a numeric value that also appears in the config contract creates a single-source-of-truth violation: the contract value changes but the hardcoded workflow value silently drifts out of sync.
 
 **[RULE: CI-CDW-37] [L2+]** When `.github/ci-cd-config.yaml` exists, it is the SSOT for all CI/CD parameters. Workflow files SHOULD be regenerated from templates when configuration changes. The SKILL.md describes the regeneration workflow.
 
@@ -756,6 +763,8 @@ CI workflows that communicate results back to the PR via comments MUST follow a 
 
 **[RULE: CI-CDW-68] [L2+]** Every CI bot that posts PR comments MUST use a hidden HTML marker (`<!-- bot-name -->`) as the first line of the comment body. This marker uniquely identifies the bot and enables the "update, don't duplicate" pattern.
 
+**[RULE: CI-CDW-68a] [L1+]** Any workflow using third-party PR comment actions (e.g., `MishaKav/pytest-coverage-comment`, `marocchino/sticky-pull-request-comment`, `actions/github-script` for comment creation) MUST declare `permissions: pull-requests: write`. The default `GITHUB_TOKEN` lacks this permission; without it, comment actions fail silently with 403 errors.
+
 **[RULE: CI-CDW-69] [L2+]** Before posting a new comment, the bot MUST search for an existing comment with the same marker and update it. If no existing comment is found, a new comment is created. If the check passes, the bot SHOULD update the existing failure comment to indicate success rather than leaving stale failure messages.
 
 **Canonical implementation** (JavaScript, via `actions/github-script@v9`):
@@ -871,6 +880,8 @@ git ls-remote https://github.com/<owner>/<repo>.git refs/tags/v<major> | awk '{p
 - CASE: Configuration contract is missing → EXPECTED: The project is treated as non-compliant. See SKILL.md migration workflow for how to add the config contract retroactively.
 - CASE: Semgrep `# nosemgrep` suppression in Dockerfiles → EXPECTED: In Dockerfiles, `# nosemgrep:` comments MUST be placed on a SEPARATE line BEFORE the directive they suppress. Inline `#` characters on Dockerfile directive lines (e.g., `USER root  # nosemgrep: ...`) are parsed as part of the directive argument, not as comments. This causes Docker build failures (`unable to find user`). Correct form: `# nosemgrep: rule-id` on a separate preceding line.
 - CASE: Direct push to main without a pull request → EXPECTED: The auto-tag workflow fires only on PR merge (`pull_request.closed + merged == true`). Direct pushes to main do NOT create a version tag. To publish after a direct push: (1) verify `pyproject.toml` version is correct, then (2) manually create and push the tag via `git tag -a vX.Y.Z -m "..." && git push origin vX.Y.Z`. The publish workflow will then create the release and Docker image from the tag push.
+
+- CASE: Project has no Python code → EXPECTED: Python-specific rules (CI-CDW-6 lint, CI-CDW-10 test, CI-CDW-4 Python version) are N/A. Use `language: polyglot` in the config contract. Only language-agnostic rules (Semgrep, Dependabot, concurrency, commit SHA pinning) apply. The `lint` and `test` jobs MAY be replaced with language-appropriate equivalents; their structure is a recommendation, not a requirement, for polyglot projects.
 
 ## EXAMPLES
 

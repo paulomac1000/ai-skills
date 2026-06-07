@@ -141,6 +141,9 @@ Use this when asked to review or audit existing workflows. Produces a structured
     | CI-CDW-19 | L1+ | FAIL | publish.yml | Missing workflow_run trigger | Add workflow_run trigger |
     ```
 
+12. **SHA Pinning Phase-In:**
+    For repos with 5+ workflow files, SHA pinning is `L1+` but may be deferred up to 30 days per CI-CDW-44. Prioritize conversion order: (1) `publish.yml`, (2) `ci.yml`, (3) `semgrep.yml`, (4) remaining workflows. Each workflow may be converted in a separate PR.
+
 ### Workflow 2: Create/Fix Workflows from Scratch (GENERATE)
 
 Use this when asked to create new workflow files or fix non-compliant ones for a project.

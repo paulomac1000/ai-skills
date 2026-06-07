@@ -46,6 +46,7 @@ Compiled from real deployment failures across `ha-mcp-readonly`, `local-home-dev
 - **Root cause:** CAFDS excluded directories were not configured. The validator scanned all `.md` files under the project root, including `.omo/plans/*.md`.
 - **Rule:** PRECOMMIT-12 — CAFDS `excluded_dirs` in `afds_config.yaml` MUST match directories excluded by pre-commit doc validation hook.
 - **Solution:** Add `.omo` to `excluded_dirs` in `afds_config.yaml`. The pre-commit doc hook and CI must use the same exclusion list.
+- **Auto-fix hooks:** Auto-fix hooks (`end-of-file-fixer`, `trailing-whitespace`) also touch `.omo/` files if not excluded. Both the pre-commit hook `exclude` pattern AND `afds_config.yaml` `excluded_dirs` must list `.omo/`.
 
 ---
 
@@ -153,3 +154,12 @@ Compiled from real deployment failures across `ha-mcp-readonly`, `local-home-dev
     language: system
   ```
   Also add `python3 -m pytest --collect-only -q` as a separate hook before the test hook to surface import errors early.
+
+---
+
+### Pitfall 11: Pre-commit Passed but CI Failed — Missing pip install
+
+- **Opis:** `ruff: command not found` in CI lint job despite local `pre-commit run` passing
+- **Root cause:** pre-commit hooks run in isolated virtualenvs. CI has no isolation — must `pip install ruff`
+- **Rule:** PRECOMMIT-01
+- **Solution:** Diff CI `pip install` against all step names. Every tool in a step MUST be in `pip install`

@@ -40,7 +40,7 @@ Before inspecting or modifying any pre-commit configuration, determine the proje
 
 | Dimension | Options | How to Determine |
 |-----------|---------|------------------|
-| **Project type** | `python` / `mcp` / `minimal` | Check for MCP dependencies, test directory structure |
+| **Project type** | `python` / `mcp` / `minimal` / `config-repo` / `infrastructure` | Check for MCP dependencies, test directory structure, presence of shell scripts / Dockerfiles |
 | **Has MCP server** | `yes` / `no` | Check for `mcp` or `fastmcp` imports in source |
 | **Has integration tests** | `yes` / `no` | Check for `tests/integration/` directory |
 | **Has docs** | `yes` / `no` | Check for `docs/` directory with markdown files |
@@ -54,6 +54,8 @@ Before inspecting or modifying any pre-commit configuration, determine the proje
 | Python + standard unit tests | `pre-commit-python.j2` | generic + lint + format + types + security + tests | Full suite, unit tests at pre-commit |
 | MCP server | `pre-commit-mcp.j2` | generic + lint + format + types + security + docs + tests | Includes CAFDS docs hook, MCP-specific tool count smoke |
 | Minimal / library | `pre-commit-minimal.j2` | generic + lint + format + types | No tests hook (CI-only), no security hook |
+| Config repo (non-Python) | `pre-commit-minimal.j2` | generic + shell hooks | Python-specific rules (PRECOMMIT-03 ruff, PRECOMMIT-11 mypy) N/A. Only structural rules apply. |
+| Infrastructure (non-Python) | `pre-commit-minimal.j2` | generic + local shell hooks | Python-specific rules N/A. Only structural rules: SHA pinning, CI mirroring, AGENTS.md, fail_fast: false. |
 
 ## Standard Workflows
 
@@ -111,12 +113,14 @@ Use this when asked to create a new `.pre-commit-config.yaml` or replace a non-c
 
 1. **Load the Standard:** Read `precommit-standard.md` into context.
 
-2. **Classify the Project:** Run the Project Classification checklist. Determine archetype (python/mcp/minimal).
+2. **Classify the Project:** Run the Project Classification checklist. Determine archetype (python/mcp/minimal/config-repo/infrastructure).
 
 3. **Select Template:**
    - `python` → `templates/pre-commit-python.j2`
    - `mcp` → `templates/pre-commit-mcp.j2`
    - `minimal` → `templates/pre-commit-minimal.j2`
+   - `config-repo` → `templates/pre-commit-minimal.j2`
+   - `infrastructure` → `templates/pre-commit-minimal.j2`
 
 4. **Gather Parameters:** Inspect the project for substitution values:
    - `src_dir`: from project structure (e.g., `src/`, `tools/`, or root)

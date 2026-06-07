@@ -53,6 +53,8 @@ Define a unified, version-locked, and reproducible pre-commit hook standard for 
 
 Pre-commit runs in the developer's full local environment (`pip install -e ".[dev]"`), which includes all project dependencies. CI lint jobs frequently have a minimal environment (`pip install ruff mypy bandit` without project deps). This environment mismatch is the root cause of many pre-commit-vs-CI failures. Rules PRECOMMIT-03 (ruff target-version), PRECOMMIT-11 (mypy overrides), and PRECOMMIT-12 (CAFDS excluded_dirs) specifically address this mismatch.
 
+> **Virtualenv Isolation Warning**: Pre-commit hooks run in isolated virtualenvs managed by pre-commit. A passing `pre-commit run` locally does NOT guarantee CI passes. The CI lint job's `pip install` step must explicitly list every tool invoked in CI steps.
+
 ### Rule 2: Hook Ordering
 
 **[RULE: PRECOMMIT-02] [L1+]** Hook ordering in `.pre-commit-config.yaml` MUST follow this canonical chain:
@@ -73,6 +75,8 @@ Where each category maps to:
 | docs | CAFDS (docs_validate.py), semgrep | pre-commit | Network-OK, runs after code quality gates |
 | tests | pytest (unit) | pre-commit | Run last — tests pass or fail based on the code, not formatting |
 
+> **Exclude Patterns**: All generic hooks SHOULD include `exclude` patterns for generated/planning directories (`.omo/`, `.codegraph/`, `__pycache__/`). Auto-fix hooks modifying gitignored files can cause stash conflicts.
+
 ### Rule 3: Ruff target-version
 
 **[RULE: PRECOMMIT-03] [L1+]** The `ruff target-version` in `pyproject.toml` MUST match the minimum Python version declared in `requires-python`, NOT the CI runner's Python version. Setting `target-version` to a higher version than the project supports causes `ruff format` to rewrite syntax into forms incompatible with older Python versions.
@@ -80,6 +84,8 @@ Where each category maps to:
 **Example failure**: `target-version = "py314"` on a project with `requires-python = ">=3.11"` caused ruff to convert `except (X, Y):` syntax back to `except X as e:` followed by separate handler — breaking Python 3.11-compatible except clauses that were intentionally modern.
 
 **Correct**: `target-version = "py311"` when `requires-python = ">=3.11"`.
+
+> **Applicability**: This rule applies only to Python projects with `pyproject.toml`. For non-Python repos (HA configs, infrastructure repos), this rule is N/A. Structural rules (PRECOMMIT-01, -02, -09, -10) apply regardless of language.
 
 ### Rule 4: No Error Masking
 
@@ -175,6 +181,8 @@ The AGENTS.md section SHOULD include:
 module = ["fastmcp", "requests", "pyyaml", "starlette", "uvicorn", "dateutil", "pydantic"]
 ignore_missing_imports = true
 ```
+
+> **Applicability**: This rule applies only to Python projects with `pyproject.toml`. For non-Python repos (HA configs, infrastructure repos), this rule is N/A. Structural rules (PRECOMMIT-01, -02, -09, -10) apply regardless of language.
 
 ### Rule 12: CAFDS Exclude Alignment
 
