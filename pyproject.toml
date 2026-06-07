@@ -18,6 +18,10 @@ line-length = 100
 python_version = "3.14"
 strict = true
 
+[[tool.mypy.overrides]]
+module = ["fastmcp", "requests", "pyyaml", "starlette", "uvicorn", "dateutil", "pydantic", "yaml"]
+ignore_missing_imports = true
+
 [tool.bandit]
 exclude_dirs = ["tests/"]
 skips = ["B101"]
