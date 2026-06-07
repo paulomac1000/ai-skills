@@ -13,10 +13,10 @@ from pathlib import Path
 
 import pytest
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
-
 # Re-use the docs_validate module from conftest.py
-from conftest import load_markdown_file, load_config, validate_file, _make_check_registry
+from conftest import load_markdown_file, validate_file
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
 @pytest.fixture(scope="session")
