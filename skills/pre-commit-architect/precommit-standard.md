@@ -198,6 +198,15 @@ excluded_dirs:
 
 **[RULE: PRECOMMIT-13] [L2+]** Pre-commit MUST NOT silently pass when test files fail to collect. If `pytest --collect-only` reports errors (import errors, syntax errors in test files, missing fixtures), the pre-commit run MUST fail even if all collected tests pass. Environment-specific import errors (e.g., a package works in CI but fails in the developer's virtual environment due to a missing optional dependency) must not mask test collection failures.
 
+### Rule 14: Secret Scanning
+
+**[RULE: PRECOMMIT-14] [L1+]** Projects MUST include secret scanning to prevent accidental commit of credentials, API keys, and private keys. The minimum requirement is `detect-private-key` from `pre-commit-hooks` (catches PEM/SSH key material). For comprehensive coverage, projects SHOULD add at least one of:
+
+- **`gitleaks`** (Go binary, 150+ rules) — recommended for new projects. Fastest OSS secret scanner. Available as a pre-commit hook from `gitleaks/gitleaks`.
+- **`detect-secrets`** (Python, Yelp) — recommended for legacy codebases where a baseline allowlist (`.secrets.baseline`) is needed to suppress known false positives. ⚠️ Known MemoryError on Python 3.13 multiprocessing pool.
+
+Secret scanning hooks MUST be ordered in the `security` category (per PRECOMMIT-02), after `bandit` and before any custom security hooks.
+
 **Real-world failure**: A `fastmcp` import error in a test file prevented `test_server.py` from collecting. All other collected tests passed, so pre-commit reported "Passed." In CI (where `fastmcp` was properly installed), the tests collected and failed due to an API format change. The silent pre-commit pass hid the CI failure until post-push.
 
 **Mitigation**:

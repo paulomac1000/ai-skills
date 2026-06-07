@@ -19,6 +19,7 @@ verification_status:
 doc_kind: atomic
 glossary_terms: []
 ttl_policy: permanent
+standard_version: "2.1.0"
 ---
 
 # AI-First Documentation Standard (AFDS)

@@ -12,6 +12,7 @@ tags: ["ci-cd", "github-actions", "workflows", "docker", "python", "dotnet", "te
 owners: ["backend-team"]
 upstream:
   - ref.mcp-server-standards
+  - ref.precommit-standard
 source_of_truth: true
 last_verified: "2026-05-21"
 doc_kind: atomic
@@ -791,16 +792,19 @@ if (existing) {
 
 ### Rule 15: Integration with Upstream Standards
 
-**[RULE: CI-CDW-34] [L2+]** This CI/CD standard implements the CI requirements from `ref.mcp-server-standards` for projects that use that standard:
+**[RULE: CI-CDW-34] [L2+]** This CI/CD standard implements the CI requirements from `ref.mcp-server-standards` for projects that use that standard, and provides the upstream CI structure that `ref.precommit-standard` mirrors:
 
-| MCP Standard Rule | CI/CD Implementation |
-|-------------------|---------------------|
+| Upstream Standard Rule | CI/CD Implementation |
+|------------------------|---------------------|
 | `[RULE: TEST-CI-1]` — CI MUST run linting before tests | `lint` job runs ruff + mypy + bandit before `test` job |
 | `[RULE: TEST-CI-2]` — CI MUST run unit tests | `test` job runs pytest with coverage |
 | `[RULE: TEST-CI-3]` — CI MUST build Docker and verify tool count | `docker-smoke` job builds image, verifies tool count (when `is_mcp: true`) |
 | `[RULE: TEST-CI-4]` — CI MUST run Docker smoke test (L3+) | `docker-smoke` job runs health + tools endpoint smoke test |
 | `[L2+]` — CI SHOULD run ruff check, format, mypy, bandit | `lint` job runs all four tools |
 | `[L1+]` — Unit tests MUST run in CI on every commit | `test` job runs `pytest tests/unit/` |
+| **Pre-commit hooks** | |
+| `[RULE: PRECOMMIT-01]` — Pre-commit MUST mirror CI lint+test checks and ordering | CI `lint` + `test` job structure is the authoritative source for tool selection and ordering that pre-commit mirrors |
+| `[RULE: PRECOMMIT-03]` — ruff target-version MUST match `requires-python`, not CI runner version | CI `python-version` in `ci.yml` MUST NOT be conflated with ruff `target-version`; `requires-python` in `pyproject.toml` is the SSOT |
 
 ### Rule 22: Python Project Metadata Consistency
 

@@ -203,13 +203,22 @@ Stub for standard version 1.0.0. Not applicable — no prior standard versions e
 
 When reviewing `.pre-commit-config.yaml` against this standard, verify every invariant. Cite violations by rule ID from `precommit-standard.md`:
 
+### Ordering
 - [ ] Hook ordering follows canonical chain: generic → lint → format → types → security → docs → tests — `[RULE: PRECOMMIT-02]`
-- [ ] All hooks use `fail_fast: false` — `[RULE: PRECOMMIT-06]`
-- [ ] `ruff target-version` matches `requires-python` minimum, not CI runner version — `[RULE: PRECOMMIT-03]`
+
+### Commands
 - [ ] No `|| true`, `--ignore`, or `continue-on-error` on any hook entry — `[RULE: PRECOMMIT-04]`
 - [ ] All entry commands use `python3` not `python` — `[RULE: PRECOMMIT-05]`
+
+### Configuration
+- [ ] All hooks use `fail_fast: false` — `[RULE: PRECOMMIT-06]`
+- [ ] `ruff target-version` matches `requires-python` minimum, not CI runner version — `[RULE: PRECOMMIT-03]`
+
+### CI
 - [ ] CI lint+test jobs run the same commands in the same order — `[RULE: PRECOMMIT-01]`
 - [ ] AGENTS.md pre-commit section present with setup, manual run, and CI mirroring note — `[RULE: PRECOMMIT-10]`
+
+### Stage
 - [ ] Heavy tests (integration, e2e) at `pre-push` stage, not `pre-commit` — `[RULE: PRECOMMIT-07]`
 
 ## Integration with Other Standards

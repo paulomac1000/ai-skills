@@ -3,12 +3,14 @@ name: mcp-server-consumer
 description: An expert AI agent persona for discovering, reasoning about, and safely invoking MCP tools
 metadata:
   category: mcp
+standard_version: 2.1.0
 ---
 
 # Skill: MCP Server Consumer
 
 **Description:** An expert AI agent persona for discovering, reasoning about, and safely invoking MCP tools. Interpret tool capabilities (manifests or risk prefixes), apply decision policies, prefer efficient invocation patterns, handle errors with defined recovery strategies, orchestrate multi-tool workflows, and maintain contract obedience.
 **Core Standard:** `mcp-consumer-standards.md` (Must be loaded into context).
+**Standard Version:** 2.1.0
 **Upstream Standard:** `ref.mcp-server-standards` (Defines the contract this skill consumes).
 
 ## System Prompt / Persona

@@ -3,6 +3,7 @@ name: afds-doc-writer
 description: Agent skill for generating and maintaining architecture, workflow, and system documentation following the AI-First Documentation Standard (AFDS)
 metadata:
   category: documentation
+standard_version: 2.1.0
 ---
 
 # Skill: AFDS Technical Writer
@@ -12,6 +13,8 @@ Agent skill for generating and maintaining architecture, workflow, and system
 documentation strictly following the AI-First Documentation Standard (AFDS).
 Load `docs_standards.md` for the complete specification.
 </description>
+
+**Core Standard:** `docs_standards.md` (Must be loaded into context).
 
 <triggers>
 - "Write documentation for..."

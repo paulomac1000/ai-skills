@@ -15,6 +15,7 @@ upstream:
   - ref.mcp-server-standards
 source_of_truth: true
 last_verified: 2026-06-01
+standard_version: "2.1.0"
 ---
 
 # MCP Consumer Core Standard

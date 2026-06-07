@@ -46,6 +46,8 @@ git ls-remote https://github.com/<owner>/<repo>.git refs/tags/<version> | awk '{
 | `bandit` | `repo: local` | N/A (local) | Security | AST-based security scanner; uses `additional_dependencies` |
 | `pytest` | `repo: local` | N/A (local) | Tests | Unit test runner; pre-commit stage only (integration tests must use pre-push) |
 | `semgrep` | `returntocorp/semgrep-action` | `713efdd3` (`v1`) | Security | Semgrep SAST scanning; must match CI semgrep config |
+| `gitleaks` | `gitleaks/gitleaks` | `6efcfbaa` (`v8.9.0`) | Security | Go-based secret scanner; 150+ rules; fastest OSS option; recommended for new projects |
+| `detect-secrets` | `Yelp/detect-secrets` | `68e8b454` (`v1.5.0`) | Security | Python-based secret scanner with baseline-allowlist support; best for legacy onboarding. ⚠️ Known MemoryError on Python 3.13 multiprocessing pool |
 | `CAFDS docs` | `repo: local` | N/A (local) | Docs | Validates AFDS frontmatter via `curl \| python3`; uses `docs_validate.py` |
 
 ## Hook Ordering (PRECOMMIT-02)
