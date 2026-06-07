@@ -232,3 +232,44 @@ FIELDS THAT DO NOT EXIST (never put these in frontmatter):
   downstream, verified_by, fitness_score, semantic_hash
 
 </language_and_formatting_rules>
+
+## Code Review Checklist
+
+When reviewing AFDS documentation against this standard, verify every invariant. Cite violations by section reference from `docs_standards.md`:
+
+**Frontmatter:**
+- [ ] `doc_id` matches type prefix convention (`workflow.*`, `ref.*`, `sys.*`, `guide.*`, `decision.*`, `contract.*`) — `[AFDS Section 3]`
+- [ ] All mandatory frontmatter fields present: `description`, `doc_id`, `type`, `status`, `rigor_tier`, `ttl_days`, `stability`, `ai_scope`, `upstream`, `last_verified`, `owners` — `[AFDS Section 3.1]`
+- [ ] No prohibited frontmatter fields: `downstream`, `verified_by`, `fitness_score`, `semantic_hash` — `[AFDS Section 3.4]`
+- [ ] `status` is valid enum: `draft`, `active`, `evolving`, `deprecated`, `archived` — `[AFDS Section 3.3]`
+- [ ] `stability` is valid enum: `experimental`, `stable`, `frozen` — `[AFDS Section 3.3]`
+- [ ] `upstream` references resolve to existing document IDs in the repository — `[AFDS Section 3.2]`
+- [ ] `doc_kind` set to `atomic` or `composite`/`translation`; composite/translation docs set `source_of_truth: false` and include `derived_from` — `[AFDS Section 3.2]`
+- [ ] Metadata fields (`version`, `last_verified`) are CI-managed; agent content edits never update them — `[AFDS Prime Directive 0]`
+
+**Body Sections:**
+- [ ] All mandatory body sections present for the document type per taxonomy table — `[AFDS Section 4.1]`
+- [ ] Sections appear in exact order specified for the type — `[AFDS Section 4.1]`
+- [ ] No duplicate sections (e.g., keep ALL_CAPS, delete mixed-case variant) — `[AFDS WRITE PROTOCOL 6]`
+- [ ] One H1 per file — `[AFDS Section 4.0]`
+- [ ] For `contract.*` and `decision.*`: CHANGELOG is append-only format and present — `[AFDS Section 4.2]`
+
+**Language & Formatting:**
+- [ ] No banned ambiguity words: `might`, `maybe`, `possibly`, `probably`, `often`, `sometimes`, `usually`, `generally`, `typically`, `etc`, `simply`, `just` — `[AFDS Section 5.1]`
+- [ ] RFC 2119 keywords (`MUST`, `MUST NOT`, `SHOULD`, `SHOULD NOT`, `MAY`) used in uppercase only — `[AFDS Section 5.2]`
+- [ ] Tables max 4 columns (exception: `ref.*` standards may exceed) — `[AFDS Section 5.4]`
+- [ ] No emoji in body text — `[AFDS Section 5.4]`
+- [ ] No rendered HTML tags (HTML comments allowed) — `[AFDS Section 5.4]`
+- [ ] Filename matches `doc_id` in kebab-case.md — `[AFDS Section 5.4]`
+
+**References & Integrity:**
+- [ ] All upstream references in frontmatter resolve to existing document files — `[AFDS READ PROTOCOL 3]`
+- [ ] No broken internal cross-references (doc_id links point to existing targets) — `[AFDS READ PROTOCOL 3]`
+- [ ] If `supersedes` is set, the superseded document still exists (or is noted archived) — `[AFDS Section 3.2]`
+- [ ] For composite docs (`doc_kind: composite`): `derived_from` lists all source document IDs — `[AFDS Section 3.2]`
+
+**CI & Maintenance:**
+- [ ] `last_verified` date is current (not stale relative to `ttl_days`) — `[AFDS Section 11]`
+- [ ] For `decision.*` documents: `version` incremented and CHANGELOG appended on mutation — `[AFDS UPDATE PROTOCOL 4]`
+- [ ] Document passes `docs_validate.py` without errors — `[AFDS Section 11.3]`
+- [ ] If `ttl_days > 0`, freshness telemetry is acceptable (fitness_score ≥ 0.70 does not block, but flag if below) — `[AFDS READ PROTOCOL 5]`
