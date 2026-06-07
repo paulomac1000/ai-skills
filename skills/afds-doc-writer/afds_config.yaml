@@ -173,6 +173,7 @@ default_paths:
 excluded_dirs:
   - archived
   - archive
+  - .omo
 
 exempt_files:
   - README.md
