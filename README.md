@@ -14,6 +14,7 @@ Skills are persona-driven system prompts. Load them into AI agents to enforce st
 | MCP Server Architect | [`SKILL.md`](skills/mcp-server-architect/SKILL.md) | System prompt — AI agent builds MCP servers per standard. Includes design directives, strict constraints, canonical template selection, consumer ergonomics, and semantic rule anchors. |
 | MCP Server Consumer | [`SKILL.md`](skills/mcp-server-consumer/SKILL.md) | System prompt — AI agent discovers, reasons about, and safely invokes MCP tools. Interprets manifests (or risk prefix fallback), applies decision policies, prefers batch/composite calls, starts with minimal detail, handles errors with defined recovery strategies. |
 | CI/CD Architect | [`SKILL.md`](skills/ci-cd-architect/SKILL.md) | System prompt — AI agent designs, audits, and generates GitHub Actions workflows per standard. v2.0.0: commit-SHA action pinning, auto-tag→publish chain, .NET 10 support, Semgrep migration. |
+| Pre-commit Hook Architect | [`SKILL.md`](skills/pre-commit-architect/SKILL.md) | System prompt — AI agent designs, audits, and generates `.pre-commit-config.yaml` per standard |
 
 ### Standards
 
@@ -26,6 +27,7 @@ Core reference documents — authoritative rules for their domains.
 | [`mcp-consumer-standards.md`](skills/mcp-server-consumer/mcp-consumer-standards.md) | MCP Consumption | Capability reasoning, decision policies, token-aware invocation, error recovery, workflow orchestration, version compatibility |
 | [`ci-cd-standard.md`](skills/ci-cd-architect/ci-cd-standard.md) | CI/CD | GitHub Actions workflow structure, Docker publish, auto-tag, Semgrep, Dependabot, .NET variant |
 | [`action-version-matrix.md`](skills/ci-cd-architect/references/action-version-matrix.md) | CI/CD | Pinned action versions, upgrade policy, migration checklists |
+| [`precommit-standard.md`](skills/pre-commit-architect/precommit-standard.md) | Pre-commit | Hook ordering, CI mirroring, speed budgets, environment consistency, AGENTS.md integration |
 
 ### Templates
 
@@ -41,6 +43,9 @@ Templates are structural documents to copy and fill. They are not persona prompt
 | [`dependabot.yml.j2`](skills/ci-cd-architect/templates/dependabot.yml.j2) | Multi-ecosystem dependency management |
 | [`dotnet-ci.yml.j2`](skills/ci-cd-architect/templates/dotnet-ci.yml.j2) | .NET CI pipeline variant |
 | [`docs-validation.yml.j2`](skills/ci-cd-architect/templates/docs-validation.yml.j2) | Documentation validation workflow |
+| [`pre-commit-python.j2`](skills/pre-commit-architect/templates/pre-commit-python.j2) | Base Python `.pre-commit-config.yaml` |
+| [`pre-commit-mcp.j2`](skills/pre-commit-architect/templates/pre-commit-mcp.j2) | MCP variant with tool count + manifest validation |
+| [`pre-commit-minimal.j2`](skills/pre-commit-architect/templates/pre-commit-minimal.j2) | Fast checks only (<10s) |
 
 ## Project Layout
 
@@ -59,11 +64,16 @@ skills/
 │   ├── mcp-consumer-standards.md Standard
 │   ├── SKILL.md                  System prompt for AI agents
 │   └── tools/                    Reference implementation (decision engine)
-└── ci-cd-architect/              ← CI/CD skill
-    ├── ci-cd-standard.md         Standard
-    ├── SKILL.md                  System prompt for AI agents
-    ├── templates/                Jinja2 workflow templates
-    └── references/               Action version matrix
+    ├── pre-commit-architect/         ← Pre-commit hook skill
+    │   ├── precommit-standard.md     Standard
+    │   ├── SKILL.md                  System prompt for AI agents
+    │   ├── templates/                3 Jinja2 templates
+    │   └── references/               Hook catalog + pitfalls
+    └── ci-cd-architect/              ← CI/CD skill
+        ├── ci-cd-standard.md         Standard
+        ├── SKILL.md                  System prompt for AI agents
+        ├── templates/                Jinja2 workflow templates
+        └── references/               Action version matrix
 
 tests/                            Pytest tests covering all standards
 decisions/                        Architecture Decision Records
