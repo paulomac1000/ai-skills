@@ -224,6 +224,38 @@ pytest --collect-only -q 2>&1 | grep -q "ERROR" && exit 1
 
 Or use the `-x` (exit on first error) flag on the test step: `pytest tests/ -x --collect-only` before running the full suite.
 
+### Rule 15: Custom Local Validation Scripts
+
+**[RULE: PRECOMMIT-15] [L2+]** Projects with custom validation logic that is not covered by standard hooks MAY add `repo: local` hooks using Python scripts placed in a `scripts/` directory. Custom hooks MUST follow these conventions:
+
+```yaml
+- repo: local
+  hooks:
+    - id: my-custom-check
+      name: My custom validation
+      entry: python3 scripts/my_custom_check.py
+      language: system
+      types: [python]
+      pass_filenames: false
+      always_run: true
+      stages: [pre-commit]
+      fail_fast: false
+```
+
+1. **Script location**: `scripts/<name>.py` (not `tools/`, not root-level)
+2. **Test location**: `tests/test_scripts/` or `tests/test_<name>.py`
+3. **Hook config** MUST use `python3` not `python` (PRECOMMIT-05)
+4. **Hook config** MUST use `fail_fast: false` (PRECOMMIT-06)
+5. Use `pass_filenames: false` when the script scans the entire repository
+6. Use `always_run: true` to run even when no Python files are staged (for repo-wide checks)
+
+Examples from production projects:
+- `scripts/detect_naive_datetime.py` — detects `datetime.now()` calls without timezone
+- `scripts/detect_url_encoding.py` — detects URL-encoded path segments in API endpoints
+- `scripts/validate_registry_names.py` — validates naming conventions across the codebase
+
+Reference: `ha-mcp-readonly` `.pre-commit-config.yaml` and `scripts/` directory.
+
 ## INTERFACES
 
 - INPUT: Repository with `.pre-commit-config.yaml`, `pyproject.toml` with `[tool.ruff]`, `[tool.mypy]`, and `[tool.bandit]` sections, and a test suite.
@@ -351,6 +383,9 @@ SKIP=mypy,bandit git commit # skip specified hooks
 - It does not define project-specific test configurations — only that tests MUST run and MUST NOT silently skip.
 
 ## CHANGELOG
+
+### (2026-06-11) — Patterns from ha-mcp-readonly feedback
+- 🟢 **Added:** PRECOMMIT-15 — Custom local validation scripts with conventions for script placement, hook configuration, and testing
 
 ### 1.0.0 (2026-06-07) — Initial standard
 
