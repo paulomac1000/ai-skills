@@ -162,17 +162,12 @@ Use this when asked to create a new `.pre-commit-config.yaml` or replace a non-c
 
    ### Hook Summary
 
-   | Hook | Stage | Purpose |
-   |------|-------|---------|
-   | trailing-whitespace | pre-commit | Remove trailing whitespace |
-   | end-of-file-fixer | pre-commit | Ensure files end with newline |
-   | check-yaml/check-toml/check-json | pre-commit | Validate config file syntax |
-   | ruff check | pre-commit | Lint Python code |
-   | ruff format | pre-commit | Format Python code |
-   | mypy | pre-commit | Static type checking |
-   | bandit | pre-commit | Security scanning |
-   | pytest unit | pre-commit | Run unit tests |
-   | pytest integration | pre-push | Run integration tests (pre-push only) |
+   Build the hook table from the generated `.pre-commit-config.yaml`.
+   List each hook's `id`, `name`, `stages`, and `entry`.
+   Adapt to match the archetype:
+   - **MCP variant** (`pre-commit-mcp.j2`): adds `tool-count-validate`, `manifest-validate`
+   - **Python variant** (`pre-commit-python.j2`): adds `ruff check`, `ruff format`, `mypy`, `bandit`, `pytest`
+   - **Minimal variant** (`pre-commit-minimal.j2`): adds only `ruff check`, `ruff format`
    ```
 
    Adapt the hook summary table to match the hooks actually generated. The setup and manual run commands are always the same.

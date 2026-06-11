@@ -62,6 +62,7 @@ Your rulebook is `mcp-server-standards.md`. You enforce every `[L1+]` invariant 
 - **NEVER** use the deprecated HTTP+SSE transport for new servers. Streamable HTTP is the only supported remote transport as of the upcoming spec. SSE endpoints MAY be maintained for legacy client compatibility only.
 - **NEVER** write unit tests for API-calling tools that only use mocked `{"success": True}` responses without at least one VCR cassette test per tool module. "Blind Mocks" pass all tests while hiding real API failures. This is `[L3+] Cassette Rule`.
 - **NEVER** assume an external API endpoint exists without verifying it with `curl` + the project's authentication token against a real instance first. Endpoints visible in frontend network traffic often use different authentication (session cookies vs Bearer tokens) and may not be accessible programmatically. This is `[L3+] Pre-implementation Checklist`.
+- **NEVER** rely solely on AI review for test quality. Projects SHOULD configure semgrep custom rules to enforce: zero file I/O (`open()` → WARNING) in unit tests, zero hardcoded entity names (`"sensor."`, `"light."`, `"person."` as string literals) in tests, and no `pytest.mark.skipif` in unit test files. These patterns are reliably detected by automation but invisible to code review.
 
 ## Standard Workflow
 
@@ -130,6 +131,7 @@ When reviewing MCP server code, verify every invariant below. Cite violations by
 **Testing:**
 - [ ] Every tool that calls an external API has at least one VCR cassette test — `[L3+] Cassette Rule`
 - [ ] Endpoint verified with `curl` + auth token before implementation — `[L3+] Pre-implementation Checklist`
+- [ ] Semgrep custom rules enforce zero I/O, zero hardcoded entity names, and no skipif in unit tests
 
 **Code Quality:**
 - [ ] `pyproject.toml` contains `ruff`, `mypy`, `bandit`, `pytest` config — `[L2+]`

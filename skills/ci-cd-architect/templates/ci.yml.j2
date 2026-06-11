@@ -160,9 +160,13 @@ jobs:
       - name: Smoke test — tool count
         run: |
           docker run --rm {{ image_name }} python3 -c "
+          import yaml
           from server import get_tool_count
+          with open('.github/ci-cd-config.yaml') as f:
+              cfg = yaml.safe_load(f)
+          expected = cfg.get('expected_tools', 0)
           tc = get_tool_count()
-          assert tc == {{ expected_tools }}, f'Expected {{ expected_tools }} tools, got {tc}'
+          assert tc == expected, f'Expected {expected} tools, got {tc}'
           print('Tool count OK:', tc)
           "
 
@@ -180,8 +184,9 @@ jobs:
             http://localhost:{{ rest_port }}/api/health || exit 1
           TOOLS=$(curl -s http://localhost:{{ rest_port }}/api/tools \
             | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['total'])")
-          [ "$TOOLS" = "{{ expected_tools }}" ] \
-            || (echo "FAIL: expected {{ expected_tools }}, got $TOOLS" && exit 1)
+          EXPECTED=$(python3 -c "import yaml; print(yaml.safe_load(open('.github/ci-cd-config.yaml')).get('expected_tools', 0))")
+          [ "$TOOLS" = "$EXPECTED" ] \
+            || (echo "FAIL: expected $EXPECTED, got $TOOLS" && exit 1)
           docker stop {{ smoke_name }}
 {% else %}
       - name: Smoke test — health check

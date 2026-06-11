@@ -1214,7 +1214,9 @@ def _error_dict_extended(code: str, message: str, retryable: bool,
 **[RULE: TEST-REG-1] [L1+]** Each tool module MUST export one `register_<category>_tools(mcp)` function that registers all tools in that category.
 **[RULE: TEST-REG-2] [L1+]** Unit tests MUST test registration functions by: calling `register_<category>_tools(mock_mcp)`, retrieving registered tools via `mock_mcp.get_tool("tool_name")`, invoking them, and asserting the response.
 **[RULE: TEST-REG-3] [L1+]** Unit tests MUST test exception handlers in tool wrappers by patching the internal function with `side_effect=Exception` and asserting `success: false` with the exception text.
+The patch MUST target the internal `_do_<operation>` function, NOT the helper (`make_ha_request`, `_make_request`). The `side_effect` MUST be `RuntimeError("test message")`, not `Exception` or `ConnectionError`. The assertion MUST verify `data["success"] is False` AND `"test message" in str(data.get("error", ""))`.
 **[RULE: TEST-REG-4] [L3+]** Integration test conftest MUST register ALL tool modules present in `server.py`. When a new tool module is added to the project, the conftest MUST be updated in the same commit. At L1/L2, a comment listing expected registration calls is acceptable.
+**[RULE: TEST-FIXTURES-1] [L2+]** `tests/fixtures.py` MUST be the SSOT for mock data constants. All entity IDs, URL patterns, and static test values MUST be imported from fixtures, not hardcoded as string literals. Custom semgrep rules SHOULD flag `"sensor."`, `"light."`, `"person."` as string literals in `tests/unit/`.
 
 #### Test Hierarchy
 
@@ -1232,6 +1234,8 @@ markers =
     smoke: Smoke tests (quick health check, requires local MCP server)
     e2e: End-to-end tests (full pipeline, requires real backend + local MCP server)
 ```
+
+**[RULE: TEST-HIERARCHY-7] [L3+]** CI MUST compare the test count (`pytest --collect-only -q | wc -l`) against the previous run. A drop in collected test count MUST fail CI to catch test collection regressions.
 
 #### Skip Patterns
 
@@ -2535,3 +2539,10 @@ Python implementation coverage for the v2.0 standard:
 - Transport architecture, middleware pipeline, progressive discovery, multi-server patterns, embedded MCP, production operations, error taxonomy, health checking, and tool poisoning prevention are included (v2.0).
 - TypeScript/Node.js implementation patterns are documented (see TypeScript/Node.js Implementation Appendix).
 - Other MCP frameworks (Go, Rust, C#) have stub sections; reference official SDKs for up-to-date implementation details.
+
+## CHANGELOG
+
+### (2026-06-11) — Patterns from ha-mcp-readonly, deployment feedback
+- 🔴 **Strengthened:** `TEST-REG-3` — now requires `_do_*` patch target, `RuntimeError` not `Exception`, and explicit success/error assertion pattern
+- 🔴 **Added:** `TEST-FIXTURES-1` — `tests/fixtures.py` as SSOT for mock data constants with semgrep enforcement
+- 🟡 **Added:** `TEST-HIERARCHY-7` — CI must compare test count against previous run to catch collection regressions

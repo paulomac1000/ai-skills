@@ -5,7 +5,9 @@
 #
 # Substitution variables:
 #   {{ python_version }}  — Python version string, e.g. "3.14"
+#   {{ src_dir }}          — Source directory for mypy/bandit scoping, e.g. "src"
 #   {{ src_dirs }}         — List of source directories, e.g. ["src", "tests"]
+#   {{ mypy_additional_deps }} — Optional: extra mypy type stubs, e.g. "types-requests"
 #   {{ has_docs }}         — Boolean, include AFDS documentation validation
 
 fail_fast: false
@@ -13,7 +15,7 @@ fail_fast: false
 repos:
   # ── Remote: basic file hygiene ──
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v5.0.0
+    rev: cef0300fd0fc4d2a87a85fa2093c6b283ea36f4b  # v5.0.0
     hooks:
       - id: trailing-whitespace
       - id: check-yaml
@@ -26,32 +28,32 @@ repos:
         entry: python3 -m ruff check --target-version py{{ python_version | replace('.', '') }} .
         language: python
         additional_dependencies: ["ruff>=0.11.0"]
-        pass_filenames: false
+        pass_filenames: true
 
       - id: ruff-format
         name: ruff format --check
         entry: python3 -m ruff format --check .
         language: python
         additional_dependencies: ["ruff>=0.11.0"]
-        pass_filenames: false
+        pass_filenames: true
 
       - id: mypy
         name: mypy
-        entry: python3 -m mypy --python-version "{{ python_version }}" .
+        entry: python3 -m mypy --python-version "{{ python_version }}" {{ src_dir }} --strict
         language: python
-        additional_dependencies: ["mypy>=1.0", "types-PyYAML"]
+        additional_dependencies: ["mypy>=1.0", "types-PyYAML"{% if mypy_additional_deps %}, {{ mypy_additional_deps }}{% endif %}]
         pass_filenames: false
 
       - id: bandit
         name: bandit
-        entry: python3 -m bandit -r .
+        entry: python3 -m bandit -r {{ src_dir }} -ll
         language: python
         additional_dependencies: ["bandit[toml]>=1.7"]
         pass_filenames: false
 
       - id: pytest
         name: pytest
-        entry: bash -c 'python3 -m pytest tests/ -q 2>&1; if [ ${PIPESTATUS[0]} -ne 0 ]; then exit 1; fi'
+        entry: bash -c 'python3 -m pytest tests/ --collect-only -q 2>&1 && python3 -m pytest tests/ -q 2>&1'
         language: system
         pass_filenames: false
 

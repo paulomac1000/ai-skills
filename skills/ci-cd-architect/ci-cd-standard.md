@@ -367,6 +367,8 @@ The configuration contract defines these parameters:
 
 **[RULE: CI-CDW-32a] [L2+]** Numeric constants defined in the configuration contract (e.g., `expected_tools`, `health_port`, `rest_port`) MUST NOT be hardcoded in workflow files. Use template substitution only (`<EXPECTED_TOOLS>`, `<HEALTH_PORT>`, `<REST_PORT>`). Hardcoding a numeric value that also appears in the config contract creates a single-source-of-truth violation: the contract value changes but the hardcoded workflow value silently drifts out of sync.
 
+**[RULE: CI-CDW-83] [L2+]** The `expected_tools` value in MCP smoke tests MUST be read at CI runtime from the configuration contract (`ci-cd-config.yaml`), not compile-time substituted via `{{ expected_tools }}`. Compile-time substitution is effectively hardcoding — the value drifts from the config contract when tool count changes. The `ci.yml.j2` template uses `yaml.safe_load(open('.github/ci-cd-config.yaml'))` to extract `expected_tools` inside the Docker container.
+
 **[RULE: CI-CDW-37] [L2+]** When `.github/ci-cd-config.yaml` exists, it is the SSOT for all CI/CD parameters. Workflow files SHOULD be regenerated from templates when configuration changes. The SKILL.md describes the regeneration workflow.
 
 ### Rule 9: Project-Specific Customizations
@@ -965,6 +967,7 @@ See `templates/auto-tag.yml.j2` for the Jinja2 template.
 - 🟡 **Updated:** `action-version-matrix.md` with v2.2.0 section and new SHAs
 - 🟡 **Updated:** `SKILL.md` — migration guide entry + checklist SHA-pinning items (CI-CDW-73/74)
 - 🟡 **Documented:** Dependabot `docker` ecosystem — projects using Docker SHOULD include `docker` in `package_ecosystems` when `use_docker: true`.
+- 🟡 **Added:** CI-CDW-83 — `expected_tools` MUST be read at runtime from config contract, not compile-time substituted.
 
 ### 2.1.0 (2026-06-07) — Semgrep action fix, attest-build-provenance, Python 3.14 standard, --break-system-packages
 

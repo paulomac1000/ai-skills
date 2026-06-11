@@ -10,7 +10,7 @@ fail_fast: false
 repos:
   # ── Remote: basic file hygiene ──
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v5.0.0
+    rev: cef0300fd0fc4d2a87a85fa2093c6b283ea36f4b  # v5.0.0
     hooks:
       - id: trailing-whitespace
       - id: check-yaml
@@ -23,11 +23,11 @@ repos:
         entry: python3 -m ruff check .
         language: python
         additional_dependencies: ["ruff>=0.11.0"]
-        pass_filenames: false
+        pass_filenames: true
 
       - id: ruff-format
         name: ruff format --check
         entry: python3 -m ruff format --check .
         language: python
         additional_dependencies: ["ruff>=0.11.0"]
-        pass_filenames: false
+        pass_filenames: true

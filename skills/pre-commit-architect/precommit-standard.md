@@ -387,6 +387,15 @@ SKIP=mypy,bandit git commit # skip specified hooks
 ### (2026-06-11) — Patterns from ha-mcp-readonly feedback
 - 🟢 **Added:** PRECOMMIT-15 — Custom local validation scripts with conventions for script placement, hook configuration, and testing
 
+### (2026-06-11) — Deployment feedback fixes
+- 🔴 **Fixed:** `pre-commit-mcp.j2` — `grep`-based tool count replaces `from server import get_tool_count`
+- 🔴 **Fixed:** `pre-commit-mcp.j2`, `pre-commit-python.j2` — mypy/bandit use `{{ src_dir }}` + `--strict`/`-ll`
+- 🔴 **Fixed:** All 3 templates — `rev` uses commit SHA (`cef0300f`) instead of mutable `v5.0.0` tag
+- 🟡 **Fixed:** `pre-commit-mcp.j2`, `pre-commit-python.j2` — `mypy_additional_deps` template variable
+- 🟡 **Fixed:** SKILL.md — dynamic AGENTS.md hook table replaces fixed incompatible table
+- 🟢 **Fixed:** All 3 templates — ruff hooks use `pass_filenames: true`
+- 🟡 **Fixed:** All 3 templates — pytest hook includes `--collect-only` pre-check
+
 ### 1.0.0 (2026-06-07) — Initial standard
 
 - PRECOMMIT-01: CI mirroring — pre-commit MUST run same checks as CI lint+test in same order
