@@ -1,5 +1,23 @@
 # Changelog
 
+## 2026-06-11
+
+### ci-cd-architect: standard v2.2.0 — codecov v7, actions/attest v4, Semgrep org migration, SHA pinning
+
+Maintenance release updating action versions and fixing standard self-consistency:
+
+**Action Version Bumps:**
+- `codecov/codecov-action` v6 → v7 (GPG key rotation: codecovsecurity → codecovsecops)
+- `actions/attest-build-provenance` v2 → `actions/attest` v4 (successor action; `attest-build-provenance` is now a wrapper on `actions/attest`)
+- `returntocorp/semgrep-action` → `semgrep/semgrep-action` (org migration; identical SHA)
+
+**Standard Self-Consistency Fixes:**
+- All 15+ inline YAML examples in `ci-cd-standard.md` now SHA-pinned (CI-CDW-73 compliance)
+- `templates/auto-tag.yml.j2` CI-CDW-76c violation fixed: `gh workflow run` now uses filename (`publish.yml`) not display name
+- All 8 template header comments bumped from v2.0.0 to v2.2.0
+- `action-version-matrix.md` updated with v2.2.0 section and new SHAs
+- `SKILL.md` migration guide entry + checklist SHA-pinning items (CI-CDW-73/74)
+
 ## 2026-06-06
 
 ### mcp-server-architect: standard v2.0.0 — Multi-transport, middleware, progressive discovery, multi-language, security hardening, error taxonomy, health checking, tool poisoning prevention, production operations
