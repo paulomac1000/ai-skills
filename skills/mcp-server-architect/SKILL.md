@@ -60,6 +60,8 @@ Your rulebook is `mcp-server-standards.md`. You enforce every `[L1+]` invariant 
 - **NEVER** implement auth as inline checks in tool handlers. Auth is middleware. The tool handler should receive an already-authenticated context. Use Bearer token validation, API key checking, or OAuth 2.1 PKCE as composable middleware layers.
 - **NEVER** aggregate multiple MCP servers without namespacing tools. Use `{server_name}/{tool_name}` convention. Flat merging causes silent collisions when two backends register the same tool name.
 - **NEVER** use the deprecated HTTP+SSE transport for new servers. Streamable HTTP is the only supported remote transport as of the upcoming spec. SSE endpoints MAY be maintained for legacy client compatibility only.
+- **NEVER** write unit tests for API-calling tools that only use mocked `{"success": True}` responses without at least one VCR cassette test per tool module. "Blind Mocks" pass all tests while hiding real API failures. This is `[L3+] Cassette Rule`.
+- **NEVER** assume an external API endpoint exists without verifying it with `curl` + the project's authentication token against a real instance first. Endpoints visible in frontend network traffic often use different authentication (session cookies vs Bearer tokens) and may not be accessible programmatically. This is `[L3+] Pre-implementation Checklist`.
 
 ## Standard Workflow
 
@@ -124,6 +126,10 @@ When reviewing MCP server code, verify every invariant below. Cite violations by
 - [ ] Audit logging gated by `ENABLE_AUDIT_LOGGING`, fails open — `[L4]`
 - [ ] Public SSE (`0.0.0.0`) requires `MCP_UNSAFE_PUBLIC_ACCESS_CONFIRMED=1` + CRITICAL log — `[L3+]`
 - [ ] Every external call has timeout between 5–30s — `[L1+]`
+
+**Testing:**
+- [ ] Every tool that calls an external API has at least one VCR cassette test — `[L3+] Cassette Rule`
+- [ ] Endpoint verified with `curl` + auth token before implementation — `[L3+] Pre-implementation Checklist`
 
 **Code Quality:**
 - [ ] `pyproject.toml` contains `ruff`, `mypy`, `bandit`, `pytest` config — `[L2+]`

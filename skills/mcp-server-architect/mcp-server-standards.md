@@ -78,6 +78,35 @@ This document is the CORE.
 2. [L2+] If a REST API is provided, it SHOULD expose: `GET /api/health`, `GET /api/tools`, `POST /api/tools/{tool_name}`. At L1, health-only is sufficient.
 2a. [L2+] The REST API SHOULD expose `GET /api/tools/{tool_name}/manifest` returning the tool's manifest entry from `TOOL_MANIFESTS`. This enables AI agents to inspect capability metadata without invoking the tool itself (see L3+ Exposure rule).
 2b. [L3+] The server SHOULD expose a capability-introspection MCP tool (naming convention: `describe_<domain>_capabilities`) that returns the full tool catalog with manifests, supported transports, and `schema_version`. The REST manifest endpoint (2a) is unreachable for agents connected over pure MCP/SSE; an MCP tool exposes the same metadata over the MCP transport itself. The introspection tool MUST be zero-I/O, `[READ]`, and `instant` latency. Reference: `openwrt-mcp` `describe_router_capabilities` at `src/openwrt_mcp/tools/registration.py`.
+
+### Canonical Template Y: Capability Introspection with Category Grouping
+
+[L3+] The server SHOULD implement a `describe_<domain>_capabilities` MCP tool that returns the full tool catalog with manifests, categories, and transport info. This is zero-I/O (instant latency).
+
+Response shape:
+```json
+{
+  "schema_version": "1.0",
+  "server": "server-name",
+  "tools_version": "X.Y.Z",
+  "transports": ["sse", "rest"],
+  "tool_count": 145,
+  "tools": [/* full tool manifest entries */],
+  "categories": {
+    "States": {"tool_count": 12, "tools": [{"name": "get_state", "description": "..."}]},
+    "Automations": {"tool_count": 8, "tools": [...]}
+  }
+}
+```
+
+Category assignment: define a `CATEGORY_PREFIXES` list of `(regex_pattern, category_name)` tuples, sorted by prefix length descending. Fallback to "Other" category. Use `re.match()` for first-match-wins.
+
+Additionally expose REST endpoints:
+- `GET /api/tools/{name}/manifest` — returns single tool's `TOOL_MANIFESTS` entry
+- `GET /api/tools/{name}/schema` — returns JSON Schema + manifest for a single tool
+
+Reference: `ha-mcp-readonly` at `tools/capabilities.py`.
+
 2c. [L2+] `GET /api/tools` MUST return a JSON object with BOTH `total` and `tool_count` keys for backward compatibility. `GET /api/health` MUST include `tool_count` (not `total`). Implementations that use `total` alone (legacy) MUST add `tool_count` as an alias. This ensures CI smoke tests and AI agents can rely on a single key name across all MCP servers.
 
 ```json
@@ -98,6 +127,41 @@ This document is the CORE.
 
 3. [L2+] The server SHOULD expose MCP transport on a dedicated port. SSE and REST ports MUST be distinct when both are used.
 4. [L1+] All HTTP requests to external services MUST include a timeout parameter. The default timeout SHOULD be between 5 and 10 seconds.
+
+2d. [L2+] The REST API SHOULD additionally expose:
+    - `GET /api/tools?detail=minimal` — returns category-grouped tool list (names + one-liners)
+    - `GET /api/tools?detail=full` — returns all tools with full JSON Schema parameters
+    - `GET /api/tools/{tool_name}/manifest` — returns the tool's manifest entry from TOOL_MANIFESTS
+    - `GET /api/tools/{tool_name}/schema` — returns full JSON Schema + manifest for a single tool
+    - `GET /api/openapi.json` — auto-generated OpenAPI 3.0 schema listing all tools as POST endpoints
+
+2e. [L2+] The REST API SHOULD auto-convert Python function signatures to JSON Schema for OpenAPI documentation using a `_signature_to_json_schema(fn)` helper. This eliminates manual schema writing.
+
+The helper MUST handle:
+- Basic types: str→string, int→integer, float→number, bool→boolean, dict→object, list→array
+- Optional/Union unwrapping: `Optional[str]` → `{"type": "string"}`
+- Required detection: parameters without defaults are required
+- Unknown type fallback: `Any`, complex generics → `"string"`
+
+Reference: `ha-mcp-readonly` `server.py` `_signature_to_json_schema()`.
+
+### Background Operations (L3+)
+
+For long-running operations (context generation, batch processing), the server SHOULD implement a background execution pattern:
+
+1. `_operation_state` dict with keys: status (idle|running|completed|error), started_at, completed_at, error, stats
+2. `_operation_lock = threading.Lock()` for thread-safe state access
+3. Background thread: sets status=running → executes → sets status=completed/error
+
+REST endpoints:
+- `POST /api/<operation>` — starts operation, returns 409 if already running
+- `GET /api/<operation>/status` — returns current state
+- `GET /api/<operation>/download` — returns result (404 if not ready, 409 if in progress)
+- `GET /api/<operation>/modes` — lists available variants (offline/online/hybrid)
+
+Timeout: `_OPERATION_TIMEOUT` constant (default 300s). The background thread MUST NOT live indefinitely.
+
+Reference: `ha-mcp-readonly` `server.py` `_run_context_generation()`, `context_generate()` REST handler.
 
 ### 3. Documentation
 
@@ -311,6 +375,15 @@ Rules:
 
 [L2+] AI agents SHOULD prefer manifest data over docstring parsing for capability decisions. The manifest is the machine-readable contract.
 
+[L3+] For servers with many tools (20+ projects, 100+ tools), the server SHOULD implement `auto_register_all_read_tools(tool_names)` which registers a default READ manifest for every tool not already in `TOOL_MANIFESTS`. This ensures:
+- Every tool has a capability profile (no tools missing manifests)
+- Only WRITE/DESTRUCTIVE tools need manual manifests (secure-by-default)
+- New tools automatically get manifests without registration code changes
+
+Called once after all `register_*_tools(mcp)` calls, before `_inject_risk_prefixes()`.
+
+Reference: `ha-mcp-readonly` `tools/manifests.py` `auto_register_all_read_tools()`.
+
 ### Tool Versioning
 
 MCP tools that AI agents depend on SHOULD version their schemas. Agents form prompts around specific tool signatures; silent breaking changes corrupt agent behavior.
@@ -448,6 +521,25 @@ The response wrapper MAY include an optional `_meta` field:
 [SHOULD] Standard `_meta` fields: `request_id` (UUID), `duration_ms` (int), `tool_version` (str), `cached` (bool), `retry_safe` (bool).
 
 [L1+] AI clients MUST handle responses with or without `_meta`. Unknown `_meta` fields MUST be ignored.
+
+### Canonical Template X: _meta Envelope Injection
+
+[L3+] The server SHOULD inject a `_meta` envelope into every tool response through a single central injection point (`_inject_meta_envelope()`). Tools MUST NOT build `_meta` themselves.
+
+The implementation pattern:
+1. `build_meta(tool_name, start_time)` helper — returns `{request_id, duration_ms, tool_version}` dict
+2. `_make_meta_wrapper(raw_fn, tool_name)` — wraps any function (async or sync) to:
+   - Call `start_tool_context()` to generate UUID and bind to ContextVar
+   - Call the original function
+   - Parse JSON result, merge `_meta`, return updated JSON
+   - NOT catch exceptions (tool-layer try/except handles them)
+3. `_inject_meta_envelope(registered_tools)` — iterates all tools, wraps every non-wrapped fn, called ONCE after registration
+4. `start_tool_context()` in `observability.py` — generates UUID, sets `ContextVar`
+5. `RequestIdFilter(logging.Filter)` — injects `request_id` into every log record's `%(request_id)s`
+6. Thread-safe `_invocation_counts` with `threading.Lock()` — `increment_invocation(name)`, `get_invocation_counts()`
+7. The SAME `request_id` appears in both the log line and the `_meta` envelope for correlation
+
+Reference implementation: `ha-mcp-readonly` at `tools/manifests.py` `_inject_meta_envelope()` and `tools/observability.py`.
 
 ### Logging Standards
 
@@ -1158,6 +1250,35 @@ markers =
 **[RULE: TEST-COV-5] [L3+]** Smoke and E2E tests produce 0% coverage by `coverage.py` — normal.
 **[RULE: TEST-COV-6] [L3+]** Overall project coverage MUST exceed 85%.
 
+### Testing: VCR Cassette Tests (L3+)
+
+#### Anti-Pattern: Blind Mocks
+Mocks that always return `{"success": true}` can mask real API failures. The test passes but the tool is broken in production.
+
+**Real-world failure**: The `get_automation_traces` tool (ha-mcp-readonly v1.1.0) had 6 unit tests, all using `patch("make_ha_request", return_value={"success": True})`. The real HA endpoint returned 404. 100% of tests passed while the tool was completely broken in production.
+
+#### VCR Cassette Pattern
+For every tool that calls an external API, include at least one test using a recorded HTTP cassette:
+
+```python
+import vcr
+@vcr.use_cassette("tests/cassettes/get_xyz.yaml")
+def test_get_xyz_real_response(self, ...):
+    result = tool("some_input")
+    assert result["success"] is True  # Verified against real API
+```
+
+Workflow:
+1. Run the test once against a real instance → cassette recorded to `tests/cassettes/`
+2. Commit the cassette file
+3. CI replays the cassette (no live API needed)
+
+Pre-commit sanitization: strip tokens, IPs, personal data from cassette files before committing.
+
+Test categories: unit (no I/O, mocks OK for non-API logic) | VCR (recorded responses) | integration (live API, skip without env vars).
+
+Reference: `ha-mcp-readonly` at `docs/testing-guidelines.md`.
+
 #### CI Pipeline
 
 **[RULE: TEST-CI-1] [L2+]** CI MUST run linting and format checking before tests. Implementation is delegated to `ref.ci-cd-standard` — the CI/CD Architect standard defines the exact workflow structure, action versions, and quality gates.
@@ -1166,6 +1287,16 @@ markers =
 **[RULE: TEST-CI-4] [L3+]** CI MUST run a Docker-based smoke test.
 
 ### Security and Operational Safety
+
+### Pre-Implementation API Verification Checklist
+
+Before implementing any MCP tool that calls an external HTTP API, the developer MUST complete this checklist:
+
+- [ ] Endpoint verified in the official API documentation (NOT assumed from WebSocket protocols or frontend network traffic)
+- [ ] Endpoint tested with `curl` + authentication token on a real instance
+- [ ] At least one test uses a recorded VCR cassette (not just a mock)
+
+**Real-world failure**: Home Assistant has two separate authentication systems — Bearer tokens (public REST API) and frontend session cookies (UI-only endpoints). The `get_automation_traces` tool was written assuming a REST endpoint existed based on frontend usage. The endpoint returned 404 with Bearer auth. Reference: `ha-mcp-readonly` `INSTRUCTIONS.md`.
 
 #### SSE Transport Security
 
@@ -1349,6 +1480,43 @@ def log_audit(actor: str, command: str) -> None:
     except Exception:
         pass  # fail open — audit failure MUST NOT break the tool
 ```
+
+### Canonical Template 4c: Observability Module
+
+Implement an `observability.py` module with:
+
+```python
+import contextvars, logging, threading, uuid
+
+_request_id: contextvars.ContextVar[str] = contextvars.ContextVar("_request_id", default="-")
+_invocation_counts: dict[str, int] = {}
+_invocation_lock = threading.Lock()
+
+def start_tool_context() -> str:
+    rid = str(uuid.uuid4())
+    _request_id.set(rid)
+    return rid
+
+def get_request_id() -> str:
+    return _request_id.get()
+
+def increment_invocation(tool_name: str) -> None:
+    with _invocation_lock:
+        _invocation_counts[tool_name] = _invocation_counts.get(tool_name, 0) + 1
+
+def get_invocation_counts() -> dict:
+    with _invocation_lock:
+        return dict(_invocation_counts)
+
+class RequestIdFilter(logging.Filter):
+    def filter(self, record):
+        record.request_id = get_request_id()
+        return True
+```
+
+Attach `RequestIdFilter` to every log handler so `%(request_id)s` is always available in log format, even for records emitted outside a tool context (defaults to "-").
+
+Reference: `ha-mcp-readonly` `tools/observability.py`.
 
 ### Python/FastMCP Implementation Notes
 
@@ -2270,6 +2438,22 @@ def validate_session(session_id: str) -> bool:
 3. [L3+] Kubernetes: define liveness probe (JSON-RPC ping), readiness probe (health endpoint), startup probe (grace period for initialization).
 4. [SHOULD] Resource limits: CPU and memory limits defined in deployment manifests.
 
+### Startup Self-Tests
+
+[L2+] The server SHOULD support an optional `RUN_TESTS_ON_STARTUP` environment variable. When enabled, the server runs tests on boot:
+
+```python
+def run_startup_tests():
+    result = subprocess.run(
+        [sys.executable, "-m", "pytest", "tests/", "-v", ...],
+        check=False, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE
+    )
+    logger.info(f"{'ALL TESTS PASSED' if result.returncode == 0 else 'TESTS FAILED'}")
+    return result.returncode == 0
+```
+
+The test run MUST NOT block server startup. Results are logged to stderr. Server continues running even if tests fail.
+
 ### Problem-Solution Matrix (v2.0)
 
 This matrix maps common MCP server problems to the section and maturity level that prevents them. Use this for gap analysis: scan your server, find the problem you have, implement the solution at the indicated level.
@@ -2323,6 +2507,19 @@ Python implementation coverage for the v2.0 standard:
 - **Python session management:** In-memory session store with `threading.Lock`, `uuid`, `timeout=3600`.
 - **FastMCP 2.0.0 import workaround (TRANSIENT):** `sys.modules` patch for removed `fastmcp.mcp_config`. Removal condition: FastMCP ≥2.1.0.
 - **`mcp.run()` mypy false-positive:** `host`/`port` kwargs not resolvable by mypy; suppress with `# type: ignore[call-arg]`.
+
+### (2026-06-11) — Patterns from ha-mcp-readonly feedback
+
+- 🟢 **Added:** `_meta` envelope Canonical Template — ContextVar-based request_id, single injection point, RequestIdFilter
+- 🟢 **Added:** Capability introspection Canonical Template — regex category grouping, zero-I/O, REST manifest/schema endpoints
+- 🟢 **Added:** VCR cassette testing section — Blind Mocks anti-pattern with real failure story, VCR workflow, cassette sanitization
+- 🟢 **Added:** REST API extended endpoints — `GET /api/tools?detail=`, manifest/schema per-tool endpoints, OpenAPI schema
+- 🟢 **Added:** Signatures→JSON Schema auto-conversion rule
+- 🟢 **Added:** Background long-running operations pattern with status polling and timeout
+- 🟢 **Added:** Auto-registration of READ manifests (secure-by-default)
+- 🟢 **Added:** Pre-implementation API auth boundary checklist
+- 🟢 **Added:** Observability Canonical Template 4c — ContextVar, request_id, log filter, invocation counters
+- 🟢 **Added:** Optional startup self-tests pattern (RUN_TESTS_ON_STARTUP)
 
 ## NON_GOALS
 
