@@ -599,6 +599,8 @@ Automated dependency updates reduce the maintenance burden and ensure security p
 
 **[RULE: CI-CDW-57] [L1+]** All ecosystems MUST use `groups:` to batch updates and reduce PR noise. Each group uses `patterns: ["*"]` to catch all packages.
 
+Note: Projects using Docker (`use_docker: true` in the configuration contract) SHOULD include `docker` as an additional ecosystem in `.github/dependabot.yml` alongside `github-actions` and `pip`.
+
 **`dependabot.yml` template:**
 
 ```yaml
@@ -962,6 +964,7 @@ See `templates/auto-tag.yml.j2` for the Jinja2 template.
 - 🟡 **Fixed:** All 8 template header comments bumped from v2.0.0 to v2.2.0
 - 🟡 **Updated:** `action-version-matrix.md` with v2.2.0 section and new SHAs
 - 🟡 **Updated:** `SKILL.md` — migration guide entry + checklist SHA-pinning items (CI-CDW-73/74)
+- 🟡 **Documented:** Dependabot `docker` ecosystem — projects using Docker SHOULD include `docker` in `package_ecosystems` when `use_docker: true`.
 
 ### 2.1.0 (2026-06-07) — Semgrep action fix, attest-build-provenance, Python 3.14 standard, --break-system-packages
 
