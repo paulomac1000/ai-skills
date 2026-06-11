@@ -173,6 +173,9 @@ default_paths:
 excluded_dirs:
   - archived
   - archive
+  - __pycache__
+  - .pytest_cache
+  - .opencode
   - .omo
 
 exempt_files:

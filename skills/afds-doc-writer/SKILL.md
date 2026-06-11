@@ -210,6 +210,18 @@ Body sections: PURPOSE, SPECIFICATION, VERSIONING, CHANGELOG
 
 </document_templates>
 
+### Convention: Parameter Patterns Documentation
+
+When a project has tools that share parameter patterns (e.g., `detail_level`, `compact=true`, `include_*` flags), document them in a dedicated "Parameter Patterns" section in the system documentation. Use a behavior table per pattern:
+
+| Parameter | Values | Description |
+|-----------|--------|-------------|
+| `detail_level` | `"summary"` (default), `"full"` | Controls response verbosity |
+| `compact` | `false` (default), `true` | Strips verbose fields to essentials |
+| `include_*` | `false` (default), `true` | Expands response with additional data |
+
+This convention reduces duplication across tool descriptions and gives readers a single reference for shared parameters.
+
 <language_and_formatting_rules>
 
 AMBIGUITY KILLERS (must NOT appear — enforced by linter post-hoc):

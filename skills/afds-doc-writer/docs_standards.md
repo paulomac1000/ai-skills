@@ -596,6 +596,30 @@ Each document type has its own required section set. The base schema (Section 4.
 `FAILURE_MODES` — what the system does under failure conditions (input perspective): `WHEN <condition> THEN <system response>`.
 `TROUBLESHOOTING` — how an operator diagnoses and resolves failures (operator perspective).
 
+`sys.*` documents MAY include additional optional sections:
+
+```markdown
+## CONFIGURATION
+## SECURITY
+## DEPLOYMENT
+## FEATURES
+## PARAMETER_PATTERNS
+## BATCH_CONVENTIONS
+```
+
+- `### CONFIGURATION` — environment variables, configuration files, startup parameters
+- `### SECURITY` — authentication, authorization, data protection, credential management
+- `### DEPLOYMENT` — Docker, compose, installation prerequisites, port mappings
+- `### FEATURES` — product-level feature documentation beyond component architecture
+- `### PARAMETER_PATTERNS` — shared parameter conventions used across tool endpoints (e.g., `detail_level`, `compact`, `include_*` flags). Document each pattern with a behavior table:
+
+  | Value | Behavior |
+  |-------|----------|
+  | `"summary"` | Return compact results |
+  | `"full"` | Include additional detail |
+
+- `### BATCH_CONVENTIONS` — batch API patterns (comma-separated string inputs, max batch size)
+
 **`ref.*` — Reference (default)**
 
 Uses the base schema from Section 4.1 (`PURPOSE → SCOPE → DEFINITIONS → RULES → INTERFACES → STATE → EDGE_CASES → EXAMPLES → NON_GOALS`).
@@ -1589,6 +1613,7 @@ Derived metrics: most-viewed documents, search success rate, average rating by d
 | Version | Date | Change | Author |
 | ------- | ---- | ------ | ------ |
 | 1.0.0 | 2026-05-08 | Initial release — AFDS: AI-First Documentation Standard. Document taxonomy (workflow, ref, sys, guide, decision, contract), rigor tiers (L0-L3), deterministic section schemas, SSOT + upstream references, controlled language, fitness telemetry, CI validation, security tiers, testing strategy, adoption phases, AI protocol | opencode |
+| 2.1.0 | 2026-06-11 | Extended `sys.*` document type with optional CONFIGURATION, SECURITY, DEPLOYMENT, FEATURES, PARAMETER_PATTERNS, BATCH_CONVENTIONS sections. Added Parameter Patterns documentation convention to SKILL.md. Fixed excluded_dirs in afds_config.yaml to include `__pycache__`, `.pytest_cache`, `.opencode` | opencode |
 
 ---
 
