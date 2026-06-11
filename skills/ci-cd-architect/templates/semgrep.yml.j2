@@ -1,6 +1,6 @@
 # semgrep.yml — Security Scanning (PR + Push)
 #
-# Template for ci-cd-architect standard v2.0.0, Rule 16.
+# Template for ci-cd-architect standard v2.2.0, Rule 16.
 # Language-agnostic. Uses Semgrep with p/auto, p/secrets, p/owasp-top-ten rules.
 # SARIF results uploaded to GitHub Security tab.
 # PR comment posted/updated via actions/github-script@373c709 (# v9) with marker <!-- semgrep-bot -->.
@@ -38,7 +38,7 @@ jobs:
 
       - name: Semgrep Scan
         id: semgrep
-        uses: returntocorp/semgrep-action@713efdd345f3035192eaa63f56867b88e63e4e5d  # v1
+        uses: semgrep/semgrep-action@713efdd345f3035192eaa63f56867b88e63e4e5d  # v1
         env:
           SEMGREP_RULES: p/auto p/secrets p/owasp-top-ten
         with:

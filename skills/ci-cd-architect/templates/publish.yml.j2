@@ -1,6 +1,6 @@
 # publish.yml — Docker Publish + GitHub Release
 #
-# This template is part of the CI/CD Architect standard (ci-cd-standard.md v2.0.0).
+# This template is part of the CI/CD Architect standard (ci-cd-standard.md v2.2.0).
 # It is designed to be processed by a Jinja2-compatible template engine.
 #
 # Substitution variables (from .github/ci-cd-config.yaml):
@@ -83,7 +83,7 @@ jobs:
 {% endif %}
 
       - name: Generate artifact attestation
-        uses: actions/attest-build-provenance@96b4a1ef7235a096b17240c259729fdd70c83d45  # v2
+        uses: actions/attest@281a49d4cbb0a72c9575a50d18f6deb515a11deb  # v4
         with:
           subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           subject-digest: ${{ steps.push.outputs.digest }}

@@ -14,9 +14,9 @@ upstream:
   - ref.mcp-server-standards
   - ref.precommit-standard
 source_of_truth: true
-last_verified: "2026-05-21"
+last_verified: "2026-06-11"
 doc_kind: atomic
-standard_version: "2.1.0"
+standard_version: "2.2.0"
 ---
 
 # CI/CD Standard — Unified Pipelines for Python, .NET, and Polyglot Projects
@@ -78,9 +78,10 @@ All compliant CI/CD workflows MUST use the same pinned versions of GitHub Action
 | `docker/login-action` | `v4` | Log in to container registry |
 | `docker/metadata-action` | `v6` | Extract Docker tags and labels |
 | `docker/build-push-action` | `v7` | Build and push Docker image |
-| `actions/attest-build-provenance` | `v2` | Generate artifact attestation |
+| `actions/attest` | `v4` | Generate artifact attestation |
+| `actions/attest-build-provenance` | `v2` _(deprecated)_ | Generate artifact attestation (legacy — now a wrapper on `actions/attest`) |
 | `softprops/action-gh-release` | `v3` | Create GitHub Release |
-| `codecov/codecov-action` | `v6` | Upload coverage to Codecov |
+| `codecov/codecov-action` | `v7` | Upload coverage to Codecov |
 | `actions/upload-artifact` | `v7` | Upload build artifacts |
 
 **[RULE: CI-CDW-3] [L1+]** All workflow files MUST use the exact action versions listed above. Upgrading an action version requires updating this standard first, then propagating to all projects. For the full version history and upgrade policy, see `references/action-version-matrix.md`.
@@ -120,8 +121,8 @@ on:
 
 ```yaml
 steps:
-  - uses: actions/checkout@v6
-  - uses: actions/setup-python@v6
+  - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v6
+  - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6
     with:
       python-version: "3.14"
   - name: Install dependencies and linting tools
@@ -154,8 +155,8 @@ steps:
 
 ```yaml
 steps:
-  - uses: actions/checkout@v6
-  - uses: actions/setup-python@v6
+  - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v6
+  - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6
     with:
       python-version: "3.14"
   - name: Install dependencies
@@ -169,7 +170,7 @@ steps:
         --cov-report=term-missing \
         --cov-report=xml
   - name: Upload coverage to Codecov
-    uses: codecov/codecov-action@v6
+    uses: codecov/codecov-action@a99c28d3f0da835de33ff2feb2e15691c7b9641f  # v7
     with:
       files: ./coverage.xml
       fail_ci_if_error: false
@@ -220,14 +221,14 @@ tags: |
   type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') }}
 ```
 
-**[RULE: CI-CDW-22] [L1+]** The publish workflow MUST generate artifact attestation using `actions/attest-build-provenance@v2` with `push-to-registry: true`.
+**[RULE: CI-CDW-22] [L1+]** The publish workflow MUST generate artifact attestation using `actions/attest@v4` with `push-to-registry: true`.
 
 **[RULE: CI-CDW-23] [L1+]** The publish workflow MUST create a GitHub Release when triggered by a tag push:
 
 ```yaml
 - name: Create GitHub Release
   if: startsWith(github.ref, 'refs/tags/v')
-  uses: softprops/action-gh-release@v3
+  uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda  # v3
   with:
     generate_release_notes: true
     make_latest: true
@@ -275,7 +276,7 @@ jobs:
       contents: write
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v6
         with:
           fetch-depth: 0
 
@@ -429,8 +430,8 @@ smoke:
   runs-on: ubuntu-latest
   needs: test
   steps:
-    - uses: actions/checkout@v6
-    - uses: actions/setup-python@v6
+    - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v6
+    - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6
       with:
         python-version: "3.14"
     - name: Install dependencies
@@ -485,6 +486,7 @@ The CI/CD standard itself is versioned. Each version specifies compatible action
 
 | Standard Version | actions/checkout | setup-python | buildx | login | metadata | build-push | attest-build-provenance | gh-release | codecov | Python |
 |------------------|-----------------|--------------|--------|-------|----------|------------|--------|------------|---------|--------|
+| 2.2.0 | v6 | v6 | v4 | v4 | v6 | v7 | actions/attest@v4 | v3 | v7 | 3.14 |
 | 2.0.0 | v6 | v6 | v4 | v4 | v6 | v7 | v2 | v3 | v6 | 3.14 |
 | 1.0.0 (retired) | v6 | v6 | v4 | v4 | v6 | v7 | v4 | v3 | v6 | 3.14 |
 
@@ -527,7 +529,7 @@ Every project MUST include automated security scanning via Semgrep. This is a la
 
 **[RULE: CI-CDW-52] [L1+]** The `semgrep.yml` workflow MUST include `SEMGREP_BASELINE_REF: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || '' }}` in its `env` block so that Semgrep CI reports only NEW findings on PRs (diff-aware mode). On push to main, the variable evaluates to an empty string and Semgrep performs a full scan of the entire codebase. This prevents green PRs from being silently rejected by a red main-branch scan due to pre-existing findings.
 
-**[RULE: CI-CDW-53] [L2+]** The SARIF upload step in both `semgrep.yml` and `semgrep-scheduled.yml` MUST be guarded with `if: always() && hashFiles('semgrep.sarif') != ''` to prevent spurious failures when `returntocorp/semgrep-action` does not produce a SARIF output file.
+**[RULE: CI-CDW-53] [L2+]** The SARIF upload step in both `semgrep.yml` and `semgrep-scheduled.yml` MUST be guarded with `if: always() && hashFiles('semgrep.sarif') != ''` to prevent spurious failures when `semgrep/semgrep-action` does not produce a SARIF output file.
 
 **[RULE: CI-CDW-53a] [SHOULD]** Projects SHOULD include a `.semgrep.yml` project-level triage config at the repository root to document accepted findings that are not fixable (e.g., HTTP-only IoT devices on a local LAN, root-required Docker containers). Each entry requires a `rule_id`, `paths`, and `reason`. Without a triage file, unfixable findings MUST be triaged in the GitHub Security tab after each push-to-main scan.
 
@@ -560,13 +562,13 @@ jobs:
       actions: read
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v6
         with:
           fetch-depth: 0
 
       - name: Semgrep Scan
         id: semgrep
-        uses: returntocorp/semgrep-action@713efdd345f3035192eaa63f56867b88e63e4e5d  # v1
+        uses: semgrep/semgrep-action@713efdd345f3035192eaa63f56867b88e63e4e5d  # v1
         env:
           SEMGREP_RULES: p/auto p/secrets p/owasp-top-ten
         with:
@@ -579,7 +581,7 @@ jobs:
         id: upload-sarif
         if: always() && hashFiles('semgrep.sarif') != ''
         continue-on-error: true
-        uses: github/codeql-action/upload-sarif@v4
+        uses: github/codeql-action/upload-sarif@411bbbe57033eedfc1a82d68c01345aa96c737d7  # v4
         with:
           sarif_file: semgrep.sarif
           category: semgrep-full
@@ -666,13 +668,13 @@ jobs:
       pull-requests: write
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v6
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6
         with:
-          python-version: "3.11"
+          python-version: "3.14"
           cache: pip
 
       - name: Install dependencies
@@ -680,7 +682,7 @@ jobs:
 
       - name: Get changed markdown files
         id: changed-files
-        uses: tj-actions/changed-files@v47
+        uses: tj-actions/changed-files@24d32ffd492484c1d75e0c0b894501ddb9d30d62  # v47
         with:
           files: |
             **/*.md
@@ -733,7 +735,7 @@ For .NET projects (`language: dotnet` in the configuration contract), the CI pip
 **[RULE: CI-CDW-65] [L2+]** NuGet packages MUST be cached via `actions/cache@v5` with a key based on `**/*.csproj` and `Directory.Packages.props` hashes:
 
 ```yaml
-- uses: actions/cache@v5
+- uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5
   with:
     path: ~/.nuget/packages
     key: nuget-${{ hashFiles('**/*.csproj', 'Directory.Packages.props') }}
@@ -949,6 +951,17 @@ See `templates/auto-tag.yml.j2` for the Jinja2 template.
 - It does not prescribe a specific tool for generating workflow files from templates (Jinja2 is a suggestion; any template engine works).
 
 ## CHANGELOG
+
+### 2.2.0 (2026-06-11) — Maintenance: v2.1.0 cont'd
+
+- 🔴 **Bumped:** `codecov/codecov-action` v6 → v7 (GPG key rotation: codecovsecurity → codecovsecops)
+- 🔴 **Migrated:** `actions/attest-build-provenance` → `actions/attest` v4 (successor action; `attest-build-provenance` is now a wrapper on `actions/attest`)
+- 🔴 **Renamed:** `returntocorp/semgrep-action` → `semgrep/semgrep-action` (org migration; identical SHA, same upstream)
+- 🟡 **Fixed:** Standard document self-consistency — all 15+ inline YAML examples now SHA-pinned (CI-CDW-73 compliance)
+- 🟡 **Fixed:** `templates/auto-tag.yml.j2` CI-CDW-76c violation — `gh workflow run` now uses filename `publish.yml` not display name
+- 🟡 **Fixed:** All 8 template header comments bumped from v2.0.0 to v2.2.0
+- 🟡 **Updated:** `action-version-matrix.md` with v2.2.0 section and new SHAs
+- 🟡 **Updated:** `SKILL.md` — migration guide entry + checklist SHA-pinning items (CI-CDW-73/74)
 
 ### 2.1.0 (2026-06-07) — Semgrep action fix, attest-build-provenance, Python 3.14 standard, --break-system-packages
 

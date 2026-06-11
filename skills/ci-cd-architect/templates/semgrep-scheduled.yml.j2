@@ -1,6 +1,6 @@
 # semgrep-scheduled.yml — Daily Full Security Scan
 #
-# Template for ci-cd-architect standard v2.0.0, Rule 16, Rule CI-CDW-50.
+# Template for ci-cd-architect standard v2.2.0, Rule 16, Rule CI-CDW-50.
 # Scheduled daily scan + manual trigger. Same rules as PR scan but full repository.
 # Catches issues introduced by newly published Semgrep rules without requiring a PR.
 
@@ -34,7 +34,7 @@ jobs:
 
       - name: Semgrep Full Scan
         id: semgrep
-        uses: returntocorp/semgrep-action@713efdd345f3035192eaa63f56867b88e63e4e5d  # v1
+        uses: semgrep/semgrep-action@713efdd345f3035192eaa63f56867b88e63e4e5d  # v1
         env:
           SEMGREP_RULES: p/auto p/secrets p/owasp-top-ten
         with:

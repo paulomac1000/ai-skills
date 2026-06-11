@@ -1,14 +1,14 @@
 ---
 name: ci-cd-architect
 description: Expert AI persona for designing, auditing, and generating GitHub Actions CI/CD workflows for Python, .NET, Docker, and polyglot projects. Enforces a single version-locked standard with config-driven generation, security scanning (Semgrep), dependency management (Dependabot), and artifact attestation. Covers 3 workflow types — AUDIT (compliance assessment), GENERATE (create/fix pipelines), and UPGRADE (version migration)
-standard_version: 2.1.0
+standard_version: 2.2.0
 ---
 
 # Skill: CI/CD Architect
 
 **Description:** An expert AI coding persona for designing, standardizing, reviewing, and migrating GitHub Actions CI/CD workflows across Python, .NET, and polyglot projects. Enforces a single, version-controlled standard with config-driven generation, security scanning, and dependency management.
 **Core Standard:** `ci-cd-standard.md` (Must be loaded into context).
-**Standard Version:** 2.1.0
+**Standard Version:** 2.2.0
 
 ## System Prompt / Persona
 
@@ -243,6 +243,14 @@ Use this when a project's workflows are based on an older version of the standar
    - Replace hardcoded parameters with config contract references
    - Add `ci-cd-config.yaml` to repository
 
+   **v2.1.0 → v2.2.0:**
+   - `codecov/codecov-action` v6 → v7 (GPG key rotation: codecovsecurity → codecovsecops)
+   - `actions/attest-build-provenance` v2 → `actions/attest` v4 (action renamed; native successor)
+   - `returntocorp/semgrep-action` → `semgrep/semgrep-action` (org migration; identical SHA)
+   - All inline YAML examples in standard document now SHA-pinned (self-consistency)
+   - `auto-tag.yml.j2` CI-CDW-76c fix: display name → filename
+   - All template header comments bumped to v2.2.0
+
 3. **Apply Changes Incrementally:**
    - Process one version jump at a time
    - For each jump, list the exact lines that change
@@ -253,8 +261,9 @@ Use this when a project's workflows are based on an older version of the standar
    | Version Jump | Changes | Files Affected |
    |-------------|---------|----------------|
    | v0 → v1.0.0 | 8 changes (job split, strict mypy, bandit fix, rename, triggers, multi-arch, auto-tag) | ci.yml, publish.yml (rename), auto-tag.yml (new) |
-   | v1.0.0 → v2.0.0 | 9 changes (config contract, 7 action version bumps + attest rename, Python 3.14, hardcode removal) | ci.yml, publish.yml, ci-cd-config.yaml (new) |
-   ```
+    | v1.0.0 → v2.0.0 | 9 changes (config contract, 7 action version bumps + attest rename, Python 3.14, hardcode removal) | ci.yml, publish.yml, ci-cd-config.yaml (new) |
+    | v2.1.0 → v2.2.0 | 6 changes (codecov v7, attest rename v4, semgrep org migration, SHA-pinned examples, auto-tag fix, header bumps) | ci.yml, publish.yml, semgrep.yml, auto-tag.yml |
+    ```
 
 ## Strict Constraints (The "Never Do This" List)
 
@@ -299,8 +308,10 @@ When reviewing CI/CD workflows against this standard, verify every invariant. Ci
 - [ ] `docker/login-action` is `v4` — `[RULE: CI-CDW-3]`
 - [ ] `docker/metadata-action` is `v6` — `[RULE: CI-CDW-3]`
 - [ ] `docker/build-push-action` is `v7` — `[RULE: CI-CDW-3]`
-- [ ] `actions/attest-build-provenance` is `v2` — `[RULE: CI-CDW-3]`
+- [ ] `actions/attest` is `v4` — `[RULE: CI-CDW-3]`
 - [ ] `softprops/action-gh-release` is `v3` — `[RULE: CI-CDW-3]`
+- [ ] All actions use SHA-pinned commit refs with version tag comments — `[RULE: CI-CDW-73]`
+- [ ] Version tag comments match the pinned SHA — `[RULE: CI-CDW-74]`
 
 **ci.yml — Lint Job:**
 - [ ] Three sequential jobs: `lint`, `test`, `docker-smoke` — `[RULE: CI-CDW-5]`

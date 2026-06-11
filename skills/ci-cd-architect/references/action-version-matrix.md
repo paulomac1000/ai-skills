@@ -7,7 +7,7 @@ stability: stable
 ai_scope: editable
 source_of_truth: true
 upstream: [ref.ci-cd-standard]
-last_verified: 2026-06-07
+last_verified: 2026-06-11
 owners: ["ci-cd-maintainer"]
 ttl_days: 30
 description: Pinned GitHub Action versions with commit SHAs and upgrade policy
@@ -15,7 +15,7 @@ description: Pinned GitHub Action versions with commit SHAs and upgrade policy
 
 # Action Version Matrix
 
-> **Standard Version:** 2.1.0
+> **Standard Version:** 2.2.0
 > **Reference:** `ref.ci-cd-standard` Rule 2 and Rule 13
 
 This document tracks the history of GitHub Action versions used across CI/CD standard versions. It is the authoritative reference for which action versions belong to which standard version.
@@ -55,7 +55,7 @@ The following actions have known SHA pinning issues or documented failures — u
 |--------|-------|
 | `docker/setup-buildx-action` | 3 documented SHA mismatch failures across version bumps (v3→v4). The action's release tags have been retagged after initial publication, causing SHA drift. Always verify via `git ls-remote` before updating. |
 
-## Current Versions (Standard v2.1.0)
+## Current Versions (Standard v2.2.0)
 
 | Action | Version | SHA | Verified |
 |--------|---------|-----|----------|
@@ -67,15 +67,16 @@ The following actions have known SHA pinning issues or documented failures — u
 | `docker/login-action` | v4 | `650006c6eb7dba73a995cc03b0b2d7f5ca915bee` | ✅ |
 | `docker/metadata-action` | v6 | `80c7e94dd9b9319bd5eb7a0e0fe9291e23a2a2e9` | ✅ |
 | `docker/build-push-action` | v7 | `f9f3042f7e2789586610d6e8b85c8f03e5195baf` | ✅ |
-| `actions/attest-build-provenance` | v2 | `96b4a1ef7235a096b17240c259729fdd70c83d45` | ✅ |
+| `actions/attest` | v4 | `281a49d4cbb0a72c9575a50d18f6deb515a11deb` | ✅ |
+| `actions/attest-build-provenance` | v2 | `96b4a1ef7235a096b17240c259729fdd70c83d45` | ✅ (deprecated — replaced by actions/attest@v4) |
 | `actions/upload-artifact` | v7 | `043fb46d1a93c77aae656e7c1c64a875d1fc6a0a` | ✅ |
 | `actions/download-artifact` | v8 | `3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c` | ✅ |
 | `actions/cache` | v5 | `27d5ce7f107fe9357f9df03efb73ab90386fccae` | ✅ |
 | `actions/github-script` | v9 | `373c709c69115d41ff229c7e5df9f8788daa9553` | ✅ |
 | `tj-actions/changed-files` | v47 | `24d32ffd492484c1d75e0c0b894501ddb9d30d62` | ✅ |
 | `softprops/action-gh-release` | v3 | `b4309332981a82ec1c5618f44dd2e27cc8bfbfda` | ✅ |
-| `codecov/codecov-action` | v6 | `e79a6962e0d4c0c17b229090214935d2e33f8354` | ✅ |
-| `returntocorp/semgrep-action` | v1 | `713efdd345f3035192eaa63f56867b88e63e4e5d` | ✅ |
+| `codecov/codecov-action` | v7 | `a99c28d3f0da835de33ff2feb2e15691c7b9641f` | ✅ |
+| `semgrep/semgrep-action` | v1 | `713efdd345f3035192eaa63f56867b88e63e4e5d` | ✅ |
 | `github/codeql-action/upload-sarif` | v4 | `411bbbe57033eedfc1a82d68c01345aa96c737d7` | ✅ |
 | `dorny/test-reporter` | v3 | `1cc81a5edf733718d4850df304aaa21c05cd7280` | ✅ |
 | `marocchino/sticky-pull-request-comment` | v3.0.4 | `0ea0beb66eb9baf113663a64ec522f60e49231c0` | ✅ |
@@ -93,3 +94,9 @@ The following actions have known SHA pinning issues or documented failures — u
 First version deployed across production MCP server projects. Covers Python + Docker (primary), .NET + NuGet (variant), polyglot projects. Includes CI pipeline, Docker publish, auto-tag, Semgrep security scanning, Dependabot, documentation validation, concurrency best practices, and PR feedback patterns.
 
 All action versions are pinned at their latest stable major versions as of May 2026.
+
+### v2.2.0 (2026-06-11)
+
+- codecov/codecov-action updated to v7 (SHA: a99c28d3f0da835de33ff2feb2e15691c7b9641f)
+- actions/attest-build-provenance replaced with actions/attest@v4 (SHA: 281a49d4cbb0a72c9575a50d18f6deb515a11deb)
+- returntocorp/semgrep-action renamed to semgrep/semgrep-action (same SHA)

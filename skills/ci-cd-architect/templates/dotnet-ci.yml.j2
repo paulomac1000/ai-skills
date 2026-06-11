@@ -1,6 +1,6 @@
 # dotnet-ci.yml — .NET CI Pipeline (Language Variant)
 #
-# Template for ci-cd-architect standard v2.0.0, Rule 20.
+# Template for ci-cd-architect standard v2.2.0, Rule 20.
 # For projects with language: dotnet in the configuration contract.
 # Sequence: restore → format check → build → test + coverage → pack (on tag) → publish (on tag).
 #
@@ -211,7 +211,7 @@ jobs:
 
       - name: Semgrep Scan
         id: semgrep
-        uses: returntocorp/semgrep-action@713efdd345f3035192eaa63f56867b88e63e4e5d  # v1
+        uses: semgrep/semgrep-action@713efdd345f3035192eaa63f56867b88e63e4e5d  # v1
         env:
           SEMGREP_RULES: p/auto p/secrets p/owasp-top-ten
         with:
