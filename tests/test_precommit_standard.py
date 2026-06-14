@@ -1,7 +1,7 @@
 """Tests for skills/pre-commit-architect/precommit-standard.md (ref.precommit-standard).
 
 Validates that the pre-commit standard document follows AFDS conventions,
-contains all 13 PRECOMMIT rules from todo-precommit.md, and passes
+contains all 15 PRECOMMIT rules from todo-precommit.md, and passes
 docs_validate.py validation.
 """
 
@@ -62,8 +62,8 @@ class TestFrontmatter:
         )
         version = pcstd_fm.get("standard_version")
         assert version is not None, "standard_version is missing from frontmatter"
-        assert version == "1.0.0", (
-            f"Expected standard_version '1.0.0', got '{version}'"
+        assert version == "1.1.0", (
+            f"Expected standard_version '1.1.0', got '{version}'"
         )
         upstream = pcstd_fm.get("upstream")
         assert upstream is not None, "upstream field is missing from frontmatter"
@@ -72,13 +72,13 @@ class TestFrontmatter:
         )
 
 
-class TestAll13Rules:
-    """Verify all 13 PRECOMMIT rules from todo-precommit.md are present."""
+class TestAll15Rules:
+    """Verify all 15 PRECOMMIT rules from todo-precommit.md are present."""
 
-    def test_all_13_rules_present(self, pcstd_content):
-        """Document must contain rule anchors for PRECOMMIT-01 through PRECOMMIT-13."""
+    def test_all_15_rules_present(self, pcstd_content):
+        """Document must contain rule anchors for PRECOMMIT-01 through PRECOMMIT-15."""
         missing = []
-        for n in range(1, 14):
+        for n in range(1, 16):
             rule_id = f"PRECOMMIT-{n:02d}"
             if rule_id not in pcstd_content:
                 missing.append(rule_id)
@@ -94,8 +94,8 @@ class TestRuleAnchors:
         """Each rule must follow the **[RULE: PRECOMMIT-NN] [L1+/L2+]** format."""
         pattern = re.compile(r"\[RULE: PRECOMMIT-\d{2}\] \[L[12]\+?\]")
         matches = pattern.findall(pcstd_content)
-        assert len(matches) >= 13, (
-            f"Expected at least 13 rules with semantic anchors, "
+        assert len(matches) >= 15, (
+            f"Expected at least 15 rules with semantic anchors, "
             f"found {len(matches)}: {matches}"
         )
 
@@ -218,6 +218,48 @@ class TestMypyOverrides:
         )
 
 
+
+
+class TestNativeCIPinning:
+    """Verify PRECOMMIT-14 requires native-CI pinning (no fastmcp copy-paste)."""
+
+    def test_native_ci_pinning_rule(self, pcstd_content):
+        """PRECOMMIT-14 must forbid fastmcp copy-paste; require native CI mirror."""
+        match = re.search(
+            r"\[RULE: PRECOMMIT-14\].*?\n"
+            r"((?:(?!\[RULE: PRECOMMIT-\d{2}\]).*\n?)*)",
+            pcstd_content,
+        )
+        assert match is not None, "PRECOMMIT-14 rule not found"
+        rule_text = match.group(1)
+        has_forbidden = "fastmcp" in rule_text.lower() or "copy-paste" in rule_text.lower()
+        has_native = "github actions" in rule_text.lower() or "native" in rule_text.lower() or "mirror" in rule_text.lower()
+        assert has_forbidden or has_native, (
+            f"PRECOMMIT-14 must forbid fastmcp CI copy-paste or require native CI mirror. "
+            f"Text: {rule_text[:200].strip()}"
+        )
+
+
+class TestCustomLocalHooks:
+    """Verify PRECOMMIT-15 requires custom local validation script conventions."""
+
+    def test_custom_local_hooks_rule(self, pcstd_content):
+        """PRECOMMIT-15 must require repo: local hook conventions (scripts/ dir, python3, fail_fast:false)."""
+        match = re.search(
+            r"\[RULE: PRECOMMIT-15\].*?\n"
+            r"((?:(?!\[RULE: PRECOMMIT-\d{2}\]).*\n?)*)",
+            pcstd_content,
+        )
+        assert match is not None, "PRECOMMIT-15 rule not found"
+        rule_text = match.group(1)
+        has_local = "repo: local" in rule_text or "local" in rule_text.lower()
+        has_scripts = "scripts/" in rule_text
+        has_conventions = "must" in rule_text.lower() and ("script" in rule_text.lower() or "hook" in rule_text.lower())
+        assert has_local or (has_scripts and has_conventions), (
+            f"PRECOMMIT-15 must require repo: local hook conventions "
+            f"(scripts/ dir, hook config rules). "
+            f"Text: {rule_text[:200].strip()}"
+        )
 class TestPassesAFDS:
     """Verify the standard passes AFDS validation via docs_validate.py."""
 

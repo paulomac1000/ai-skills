@@ -7,7 +7,7 @@ stability: stable
 ai_scope: editable
 source_of_truth: true
 upstream: [ref.precommit-standard]
-last_verified: 2026-06-07
+last_verified: 2026-06-14
 owners: ["precommit-maintainer"]
 ttl_days: 30
 description: Available pre-commit hooks with SHA pinning and upgrade policy
@@ -15,8 +15,8 @@ description: Available pre-commit hooks with SHA pinning and upgrade policy
 
 # Hook Catalog
 
-> **Standard Version:** 1.0.0
-> **Reference:** `ref.precommit-standard` Rules PRECOMMIT-09, PRECOMMIT-10
+> **Standard Version:** 1.1.0
+> **Reference:** `ref.precommit-standard` Rules PRECOMMIT-09, PRECOMMIT-10, PRECOMMIT-14, PRECOMMIT-15
 
 This document catalogs every hook managed by the pre-commit architect skill. Remote hooks use full commit SHA pinning per PRECOMMIT-09. Local hooks use `repo: local` and rely on the developer's environment.
 

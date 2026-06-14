@@ -7,7 +7,7 @@ stability: stable
 ai_scope: editable
 source_of_truth: true
 upstream: [ref.precommit-standard]
-last_verified: 2026-06-07
+last_verified: 2026-06-14
 owners: ["precommit-maintainer"]
 ttl_days: 90
 description: Documented pre-commit deployment pitfalls and their fixes
@@ -15,8 +15,8 @@ description: Documented pre-commit deployment pitfalls and their fixes
 
 # Pre-commit Deployment Pitfalls
 
-> **Standard Version:** 1.0.0
-> **Reference:** `ref.precommit-standard` Rules PRECOMMIT-03 through PRECOMMIT-13
+> **Standard Version:** 1.1.0
+> **Reference:** `ref.precommit-standard` Rules PRECOMMIT-03 through PRECOMMIT-15
 
 Compiled from real deployment failures across `ha-mcp-readonly`, `local-home-devices-mcp`, and related projects. Each pitfall includes the root cause, the PRECOMMIT rule that prevents it, and the concrete fix.
 
