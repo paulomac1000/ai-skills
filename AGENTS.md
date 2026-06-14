@@ -5,7 +5,7 @@ This project uses pre-commit to enforce code quality before commits.
 **Setup**: `pre-commit install`
 **Run manually**: `pre-commit run --all-files`
 **Hooks mirror CI**: The same checks run in `.github/workflows/ci.yml` lint job.
-**Config**: `.pre-commit-config.yaml` follows `ref.precommit-standard` v1.0.0.
+**Config**: `.pre-commit-config.yaml` follows `ref.precommit-standard` v1.1.0 (includes `detect-private-key` hook).
 
 ## Skills
 
@@ -17,7 +17,7 @@ This repo provides 5 persona-driven skill prompts for AI agents. Load the releva
 | MCP Server Architect | [`skills/mcp-server-architect/SKILL.md`](skills/mcp-server-architect/SKILL.md) | Build MCP servers per standard — design directives, constraints, canonical templates, consumer ergonomics |
 | MCP Server Consumer | [`skills/mcp-server-consumer/SKILL.md`](skills/mcp-server-consumer/SKILL.md) | Discover, reason about, and safely invoke MCP tools — capability reasoning, decision policies, error recovery |
 | CI/CD Architect | [`skills/ci-cd-architect/SKILL.md`](skills/ci-cd-architect/SKILL.md) | Design, audit, and generate GitHub Actions workflows — commit-SHA pinning, auto-tag, Semgrep, Dependabot |
-| Pre-commit Hook Architect | [`skills/pre-commit-architect/SKILL.md`](skills/pre-commit-architect/SKILL.md) | Design, audit, and generate `.pre-commit-config.yaml` per standard |
+| Pre-commit Hook Architect | [`skills/pre-commit-architect/SKILL.md`](skills/pre-commit-architect/SKILL.md) | Design, audit, and generate `.pre-commit-config.yaml` per standard. v1.1.0: PRECOMMIT-14 content fix, PRECOMMIT-01 sub-clause, Workflow 3 UPGRADE, 15 PRECOMMIT rules, canonical pre-commit.com references, detect-private-key in templates. |
 
 ## Standards
 
