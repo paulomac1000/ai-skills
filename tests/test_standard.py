@@ -82,7 +82,6 @@ class TestStandardContent:
         assert len(h1s) == 1, f"Expected exactly 1 H1, found {len(h1s)}"
 
     def test_english_only(self, standard_body):
-        import re as _re
         allowed = set("\n\r—–→•✅❌≠≥≤├─│┬└┌┘┐♦▪•°±")
         non_ascii = [ch for ch in standard_body if ord(ch) > 127 and ch not in allowed]
         assert len(non_ascii) == 0, (

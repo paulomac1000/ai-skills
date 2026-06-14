@@ -1,6 +1,5 @@
 """Unit tests for individual functions in docs_validate.py."""
 
-import pytest
 from pathlib import Path
 
 from docs_validate import (
