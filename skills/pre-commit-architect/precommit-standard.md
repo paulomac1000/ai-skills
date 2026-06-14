@@ -13,9 +13,9 @@ owners: ["backend-team"]
 upstream:
   - ref.ci-cd-standard
 source_of_truth: true
-last_verified: "2026-06-07"
+last_verified: "2026-06-14"
 doc_kind: atomic
-standard_version: "1.0.0"
+standard_version: "1.1.0"
 ---
 
 # Pre-commit Standard — Unified Hook Configuration for Python Projects
@@ -54,6 +54,8 @@ Define a unified, version-locked, and reproducible pre-commit hook standard for 
 Pre-commit runs in the developer's full local environment (`pip install -e ".[dev]"`), which includes all project dependencies. CI lint jobs frequently have a minimal environment (`pip install ruff mypy bandit` without project deps). This environment mismatch is the root cause of many pre-commit-vs-CI failures. Rules PRECOMMIT-03 (ruff target-version), PRECOMMIT-11 (mypy overrides), and PRECOMMIT-12 (CAFDS excluded_dirs) specifically address this mismatch.
 
 > **Virtualenv Isolation Warning**: Pre-commit hooks run in isolated virtualenvs managed by pre-commit. A passing `pre-commit run` locally does NOT guarantee CI passes. The CI lint job's `pip install` step must explicitly list every tool invoked in CI steps.
+
+b. **CI `pip install` step coverage**: The CI lint and test jobs' `pip install` (or equivalent package install) step MUST list every tool invoked in subsequent lint/test steps. Audit pattern: `diff <(grep -oP '(?<=entry:\s)[\w./-]+' .pre-commit-config.yaml | sort -u) <(grep -oP '(?<=pip install )\S+' .github/workflows/*.yml | sort -u)` — any tool in the first set but not the second is a coverage gap. This addresses the environment mismatch that caused audit Issue #9 (P1 in stack-hassio deployment).
 
 ### Rule 2: Hook Ordering
 
@@ -215,14 +217,9 @@ excluded_dirs:
 
 Secret scanning hooks MUST be ordered in the `security` category (per PRECOMMIT-02), after `bandit` and before any custom security hooks.
 
-**Real-world failure**: A `fastmcp` import error in a test file prevented `test_server.py` from collecting. All other collected tests passed, so pre-commit reported "Passed." In CI (where `fastmcp` was properly installed), the tests collected and failed due to an API format change. The silent pre-commit pass hid the CI failure until post-push.
+**Real-world failure**: A developer committed a `config.json` containing an embedded AWS access key. The pre-commit hook passed because no secret scanning was configured. The key was leaked to the remote repository and triggered a third-party security alert within 48 hours. Adding `gitleaks` (or `detect-secrets` with a baseline) to the security category would have caught this on `git commit`.
 
-**Mitigation**:
-```bash
-pytest --collect-only -q 2>&1 | grep -q "ERROR" && exit 1
-```
-
-Or use the `-x` (exit on first error) flag on the test step: `pytest tests/ -x --collect-only` before running the full suite.
+**Mitigation**: Generate a baseline with `gitleaks detect --report-path gitleaks-report.json --baseline-path .gitleaks-baseline.json` after audit. Commit the baseline file. The hook reads the baseline and only flags NEW secrets (lines not in baseline).
 
 ### Rule 15: Custom Local Validation Scripts
 
@@ -395,6 +392,18 @@ SKIP=mypy,bandit git commit # skip specified hooks
 - 🟡 **Fixed:** SKILL.md — dynamic AGENTS.md hook table replaces fixed incompatible table
 - 🟢 **Fixed:** All 3 templates — ruff hooks use `pass_filenames: true`
 - 🟡 **Fixed:** All 3 templates — pytest hook includes `--collect-only` pre-check
+
+
+### [1.1.0] - 2026-06-14
+
+**Added:**
+- PRECOMMIT-01 sub-clause b: CI `pip install` step MUST list every tool invoked in lint/test steps. Addresses audit Issue #9 root cause.
+
+**Fixed:**
+- PRECOMMIT-14 "Real-world failure" and "Mitigation" sections were copy-paste errors from PRECOMMIT-13 — rewritten to describe actual secret scanning failures (gitleaks baseline, AWS key detection, PEM key detection).
+
+**Attribution (retroactive):**
+- PRECOMMIT-14 (Secret Scanning) was added in 1.0.0 without a changelog entry. This release adds the attribution.
 
 ### 1.0.0 (2026-06-07) — Initial standard
 
