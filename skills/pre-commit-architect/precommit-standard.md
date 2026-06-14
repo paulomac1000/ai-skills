@@ -37,6 +37,7 @@ Define a unified, version-locked, and reproducible pre-commit hook standard for 
 ## DEFINITIONS
 
 - **pre-commit**: A framework for managing and maintaining multi-language pre-commit hooks that run before `git commit`. The `.pre-commit-config.yaml` file defines which hooks run at which stage.
+- **pre-commit (canonical reference)** — Official site: [https://pre-commit.com/](https://pre-commit.com/). The canonical source for hook reference, version compatibility, and the public Python client library (`pre_commit.clientlib`). All rules in this standard derive from and reference this upstream project. The canonical hooks list lives at [https://pre-commit.com/hooks.html](https://pre-commit.com/hooks.html).
 - **local repo** (`repo: local`): A hook that runs tools already installed in the developer's environment (e.g., mypy, bandit, pytest). No download required. Version tracking is manual — the developer must keep tool versions in sync with CI.
 - **remote repo** (`repo: https://...`): A hook sourced from a public Git repository. Downloaded and cached on first run. Pinned to a specific commit SHA for immutability. Used for standard tools like ruff and pre-commit-hooks.
 - **pass_filenames**: A hook-level option that controls whether staged filenames are passed to the hook's `entry` command. Defaults to `true` for most hooks. Must be set to `false` when the hook scans the entire repository (e.g., mypy, pytest, bandit) or operates on a fixed directory. **Convention**: `pass_filenames: false` is the default for most repo-local hooks — the hook receives only staged file paths by default.
@@ -217,9 +218,9 @@ excluded_dirs:
 
 Secret scanning hooks MUST be ordered in the `security` category (per PRECOMMIT-02), after `bandit` and before any custom security hooks.
 
-**Real-world failure**: A developer committed a `config.json` containing an embedded AWS access key. The pre-commit hook passed because no secret scanning was configured. The key was leaked to the remote repository and triggered a third-party security alert within 48 hours. Adding `gitleaks` (or `detect-secrets` with a baseline) to the security category would have caught this on `git commit`.
+**Real-world failure**: A developer committed a `config.json` containing an embedded AWS access key. The pre-commit hook passed because no secret scanning was configured. The key was leaked to the remote repository and triggered a third-party security alert within 48 hours. Adding `gitleaks` (or `detect-secrets` with a baseline) to the security category, and `detect-private-key` from `pre-commit/pre-commit-hooks` as a minimum, would have caught this on `git commit`.
 
-**Mitigation**: Generate a baseline with `gitleaks detect --report-path gitleaks-report.json --baseline-path .gitleaks-baseline.json` after audit. Commit the baseline file. The hook reads the baseline and only flags NEW secrets (lines not in baseline).
+**Mitigation**: Generate a baseline with `gitleaks detect --report-path gitleaks-report.json --baseline-path .gitleaks-baseline.json` after audit. Commit the baseline file. The hook reads the baseline and only flags NEW secrets (lines not in baseline). For PEM key detection, `detect-private-key` from `pre-commit/pre-commit-hooks` provides minimum coverage with zero configuration.
 
 ### Rule 15: Custom Local Validation Scripts
 
@@ -398,12 +399,22 @@ SKIP=mypy,bandit git commit # skip specified hooks
 
 **Added:**
 - PRECOMMIT-01 sub-clause b: CI `pip install` step MUST list every tool invoked in lint/test steps. Addresses audit Issue #9 root cause.
+- DEFINITIONS entry linking to https://pre-commit.com/ (canonical upstream project) — references instead of duplicating.
+- Workflow 3 (UPGRADE) implemented as generic template with v1.0.0→v1.1.0 worked example.
 
 **Fixed:**
-- PRECOMMIT-14 "Real-world failure" and "Mitigation" sections were copy-paste errors from PRECOMMIT-13 — rewritten to describe actual secret scanning failures (gitleaks baseline, AWS key detection, PEM key detection).
+- PRECOMMIT-14 "Real-world failure" and "Mitigation" sections were copy-paste errors from PRECOMMIT-13 — rewritten to describe actual secret scanning failures (AWS key detection, PEM key detection, gitleaks baseline).
+- `references/hook-catalog.md` rewritten to be a project-specific pinning index (was duplicating https://pre-commit.com/hooks.html content with 8-char SHA abbreviations violating PRECOMMIT-09).
+- Templates now include `detect-private-key`, `end-of-file-fixer`, and `check-merge-conflict` (all 3 templates) — fixing own-standard violations of PRECOMMIT-14 and aligning with the repo's own `.pre-commit-config.yaml`.
 
 **Attribution (retroactive):**
 - PRECOMMIT-14 (Secret Scanning) was added in 1.0.0 without a changelog entry. This release adds the attribution.
+
+**External references integrated:**
+- https://pre-commit.com/ — canonical upstream project (now cited in DEFINITIONS)
+- https://pre-commit.com/hooks.html — canonical hooks catalog (now referenced in `references/hook-catalog.md`)
+- `pre_commit migrate-config` — built-in upstream command (now mentioned in Workflow 3 UPGRADE)
+- `pre_commit.clientlib.WarnMutableRev` — upstream rationale for PRECOMMIT-09 (SHA pinning)
 
 ### 1.0.0 (2026-06-07) — Initial standard
 

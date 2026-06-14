@@ -1,4 +1,5 @@
 ---
+description: Pinning index for the 3 remote hooks used by precommit-standard. For discovering additional hooks, see https://pre-commit.com/hooks.html
 doc_id: ref.hook-catalog
 type: ref
 status: active
@@ -10,19 +11,19 @@ upstream: [ref.precommit-standard]
 last_verified: 2026-06-14
 owners: ["precommit-maintainer"]
 ttl_days: 30
-description: Available pre-commit hooks with SHA pinning and upgrade policy
+standard_version: "1.1.0"
 ---
 
-# Hook Catalog
+# Hook Catalog — Project Pinning Index
 
-> **Standard Version:** 1.1.0
-> **Reference:** `ref.precommit-standard` Rules PRECOMMIT-09, PRECOMMIT-10, PRECOMMIT-14, PRECOMMIT-15
+> **Canonical hooks source**: https://pre-commit.com/hooks.html
+> **Standard**: `ref.precommit-standard` Rules PRECOMMIT-09, PRECOMMIT-10, PRECOMMIT-14
+> **Rule details**: PRECOMMIT-09 (Remote Hook Pinning), PRECOMMIT-10 (Committed Config and AGENTS.md), PRECOMMIT-14 (Secret Scanning)
+> **Rationale**: This file pins the SHA for each remote hook the precommit-standard uses. For DISCOVERING new hooks, see the canonical hooks list at https://pre-commit.com/hooks.html (maintained by the pre-commit team). We do NOT duplicate that list here — by reference, not by copy.
 
-This document catalogs every hook managed by the pre-commit architect skill. Remote hooks use full commit SHA pinning per PRECOMMIT-09. Local hooks use `repo: local` and rely on the developer's environment.
+## SHA Pinning Policy (PRECOMMIT-09)
 
-## SHA Pinning Policy
-
-Remote hooks MUST be pinned to their full immutable commit SHA, with the version tag as a trailing comment:
+Remote hooks MUST be pinned to their full 40-character commit SHA, with the version tag as a trailing comment:
 
 ```yaml
 - repo: https://github.com/pre-commit/pre-commit-hooks
@@ -34,37 +35,34 @@ To obtain the commit SHA for any hook version:
 git ls-remote https://github.com/<owner>/<repo>.git refs/tags/<version> | awk '{print $1}'
 ```
 
-## Hook Catalog
+**Why SHA pinning**: Mutable version tags can be re-targeted by attackers who compromise a hook repository. The pre-commit project itself emits a warning for mutable revs (see `pre_commit.clientlib.WarnMutableRev`). See https://pre-commit.com/#using-the-latest-version-for-a-repository.
 
-| Hook ID | Repo URL | SHA/Version | Category | Notes |
-|---------|----------|-------------|----------|-------|
-| `trailing-whitespace` | `pre-commit/pre-commit-hooks` | `cef0300f` (`v5.0.0`) | Generic | Removes trailing whitespace; first in ordering per PRECOMMIT-02 |
-| `check-yaml` | `pre-commit/pre-commit-hooks` | `cef0300f` (`v5.0.0`) | Generic | Validates YAML syntax; runs before lint hooks |
-| `check-toml` | `pre-commit/pre-commit-hooks` | `cef0300f` (`v5.0.0`) | Generic | Validates TOML syntax (pyproject.toml) |
-| `ruff` | `astral-sh/ruff-pre-commit` | `99abe27a` (`v0.11.0`) | Lint | Ruff check + format; replaces flake8+isort+black |
-| `mypy` | `repo: local` | N/A (local) | Types | Static type checking; uses `additional_dependencies` for third-party stubs |
-| `bandit` | `repo: local` | N/A (local) | Security | AST-based security scanner; uses `additional_dependencies` |
-| `pytest` | `repo: local` | N/A (local) | Tests | Unit test runner; pre-commit stage only (integration tests must use pre-push) |
-| `semgrep` | `returntocorp/semgrep-action` | `713efdd3` (`v1`) | Security | Semgrep SAST scanning; must match CI semgrep config |
-| `gitleaks` | `gitleaks/gitleaks` | `6efcfbaa` (`v8.9.0`) | Security | Go-based secret scanner; 150+ rules; fastest OSS option; recommended for new projects |
-| `detect-secrets` | `Yelp/detect-secrets` | `68e8b454` (`v1.5.0`) | Security | Python-based secret scanner with baseline-allowlist support; best for legacy onboarding. ⚠️ Known MemoryError on Python 3.13 multiprocessing pool |
-| `CAFDS docs` | `repo: local` | N/A (local) | Docs | Validates AFDS frontmatter via `curl \| python3`; uses `docs_validate.py` |
+## Pinned Hooks (used by precommit-standard)
 
-## Hook Ordering (PRECOMMIT-02)
+| Hook ID(s) | Repo URL | SHA (40-char) | Version | Category | Notes |
+|------------|----------|---------------|---------|----------|-------|
+| `trailing-whitespace`, `end-of-file-fixer`, `check-yaml`, `check-merge-conflict`, `check-case-conflict`, `check-added-large-files`, `mixed-line-ending`, `detect-private-key` | `pre-commit/pre-commit-hooks` | `cef0300fd0fc4d2a87a85fa2093c6b283ea36f4b` | v5.0.0 | Generic | Universal language-agnostic hooks. Full list: https://github.com/pre-commit/pre-commit-hooks. `detect-private-key` is the PRECOMMIT-14 minimum. |
+| `ruff`, `ruff-format` | `astral-sh/ruff-pre-commit` | `<PINNED_AT_RELEASE>` | v0.11.0+ | Lint + Format | Linter and formatter. Replaces flake8+isort+black. |
+| `gitleaks` (optional) | `gitleaks/gitleaks` | `<PINNED_AT_RELEASE>` | latest | Secret Scanning | PRECOMMIT-14 recommended. https://github.com/gitleaks/gitleaks. |
+| `detect-secrets` (optional) | `Yelp/detect-secrets` | `<PINNED_AT_RELEASE>` | latest | Secret Scanning | PRECOMMIT-14 alternative. Requires baseline. |
 
-```
-Generic (trailing-whitespace, check-yaml, check-toml)
-  → Lint (ruff check, ruff format)
-    → Types (mypy)
-      → Security (bandit, semgrep)
-        → Docs (CAFDS)
-          → Tests (pytest unit)
-```
+## Local Hooks (repo: local — no SHA needed)
 
-Heavy tests (integration, e2e) MUST go to `pre-push` stage per PRECOMMIT-07.
+| Hook | Entry pattern | Notes |
+|------|---------------|-------|
+| mypy | `python3 -m mypy <src> --strict` | Static type checking |
+| bandit | `python3 -m bandit -r <src> -ll` | AST-based security scanner |
+| pytest (unit) | `python3 -m pytest tests/unit/ -q` | Pre-commit stage |
+| pytest (integration) | `python3 -m pytest tests/integration/ -q` | Pre-push stage only |
 
-## Version History
+## Discovering Additional Hooks
 
-### v1.0.0 (2026-06-07) — Initial catalog
+For the canonical list of all available hooks maintained by the pre-commit team:
+- **https://pre-commit.com/hooks.html** — featured hooks (language-agnostic, Python, shell, web, config, text/docs, commit messages, secret scanning, other languages)
+- **https://github.com/topics/pre-commit-hook** — community-maintained hooks
 
-First version based on deployment experience from `ha-mcp-readonly` and `local-home-devices-mcp`. All remote hooks pinned at latest stable versions as of June 2026.
+When adding a new hook to the precommit-standard templates:
+1. Identify the hook at https://pre-commit.com/hooks.html.
+2. Obtain the full SHA: `git ls-remote <repo-url> refs/tags/<version> | awk '{print $1}'`
+3. Add to the appropriate template (python/mcp/minimal) with SHA + version tag comment.
+4. Update `last_verified` here.

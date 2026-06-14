@@ -2,6 +2,7 @@
 name: pre-commit-architect
 description: Expert AI persona for auditing, generating, and upgrading .pre-commit-config.yaml files for Python projects. Enforces a single version-locked standard with CI mirroring, config-driven template selection, and AGENTS.md integration. Covers 3 workflow types — AUDIT (compliance assessment against 15 PRECOMMIT rules), GENERATE (create config from Jinja2 templates + deploy AGENTS.md section), and UPGRADE (standard version migration)
 standard_version: 1.1.0
+last_verified: 2026-06-14
 ---
 
 # Skill: Pre-commit Hook Architect
@@ -58,6 +59,12 @@ Before inspecting or modifying any pre-commit configuration, determine the proje
 | Infrastructure (non-Python) | `pre-commit-minimal.j2` | generic + local shell hooks | Python-specific rules N/A. Only structural rules: SHA pinning, CI mirroring, AGENTS.md, fail_fast: false. |
 
 ## Standard Workflows
+
+This skill exposes three workflows. Pick the one that matches the request:
+
+- **Workflow 1 (AUDIT)** — assess an existing `.pre-commit-config.yaml` against the standard
+- **Workflow 2 (GENERATE)** — create a new config from a Jinja2 template
+- **Workflow 3 (UPGRADE)** — migrate a project from a prior `precommit-standard.md` version to the current one
 
 ### Workflow 1: Compliance Assessment (AUDIT)
 
