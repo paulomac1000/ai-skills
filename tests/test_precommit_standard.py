@@ -1,7 +1,7 @@
 """Tests for skills/pre-commit-architect/precommit-standard.md (ref.precommit-standard).
 
 Validates that the pre-commit standard document follows AFDS conventions,
-contains all 15 PRECOMMIT rules from todo-precommit.md, and passes
+contains all 15 PRECOMMIT rules from precommit-standard.md (v1.1.0, 2026-06-14), and passes
 docs_validate.py validation.
 """
 
@@ -72,11 +72,11 @@ class TestFrontmatter:
         )
 
 
-class TestAll15Rules:
-    """Verify all 15 PRECOMMIT rules from todo-precommit.md are present."""
+class TestAllNRules:
+    """Verify all N PRECOMMIT rules (15 in v1.1.0) are present in the standard."""
 
-    def test_all_15_rules_present(self, pcstd_content):
-        """Document must contain rule anchors for PRECOMMIT-01 through PRECOMMIT-15."""
+    def test_all_n_rules_present(self, pcstd_content):
+        """Document must contain rule anchors for PRECOMMIT-01 through PRECOMMIT-N (currently 15)."""
         missing = []
         for n in range(1, 16):
             rule_id = f"PRECOMMIT-{n:02d}"
@@ -220,11 +220,11 @@ class TestMypyOverrides:
 
 
 
-class TestNativeCIPinning:
-    """Verify PRECOMMIT-14 requires native-CI pinning (no fastmcp copy-paste)."""
+class TestSecretScanning:
+    """Verify PRECOMMIT-14 requires secret scanning tools."""
 
-    def test_native_ci_pinning_rule(self, pcstd_content):
-        """PRECOMMIT-14 must forbid fastmcp copy-paste; require native CI mirror."""
+    def test_secret_scanning_rule(self, pcstd_content):
+        """PRECOMMIT-14 must require secret scanning tools (detect-private-key, gitleaks, or detect-secrets)."""
         match = re.search(
             r"\[RULE: PRECOMMIT-14\].*?\n"
             r"((?:(?!\[RULE: PRECOMMIT-\d{2}\]).*\n?)*)",
@@ -232,19 +232,35 @@ class TestNativeCIPinning:
         )
         assert match is not None, "PRECOMMIT-14 rule not found"
         rule_text = match.group(1)
-        has_forbidden = "fastmcp" in rule_text.lower() or "copy-paste" in rule_text.lower()
-        has_native = "github actions" in rule_text.lower() or "native" in rule_text.lower() or "mirror" in rule_text.lower()
-        assert has_forbidden or has_native, (
-            f"PRECOMMIT-14 must forbid fastmcp CI copy-paste or require native CI mirror. "
-            f"Text: {rule_text[:200].strip()}"
+        secret_terms = ["detect-private-key", "gitleaks", "detect-secrets", "secret"]
+        found = [t for t in secret_terms if t.lower() in rule_text.lower()]
+        assert len(found) >= 1, (
+            f"PRECOMMIT-14 must require secret scanning tools. "
+            f"Found {len(found)} terms: {found}. Text: {rule_text[:300].strip()}"
+        )
+
+    def test_precommit_14_content_not_collection_error(self, pcstd_content):
+        """PRECOMMIT-14 must NOT be about test collection (which is PRECOMMIT-13's job)."""
+        match = re.search(
+            r"\[RULE: PRECOMMIT-14\].*?\n"
+            r"((?:(?!\[RULE: PRECOMMIT-\d{2}\]).*\n?)*)",
+            pcstd_content,
+        )
+        assert match is not None, "PRECOMMIT-14 rule not found"
+        rule_text = match.group(1).lower()
+        forbidden_terms = ["fastmcp", "test_server.py", "pytest --collect-only", "importerror"]
+        present = [t for t in forbidden_terms if t in rule_text]
+        assert not present, (
+            f"PRECOMMIT-14 must not be about test collection. "
+            f"Found forbidden terms: {present}. Text: {rule_text[:300].strip()}"
         )
 
 
-class TestCustomLocalHooks:
-    """Verify PRECOMMIT-15 requires custom local validation script conventions."""
+class TestCustomScripts:
+    """Verify PRECOMMIT-15 defines custom local validation script conventions."""
 
-    def test_custom_local_hooks_rule(self, pcstd_content):
-        """PRECOMMIT-15 must require repo: local hook conventions (scripts/ dir, python3, fail_fast:false)."""
+    def test_custom_scripts_rule(self, pcstd_content):
+        """PRECOMMIT-15 must define conventions: scripts/ dir, python3, fail_fast, pass_filenames."""
         match = re.search(
             r"\[RULE: PRECOMMIT-15\].*?\n"
             r"((?:(?!\[RULE: PRECOMMIT-\d{2}\]).*\n?)*)",
@@ -252,14 +268,41 @@ class TestCustomLocalHooks:
         )
         assert match is not None, "PRECOMMIT-15 rule not found"
         rule_text = match.group(1)
-        has_local = "repo: local" in rule_text or "local" in rule_text.lower()
-        has_scripts = "scripts/" in rule_text
-        has_conventions = "must" in rule_text.lower() and ("script" in rule_text.lower() or "hook" in rule_text.lower())
-        assert has_local or (has_scripts and has_conventions), (
-            f"PRECOMMIT-15 must require repo: local hook conventions "
-            f"(scripts/ dir, hook config rules). "
-            f"Text: {rule_text[:200].strip()}"
+        required_terms = ["scripts/", "python3", "fail_fast", "pass_filenames"]
+        missing = [t for t in required_terms if t not in rule_text]
+        assert not missing, (
+            f"PRECOMMIT-15 must define custom script conventions. "
+            f"Missing: {', '.join(missing)}. Text: {rule_text[:300].strip()}"
         )
+
+
+class TestExternalReferences:
+    """Verify the standard cites canonical pre-commit references instead of duplicating them."""
+
+    def test_precommit_canonical_url_in_definitions(self, pcstd_content):
+        """DEFINITIONS section must reference https://pre-commit.com/ as canonical upstream."""
+        match = re.search(r"## DEFINITIONS(.*?)(?=\n##\s)", pcstd_content, re.DOTALL)
+        assert match is not None, "DEFINITIONS section not found"
+        defs_text = match.group(1)
+        assert "https://pre-commit.com/" in defs_text, (
+            f"DEFINITIONS must reference canonical pre-commit URL "
+            f"(https://pre-commit.com/). Text: {defs_text[:300].strip()}"
+        )
+
+    def test_v110_changelog_mentions_external_references(self, pcstd_content):
+        """v1.1.0 changelog must mention external reference integration or the canonical URL."""
+        match = re.search(r"###\s*\[1\.1\.0\].*?(?=\n###\s|\Z)", pcstd_content, re.DOTALL)
+        assert match is not None, "v1.1.0 changelog entry not found"
+        entry_text = match.group(0)
+        assert (
+            "https://pre-commit.com/" in entry_text
+            or "instead of duplicating" in entry_text.lower()
+        ), (
+            f"v1.1.0 changelog must mention external references. "
+            f"Text: {entry_text[:300].strip()}"
+        )
+
+
 class TestPassesAFDS:
     """Verify the standard passes AFDS validation via docs_validate.py."""
 

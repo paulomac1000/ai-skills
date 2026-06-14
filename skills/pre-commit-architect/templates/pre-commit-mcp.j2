@@ -12,6 +12,9 @@
 #   {{ expected_tools }}   — Integer, expected number of MCP tools
 #   {{ has_manifests }}    — Boolean, validate .mcp/manifest.json
 
+# Canonical pre-commit docs: https://pre-commit.com/
+# Discover additional hooks: https://pre-commit.com/hooks.html
+
 fail_fast: false
 
 repos:
@@ -21,6 +24,9 @@ repos:
     hooks:
       - id: trailing-whitespace
       - id: check-yaml
+      - id: end-of-file-fixer
+      - id: check-merge-conflict
+      - id: detect-private-key
 
   # ── Local: formatting, linting, types, security, tests ──
   - repo: local

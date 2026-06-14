@@ -10,6 +10,9 @@
 #   {{ mypy_additional_deps }} — Optional: extra mypy type stubs, e.g. "types-requests"
 #   {{ has_docs }}         — Boolean, include AFDS documentation validation
 
+# Canonical pre-commit docs: https://pre-commit.com/
+# Discover additional hooks: https://pre-commit.com/hooks.html
+
 fail_fast: false
 
 repos:
@@ -19,6 +22,9 @@ repos:
     hooks:
       - id: trailing-whitespace
       - id: check-yaml
+      - id: end-of-file-fixer
+      - id: check-merge-conflict
+      - id: detect-private-key
 
   # ── Local: formatting, linting, types, security, tests ──
   - repo: local

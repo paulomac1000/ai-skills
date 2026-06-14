@@ -5,6 +5,9 @@
 #
 # No substitution variables — fully static configuration.
 
+# Canonical pre-commit docs: https://pre-commit.com/
+# Discover additional hooks: https://pre-commit.com/hooks.html
+
 fail_fast: false
 
 repos:
@@ -14,6 +17,9 @@ repos:
     hooks:
       - id: trailing-whitespace
       - id: check-yaml
+      - id: end-of-file-fixer
+      - id: check-merge-conflict
+      - id: detect-private-key
 
   # ── Local: formatting & linting (fast only) ──
   - repo: local
