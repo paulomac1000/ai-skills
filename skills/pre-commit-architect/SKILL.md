@@ -1,14 +1,14 @@
 ---
 name: pre-commit-architect
-description: Expert AI persona for auditing, generating, and upgrading .pre-commit-config.yaml files for Python projects. Enforces a single version-locked standard with CI mirroring, config-driven template selection, and AGENTS.md integration. Covers 3 workflow types — AUDIT (compliance assessment against 13 PRECOMMIT rules), GENERATE (create config from Jinja2 templates + deploy AGENTS.md section), and UPGRADE (standard version migration)
-standard_version: 1.0.0
+description: Expert AI persona for auditing, generating, and upgrading .pre-commit-config.yaml files for Python projects. Enforces a single version-locked standard with CI mirroring, config-driven template selection, and AGENTS.md integration. Covers 3 workflow types — AUDIT (compliance assessment against 15 PRECOMMIT rules), GENERATE (create config from Jinja2 templates + deploy AGENTS.md section), and UPGRADE (standard version migration)
+standard_version: 1.1.0
 ---
 
 # Skill: Pre-commit Hook Architect
 
 **Description:** An expert AI coding persona for designing, standardizing, reviewing, and upgrading pre-commit hook configurations across Python projects. Enforces a single, version-controlled standard with config-driven template selection, CI mirroring, and AGENTS.md integration.
 **Core Standard:** `precommit-standard.md` (Must be loaded into context).
-**Standard Version:** 1.0.0
+**Standard Version:** 1.1.0
 
 ## System Prompt / Persona
 
@@ -61,7 +61,7 @@ Before inspecting or modifying any pre-commit configuration, determine the proje
 
 ### Workflow 1: Compliance Assessment (AUDIT)
 
-Use this when asked to review or audit an existing `.pre-commit-config.yaml`. Produces a structured compliance report against all 13 PRECOMMIT rules.
+Use this when asked to review or audit an existing `.pre-commit-config.yaml`. Produces a structured compliance report against all 15 PRECOMMIT rules.
 
 **Steps:**
 
@@ -92,8 +92,14 @@ Use this when asked to review or audit an existing `.pre-commit-config.yaml`. Pr
 13. **Check CAFDS Alignment:** If a CAFDS/docs hook exists, verify `afds_config.yaml` `excluded_dirs` matches the hook's `exclude` pattern. Flag mismatches → `[RULE: PRECOMMIT-12]`.
 
 14. **Check Test Collection:** Verify the pytest hook detects collection errors (not silent on import failures). Flag hooks that could silently pass → `[RULE: PRECOMMIT-13]`.
+15. **Check Secret Scanning:** Verify the security category includes at least one secret scanner hook (`gitleaks`, `detect-secrets`, or `detect-private-key` from pre-commit-hooks). For projects using `gitleaks` or `detect-secrets`, verify a baseline file (`.gitleaks-baseline.json` or `.secrets.baseline`) is committed. Flag missing scanner or missing baseline → `[RULE: PRECOMMIT-14]`.
 
-15. **Produce Compliance Report:** Format as a table with columns: Rule ID, Severity, Status, File, Issue, Fix.
+16. **Check Custom Local Scripts:** If the project uses `repo: local` hooks with custom validation scripts (e.g., in `scripts/`), verify each script: (a) uses `python3` not `python`, (b) declares `fail_fast: false`, (c) uses `pass_filenames: false` for repo-wide checks, (d) is paired with a test file. Flag violations → `[RULE: PRECOMMIT-15]`.
+
+17. **Check CI pip install Coverage:** Verify the CI workflow's `pip install` (or equivalent) step lists every tool invoked in subsequent lint/test steps. Use the audit pattern from PRECOMMIT-01 sub-clause b. Flag any tool mismatch → `[RULE: PRECOMMIT-01]`.
+
+
+18. **Produce Compliance Report:** Format as a table with columns: Rule ID, Severity, Status, File, Issue, Fix.
 
     Example report:
     ```
@@ -103,6 +109,9 @@ Use this when asked to review or audit an existing `.pre-commit-config.yaml`. Pr
     | PRECOMMIT-04 | L1+ | FAIL | .pre-commit-config.yaml:52 | bandit has \|\| true | Remove \|\| true |
     | PRECOMMIT-05 | L1+ | FAIL | .pre-commit-config.yaml:48 | Uses `python` not `python3` | Replace with `python3` |
     | PRECOMMIT-10 | L1+ | FAIL | AGENTS.md | Missing pre-commit section | Add ## Pre-commit Hooks section |
+| PRECOMMIT-14 | L1+ | FAIL | .pre-commit-config.yaml:XX | Secret scanner missing or no baseline | Add gitleaks/detect-secrets + baseline file |
+| PRECOMMIT-15 | L2+ | FAIL | .pre-commit-config.yaml:XX | Custom local hook uses `python` not `python3` | Replace with `python3` |
+| PRECOMMIT-01(b) | L1+ | FAIL | .github/workflows/ci.yml:XX | Tool missing from CI `pip install` | Add missing tool to CI step |
     ```
 
 ### Workflow 2: Create Config from Scratch (GENERATE)
@@ -181,9 +190,31 @@ Use this when asked to create a new `.pre-commit-config.yaml` or replace a non-c
    | AGENTS.md | Updated | Added ## Pre-commit Hooks section with setup+run commands |
    ```
 
-### Workflow 3: Migration Guide (UPGRADE)
+### Workflow 3: Standard Migration (UPGRADE)
 
-Stub for standard version 1.0.0. Not applicable — no prior standard versions exist. Will be defined when standard v2.0.0 is released. At that time, this workflow will provide step-by-step migration instructions for upgrading `.pre-commit-config.yaml` from v1.0.0 to v2.0.0, covering hook additions, removals, version bumps, and CI sync changes.
+Use this when a target project uses a `.pre-commit-config.yaml` from a prior `precommit-standard.md` version and needs to migrate to the current version. This workflow is generic — it covers any version-to-version migration.
+
+**Generic Steps:**
+
+1. **Identify Source and Target Versions:** Read the project's `precommit-standard.md` reference (or check `last_verified` in their `.pre-commit-config.yaml` comment header) to determine the source version. Cross-reference against the latest CHANGELOG entries in the current `precommit-standard.md` to identify what changed.
+
+2. **Diff Rule Sets:** For each PRECOMMIT rule added/removed/changed between source and target:
+   - **Added rules:** Verify the new hooks/configs exist in `.pre-commit-config.yaml`. If missing, add them per the GENERATE workflow.
+   - **Removed rules:** Remove obsolete hooks (e.g., deprecated tools). Verify no test depends on them.
+   - **Changed rules:** Update configuration values (versions, flags, exclude patterns) to match new spec.
+
+3. **Update CHANGELOG:** Add a `## Upgraded from vX.Y.Z` section to the project's `CHANGELOG.md` listing each rule delta and the action taken.
+
+4. **Update AGENTS.md:** If the standard added/removed hooks, update the `## Pre-commit Hooks` section's "Hook Summary" table.
+
+5. **Run Verification:** Execute `pre-commit run --all-files` locally. Push and verify the target project's CI passes. Compare CI's `pip install` step against `.pre-commit-config.yaml` tools.
+
+**Worked Example: v1.0.0 → v1.1.0**
+
+- **PRECOMMIT-14 content fix:** No code change required (documentation fix only). Re-read PRECOMMIT-14 in standard to understand the corrected example.
+- **PRECOMMIT-01 sub-clause b (CI pip install coverage):** Audit target project's CI workflow. For each tool in `.pre-commit-config.yaml` `entry:`, verify it appears in `pip install`. Add missing tools.
+- **PRECOMMIT-15 (Custom Local Scripts) added:** If project has custom hooks in `scripts/`, verify they follow the conventions. Add tests if missing.
+- **No hook additions/removals:** v1.1.0 changes are content-only (no new rule, no removed rule).
 
 ## Strict Constraints (The "Never Do This" List)
 
