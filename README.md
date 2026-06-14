@@ -14,7 +14,7 @@ Skills are persona-driven system prompts. Load them into AI agents to enforce st
 | MCP Server Architect | [`SKILL.md`](skills/mcp-server-architect/SKILL.md) | System prompt — AI agent builds MCP servers per standard. Includes design directives, strict constraints, canonical template selection, consumer ergonomics, and semantic rule anchors. |
 | MCP Server Consumer | [`SKILL.md`](skills/mcp-server-consumer/SKILL.md) | System prompt — AI agent discovers, reasons about, and safely invokes MCP tools. Interprets manifests (or risk prefix fallback), applies decision policies, prefers batch/composite calls, starts with minimal detail, handles errors with defined recovery strategies. |
 | CI/CD Architect | [`SKILL.md`](skills/ci-cd-architect/SKILL.md) | System prompt — AI agent designs, audits, and generates GitHub Actions workflows per standard. v2.2.0: codecov v7, actions/attest v4, Semgrep org migration, SHA pinning, CI-CDW-76c fix. |
-| Pre-commit Hook Architect | [`SKILL.md`](skills/pre-commit-architect/SKILL.md) | System prompt — AI agent designs, audits, and generates `.pre-commit-config.yaml` per standard |
+| Pre-commit Hook Architect | [`SKILL.md`](skills/pre-commit-architect/SKILL.md) | System prompt — AI agent designs, audits, and generates `.pre-commit-config.yaml` per standard | v1.1.0: native CI pinning, custom local hooks, 15 rules
 
 ### Standards
 
