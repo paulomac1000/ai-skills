@@ -32,7 +32,7 @@ Define a unified, version-locked, and reproducible CI/CD pipeline standard for P
 
 ## SCOPE
 
-- INCLUDED: GitHub Actions workflow files (`.github/workflows/*.yml`), CI pipeline job structure, linting rules, test execution, coverage reporting, Docker build and smoke testing, Docker publish to GHCR, NuGet publish to GitHub Packages, automatic version tagging, documentation validation (CAFDS), Codecov integration, Semgrep security scanning, Dependabot dependency management, project configuration contract, and PR feedback patterns.
+- INCLUDED: GitHub Actions workflow files (`.github/workflows/*.yml`), CI pipeline job structure, linting rules, test execution, coverage reporting, Docker build and smoke testing, Docker publish to GHCR, NuGet publish to GitHub Packages, automatic version tagging, documentation validation (AFDS), Codecov integration, Semgrep security scanning, Dependabot dependency management, project configuration contract, and PR feedback patterns.
 - INCLUDED LANGUAGES: Python (primary), .NET (variant), polyglot (mixed-language projects using language-agnostic workflows).
 - EXCLUDED: Deployment infrastructure, production monitoring, secrets management outside `.env` files, project-specific business logic tests, AI-driven PR review agents.
 
@@ -41,7 +41,7 @@ Define a unified, version-locked, and reproducible CI/CD pipeline standard for P
 - **CI**: Continuous Integration — the automated pipeline that runs on every push and pull request.
 - **CD**: Continuous Delivery — the automated pipeline that publishes artifacts (Docker images, NuGet packages) and creates GitHub Releases.
 - **GHCR**: GitHub Container Registry (`ghcr.io`).
-- **CAFDS**: Cortexa AI-First Documentation Standard — the documentation framework defined in `ref.documentation-standard` (formerly AFDS).
+- **AFDS**: AI-First Documentation Standard — the documentation framework defined in `ref.documentation-standard`.
 - **SSOT**: Single Source of Truth — each configuration value is defined in exactly one location.
 - **Project Configuration Contract**: A machine-readable description of project-specific parameters (source directory, package name, language, port numbers, and others) that templates consume to produce workflow files. Defined in `.github/ci-cd-config.yaml` or `pyproject.toml [tool.ci-cd]`.
 - **Smoke Test**: A minimal test that verifies the built artifact (Docker image) starts correctly and responds to basic health checks.
@@ -320,10 +320,10 @@ jobs:
 **[RULE: CI-CDW-30] [L2+]** The AFDS validation MUST run in the `lint` job after the security scan:
 
 ```yaml
-- name: Validate documentation (CAFDS)
+- name: Validate documentation (AFDS)
   if: hashFiles('afds_config.yaml') != ''
   run: |
-    curl -sS https://raw.githubusercontent.com/paulomac1000/ai-skills/main/skills/afds-doc-writer/docs_validate.py | python3 - \
+    curl -sS https://raw.githubusercontent.com/paulomac1000/ai-skills/a1b15016df18479027b2064949a3cba1658b6c63/skills/afds-doc-writer/docs_validate.py | python3 - \
       --config afds_config.yaml --strict --baseline .afds-baseline.json ./
 ```
 
@@ -870,7 +870,7 @@ git ls-remote https://github.com/<owner>/<repo>.git refs/tags/v<major> | awk '{p
 
 - Assumptions: Repository uses GitHub Actions. Python `3.14` is available via `actions/setup-python`. Docker Buildx is available on `ubuntu-latest` runners. Project has a `pyproject.toml` with `version` field. Documentation follows AFDS standard (when applicable). The health endpoint path for smoke tests defaults to `/api/health` (configurable via `health_port` in the configuration contract). MCP server projects that allow public tool access without authentication must set the `MCP_UNSAFE_PUBLIC_ACCESS_CONFIRMED=1` flag in CI environment variables; this is a project-specific opt-in and is never set by the standard templates.
 - Constraints: Maximum three workflow files (except Docker-less projects which may have two). Lint, test, docker-smoke run sequentially. Publish requires CI to pass on main (when triggered by `workflow_run`).
-- Known Limitations: Codecov upload requires a `CODECOV_TOKEN` secret. Multi-arch Docker builds increase CI time by ~2-3 minutes. AFDS validation downloads the validator script from `https://raw.githubusercontent.com/paulomac1000/ai-skills/main/skills/afds-doc-writer/docs_validate.py` at runtime via curl. Projects without `pyproject.toml` cannot use `auto-tag.yml`.
+- Known Limitations: Codecov upload requires a `CODECOV_TOKEN` secret. Multi-arch Docker builds increase CI time by ~2-3 minutes. AFDS validation downloads the validator script from `https://raw.githubusercontent.com/paulomac1000/ai-skills/a1b15016df18479027b2064949a3cba1658b6c63/skills/afds-doc-writer/docs_validate.py` at runtime via curl (SHA-pinned URL for integrity). Projects without `pyproject.toml` cannot use `auto-tag.yml`.
 
 ## EDGE CASES
 
@@ -1012,7 +1012,7 @@ See `templates/auto-tag.yml.j2` for the Jinja2 template.
 - Updated: Code Review Checklist in SKILL.md — all rule references updated to new numbering.
 
 ### 1.0.0 (2026-05-20)
-- Initial standard: Unicode CI pipeline (lint, test, docker-smoke), Docker publish, auto-tag, unified action versions, Semgrep security scanning, Dependabot dependency management, documentation validation (CAFDS), Codecov integration, .NET CI variant, PR feedback patterns, concurrency best practices.
+- Initial standard: Unicode CI pipeline (lint, test, docker-smoke), Docker publish, auto-tag, unified action versions, Semgrep security scanning, Dependabot dependency management, documentation validation (AFDS), Codecov integration, .NET CI variant, PR feedback patterns, concurrency best practices.
 - Scope: Python + Docker (primary), .NET + NuGet (variant), polyglot projects.
 - Rules: `[CI-CDW-1]` through `[CI-CDW-69]` covering workflow files, action versions, Python version, CI structure (3 jobs), lint quality gates, test coverage, Docker smoke, publish (multi-arch + attestation), auto-tag, documentation validation, project config contract, customizations, source layout variants, Docker-less projects, service integration, standard versioning, non-MCP smoke, Semgrep scanning, Dependabot, docs validation, concurrency, .NET variant, PR feedback.
 - Action versions pinned: checkout@v6, setup-python@v6, buildx@v4, login@v4, metadata@v6, build-push@v7, attest-build-provenance@v2, gh-release@v3, codecov@v6, upload-artifact@v4, semgrep-action@v1, upload-sarif@v4, cache@v5, setup-dotnet@v5, github-script@v9, changed-files@v47, test-reporter@v3.

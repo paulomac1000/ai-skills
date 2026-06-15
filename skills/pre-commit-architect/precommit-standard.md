@@ -31,7 +31,7 @@ Define a unified, version-locked, and reproducible pre-commit hook standard for 
 
 ## SCOPE
 
-- INCLUDED: `.pre-commit-config.yaml` structure, hook ordering (generic → lint → format → types → security → docs → tests), `repo: local` vs `repo: remote` hook selection, `fail_fast` policy, `pass_filenames` conventions, speed budgets per hook, stage assignment (`pre-commit` vs `pre-push`), CI mirroring requirements, AGENTS.md pre-commit section, `ruff target-version` policy, mypy override requirements, CAFDS doc hook exclude alignment, test collection error detection.
+- INCLUDED: `.pre-commit-config.yaml` structure, hook ordering (generic → lint → format → types → security → docs → tests), `repo: local` vs `repo: remote` hook selection, `fail_fast` policy, `pass_filenames` conventions, speed budgets per hook, stage assignment (`pre-commit` vs `pre-push`), CI mirroring requirements, AGENTS.md pre-commit section, `ruff target-version` policy, mypy override requirements, AFDS doc hook exclude alignment, test collection error detection.
 - EXCLUDED: Individual tool configuration beyond pre-commit integration (ruff rules, mypy strictness, bandit severity — these are defined in `ref.ci-cd-standard`). Deployment, secrets management, project-specific business logic.
 
 ## DEFINITIONS
@@ -44,7 +44,7 @@ Define a unified, version-locked, and reproducible pre-commit hook standard for 
 - **fail_fast**: A hook-level option that, when `true`, stops the entire pre-commit run at the first failure. When `false` (the mandatory setting per this standard), all hooks run and report all errors before pre-commit exits with a failure status.
 - **stages**: Pre-commit supports multiple stages — `pre-commit` (runs at `git commit`), `pre-push` (runs at `git push`), `commit-msg`, `post-commit`, and others. This standard dictates which stage each hook category belongs to.
 - **CI mirroring**: The principle that pre-commit hooks MUST execute the same tools, in the same order, as the CI lint and test jobs. Pre-commit is a local pre-flight for CI, not an independent check suite.
-- **hook ordering chain**: The canonical order of hook categories: generic (trailing whitespace, YAML/TOML validation) → lint (ruff check) → format (ruff format) → types (mypy) → security (bandit) → docs (CAFDS) → tests (pytest).
+- **hook ordering chain**: The canonical order of hook categories: generic (trailing whitespace, YAML/TOML validation) → lint (ruff check) → format (ruff format) → types (mypy) → security (bandit) → docs (AFDS) → tests (pytest).
 
 ## RULES
 
@@ -52,7 +52,7 @@ Define a unified, version-locked, and reproducible pre-commit hook standard for 
 
 **[RULE: PRECOMMIT-01] [L1+]** Pre-commit MUST run the same checks as CI lint+test jobs in the same order. Every tool configured in CI's `lint` and `test` jobs MUST appear in `.pre-commit-config.yaml` at the appropriate stage. The hook ordering (see PRECOMMIT-02) MUST match the CI job step ordering. Pre-commit is a local pre-flight that mirrors CI — it is NOT an independent check suite with its own toolset or ordering.
 
-Pre-commit runs in the developer's full local environment (`pip install -e ".[dev]"`), which includes all project dependencies. CI lint jobs frequently have a minimal environment (`pip install ruff mypy bandit` without project deps). This environment mismatch is the root cause of many pre-commit-vs-CI failures. Rules PRECOMMIT-03 (ruff target-version), PRECOMMIT-11 (mypy overrides), and PRECOMMIT-12 (CAFDS excluded_dirs) specifically address this mismatch.
+Pre-commit runs in the developer's full local environment (`pip install -e ".[dev]"`), which includes all project dependencies. CI lint jobs frequently have a minimal environment (`pip install ruff mypy bandit` without project deps). This environment mismatch is the root cause of many pre-commit-vs-CI failures. Rules PRECOMMIT-03 (ruff target-version), PRECOMMIT-11 (mypy overrides), and PRECOMMIT-12 (AFDS excluded_dirs) specifically address this mismatch.
 
 > **Virtualenv Isolation Warning**: Pre-commit hooks run in isolated virtualenvs managed by pre-commit. A passing `pre-commit run` locally does NOT guarantee CI passes. The CI lint job's `pip install` step must explicitly list every tool invoked in CI steps.
 
@@ -75,7 +75,7 @@ Where each category maps to:
 | format | ruff format | pre-commit | Run after lint; formatted code is easier to reason about |
 | types | mypy | pre-commit | Run after format so type errors reference formatted source |
 | security | bandit | pre-commit | Run after format; security issues reference formatted source |
-| docs | CAFDS (docs_validate.py), semgrep | pre-commit | Network-OK, runs after code quality gates |
+| docs | AFDS (docs_validate.py), semgrep | pre-commit | Network-OK, runs after code quality gates |
 | tests | pytest (unit) | pre-commit | Run last — tests pass or fail based on the code, not formatting |
 
 > **Exclude Patterns**: All generic hooks SHOULD include `exclude` patterns for generated/planning directories (`.omo/`, `.codegraph/`, `__pycache__/`). Auto-fix hooks modifying gitignored files can cause stash conflicts.
@@ -143,7 +143,7 @@ repos:
 | ruff format | <3s | pre-commit |
 | mypy | <10s | pre-commit |
 | bandit | <5s | pre-commit |
-| CAFDS docs | <5s | pre-commit |
+| AFDS docs | <5s | pre-commit |
 | pytest unit | <10s | pre-commit |
 | **Total budget** | **<30s** | pre-commit |
 | pytest integration | — | **pre-push only** |
@@ -187,9 +187,9 @@ ignore_missing_imports = true
 
 > **Applicability**: This rule applies only to Python projects with `pyproject.toml`. For non-Python repos (HA configs, infrastructure repos), this rule is N/A. Structural rules (PRECOMMIT-01, -02, -09, -10) apply regardless of language.
 
-### Rule 12: CAFDS Exclude Alignment
+### Rule 12: AFDS Exclude Alignment
 
-**[RULE: PRECOMMIT-12] [L1+]** The `excluded_dirs` in `afds_config.yaml` MUST match the directories excluded by the pre-commit docs validation hook's `exclude` pattern. If pre-commit excludes `.omo/` from CAFDS scanning but `afds_config.yaml` does not list `.omo` in `excluded_dirs`, CI's docs validation will scan `.omo/` and fail on non-AFDS planning documents.
+**[RULE: PRECOMMIT-12] [L1+]** The `excluded_dirs` in `afds_config.yaml` MUST match the directories excluded by the pre-commit docs validation hook's `exclude` pattern. If pre-commit excludes `.omo/` from AFDS scanning but `afds_config.yaml` does not list `.omo` in `excluded_dirs`, CI's docs validation will scan `.omo/` and fail on non-AFDS planning documents.
 
 **Real-world failure**: The pre-commit hook had `exclude: ^(\.omo/|archived/)` but `afds_config.yaml` lacked `.omo` in `excluded_dirs`. CI scanned `.omo/plans/*.md` (planning docs without YAML frontmatter) and failed.
 
@@ -429,5 +429,5 @@ SKIP=mypy,bandit git commit # skip specified hooks
 - PRECOMMIT-09: Remote hooks use commit SHA, not version tags
 - PRECOMMIT-10: `.pre-commit-config.yaml` committed, AGENTS.md section present
 - PRECOMMIT-11: `[[tool.mypy.overrides]]` MUST list every third-party dependency
-- PRECOMMIT-12: CAFDS `excluded_dirs` in `afds_config.yaml` MUST match pre-commit doc hook excludes
+- PRECOMMIT-12: AFDS `excluded_dirs` in `afds_config.yaml` MUST match pre-commit doc hook excludes
 - PRECOMMIT-13: Pre-commit MUST NOT silently pass when test files fail to collect

@@ -53,10 +53,11 @@ Before inspecting or modifying any pre-commit configuration, determine the proje
 | Archetype | Template | Hook Categories | Notes |
 |-----------|----------|-----------------|-------|
 | Python + standard unit tests | `pre-commit-python.j2` | generic + lint + format + types + security + tests | Full suite, unit tests at pre-commit |
-| MCP server | `pre-commit-mcp.j2` | generic + lint + format + types + security + docs + tests | Includes CAFDS docs hook, MCP-specific tool count smoke |
+| MCP server | `pre-commit-mcp.j2` | generic + lint + format + types + security + docs + tests | Includes AFDS docs hook, MCP-specific tool count smoke |
 | Minimal / library | `pre-commit-minimal.j2` | generic + lint + format + types | No tests hook (CI-only), no security hook |
 | Config repo (non-Python) | `pre-commit-minimal.j2` | generic + shell hooks | Python-specific rules (PRECOMMIT-03 ruff, PRECOMMIT-11 mypy) N/A. Only structural rules apply. |
 | Infrastructure (non-Python) | `pre-commit-minimal.j2` | generic + local shell hooks | Python-specific rules N/A. Only structural rules: SHA pinning, CI mirroring, AGENTS.md, fail_fast: false. |
+| Shell / Native (any non-Python, no pre-commit framework) | `pre-commit-shell.j2` | native bash script (`.githooks/pre-commit`) | For .NET, Rust, Go, polyglot, or any repo that uses native git hooks instead of the pre-commit framework. Mirrors the same 4 categories: format + compile/syntax + merge-conflict + secret scan. |
 
 ## Standard Workflows
 
@@ -96,7 +97,7 @@ Use this when asked to review or audit an existing `.pre-commit-config.yaml`. Pr
 
 12. **Check Mypy Overrides:** Verify `[[tool.mypy.overrides]]` in `pyproject.toml` lists all third-party dependencies. Flag missing overrides → `[RULE: PRECOMMIT-11]`.
 
-13. **Check CAFDS Alignment:** If a CAFDS/docs hook exists, verify `afds_config.yaml` `excluded_dirs` matches the hook's `exclude` pattern. Flag mismatches → `[RULE: PRECOMMIT-12]`.
+13. **Check AFDS Alignment:** If a AFDS/docs hook exists, verify `afds_config.yaml` `excluded_dirs` matches the hook's `exclude` pattern. Flag mismatches → `[RULE: PRECOMMIT-12]`.
 
 14. **Check Test Collection:** Verify the pytest hook detects collection errors (not silent on import failures). Flag hooks that could silently pass → `[RULE: PRECOMMIT-13]`.
 15. **Check Secret Scanning:** Verify the security category includes at least one secret scanner hook (`gitleaks`, `detect-secrets`, or `detect-private-key` from pre-commit-hooks). For projects using `gitleaks` or `detect-secrets`, verify a baseline file (`.gitleaks-baseline.json` or `.secrets.baseline`) is committed. Flag missing scanner or missing baseline → `[RULE: PRECOMMIT-14]`.
@@ -137,6 +138,7 @@ Use this when asked to create a new `.pre-commit-config.yaml` or replace a non-c
    - `minimal` → `templates/pre-commit-minimal.j2`
    - `config-repo` → `templates/pre-commit-minimal.j2`
    - `infrastructure` → `templates/pre-commit-minimal.j2`
+   - `shell` (native git hook, no pre-commit framework) → `templates/pre-commit-shell.j2`
 
 4. **Gather Parameters:** Inspect the project for substitution values:
    - `src_dir`: from project structure (e.g., `src/`, `tools/`, or root)
@@ -184,9 +186,12 @@ Use this when asked to create a new `.pre-commit-config.yaml` or replace a non-c
    - **MCP variant** (`pre-commit-mcp.j2`): adds `tool-count-validate`, `manifest-validate`
    - **Python variant** (`pre-commit-python.j2`): adds `ruff check`, `ruff format`, `mypy`, `bandit`, `pytest`
    - **Minimal variant** (`pre-commit-minimal.j2`): adds only `ruff check`, `ruff format`
+   - **Shell variant** (`pre-commit-shell.j2`): native bash script — setup is `git config --local core.hooksPath .githooks && chmod +x .githooks/pre-commit`; manual run is `.githooks/pre-commit`. Lists bash checks instead of pre-commit hook IDs.
    ```
 
    Adapt the hook summary table to match the hooks actually generated. The setup and manual run commands are always the same.
+
+   > **Constraint**: The hook summary MUST contain exactly one row per hook in `.pre-commit-config.yaml`, ordered as they appear. Do NOT add hooks not present in the generated file. Do NOT omit hooks present in the generated file. Do NOT include file paths from the generation environment.
 
 8. **Report Summary:** After generating both files, produce a summary table:
 
@@ -272,7 +277,8 @@ The `templates/` directory contains Jinja2 templates for each project archetype:
 | Template | Purpose | Required |
 |----------|---------|----------|
 | `templates/pre-commit-python.j2` | Full Python suite: generic + lint + format + types + security + tests | Standard Python projects |
-| `templates/pre-commit-mcp.j2` | MCP variant: includes CAFDS docs hook, MCP-specific smoke | MCP server projects |
+| `templates/pre-commit-mcp.j2` | MCP variant: includes AFDS docs hook, MCP-specific smoke | MCP server projects |
 | `templates/pre-commit-minimal.j2` | Minimal: generic + lint + format + types only (no tests, no security) | Libraries, CI-only test projects |
+| `templates/pre-commit-shell.j2` | Native bash `.githooks/pre-commit` (no pre-commit framework): format + compile/syntax + merge-conflict + secret scan. Gated by `{{ language }}` (dotnet, rust, go, python) | .NET, Rust, Go, polyglot, or any repo using native git hooks |
 
 Templates use `<PLACEHOLDER>` markers that are substituted from project inspection. The template engine (Jinja2, envsubst, or manual substitution) is not prescribed — any method that produces the correct output is acceptable.

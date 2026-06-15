@@ -1,4 +1,4 @@
-# CI/CD Configuration Contract — Example with all v3.0.0 fields
+# CI/CD Configuration Contract — Example with all v2.2.0 fields
 #
 # This file is the Single Source of Truth for all CI/CD parameters.
 # Place it at: .github/ci-cd-config.yaml
@@ -9,7 +9,7 @@
 # and regenerate.
 
 # =============================================================================
-# EXAMPLE 1: Python MCP Server (all v3.0.0 features)
+# EXAMPLE 1: Python MCP Server (all v2.2.0 features)
 # =============================================================================
 # language: "python"
 # src_dir: "tools/"
@@ -145,7 +145,7 @@
 # services: null
 
 # =============================================================================
-# CONFIGURATION FIELDS REFERENCE (v3.0.0)
+# CONFIGURATION FIELDS REFERENCE (v2.2.0)
 # =============================================================================
 #
 # REQUIRED FIELDS:
@@ -214,7 +214,7 @@
 #                              Example: "src/MyApp.sln"
 #
 # ---
-# UNIVERSAL FIELDS (v3.0.0):
+# UNIVERSAL FIELDS (v2.2.0):
 #
 # use_semgrep      (optional)  Run Semgrep security scan on PR + push.
 #                              Creates semgrep.yml + semgrep-scheduled.yml.

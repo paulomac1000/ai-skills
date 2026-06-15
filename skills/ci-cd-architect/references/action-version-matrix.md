@@ -98,5 +98,6 @@ All action versions are pinned at their latest stable major versions as of May 2
 ### v2.2.0 (2026-06-11)
 
 - codecov/codecov-action updated to v7 (SHA: a99c28d3f0da835de33ff2feb2e15691c7b9641f)
+- actions/upload-artifact updated to v7 (from v4, SHA: 043fb46d1a93c77aae656e7c1c64a875d1fc6a0a)
 - actions/attest-build-provenance replaced with actions/attest@v4 (SHA: 281a49d4cbb0a72c9575a50d18f6deb515a11deb)
 - returntocorp/semgrep-action renamed to semgrep/semgrep-action (same SHA)

@@ -66,7 +66,7 @@ repos:
 {% if has_docs %}
       - id: docs-validate
         name: docs validate
-        entry: bash -c 'curl -sS https://raw.githubusercontent.com/paulomac1000/ai-skills/main/skills/afds-doc-writer/docs_validate.py | python3 - --config afds_config.yaml --strict .'
+        entry: bash -c 'curl -sS https://raw.githubusercontent.com/paulomac1000/ai-skills/a1b15016df18479027b2064949a3cba1658b6c63/skills/afds-doc-writer/docs_validate.py | python3 - --config afds_config.yaml --strict .'
         language: system
         pass_filenames: false
 {% endif %}

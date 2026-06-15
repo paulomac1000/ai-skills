@@ -172,3 +172,12 @@ When reviewing MCP server code, verify every invariant below. Cite violations by
 
 Example review comment:
 > Your test calls a live REST endpoint instead of mocking the HTTP client. This violates `[RULE: TEST-HIERARCHY-2]`: Unit tests MUST have zero I/O — all external calls MUST be mocked via `unittest.mock.patch`. Fix by adding a mock for your HTTP client before the invocation.
+
+## Integration with Other Standards
+
+| Standard | Relationship |
+|----------|-------------|
+| `ref.mcp-server-standards` | This skill enforces the rules in that standard. Load it first, then use this skill for server implementation. |
+| `ref.precommit-standard` | MCP server projects with pre-commit hooks must mirror CI lint+test jobs (`[RULE: PRECOMMIT-01]`). Use the pre-commit-architect skill to generate `.pre-commit-config.yaml` for MCP projects. |
+| `ref.ci-cd-standard` | CI/CD workflows for MCP servers must include docker-smoke with tool count verification, three-port health check, and artifact attestation. The CI/CD standard defines the CI pipeline that pre-commit mirrors. |
+| `ref.documentation-standard` | MCP server documentation follows AFDS. The afds-doc-writer skill provides document templates, taxonomy routing, and validation rules. |

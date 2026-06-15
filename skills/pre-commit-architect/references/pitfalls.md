@@ -40,11 +40,11 @@ Compiled from real deployment failures across `ha-mcp-readonly`, `local-home-dev
 
 ---
 
-### Pitfall 3: CAFDS Scanned `.omo/` Plans
+### Pitfall 3: AFDS Scanned `.omo/` Plans
 
-- **Opis:** The CAFDS docs validation hook scanned `.omo/` directory files (planning documents without YAML frontmatter). These files lack `doc_id`, `type`, and other required frontmatter fields, causing CAFDS to fail on every commit.
-- **Root cause:** CAFDS excluded directories were not configured. The validator scanned all `.md` files under the project root, including `.omo/plans/*.md`.
-- **Rule:** PRECOMMIT-12 — CAFDS `excluded_dirs` in `afds_config.yaml` MUST match directories excluded by pre-commit doc validation hook.
+- **Opis:** The AFDS docs validation hook scanned `.omo/` directory files (planning documents without YAML frontmatter). These files lack `doc_id`, `type`, and other required frontmatter fields, causing AFDS to fail on every commit.
+- **Root cause:** AFDS excluded directories were not configured. The validator scanned all `.md` files under the project root, including `.omo/plans/*.md`.
+- **Rule:** PRECOMMIT-12 — AFDS `excluded_dirs` in `afds_config.yaml` MUST match directories excluded by pre-commit doc validation hook.
 - **Solution:** Add `.omo` to `excluded_dirs` in `afds_config.yaml`. The pre-commit doc hook and CI must use the same exclusion list.
 - **Auto-fix hooks:** Auto-fix hooks (`end-of-file-fixer`, `trailing-whitespace`) also touch `.omo/` files if not excluded. Both the pre-commit hook `exclude` pattern AND `afds_config.yaml` `excluded_dirs` must list `.omo/`.
 
@@ -121,11 +121,11 @@ Compiled from real deployment failures across `ha-mcp-readonly`, `local-home-dev
 
 ---
 
-### Pitfall 9: CAFDS Passed Locally but FAILED in CI
+### Pitfall 9: AFDS Passed Locally but FAILED in CI
 
-- **Opis:** The CAFDS doc validation hook passed on `git commit` (pre-commit excluded `.omo/`), but failed in CI. CI ran CAFDS with its own config, which did NOT exclude `.omo/`. CI scanned `.omo/plans/*.md` — planning documents without YAML frontmatter — triggering validation failures.
-- **Root cause:** Pre-commit and CI used different CAFDS targets. The pre-commit hook excluded `.omo/` but the CI `afds_config.yaml` had no `excluded_dirs` entry for `.omo`. The two environments were configured independently.
-- **Rule:** PRECOMMIT-12 — CAFDS `excluded_dirs` in `afds_config.yaml` MUST match the directories excluded by pre-commit doc validation hook.
+- **Opis:** The AFDS doc validation hook passed on `git commit` (pre-commit excluded `.omo/`), but failed in CI. CI ran AFDS with its own config, which did NOT exclude `.omo/`. CI scanned `.omo/plans/*.md` — planning documents without YAML frontmatter — triggering validation failures.
+- **Root cause:** Pre-commit and CI used different AFDS targets. The pre-commit hook excluded `.omo/` but the CI `afds_config.yaml` had no `excluded_dirs` entry for `.omo`. The two environments were configured independently.
+- **Rule:** PRECOMMIT-12 — AFDS `excluded_dirs` in `afds_config.yaml` MUST match the directories excluded by pre-commit doc validation hook.
 - **Solution:** Add `.omo` to `excluded_dirs` in `afds_config.yaml`:
   ```yaml
   excluded_dirs:

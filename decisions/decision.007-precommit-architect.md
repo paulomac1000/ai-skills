@@ -38,7 +38,7 @@ The CI/CD Architect standard (`ref.ci-cd-standard`) covers server-side CI — Gi
 - **Different configuration patterns**: `local` vs `remote` repos, `system` vs `unsupported` language, `files` filtering, stage selection
 - **CI mirroring requirement**: Pre-commit MUST run the same checks as CI — same tools, same config, same ordering
 
-The gap was confirmed after deploying pre-commit to `ha-mcp-readonly` and `local-home-devices-mcp` projects, where 10 distinct pitfalls were discovered (documented in `todo-precommit.md`). These included environment mismatches between pre-commit (full local env) and CI (minimal env), `ruff target-version` compatibility bugs, and CAFDS scanning `.omo/` planning documents that lack YAML frontmatter.
+The gap was confirmed after deploying pre-commit to `ha-mcp-readonly` and `local-home-devices-mcp` projects, where 10 distinct pitfalls were discovered (documented in `todo-precommit.md`). These included environment mismatches between pre-commit (full local env) and CI (minimal env), `ruff target-version` compatibility bugs, and AFDS scanning `.omo/` planning documents that lack YAML frontmatter.
 
 ## DECISION
 
@@ -61,7 +61,7 @@ The gap was confirmed after deploying pre-commit to `ha-mcp-readonly` and `local
 | PRECOMMIT-09 | L2+ | Remote hooks use commit SHA, not version tags |
 | PRECOMMIT-10 | L1+ | `.pre-commit-config.yaml` committed to repo |
 | PRECOMMIT-11 | L1+ | `[[tool.mypy.overrides]]` MUST list every third-party dep |
-| PRECOMMIT-12 | L1+ | CAFDS `excluded_dirs` MUST match pre-commit doc hook excludes |
+| PRECOMMIT-12 | L1+ | AFDS `excluded_dirs` MUST match pre-commit doc hook excludes |
 | PRECOMMIT-13 | L2+ | Pre-commit MUST NOT silently pass on test collection errors |
 
 **Rationale:** The 13 rules codify all known failure modes discovered during deployment. A dedicated skill with its own standard prevents scope creep in the CI/CD Architect skill while maintaining cross-referencing via `upstream: ref.ci-cd-standard`. The L1+/L2+ tier system mirrors the CI/CD standard convention: L1+ is mandatory for all projects, L2+ applies to projects with integration tests or heavy checks.

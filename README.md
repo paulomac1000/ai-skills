@@ -46,6 +46,7 @@ Templates are structural documents to copy and fill. They are not persona prompt
 | [`pre-commit-python.j2`](skills/pre-commit-architect/templates/pre-commit-python.j2) | Base Python `.pre-commit-config.yaml` |
 | [`pre-commit-mcp.j2`](skills/pre-commit-architect/templates/pre-commit-mcp.j2) | MCP variant with tool count + manifest validation |
 | [`pre-commit-minimal.j2`](skills/pre-commit-architect/templates/pre-commit-minimal.j2) | Fast checks only (<10s) |
+| [`pre-commit-shell.j2`](skills/pre-commit-architect/templates/pre-commit-shell.j2) | Native bash `.githooks/pre-commit` (no pre-commit framework) for .NET, Rust, Go, polyglot |
 
 ## Project Layout
 
