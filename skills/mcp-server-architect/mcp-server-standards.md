@@ -1298,7 +1298,7 @@ Before implementing any MCP tool that calls an external HTTP API, the developer 
 
 - [ ] Endpoint verified in the official API documentation (NOT assumed from WebSocket protocols or frontend network traffic)
 - [ ] Endpoint tested with `curl` + authentication token on a real instance
-- [ ] At least one test uses a recorded VCR cassette (not just a mock)
+- [ ] At least one test uses a recorded VCR cassette (not merely a mock)
 
 **Real-world failure**: Home Assistant has two separate authentication systems — Bearer tokens (public REST API) and frontend session cookies (UI-only endpoints). The `get_automation_traces` tool was written assuming a REST endpoint existed based on frontend usage. The endpoint returned 404 with Bearer auth. Reference: `ha-mcp-readonly` `INSTRUCTIONS.md`.
 
@@ -2514,16 +2514,16 @@ Python implementation coverage for the v2.0 standard:
 
 ### (2026-06-11) — Patterns from ha-mcp-readonly feedback
 
-- 🟢 **Added:** `_meta` envelope Canonical Template — ContextVar-based request_id, single injection point, RequestIdFilter
-- 🟢 **Added:** Capability introspection Canonical Template — regex category grouping, zero-I/O, REST manifest/schema endpoints
-- 🟢 **Added:** VCR cassette testing section — Blind Mocks anti-pattern with real failure story, VCR workflow, cassette sanitization
-- 🟢 **Added:** REST API extended endpoints — `GET /api/tools?detail=`, manifest/schema per-tool endpoints, OpenAPI schema
-- 🟢 **Added:** Signatures→JSON Schema auto-conversion rule
-- 🟢 **Added:** Background long-running operations pattern with status polling and timeout
-- 🟢 **Added:** Auto-registration of READ manifests (secure-by-default)
-- 🟢 **Added:** Pre-implementation API auth boundary checklist
-- 🟢 **Added:** Observability Canonical Template 4c — ContextVar, request_id, log filter, invocation counters
-- 🟢 **Added:** Optional startup self-tests pattern (RUN_TESTS_ON_STARTUP)
+- [ADDED] **Added:** `_meta` envelope Canonical Template — ContextVar-based request_id, single injection point, RequestIdFilter
+- [ADDED] **Added:** Capability introspection Canonical Template — regex category grouping, zero-I/O, REST manifest/schema endpoints
+- [ADDED] **Added:** VCR cassette testing section — Blind Mocks anti-pattern with real failure story, VCR workflow, cassette sanitization
+- [ADDED] **Added:** REST API extended endpoints — `GET /api/tools?detail=`, manifest/schema per-tool endpoints, OpenAPI schema
+- [ADDED] **Added:** Signatures→JSON Schema auto-conversion rule
+- [ADDED] **Added:** Background long-running operations pattern with status polling and timeout
+- [ADDED] **Added:** Auto-registration of READ manifests (secure-by-default)
+- [ADDED] **Added:** Pre-implementation API auth boundary checklist
+- [ADDED] **Added:** Observability Canonical Template 4c — ContextVar, request_id, log filter, invocation counters
+- [ADDED] **Added:** Optional startup self-tests pattern (RUN_TESTS_ON_STARTUP)
 
 ## NON_GOALS
 
@@ -2540,9 +2540,9 @@ Python implementation coverage for the v2.0 standard:
 - TypeScript/Node.js implementation patterns are documented (see TypeScript/Node.js Implementation Appendix).
 - Other MCP frameworks (Go, Rust, C#) have stub sections; reference official SDKs for up-to-date implementation details.
 
-## CHANGELOG
+## Revision History
 
 ### (2026-06-11) — Patterns from ha-mcp-readonly, deployment feedback
-- 🔴 **Strengthened:** `TEST-REG-3` — now requires `_do_*` patch target, `RuntimeError` not `Exception`, and explicit success/error assertion pattern
-- 🔴 **Added:** `TEST-FIXTURES-1` — `tests/fixtures.py` as SSOT for mock data constants with semgrep enforcement
-- 🟡 **Added:** `TEST-HIERARCHY-7` — CI must compare test count against previous run to catch collection regressions
+- [FIXED] **Strengthened:** `TEST-REG-3` — now requires `_do_*` patch target, `RuntimeError` not `Exception`, and explicit success/error assertion pattern
+- [FIXED] **Added:** `TEST-FIXTURES-1` — `tests/fixtures.py` as SSOT for mock data constants with semgrep enforcement
+- [UPDATED] **Added:** `TEST-HIERARCHY-7` — CI must compare test count against previous run to catch collection regressions

@@ -74,10 +74,33 @@ class TestAttestReferences:
     """Verify attest-build-provenance references are correct."""
 
     def test_no_stale_attest_v4_references(self, cisd_content):
-        """No stale attest@v4 references anywhere in the document."""
-        assert "attest@v4" not in cisd_content, (
-            "Stale attest@v4 references found — replace with attest-build-provenance@v2"
+        """Canonical action is `actions/attest@v4`; old name in deprecated refs is OK.
+
+        In v2.2.0, `actions/attest-build-provenance` was renamed to `actions/attest`
+        (the former is now a wrapper on the latter). The RULE definitions
+        must use the new name. Historical references in the version matrix
+        (marked `_(deprecated)_`), the version-history table, and the
+        CHANGELOG are exempt — they document the migration.
+        """
+        # The canonical rule must reference the new name
+        assert "actions/attest@v4" in cisd_content, (
+            "Canonical rule must reference actions/attest@v4"
         )
+        # Check that no CI-CDW-* rule references the old name in its
+        # enforcement clause (e.g., '`attest-build-provenance@v2`')
+        import re
+        rule_pattern = re.compile(
+            r"\*\*\[RULE:[^\]]+\]\*\*[^\n]*",
+            re.MULTILINE,
+        )
+        for rule in rule_pattern.findall(cisd_content):
+            if "attest-build-provenance" in rule:
+                # Historical rule that introduced the rename is OK
+                # if it explicitly says it's being replaced.
+                if "attest@v4" not in rule and "deprecated" not in rule:
+                    raise AssertionError(
+                        f"Stale attest-build-provenance in active rule:\n  {rule}"
+                    )
 
 
 class TestBreakSystemPackages:
@@ -146,9 +169,13 @@ class TestAssumptionsDocumented:
 class TestVersionBump:
     """Verify the standard version has been bumped."""
 
-    def test_version_bumped_to_2_1_0(self, cisd_fm):
-        """Frontmatter standard_version must be 2.1.0."""
+    def test_version_bumped_to_2_2_0(self, cisd_fm):
+        """Frontmatter standard_version must be 2.2.0.
+
+        History: v2.1.0 (Semgrep action fix) -> v2.2.0 (codecov v7, actions/attest v4).
+        See CHANGELOG in ci-cd-standard.md.
+        """
         version = cisd_fm.get("standard_version", "")
-        assert version == "2.1.0", (
-            f"Expected standard_version 2.1.0 but got '{version}'"
+        assert version == "2.2.0", (
+            f"Expected standard_version 2.2.0 but got '{version}'"
         )

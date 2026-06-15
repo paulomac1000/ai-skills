@@ -495,9 +495,12 @@ def check_mandatory_sections(
     required = type_config.get("sections", [])
     if not required:
         return
+    # Optional sections are allowed but not required
+    optional = set(type_config.get("optional_sections", []))
+    mandatory = [s for s in required if s not in optional]
     present_sections = _extract_all_section_names(body)
-    present_ordered = [s for s in present_sections if s in required]
-    missing = [sec for sec in required if sec not in present_sections]
+    present_ordered = [s for s in present_sections if s in mandatory]
+    missing = [sec for sec in mandatory if sec not in present_sections]
     if missing:
         result.errors.append(
             f"Missing mandatory sections for type '{doc_type}': "
@@ -596,8 +599,12 @@ def check_unknown_sections(
     allowed = set(type_config.get("sections", []))
     if not allowed:
         return
-    # CHANGELOG is a universal trailing section (Section 3.7) allowed in any type
+    # Optional sections are also accepted as valid (but not required)
+    allowed.update(type_config.get("optional_sections", []))
+    # CHANGELOG and REVISION_HISTORY are universal trailing sections
+    # (Section 3.7) allowed in any type
     allowed.add("CHANGELOG")
+    allowed.add("REVISION_HISTORY")
     present = _extract_all_section_names(body)
     unknown = [s for s in present if s not in allowed]
     if not unknown:

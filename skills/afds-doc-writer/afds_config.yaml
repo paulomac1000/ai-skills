@@ -27,6 +27,31 @@ types:
       - EDGE_CASES
       - EXAMPLES
       - NON_GOALS
+    # Optional sections: allowed in any ref document but not required.
+    # Used by comprehensive reference documents (e.g., docs_standards.md
+    # itself) that document or include all possible section types.
+    optional_sections:
+      - TABLE_OF_CONTENTS
+      - 1._CORE_AXIOMS
+      - 2._DOCUMENT_TAXONOMY
+      - 3._YAML_FRONTMATTER_SCHEMA
+      - 4._BODY_SCHEMA
+      - 5._CONTROLLED_LANGUAGE
+      - 6._FITNESS_FUNCTION
+      - 7._AUTONOMIC_PROCESSES
+      - 8._CONFLICT_RESOLUTION
+      - 9._REPOSITORY_STRUCTURE
+      - 10._AI_AGENT_PROTOCOL
+      - 11._CI/CD_VALIDATION
+      - 12._DEPRECATION_WORKFLOW
+      - 13._ANTI-PATTERN_CATALOG
+      - 14._MUTATION_RULES
+      - 15._SCHEMA_AMENDMENT_PROCESS
+      - 16._ADOPTION_PHASES
+      - 17._TESTING_AND_VALIDATION_STRATEGY
+      - 18._SECURITY_AND_ACCESS_CONTROL
+      - 19._DOCUMENTATION_METRICS_AND_OBSERVABILITY
+      - EXTERNAL_LINKS
   system:
     id_prefix: sys
     default_ttl: 90
