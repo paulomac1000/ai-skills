@@ -419,9 +419,11 @@ Developer merges PR to main
 
 | Standard | Relationship |
 |----------|-------------|
-| `ref.mcp-server-standards` | This CI/CD standard implements the CI requirements from `[RULE: TEST-CI-1]` through `[RULE: TEST-CI-4]`. When `is_mcp: true`, docker-smoke includes MCP-specific tool count verification. |
-| `ref.documentation-standard` (AFDS) | CI validates documentation against AFDS. README references AFDS. This document itself follows AFDS. |
 | `ref.ci-cd-standard` | This skill enforces the rules in that standard. Load it first, then use this skill for workflow execution. |
+| `ref.mcp-server-standards` | This CI/CD standard implements the CI requirements from `[RULE: TEST-CI-1]` through `[RULE: TEST-CI-4]`. When `is_mcp: true`, docker-smoke includes MCP-specific tool count verification. |
+| `ref.documentation-standard` (AFDS) | CI validates documentation against AFDS. README references AFDS. This document itself follows AFDS. The `docs-validation.yml` workflow runs `afds_config.yaml` checks on PR and push. |
+| `ref.precommit-standard` | Pre-commit mirrors CI lint+test jobs (`[RULE: PRECOMMIT-01]`). When CI changes (new linter, new check), pre-commit must be updated to mirror, and vice versa. Use the pre-commit-architect skill to generate matching pre-commit configs. |
+| `ref.mcp-consumer-standards` | MCP consumer projects run the same CI pipeline. Consumer-side READ protocol output, decision policy logs, and escalation messages flow through the same test+lint gates as server-side code. |
 
 ## Templates Reference
 

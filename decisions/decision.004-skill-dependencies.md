@@ -18,7 +18,9 @@ owners: ["ai-skills-maintainer"]
 
 ## CONTEXT
 
-The ai-skills repository contains four skills (AFDS doc-writer, MCP architect, MCP consumer, CI/CD architect), each with a standard and (optionally) templates. Skills reference each other through frontmatter `upstream` fields, Jinja2 template dependencies, and standard-to-standard contract links. These relationships were documented ad hoc across multiple decision records but never consolidated into a single map. Without an explicit map, adding a new skill or updating a standard can silently break cross-references.
+The ai-skills repository contains five skills (AFDS doc-writer, MCP architect, MCP consumer, CI/CD architect, pre-commit-architect), each with a standard and (optionally) templates. Skills reference each other through frontmatter `upstream` fields, Jinja2 template dependencies, and standard-to-standard contract links. These relationships were documented ad hoc across multiple decision records but never consolidated into a single map. Without an explicit map, adding a new skill or updating a standard can silently break cross-references.
+
+> **v1.1.0 (2026-06-15) update:** Added pre-commit-architect to the dependency map. Pre-commit hooks mirror CI lint+test jobs (`[RULE: PRECOMMIT-01]`), so the pre-commit standard depends on the CI/CD standard. The pre-commit templates (4 archetypes: python, mcp, minimal, shell) include a `docs-validate` hook that calls the AFDS validator, adding a pre-commit-to-AFDS dependency.
 
 ## DECISION
 
@@ -37,6 +39,7 @@ Every SKILL.md file SHOULD list its core standard(s) in the `upstream` frontmatt
 - `mcp-server-consumer/SKILL.md` -> `ref.mcp-consumer-standards` (and `ref.mcp-server-standards` for the consumed contract)
 - `ci-cd-architect/SKILL.md` -> `ref.ci-cd-standard`
 - `afds-doc-writer/SKILL.md` -> `ref.documentation-standard`
+- `pre-commit-architect/SKILL.md` -> `ref.precommit-standard` (and `ref.ci-cd-standard` for tool selection; and `ref.documentation-standard` for the docs-validate hook)
 
 The `upstream` field on skill frontmatter is advisory (the skill's `<description>` or system prompt loads the standard directly). It exists for machine parsing and graph traversal, not for runtime behavior.
 
@@ -71,3 +74,4 @@ Every standard (MCP architect, MCP consumer, CI/CD) references `ref.documentatio
 | Version | Date | Change | Author |
 |---------|------|--------|--------|
 | 1.0.0 | 2026-06-05 | Initial release — cross-skill dependency map covering template-to-standard ownership, CI/CD-to-AFDS config dependency, SKILL.md upstream convention, MCP consumer-to-architect contract chain, and standard-to-AFDS root chain | opencode |
+| 1.1.0 | 2026-06-15 | Added pre-commit-architect skill (5th skill). New pre-commit-to-CI and pre-commit-to-AFDS dependencies documented. SKILL.md `Integration with Other Standards` tables now exist in all 5 skills and provide the human-readable cross-reference map (machine-readable map remains the `upstream` field). | opencode |

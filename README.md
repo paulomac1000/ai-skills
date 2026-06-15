@@ -1,6 +1,6 @@
 # AI Skills
 
-A collection of AI skills, standards, and tooling for building reliable agentic systems. Each skill is a persona-driven system prompt that you load into AI agents — Claude, Cursor, or any LLM tool — to enforce proven patterns and conventions during coding sessions. The standards behind them are project-agnostic, machine-parseable, and designed for AI-assisted workflows.
+A collection of AI skills, standards, and tooling for building reliable agentic systems. Each skill is a persona-driven system prompt that you load into AI agents — Claude, Codex, Antigravity, OpenCode, or any LLM tool — to enforce proven patterns and conventions during coding sessions. The standards behind them are project-agnostic, machine-parseable, and designed for AI-assisted workflows.
 
 ## What's Included
 
@@ -47,6 +47,129 @@ Templates are structural documents to copy and fill. They are not persona prompt
 | [`pre-commit-mcp.j2`](skills/pre-commit-architect/templates/pre-commit-mcp.j2) | MCP variant with tool count + manifest validation |
 | [`pre-commit-minimal.j2`](skills/pre-commit-architect/templates/pre-commit-minimal.j2) | Fast checks only (<10s) |
 | [`pre-commit-shell.j2`](skills/pre-commit-architect/templates/pre-commit-shell.j2) | Native bash `.githooks/pre-commit` (no pre-commit framework) for .NET, Rust, Go, polyglot |
+
+## Installation & Tool Integration
+
+The same `SKILL.md` files work across all major AI coding tools — only the install location and invocation prefix differ. Skills are **portable**: write once, run in any tool.
+
+### Quick install (all skills into a single tool)
+
+```bash
+# Clone once
+git clone https://github.com/paulomac1000/ai-skills.git
+cd ai-skills
+
+# Then follow the per-tool section below
+```
+
+### Claude Code (Anthropic)
+
+Claude Code discovers skills from `~/.claude/skills/<name>/SKILL.md` or a local `.claude/skills/` directory.
+
+```bash
+# One-time install — copy ALL 5 skills into user-global location
+mkdir -p ~/.claude/skills
+for skill in afds-doc-writer mcp-server-architect mcp-server-consumer ci-cd-architect pre-commit-architect; do
+  cp -r "skills/$skill" "$HOME/.claude/skills/$skill"
+done
+
+# Or, project-scoped (only this project)
+mkdir -p .claude/skills
+for skill in afds-doc-writer mcp-server-architect mcp-server-consumer ci-cd-architect pre-commit-architect; do
+  cp -r "skills/$skill" ".claude/skills/$skill"
+done
+```
+
+**Invocation:** in a Claude Code session, type `/<skill-name>` (e.g., `/pre-commit-architect`, `/ci-cd-architect`).
+
+**Verification:** open Claude Code, type `/` — you should see the 5 skill names in the slash command menu.
+
+**Source:** <https://docs.anthropic.com/en/docs/claude-code/skills>
+
+### OpenAI Codex CLI
+
+Codex reads skills from `~/.agents/skills/<name>/SKILL.md` (the cross-tool portable location).
+
+```bash
+# Copy skills into the user-global .agents/skills/ directory
+mkdir -p ~/.agents/skills
+for skill in afds-doc-writer mcp-server-architect mcp-server-consumer ci-cd-architect pre-commit-architect; do
+  cp -r "skills/$skill" "$HOME/.agents/skills/$skill"
+done
+```
+
+**Invocation:** in a Codex session, type `$<skill-name>` (e.g., `$ci-cd-architect`).
+
+**Verification:** start Codex in a project, type `$` — skills appear in the prompt menu.
+
+**Source:** <https://developers.openai.com/codex>
+
+### Google Antigravity
+
+Antigravity uses the same `~/.agents/skills/` location as Codex (the cross-tool standard).
+
+```bash
+mkdir -p ~/.agents/skills
+for skill in afds-doc-writer mcp-server-architect mcp-server-consumer ci-cd-architect pre-commit-architect; do
+  cp -r "skills/$skill" "$HOME/.agents/skills/$skill"
+done
+```
+
+**Invocation:** Antigravity auto-detects skills via the `skill` tool. The agent loads them when relevant to the task; no slash command required.
+
+**Verification:** in Antigravity, ask the agent "what skills do you have available?" — it should list the 5 ai-skills.
+
+**Source:** <https://antigravity.google/docs>
+
+### OpenCode (sst/opencode)
+
+OpenCode reads skills from `~/.config/opencode/skills/<name>/SKILL.md` or a project's `.opencode/skills/`.
+
+```bash
+# User-global install
+mkdir -p ~/.config/opencode/skills
+for skill in afds-doc-writer mcp-server-architect mcp-server-consumer ci-cd-architect pre-commit-architect; do
+  cp -r "skills/$skill" "$HOME/.config/opencode/skills/$skill"
+done
+
+# Or project-scoped (committed to repo, shared with team)
+mkdir -p .opencode/skills
+for skill in afds-doc-writer mcp-server-architect mcp-server-consumer ci-cd-architect pre-commit-architect; do
+  cp -r "skills/$skill" ".opencode/skills/$skill"
+done
+```
+
+**Invocation:** in OpenCode, use the built-in `skill` tool — `skill({ name: "ci-cd-architect" })`.
+
+**Verification:** in OpenCode, run `skill({ name: "pre-commit-architect" })` — the system prompt for that skill should load.
+
+**Source:** <https://opencode.ai/docs/skills>
+
+### Cross-tool portable install (recommended for monorepos / multi-tool teams)
+
+A growing number of tools (Antigravity, Codex, OpenCode ≥ 0.5, future tools) read from a single shared location: `~/.agents/skills/`. Putting skills there works across all of them with one install:
+
+```bash
+# Single canonical location — works in 3 of 4 tools today
+mkdir -p ~/.agents/skills
+for skill in afds-doc-writer mcp-server-architect mcp-server-consumer ci-cd-architect pre-commit-architect; do
+  cp -r "skills/$skill" "$HOME/.agents/skills/$skill"
+done
+```
+
+Claude Code uses `~/.claude/skills/` and is not yet compatible with the cross-tool location. To cover all four tools, install into both:
+
+```bash
+mkdir -p ~/.claude/skills ~/.agents/skills
+for skill in afds-doc-writer mcp-server-architect mcp-server-consumer ci-cd-architect pre-commit-architect; do
+  cp -r "skills/$skill" "$HOME/.claude/skills/$skill"
+  cp -r "skills/$skill" "$HOME/.agents/skills/$skill"
+done
+```
+
+### Updating skills
+
+When the ai-skills repo is updated (e.g., new `v1.1.0` of precommit-architect), re-run the `cp -r` commands above to refresh your local install. The destination directory structure (`<skill>/SKILL.md`) must be preserved — tools scan the directory name, not the file path.
 
 ## Project Layout
 
@@ -105,6 +228,7 @@ python3 -m pytest tests/ -v
 - **Operationally relevant** — document boundary conditions that affect production behavior
 - **Self-validating** — the standard validates itself against its own rules
 - **Project-agnostic** — no hardcoded project names, configurable per domain
+- **Tool-portable** — same `SKILL.md` runs in Claude Code, Codex, Antigravity, OpenCode
 
 ## License
 

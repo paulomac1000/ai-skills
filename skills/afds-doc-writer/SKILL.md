@@ -285,3 +285,12 @@ When reviewing AFDS documentation against this standard, verify every invariant.
 - [ ] For `decision.*` documents: `version` incremented and CHANGELOG appended on mutation — `[AFDS UPDATE PROTOCOL 4]`
 - [ ] Document passes `docs_validate.py` without errors — `[AFDS Section 11.3]`
 - [ ] If `ttl_days > 0`, freshness telemetry is acceptable (fitness_score ≥ 0.70 does not block, but flag if below) — `[AFDS READ PROTOCOL 5]`
+
+## Integration with Other Standards
+
+| Standard | Relationship |
+|----------|-------------|
+| `ref.documentation-standard` (AFDS) | This skill enforces the rules in that standard. Load it first, then use this skill for documentation execution. |
+| `ref.ci-cd-standard` | CI validates documentation against AFDS via the `docs-validation.yml` workflow (`[RULE: CI-CDW-29]`, `[RULE: CI-CDW-30]`). Any `afds_config.yaml` change must be reflected in the CI pipeline and vice versa. |
+| `ref.mcp-server-standards` | MCP server documentation follows AFDS. The MCP server standard itself, and any project that uses `is_mcp: true`, must use this skill to produce its docs. |
+| `ref.mcp-consumer-standards` | MCP consumer documentation follows AFDS. Reference doc strings and tool descriptions are governed by the MCP server standard, not this one. |

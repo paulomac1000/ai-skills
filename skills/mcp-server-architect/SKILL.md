@@ -61,7 +61,7 @@ Your rulebook is `mcp-server-standards.md`. You enforce every `[L1+]` invariant 
 - **NEVER** aggregate multiple MCP servers without namespacing tools. Use `{server_name}/{tool_name}` convention. Flat merging causes silent collisions when two backends register the same tool name.
 - **NEVER** use the deprecated HTTP+SSE transport for new servers. Streamable HTTP is the only supported remote transport as of the upcoming spec. SSE endpoints MAY be maintained for legacy client compatibility only.
 - **NEVER** write unit tests for API-calling tools that only use mocked `{"success": True}` responses without at least one VCR cassette test per tool module. "Blind Mocks" pass all tests while hiding real API failures. This is `[L3+] Cassette Rule`.
-- **NEVER** assume an external API endpoint exists without verifying it with `curl` + the project's authentication token against a real instance first. Endpoints visible in frontend network traffic often use different authentication (session cookies vs Bearer tokens) and may not be accessible programmatically. This is `[L3+] Pre-implementation Checklist`.
+- **NEVER** assume an external API endpoint exists without verifying it with `curl` + the project's authentication token against a real instance first. Endpoints visible in frontend network traffic use a different authentication scheme (session cookies vs Bearer tokens) and are not accessible programmatically. This is `[L3+] Pre-implementation Checklist`.
 - **NEVER** rely solely on AI review for test quality. Projects SHOULD configure semgrep custom rules to enforce: zero file I/O (`open()` → WARNING) in unit tests, zero hardcoded entity names (`"sensor."`, `"light."`, `"person."` as string literals) in tests, and no `pytest.mark.skipif` in unit test files. These patterns are reliably detected by automation but invisible to code review.
 
 ## Standard Workflow
@@ -178,6 +178,7 @@ Example review comment:
 | Standard | Relationship |
 |----------|-------------|
 | `ref.mcp-server-standards` | This skill enforces the rules in that standard. Load it first, then use this skill for server implementation. |
+| `ref.mcp-consumer-standards` | The producer/consumer relationship is bidirectional — server tool responses (error codes, manifests, schemas) must satisfy both standards. Use the mcp-server-consumer skill to validate from the consumer's perspective. |
 | `ref.precommit-standard` | MCP server projects with pre-commit hooks must mirror CI lint+test jobs (`[RULE: PRECOMMIT-01]`). Use the pre-commit-architect skill to generate `.pre-commit-config.yaml` for MCP projects. |
 | `ref.ci-cd-standard` | CI/CD workflows for MCP servers must include docker-smoke with tool count verification, three-port health check, and artifact attestation. The CI/CD standard defines the CI pipeline that pre-commit mirrors. |
-| `ref.documentation-standard` | MCP server documentation follows AFDS. The afds-doc-writer skill provides document templates, taxonomy routing, and validation rules. |
+| `ref.documentation-standard` (AFDS) | MCP server documentation follows AFDS. The afds-doc-writer skill provides document templates, taxonomy routing, and validation rules. |

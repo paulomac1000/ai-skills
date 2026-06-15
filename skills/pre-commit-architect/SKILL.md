@@ -269,6 +269,9 @@ When reviewing `.pre-commit-config.yaml` against this standard, verify every inv
 |----------|-------------|
 | `ref.precommit-standard` | This skill enforces the rules in that standard. Load it first, then use this skill for configuration execution. |
 | `ref.ci-cd-standard` | Pre-commit mirrors CI lint+test jobs (`[RULE: PRECOMMIT-01]`). Changes to CI tooling must be reflected in pre-commit and vice versa. Ruff rule selection, mypy strictness, and bandit severity are defined in the CI/CD standard. |
+| `ref.mcp-server-standards` | MCP server projects use `pre-commit-mcp.j2` to add the `tool-count-validate` and `manifest-validate` hooks. The MCP server standard defines what "valid" means — pre-commit just enforces it. |
+| `ref.mcp-consumer-standards` | Consumer-side projects don't run MCP tools, so the consumer standard has no pre-commit hooks of its own. However, consumers reference the same Python packages, so pre-commit's ruff/mypy/bandit checks apply equally. |
+| `ref.documentation-standard` (AFDS) | The `pre-commit-python.j2` and `pre-commit-mcp.j2` templates include a `docs-validate` hook that runs `docs_validate.py` (the AFDS validator). Any `afds_config.yaml` change in a project must keep pre-commit's `excluded_dirs` aligned (per `[RULE: PRECOMMIT-12]`). |
 
 ## Templates Reference
 

@@ -172,3 +172,12 @@ When reviewing agent behavior consuming MCP tools, verify every invariant below.
 
 Example review comment:
 > You retried the `set_wifi_password` call after receiving `AUTH_FAILED`. The error strategy matrix (Canonical Template C3) marks `AUTH_FAILED` as non-retryable — retry is forbidden. Escalate with the credential diagnostic instead.
+
+## Integration with Other Standards
+
+| Standard | Relationship |
+|----------|-------------|
+| `ref.mcp-consumer-standards` | This skill enforces the rules in that standard. Load it first, then use this skill for tool invocation reasoning. |
+| `ref.mcp-server-standards` | The producer-side counterpart. Server compliance with TEST-HIERARCHY rules directly determines what error codes the consumer sees — use both skills together when designing multi-server workflows. |
+| `ref.documentation-standard` (AFDS) | Consumer output (review comments, escalation messages, READ protocol responses) must follow AFDS controlled-language rules. Use the afds-doc-writer skill when generating consumer-side docs. |
+| `ref.ci-cd-standard` | MCP consumer projects run the same CI pipeline as MCP server projects (`[RULE: TEST-CI-1]` through `[RULE: TEST-CI-4]`). The CI/CD standard governs the pipeline; this skill governs how to interact with the server through it. |

@@ -1,5 +1,45 @@
 # Changelog
 
+## 2026-06-15
+
+### precommit-architect: standard v1.1.0 + ci-cd-architect: standard v2.2.0 + cross-skill documentation pass
+
+**precommit-architect v1.1.0 (2026-06-14):**
+- `PRECOMMIT-14` content fix (was a placeholder, now describes the actual secret-scanning requirement)
+- `PRECOMMIT-01` sub-clause for the `pip install` step in CI mirroring
+- Workflow 3 (UPGRADE) added to SKILL.md with generic template + v1.0.0→v1.1.0 worked example
+- 4 new AUDIT steps (15–18) including external-references check
+- `hook-catalog.md` rewritten as a project pinning index with full 40-char SHAs
+- 3 new templates: `detect-private-key`, `end-of-file-fixer`, `check-merge-conflict` in all 4 archetype templates
+- New template: `pre-commit-shell.j2` — native bash `.githooks/pre-commit` for .NET, Rust, Go, polyglot
+- 15 tests across 9 classes (was 9 tests)
+
+**ci-cd-architect v2.2.0 (2026-06-11):**
+- `codecov/codecov-action` v6 → v7 (GPG key rotation)
+- `actions/attest-build-provenance@v2` → `actions/attest@v4` (successor action rename)
+- `returntocorp/semgrep-action` → `semgrep/semgrep-action` (org migration)
+- All 15+ inline YAML examples now SHA-pinned
+- SonarQube analysis + quality gate added to `dotnet-ci.yml.j2` (gated by `use_sonarqube`)
+
+**Cross-skill documentation pass (2026-06-15):**
+- README.md: added "Installation & Tool Integration" section covering Claude Code, OpenAI Codex CLI, Google Antigravity, OpenCode — with concrete install commands, locations, and verification steps for each
+- AGENTS.md: mirror of installation section + "Cross-References Between Standards" table
+- All 5 SKILL.md files now have an "Integration with Other Standards" table cross-referencing all 4 sibling standards
+- AFDS validator: added `optional_sections` concept so comprehensive reference documents (e.g., `docs_standards.md` itself) can include all section types without breaking the schema
+- AGENTS.md added to `exempt_files` in `afds_config.yaml` (it's a project-guidance file, not a regular AFDS document)
+
+**Production-hardening fixes (2026-06-15):**
+- `curl | python3` pipe-to-pattern pinned to commit SHA `a1b15016` in 4 files (RCE risk mitigation — mutable `main` branch was exploitable)
+- Codecov SHA mismatch fixed in `ci.yml.j2` (was v6, now v7)
+- `ci-cd-config.example.yaml` declared `v3.0.0` — corrected to `v2.2.0` (the actual standard version)
+- AFDS→CAFDS naming inconsistency: 26 replacements across 6 files (canonical name is AFDS; the "CAFDS" rename was an unsourced editorial claim in `ci-cd-standard.md:44`)
+- 9 pre-existing test failures eliminated (banned words, emoji, missing H1, outdated version assertions, wrong rule semantics)
+- 43 new tests added (TestShellTemplate, TestAfdsNamingConsistency, TestAgentsMdConstraint, TestDornyMarocchinoInCiTemplate, TestSonarQubeInDotnetTemplate, TestPipeToPythonMitigated)
+
+**Wave 3 (deferred to user):**
+- `paulomac1000/hand-codec`: SHA pinning (8 actions currently on mutable tags) + missing `permissions` block
+- `paulomac1000/hybrid-therapist-ai`: `persist-credentials: false` missing on 3/4 checkout steps + 2 instances of `curl | python3` in production workflows + 3 SHA-drifty action references
+
 ## 2026-06-11
 
 ### ci-cd-architect: standard v2.2.0 — codecov v7, actions/attest v4, Semgrep org migration, SHA pinning
