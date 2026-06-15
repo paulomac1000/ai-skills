@@ -361,6 +361,7 @@ The configuration contract defines these parameters:
 | `use_docs_validation` | No | Whether to validate documentation in CI (default: `false`, auto-enabled when `docs/` exists) | `true` / `false` |
 | `docs_paths` | No | Paths to scan for documentation validation | `["docs/", "*.md"]` |
 | `docs_validation_script` | No | Path to the documentation validation script | `scripts/validate_docs.py` |
+| `use_sonarqube` | No | Run SonarQube analysis and quality gate (.NET only). Creates a `sonarqube` job with begin → build → end dance. Requires `SONAR_TOKEN` secret. (default: `false`) | `true` / `false` |
 | `dotnet_version` | No | .NET SDK version (required when `language: dotnet`) | `"10.0.x"` |
 | `dotnet_solution` | No | Path to .NET solution file (required when `language: dotnet`) | `src/MyApp.sln` |
 | `version_source` | No | Source for auto-tag version extraction: `"pyproject"` (default) or `"directory-build-props"` (.NET) | `"pyproject"` |

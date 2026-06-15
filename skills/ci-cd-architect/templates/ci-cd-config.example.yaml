@@ -223,6 +223,13 @@
 # use_dependabot   (optional)  Generate .github/dependabot.yml.
 #                              Default: true.
 #
+# use_sonarqube    (optional)  Run SonarQube analysis and quality gate
+#                              (.NET only). Creates a `sonarqube` job that
+#                              performs begin → build → end dance with the
+#                              .NET scanner and waits for the quality gate.
+#                              Requires SONAR_TOKEN secret.
+#                              Default: false.
+#
 # package_ecosystems (optional) Package ecosystems for Dependabot.
 #                              Default: ["github-actions", "pip"]
 #                              Add "nuget" for .NET, "docker" for Docker,

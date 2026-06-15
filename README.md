@@ -68,7 +68,7 @@ skills/
 ├── pre-commit-architect/         ← Pre-commit hook skill
 │   ├── precommit-standard.md     Standard
 │   ├── SKILL.md                  System prompt for AI agents
-│   ├── templates/                3 Jinja2 templates
+│   ├── templates/                4 Jinja2 templates
 │   └── references/               Hook catalog + pitfalls
 └── ci-cd-architect/              ← CI/CD skill
     ├── ci-cd-standard.md         Standard

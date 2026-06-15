@@ -196,7 +196,7 @@ ignore_missing_imports = true
 **Correct alignment**:
 ```yaml
 # .pre-commit-config.yaml
-- id: cafds-docs
+- id: afds-docs
   exclude: ^(\.omo/|archived/)
 
 # afds_config.yaml
@@ -388,11 +388,12 @@ SKIP=mypy,bandit git commit # skip specified hooks
 ### (2026-06-11) — Deployment feedback fixes
 - 🔴 **Fixed:** `pre-commit-mcp.j2` — `grep`-based tool count replaces `from server import get_tool_count`
 - 🔴 **Fixed:** `pre-commit-mcp.j2`, `pre-commit-python.j2` — mypy/bandit use `{{ src_dir }}` + `--strict`/`-ll`
-- 🔴 **Fixed:** All 3 templates — `rev` uses commit SHA (`cef0300f`) instead of mutable `v5.0.0` tag
+- 🟢 **Added:** `pre-commit-shell.j2` — new native bash hook template for .NET, Rust, Go, and polyglot projects that cannot use the Python pre-commit framework
+- 🔴 **Fixed:** All 4 templates — `rev` uses commit SHA (`cef0300f`) instead of mutable `v5.0.0` tag
 - 🟡 **Fixed:** `pre-commit-mcp.j2`, `pre-commit-python.j2` — `mypy_additional_deps` template variable
 - 🟡 **Fixed:** SKILL.md — dynamic AGENTS.md hook table replaces fixed incompatible table
-- 🟢 **Fixed:** All 3 templates — ruff hooks use `pass_filenames: true`
-- 🟡 **Fixed:** All 3 templates — pytest hook includes `--collect-only` pre-check
+- 🟢 **Fixed:** All 4 templates — ruff hooks use `pass_filenames: true`
+- 🟡 **Fixed:** All 4 templates — pytest hook includes `--collect-only` pre-check
 
 
 ### [1.1.0] - 2026-06-14
@@ -405,7 +406,7 @@ SKIP=mypy,bandit git commit # skip specified hooks
 **Fixed:**
 - PRECOMMIT-14 "Real-world failure" and "Mitigation" sections were copy-paste errors from PRECOMMIT-13 — rewritten to describe actual secret scanning failures (AWS key detection, PEM key detection, gitleaks baseline).
 - `references/hook-catalog.md` rewritten to be a project-specific pinning index (was duplicating https://pre-commit.com/hooks.html content with 8-char SHA abbreviations violating PRECOMMIT-09).
-- Templates now include `detect-private-key`, `end-of-file-fixer`, and `check-merge-conflict` (all 3 templates) — fixing own-standard violations of PRECOMMIT-14 and aligning with the repo's own `.pre-commit-config.yaml`.
+- Templates now include `detect-private-key`, `end-of-file-fixer`, and `check-merge-conflict` (all 4 templates) — fixing own-standard violations of PRECOMMIT-14 and aligning with the repo's own `.pre-commit-config.yaml`.
 
 **Attribution (retroactive):**
 - PRECOMMIT-14 (Secret Scanning) was added in 1.0.0 without a changelog entry. This release adds the attribution.

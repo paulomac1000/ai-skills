@@ -163,3 +163,22 @@ Compiled from real deployment failures across `ha-mcp-readonly`, `local-home-dev
 - **Root cause:** pre-commit hooks run in isolated virtualenvs. CI has no isolation — must `pip install ruff`
 - **Rule:** PRECOMMIT-01
 - **Solution:** Diff CI `pip install` against all step names. Every tool in a step MUST be in `pip install`
+
+---
+
+### Pitfall 12: Native Shell Hook Silent Skip (pre-commit-shell.j2)
+
+- **Opis:** A `.githooks/pre-commit` script was deployed but git silently ignored it. Commits bypassed all pre-commit checks. The shell hook appeared to be active but never executed.
+- **Root cause:** The `.githooks/pre-commit` script was missing the executable bit (`chmod +x`). Git skips non-executable hook files without warning — `git commit` proceeds without running any check.
+- **Rule:** PRECOMMIT-10 (committed config) — native hooks require `chmod +x` and `core.hooksPath` setup.
+- **Solution:** After deploying `pre-commit-shell.j2`, always run:
+  ```bash
+  git config --local core.hooksPath .githooks
+  chmod +x .githooks/pre-commit
+  ```
+  Verify with `ls -la .githooks/pre-commit` (must show `-rwxr-xr-x` or similar). Add both commands to the project README setup section.
+
+**Additional native shell pitfalls:**
+- **Wrong `core.hooksPath`**: If `core.hooksPath` points to a non-existent or wrong directory, git skips hooks silently. Validate with `git config --local core.hooksPath`.
+- **No Windows support**: Native bash hooks do not run on Windows unless WSL or Git Bash is used. For Windows-native development, use the Python pre-commit framework instead.
+- **No incremental run**: Unlike pre-commit framework hooks, native shell scripts do not receive staged file paths by default. The hook must run all checks on the full repo every time.

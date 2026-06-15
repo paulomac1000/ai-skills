@@ -37,6 +37,21 @@ git ls-remote https://github.com/<owner>/<repo>.git refs/tags/<version> | awk '{
 
 **Why SHA pinning**: Mutable version tags can be re-targeted by attackers who compromise a hook repository. The pre-commit project itself emits a warning for mutable revs (see `pre_commit.clientlib.WarnMutableRev`). See https://pre-commit.com/#using-the-latest-version-for-a-repository.
 
+## Native Git Hook Template (`pre-commit-shell.j2`)
+
+For projects that cannot use the pre-commit Python framework (e.g., .NET, Rust, Go, polyglot repos), the `pre-commit-shell.j2` template generates a native bash script at `.githooks/pre-commit`. It mirrors the same 4 hook categories:
+
+| Check | Entry | Category |
+|-------|-------|----------|
+| `format_check` | `dotnet format`, `cargo fmt --check`, `gofmt -l`, `ruff format --check` | Format |
+| `build_check` | `dotnet build`, `cargo check`, `go build`, `python -m compileall` | Compile / Syntax |
+| `merge_conflict_check` | `grep -r '<<<<<<< HEAD'` | Merge Conflict |
+| `secret_scan` | `grep -r 'BEGIN (RSA\|EC\|DSA\|OPENSSH\|PRIVATE) KEY'` | Secret Scan |
+
+**Setup**: `git config --local core.hooksPath .githooks && chmod +x .githooks/pre-commit`
+
+**Pitfalls**: Missing `chmod +x` causes git to silently skip the hook. Wrong `core.hooksPath` points at the wrong directory. Does not run on Windows (native bash only).
+
 ## Pinned Hooks (used by precommit-standard)
 
 | Hook ID(s) | Repo URL | SHA (40-char) | Version | Category | Notes |
