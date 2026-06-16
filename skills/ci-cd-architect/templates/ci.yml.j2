@@ -175,15 +175,15 @@ jobs:
 {% endif %}
 
 {% if is_mcp %}
-      # MUST update .github/ci-cd-config.yaml expected_tools when adding/removing tools
+      # MUST update ci-cd-config.yaml expected_tools when adding/removing tools
       - name: Smoke test — tool count
         run: |
-          docker run --rm {{ image_name }} python3 -c "
-          import yaml
+          docker run --rm \
+            -e EXPECTED_TOOLS={{ expected_tools }} \
+            {{ image_name }} python3 -c "
+          import os
           from server import get_tool_count
-          with open('.github/ci-cd-config.yaml') as f:
-              cfg = yaml.safe_load(f)
-          expected = cfg.get('expected_tools', 0)
+          expected = int(os.environ['EXPECTED_TOOLS'])
           tc = get_tool_count()
           assert tc == expected, f'Expected {expected} tools, got {tc}'
           print('Tool count OK:', tc)

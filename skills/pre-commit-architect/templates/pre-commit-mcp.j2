@@ -24,6 +24,8 @@ repos:
     hooks:
       - id: trailing-whitespace
       - id: check-yaml
+      - id: check-toml
+      - id: check-json
       - id: end-of-file-fixer
       - id: check-merge-conflict
       - id: detect-private-key
@@ -61,7 +63,7 @@ repos:
 
       - id: pytest
         name: pytest
-        entry: bash -c 'python3 -m pytest --collect-only -q tests/ 2>&1 | grep -q "ERROR" && { echo "Test collection FAILED"; exit 1; }; python3 -m pytest tests/ -q 2>&1; if [ ${PIPESTATUS[0]} -ne 0 ]; then exit 1; fi'
+        entry: bash -c 'python3 -m pytest --collect-only -q tests/ 2>&1 | tail -n +3 | grep -q "ERROR\|errors" && { echo "Test collection FAILED"; exit 1; }; python3 -m pytest tests/ -q 2>&1; if [ ${PIPESTATUS[0]} -ne 0 ]; then exit 1; fi'
         language: system
         pass_filenames: false
 

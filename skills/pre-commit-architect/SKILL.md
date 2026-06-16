@@ -189,7 +189,9 @@ Use this when asked to create a new `.pre-commit-config.yaml` or replace a non-c
    - **Shell variant** (`pre-commit-shell.j2`): native bash script — setup is `git config --local core.hooksPath .githooks && chmod +x .githooks/pre-commit`; manual run is `.githooks/pre-commit`. Lists bash checks instead of pre-commit hook IDs.
    ```
 
-   Adapt the hook summary table to match the hooks actually generated. The setup and manual run commands are always the same.
+    Adapt the hook summary table to match the hooks actually generated.
+
+    > **Note on shell variant**: the setup and manual-run commands for `pre-commit-shell.j2` (native `.githooks/pre-commit`) are DIFFERENT from the Python framework variants — they are listed in the shell-variant block above. The "always the same" wording in the v1.0.0 templates was an oversight.
 
    > **Constraint**: The hook summary MUST contain exactly one row per hook in `.pre-commit-config.yaml`, ordered as they appear. Do NOT add hooks not present in the generated file. Do NOT omit hooks present in the generated file. Do NOT include file paths from the generation environment.
 
@@ -226,7 +228,8 @@ Use this when a target project uses a `.pre-commit-config.yaml` from a prior `pr
 - **PRECOMMIT-14 content fix:** No code change required (documentation fix only). Re-read PRECOMMIT-14 in standard to understand the corrected example.
 - **PRECOMMIT-01 sub-clause b (CI pip install coverage):** Audit target project's CI workflow. For each tool in `.pre-commit-config.yaml` `entry:`, verify it appears in `pip install`. Add missing tools.
 - **PRECOMMIT-15 (Custom Local Scripts) added:** If project has custom hooks in `scripts/`, verify they follow the conventions. Add tests if missing.
-- **No hook additions/removals:** v1.1.0 changes are content-only (no new rule, no removed rule).
+- **Workflow 3 (UPGRADE) added to SKILL.md** (audit + migration between standard versions).
+- **hook-catalog.md rewritten as a project pinning index** (was previously a release manifest; now per-hook SHA references).
 
 ## Strict Constraints (The "Never Do This" List)
 

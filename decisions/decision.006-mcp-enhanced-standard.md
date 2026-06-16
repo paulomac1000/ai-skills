@@ -135,7 +135,7 @@ Define standard middleware interfaces:
 
 **Problem:** Zero tooling exists to bootstrap a best-practice MCP server. Every project copy-pastes from `modelcontextprotocol/servers`.
 
-**Decision:** Define a `create-mcp-server` specification — the CLI interface that a generator tool SHOULD implement:
+**Decision:** Define a `create-mcp-server` specification — the CLI that a generator tool SHOULD implement:
 - `create-mcp-server my-server --language typescript --transport streamable-http`
 - Project layout, tool templates, test fixtures, CI config
 - Middleware pre-configured (auth, rate limiting, logging)

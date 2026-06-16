@@ -6,17 +6,12 @@ Validates that the AFDS configuration:
   - Contains .omo in excluded_dirs
 """
 
-from pathlib import Path
-
 import pytest
-
-REPO_ROOT = Path(__file__).resolve().parent.parent
+import yaml
 
 
 @pytest.fixture(scope="session")
 def afds_config(repo_root):
-    import yaml
-
     config_path = repo_root / "skills" / "afds-doc-writer" / "afds_config.yaml"
     with open(config_path, encoding="utf-8") as f:
         return yaml.safe_load(f)

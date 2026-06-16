@@ -695,20 +695,29 @@ async def mcp_handler(request):
 
 # POST /mcp — JSON-RPC
 async def mcp_post(request):
-    handler = mcp_handler
-    handler = lambda r: auth_middleware(lambda rr: rate_limit_middleware(handler, rr), r)
+    next_handler = mcp_handler
+    handler = lambda r: auth_middleware(lambda rr: rate_limit_middleware(next_handler, rr), r)
     return await handler(request)
 
 app.routes.append(Route("/mcp", mcp_post, methods=["POST"]))
 
 # SSE transport on separate port
 async def run_sse():
-    mcp.run(transport="sse", host="0.0.0.0", port=9101)
+    # SECURITY: bind to loopback only by default. Public bind (0.0.0.0)
+    # requires explicit MCP_UNSAFE_PUBLIC_ACCESS_CONFIRMED=1 env var AND a
+    # CRITICAL log entry. See [RULE: TEST-REG-*] for confirmation gate.
+    import os
+    host = "0.0.0.0" if os.environ.get("MCP_UNSAFE_PUBLIC_ACCESS_CONFIRMED") == "1" else "127.0.0.1"
+    if host == "0.0.0.0":
+        import logging
+        logging.critical("MCP SSE transport bound to PUBLIC 0.0.0.0 — "
+                         "requires MCP_UNSAFE_PUBLIC_ACCESS_CONFIRMED=1 env var")
+    mcp.run(transport="sse", host=host, port=9101)
 
 # Start: sse in thread, Starlette on main
 import threading
 threading.Thread(target=lambda: asyncio.run(run_sse()), daemon=True).start()
-# Run app with: uvicorn.run(app, host="0.0.0.0", port=9100)
+# Run app with: uvicorn.run(app, host="127.0.0.1", port=9100)
 ```
 
 ### Middleware Pipeline (v2.0)
@@ -717,7 +726,7 @@ threading.Thread(target=lambda: asyncio.run(run_sse()), daemon=True).start()
 
 #### Pipeline Architecture
 
-```
+```text
 Request → [CORS] → [Auth] → [RateLimit] → [Logging] → [Validation] → [Tool Handler] → Response
 ```
 
@@ -1023,7 +1032,7 @@ The rules in this standard are language-agnostic. This appendix provides TypeScr
 
 #### Project Structure
 
-```
+```text
 src/
   index.ts              — CLI entry point, transport selection
   server.ts             — createServer() factory
@@ -1199,7 +1208,7 @@ def _error_dict_extended(code: str, message: str, retryable: bool,
     Returns a plain dict — NOT a JSON string or Starlette JSONResponse.
     Use this inside internal functions that compose responses before serialization.
     The tool wrapper serializes the dict via _success_response() or json.dumps().
-    For HTTP/Starlette handlers, wrap with JSONResponse(**dict) at the boundary.
+    For HTTP/Starlette handlers, wrap with JSONResponse(content=error) at the boundary.
     """
     error = {"code": code, "message": message, "retryable": retryable}
     if suggestion:

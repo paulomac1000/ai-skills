@@ -40,7 +40,7 @@ Define a unified, version-locked, and reproducible pre-commit hook standard for 
 - **pre-commit (canonical reference)** — Official site: [https://pre-commit.com/](https://pre-commit.com/). The canonical source for hook reference, version compatibility, and the public Python client library (`pre_commit.clientlib`). All rules in this standard derive from and reference this upstream project. The canonical hooks list lives at [https://pre-commit.com/hooks.html](https://pre-commit.com/hooks.html).
 - **local repo** (`repo: local`): A hook that runs tools already installed in the developer's environment (e.g., mypy, bandit, pytest). No download required. Version tracking is manual — the developer must keep tool versions in sync with CI.
 - **remote repo** (`repo: https://...`): A hook sourced from a public Git repository. Downloaded and cached on first run. Pinned to a specific commit SHA for immutability. Used for standard tools like ruff and pre-commit-hooks.
-- **pass_filenames**: A hook-level option that controls whether staged filenames are passed to the hook's `entry` command. Defaults to `true` for most hooks. Must be set to `false` when the hook scans the entire repository (e.g., mypy, pytest, bandit) or operates on a fixed directory. **Convention**: `pass_filenames: false` is the default for most repo-local hooks — the hook receives only staged file paths by default.
+- **pass_filenames**: A hook-level option that controls whether staged filenames are passed to the hook's `entry` command. The pre-commit framework default is `pass_filenames: true` (filenames ARE passed to hooks as positional arguments). Set `pass_filenames: false` explicitly for hooks that scan the entire repository (e.g., mypy, pytest, bandit) or operate on a fixed directory.
 - **fail_fast**: A hook-level option that, when `true`, stops the entire pre-commit run at the first failure. When `false` (the mandatory setting per this standard), all hooks run and report all errors before pre-commit exits with a failure status.
 - **stages**: Pre-commit supports multiple stages — `pre-commit` (runs at `git commit`), `pre-push` (runs at `git push`), `commit-msg`, `post-commit`, and others. This standard dictates which stage each hook category belongs to.
 - **CI mirroring**: The principle that pre-commit hooks MUST execute the same tools, in the same order, as the CI lint and test jobs. Pre-commit is a local pre-flight for CI, not an independent check suite.
@@ -283,7 +283,7 @@ Reference: `ha-mcp-readonly` `.pre-commit-config.yaml` and `scripts/` directory.
 ```yaml
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: 5v3z8a9b2c1d4e6f7a8b9c0d1e2f3a4b5c6d7e8f9  # v5.0.0
+    rev: cef0300fd0fc4d2a87a85fa2093c6b283ea36f4b  # v5.0.0
     hooks:
       - id: trailing-whitespace
       - id: end-of-file-fixer

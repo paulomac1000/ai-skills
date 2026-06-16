@@ -105,7 +105,7 @@ All compliant CI/CD workflows MUST use the same pinned versions of GitHub Action
 
 The CI pipeline consists of three sequential jobs. Each job depends on the previous one succeeding.
 
-**[RULE: CI-CDW-5] [L1+]** The `ci.yml` workflow MUST contain exactly three jobs in this order: `lint`, `test`, `docker-smoke`. The `pull_request` trigger MUST NOT have a `branches:` filter — this ensures CI runs on every PR regardless of target branch. The `push` trigger MUST filter to `[main, master]` only.
+**[RULE: CI-CDW-5] [L1+]** The `ci.yml` workflow MUST contain exactly three jobs in this order: `lint`, `test`, `docker-smoke`. Projects using multi-service Docker Compose (`use_docker: compose`) MAY replace `docker-smoke` with `compose-smoke` per `[RULE: CI-CDW-15]`. The `pull_request` trigger MUST NOT have a `branches:` filter — this ensures CI runs on every PR regardless of target branch. The `push` trigger MUST filter to `[main, master]` only.
 
 ```yaml
 on:
@@ -121,7 +121,7 @@ on:
 
 ```yaml
 steps:
-  - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v6
+  - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
   - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6
     with:
       python-version: "3.14"
@@ -155,7 +155,7 @@ steps:
 
 ```yaml
 steps:
-  - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v6
+  - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
   - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6
     with:
       python-version: "3.14"
@@ -276,7 +276,7 @@ jobs:
       contents: write
 
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
         with:
           fetch-depth: 0
 
@@ -433,7 +433,7 @@ smoke:
   runs-on: ubuntu-latest
   needs: test
   steps:
-    - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v6
+    - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
     - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6
       with:
         python-version: "3.14"
@@ -565,7 +565,7 @@ jobs:
       actions: read
 
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
         with:
           fetch-depth: 0
 
@@ -673,7 +673,7 @@ jobs:
       pull-requests: write
 
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
         with:
           fetch-depth: 0
 
@@ -836,7 +836,7 @@ if (existing) {
 
 ### Rule 23: Full Commit SHA Pinning (`CI-CDW-73`, `CI-CDW-74`, `CI-CDW-75`)
 
-**[RULE: CI-CDW-73] [L1+]** All GitHub Action references in workflow files MUST use the full immutable commit SHA, not a mutable version tag. Example: `uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v6`
+**[RULE: CI-CDW-73] [L1+]** All GitHub Action references in workflow files MUST use the full immutable commit SHA, not a mutable version tag. Example: `uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6`
 
 **[RULE: CI-CDW-74] [L1+]** The version tag MUST be appended as a YAML comment after the commit SHA for human readability. Mismatched SHA/comment pairs are a CI-CDW-74 violation.
 

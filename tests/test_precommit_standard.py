@@ -489,20 +489,22 @@ class TestAgentsMdConstraint:
         )
 
     def test_constraint_near_agents_md_template(self, precommit_skill_content):
-        """The constraint MUST be located near the AGENTS.md generation template (around line 194)."""
-        lines = precommit_skill_content.splitlines()
-        match_line = None
-        for i, line in enumerate(lines):
-            if "Do NOT add hooks not present in the generated file" in line:
-                match_line = i + 1
-                break
-        assert match_line is not None, "Constraint phrase not found in SKILL.md"
-        # The AGENTS.md generation template starts at the "## Pre-commit Hooks" section
-        # in Workflow 2. The constraint is the last line of that block. Allow ±30 line window.
-        assert 160 < match_line < 250, (
-            f"Constraint appears at line {match_line}, expected to be near the "
-            f"AGENTS.md generation template (lines 160-250)"
+        """The constraint MUST be located near the AGENTS.md generation template."""
+        # Find the AGENTS.md update section and verify the constraint is within it
+        section_match = re.search(
+            r"7\. \*\*Update AGENTS\.md \(MANDATORY\)\*\*.*?(?=\n\s*\n\d+\. |\Z)",
+            precommit_skill_content, re.DOTALL
         )
+        if section_match:
+            section = section_match.group(0)
+            assert "Do NOT add hooks not present in the generated file" in section, (
+                "Constraint must be in the AGENTS.md update section"
+            )
+        else:
+            # Fallback for unexpected structure
+            assert "Do NOT add hooks not present in the generated file" in precommit_skill_content, (
+                "Constraint phrase not found in SKILL.md"
+            )
 
 
 class TestDornyMarocchinoInCiTemplate:

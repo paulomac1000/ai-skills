@@ -122,10 +122,10 @@ class TestPythonVersionPolicy:
     def test_python_version_no_contradiction(self, cisd_content):
         """CI-CDW-72 and CI-CDW-4a must not contradict on Python version."""
         ci_cdw_4a_match = re.search(
-            r"\[RULE: CI-CDW-4a\].*?\n.*", cisd_content, re.DOTALL
+            r"\[RULE: CI-CDW-4a\].*?(?=\n\[RULE:|\Z)", cisd_content, re.DOTALL
         )
         ci_cdw_72_match = re.search(
-            r"\[RULE: CI-CDW-72\].*?\n.*", cisd_content, re.DOTALL
+            r"\[RULE: CI-CDW-72\].*?(?=\n\[RULE:|\Z)", cisd_content, re.DOTALL
         )
         assert ci_cdw_4a_match is not None, "CI-CDW-4a rule not found"
         assert ci_cdw_72_match is not None, "CI-CDW-72 rule not found"

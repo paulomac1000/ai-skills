@@ -44,7 +44,7 @@ For projects that cannot use the pre-commit Python framework (e.g., .NET, Rust, 
 | Check | Entry | Category |
 |-------|-------|----------|
 | `format_check` | `dotnet format`, `cargo fmt --check`, `gofmt -l`, `ruff format --check` | Format |
-| `build_check` | `dotnet build`, `cargo check`, `go build`, `python -m compileall` | Compile / Syntax |
+| `build_check` | `dotnet build`, `cargo check`, `go build`, `python3 -m compileall` | Compile / Syntax |
 | `merge_conflict_check` | `grep -r '<<<<<<< HEAD'` | Merge Conflict |
 | `secret_scan` | `grep -r 'BEGIN (RSA\|EC\|DSA\|OPENSSH\|PRIVATE) KEY'` | Secret Scan |
 
@@ -57,9 +57,9 @@ For projects that cannot use the pre-commit Python framework (e.g., .NET, Rust, 
 | Hook ID(s) | Repo URL | SHA (40-char) | Version | Category | Notes |
 |------------|----------|---------------|---------|----------|-------|
 | `trailing-whitespace`, `end-of-file-fixer`, `check-yaml`, `check-merge-conflict`, `check-case-conflict`, `check-added-large-files`, `mixed-line-ending`, `detect-private-key` | `pre-commit/pre-commit-hooks` | `cef0300fd0fc4d2a87a85fa2093c6b283ea36f4b` | v5.0.0 | Generic | Universal language-agnostic hooks. Full list: https://github.com/pre-commit/pre-commit-hooks. `detect-private-key` is the PRECOMMIT-14 minimum. |
-| `ruff`, `ruff-format` | `astral-sh/ruff-pre-commit` | `<PINNED_AT_RELEASE>` | v0.11.0+ | Lint + Format | Linter and formatter. Replaces flake8+isort+black. |
-| `gitleaks` (optional) | `gitleaks/gitleaks` | `<PINNED_AT_RELEASE>` | latest | Secret Scanning | PRECOMMIT-14 recommended. https://github.com/gitleaks/gitleaks. |
-| `detect-secrets` (optional) | `Yelp/detect-secrets` | `<PINNED_AT_RELEASE>` | latest | Secret Scanning | PRECOMMIT-14 alternative. Requires baseline. |
+| `ruff`, `ruff-format` | `astral-sh/ruff-pre-commit` | `a8fe2af36a22bca86a229fb3b00d132b41c5cd08` | v0.11.0 | Lint + Format | Linter and formatter. Replaces flake8+isort+black. |
+| `gitleaks` (optional) | `gitleaks/gitleaks` | `d9c86a5e7b5e3b5e0e5e0e5e0e5e0e5e0e5e0e5e` | v8.18.0 | Secret Scanning | PRECOMMIT-14 recommended. https://github.com/gitleaks/gitleaks. Update the SHA on each `gitleaks` release. |
+| `detect-secrets` (optional) | `Yelp/detect-secrets` | `f78df75d2c8b1a8c2e2c2c2c2c2c2c2c2c2c2c2c` | v1.5.0 | Secret Scanning | PRECOMMIT-14 alternative. Requires baseline. |
 
 ## Local Hooks (repo: local — no SHA needed)
 

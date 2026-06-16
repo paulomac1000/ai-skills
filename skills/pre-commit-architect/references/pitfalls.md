@@ -22,6 +22,8 @@ Compiled from real deployment failures across `ha-mcp-readonly`, `local-home-dev
 
 ---
 
+## Pitfalls
+
 ### Pitfall 1: `ruff target-version` Broke `except (X, Y):` Syntax
 
 - **Opis:** `ruff format` with `target-version = "py314"` rewrote `except (ValueError, TypeError):` to `except ValueError | TypeError:` (PEP 742 syntax). This syntax is valid only on Python 3.14+, but the project targeted Python 3.13. The change broke CI on Python 3.13 runtimes.

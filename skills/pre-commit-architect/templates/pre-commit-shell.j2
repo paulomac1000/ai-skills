@@ -89,7 +89,7 @@ if [ -z "$LINT_COMMAND" ]; then
             LINT_COMMAND="cargo fmt --all -- --check"
             ;;
         go)
-            LINT_COMMAND="gofmt -l $SRC_DIR"
+            LINT_COMMAND="test -z \"$(gofmt -l $SRC_DIR)\""
             ;;
         python)
             # Restrict to staged .py files (if any)
