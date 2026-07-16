@@ -1,4 +1,5 @@
 name: Skills quality
+# This workflow also publishes an isolated machine-readable PR result for connector-safe verification.
 
 on:
   pull_request:
