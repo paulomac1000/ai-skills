@@ -1,5 +1,4 @@
 name: Skills quality
-# This workflow also publishes an isolated machine-readable PR result for connector-safe verification.
 
 on:
   pull_request:
@@ -32,7 +31,7 @@ jobs:
           skills/mcp-server-consumer/mcp-consumer-standards.md
           skills/ci-cd-architect/ci-cd-standard.md
           skills/pre-commit-architect/precommit-standard.md
-      - name: Generate dependency catalog from manifests
+      - name: Check generated dependency catalog
         run: python scripts/dependency_catalog.py --check
       - name: Run AFDS benchmark regression gate
         run: python benchmarks/afds/benchmark.py --check --output benchmarks/afds/latest-results.json
@@ -48,44 +47,3 @@ jobs:
         with:
           dotnet-version: "10.0.x"
       - run: dotnet test examples/dotnet-mcp-reference-lab/McpLab.slnx --configuration Release
-
-  report:
-    if: always() && github.event_name == 'pull_request'
-    needs: [validate, dotnet-reference-lab]
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      contents: write
-    steps:
-      - name: Publish machine-readable CI outcome
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REPOSITORY: ${{ github.repository }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          VALIDATE_RESULT: ${{ needs.validate.result }}
-          DOTNET_RESULT: ${{ needs.dotnet-reference-lab.result }}
-          RUN_ID: ${{ github.run_id }}
-          RUN_ATTEMPT: ${{ github.run_attempt }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          report_dir="$(mktemp -d)"
-          cd "$report_dir"
-          git init -q
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          jq -n \
-            --arg repository "$REPOSITORY" \
-            --argjson pull_request "$PR_NUMBER" \
-            --arg head_sha "$HEAD_SHA" \
-            --arg validate "$VALIDATE_RESULT" \
-            --arg dotnet "$DOTNET_RESULT" \
-            --argjson run_id "$RUN_ID" \
-            --argjson run_attempt "$RUN_ATTEMPT" \
-            '{schema_version:1, repository:$repository, pull_request:$pull_request, head_sha:$head_sha, jobs:{validate:$validate, dotnet_reference_lab:$dotnet}, run_id:$run_id, run_attempt:$run_attempt}' \
-            > status.json
-          git add status.json
-          git commit -q -m "ci: report PR #${PR_NUMBER} outcome"
-          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${REPOSITORY}.git"
-          git push --force origin "HEAD:refs/heads/ci-report/pr-${PR_NUMBER}"
