@@ -32,7 +32,7 @@ jobs:
           skills/ci-cd-architect/ci-cd-standard.md
           skills/pre-commit-architect/precommit-standard.md
       - name: Generate dependency catalog from manifests
-        run: python scripts/dependency_catalog.py
+        run: python scripts/dependency_catalog.py --check
       - name: Run AFDS benchmark regression gate
         run: python benchmarks/afds/benchmark.py --check --output benchmarks/afds/latest-results.json
       - name: Run tests

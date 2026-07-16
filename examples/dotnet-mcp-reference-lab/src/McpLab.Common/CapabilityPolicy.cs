@@ -49,7 +49,7 @@ public sealed class DefaultCapabilityPolicy : ICapabilityPolicy
             return PolicyDecision.Deny("not_authorized");
         }
 
-        if (request.Effect is CapabilityEffect.Destructive or CapabilityEffect.RawCommand && !request.UserConfirmed)
+        if ((request.Effect is CapabilityEffect.Destructive or CapabilityEffect.RawCommand) && !request.UserConfirmed)
         {
             return PolicyDecision.Deny("confirmation_required");
         }

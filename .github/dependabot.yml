@@ -23,6 +23,10 @@ updates:
         patterns:
           - "ModelContextProtocol*"
           - "Microsoft.Extensions.*"
+      dotnet-testing:
+        patterns:
+          - "Microsoft.NET.Test.Sdk"
+          - "xunit*"
   - package-ecosystem: docker
     directory: /
     schedule:

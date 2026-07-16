@@ -1,0 +1,61 @@
+{
+  "dependencies": [
+    {
+      "ecosystem": "github-actions",
+      "kind": "direct",
+      "name": "actions/checkout",
+      "source": ".github/workflows/skills-quality.yml",
+      "version": "v4"
+    },
+    {
+      "ecosystem": "github-actions",
+      "kind": "direct",
+      "name": "actions/setup-dotnet",
+      "source": ".github/workflows/skills-quality.yml",
+      "version": "v4"
+    },
+    {
+      "ecosystem": "github-actions",
+      "kind": "direct",
+      "name": "actions/setup-python",
+      "source": ".github/workflows/skills-quality.yml",
+      "version": "v5"
+    },
+    {
+      "ecosystem": "nuget",
+      "kind": "central",
+      "name": "Microsoft.Extensions.Hosting",
+      "source": "examples/dotnet-mcp-reference-lab/Directory.Packages.props",
+      "version": "10.0.10"
+    },
+    {
+      "ecosystem": "nuget",
+      "kind": "central",
+      "name": "Microsoft.NET.Test.Sdk",
+      "source": "examples/dotnet-mcp-reference-lab/Directory.Packages.props",
+      "version": "18.8.1"
+    },
+    {
+      "ecosystem": "nuget",
+      "kind": "central",
+      "name": "ModelContextProtocol",
+      "source": "examples/dotnet-mcp-reference-lab/Directory.Packages.props",
+      "version": "1.4.1"
+    },
+    {
+      "ecosystem": "nuget",
+      "kind": "central",
+      "name": "xunit.runner.visualstudio",
+      "source": "examples/dotnet-mcp-reference-lab/Directory.Packages.props",
+      "version": "3.1.5"
+    },
+    {
+      "ecosystem": "nuget",
+      "kind": "central",
+      "name": "xunit.v3",
+      "source": "examples/dotnet-mcp-reference-lab/Directory.Packages.props",
+      "version": "3.2.2"
+    }
+  ],
+  "schema_version": 1
+}
