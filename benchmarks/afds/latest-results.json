@@ -1,0 +1,355 @@
+{
+  "documents_per_variant": 360,
+  "iterations": [
+    {
+      "accepted": false,
+      "change": "unstructured baseline",
+      "iteration": 0,
+      "mrr": 0.4248414402558558,
+      "variant": "prose"
+    },
+    {
+      "accepted": false,
+      "change": "fixed comprehensive schema",
+      "gain_from_previous": 0.0,
+      "iteration": 1,
+      "mrr": 0.4248414402558558,
+      "variant": "afds2"
+    },
+    {
+      "accepted": true,
+      "change": "answer-first concise core",
+      "gain_from_previous": 0.0,
+      "iteration": 2,
+      "mrr": 0.4248414402558558,
+      "variant": "afds3_core"
+    },
+    {
+      "accepted": true,
+      "change": "aliases, entities, weighted retrieval",
+      "gain_from_previous": 0.5584918930774775,
+      "iteration": 3,
+      "mrr": 0.9833333333333333,
+      "variant": "afds3"
+    },
+    {
+      "accepted": false,
+      "change": "mandatory background and related sections",
+      "gain_from_previous": 0.0,
+      "iteration": 4,
+      "mrr": 0.9833333333333333,
+      "rejection": "no retrieval gain and larger context",
+      "variant": "afds3_more_sections"
+    },
+    {
+      "accepted": false,
+      "change": "mandatory audience, review cycle, and related-topic metadata",
+      "gain_from_previous": 0.0,
+      "iteration": 5,
+      "mrr": 0.9833333333333333,
+      "rejection": "no material retrieval gain and more authoring ceremony",
+      "variant": "afds3_more_metadata"
+    }
+  ],
+  "limitations": [
+    "Deterministic lexical retrieval isolates documentation shape; it is not a claim about any named LLM.",
+    "Synthetic domains test controlled retrieval properties and must be complemented by repository-specific task evaluations."
+  ],
+  "mutation": {
+    "by_defect": {
+      "bad-id": 1.0,
+      "broken-link": 1.0,
+      "duplicate-heading": 1.0,
+      "missing-field": 1.0,
+      "no-frontmatter": 1.0,
+      "volatile-field": 1.0
+    },
+    "cases": 120,
+    "detected": 120,
+    "detection_rate": 1.0
+  },
+  "personas": [
+    "exact",
+    "incident",
+    "paraphrase",
+    "terse",
+    "weak-vocabulary"
+  ],
+  "queries": 1800,
+  "results": {
+    "afds2": {
+      "average_top3_chars": 8969.673333333334,
+      "by_persona": {
+        "exact": {
+          "mrr": 1.0,
+          "ndcg@5": 1.0,
+          "recall@1": 1.0,
+          "recall@3": 1.0,
+          "recall@5": 1.0
+        },
+        "incident": {
+          "mrr": 0.0779978402158623,
+          "ndcg@5": 0.049140985314656535,
+          "recall@1": 0.016666666666666666,
+          "recall@3": 0.05,
+          "recall@5": 0.08333333333333333
+        },
+        "paraphrase": {
+          "mrr": 0.02904327911329733,
+          "ndcg@5": 0.016380328438218846,
+          "recall@1": 0.005555555555555556,
+          "recall@3": 0.016666666666666666,
+          "recall@5": 0.027777777777777776
+        },
+        "terse": {
+          "mrr": 1.0,
+          "ndcg@5": 1.0,
+          "recall@1": 1.0,
+          "recall@3": 1.0,
+          "recall@5": 1.0
+        },
+        "weak-vocabulary": {
+          "mrr": 0.01716608195011918,
+          "ndcg@5": 0.008190164219109423,
+          "recall@1": 0.002777777777777778,
+          "recall@3": 0.008333333333333333,
+          "recall@5": 0.013888888888888888
+        }
+      },
+      "mrr": 0.4248414402558558,
+      "ndcg@5": 0.41474229559439696,
+      "recall@1": 0.405,
+      "recall@3": 0.415,
+      "recall@5": 0.425
+    },
+    "afds3": {
+      "average_top3_chars": 2346.6722222222224,
+      "by_persona": {
+        "exact": {
+          "mrr": 1.0,
+          "ndcg@5": 1.0,
+          "recall@1": 1.0,
+          "recall@3": 1.0,
+          "recall@5": 1.0
+        },
+        "incident": {
+          "mrr": 1.0,
+          "ndcg@5": 1.0,
+          "recall@1": 1.0,
+          "recall@3": 1.0,
+          "recall@5": 1.0
+        },
+        "paraphrase": {
+          "mrr": 1.0,
+          "ndcg@5": 1.0,
+          "recall@1": 1.0,
+          "recall@3": 1.0,
+          "recall@5": 1.0
+        },
+        "terse": {
+          "mrr": 1.0,
+          "ndcg@5": 1.0,
+          "recall@1": 1.0,
+          "recall@3": 1.0,
+          "recall@5": 1.0
+        },
+        "weak-vocabulary": {
+          "mrr": 0.9166666666666666,
+          "ndcg@5": 0.9384882922619096,
+          "recall@1": 0.8333333333333334,
+          "recall@3": 1.0,
+          "recall@5": 1.0
+        }
+      },
+      "mrr": 0.9833333333333333,
+      "ndcg@5": 0.9876976584523819,
+      "recall@1": 0.9666666666666667,
+      "recall@3": 1.0,
+      "recall@5": 1.0
+    },
+    "afds3_core": {
+      "average_top3_chars": 1849.3694444444445,
+      "by_persona": {
+        "exact": {
+          "mrr": 1.0,
+          "ndcg@5": 1.0,
+          "recall@1": 1.0,
+          "recall@3": 1.0,
+          "recall@5": 1.0
+        },
+        "incident": {
+          "mrr": 0.0779978402158623,
+          "ndcg@5": 0.049140985314656535,
+          "recall@1": 0.016666666666666666,
+          "recall@3": 0.05,
+          "recall@5": 0.08333333333333333
+        },
+        "paraphrase": {
+          "mrr": 0.02904327911329733,
+          "ndcg@5": 0.016380328438218846,
+          "recall@1": 0.005555555555555556,
+          "recall@3": 0.016666666666666666,
+          "recall@5": 0.027777777777777776
+        },
+        "terse": {
+          "mrr": 1.0,
+          "ndcg@5": 1.0,
+          "recall@1": 1.0,
+          "recall@3": 1.0,
+          "recall@5": 1.0
+        },
+        "weak-vocabulary": {
+          "mrr": 0.01716608195011918,
+          "ndcg@5": 0.008190164219109423,
+          "recall@1": 0.002777777777777778,
+          "recall@3": 0.008333333333333333,
+          "recall@5": 0.013888888888888888
+        }
+      },
+      "mrr": 0.4248414402558558,
+      "ndcg@5": 0.41474229559439696,
+      "recall@1": 0.405,
+      "recall@3": 0.415,
+      "recall@5": 0.425
+    },
+    "afds3_more_metadata": {
+      "average_top3_chars": 2700.6722222222224,
+      "by_persona": {
+        "exact": {
+          "mrr": 1.0,
+          "ndcg@5": 1.0,
+          "recall@1": 1.0,
+          "recall@3": 1.0,
+          "recall@5": 1.0
+        },
+        "incident": {
+          "mrr": 1.0,
+          "ndcg@5": 1.0,
+          "recall@1": 1.0,
+          "recall@3": 1.0,
+          "recall@5": 1.0
+        },
+        "paraphrase": {
+          "mrr": 1.0,
+          "ndcg@5": 1.0,
+          "recall@1": 1.0,
+          "recall@3": 1.0,
+          "recall@5": 1.0
+        },
+        "terse": {
+          "mrr": 1.0,
+          "ndcg@5": 1.0,
+          "recall@1": 1.0,
+          "recall@3": 1.0,
+          "recall@5": 1.0
+        },
+        "weak-vocabulary": {
+          "mrr": 0.9166666666666666,
+          "ndcg@5": 0.9384882922619096,
+          "recall@1": 0.8333333333333334,
+          "recall@3": 1.0,
+          "recall@5": 1.0
+        }
+      },
+      "mrr": 0.9833333333333333,
+      "ndcg@5": 0.9876976584523819,
+      "recall@1": 0.9666666666666667,
+      "recall@3": 1.0,
+      "recall@5": 1.0
+    },
+    "afds3_more_sections": {
+      "average_top3_chars": 5252.245555555555,
+      "by_persona": {
+        "exact": {
+          "mrr": 1.0,
+          "ndcg@5": 1.0,
+          "recall@1": 1.0,
+          "recall@3": 1.0,
+          "recall@5": 1.0
+        },
+        "incident": {
+          "mrr": 1.0,
+          "ndcg@5": 1.0,
+          "recall@1": 1.0,
+          "recall@3": 1.0,
+          "recall@5": 1.0
+        },
+        "paraphrase": {
+          "mrr": 1.0,
+          "ndcg@5": 1.0,
+          "recall@1": 1.0,
+          "recall@3": 1.0,
+          "recall@5": 1.0
+        },
+        "terse": {
+          "mrr": 1.0,
+          "ndcg@5": 1.0,
+          "recall@1": 1.0,
+          "recall@3": 1.0,
+          "recall@5": 1.0
+        },
+        "weak-vocabulary": {
+          "mrr": 0.9166666666666666,
+          "ndcg@5": 0.9384882922619096,
+          "recall@1": 0.8333333333333334,
+          "recall@3": 1.0,
+          "recall@5": 1.0
+        }
+      },
+      "mrr": 0.9833333333333333,
+      "ndcg@5": 0.9876976584523819,
+      "recall@1": 0.9666666666666667,
+      "recall@3": 1.0,
+      "recall@5": 1.0
+    },
+    "prose": {
+      "average_top3_chars": 3705.722777777778,
+      "by_persona": {
+        "exact": {
+          "mrr": 1.0,
+          "ndcg@5": 1.0,
+          "recall@1": 1.0,
+          "recall@3": 1.0,
+          "recall@5": 1.0
+        },
+        "incident": {
+          "mrr": 0.0779978402158623,
+          "ndcg@5": 0.049140985314656535,
+          "recall@1": 0.016666666666666666,
+          "recall@3": 0.05,
+          "recall@5": 0.08333333333333333
+        },
+        "paraphrase": {
+          "mrr": 0.02904327911329733,
+          "ndcg@5": 0.016380328438218846,
+          "recall@1": 0.005555555555555556,
+          "recall@3": 0.016666666666666666,
+          "recall@5": 0.027777777777777776
+        },
+        "terse": {
+          "mrr": 1.0,
+          "ndcg@5": 1.0,
+          "recall@1": 1.0,
+          "recall@3": 1.0,
+          "recall@5": 1.0
+        },
+        "weak-vocabulary": {
+          "mrr": 0.01716608195011918,
+          "ndcg@5": 0.008190164219109423,
+          "recall@1": 0.002777777777777778,
+          "recall@3": 0.008333333333333333,
+          "recall@5": 0.013888888888888888
+        }
+      },
+      "mrr": 0.4248414402558558,
+      "ndcg@5": 0.41474229559439696,
+      "recall@1": 0.405,
+      "recall@3": 0.415,
+      "recall@5": 0.425
+    }
+  },
+  "schema_version": 1,
+  "seed": 20260717,
+  "stopping_rule": "Stop after two candidate rounds each improve MRR by <0.005 and add no high-severity mutation coverage.",
+  "total_generated_documents": 2160
+}

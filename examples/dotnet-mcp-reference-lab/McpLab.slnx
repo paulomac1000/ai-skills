@@ -1,0 +1,9 @@
+<Solution>
+  <Project Path="src/McpLab.Common/McpLab.Common.csproj" />
+  <Project Path="src/McpLab.HomeAssistant.ReadOnly/McpLab.HomeAssistant.ReadOnly.csproj" />
+  <Project Path="src/McpLab.Kontomierz.SafeWrite/McpLab.Kontomierz.SafeWrite.csproj" />
+  <Project Path="src/McpLab.OpenWrt.Allowlisted/McpLab.OpenWrt.Allowlisted.csproj" />
+  <Project Path="src/McpLab.Mikrus.Adapters/McpLab.Mikrus.Adapters.csproj" />
+  <Project Path="src/McpLab.LocalDevices.Discovery/McpLab.LocalDevices.Discovery.csproj" />
+  <Project Path="tests/McpLab.Tests/McpLab.Tests.csproj" />
+</Solution>

@@ -1,231 +1,30 @@
-# AFDS Validator Configuration v1.0.0
-# Customize this file for your project.
-# Omit any section to use the AFDS default.
-
-types:
-  workflow:
-    id_prefix: workflow
-    default_ttl: 90
-    sections:
-      - PURPOSE
-      - SCOPE
-      - TRIGGER
-      - STEPS
-      - VALIDATION
-      - PITFALLS
-      - ROLLBACK
-  ref:
-    id_prefix: ref
-    default_ttl: 180
-    sections:
-      - PURPOSE
-      - SCOPE
-      - DEFINITIONS
-      - RULES
-      - INTERFACES
-      - STATE
-      - EDGE_CASES
-      - EXAMPLES
-      - NON_GOALS
-    # Optional sections: allowed in any ref document but not required.
-    # Used by comprehensive reference documents (e.g., docs_standards.md
-    # itself) that document or include all possible section types.
-    optional_sections:
-      - TABLE_OF_CONTENTS
-      - 1._CORE_AXIOMS
-      - 2._DOCUMENT_TAXONOMY
-      - 3._YAML_FRONTMATTER_SCHEMA
-      - 4._BODY_SCHEMA
-      - 5._CONTROLLED_LANGUAGE
-      - 6._FITNESS_FUNCTION
-      - 7._AUTONOMIC_PROCESSES
-      - 8._CONFLICT_RESOLUTION
-      - 9._REPOSITORY_STRUCTURE
-      - 10._AI_AGENT_PROTOCOL
-      - 11._CI/CD_VALIDATION
-      - 12._DEPRECATION_WORKFLOW
-      - 13._ANTI-PATTERN_CATALOG
-      - 14._MUTATION_RULES
-      - 15._SCHEMA_AMENDMENT_PROCESS
-      - 16._ADOPTION_PHASES
-      - 17._TESTING_AND_VALIDATION_STRATEGY
-      - 18._SECURITY_AND_ACCESS_CONTROL
-      - 19._DOCUMENTATION_METRICS_AND_OBSERVABILITY
-      - EXTERNAL_LINKS
-  system:
-    id_prefix: sys
-    default_ttl: 90
-    sections:
-      - PURPOSE
-      - SCOPE
-      - ARCHITECTURE
-      - ENTITY_REFERENCE
-      - INTERFACES
-      - STATE
-      - EDGE_CASES
-      - FAILURE_MODES
-      - TESTING
-      - TROUBLESHOOTING
-  guide:
-    id_prefix: guide
-    default_ttl: 180
-    sections:
-      - PURPOSE
-      - AUDIENCE
-      - CONTEXT
-      - WALKTHROUGH
-      - PITFALLS
-      - RELATED_DOCS
-  integration:
-    id_prefix: int
-    default_ttl: 180
-    sections:
-      - PURPOSE
-      - SCOPE
-      - ARCHITECTURE
-      - CONFIGURATION
-      - ENTITIES_CREATED
-      - INTERFACES
-      - TESTING
-      - TROUBLESHOOTING
-      - SECURITY_NOTES
-      - CHANGELOG
-  decision:
-    id_prefix: decision
-    default_ttl: 0
-    sections:
-      - CONTEXT
-      - DECISION
-      - ALTERNATIVES_CONSIDERED
-      - CONSEQUENCES
-      - STATUS
-      - CHANGELOG
-  contract:
-    id_prefix: contract
-    default_ttl: 0
-    sections:
-      - PURPOSE
-      - SPECIFICATION
-      - VERSIONING
-      - CHANGELOG
-
-statuses:
-  - active
-  - draft
-  - deprecated
-  - evolving
-  - archived
-
-ai_scope_values:
-  - editable
-  - review_only
-  - restricted
-
-stability_values:
-  - experimental
-  - stable
-  - frozen
-
-rigor_tier_values:
-  - L0
-  - L1
-  - L2
-  - L3
-
-allowed_fields:
-  - name
-  - metadata
+schema_version: 3
+exclude:
+  - .git
+  - .venv
+  - node_modules
+  - vendor
+  - dist
+  - build
+  - benchmarks/afds/generated
+required_frontmatter:
   - description
   - doc_id
   - type
   - status
-  - rigor_tier
-  - ttl_days
-  - ttl_policy
-  - stability
-  - ai_scope
-  - upstream
-  - last_verified
-  - trigger
-  - timeout
-  - scope
-  - supersedes
-  - superseded_by
-  - source_of_truth
-  - domain
-  - tags
+  - rigor
   - owners
-  - verification_status
-  - evidence
-  - verified_against
-  - generated_by
-  - doc_kind
-  - derived_from
-  - glossary_terms
-  - access_tier
-  - allowed_roles
-  - audit_log
-  - language
-  - canonical
-  - version
-  - standard_version
-
-forbidden_fields:
-  - downstream
-  - verified_by
-  - fitness_score
-  - semantic_hash
-
-project_banned_words: []
-# Example:
-# project_banned_words:
-#   - label: the service
-#     pattern: \bthe service\b
-#     suggestion: Use specific service name (e.g. auth-service)
-
-root_files: {}
-# Example:
-# root_files:
-#   README.md:
-#     required_type: ref
-#     required_fields: [description, doc_id, type, status]
-#     min_line_count: 10
-
-default_paths:
-  - docs/
-  - .agents/workflows/
-
-excluded_dirs:
-  - archived
-  - archive
-  - __pycache__
-  - .pytest_cache
-  - .opencode
-  - .omo
-
-exempt_files:
-  - README.md
-  - AGENTS.md
-  - docs-template.md
-  - CHANGELOG.md
-  - action-version-matrix.md
-
-normative_sections:
-  - RULES
-  - INTERFACES
-  - VALIDATION
-  - SPECIFICATION
-  - FAILURE_MODES
-
-non_normative_sections:
-  - EXAMPLES
-  - NON_GOALS
-  - PURPOSE
-  - CONTEXT
-  - RATIONALE
-  - TRADEOFFS
-  - WALKTHROUGH
-  - AUDIENCE
-  - PITFALLS
-
-baseline_path: .afds-baseline.json
+  - schema_version
+types:
+  workflow:
+    required_concepts: [prerequisites, steps, validation]
+  reference:
+    required_concepts: [scope]
+  system:
+    required_concepts: [boundaries, interfaces, failure]
+  guide:
+    required_concepts: [audience, outcome]
+  decision:
+    required_concepts: [context, decision, alternatives, consequences]
+  contract:
+    required_concepts: [inputs, outputs, errors, compatibility]

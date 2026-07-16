@@ -1,0 +1,29 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      python-tooling:
+        patterns: ["*"]
+  - package-ecosystem: nuget
+    directory: /examples/dotnet-mcp-reference-lab
+    schedule:
+      interval: weekly
+    groups:
+      dotnet-mcp:
+        patterns:
+          - "ModelContextProtocol*"
+          - "Microsoft.Extensions.*"
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly

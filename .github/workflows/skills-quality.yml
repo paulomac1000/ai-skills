@@ -1,0 +1,49 @@
+name: Skills quality
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: skills-quality-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install pyyaml pytest
+      - name: Validate governed documentation
+        run: >-
+          python skills/afds-doc-writer/docs_validate.py
+          skills/afds-doc-writer/docs_standards.md
+          skills/mcp-server-architect/mcp-server-standards.md
+          skills/mcp-server-consumer/mcp-consumer-standards.md
+          skills/ci-cd-architect/ci-cd-standard.md
+          skills/pre-commit-architect/precommit-standard.md
+      - name: Generate dependency catalog from manifests
+        run: python scripts/dependency_catalog.py
+      - name: Run AFDS benchmark regression gate
+        run: python benchmarks/afds/benchmark.py --check --output benchmarks/afds/latest-results.json
+      - name: Run tests
+        run: python -m pytest -q
+
+  dotnet-reference-lab:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+      - run: dotnet test examples/dotnet-mcp-reference-lab/McpLab.slnx --configuration Release

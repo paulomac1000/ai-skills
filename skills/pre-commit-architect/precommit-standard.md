@@ -1,434 +1,53 @@
 ---
-description: Single authoritative standard for pre-commit hook configuration across all compliant Python projects — hook ordering, CI mirroring, speed budgets, environment consistency, and AGENTS.md integration
-doc_id: ref.precommit-standard
-type: ref
+description: Standard for fast, reliable local Git checks that complement CI
+doc_id: reference.precommit-standard
+type: reference
 status: active
-rigor_tier: L2
-ttl_days: 365
-stability: stable
-ai_scope: editable
-domain: pre-commit
-tags: ["pre-commit", "hooks", "linting", "formatting", "ci-cd", "python", "mypy", "ruff", "bandit"]
-owners: ["backend-team"]
-upstream:
-  - ref.ci-cd-standard
-source_of_truth: true
-last_verified: "2026-06-14"
-doc_kind: atomic
-standard_version: "1.1.0"
+rigor: normative
+owners: [developer-experience]
+schema_version: 3
 ---
 
-# Pre-commit Standard — Unified Hook Configuration for Python Projects
-
-> [!IMPORTANT]
-> This document is the single authoritative source of truth for how `.pre-commit-config.yaml` is structured, maintained, and validated across all compliant projects. It covers hook ordering, CI mirroring, speed budgets, environment consistency, AGENTS.md integration, and common failure modes. All pre-commit configuration files in compliant projects MUST conform to these rules.
->
-> If any project's `.pre-commit-config.yaml` contradicts this standard, **this file takes precedence**. Update the project config to match.
+# Local Git checks standard
 
 ## PURPOSE
 
-Define a unified, version-locked, and reproducible pre-commit hook standard for Python projects. Ensure every project's pre-commit hooks run the same checks as CI lint and test jobs in the same order, with consistent tool versions, speed guarantees, and failure behavior. The standard supports multiple project archetypes (MCP servers, web services, CLI tools, libraries) through configurable hook selection.
-
-## SCOPE
-
-- INCLUDED: `.pre-commit-config.yaml` structure, hook ordering (generic → lint → format → types → security → docs → tests), `repo: local` vs `repo: remote` hook selection, `fail_fast` policy, `pass_filenames` conventions, speed budgets per hook, stage assignment (`pre-commit` vs `pre-push`), CI mirroring requirements, AGENTS.md pre-commit section, `ruff target-version` policy, mypy override requirements, AFDS doc hook exclude alignment, test collection error detection.
-- EXCLUDED: Individual tool configuration beyond pre-commit integration (ruff rules, mypy strictness, bandit severity — these are defined in `ref.ci-cd-standard`). Deployment, secrets management, project-specific business logic.
-
-## DEFINITIONS
-
-- **pre-commit**: A framework for managing and maintaining multi-language pre-commit hooks that run before `git commit`. The `.pre-commit-config.yaml` file defines which hooks run at which stage.
-- **pre-commit (canonical reference)** — Official site: [https://pre-commit.com/](https://pre-commit.com/). The canonical source for hook reference, version compatibility, and the public Python client library (`pre_commit.clientlib`). All rules in this standard derive from and reference this upstream project. The canonical hooks list lives at [https://pre-commit.com/hooks.html](https://pre-commit.com/hooks.html).
-- **local repo** (`repo: local`): A hook that runs tools already installed in the developer's environment (e.g., mypy, bandit, pytest). No download required. Version tracking is manual — the developer must keep tool versions in sync with CI.
-- **remote repo** (`repo: https://...`): A hook sourced from a public Git repository. Downloaded and cached on first run. Pinned to a specific commit SHA for immutability. Used for standard tools like ruff and pre-commit-hooks.
-- **pass_filenames**: A hook-level option that controls whether staged filenames are passed to the hook's `entry` command. The pre-commit framework default is `pass_filenames: true` (filenames ARE passed to hooks as positional arguments). Set `pass_filenames: false` explicitly for hooks that scan the entire repository (e.g., mypy, pytest, bandit) or operate on a fixed directory.
-- **fail_fast**: A hook-level option that, when `true`, stops the entire pre-commit run at the first failure. When `false` (the mandatory setting per this standard), all hooks run and report all errors before pre-commit exits with a failure status.
-- **stages**: Pre-commit supports multiple stages — `pre-commit` (runs at `git commit`), `pre-push` (runs at `git push`), `commit-msg`, `post-commit`, and others. This standard dictates which stage each hook category belongs to.
-- **CI mirroring**: The principle that pre-commit hooks MUST execute the same tools, in the same order, as the CI lint and test jobs. Pre-commit is a local pre-flight for CI, not an independent check suite.
-- **hook ordering chain**: The canonical order of hook categories: generic (trailing whitespace, YAML/TOML validation) → lint (ruff check) → format (ruff format) → types (mypy) → security (bandit) → docs (AFDS) → tests (pytest).
+Local hooks reduce feedback time and prevent predictable mistakes. They complement CI; they do not duplicate every CI environment.
 
 ## RULES
 
-### Rule 1: CI Mirroring
+**HOOK-001 — Measured budget.** The project defines a target latency for pre-commit and records measured duration. Slow checks move to pre-push or an explicit verify command.
 
-**[RULE: PRECOMMIT-01] [L1+]** Pre-commit MUST run the same checks as CI lint+test jobs in the same order. Every tool configured in CI's `lint` and `test` jobs MUST appear in `.pre-commit-config.yaml` at the appropriate stage. The hook ordering (see PRECOMMIT-02) MUST match the CI job step ordering. Pre-commit is a local pre-flight that mirrors CI — it is NOT an independent check suite with its own toolset or ordering.
+**HOOK-002 — Deterministic local execution.** Pre-commit checks MUST run without production credentials and SHOULD avoid network access.
 
-Pre-commit runs in the developer's full local environment (`pip install -e ".[dev]"`), which includes all project dependencies. CI lint jobs frequently have a minimal environment (`pip install ruff mypy bandit` without project deps). This environment mismatch is the root cause of many pre-commit-vs-CI failures. Rules PRECOMMIT-03 (ruff target-version), PRECOMMIT-11 (mypy overrides), and PRECOMMIT-12 (AFDS excluded_dirs) specifically address this mismatch.
+**HOOK-003 — Shared configuration.** Local and CI checks use the same formatter, linter, compiler, schema, and test configuration where applicable.
 
-> **Virtualenv Isolation Warning**: Pre-commit hooks run in isolated virtualenvs managed by pre-commit. A passing `pre-commit run` locally does NOT guarantee CI passes. The CI lint job's `pip install` step must explicitly list every tool invoked in CI steps.
+**HOOK-004 — Purpose parity.** A required local check has a corresponding CI enforcement or a documented reason why CI cannot run it. CI may run additional layers.
 
-b. **CI `pip install` step coverage**: The CI lint and test jobs' `pip install` (or equivalent package install) step MUST list every tool invoked in subsequent lint/test steps. Audit pattern: `diff <(grep -oP '(?<=entry:\s)[\w./-]+' .pre-commit-config.yaml | sort -u) <(grep -oP '(?<=pip install )\S+' .github/workflows/*.yml | sort -u)` — any tool in the first set but not the second is a coverage gap. This addresses the environment mismatch that caused audit Issue #9 (P1 in stack-hassio deployment).
+**HOOK-005 — Correct scope.** File-aware tools receive changed files when safe. Repository-wide tools use explicit repository scope and do not pretend to be incremental.
 
-### Rule 2: Hook Ordering
+**HOOK-006 — Failure clarity.** A failed hook prints the command or repair action. Auto-fixing tools leave the working tree in a reviewable state.
 
-**[RULE: PRECOMMIT-02] [L1+]** Hook ordering in `.pre-commit-config.yaml` MUST follow this canonical chain:
+**HOOK-007 — Dependency ownership.** Hook versions live in the hook framework manifest or language manifest and are updated by dependency automation. Prompts and standards do not contain a current version table.
 
-```
-generic → lint → format → types → security → docs → tests
-```
+**HOOK-008 — Secret checks.** Repositories with credentials or deployable infrastructure run a local secret or private-key check with reviewed allowlists or baselines.
 
-Where each category maps to:
+**HOOK-009 — Generated files.** Generated artifacts are either regenerated by a hook or checked for freshness; authors do not hand-edit them.
 
-| Category | Tools | Stage | Notes |
-|----------|-------|-------|-------|
-| generic | trailing-whitespace, end-of-file-fixer, check-yaml, check-toml, check-json | pre-commit | Run first — cheap, catch structural errors fast |
-| lint | ruff check | pre-commit | Run before format to catch issues format could mask |
-| format | ruff format | pre-commit | Run after lint; formatted code is easier to reason about |
-| types | mypy | pre-commit | Run after format so type errors reference formatted source |
-| security | bandit | pre-commit | Run after format; security issues reference formatted source |
-| docs | AFDS (docs_validate.py), semgrep | pre-commit | Network-OK, runs after code quality gates |
-| tests | pytest (unit) | pre-commit | Run last — tests pass or fail based on the code, not formatting |
+**HOOK-010 — Bypass policy.** Emergency bypass is possible through the framework's standard mechanism, leaves an auditable developer responsibility, and never weakens CI.
 
-> **Exclude Patterns**: All generic hooks SHOULD include `exclude` patterns for generated/planning directories (`.omo/`, `.codegraph/`, `__pycache__/`). Auto-fix hooks modifying gitignored files can cause stash conflicts.
+**HOOK-011 — Installation.** Setup is documented in the repository's canonical developer guide. CI or a bootstrap check SHOULD detect when required generated hook files are stale.
 
-### Rule 3: Ruff target-version
+**HOOK-012 — Tests.** Hook configuration is validated syntactically and exercised against at least one expected pass and representative failures.
 
-**[RULE: PRECOMMIT-03] [L1+]** The `ruff target-version` in `pyproject.toml` MUST match the minimum Python version declared in `requires-python`, NOT the CI runner's Python version. Setting `target-version` to a higher version than the project supports causes `ruff format` to rewrite syntax into forms incompatible with older Python versions.
+## STAGING GUIDANCE
 
-**Example failure**: `target-version = "py314"` on a project with `requires-python = ">=3.11"` caused ruff to convert `except (X, Y):` syntax back to `except X as e:` followed by separate handler — breaking Python 3.11-compatible except clauses that were intentionally modern.
+Pre-commit: formatting, syntax, cheap lint, conflict markers, secret patterns, focused generated-file checks.
 
-**Correct**: `target-version = "py311"` when `requires-python = ">=3.11"`.
+Pre-push: compilation, types, broader lint, unit tests, documentation validation, package build when duration is acceptable.
 
-> **Applicability**: This rule applies only to Python projects with `pyproject.toml`. For non-Python repos (HA configs, infrastructure repos), this rule is N/A. Structural rules (PRECOMMIT-01, -02, -09, -10) apply regardless of language.
+CI only by default: integration and end-to-end tests, service containers, live APIs, multi-platform matrices, image publication, deployment, provenance.
 
-### Rule 4: No Error Masking
+## ACCEPTANCE
 
-**[RULE: PRECOMMIT-04] [L1+]** NEVER use `|| true` or `--ignore` to mask errors in pre-commit hook entries. Silent failures in pre-commit produce silent failures in CI. If a check legitimately cannot pass, it should be deferred to a later stage (e.g., `pre-push` for slow tests) or the underlying issue should be fixed — not masked.
-
-**Real-world failure**: An agent added `|| true` to ruff format to bypass `except (X, Y):` syntax errors instead of fixing the `target-version` mismatch (PRECOMMIT-03). The syntax was silently broken until CI failed.
-
-### Rule 5: python3 Entry Commands
-
-**[RULE: PRECOMMIT-05] [L1+]** All hook `entry` commands MUST use `python3`, not `python`. Debian-based systems (including Ubuntu) only provide `python3` as the system Python binary; `python` does not exist by default. Using `python` in hook entries causes pre-commit to fail with "command not found" on Debian/Ubuntu.
-
-```yaml
-# CORRECT
-entry: python3 -m pytest tests/unit/ -v
-
-# WRONG
-entry: python -m pytest tests/unit/ -v
-```
-
-### Rule 6: fail_fast Policy
-
-**[RULE: PRECOMMIT-06] [L1+]** ALL hooks MUST use `fail_fast: false`. This ensures all errors are collected and reported before pre-commit exits, rather than stopping at the first failure. Developers can fix all issues in one pass rather than iterating through failures one at a time.
-
-```yaml
-repos:
-  - repo: local
-    hooks:
-      - id: ruff-check
-        fail_fast: false
-```
-
-### Rule 7: Heavy Tests to pre-push
-
-**[RULE: PRECOMMIT-07] [L2+]** Heavy tests (integration tests, end-to-end tests, tests requiring external services) MUST be assigned to the `pre-push` stage, not `pre-commit`. The `pre-commit` stage is limited to 30 seconds total (PRECOMMIT-08) — integration tests that take 30+ seconds belong at `pre-push`.
-
-```yaml
-- id: integration-tests
-  name: Integration tests (pre-push only)
-  entry: python3 -m pytest tests/integration/ -v
-  stages: [pre-push]
-  pass_filenames: false
-```
-
-### Rule 8: Speed Budget
-
-**[RULE: PRECOMMIT-08] [L2+]** The total runtime of all hooks on the `pre-commit` stage MUST be under 30 seconds. If the combined runtime exceeds 30 seconds, move the slowest hooks to `pre-push`. Developers will disable pre-commit entirely if it slows down their commit workflow.
-
-| Hook Category | Target Time | Stage |
-|---------------|------------|-------|
-| generic (whitespace, YAML) | <2s | pre-commit |
-| ruff check | <3s | pre-commit |
-| ruff format | <3s | pre-commit |
-| mypy | <10s | pre-commit |
-| bandit | <5s | pre-commit |
-| AFDS docs | <5s | pre-commit |
-| pytest unit | <10s | pre-commit |
-| **Total budget** | **<30s** | pre-commit |
-| pytest integration | — | **pre-push only** |
-| e2e tests | — | **CI only** |
-
-### Rule 9: Remote Hook Pinning
-
-**[RULE: PRECOMMIT-09] [L2+]** Remote hooks MUST use commit SHA pinning, NOT version tags. Version tags are mutable references — an attacker who compromises a hook repository can push malicious code to a version tag. Commit SHAs are cryptographically immutable.
-
-```yaml
-# CORRECT — commit SHA
-- repo: https://github.com/astral-sh/ruff-pre-commit
-  rev: a8fe2af36a22bca86a229fb3b00d132b41c5cd08  # v0.11.0
-
-# WRONG — mutable tag
-- repo: https://github.com/astral-sh/ruff-pre-commit
-  rev: v0.11.0
-```
-
-### Rule 10: Committed Config and AGENTS.md
-
-**[RULE: PRECOMMIT-10] [L1+]** The `.pre-commit-config.yaml` file MUST be committed to the repository. Every project's `AGENTS.md` MUST contain a pre-commit section documenting the expected hooks, their purpose, and how to install them (`pre-commit install`).
-
-The AGENTS.md section SHOULD include:
-- A list of hooks with brief descriptions
-- The command to install: `pre-commit install`
-- The command to run manually: `pre-commit run --all-files`
-- A note that pre-commit mirrors CI lint+test (PRECOMMIT-01)
-
-### Rule 11: Mypy Overrides for Third-Party Dependencies
-
-**[RULE: PRECOMMIT-11] [L1+]** The `[[tool.mypy.overrides]]` section in `pyproject.toml` MUST list every third-party dependency used by the project. Each override MUST include the `module` key (the import name) and `ignore_missing_imports = true` (when type stubs are unavailable). CI lint jobs frequently have minimal environments (`pip install ruff mypy bandit` without project dependencies) — `ignore_missing_imports` set globally is prohibited (CI-CDW-8), so every third-party package that lacks type stubs must be explicitly declared in overrides.
-
-**Real-world failure**: `mypy` passed locally because the developer had installed all project deps via `pip install -e ".[dev]"`. CI lint ran `pip install ruff mypy bandit` (minimal env), so mypy could not resolve `fastmcp.*`, `requests.*`, `pyyaml.*`, `starlette.*`, `uvicorn.*`, `dateutil.*`, `pydantic.*`. Seven third-party libraries were silently type-checked as `Any` or errored.
-
-```toml
-[[tool.mypy.overrides]]
-module = ["fastmcp", "requests", "pyyaml", "starlette", "uvicorn", "dateutil", "pydantic"]
-ignore_missing_imports = true
-```
-
-> **Applicability**: This rule applies only to Python projects with `pyproject.toml`. For non-Python repos (HA configs, infrastructure repos), this rule is N/A. Structural rules (PRECOMMIT-01, -02, -09, -10) apply regardless of language.
-
-### Rule 12: AFDS Exclude Alignment
-
-**[RULE: PRECOMMIT-12] [L1+]** The `excluded_dirs` in `afds_config.yaml` MUST match the directories excluded by the pre-commit docs validation hook's `exclude` pattern. If pre-commit excludes `.omo/` from AFDS scanning but `afds_config.yaml` does not list `.omo` in `excluded_dirs`, CI's docs validation will scan `.omo/` and fail on non-AFDS planning documents.
-
-**Real-world failure**: The pre-commit hook had `exclude: ^(\.omo/|archived/)` but `afds_config.yaml` lacked `.omo` in `excluded_dirs`. CI scanned `.omo/plans/*.md` (planning docs without YAML frontmatter) and failed.
-
-**Correct alignment**:
-```yaml
-# .pre-commit-config.yaml
-- id: afds-docs
-  exclude: ^(\.omo/|archived/)
-
-# afds_config.yaml
-excluded_dirs:
-  - archived
-  - .omo
-```
-
-### Rule 13: Test Collection Error Detection
-
-**[RULE: PRECOMMIT-13] [L2+]** Pre-commit MUST NOT silently pass when test files fail to collect. If `pytest --collect-only` reports errors (import errors, syntax errors in test files, missing fixtures), the pre-commit run MUST fail even if all collected tests pass. Environment-specific import errors (e.g., a package works in CI but fails in the developer's virtual environment due to a missing optional dependency) must not mask test collection failures.
-
-### Rule 14: Secret Scanning
-
-**[RULE: PRECOMMIT-14] [L1+]** Projects MUST include secret scanning to prevent accidental commit of credentials, API keys, and private keys. The minimum requirement is `detect-private-key` from `pre-commit-hooks` (catches PEM/SSH key material). For comprehensive coverage, projects SHOULD add at least one of:
-
-- **`gitleaks`** (Go binary, 150+ rules) — recommended for new projects. Fastest OSS secret scanner. Available as a pre-commit hook from `gitleaks/gitleaks`.
-- **`detect-secrets`** (Python, Yelp) — recommended for legacy codebases where a baseline allowlist (`.secrets.baseline`) is needed to suppress known false positives. ⚠️ Known MemoryError on Python 3.13 multiprocessing pool.
-
-Secret scanning hooks MUST be ordered in the `security` category (per PRECOMMIT-02), after `bandit` and before any custom security hooks.
-
-**Real-world failure**: A developer committed a `config.json` containing an embedded AWS access key. The pre-commit hook passed because no secret scanning was configured. The key was leaked to the remote repository and triggered a third-party security alert within 48 hours. Adding `gitleaks` (or `detect-secrets` with a baseline) to the security category, and `detect-private-key` from `pre-commit/pre-commit-hooks` as a minimum, would have caught this on `git commit`.
-
-**Mitigation**: Generate a baseline with `gitleaks detect --report-path gitleaks-report.json --baseline-path .gitleaks-baseline.json` after audit. Commit the baseline file. The hook reads the baseline and only flags NEW secrets (lines not in baseline). For PEM key detection, `detect-private-key` from `pre-commit/pre-commit-hooks` provides minimum coverage with zero configuration.
-
-### Rule 15: Custom Local Validation Scripts
-
-**[RULE: PRECOMMIT-15] [L2+]** Projects with custom validation logic that is not covered by standard hooks MAY add `repo: local` hooks using Python scripts placed in a `scripts/` directory. Custom hooks MUST follow these conventions:
-
-```yaml
-- repo: local
-  hooks:
-    - id: my-custom-check
-      name: My custom validation
-      entry: python3 scripts/my_custom_check.py
-      language: system
-      types: [python]
-      pass_filenames: false
-      always_run: true
-      stages: [pre-commit]
-      fail_fast: false
-```
-
-1. **Script location**: `scripts/<name>.py` (not `tools/`, not root-level)
-2. **Test location**: `tests/test_scripts/` or `tests/test_<name>.py`
-3. **Hook config** MUST use `python3` not `python` (PRECOMMIT-05)
-4. **Hook config** MUST use `fail_fast: false` (PRECOMMIT-06)
-5. Use `pass_filenames: false` when the script scans the entire repository
-6. Use `always_run: true` to run even when no Python files are staged (for repo-wide checks)
-
-Examples from production projects:
-- `scripts/detect_naive_datetime.py` — detects `datetime.now()` calls without timezone
-- `scripts/detect_url_encoding.py` — detects URL-encoded path segments in API endpoints
-- `scripts/validate_registry_names.py` — validates naming conventions across the codebase
-
-Reference: `ha-mcp-readonly` `.pre-commit-config.yaml` and `scripts/` directory.
-
-## INTERFACES
-
-- INPUT: Repository with `.pre-commit-config.yaml`, `pyproject.toml` with `[tool.ruff]`, `[tool.mypy]`, and `[tool.bandit]` sections, and a test suite.
-- OUTPUT: Pass/fail status on `git commit`. All lint, format, type, security, docs, and unit test checks run before commit is allowed. Hook output is printed to stdout and stderr.
-- SIDE_EFFECTS: Pre-commit modifies staged files when auto-fix hooks run (e.g., `ruff format` reformats code, `trailing-whitespace` removes trailing spaces). After auto-fix, files must be re-staged with `git add`. Pre-commit installs hook environments into `.cache/pre-commit/`.
-
-## STATE
-
-- Assumptions: The developer has `pre-commit` installed (`pip install pre-commit`). Python 3.11+ is available in the developer's environment. The project uses `pyproject.toml` with `[tool.ruff]`, `[tool.mypy]`, and `[tool.bandit]` sections. CI lint and test jobs mirror the pre-commit hook configuration (PRECOMMIT-01). The developer has run `pre-commit install` to register the git hook. The AGENTS.md file exists at the repository root.
-- Constraints: Total pre-commit runtime must stay under 30 seconds (PRECOMMIT-08). Hook ordering is fixed and must not be reordered (PRECOMMIT-02). All hooks use `fail_fast: false` (PRECOMMIT-06). Remote hooks must use commit SHA pinning (PRECOMMIT-09). No error masking via `|| true` or `--ignore` (PRECOMMIT-04).
-- Known Limitations: Pre-commit runs in the developer's full local environment, which may mask environment-specific issues that appear in CI's minimal environment (PRECOMMIT-11). Test collection errors are environment-dependent — a package import failure in one environment may silently skip tests (PRECOMMIT-13). Pre-commit does not replace CI; it is a pre-flight that mirrors CI checks. Rust-based tools (ruff) can have different behavior across versions — pin remote hooks to commit SHA, not version tags (PRECOMMIT-09). Some hooks (mypy, bandit, pytest) require `pass_filenames: false` because they scan the entire repository rather than operating on individual staged files.
-
-## EDGE_CASES
-
-- CASE: Developer works offline and a remote hook cache is empty → EXPECTED: Pre-commit fails for that hook until network is restored. Use `SKIP=hook-id git commit` to bypass.
-- CASE: pre-commit total runtime exceeds 30 seconds → EXPECTED: Violation of PRECOMMIT-08. Move the slowest hook to `pre-push` stage.
-- CASE: `ruff target-version` is set to a higher version than `requires-python` → EXPECTED: Violation of PRECOMMIT-03. `ruff format` may rewrite syntax into forms incompatible with the declared minimum Python version.
-- CASE: Developer uses `python` instead of `python3` in hook entry on Debian/Ubuntu → EXPECTED: Hook fails with "command not found". Fix per PRECOMMIT-05.
-- CASE: Test collection error (import error in a test file) prevents test discovery → EXPECTED: Pre-commit must fail per PRECOMMIT-13, not silently pass.
-- CASE: A third-party dependency lacks type stubs and is not listed in `[[tool.mypy.overrides]]` → EXPECTED: Violation of PRECOMMIT-11. mypy may pass locally (full env) but fail in CI (minimal env).
-- CASE: Developer uses `--ignore` or `|| true` to mask a failing hook → EXPECTED: Violation of PRECOMMIT-04. The underlying issue will eventually fail in CI.
-
-## EXAMPLES
-
-### Example `.pre-commit-config.yaml` (standard Python project)
-
-```yaml
-repos:
-  - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: cef0300fd0fc4d2a87a85fa2093c6b283ea36f4b  # v5.0.0
-    hooks:
-      - id: trailing-whitespace
-      - id: end-of-file-fixer
-      - id: check-yaml
-      - id: check-toml
-      - id: check-json
-
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: a8fe2af36a22bca86a229fb3b00d132b41c5cd08  # v0.11.0
-    hooks:
-      - id: ruff
-        name: ruff check
-        args: [--fix]
-        fail_fast: false
-      - id: ruff-format
-        name: ruff format
-        fail_fast: false
-
-  - repo: local
-    hooks:
-      - id: mypy
-        name: mypy type check
-        entry: python3 -m mypy src/ --strict
-        language: system
-        types: [python]
-        pass_filenames: false
-        fail_fast: false
-
-      - id: bandit
-        name: bandit security scan
-        entry: python3 -m bandit -r src/ -ll
-        language: system
-        types: [python]
-        pass_filenames: false
-        fail_fast: false
-
-      - id: pytest-unit
-        name: unit tests
-        entry: python3 -m pytest tests/unit/ -v
-        language: system
-        types: [python]
-        pass_filenames: false
-        fail_fast: false
-
-      - id: pytest-integration
-        name: integration tests (pre-push only)
-        entry: python3 -m pytest tests/integration/ -v
-        language: system
-        types: [python]
-        pass_filenames: false
-        stages: [pre-push]
-```
-
-### Example AGENTS.md pre-commit section
-
-```markdown
-## Pre-commit Hooks
-
-This project uses pre-commit hooks to catch issues before they reach CI. The hooks mirror our CI lint and test jobs exactly.
-
-### Install
-
-```bash
-pip install pre-commit
-pre-commit install
-```
-
-### Run manually
-
-```bash
-pre-commit run --all-files  # run all hooks on all files
-SKIP=mypy,bandit git commit # skip specified hooks
-```
-
-### Hook summary
-
-| Hook | Purpose |
-|------|---------|
-| trailing-whitespace | Remove trailing whitespace |
-| end-of-file-fixer | Ensure files end with a newline |
-| check-yaml/check-toml/check-json | Validate config file syntax |
-| ruff check | Lint Python code |
-| ruff format | Format Python code |
-| mypy | Static type checking |
-| bandit | Security scanning |
-| pytest unit | Run unit tests |
-| pytest integration | Run integration tests (pre-push only) |
-```
-
-## NON_GOALS
-
-- This standard does not cover individual tool configuration beyond their pre-commit integration. Ruff rule selection, mypy strictness levels, and bandit severity are defined in `ref.ci-cd-standard`.
-- It does not prescribe specific hook version management tools (e.g., `pre-commit autoupdate`, Dependabot for pre-commit). Version management patterns are covered in `ref.ci-cd-standard`.
-- It does not cover commit message hooks (`commit-msg` stage), pre-receive hooks, or server-side hooks.
-- It does not define project-specific test configurations — only that tests MUST run and MUST NOT silently skip.
-
-## CHANGELOG
-
-### (2026-06-11) — Patterns from ha-mcp-readonly feedback
-- 🟢 **Added:** PRECOMMIT-15 — Custom local validation scripts with conventions for script placement, hook configuration, and testing
-
-### (2026-06-11) — Deployment feedback fixes
-- 🔴 **Fixed:** `pre-commit-mcp.j2` — `grep`-based tool count replaces `from server import get_tool_count`
-- 🔴 **Fixed:** `pre-commit-mcp.j2`, `pre-commit-python.j2` — mypy/bandit use `{{ src_dir }}` + `--strict`/`-ll`
-- 🟢 **Added:** `pre-commit-shell.j2` — new native bash hook template for .NET, Rust, Go, and polyglot projects that cannot use the Python pre-commit framework
-- 🔴 **Fixed:** All 4 templates — `rev` uses commit SHA (`cef0300f`) instead of mutable `v5.0.0` tag
-- 🟡 **Fixed:** `pre-commit-mcp.j2`, `pre-commit-python.j2` — `mypy_additional_deps` template variable
-- 🟡 **Fixed:** SKILL.md — dynamic AGENTS.md hook table replaces fixed incompatible table
-- 🟢 **Fixed:** All 4 templates — ruff hooks use `pass_filenames: true`
-- 🟡 **Fixed:** All 4 templates — pytest hook includes `--collect-only` pre-check
-
-
-### [1.1.0] - 2026-06-14
-
-**Added:**
-- PRECOMMIT-01 sub-clause b: CI `pip install` step MUST list every tool invoked in lint/test steps. Addresses audit Issue #9 root cause.
-- DEFINITIONS entry linking to https://pre-commit.com/ (canonical upstream project) — references instead of duplicating.
-- Workflow 3 (UPGRADE) implemented as generic template with v1.0.0→v1.1.0 worked example.
-
-**Fixed:**
-- PRECOMMIT-14 "Real-world failure" and "Mitigation" sections were copy-paste errors from PRECOMMIT-13 — rewritten to describe actual secret scanning failures (AWS key detection, PEM key detection, gitleaks baseline).
-- `references/hook-catalog.md` rewritten to be a project-specific pinning index (was duplicating https://pre-commit.com/hooks.html content with 8-char SHA abbreviations violating PRECOMMIT-09).
-- Templates now include `detect-private-key`, `end-of-file-fixer`, and `check-merge-conflict` (all 4 templates) — fixing own-standard violations of PRECOMMIT-14 and aligning with the repo's own `.pre-commit-config.yaml`.
-
-**Attribution (retroactive):**
-- PRECOMMIT-14 (Secret Scanning) was added in 1.0.0 without a changelog entry. This release adds the attribution.
-
-**External references integrated:**
-- https://pre-commit.com/ — canonical upstream project (now cited in DEFINITIONS)
-- https://pre-commit.com/hooks.html — canonical hooks catalog (now referenced in `references/hook-catalog.md`)
-- `pre_commit migrate-config` — built-in upstream command (now mentioned in Workflow 3 UPGRADE)
-- `pre_commit.clientlib.WarnMutableRev` — upstream rationale for PRECOMMIT-09 (SHA pinning)
-
-### 1.0.0 (2026-06-07) — Initial standard
-
-- PRECOMMIT-01: CI mirroring — pre-commit MUST run same checks as CI lint+test in same order
-- PRECOMMIT-02: Hook ordering chain — generic → lint → format → types → security → docs → tests
-- PRECOMMIT-03: ruff target-version MUST match requires-python minimum, not CI runner version
-- PRECOMMIT-04: NEVER use `|| true` or `--ignore` to mask errors
-- PRECOMMIT-05: Use `python3` not `python` in all entry commands
-- PRECOMMIT-06: ALL hooks use `fail_fast: false`
-- PRECOMMIT-07: Heavy tests go to `pre-push` stage, not `pre-commit`
-- PRECOMMIT-08: Pre-commit total runtime MUST be under 30 seconds
-- PRECOMMIT-09: Remote hooks use commit SHA, not version tags
-- PRECOMMIT-10: `.pre-commit-config.yaml` committed, AGENTS.md section present
-- PRECOMMIT-11: `[[tool.mypy.overrides]]` MUST list every third-party dependency
-- PRECOMMIT-12: AFDS `excluded_dirs` in `afds_config.yaml` MUST match pre-commit doc hook excludes
-- PRECOMMIT-13: Pre-commit MUST NOT silently pass when test files fail to collect
+The suite is accepted when measured latency meets the project budget, commands share configuration with CI, representative failures block correctly, and bypass does not bypass CI.
