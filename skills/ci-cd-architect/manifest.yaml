@@ -1,0 +1,5 @@
+name: ci-cd-architect
+required:
+  - SKILL.md
+  - STANDARD.md
+categories: [core, references, templates]

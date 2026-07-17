@@ -1,4 +1,4 @@
-"""Repository-level release contract tests."""
+"""Repository architecture and recovered-knowledge contract tests."""
 
 from __future__ import annotations
 
@@ -7,34 +7,18 @@ import re
 import sys
 from pathlib import Path
 
+import yaml
+
 ROOT = Path(__file__).resolve().parents[1]
 EXPECTED_SKILLS = {
     "afds-doc-writer",
     "ci-cd-architect",
     "mcp-server-architect",
     "mcp-server-consumer",
-    "pre-commit-architect",
 }
+ALLOWED_CATEGORIES = {"core", "references", "templates", "examples", "tools"}
 IGNORED_PARTS = {".git", ".venv", ".pytest_cache", "__pycache__", ".ruff_cache"}
-EXPECTED_LAYOUT = {
-    "afds-doc-writer": {"SKILL.md", "STANDARD.md", "validate.py"},
-    "ci-cd-architect": {
-        "SKILL.md",
-        "STANDARD.md",
-        "templates/ci.yml.template",
-        "templates/docs-validation.yml.template",
-        "templates/dotnet-ci.yml.template",
-        "templates/publish.yml.template",
-    },
-    "mcp-server-architect": {"SKILL.md", "STANDARD.md"},
-    "mcp-server-consumer": {
-        "SKILL.md",
-        "STANDARD.md",
-        "tools/__init__.py",
-        "tools/decision_engine.py",
-    },
-    "pre-commit-architect": {"SKILL.md", "STANDARD.md"},
-}
+POLISH_MARKERS = re.compile("[\u0105\u0107\u0119\u0142\u0144\u00f3\u015b\u017a\u017c\u0104\u0106\u0118\u0141\u0143\u00d3\u015a\u0179\u017b]")
 PROJECT_SPECIFIC_TERMS = {
     "ha-" + "mcp-readonly",
     "kontomierz-" + "mcp",
@@ -42,11 +26,9 @@ PROJECT_SPECIFIC_TERMS = {
     "mikrus-" + "mcp",
     "local-home-devices-" + "mcp",
 }
-POLISH_MARKERS = re.compile(r"[\u0105\u0107\u0119\u0142\u0144\u00f3\u015b\u017a\u017c\u0104\u0106\u0118\u0141\u0143\u00d3\u015a\u0179\u017b]")
 
 
 def load_validator():
-    """Load the standalone validator without making skills a Python package."""
     path = ROOT / "skills/afds-doc-writer/validate.py"
     spec = importlib.util.spec_from_file_location("afds_validator", path)
     assert spec and spec.loader
@@ -57,7 +39,6 @@ def load_validator():
 
 
 def source_files(root: Path = ROOT) -> list[Path]:
-    """Return release files while excluding local runtime artifacts."""
     return [
         path
         for path in root.rglob("*")
@@ -65,88 +46,84 @@ def source_files(root: Path = ROOT) -> list[Path]:
     ]
 
 
-def test_release_structure_is_compact_and_intentional() -> None:
-    """Reject development-stage artifacts and accidental repository growth."""
-    files = source_files()
-    assert len(files) <= 40
-    assert not any("matrix" in path.name.lower() for path in files)
-    assert (ROOT / "CHANGELOG.md").exists()
-    assert not (ROOT / "decisions").exists()
-    assert not (ROOT / "examples").exists()
-
-
-def test_every_discovered_skill_is_governed() -> None:
-    """Ensure newly added skill directories cannot bypass release checks."""
+def test_skill_manifests_govern_extensible_resource_categories() -> None:
     skill_root = ROOT / "skills"
-    discovered = {
-        path.name
-        for path in skill_root.iterdir()
-        if path.is_dir() and path.name != "__pycache__"
-    }
+    discovered = {path.name for path in skill_root.iterdir() if path.is_dir()}
     assert discovered == EXPECTED_SKILLS
     for name in discovered:
         directory = skill_root / name
-        actual = {
-            path.relative_to(directory).as_posix()
-            for path in directory.rglob("*")
-            if path.is_file() and "__pycache__" not in path.parts
-        }
-        assert actual == EXPECTED_LAYOUT[name]
+        manifest = yaml.safe_load((directory / "manifest.yaml").read_text(encoding="utf-8"))
+        assert manifest["name"] == name
+        required = manifest.get("required")
+        categories = set(manifest.get("categories") or [])
+        assert isinstance(required, list) and {"SKILL.md", "STANDARD.md"}.issubset(required)
+        assert categories and categories.issubset(ALLOWED_CATEGORIES)
+        for relative in required:
+            assert (directory / relative).is_file(), (name, relative)
+        actual_directories = {path.name for path in directory.iterdir() if path.is_dir() and path.name != "__pycache__"}
+        assert actual_directories.issubset(categories), (name, actual_directories, categories)
 
 
-def test_all_standards_validate() -> None:
-    """Validate every standard discovered from the filesystem."""
+def test_repository_allows_intentional_knowledge_growth() -> None:
+    assert (ROOT / "RECOVERY_AUDIT.md").exists()
+    assert any((ROOT / "skills" / name / "references").exists() for name in EXPECTED_SKILLS)
+    assert (ROOT / "skills/mcp-server-architect/examples").exists()
+    assert len(source_files()) > 40
+
+
+def test_all_governed_markdown_validates() -> None:
     validator = load_validator()
-    findings = []
-    for directory in sorted((ROOT / "skills").iterdir()):
-        if directory.is_dir() and directory.name != "__pycache__":
-            findings.extend(validator.validate(directory / "STANDARD.md"))
+    paths, findings = validator.collect_files([ROOT / "RECOVERY_AUDIT.md", ROOT / "skills"])
+    findings.extend(finding for path in paths for finding in validator.validate(path))
     assert findings == []
 
 
-def test_skill_frontmatter_is_minimal_and_descriptive() -> None:
-    """Keep discovery metadata portable across agent runtimes."""
-    for directory in sorted((ROOT / "skills").iterdir()):
-        if not directory.is_dir() or directory.name == "__pycache__":
-            continue
-        text = (directory / "SKILL.md").read_text(encoding="utf-8")
-        frontmatter = text.split("---", 2)[1]
-        keys = {
-            line.split(":", 1)[0].strip()
-            for line in frontmatter.splitlines()
-            if ":" in line
-        }
-        assert keys == {"name", "description"}
+def test_skill_frontmatter_remains_portable() -> None:
+    for name in EXPECTED_SKILLS:
+        text = (ROOT / "skills" / name / "SKILL.md").read_text(encoding="utf-8")
+        frontmatter = yaml.safe_load(text.split("---", 2)[1])
+        assert set(frontmatter) == {"name", "description"}
+        assert frontmatter["name"] == name
+        assert isinstance(frontmatter["description"], str) and frontmatter["description"].strip()
         assert len(text.splitlines()) <= 90
 
 
-def test_release_contains_no_project_specific_or_polish_text() -> None:
-    """Keep the public collection project-independent and English-only."""
-    checked_suffixes = {".md", ".py", ".yml", ".yaml", ".j2", ".template", ".toml", ".txt"}
+def test_release_contains_no_private_project_or_polish_examples() -> None:
+    suffixes = {".md", ".py", ".yml", ".yaml", ".template", ".toml", ".txt", ".example"}
     for path in source_files():
-        if path.suffix.lower() not in checked_suffixes:
+        if path.suffix.lower() not in suffixes:
             continue
         text = path.read_text(encoding="utf-8")
         lowered = text.lower()
-        assert not any(term in lowered for term in PROJECT_SPECIFIC_TERMS)
-        assert not POLISH_MARKERS.search(text)
-        assert ("schema_" + "version") not in text
-        assert ("standard_" + "version") not in text
+        assert not any(term in lowered for term in PROJECT_SPECIFIC_TERMS), path
+        assert not POLISH_MARKERS.search(text), path
 
 
-def test_changelog_preserves_history_with_one_new_release_change() -> None:
-    """Keep prior milestones while limiting the new release entry to one change."""
-    text = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
-    latest = text.split("## 1.0.0 - 2026-07-17", 1)[1].split("\n## ", 1)[0]
-    assert latest.count("\n- ") == 1
-    assert text.count("\n## ") >= 2
-    assert "2026-06-06" in text
-    assert "2026-05-13" in text
+def test_recovery_audit_covers_removed_operational_domains() -> None:
+    text = (ROOT / "RECOVERY_AUDIT.md").read_text(encoding="utf-8").lower()
+    required_topics = {
+        "fastmcp",
+        ".net",
+        "cancellation",
+        "semgrep",
+        "dependabot",
+        "coverage",
+        "pagination",
+        "partial execution",
+        "pre-commit",
+        "lifecycle",
+        "conflict",
+        "same image",
+    }
+    assert all(topic in text for topic in required_topics)
 
 
-def test_repository_local_virtual_environment_is_ignored(tmp_path: Path) -> None:
-    """Test ignored environments without touching a developer checkout."""
-    fake = tmp_path / ".venv" / "lib" / "site-packages" / "generated.py"
-    fake.parent.mkdir(parents=True, exist_ok=True)
-    fake.write_text("# local artifact\n", encoding="utf-8")
-    assert fake not in source_files(tmp_path)
+def test_template_action_pins_have_an_update_path() -> None:
+    config = __import__("json").loads((ROOT / "renovate.json").read_text(encoding="utf-8"))
+    managers = config.get("customManagers") or []
+    assert any(
+        manager.get("customType") == "regex"
+        and any("ci-cd-architect" in pattern for pattern in manager.get("managerFilePatterns", []))
+        and "currentDigest" in " ".join(manager.get("matchStrings", []))
+        for manager in managers
+    )

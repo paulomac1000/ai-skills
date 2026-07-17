@@ -1,37 +1,32 @@
 ---
 name: mcp-server-architect
-description: Design, implement, refactor, or review secure and agent-friendly MCP servers in any language, including capability contracts, transport boundaries, authorization, reliability, and tests.
+description: Design, implement, review, and harden MCP servers across Python and .NET with explicit contracts, trust boundaries, and production verification.
 ---
 
 # MCP server architect
 
-Read `STANDARD.md` before implementation.
+Use this skill for new MCP servers, transport migrations, security reviews, SDK upgrades, or production-readiness audits.
 
 ## Workflow
 
-1. Identify user workflows, consumers, deployment boundaries, data sensitivity, side effects, and failure impact.
-2. Model tools, resources, and prompts by user semantics rather than by upstream endpoint shape.
-3. Define names, descriptions, schemas, result shapes, errors, pagination, cancellation, authorization, idempotency, and observability.
-4. Keep domain logic independent of MCP registration and transport.
-5. Implement one vertical slice and test it with a real client or protocol inspector.
-6. Add policy, contract, integration, transport, and security tests according to risk.
-7. Measure selection quality and context cost when the capability catalog is large.
-8. Document compatibility adapters without turning them into defaults.
-9. Verify the server's behavior, not only schema registration.
+1. Define consumer outcomes, tool boundaries, risk, authorization, and response contracts before choosing an SDK.
+2. Separate domain operations from MCP registration and transport.
+3. Choose transport and session state deliberately; prefer stateless HTTP when sessions are unnecessary.
+4. Define deadlines, cancellation, idempotency, retry, error, and partial-failure semantics.
+5. Add authentication, per-tool authorization, confused-deputy controls, input validation, and secret boundaries.
+6. Design consumer-friendly discovery, summaries, pagination, stable identifiers, and empty-success behavior.
+7. Implement observability with correlation, traces, metrics, audit events, and sanitized logs.
+8. Test domain, schema, policy, registration, transport, and representative real-client workflows in separate layers.
+9. Build and smoke-test the deployment artifact.
+10. Review the relevant SDK profile and cross-language incident map before accepting framework-specific code.
 
-## Defaults
-
-- Use stdio for local child-process integrations.
-- Use Streamable HTTP for new remote deployments when supported by the selected SDK and client set.
-- Prefer native MCP content and structured output over custom envelopes.
-- Deny write, destructive, raw-command, filesystem, and sensitive capabilities until explicitly authorized.
-- Bound output, time, retries, concurrency, and external calls.
-- Return sanitized errors with stable categories and correlation information.
+Read `STANDARD.md`, then use `references/python-fastmcp.md` or `references/dotnet-mcp.md`. Use `testing-strategy.md`, `security-and-operations.md`, and `problem-solution-matrix.md` for production work.
 
 ## Constraints
 
-- Do not expose upstream APIs one endpoint at a time without workflow design.
-- Do not trust annotations as authorization.
-- Do not write protocol traffic and logs to the same stdout stream.
-- Do not retry unknown or non-idempotent mutations automatically.
-- Do not leak secrets, internal stack traces, or unnecessary sensitive data.
+- Do not place business logic only inside decorated tool functions.
+- Do not inspect private SDK registries as a stable contract.
+- Do not use stdout for logs on stdio transport.
+- Do not build shell commands from agent-controlled text.
+- Do not swallow cancellation or convert it into generic failure.
+- Do not claim parity between SDKs without mapping the invariant to each platform's lifecycle and DI model.

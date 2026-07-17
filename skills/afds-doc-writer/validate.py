@@ -8,7 +8,7 @@ import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, Iterator
+from typing import Any, Iterable, Iterator, Mapping
 from urllib.parse import unquote
 
 import yaml
@@ -16,6 +16,13 @@ import yaml
 FRONTMATTER = re.compile(r"\A---\s*\n(.*?)\n---\s*\n", re.S)
 HEADING = re.compile(r"^(#{1,6})\s+(.+?)\s*$", re.M)
 FENCE_OPENER = re.compile(r"^(?P<indent>[ \t]*)(?P<fence>`{3,}|~{3,})(?P<info>[^\r\n]*)$")
+REFERENCE_DEFINITION = re.compile(
+    r"^(?P<indent>[ ]{0,3})\[(?P<label>[^\]\n]+)\]:[ \t]*(?P<raw>[^\r\n]+)$",
+    re.M,
+)
+REFERENCE_LINK = re.compile(
+    r"(?<!\!)\[(?P<label>(?:\\.|[^\]\n])+)\]\[(?P<reference>[^\]\n]*)\]"
+)
 DOC_ID = re.compile(r"^(workflow|reference|system|guide|decision|contract)\.[a-z0-9][a-z0-9.-]*$")
 REQUIRED = {"description", "doc_id", "type", "status", "rigor", "owners"}
 VALID_TYPES = {"workflow", "reference", "system", "guide", "decision", "contract"}
@@ -43,7 +50,6 @@ def collect_files(inputs: Iterable[Path]) -> tuple[list[Path], list[Finding]]:
     """Resolve explicit Markdown inputs and reject missing or unsupported paths."""
     files: set[Path] = set()
     findings: list[Finding] = []
-
     for item in inputs:
         if not item.exists():
             findings.append(Finding(item, "input does not exist"))
@@ -56,11 +62,10 @@ def collect_files(inputs: Iterable[Path]) -> tuple[list[Path], list[Finding]]:
             files.update(
                 path
                 for path in item.rglob("*.md")
-                if ".git" not in path.parts and ".venv" not in path.parts
+                if not {".git", ".venv", "__pycache__"}.intersection(path.parts)
             )
         else:
             findings.append(Finding(item, "unsupported input type"))
-
     if not files and not findings:
         findings.append(Finding(Path("."), "no Markdown documents selected"))
     return sorted(files), findings
@@ -79,10 +84,7 @@ def _indentation_columns(prefix: str) -> int:
     """Count leading Markdown indentation using four-column tab stops."""
     columns = 0
     for character in prefix:
-        if character == "\t":
-            columns += 4 - (columns % 4)
-        else:
-            columns += 1
+        columns += 4 - (columns % 4) if character == "\t" else 1
     return columns
 
 
@@ -91,7 +93,6 @@ def strip_fenced_blocks(text: str) -> str:
     output: list[str] = []
     fence_character: str | None = None
     minimum_length = 0
-
     for line in text.splitlines(keepends=True):
         candidate = line.rstrip("\r\n")
         if fence_character is None:
@@ -99,7 +100,6 @@ def strip_fenced_blocks(text: str) -> str:
             if opener and _indentation_columns(opener.group("indent")) <= 3:
                 marker = opener.group("fence")
                 info = opener.group("info")
-                # Backtick info strings cannot contain a backtick.
                 if marker[0] != "`" or "`" not in info:
                     fence_character = marker[0]
                     minimum_length = len(marker)
@@ -111,14 +111,12 @@ def strip_fenced_blocks(text: str) -> str:
         stripped = candidate.lstrip(" \t")
         indentation_prefix = candidate[: len(candidate) - len(stripped)]
         closing = re.fullmatch(
-            rf"{re.escape(fence_character)}{{{minimum_length},}}[ \t]*",
-            stripped,
+            rf"{re.escape(fence_character)}{{{minimum_length},}}[ \t]*", stripped
         )
         output.append(_blank_line(line))
-        if _indentation_columns(indentation_prefix) <= 3 and closing:
+        if closing and _indentation_columns(indentation_prefix) <= 3:
             fence_character = None
             minimum_length = 0
-
     return "".join(output)
 
 
@@ -130,23 +128,18 @@ def _extract_destination(raw: str) -> str | None:
     if value.startswith("<"):
         end = value.find(">")
         return value[1:end] if end > 0 else None
-
     escaped = False
     depth = 0
     for index, character in enumerate(value):
         if escaped:
             escaped = False
-            continue
-        if character == "\\":
+        elif character == "\\":
             escaped = True
-            continue
-        if character == "(":
+        elif character == "(":
             depth += 1
-            continue
-        if character == ")" and depth:
+        elif character == ")" and depth:
             depth -= 1
-            continue
-        if character.isspace() and depth == 0:
+        elif character.isspace() and depth == 0:
             return value[:index]
     return value
 
@@ -162,23 +155,23 @@ def _is_escaped(text: str, index: int) -> bool:
 
 
 def strip_inline_code_spans(text: str) -> str:
-    """Blank inline code spans while preserving line endings and offsets."""
+    """Blank CommonMark code spans while preserving line endings and offsets."""
     output = list(text)
     index = 0
     while index < len(text):
         if text[index] != "`" or _is_escaped(text, index):
             index += 1
             continue
-
         run_end = index
         while run_end < len(text) and text[run_end] == "`":
             run_end += 1
         run_length = run_end - index
-
         cursor = run_end
         closing_start: int | None = None
         while cursor < len(text):
-            if text[cursor] != "`" or _is_escaped(text, cursor):
+            # Backslashes are literal inside a code span. A backtick following one
+            # remains eligible to close the span.
+            if text[cursor] != "`":
                 cursor += 1
                 continue
             closing_end = cursor
@@ -188,17 +181,14 @@ def strip_inline_code_spans(text: str) -> str:
                 closing_start = cursor
                 break
             cursor = closing_end
-
         if closing_start is None:
             index = run_end
             continue
-
         span_end = closing_start + run_length
         for position in range(index, span_end):
             if output[position] not in {"\n", "\r"}:
                 output[position] = " "
         index = span_end
-
     return "".join(output)
 
 
@@ -217,7 +207,7 @@ def _matching_open_bracket(text: str, close_index: int) -> int | None:
     return None
 
 
-def iter_link_destinations(text: str) -> Iterator[str]:
+def iter_inline_link_destinations(text: str) -> Iterator[str]:
     """Yield destinations from inline Markdown links using balanced parentheses."""
     cursor = 0
     while True:
@@ -235,7 +225,6 @@ def iter_link_destinations(text: str) -> Iterator[str]:
         ):
             cursor = close_bracket + 2
             continue
-
         start = close_bracket + 2
         depth = 1
         escaped = False
@@ -267,14 +256,41 @@ def iter_link_destinations(text: str) -> Iterator[str]:
             cursor = start
 
 
-def _has_explicit_verification(metadata: dict, body: str) -> bool:
+def _normalize_reference_label(label: str) -> str:
+    """Normalize a CommonMark reference label for case-insensitive matching."""
+    return " ".join(label.replace("\\", "").split()).casefold()
+
+
+def iter_reference_link_destinations(text: str) -> Iterator[str]:
+    """Yield destinations used by full and collapsed reference-style links."""
+    definitions: dict[str, str] = {}
+    for match in REFERENCE_DEFINITION.finditer(text):
+        destination = _extract_destination(match.group("raw"))
+        if destination:
+            definitions[_normalize_reference_label(match.group("label"))] = destination
+
+    for match in REFERENCE_LINK.finditer(text):
+        if _is_escaped(text, match.start()):
+            continue
+        reference = match.group("reference") or match.group("label")
+        destination = definitions.get(_normalize_reference_label(reference))
+        if destination:
+            yield destination
+
+
+def iter_link_destinations(text: str) -> Iterator[str]:
+    """Yield inline and reference-style Markdown link destinations."""
+    yield from iter_inline_link_destinations(text)
+    yield from iter_reference_link_destinations(text)
+
+
+def _has_explicit_verification(metadata: Mapping[str, Any], body: str) -> bool:
     """Return whether a document states a concrete verification method."""
     verification = metadata.get("verification")
     if isinstance(verification, str) and verification.strip():
         return True
     if isinstance(verification, (list, dict)) and verification:
         return True
-
     match = re.search(
         r"^##\s+Verification\s*$\n(?P<content>.*?)(?=^##\s+|\Z)",
         body,
@@ -288,11 +304,9 @@ def validate(path: Path) -> list[Finding]:
     text = path.read_text(encoding="utf-8")
     if path.name in EXEMPT_NAMES:
         return []
-
     match = FRONTMATTER.search(text)
     if not match:
         return [Finding(path, "missing YAML frontmatter")]
-
     try:
         metadata = yaml.safe_load(match.group(1)) or {}
     except yaml.YAMLError as exc:
@@ -304,6 +318,10 @@ def validate(path: Path) -> list[Finding]:
     missing = sorted(field for field in REQUIRED if not metadata.get(field))
     if missing:
         findings.append(Finding(path, f"missing required fields: {', '.join(missing)}"))
+
+    description = metadata.get("description")
+    if not isinstance(description, str) or not description.strip():
+        findings.append(Finding(path, "description must be a non-empty string"))
 
     owners = metadata.get("owners")
     if not (
@@ -337,10 +355,7 @@ def validate(path: Path) -> list[Finding]:
     headings = HEADING.findall(structural_body)
     if sum(level == "#" for level, _ in headings) != 1:
         findings.append(Finding(path, "expected exactly one H1"))
-
-    normalized = [
-        re.sub(r"[^a-z0-9]+", " ", title.lower()).strip() for _, title in headings
-    ]
+    normalized = [re.sub(r"[^a-z0-9]+", " ", title.lower()).strip() for _, title in headings]
     duplicates = sorted({title for title in normalized if normalized.count(title) > 1})
     if duplicates:
         findings.append(Finding(path, f"duplicate headings: {', '.join(duplicates)}"))
@@ -354,7 +369,6 @@ def validate(path: Path) -> list[Finding]:
 
     if isinstance(rigor, str) and rigor in {"operational", "normative"} and not _has_explicit_verification(metadata, structural_body):
         findings.append(Finding(path, "missing explicit verification method"))
-
     return findings
 
 
@@ -363,7 +377,6 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("inputs", nargs="+", type=Path)
     args = parser.parse_args()
-
     paths, findings = collect_files(args.inputs)
     findings.extend(finding for path in paths for finding in validate(path))
     for finding in findings:

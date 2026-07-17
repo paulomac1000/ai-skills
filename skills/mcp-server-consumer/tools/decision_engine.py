@@ -1,8 +1,7 @@
 """Pure decision helpers for safe and efficient MCP capability consumption.
 
-The module intentionally performs no network or protocol I/O. It gives agents and
-applications deterministic policy decisions that can be tested independently from
-an MCP runtime.
+The module performs no network or protocol I/O. It exposes deterministic policy
+functions that can be tested independently from an MCP runtime.
 """
 
 from __future__ import annotations
@@ -127,7 +126,7 @@ def _intent(value: str | UserIntent) -> UserIntent:
         return value
     try:
         return UserIntent(value)
-    except ValueError:
+    except (TypeError, ValueError):
         return UserIntent.NOT_EXPLICIT
 
 
@@ -139,15 +138,10 @@ def evaluate_decision(
     """Evaluate whether a capability may be invoked, confirmed, or rejected."""
     normalized_risk = _risk(risk)
     intent = _intent(user_intent)
-
     if normalized_risk is Risk.UNKNOWN:
         return Decision.DEFER
     if normalized_risk is Risk.READ:
-        return (
-            Decision.CONFIRM_THEN_INVOKE
-            if requires_confirmation
-            else Decision.INVOKE
-        )
+        return Decision.CONFIRM_THEN_INVOKE if requires_confirmation else Decision.INVOKE
     if normalized_risk is Risk.SENSITIVE:
         return (
             Decision.CONFIRM_THEN_INVOKE
@@ -157,57 +151,61 @@ def evaluate_decision(
     if normalized_risk is Risk.WRITE:
         if requires_confirmation:
             return Decision.CONFIRM_THEN_INVOKE
-        return (
-            Decision.INVOKE
-            if intent is UserIntent.CONFIRMED_WORKFLOW
-            else Decision.CONFIRM_THEN_INVOKE
-        )
+        return Decision.INVOKE if intent is UserIntent.CONFIRMED_WORKFLOW else Decision.CONFIRM_THEN_INVOKE
     if normalized_risk is Risk.DESTRUCTIVE:
         return Decision.CONFIRM_THEN_INVOKE
     if normalized_risk is Risk.DANGEROUS:
-        return (
-            Decision.CONFIRM_THEN_INVOKE
-            if intent is UserIntent.EXPLICIT_BY_NAME
-            else Decision.REJECT
-        )
+        return Decision.CONFIRM_THEN_INVOKE if intent is UserIntent.EXPLICIT_BY_NAME else Decision.REJECT
     return Decision.DEFER
+
+
+def _untrusted_risk_signal(value: Any) -> Risk:
+    """Accept untrusted signals only when they increase, never reduce, risk."""
+    risk = _risk(value)
+    if risk in {Risk.WRITE, Risk.DESTRUCTIVE, Risk.DANGEROUS, Risk.SENSITIVE}:
+        return risk
+    return Risk.UNKNOWN
 
 
 def infer_capability_profile(
     name: str,
     metadata: Mapping[str, Any] | None = None,
 ) -> CapabilityProfile:
-    """Infer a conservative capability profile from explicit metadata or a prefix.
+    """Infer a conservative profile with explicit provenance and trust boundaries.
 
-    An explicit ``risk`` field has priority. Prefixes such as ``[READ]`` are a
-    compatibility fallback. MCP annotations are used only when ``trusted_server``
-    is explicitly true; otherwise they remain untrusted descriptive hints.
+    ``trusted_policy`` marks metadata supplied by the local client policy. Server
+    names, descriptions, prefixes, and untrusted metadata may increase risk but
+    cannot downgrade an unknown capability to READ. MCP annotations are honored
+    only when ``trusted_server`` is explicitly true.
     """
     metadata = metadata or {}
-    explicit = _risk(metadata.get("risk"))
-    source = "metadata" if explicit is not Risk.UNKNOWN else "unknown"
+    trusted_policy = metadata.get("trusted_policy") is True
+    explicit = _risk(metadata.get("risk")) if trusted_policy else _untrusted_risk_signal(metadata.get("risk"))
     inferred = explicit
+    source = "local-policy" if trusted_policy and explicit is not Risk.UNKNOWN else (
+        "untrusted-risk-escalation" if explicit is not Risk.UNKNOWN else "unknown"
+    )
 
     if inferred is Risk.UNKNOWN:
         upper_name = name.strip().upper()
-        for candidate in Risk:
-            if candidate is not Risk.UNKNOWN and upper_name.startswith(f"[{candidate.value}]"):
+        for candidate in (Risk.DANGEROUS, Risk.DESTRUCTIVE, Risk.SENSITIVE, Risk.WRITE):
+            if upper_name.startswith(f"[{candidate.value}]"):
                 inferred = candidate
-                source = "name-prefix"
+                source = "name-prefix-escalation"
                 break
 
     annotations = metadata.get("annotations")
     trusted_server = metadata.get("trusted_server") is True
-    if inferred is Risk.UNKNOWN and trusted_server and isinstance(annotations, Mapping):
+    if trusted_server and isinstance(annotations, Mapping):
         if annotations.get("destructiveHint") is True:
             inferred = Risk.DESTRUCTIVE
             source = "trusted-annotation"
-        elif annotations.get("readOnlyHint") is True:
+        elif inferred is Risk.UNKNOWN and annotations.get("readOnlyHint") is True:
             inferred = Risk.READ
             source = "trusted-annotation"
 
-    sensitive = bool(metadata.get("sensitive"))
-    if sensitive and inferred is Risk.READ:
+    sensitive = metadata.get("sensitive") is True
+    if sensitive and inferred in {Risk.READ, Risk.UNKNOWN}:
         inferred = Risk.SENSITIVE
         source = f"{source}+sensitive"
 
@@ -215,17 +213,14 @@ def infer_capability_profile(
     idempotent = idempotent_value if isinstance(idempotent_value, bool) else None
     return CapabilityProfile(
         risk=inferred,
-        requires_confirmation=bool(metadata.get("requires_confirmation")),
+        requires_confirmation=metadata.get("requires_confirmation") is True,
         sensitive=sensitive,
         idempotent=idempotent,
         source=source,
     )
 
 
-def get_error_strategy(
-    error_code: str | None,
-    manifest: Mapping[str, Any] | None = None,
-) -> ErrorStrategy:
+def get_error_strategy(error_code: str | None, manifest: Mapping[str, Any] | None = None) -> ErrorStrategy:
     """Return a bounded strategy, respecting an explicit non-retryable contract."""
     strategy = ERROR_STRATEGIES.get((error_code or "").upper(), DEFAULT_ERROR_STRATEGY)
     if manifest and manifest.get("retryable") is False:
@@ -243,6 +238,8 @@ def should_retry(
     precondition_refreshed: bool = False,
 ) -> bool:
     """Return whether another attempt is safe and explicitly permitted."""
+    if type(attempt) is not int or attempt < 0:
+        return False
     strategy = get_error_strategy(error_code, manifest)
     if not strategy.retryable or attempt >= strategy.max_retries:
         return False
@@ -251,14 +248,14 @@ def should_retry(
     if response_retryable is False:
         return False
     manifest_retryable = manifest.get("retryable") if manifest is not None else None
+    if manifest_retryable is False:
+        return False
     if manifest_retryable is not True and response_retryable is not True:
         return False
-    return operation_idempotent
+    return operation_idempotent is True
 
 
-def _native_error_details(
-    response: Mapping[str, Any],
-) -> tuple[str, str, bool | None]:
+def _native_error_details(response: Mapping[str, Any]) -> tuple[str, str, bool | None]:
     """Extract a stable error tuple from protocol-native MCP result fields."""
     structured = response.get("structuredContent")
     if isinstance(structured, Mapping):
@@ -268,12 +265,7 @@ def _native_error_details(
         message = payload.get("message") or payload.get("error")
         retryable = payload.get("retryable")
         if message is not None:
-            return (
-                str(code),
-                str(message),
-                retryable if isinstance(retryable, bool) else None,
-            )
-
+            return str(code), str(message), retryable if isinstance(retryable, bool) else None
     content = response.get("content")
     texts: list[str] = []
     if isinstance(content, str):
@@ -289,18 +281,16 @@ def _native_error_details(
 
 
 def _structured_error(
-    error: Mapping[str, Any],
-    *,
-    meta: Mapping[str, Any],
-    correlation_id: str | None,
+    error: Mapping[str, Any], *, meta: Mapping[str, Any], correlation_id: str | None
 ) -> ResponseResult:
     """Normalize one explicit structured error mapping."""
+    retryable = error.get("retryable")
     return ResponseResult(
         success=False,
         meta=meta,
         error_code=str(error.get("code") or "UNKNOWN"),
         error_message=str(error.get("message") or "Tool invocation failed"),
-        retryable=error.get("retryable") if isinstance(error.get("retryable"), bool) else None,
+        retryable=retryable if isinstance(retryable, bool) else None,
         correlation_id=correlation_id,
     )
 
@@ -312,53 +302,25 @@ def handle_response(response: Mapping[str, Any]) -> ResponseResult:
         meta = {}
     correlation = meta.get("correlation_id") or response.get("correlation_id")
     correlation_id = str(correlation) if correlation is not None else None
-
     if response.get("isError") is True:
         error = response.get("error")
         if isinstance(error, Mapping):
             return _structured_error(error, meta=meta, correlation_id=correlation_id)
         code, message, retryable = _native_error_details(response)
-        return ResponseResult(
-            success=False,
-            meta=meta,
-            error_code=code,
-            error_message=message,
-            retryable=retryable,
-            correlation_id=correlation_id,
-        )
-
+        return ResponseResult(False, meta=meta, error_code=code, error_message=message, retryable=retryable, correlation_id=correlation_id)
     success = response.get("success")
     if success is False:
         error = response.get("error")
         if isinstance(error, Mapping):
             return _structured_error(error, meta=meta, correlation_id=correlation_id)
-        return ResponseResult(
-            success=False,
-            meta=meta,
-            error_code="UNKNOWN",
-            error_message=str(error or "Tool invocation failed"),
-            correlation_id=correlation_id,
-        )
-
+        return ResponseResult(False, meta=meta, error_code="UNKNOWN", error_message=str(error or "Tool invocation failed"), correlation_id=correlation_id)
     if success is True:
         data = response.get("data")
     elif "content" in response or "structuredContent" in response:
         data = response.get("structuredContent", response.get("content"))
     else:
-        return ResponseResult(
-            success=False,
-            meta=meta,
-            error_code="UNRECOGNIZED_RESPONSE",
-            error_message="Response does not contain a recognized success or error shape",
-            correlation_id=correlation_id,
-        )
-
-    return ResponseResult(
-        success=True,
-        data=data,
-        meta=meta,
-        correlation_id=correlation_id,
-    )
+        return ResponseResult(False, meta=meta, error_code="UNRECOGNIZED_RESPONSE", error_message="Response does not contain a recognized success or error shape", correlation_id=correlation_id)
+    return ResponseResult(True, data=data, meta=meta, correlation_id=correlation_id)
 
 
 def is_meaningful_empty_success(result: ResponseResult) -> bool:
@@ -374,12 +336,7 @@ def prefer_batch_tool(
     preserves_verification: bool,
 ) -> bool:
     """Prefer a batch capability only when it retains control and evidence."""
-    return (
-        item_count > 1
-        and batch_available
-        and preserves_policy_boundaries
-        and preserves_verification
-    )
+    return item_count > 1 and batch_available and preserves_policy_boundaries and preserves_verification
 
 
 def select_efficient_tool(
@@ -394,7 +351,10 @@ def select_efficient_tool(
         return None
     candidates: list[tuple[int, int, str, Mapping[str, Any]]] = []
     for tool in tools:
-        declared = set(tool.get("capabilities") or [])
+        declared_value = tool.get("capabilities") or []
+        if not isinstance(declared_value, Sequence) or isinstance(declared_value, (str, bytes)):
+            continue
+        declared = {str(item) for item in declared_value}
         if not required.issubset(declared):
             continue
         extra = len(declared - required)
@@ -418,14 +378,11 @@ def _schema_accepts_true(schema: Any) -> bool:
     schema_type = schema.get("type")
     if schema_type == "boolean":
         return True
-    if isinstance(schema_type, Sequence) and not isinstance(schema_type, (str, bytes, bytearray)):
-        if "boolean" in schema_type:
-            return True
+    if isinstance(schema_type, Sequence) and not isinstance(schema_type, (str, bytes, bytearray)) and "boolean" in schema_type:
+        return True
     for keyword in ("anyOf", "oneOf"):
         alternatives = schema.get(keyword)
-        if isinstance(alternatives, Sequence) and not isinstance(
-            alternatives, (str, bytes, bytearray)
-        ):
+        if isinstance(alternatives, Sequence) and not isinstance(alternatives, (str, bytes, bytearray)):
             return any(_schema_accepts_true(alternative) for alternative in alternatives)
     return False
 
@@ -456,15 +413,16 @@ def get_pagination_decision(
     """Decide whether another bounded page should be requested."""
     if outcome_satisfied:
         return PaginationDecision(False, reason="requested outcome is already satisfied")
+    if type(pages_seen) is not int or type(max_pages) is not int or pages_seen < 0 or max_pages <= 0:
+        return PaginationDecision(False, reason="invalid pagination budget")
     if pages_seen >= max_pages:
         return PaginationDecision(False, reason="pagination limit reached")
     if meta.get("has_more") is False:
         return PaginationDecision(False, reason="server reports no more results")
-
     cursor = meta.get("next_cursor")
-    if cursor not in (None, ""):
-        return PaginationDecision(True, cursor=str(cursor), reason="next cursor available")
+    if isinstance(cursor, str) and cursor.strip():
+        return PaginationDecision(True, cursor=cursor, reason="next cursor available")
     offset = meta.get("next_offset")
-    if isinstance(offset, int) and not isinstance(offset, bool) and offset >= 0:
+    if type(offset) is int and offset >= 0:
         return PaginationDecision(True, offset=offset, reason="next offset available")
     return PaginationDecision(False, reason="no continuation token available")

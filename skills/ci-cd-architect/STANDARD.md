@@ -1,136 +1,73 @@
 ---
-description: Normative rules for secure, reproducible, observable CI/CD pipelines.
+description: Normative CI/CD rules for secure, reproducible, and observable quality gates and releases.
 doc_id: reference.ci-cd-standard
 type: reference
 status: active
 rigor: normative
 owners: [repository-maintainers]
-verification: Render applicable templates, validate workflow syntax, and run the target repository's local CI command.
+verification: Render every bundled template, parse it as YAML, run `python scripts/ci.py`, and review permissions and release identity manually.
 ---
 
 # CI/CD standard
 
-## Delivery model
+## Purpose
 
-A pipeline makes the path from source revision to validation, artifact, publication, deployment, and recovery traceable.
+Define stable delivery invariants for Python, .NET, MCP, documentation, package, and container repositories. Concrete workflow profiles are composable; no repository is forced into one monolithic pipeline.
 
-- Every stage refers to the same source revision or an immutable artifact identity.
-- Triggers cover events and paths that can affect the result without creating unreachable jobs.
-- Obsolete validation runs are cancelled where safe.
-- Concurrent releases are serialized or otherwise protected from conflicting mutations.
-- Jobs and external operations have explicit timeouts.
-- Required checks fail clearly. Advisory checks are labeled as advisory.
+## Pipeline layers
 
-## Repository discovery
+1. **Local edit gate:** formatting, syntax, and focused checks with no network or secrets.
+2. **Local push gate:** bounded parity runner for tests likely to fail remotely.
+3. **Pull-request CI:** complete quality, test, security, documentation, and artifact checks using read-only defaults.
+4. **Protected release:** exact-revision validation followed by publication through an environment or trusted tag path.
+5. **Scheduled assurance:** full security and dependency scans that are too expensive for every edit.
 
-Before designing jobs, inspect:
+## Universal workflow controls
 
-- source languages and runtime versions;
-- package manifests, lock files, generated files, and build configuration;
-- existing test categories and required services;
-- Dockerfiles, deployment manifests, registries, and release conventions;
-- branch protection, environments, secrets, and identity federation;
-- current workflow history and known operational constraints.
+- Third-party actions use full 40-character commit SHAs. Version comments are informational.
+- `actions/checkout` sets `persist-credentials: false` unless a narrowly reviewed step must push.
+- Top-level permissions default to `contents: read`; jobs elevate only capabilities they use.
+- Every job has a positive numeric `timeout-minutes` and explicit concurrency semantics where overlapping runs are harmful.
+- Shell scripts use strict mode when failure propagation matters.
+- Cache keys include every file that changes dependency resolution, including central .NET package and build props.
+- Generated artifacts have explicit names, retention, and failure behavior.
+- Pull-request workflows do not expose privileged secrets to untrusted code.
+- Reusable templates parameterize the default branch, runtime version, install command, test command, and relevant paths.
 
-Do not infer the delivery model from filenames alone.
+## Python quality
 
-## Trust and permissions
+A production Python gate includes, when applicable: dependency installation from the repository source of truth, Ruff lint and format checks, type checking, Bandit or equivalent security checks, unit tests, coverage reports, integration tests, and test artifacts. Missing stubs and exclusions are configured in project files, not hidden in CI command lines.
 
-- Default workflow permissions to read-only and elevate only the job that needs more.
-- Never run untrusted pull-request code with repository or environment secrets.
-- Treat `pull_request_target`, reusable workflows, `workflow_run`, artifact downloads, caches, and generated scripts as trust-boundary features.
-- Disable persisted checkout credentials when later steps do not need to push.
-- Prefer short-lived federated identity over stored long-lived credentials.
-- Protect release environments with review and branch or tag policies appropriate to impact.
-- Validate user-controlled paths, image names, tags, and command arguments before mutation.
+## .NET quality
 
-## Dependencies and actions
+A production .NET gate includes restore, `dotnet format --verify-no-changes`, analyzer-enabled release build, tests with TRX and XPlat coverage, coverage report generation, and uploaded test artifacts. Package publication is a separate protected workflow or job and uses a version derived from the validated tag.
 
-- Use lock files or exact constraints for dependencies used by the quality gate.
-- Pin third-party GitHub Actions to full commit SHAs and retain a human-readable release comment.
-- Keep Dependabot or equivalent automation enabled for controlled updates.
-- Pin container images by digest for protected release paths when operationally feasible.
-- Do not duplicate current versions in standards or manually maintained matrices.
-- Verify update PRs through the same tests as ordinary changes.
+## MCP-specific assurance
 
-## Validation sequence
+MCP repositories additionally test public tool registration, schema exposure, representative client invocation, protocol error shape, cancellation, and the built server artifact. Tool-count assertions are useful only when the expected count is intentionally controlled; capability or contract assertions are preferred when registration is dynamic.
 
-Prefer this order when dependencies allow it:
+## Documentation and security
 
-1. repository and configuration validation;
-2. formatting and generated-file checks;
-3. static analysis and schema validation;
-4. compilation or build;
-5. unit and contract tests;
-6. integration tests with controlled dependencies;
-7. packaging and artifact inspection;
-8. security and policy gates;
-9. publication and deployment smoke tests.
+Documentation changes trigger validation when either governed files, the validator, its configuration, or the workflow itself changes. Pull-request security scans are diff-aware where supported. Scheduled scans cover the full repository and upload SARIF only when a report exists.
 
-A smaller repository may combine steps, but it must not hide which property failed.
+## Release identity and artifact promotion
 
-## Tests and external compatibility
+A release workflow:
 
-- Unit tests prove local logic.
-- Contract fixtures prove producer and consumer assumptions against recorded examples.
-- Service containers or sandboxes prove integration behavior under controlled conditions.
-- Live smoke tests prove current external compatibility when credentials and cost permit.
-- Mocks do not prove an upstream API, registry, or deployment platform still behaves as expected.
-- Flaky checks are fixed, isolated as explicitly advisory, or removed; they are not silently retried until green.
+1. checks out the selected tag or commit;
+2. captures its full SHA immediately;
+3. runs repository-controlled validation and confirms `HEAD` did not change;
+4. passes that exact SHA to the protected publish job;
+5. derives human and immutable tags from validated outputs;
+6. builds a local image once, smoke-tests that image, and pushes the same local image tags;
+7. captures the registry digest and attests that digest.
 
-## Artifacts and caching
+Manual dispatch is protected by an environment. A selected tag must resolve to the captured SHA. The dispatch branch's `github.ref` and `github.sha` are not used as release identity when a separate release ref was selected.
 
-- Build once and promote the tested artifact where feasible.
-- Record artifact digest, source revision, build inputs, and provenance.
-- Cache keys include all inputs that affect the cached result.
-- Caches accelerate work but are never treated as trusted release artifacts.
-- Restore keys are broad only when stale entries are safe.
-- Validate packages, archives, images, or generated bundles at the layer actually shipped.
+## Local quality gates
 
-## Publication and deployment
-
-- Use one version authority and verify package, image, tag, and release metadata agree.
-- Make publication idempotent or detect already-published versions safely.
-- Separate validation permissions from publication permissions.
-- Require successful validation of the exact source or artifact being released.
-- Define rollback, safe-forward recovery, and post-deployment verification before enabling automated production changes.
-- Keep release notes focused on user-visible or operational changes, not internal review history.
-
-## Observability
-
-A production delivery path records:
-
-- workflow and job identity;
-- source revision and artifact digest;
-- environment and deployment target;
-- duration, result, retries, and cancellation;
-- publication or deployment outcome;
-- recovery action when a mutation partially succeeds.
-
-Logs do not expose secrets, tokens, private keys, or sensitive payloads.
-
-## Local parity
-
-Provide a local command for deterministic checks. Local hooks may be faster and narrower than CI, but they use the same underlying configuration and do not weaken the authoritative gate.
-
-Networked, credentialed, multi-platform, and deployment checks may remain CI-only. Document that boundary instead of pretending full local parity exists.
-
-## Template use
-
-Bundled templates demonstrate secure defaults for common cases. Before use:
-
-1. remove jobs that do not apply;
-2. replace placeholders with repository facts;
-3. verify action commits and runtime versions;
-4. minimize permissions;
-5. validate trigger reachability;
-6. run the local quality gate;
-7. inspect the rendered workflow as ordinary code.
-
-## Acceptance
-
-A pipeline is acceptable when the tested revision is traceable to the released artifact, trust boundaries are enforced, dependencies are reproducible, actions are immutable, deterministic checks have local parity, publication is protected, and recovery is defined.
+Pre-commit runs only deterministic, fast, secret-free checks. Pre-push may run the bounded repository parity runner. Network, deployment, integration environments, and privileged publication remain in CI. See [Local quality gates](references/local-quality-gates.md).
 
 ## Verification
 
-Render every applicable template with representative values, scan `uses:` entries for full commit SHAs, validate YAML after template rendering, run the target repository's local CI command, and exercise at least one failing path. Live publication or deployment claims require runtime evidence from the target platform.
+Render every workflow with representative values, parse the YAML, inspect each job and `uses` reference, and run the associated project commands. For releases, perform a dry run or disposable-registry test proving the smoke-tested image and pushed digest represent the same build.

@@ -1,152 +1,101 @@
 ---
-description: Normative design, security, reliability, and verification rules for MCP servers.
+description: Normative language-neutral architecture and production rules for MCP servers.
 doc_id: reference.mcp-server-standard
 type: reference
 status: active
 rigor: normative
 owners: [repository-maintainers]
-verification: Run layered domain, schema, policy, registration, transport, and representative upstream contract tests; exercise representative end-to-end workflows with a real MCP client or inspector.
+verification: Run layered domain, schema, policy, registration, and transport tests; exercise representative end-to-end workflows with a real MCP client or inspector.
 ---
 
 # MCP server standard
 
-## Capability design
+## Purpose
 
-Model capabilities around user outcomes.
+Define language-neutral invariants for servers consumed by agents. SDK profiles explain how to realize them without turning framework internals into architecture.
 
-- Use resources for addressable read context, tools for computation or side effects, and prompts for reusable user-invoked templates.
-- Keep names, descriptions, schemas, and identifiers precise enough for reliable selection.
-- Split capabilities when authorization, latency, failure behavior, or response size differs materially.
-- Combine calls only when the workflow remains observable, bounded, and policy-safe.
-- Provide search, filters, pagination, summaries, or batches for large result sets.
-- Treat an empty result as successful unless the contract explicitly defines absence as an error.
-- Avoid generic raw-query, shell, filesystem, or arbitrary-HTTP tools unless the deployment is intentionally administrative and strongly isolated.
+## Maturity levels
 
-## Contracts
+| Level | Use case | Required evidence |
+| --- | --- | --- |
+| L1 personal | local or experimental server | domain unit tests, schema validation, controlled errors |
+| L2 team | shared internal server | L1 plus registration, integration, auth boundary, CI, health |
+| L3 production | always-on critical service | L2 plus real-client smoke, observability, SLOs, cancellation, deployment artifact tests |
+| L4 hardened | public, multi-tenant, or dangerous capabilities | L3 plus per-tool authorization, isolation, abuse controls, security tests, audit and recovery drills |
 
-Every capability defines:
+## Core architecture
 
-- purpose and non-goals;
-- required and optional inputs;
-- validation and canonicalization;
-- result content and structured fields;
-- error categories and retry semantics;
-- side effects and idempotency;
-- authorization and data sensitivity;
-- pagination or output limits;
-- cancellation and timeout behavior;
-- compatibility expectations.
+- Domain operations do not depend on MCP transport types.
+- Registration adapts typed domain operations to tool schemas and response contracts.
+- Transport, hosting, authentication, policy, telemetry, and lifecycle are composed around registration.
+- Tool identity, schema, and risk metadata are stable enough for consumers to reason about compatibility.
+- Optional integrations fail independently and do not prevent unrelated tools from loading.
 
-Validate inputs before external I/O. Optional fields are added compatibly. Breaking changes require a migration path or a new capability identity.
+## Tool contracts
 
-## Architecture
+Every tool has a clear outcome, bounded inputs, structured output, documented empty-success behavior, stable identifiers, and a machine-readable error shape. List or search tools return identifiers accepted by detail or mutation tools. Large results support pagination or bounded summaries. Batch tools preserve authorization, per-item results, and verification boundaries.
 
-- Domain logic runs without an MCP transport.
-- Registration adapts domain services to protocol schemas.
-- Transport objects do not leak into domain services.
-- External clients are isolated behind testable interfaces.
-- State is declared as stateless, session-scoped, process-local, or durable.
-- Durable mutations use transactions, conflict detection, or compensating recovery appropriate to the backend.
-- Configuration is validated at startup without exposing secret values.
+Tool descriptions are not authorization. Risk and side-effect metadata are advisory to consumers and must not replace server-side policy.
 
-## Transport
+## Side effects and safety
 
-### Local process transport
+Classify operations as read, write, destructive, dangerous, or sensitive. Write operations define idempotency and concurrency preconditions. Destructive and dangerous operations require explicit server-side authorization and narrow allowlists. Filesystem paths, commands, URLs, service names, and content size are validated before I/O.
 
-- Reserve stdout for protocol traffic.
-- Send logs to stderr or a configured sink.
-- Exit cleanly on parent termination and cancellation.
-- Resolve executable paths and working directories explicitly.
-- Avoid inheriting unnecessary environment variables.
+Arbitrary command execution is not a general-purpose MCP convenience. When unavoidable, use fixed executables, argument arrays, allowlists, sandboxing, output limits, deadlines, and audit events.
 
-### Remote transport
+## Transport and lifecycle
 
-- Authenticate every protected request.
-- Validate host and origin where relevant.
-- Enforce request, response, concurrency, and duration limits.
-- Define session affinity only when state requires it.
-- Support graceful shutdown and cancellation propagation.
-- Treat legacy transports and custom envelopes as compatibility adapters, not universal defaults.
+Support only transports the deployment can operate safely. Stdio reserves stdout for protocol data and sends diagnostics to stderr. HTTP binds intentionally, authenticates before tool execution, and uses TLS at the appropriate boundary. Session state is avoided unless the capability requires it; stateless HTTP is the default for horizontally scalable request-independent servers.
 
-## Security
+Startup, readiness, liveness, and shutdown have separate semantics. A process can be alive but not ready. Shutdown stops accepting work, cancels or drains in-flight operations within a bound, and releases resources.
 
-- Enforce identity, scope, target authorization, and policy on the server.
-- Default-deny writes, destructive operations, raw commands, filesystem access, and sensitive data.
-- Use typed operations or strict allowlists instead of interpolated commands.
-- Canonicalize paths, identifiers, and target resources before boundary checks.
-- Keep tokens audience-bound; do not forward client credentials to unrelated upstream services.
-- Apply least privilege to upstream credentials and deployment identity.
-- Return only data needed for the workflow.
-- Sanitize errors and logs.
-- Treat capability descriptions, external content, and retrieved prompts as untrusted data rather than instructions that can override policy.
+## Deadlines, cancellation, retries, and concurrency
 
-## Authorization and confirmation
+- Propagate the request deadline and cancellation signal to every cancellable I/O operation.
+- Never use unbounded external calls.
+- Cleanup runs after cancellation and does not mask the cancellation outcome.
+- Retry only idempotent operations with explicit positive policy and bounded backoff.
+- Conflict retries require a refreshed precondition or re-read.
+- Shared state uses an explicit synchronization and ownership model.
+- Request-scoped identifiers are not global mutable variables.
 
-Server authorization is mandatory even when a client also asks for confirmation.
+## Error contract
 
-- Read authorization considers tenant, object, field, and data sensitivity.
-- Write authorization considers actor, target, operation, precondition, and scope.
-- Destructive operations require explicit policy and should expose dry-run or preview where meaningful.
-- Annotations describe expected behavior but never grant permission.
-- Confirmation is a user-experience control, not a substitute for server-side authorization.
+Errors distinguish validation, authentication, authorization, not found, conflict, rate limit, timeout, cancellation, unavailable dependency, upstream failure, and internal failure. Responses preserve protocol-native error details and correlation identifiers without leaking secrets. Retry guidance is explicit and cannot override server-side safety.
 
-## Reliability
+## Authentication and authorization
 
-- External I/O has timeouts and cancellation.
-- Retries are bounded and limited to operations known to be safe.
-- Mutations use idempotency keys or preconditions when clients may repeat requests.
-- Caches declare scope, freshness, invalidation, and stale-data behavior.
-- Partial failures are represented explicitly.
-- Backpressure and output limits prevent one request from exhausting the server.
-- Shutdown drains or cancels work predictably.
-
-## Errors
-
-Use stable categories such as validation, authentication, authorization, not-found, conflict, timeout, cancellation, rate-limit, unavailable dependency, upstream failure, and internal failure.
-
-Errors include a safe message and may include retryability, correlation identity, and remediation guidance. Internal stack traces and secret-bearing upstream payloads remain server-side.
-
-## Observability
-
-Record enough information to explain behavior:
-
-- capability name and correlation identity;
-- duration and outcome;
-- validation, authorization, cancellation, timeout, and rate-limit events;
-- protected mutations and affected target identity;
-- upstream dependency health;
-- output truncation, pagination, and cache state.
-
-Do not log tokens, credentials, private keys, or unnecessary sensitive payloads.
-
-## Testing
-
-Test layers independently:
-
-1. domain logic;
-2. input and output schemas;
-3. policy and authorization;
-4. capability registration and discovery;
-5. transport behavior;
-6. representative upstream contracts;
-7. end-to-end invocation with a real client or inspector.
-
-Mocks prove local branches, not current upstream compatibility. Recordings or fixtures must be sanitized and refreshed intentionally.
+Authenticate the calling principal and intended audience. Authorize each capability using resolved resource scope, not only the tool name. Prevent confused-deputy behavior by binding downstream credentials and resource access to the caller's approved context. Keep secrets out of tool descriptions, logs, and model-visible responses.
 
 ## Consumer ergonomics
 
-- Put distinctive domain and action terms in names and descriptions.
-- Provide summary or search capabilities before high-volume detail retrieval.
-- Carry stable identifiers between discovery and mutation steps.
-- Return pagination metadata consistently.
-- Avoid forcing consumers to parse prose for fields that can be structured.
-- Keep result size predictable and allow explicit detail expansion.
-- Measure wrong-tool selection and context cost for large catalogs.
+Provide bounded discovery, capability summaries, stable names, concise default output, optional detail levels, pagination metadata, batch operations where policy remains intact, and explicit negative capability. Empty results are successful when the query legitimately matched nothing.
 
-## Acceptance
+## Observability and operations
 
-A representative client can discover and invoke the server; authorization tests prove default-deny boundaries; mutations are verified; upstream evidence is current; failures are categorized; operational limits are observable; and domain logic remains testable without the transport.
+Emit structured logs, traces, duration, result category, dependency state, and sanitized audit events. Correlate transport and domain operations. Track per-tool latency, errors, cancellations, rate limits, and saturation. Define graceful degradation and circuit-breaker behavior for failing dependencies.
+
+## Verification layers
+
+1. domain unit tests;
+2. schema and serialization tests;
+3. policy and authorization tests;
+4. public registration tests;
+5. transport integration tests;
+6. representative real-client or inspector workflows;
+7. deployment-artifact smoke tests;
+8. upstream contract tests with controlled fakes or test containers.
+
+No one layer substitutes for the others. See [Testing strategy](references/testing-strategy.md).
+
+## Implementation profiles
+
+- [Python and FastMCP](references/python-fastmcp.md)
+- [.NET MCP](references/dotnet-mcp.md)
+- [Cross-language invariant map](references/cross-language-invariant-map.md)
+- [Security and operations](references/security-and-operations.md)
+- [Problem-solution matrix](references/problem-solution-matrix.md)
 
 ## Verification
 
-Run the full layered test suite, invoke representative reads and writes through a real MCP client or inspector, verify default-deny authorization, test cancellation and timeout paths, and confirm current upstream compatibility with sanitized runtime evidence.
+Run all applicable layers, including a representative client against the built server artifact. Review the public contract and trust boundaries independently from framework-specific code.

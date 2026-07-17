@@ -1,0 +1,5 @@
+name: mcp-server-architect
+required:
+  - SKILL.md
+  - STANDARD.md
+categories: [core, references, examples]

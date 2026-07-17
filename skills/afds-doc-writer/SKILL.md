@@ -1,30 +1,30 @@
 ---
 name: afds-doc-writer
-description: Create, refactor, retrieve, or review technical documentation using evidence, canonical ownership, explicit verification, and compact structures that work for humans and AI agents.
+description: Create, repair, validate, and maintain evidence-based technical documentation with explicit ownership and verification.
 ---
 
-# AFDS documentation writer
+# AFDS document writer
 
-Read `STANDARD.md` before changing governed documentation.
+Use this skill when documentation must become a durable operational asset rather than a narrative snapshot.
 
 ## Workflow
 
-1. Identify the exact question the document must answer and its intended reader.
-2. Inspect implementation evidence: code, configuration, tests, runtime output, authoritative specifications, and accepted decisions.
-3. Find the canonical owner of every factual claim before writing.
-4. Select one document type: workflow, reference, system, guide, decision, or contract.
-5. Put the answer, procedure, contract, or decision before history and rationale.
-6. Separate verified facts, requirements, examples, assumptions, and unresolved questions.
-7. Add only metadata that improves retrieval, ownership, or validation.
-8. State a concrete verification method for operational or normative documents.
-9. Run `validate.py` and the repository test suite.
-10. Report evidence used and any claim that could not be verified.
+1. Identify the decision, contract, procedure, system behavior, reference question, or adoption outcome the document must own.
+2. Locate existing canonical owners and upstream evidence before writing.
+3. Choose one primary document type and one accountable owner role.
+4. Put the answer or required behavior before background.
+5. Separate verified facts, requirements, examples, assumptions, and unresolved questions.
+6. Record failure, rollback, conflict, and downstream-review behavior when they affect safe operation.
+7. Link rather than duplicate upstream facts.
+8. Run the validator and the repository-specific verification named by the document.
+9. Report affected downstream documents when a contract or decision changes.
+
+Read `STANDARD.md` first. Use `references/type-playbooks.md` for document-specific structure and `references/lifecycle-and-impact.md` for ownership, conflict, review, and change propagation. Start from `templates/governed-document.md.template` only when no existing owner should be updated.
 
 ## Constraints
 
-- Do not invent commands, versions, paths, owners, dates, or behavior.
-- Do not duplicate a canonical fact across multiple documents.
-- Do not preserve historical scaffolding merely because it already exists.
-- Do not use generated metrics, hashes, timestamps, or dependency versions as handwritten prose.
-- Do not call a document complete without an observable verification method.
-- Keep headings and retrieval terms specific enough to distinguish neighboring documents.
+- Do not invent evidence or convert inference into fact.
+- Do not hand-maintain volatile timestamps, hashes, dependency inventories, backlinks, or scoring metrics.
+- Do not create a second source of truth to avoid editing the canonical owner.
+- Do not force every document into an identical section list.
+- Do not treat a structurally valid document as factually verified.

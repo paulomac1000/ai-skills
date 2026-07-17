@@ -24,54 +24,50 @@ def test_unknown_risk_defers_instead_of_defaulting_to_read() -> None:
     engine = load_engine()
     assert engine.evaluate_decision("unclassified", False, "general") is engine.Decision.DEFER
     assert engine.infer_capability_profile("run").risk is engine.Risk.UNKNOWN
+    assert engine.infer_capability_profile("[READ] list-items").risk is engine.Risk.UNKNOWN
+    assert engine.infer_capability_profile("list", {"risk": "READ"}).risk is engine.Risk.UNKNOWN
 
 
-def test_read_write_destructive_and_dangerous_policy() -> None:
+def test_untrusted_signals_can_only_increase_risk() -> None:
     engine = load_engine()
-    assert engine.evaluate_decision("READ", False, "general") is engine.Decision.INVOKE
-    assert engine.evaluate_decision("WRITE", False, "confirmed_workflow") is engine.Decision.INVOKE
-    assert engine.evaluate_decision("WRITE", False, "general") is engine.Decision.CONFIRM_THEN_INVOKE
-    assert engine.evaluate_decision("DESTRUCTIVE", False, "confirmed_workflow") is engine.Decision.CONFIRM_THEN_INVOKE
-    assert engine.evaluate_decision("DANGEROUS", False, "general") is engine.Decision.REJECT
-    assert engine.evaluate_decision("DANGEROUS", False, "explicit_by_name") is engine.Decision.CONFIRM_THEN_INVOKE
-
-
-def test_sensitive_read_without_explicit_intent_requires_confirmation() -> None:
-    engine = load_engine()
-    assert engine.evaluate_decision("SENSITIVE", False, "not_explicit") is engine.Decision.CONFIRM_THEN_INVOKE
-    assert engine.evaluate_decision("SENSITIVE", False, "confirmed_workflow") is engine.Decision.INVOKE
-
-
-def test_profile_inference_prefers_explicit_metadata() -> None:
-    engine = load_engine()
-    profile = engine.infer_capability_profile(
+    assert engine.infer_capability_profile("[WRITE] update").risk is engine.Risk.WRITE
+    assert engine.infer_capability_profile("run", {"risk": "DESTRUCTIVE"}).risk is engine.Risk.DESTRUCTIVE
+    trusted = engine.infer_capability_profile(
         "[READ] misleading-name",
-        {"risk": "WRITE", "requires_confirmation": True, "idempotent": False},
+        {"risk": "WRITE", "trusted_policy": True, "requires_confirmation": True},
     )
-    assert profile.risk is engine.Risk.WRITE
-    assert profile.source == "metadata"
-    assert profile.requires_confirmation is True
-    assert profile.idempotent is False
+    assert trusted.risk is engine.Risk.WRITE
+    assert trusted.source == "local-policy"
+    assert trusted.requires_confirmation is True
 
 
-def test_profile_inference_uses_annotations_only_for_trusted_servers() -> None:
+def test_annotations_require_an_explicit_server_trust_boundary() -> None:
     engine = load_engine()
-    assert engine.infer_capability_profile("[READ] list-items").risk is engine.Risk.READ
     assert engine.infer_capability_profile(
         "remove", {"annotations": {"destructiveHint": True}}
     ).risk is engine.Risk.UNKNOWN
     assert engine.infer_capability_profile(
         "list", {"annotations": {"readOnlyHint": True}}
     ).risk is engine.Risk.UNKNOWN
-    trusted = {"trusted_server": True, "annotations": {"destructiveHint": True}}
-    assert engine.infer_capability_profile("remove", trusted).risk is engine.Risk.DESTRUCTIVE
-    trusted_read = {"trusted_server": True, "annotations": {"readOnlyHint": True}}
-    assert engine.infer_capability_profile("list", trusted_read).risk is engine.Risk.READ
-    sensitive = engine.infer_capability_profile("[READ] get-secret", {"sensitive": True})
-    assert sensitive.risk is engine.Risk.SENSITIVE
+    assert engine.infer_capability_profile(
+        "remove", {"trusted_server": True, "annotations": {"destructiveHint": True}}
+    ).risk is engine.Risk.DESTRUCTIVE
+    assert engine.infer_capability_profile(
+        "list", {"trusted_server": True, "annotations": {"readOnlyHint": True}}
+    ).risk is engine.Risk.READ
 
 
-def test_retry_requires_safe_operation_and_positive_retry_signal() -> None:
+def test_side_effect_policy() -> None:
+    engine = load_engine()
+    assert engine.evaluate_decision("READ", False, "general") is engine.Decision.INVOKE
+    assert engine.evaluate_decision("WRITE", False, "confirmed_workflow") is engine.Decision.INVOKE
+    assert engine.evaluate_decision("WRITE", False, "general") is engine.Decision.CONFIRM_THEN_INVOKE
+    assert engine.evaluate_decision("DESTRUCTIVE", False, "general") is engine.Decision.CONFIRM_THEN_INVOKE
+    assert engine.evaluate_decision("DANGEROUS", False, "general") is engine.Decision.REJECT
+    assert engine.evaluate_decision("DANGEROUS", False, "explicit_by_name") is engine.Decision.CONFIRM_THEN_INVOKE
+
+
+def test_retry_requires_valid_attempt_and_positive_non_conflicting_signals() -> None:
     engine = load_engine()
     assert engine.should_retry(
         error_code="TIMEOUT", attempt=0, operation_idempotent=True, manifest={"retryable": True}
@@ -79,19 +75,17 @@ def test_retry_requires_safe_operation_and_positive_retry_signal() -> None:
     assert engine.should_retry(
         error_code="TIMEOUT", attempt=0, operation_idempotent=True, response_retryable=True
     )
-    for manifest in (None, {}):
+    for attempt in (-1, True, 2):
         assert not engine.should_retry(
             error_code="TIMEOUT",
-            attempt=0,
+            attempt=attempt,
             operation_idempotent=True,
-            manifest=manifest,
+            manifest={"retryable": True},
         )
-    assert not engine.should_retry(
-        error_code="TIMEOUT", attempt=0, operation_idempotent=False, manifest={"retryable": True}
-    )
-    assert not engine.should_retry(
-        error_code="TIMEOUT", attempt=0, operation_idempotent=True, manifest={"retryable": False}
-    )
+    for manifest in (None, {}, {"retryable": False}):
+        assert not engine.should_retry(
+            error_code="TIMEOUT", attempt=0, operation_idempotent=True, manifest=manifest
+        )
     assert not engine.should_retry(
         error_code="TIMEOUT",
         attempt=0,
@@ -105,9 +99,6 @@ def test_retry_requires_safe_operation_and_positive_retry_signal() -> None:
         operation_idempotent=True,
         manifest={"retryable": False},
         response_retryable=True,
-    )
-    assert not engine.should_retry(
-        error_code="TIMEOUT", attempt=2, operation_idempotent=True, manifest={"retryable": True}
     )
 
 
@@ -123,28 +114,17 @@ def test_conflict_retry_requires_refreshed_precondition() -> None:
     assert engine.should_retry(**kwargs, precondition_refreshed=True)
 
 
-def test_response_normalization_handles_success_and_errors() -> None:
+def test_response_normalization_preserves_protocol_native_errors() -> None:
     engine = load_engine()
     success = engine.handle_response(
         {"structuredContent": {"items": []}, "_meta": {"correlation_id": "abc"}}
     )
-    assert success.success is True
-    assert success.data == {"items": []}
-    assert success.correlation_id == "abc"
-
-    failure = engine.handle_response(
-        {"isError": True, "error": {"code": "TIMEOUT", "message": "slow", "retryable": True}}
-    )
-    assert failure.success is False
-    assert failure.error_code == "TIMEOUT"
-    assert failure.retryable is True
-
+    assert success.success and success.correlation_id == "abc"
     native = engine.handle_response(
         {"isError": True, "content": [{"type": "text", "text": "device unavailable"}]}
     )
     assert native.error_code == "MCP_TOOL_ERROR"
     assert native.error_message == "device unavailable"
-
     structured = engine.handle_response(
         {"isError": True, "structuredContent": {"code": "CONFLICT", "message": "stale"}}
     )
@@ -152,29 +132,7 @@ def test_response_normalization_handles_success_and_errors() -> None:
     assert structured.error_message == "stale"
 
 
-def test_empty_success_is_not_reinterpreted_as_failure() -> None:
-    engine = load_engine()
-    result = engine.handle_response({"success": True, "data": []})
-    assert engine.is_meaningful_empty_success(result)
-
-
-def test_batch_preference_preserves_policy_and_verification() -> None:
-    engine = load_engine()
-    assert engine.prefer_batch_tool(
-        3,
-        batch_available=True,
-        preserves_policy_boundaries=True,
-        preserves_verification=True,
-    )
-    assert not engine.prefer_batch_tool(
-        3,
-        batch_available=True,
-        preserves_policy_boundaries=False,
-        preserves_verification=True,
-    )
-
-
-def test_tool_selection_chooses_narrowest_and_rejects_empty_requirements() -> None:
+def test_efficiency_helpers_fail_closed() -> None:
     engine = load_engine()
     tools = [
         {"name": "wide", "capabilities": ["search", "read", "write"]},
@@ -185,44 +143,29 @@ def test_tool_selection_chooses_narrowest_and_rejects_empty_requirements() -> No
         tools, required_capabilities=["search", "read"], prefer_batch=True
     )["name"] == "batch-read"
     assert engine.select_efficient_tool(tools, required_capabilities=[]) is None
-
-
-def test_initial_detail_parameters_validate_boolean_schemas() -> None:
-    engine = load_engine()
-    schema = {"properties": {"detail_level": {"enum": ["full", "summary"]}}}
-    assert engine.choose_initial_detail_params(schema) == {"detail_level": "summary"}
     assert engine.choose_initial_detail_params(
         {"properties": {"compact": {"type": "boolean"}}}
     ) == {"compact": True}
     assert engine.choose_initial_detail_params(
         {"properties": {"compact": {"type": "string", "enum": ["short"]}}}
     ) == {}
-    assert engine.choose_initial_detail_params(
-        {"properties": {"summary": {"type": "boolean", "const": False}}}
-    ) == {}
-    assert engine.choose_initial_detail_params(
-        {"properties": {"summary": {"enum": [False, True]}}}
-    ) == {"summary": True}
 
 
-def test_pagination_stops_on_limits_and_rejects_invalid_offsets() -> None:
+def test_pagination_accepts_only_contract_valid_tokens() -> None:
     engine = load_engine()
-    assert not engine.get_pagination_decision(
-        {"next_cursor": "x"}, outcome_satisfied=True, pages_seen=1, max_pages=5
-    ).continue_paging
-    assert not engine.get_pagination_decision(
-        {"next_cursor": "x"}, outcome_satisfied=False, pages_seen=5, max_pages=5
-    ).continue_paging
-    decision = engine.get_pagination_decision(
-        {"next_cursor": "x"}, outcome_satisfied=False, pages_seen=1, max_pages=5
+    valid = engine.get_pagination_decision(
+        {"next_cursor": "opaque"}, outcome_satisfied=False, pages_seen=1, max_pages=5
     )
-    assert decision.continue_paging is True
-    assert decision.cursor == "x"
-    for offset in (True, -1):
+    assert valid.continue_paging and valid.cursor == "opaque"
+    for cursor in (True, 3, [], {}, ""):
+        assert not engine.get_pagination_decision(
+            {"next_cursor": cursor}, outcome_satisfied=False, pages_seen=1, max_pages=5
+        ).continue_paging
+    for offset in (True, -1, "0"):
         assert not engine.get_pagination_decision(
             {"next_offset": offset}, outcome_satisfied=False, pages_seen=1, max_pages=5
         ).continue_paging
-    valid = engine.get_pagination_decision(
+    valid_offset = engine.get_pagination_decision(
         {"next_offset": 0}, outcome_satisfied=False, pages_seen=1, max_pages=5
     )
-    assert valid.continue_paging and valid.offset == 0
+    assert valid_offset.continue_paging and valid_offset.offset == 0

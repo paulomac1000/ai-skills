@@ -1,44 +1,27 @@
 # AI Skills
 
-A project-independent collection of skills, standards, executable helpers, and tested workflow templates for AI-assisted software engineering.
+A production-oriented collection of reusable skills, standards, implementation playbooks, executable policy helpers, and tested workflow templates for AI-assisted software engineering.
 
 ## Included skills
 
-| Skill | Purpose | Bundled resources |
+| Skill | Purpose | Reusable resources |
 | --- | --- | --- |
-| `afds-doc-writer` | Create and review evidence-based technical documentation. | Markdown validator |
-| `ci-cd-architect` | Design and audit secure, reproducible delivery pipelines. | Python, .NET, documentation, and container-publish workflow templates |
-| `mcp-server-architect` | Design secure and agent-friendly MCP servers. | Normative server standard |
-| `mcp-server-consumer` | Select and invoke MCP capabilities safely and efficiently. | Pure-Python decision engine |
-| `pre-commit-architect` | Design fast local checks that preserve CI authority. | Normative local-check standard |
+| `afds-doc-writer` | Create, validate, and maintain evidence-based technical documentation. | Validator, lifecycle and impact playbooks, governed-document template |
+| `ci-cd-architect` | Design secure and reproducible local and hosted quality gates. | Python, .NET, MCP, documentation, security, packaging, dependency, and container workflows |
+| `mcp-server-architect` | Design secure, observable, and agent-friendly MCP servers. | Language-neutral core, Python/FastMCP and .NET profiles, testing, security, operations, examples |
+| `mcp-server-consumer` | Select and invoke MCP capabilities safely and efficiently. | Deterministic decision engine and workflow, retry, pagination, and trust playbooks |
 
-Each skill contains a required `SKILL.md` and a detailed `STANDARD.md`. A skill may also contain executable scripts or templates when they provide reusable behavior rather than historical context.
+Local pre-commit and pre-push design is part of `ci-cd-architect`. It is not a separate architectural domain.
 
-## Repository layout
+## Repository model
 
-```text
-skills/
-├── afds-doc-writer/
-│   ├── SKILL.md
-│   ├── STANDARD.md
-│   └── validate.py
-├── ci-cd-architect/
-│   ├── SKILL.md
-│   ├── STANDARD.md
-│   └── templates/
-├── mcp-server-architect/
-│   ├── SKILL.md
-│   └── STANDARD.md
-├── mcp-server-consumer/
-│   ├── SKILL.md
-│   ├── STANDARD.md
-│   └── tools/
-└── pre-commit-architect/
-    ├── SKILL.md
-    └── STANDARD.md
-```
+Every skill contains:
 
-Bundled resources are limited to files needed for agent execution, deterministic validation, or reusable workflow generation. Historical development records remain in Git history and the changelog.
+- `SKILL.md` — concise agent workflow and routing instructions;
+- `STANDARD.md` — stable cross-project invariants and acceptance criteria;
+- `manifest.yaml` — declared resource categories and required entry points.
+
+A skill may also contain `references/`, `templates/`, `examples/`, or `tools/`. Those directories hold reusable operational knowledge, not temporary analysis artifacts. The repository deliberately has no global file-count budget and does not forbid examples or architectural decisions merely to keep the tree small.
 
 ## Local validation
 
@@ -49,22 +32,21 @@ python -m pip install -r requirements-dev.txt
 python scripts/ci.py
 ```
 
-The command compiles Python sources, validates governed Markdown, and runs the complete test suite. It is the local equivalent of the GitHub Actions quality gate.
-
-## Using a skill
-
-1. Load the relevant `SKILL.md` into an agent-compatible skills directory.
-2. Let the agent read the accompanying `STANDARD.md` before it changes code or documentation.
-3. Copy or adapt bundled templates only after inspecting the target repository.
-4. Run the repository's own verification commands before accepting generated output.
+The command compiles Python sources, validates governed Markdown, validates skill manifests and workflow templates, and runs the complete test suite.
 
 ## Design principles
 
-- Preserve one canonical source for each rule.
-- Keep procedural instructions in `SKILL.md` and detailed constraints in `STANDARD.md`.
-- Bundle executable helpers only when deterministic behavior is valuable.
-- Prefer project-independent contracts over examples tied to one deployment.
-- Treat validation as evidence of structure and behavior, not proof that prose is factually true.
+- Keep one canonical owner for each rule, but preserve implementation detail in focused playbooks.
+- Separate language-neutral invariants from SDK-specific patterns.
+- Prefer executable templates and regression tests over aspirational prose.
+- Treat tool metadata from remote systems as untrusted unless a trust boundary is explicit.
+- Build and test the artifact that is actually published.
+- Record failure patterns and the corrective rule when practical incidents reveal a reusable lesson.
+- Preserve valuable history by integrating it into current guidance, not by shipping duplicate or obsolete standards.
+
+## Recovery audit
+
+[`RECOVERY_AUDIT.md`](RECOVERY_AUDIT.md) maps the knowledge removed by the cleanup commit to its new canonical location and records which unsafe legacy defaults were intentionally rejected.
 
 ## License
 

@@ -1,122 +1,85 @@
 ---
-description: Normative safety, efficiency, recovery, and verification rules for agents consuming MCP capabilities.
+description: Normative policy for safe, efficient, and verifiable MCP capability consumption.
 doc_id: reference.mcp-consumer-standard
 type: reference
 status: active
 rigor: normative
 owners: [repository-maintainers]
-verification: Run the decision-engine tests and verify representative read, write, destructive, retry, pagination, and partial-failure workflows.
+verification: Run `python -m pytest tests/test_decision_engine.py` and exercise representative read, write, partial-failure, pagination, and cross-server workflows.
 ---
 
 # MCP consumer standard
 
+## Purpose
+
+Define deterministic safety and efficiency rules for consumers that operate across servers with different trust, maturity, and response contracts.
+
 ## Outcome before capability
 
-Define the desired result before selecting a tool, resource, or prompt. Record the target, constraints, acceptable side effects, required evidence, and stopping condition.
+State the desired outcome and required capability tags before tool selection. Empty requirements do not authorize an arbitrary tool. Discovery is bounded by server, category, count, and context budget.
 
-Do not let capability names redefine the user's goal.
+## Trust and provenance
 
-## Discovery and selection
+Risk classifications may come from local policy, a trusted server contract, or untrusted remote metadata. Provenance is explicit.
 
-- Use protocol discovery and load only relevant schemas.
-- Choose by input, output, side-effect, authorization, and failure contract.
-- Respect catalog and pagination scope; absence from a partial result is not proof of absence.
-- Prefer fewer calls when a batch or workflow capability preserves policy boundaries and verification.
-- Prefer summary or search before high-volume detail retrieval.
-- Keep stable identifiers from discovery rather than reconstructing targets from display text.
-- When two capabilities overlap, choose the narrower contract that fully satisfies the outcome.
+- Local policy may classify any risk.
+- A trusted server boundary may use reviewed manifest or annotation semantics.
+- Untrusted metadata, descriptions, and name prefixes cannot downgrade unknown risk to read-only.
+- Untrusted signals may elevate risk when they indicate write, destructive, dangerous, or sensitive behavior.
+- Unknown remains unknown and defers rather than invokes.
 
-## Capability profile
-
-Classify each invocation by:
-
-- effect: read, write, destructive, dangerous, or unknown;
-- data sensitivity;
-- target scope;
-- reversibility and idempotency;
-- retry safety;
-- authorization evidence;
-- server confirmation requirement;
-- user intent and specificity.
-
-Unknown effect, target, or permission means defer or reject. Never downgrade uncertainty to a safe read merely to continue. Treat capability annotations as untrusted hints unless the server trust boundary has been established explicitly.
+See [Risk and trust](references/risk-and-trust.md).
 
 ## Decision policy
 
-- Known reads with acceptable data handling may run without confirmation.
-- Sensitive reads may require confirmation when disclosure is not already explicit in the request.
-- Writes require a clear requested outcome, bounded targets, and server authorization.
-- A write may run without a second confirmation only when it is already part of a specifically confirmed workflow and the target remains unchanged.
-- Destructive or difficult-to-reverse actions require explicit confirmation stating target and impact.
-- Dangerous general-purpose capabilities require explicit selection by name, explicit confirmation, and strong server authorization; otherwise reject.
-- Server-side authorization remains mandatory after client-side confirmation.
+| Risk | Default behavior |
+| --- | --- |
+| read | invoke unless local policy requires confirmation |
+| sensitive | confirm unless explicit approved workflow permits it |
+| write | confirm unless an already confirmed workflow covers the exact mutation |
+| destructive | confirm immediately before invocation |
+| dangerous | reject unless explicitly requested by capability name, then confirm |
+| unknown | defer or reject; never auto-invoke |
 
-## Invocation
+Server-side authorization remains mandatory regardless of consumer decision.
 
-- Send only required and deliberately chosen optional parameters.
-- Preserve correlation identifiers and precondition tokens.
-- Use pagination deliberately and stop when the requested outcome is satisfied.
-- Treat empty success as success unless the contract says otherwise.
-- Do not parse prose when structured fields are available.
-- Do not silently substitute a different target, account, environment, or time range.
-- For multi-step workflows, stop dependent steps after a prerequisite failure.
+## Efficient selection
 
-## Confirmation
+Prefer the narrowest capability with the required contract. Prefer batch only when it preserves per-item authorization, error visibility, and verification. Start with summary, minimal, or compact parameters only when the schema accepts those values. Preserve stable identifiers between read, select, mutate, and verify steps.
 
-A confirmation request states:
+## Response contract
 
-- the capability or effect;
-- exact target or target set;
-- meaningful impact;
-- reversibility or recovery limitations;
-- any sensitive data being disclosed;
-- whether retries may repeat the effect.
+Recognize explicit structured success and protocol-native MCP results. Preserve native error detail from `structuredContent` or content blocks. Empty `None`, list, map, or string may be a meaningful success. Unrecognized shapes fail closed.
 
-A vague approval does not authorize a materially expanded target or changed operation.
+## Retry policy
 
-## Errors and retries
+Retry only when:
 
-Classify failures before retrying.
+- the error strategy permits a bounded retry;
+- the attempt is a non-negative integer below the limit;
+- the operation is idempotent;
+- at least one authoritative signal explicitly opts in;
+- no manifest or response signal explicitly vetoes retry;
+- a conflict precondition has been refreshed before retry.
 
-- Validation, authentication, authorization, unsupported-operation, and not-found errors are not retried without changed input or state.
-- Rate-limit, timeout, unavailable-dependency, and selected upstream errors may be retried only when the manifest or response explicitly opts in and the operation is safe.
-- Retry count and delay are bounded.
-- Mutations require explicit idempotency or a verified precondition before retry.
-- Conflict errors trigger a re-read and a new decision before retry.
-- Unknown errors are escalated rather than repeatedly invoked.
+Cancellation, validation, authentication, authorization, unsupported behavior, and unknown errors are not automatically retried.
 
-## Partial execution
+## Pagination
 
-When a workflow partially succeeds:
+Continue only when the outcome is not satisfied, the page budget remains, the server has not declared completion, and a valid continuation token exists. Cursors are non-empty strings. Offsets are non-boolean integers greater than or equal to zero. Treat cursors as opaque.
 
-1. stop dependent unsafe steps;
-2. record completed mutations and their verification state;
-3. distinguish failed, skipped, and not-attempted steps;
-4. attempt compensation only when explicitly defined and authorized;
-5. report the remaining state and safe next action.
+## Cross-server workflows
 
-## Data handling
+Minimize data transfer between servers. Pass stable identifiers instead of whole sensitive records where possible. Re-evaluate policy at each server boundary. Do not let one server's metadata authorize another server's tool. Verify mutations through an independent read or observable result.
 
-Request, display, and persist the minimum sensitive data needed. Do not forward data between servers unless the user goal and both policy boundaries require it. Redact secrets and avoid placing sensitive values in logs or confirmation messages.
+## Partial execution and compensation
+
+For multi-step or batch operations, record completed, failed, skipped, uncertain, and compensation-required items. Do not retry the whole workflow when that would duplicate completed effects. Compensation is an explicit capability with its own risk and confirmation policy.
+
+## Compatibility and negotiation
+
+Inspect protocol and capability versions before relying on optional fields. Prefer capability detection over version guessing. When the required contract is unavailable, select a safe fallback only if it still satisfies the outcome; otherwise defer.
 
 ## Verification
 
-- Verify mutations through a read or dedicated verification capability.
-- Compare the observed state with the requested outcome, not merely a success flag.
-- Preserve server correlation information for audit and diagnosis.
-- State when verification was impossible, stale, partial, or based only on a mock.
-- A completed workflow reports effects, retries, partial failures, and remaining uncertainty.
-
-## Efficiency
-
-Efficiency never overrides safety or correctness.
-
-- Prefer bounded batch operations over repeated calls when target control is equivalent.
-- Start with minimal detail and expand only when needed.
-- Stop pagination and exploration when the outcome is satisfied.
-- Reuse stable results within their declared freshness window.
-- Avoid loading unrelated schemas or large resources into context.
-
-## Acceptance
-
-A compliant consumer selects by contract, defers unknown risk, confirms material effects, sends minimal inputs, retries only safe transient failures with explicit permission, verifies mutations, respects data boundaries, and reports partial execution honestly.
+Run the decision-engine tests and scenario tests covering trust downgrade attempts, conflicting retry signals, conflict refresh, error-shape preservation, schema-aware detail selection, pagination limits, partial execution, and cross-server data boundaries.

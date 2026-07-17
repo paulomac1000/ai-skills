@@ -1,4 +1,4 @@
-# Validate the exact release revision before publishing it through a protected environment.
+# Validate the selected revision, build once, smoke-test locally, and push the same image.
 name: Publish container
 
 on:
@@ -27,7 +27,7 @@ jobs:
       release_short_sha: ${{ steps.revision.outputs.short_sha }}
       release_tag: ${{ steps.revision.outputs.tag }}
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.release_ref || github.sha }}
           fetch-depth: 0
@@ -43,7 +43,6 @@ jobs:
           release_sha="$(git rev-parse HEAD)"
           release_short_sha="$(git rev-parse --short=12 HEAD)"
           release_tag=""
-
           if [[ "$EVENT_NAME" == "push" ]]; then
             release_tag="$EVENT_REF_NAME"
           elif [[ "$REQUESTED_REF" == refs/tags/* ]]; then
@@ -51,19 +50,13 @@ jobs:
           elif git show-ref --verify --quiet "refs/tags/$REQUESTED_REF"; then
             release_tag="$REQUESTED_REF"
           fi
-
           if [[ -n "$release_tag" ]]; then
-            tagged_sha="$(git rev-parse "refs/tags/$release_tag^{commit}")"
-            if [[ "$tagged_sha" != "$release_sha" ]]; then
-              echo "Release tag does not resolve to the validated commit" >&2
-              exit 1
-            fi
+            test "$(git rev-parse "refs/tags/$release_tag^{commit}")" = "$release_sha"
           fi
-
           echo "sha=$release_sha" >> "$GITHUB_OUTPUT"
           echo "short_sha=$release_short_sha" >> "$GITHUB_OUTPUT"
           echo "tag=$release_tag" >> "$GITHUB_OUTPUT"
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
         with:
           python-version: "<PYTHON_VERSION>"
           cache: pip
@@ -87,7 +80,7 @@ jobs:
       id-token: write
       attestations: write
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           ref: ${{ needs.validate.outputs.release_sha }}
           persist-credentials: false
@@ -104,15 +97,33 @@ jobs:
           tags: |
             type=raw,value=${{ needs.validate.outputs.release_tag }},enable=${{ needs.validate.outputs.release_tag != '' }}
             type=raw,value=sha-${{ needs.validate.outputs.release_short_sha }}
-      - id: push
+      - name: Build release image once
+        id: build
         uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7
         with:
           context: .
-          push: true
+          load: true
+          push: false
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+      - name: Smoke-test exact release image
+        env:
+          IMAGE_REF: ghcr.io/${{ github.repository }}:sha-${{ needs.validate.outputs.release_short_sha }}
+        run: <CONTAINER_SMOKE_COMMAND>
+      - name: Push smoke-tested image tags
+        id: push
+        shell: bash
+        env:
+          IMAGE_REPOSITORY: ghcr.io/${{ github.repository }}
+          IMMUTABLE_TAG: sha-${{ needs.validate.outputs.release_short_sha }}
+        run: |
+          set -euo pipefail
+          docker push --all-tags "$IMAGE_REPOSITORY"
+          digest="$(docker inspect --format='{{index .RepoDigests 0}}' "$IMAGE_REPOSITORY:$IMMUTABLE_TAG" | cut -d@ -f2)"
+          test -n "$digest"
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
       - uses: actions/attest-build-provenance@96b4a1ef7235a096b17240c259729fdd70c83d45 # v2
         with:
           subject-name: ghcr.io/${{ github.repository }}

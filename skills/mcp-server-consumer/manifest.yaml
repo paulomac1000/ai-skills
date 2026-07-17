@@ -1,0 +1,5 @@
+name: mcp-server-consumer
+required:
+  - SKILL.md
+  - STANDARD.md
+categories: [core, references, tools]

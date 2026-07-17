@@ -1,0 +1,5 @@
+name: afds-doc-writer
+required:
+  - SKILL.md
+  - STANDARD.md
+categories: [core, references, templates, tools]

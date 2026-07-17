@@ -1,0 +1,25 @@
+using System.ComponentModel;
+
+public sealed record ItemSummary(string ItemId, string Name);
+
+public interface IInventoryService
+{
+    Task<IReadOnlyList<ItemSummary>> ListAsync(int limit, CancellationToken cancellationToken);
+}
+
+public sealed class InventoryTools(IInventoryService inventory)
+{
+    [Description("List bounded inventory summaries.")]
+    public async Task<object> ListItemsAsync(
+        [Description("Maximum number of summaries, from 1 to 100.")] int limit = 25,
+        CancellationToken cancellationToken = default)
+    {
+        if (limit is < 1 or > 100)
+        {
+            throw new ArgumentOutOfRangeException(nameof(limit));
+        }
+
+        var items = await inventory.ListAsync(limit, cancellationToken);
+        return new { success = true, data = items };
+    }
+}

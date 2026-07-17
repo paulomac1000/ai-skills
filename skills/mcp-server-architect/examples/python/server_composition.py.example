@@ -1,0 +1,26 @@
+"""Illustrative composition; adapt imports to the supported MCP SDK version."""
+
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class ItemSummary:
+    item_id: str
+    name: str
+
+
+class InventoryService:
+    async def list_items(self, *, limit: int, cancellation) -> list[ItemSummary]:
+        if not 1 <= limit <= 100:
+            raise ValueError("limit must be between 1 and 100")
+        cancellation.raise_if_cancelled()
+        return []
+
+
+def register_inventory_tools(server, service: InventoryService) -> None:
+    @server.tool()
+    async def list_items(limit: int = 25, context=None):
+        """List bounded inventory summaries."""
+        cancellation = context.cancellation
+        items = await service.list_items(limit=limit, cancellation=cancellation)
+        return {"success": True, "data": [item.__dict__ for item in items]}
