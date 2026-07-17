@@ -1,3 +1,0 @@
-[bandit]
-exclude = tests,.git,.pytest_cache,.ruff_cache
-skips = B101

@@ -1,25 +1,20 @@
-"""Canonical decision engine for MCP consumer — reference implementation.
+"""Pure decision helpers for safe and efficient MCP capability consumption.
 
-This module implements the decision logic described in
-ref.mcp-consumer-standards.md. It is the normative implementation
-against which tests measure compliance.
-
-Covers: C1 (decision tree), C2 (response parsing), C3 (error strategy),
-C4 (confirmation gate), C5 (retry decision), C6 (decision policy table),
-C7 (tool selection), C9 (progressive disclosure), C10 (batch preference).
-
-Not covered: C8 (workflow orchestration) — requires async I/O and MCP runtime
-integration, intentionally kept out of this pure-logic engine.
+The module intentionally performs no network or protocol I/O. It gives agents and
+applications deterministic policy decisions that can be tested independently from
+an MCP runtime.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any
+from typing import Any, Iterable, Mapping, Sequence
 
 
 class Decision(str, Enum):
+    """Allowed outcomes of the side-effect policy."""
+
     INVOKE = "invoke"
     CONFIRM_THEN_INVOKE = "confirm_then_invoke"
     REJECT = "reject"
@@ -27,735 +22,382 @@ class Decision(str, Enum):
 
 
 class ErrorAction(str, Enum):
+    """Recovery behavior associated with an error category."""
+
     RETRY = "retry"
-    RETRY_ONCE = "retry_once"
-    RETRY_REREAD = "retry_reread"
+    RETRY_AFTER_READ = "retry_after_read"
     ESCALATE = "escalate"
 
 
 class Risk(str, Enum):
+    """Normalized capability effect classes."""
+
     READ = "READ"
     WRITE = "WRITE"
     DESTRUCTIVE = "DESTRUCTIVE"
     DANGEROUS = "DANGEROUS"
     SENSITIVE = "SENSITIVE"
+    UNKNOWN = "UNKNOWN"
 
 
 class UserIntent(str, Enum):
-    ANY = "any"
+    """How specifically the user authorized the operation."""
+
     GENERAL = "general"
     CONFIRMED_WORKFLOW = "confirmed_workflow"
     EXPLICIT_BY_NAME = "explicit_by_name"
     NOT_EXPLICIT = "not_explicit"
 
 
-@dataclass
+@dataclass(frozen=True)
+class CapabilityProfile:
+    """Policy-relevant facts discovered for one capability."""
+
+    risk: Risk
+    requires_confirmation: bool = False
+    sensitive: bool = False
+    idempotent: bool | None = None
+    source: str = "unknown"
+
+
+@dataclass(frozen=True)
 class ErrorStrategy:
-    retry: bool
+    """Bounded recovery policy for one failure category."""
+
+    retryable: bool
     max_retries: int
     action: ErrorAction
 
 
-# ── Canonical Template C6: Decision Policy Table (Complete) ──────────
+@dataclass(frozen=True)
+class ResponseResult:
+    """Normalized representation of a tool response."""
 
-KNOWN_RISK_VALUES: frozenset[str] = frozenset(
-    {"READ", "WRITE", "DESTRUCTIVE", "DANGEROUS", "SENSITIVE"}
-)
+    success: bool
+    data: Any = None
+    meta: Mapping[str, Any] = field(default_factory=dict)
+    error_code: str | None = None
+    error_message: str | None = None
+    retryable: bool | None = None
+    correlation_id: str | None = None
 
-DECISION_POLICY: list[tuple[str, bool, str, str]] = [
-    ("READ", False, "any", "invoke"),
-    ("READ", True, "any", "confirm_then_invoke"),
-    ("WRITE", False, "confirmed_workflow", "invoke"),
-    ("WRITE", False, "general", "confirm_then_invoke"),
-    ("WRITE", False, "any", "confirm_then_invoke"),
-    ("WRITE", True, "confirmed_workflow", "confirm_then_invoke"),
-    ("WRITE", True, "general", "confirm_then_invoke"),
-    ("WRITE", True, "any", "confirm_then_invoke"),
-    ("DESTRUCTIVE", False, "any", "confirm_then_invoke"),
-    ("DESTRUCTIVE", True, "any", "confirm_then_invoke"),
-    ("DANGEROUS", False, "explicit_by_name", "confirm_then_invoke"),
-    ("DANGEROUS", True, "explicit_by_name", "confirm_then_invoke"),
-    ("DANGEROUS", False, "not_explicit", "reject"),
-    ("DANGEROUS", True, "not_explicit", "reject"),
-    ("DANGEROUS", False, "general", "reject"),
-    ("DANGEROUS", True, "general", "reject"),
-    ("DANGEROUS", False, "any", "reject"),
-    ("DANGEROUS", True, "any", "reject"),
-    ("SENSITIVE", False, "any", "invoke"),
-    ("SENSITIVE", True, "any", "confirm_then_invoke"),
-]
+
+@dataclass(frozen=True)
+class PaginationDecision:
+    """Whether and how a consumer should request another page."""
+
+    continue_paging: bool
+    cursor: str | None = None
+    offset: int | None = None
+    reason: str = ""
+
+
+ERROR_STRATEGIES: dict[str, ErrorStrategy] = {
+    "TIMEOUT": ErrorStrategy(True, 2, ErrorAction.RETRY),
+    "RATE_LIMITED": ErrorStrategy(True, 2, ErrorAction.RETRY),
+    "UNAVAILABLE": ErrorStrategy(True, 2, ErrorAction.RETRY),
+    "UPSTREAM_ERROR": ErrorStrategy(True, 1, ErrorAction.RETRY),
+    "CONFLICT": ErrorStrategy(True, 1, ErrorAction.RETRY_AFTER_READ),
+    "VALIDATION_FAILED": ErrorStrategy(False, 0, ErrorAction.ESCALATE),
+    "AUTHENTICATION_FAILED": ErrorStrategy(False, 0, ErrorAction.ESCALATE),
+    "AUTHORIZATION_FAILED": ErrorStrategy(False, 0, ErrorAction.ESCALATE),
+    "NOT_FOUND": ErrorStrategy(False, 0, ErrorAction.ESCALATE),
+    "UNSUPPORTED": ErrorStrategy(False, 0, ErrorAction.ESCALATE),
+    "CANCELLED": ErrorStrategy(False, 0, ErrorAction.ESCALATE),
+    "INTERNAL_ERROR": ErrorStrategy(False, 0, ErrorAction.ESCALATE),
+}
+DEFAULT_ERROR_STRATEGY = ErrorStrategy(False, 0, ErrorAction.ESCALATE)
+
+
+def _risk(value: str | Risk | None) -> Risk:
+    """Normalize a risk value without silently treating unknown input as safe."""
+    if isinstance(value, Risk):
+        return value
+    if not isinstance(value, str):
+        return Risk.UNKNOWN
+    try:
+        return Risk(value.upper())
+    except ValueError:
+        return Risk.UNKNOWN
+
+
+def _intent(value: str | UserIntent) -> UserIntent:
+    """Normalize user intent, defaulting to the least specific form."""
+    if isinstance(value, UserIntent):
+        return value
+    try:
+        return UserIntent(value)
+    except ValueError:
+        return UserIntent.NOT_EXPLICIT
 
 
 def evaluate_decision(
-    risk: str,
+    risk: str | Risk,
     requires_confirmation: bool,
-    user_intent: str,
-) -> str:
-    """Canonical Template C1 / C6: Decision Policy evaluator.
+    user_intent: str | UserIntent,
+) -> Decision:
+    """Evaluate whether a capability may be invoked, confirmed, or rejected."""
+    normalized_risk = _risk(risk)
+    intent = _intent(user_intent)
 
-    Accepts Risk enum values ('READ'/'WRITE'/'DESTRUCTIVE'/'DANGEROUS'/'SENSITIVE')
-    or raw strings. Returns a Decision enum value ('invoke'/'confirm_then_invoke'/
-    'reject'/'defer') as a string.
-
-    Unknown risk values or unmatched combinations fall back to 'defer' —
-    the consumer MUST NOT invoke a tool whose capability profile is unresolved.
-    """
-    for r, rc, ui, decision in DECISION_POLICY:
-        if r == risk and rc == requires_confirmation:
-            if ui == "any" or ui == user_intent:
-                return decision
-    return "defer"
-
-
-# ── Canonical Template C3: Error Strategy Matrix ─────────────────────
-
-ERROR_STRATEGY_MATRIX: dict[str, ErrorStrategy] = {
-    "TIMEOUT": ErrorStrategy(retry=True, max_retries=3, action=ErrorAction.RETRY),
-    "DEVICE_OFFLINE": ErrorStrategy(
-        retry=True, max_retries=3, action=ErrorAction.RETRY
-    ),
-    "RESOURCE_LOCKED": ErrorStrategy(
-        retry=True, max_retries=3, action=ErrorAction.RETRY_REREAD
-    ),
-    "INTERNAL_ERROR": ErrorStrategy(
-        retry=True, max_retries=1, action=ErrorAction.RETRY_ONCE
-    ),
-    "HTTP_ERROR": ErrorStrategy(
-        retry=False, max_retries=0, action=ErrorAction.ESCALATE
-    ),
-    "AUTH_FAILED": ErrorStrategy(
-        retry=False, max_retries=0, action=ErrorAction.ESCALATE
-    ),
-    "INVALID_PARAM": ErrorStrategy(
-        retry=False, max_retries=0, action=ErrorAction.ESCALATE
-    ),
-    "UNSUPPORTED": ErrorStrategy(
-        retry=False, max_retries=0, action=ErrorAction.ESCALATE
-    ),
-    "DEPENDENCY_MISSING": ErrorStrategy(
-        retry=False, max_retries=0, action=ErrorAction.ESCALATE
-    ),
-    "DEVICE_NOT_FOUND": ErrorStrategy(
-        retry=False, max_retries=0, action=ErrorAction.ESCALATE
-    ),
-    "VALIDATION_FAILED": ErrorStrategy(
-        retry=False, max_retries=0, action=ErrorAction.ESCALATE
-    ),
-    "RESOURCE_ALREADY_EXISTS": ErrorStrategy(
-        retry=False, max_retries=0, action=ErrorAction.ESCALATE
-    ),
-    "RESOURCE_NOT_FOUND": ErrorStrategy(
-        retry=False, max_retries=0, action=ErrorAction.ESCALATE
-    ),
-}
-
-DEFAULT_ERROR_STRATEGY = ErrorStrategy(
-    retry=False, max_retries=0, action=ErrorAction.ESCALATE
-)
-
-
-def get_error_strategy(error_code: str, manifest: dict | None = None) -> ErrorStrategy:
-    """Canonical Template C3: Error Strategy Matrix lookup.
-
-    Returns the recovery strategy for an error code, overridden by
-    manifest.retryable when present.
-    """
-    base = ERROR_STRATEGY_MATRIX.get(error_code, DEFAULT_ERROR_STRATEGY)
-
-    if manifest is not None and manifest.get("retryable") is False:
-        return ErrorStrategy(retry=False, max_retries=0, action=ErrorAction.ESCALATE)
-
-    return base
-
-
-# ── Canonical Template C2: Response Parsing ──────────────────────────
-
-
-@dataclass
-class ResponseResult:
-    success: bool
-    data: Any = None
-    meta: dict = field(default_factory=dict)
-    error_code: str | None = None
-    error_message: str | None = None
-    error_retryable: bool | None = None
-    error_suggestion: str | None = None
-    is_missing_success: bool = False
-
-
-def handle_response(response: dict) -> ResponseResult:
-    """Canonical Template C2: Parse and branch on a tool response."""
-    success_value = response.get("success")
-
-    if success_value is None:
-        return ResponseResult(
-            success=False,
-            error_code="MISSING_SUCCESS_FIELD",
-            error_message="Response is missing the 'success' field",
-            is_missing_success=True,
+    if normalized_risk is Risk.UNKNOWN:
+        return Decision.DEFER
+    if normalized_risk is Risk.READ:
+        return (
+            Decision.CONFIRM_THEN_INVOKE
+            if requires_confirmation
+            else Decision.INVOKE
         )
-
-    if success_value is True:
-        return ResponseResult(
-            success=True,
-            data=response.get("data"),
-            meta=response.get("_meta", {}),
+    if normalized_risk is Risk.SENSITIVE:
+        return (
+            Decision.CONFIRM_THEN_INVOKE
+            if requires_confirmation or intent is UserIntent.NOT_EXPLICIT
+            else Decision.INVOKE
         )
-
-    error = response.get("error")
-    if isinstance(error, dict):
-        return ResponseResult(
-            success=False,
-            error_code=error.get("code", "UNKNOWN"),
-            error_message=error.get("message", str(error)),
-            error_retryable=error.get("retryable"),
-            error_suggestion=error.get("suggestion"),
+    if normalized_risk is Risk.WRITE:
+        if requires_confirmation:
+            return Decision.CONFIRM_THEN_INVOKE
+        return (
+            Decision.INVOKE
+            if intent is UserIntent.CONFIRMED_WORKFLOW
+            else Decision.CONFIRM_THEN_INVOKE
         )
-    elif isinstance(error, str):
-        return ResponseResult(
-            success=False,
-            error_code="UNKNOWN",
-            error_message=error,
+    if normalized_risk is Risk.DESTRUCTIVE:
+        return Decision.CONFIRM_THEN_INVOKE
+    if normalized_risk is Risk.DANGEROUS:
+        return (
+            Decision.CONFIRM_THEN_INVOKE
+            if intent is UserIntent.EXPLICIT_BY_NAME
+            else Decision.REJECT
         )
-
-    return ResponseResult(
-        success=False,
-        error_code="UNKNOWN",
-        error_message="Unknown error format",
-    )
-
-
-# ── Canonical Template C4: Confirmation Gate ─────────────────────────
-
-
-@dataclass
-class ConfirmationResult:
-    required: bool
-    message: str = ""
-
-
-def requires_user_confirmation(
-    manifest: dict,
-    user_intent: str,
-    workflow_confirmed: bool,
-) -> ConfirmationResult:
-    """Canonical Template C4: Determine if user confirmation is required."""
-    risk = manifest.get("risk", "READ")
-    requires_confirm = manifest.get("requires_confirmation", False)
-    tool_name = manifest.get("name", "unknown")
-
-    if risk == "DANGEROUS":
-        if user_intent != "explicit_by_name":
-            return ConfirmationResult(
-                required=False,
-                message=f"DANGEROUS tool rejected: user must explicitly request {tool_name} by name",
-            )
-        return ConfirmationResult(
-            required=True,
-            message=f"Confirm execution of DANGEROUS tool: {tool_name}",
-        )
-
-    if risk == "DESTRUCTIVE":
-        impact = manifest.get("impact", "unknown")
-        reversible = manifest.get("reversible", False)
-        return ConfirmationResult(
-            required=True,
-            message=(
-                f"Confirm DESTRUCTIVE operation: {tool_name} "
-                f"(impact: {impact}, reversible: {reversible})"
-            ),
-        )
-
-    if risk not in KNOWN_RISK_VALUES:
-        return ConfirmationResult(
-            required=True,
-            message=f"Capability profile unresolved for tool: {tool_name}",
-        )
-
-    if risk == "WRITE" and not workflow_confirmed:
-        return ConfirmationResult(
-            required=True,
-            message=f"Confirm WRITE operation: {tool_name}",
-        )
-
-    if requires_confirm:
-        return ConfirmationResult(
-            required=True,
-            message=f"Tool requires confirmation: {tool_name}",
-        )
-
-    return ConfirmationResult(required=False)
-
-
-# ── Canonical Template C5: Retry Decision ────────────────────────────
-
-
-@dataclass
-class RetryDecision:
-    should_retry: bool
-    max_retries: int
-    backoff_base_s: float = 1.0
-    backoff_cap_s: float = 8.0
-
-
-def get_retry_decision(
-    error_code: str,
-    manifest: dict | None = None,
-    error_retryable: bool | None = None,
-    current_attempt: int = 0,
-) -> RetryDecision:
-    """Canonical Template C5: Determine if retry should be attempted.
-
-    Combines the error strategy matrix with the manifest's retryable field
-    AND the response's error.retryable (compound error checking per L2+ rule).
-    All three must agree for retry to proceed.
-    """
-    if manifest is not None and manifest.get("retryable") is False:
-        return RetryDecision(should_retry=False, max_retries=0)
-
-    if error_retryable is False:
-        return RetryDecision(should_retry=False, max_retries=0)
-
-    strategy = get_error_strategy(error_code, manifest)
-
-    if not strategy.retry:
-        return RetryDecision(should_retry=False, max_retries=0)
-
-    if current_attempt >= strategy.max_retries:
-        return RetryDecision(should_retry=False, max_retries=strategy.max_retries)
-
-    return RetryDecision(
-        should_retry=True,
-        max_retries=strategy.max_retries,
-    )
-
-
-def compute_backoff_delay(attempt: int) -> float:
-    """Exponential backoff: 1s → 2s → 4s, capped at 8s.
-
-    attempt=0 → 1s, attempt=1 → 2s, attempt=2 → 4s.
-    """
-    return min(2**attempt, 8.0)
-
-
-# ── HTTP Error Status Code Handling ────────────────────────────────────
-
-
-def get_http_error_strategy(
-    status_code: int,
-    manifest: dict | None = None,
-) -> ErrorStrategy:
-    """Determine retry strategy based on HTTP status code.
-
-    5xx (server error) → retry once.
-    4xx (client error) → no retry, escalate.
-    Other → escalate.
-    Respects manifest.retryable as the final gate.
-    """
-    if manifest is not None and manifest.get("retryable") is False:
-        return ErrorStrategy(retry=False, max_retries=0, action=ErrorAction.ESCALATE)
-
-    if 500 <= status_code <= 599:
-        return ErrorStrategy(retry=True, max_retries=1, action=ErrorAction.RETRY_ONCE)
-
-    return ErrorStrategy(retry=False, max_retries=0, action=ErrorAction.ESCALATE)
-
-
-# ── Canonical Template C7: Capability-Based Tool Selection ────────────
-
-TASK_MATCHERS: dict[str, Any] = {
-    "diagnose": lambda m: (
-        m.get("risk") == "READ" and m.get("latency") in ("instant", "fast")
-    ),
-    "configure": lambda m: m.get("risk") == "WRITE" and m.get("reversible", False),
-    "destroy": lambda m: m.get("risk") == "DESTRUCTIVE",
-    "scan": lambda m: m.get("determinism") == "eventually-consistent",
-    "read_sensitive": lambda m: m.get("risk") == "SENSITIVE",
-}
-
-
-def select_tool_for_task(tools: list[dict], task_type: str) -> dict | None:
-    """Canonical Template C7: Select the best tool for a task type."""
-    matcher = TASK_MATCHERS.get(task_type)
-    if matcher is None:
-        return None
-    for tool in tools:
-        manifest = tool.get("manifest", {})
-        if matcher(manifest):
-            return tool
-    return None
-
-
-# ── Safe Default Inference ────────────────────────────────────────────
-
-
-def infer_manifest_safe_defaults(raw_manifest: dict | None) -> dict:
-    """Apply L2+ Backward Compatibility Rule 3: safest defaults for
-    missing manifest fields."""
-    if raw_manifest is None:
-        raw_manifest = {}
-    defaults = {
-        "risk": "READ",
-        "retryable": False,
-        "requires_confirmation": False,
-        "concurrent_safe": False,
-        "reversible": True,
-        "idempotent": False,
-        "side_effects": "read",
-        "determinism": "env-dependent",
-        "latency": "moderate",
-        "cost": "cheap",
-        "impact": "none",
-        "privacy": "none",
-        "timeout_ms": 30000,
-    }
-    return {**defaults, **{k: v for k, v in raw_manifest.items() if v is not None}}
-
-
-# ── Compound Error Checking ──────────────────────────────────────────
-
-
-def should_retry(
-    error_code: str,
-    manifest: dict | None = None,
-    error_retryable: bool | None = None,
-) -> bool:
-    """L2+ Compound Error Checking: both manifest AND error must agree.
-
-    If manifest.retryable == False → NEVER retry.
-    If error.retryable == False → NEVER retry.
-    Only if BOTH permit → consult the error strategy matrix.
-    """
-    if manifest is not None and manifest.get("retryable") is False:
-        return False
-
-    if error_retryable is False:
-        return False
-
-    strategy = get_error_strategy(error_code, manifest)
-    return strategy.retry
-
-
-# ── Convenience functions ─────────────────────────────────────────────
-
-
-def is_success(response: dict) -> bool:
-    """Return True if the response has success: true."""
-    return response.get("success") is True
-
-
-def get_error_code(response: dict) -> str | None:
-    """Extract the machine-readable error code from a failed response.
-
-    Returns the error.code string for structured errors, 'UNKNOWN'
-    for string errors, or None if the response is a success.
-    """
-    error = response.get("error")
-    if isinstance(error, dict):
-        return error.get("code")
-    if isinstance(error, str):
-        return "UNKNOWN"
-    return None
-
-
-def get_request_id(response: dict) -> str | None:
-    """Extract the request_id from the _meta envelope, or None."""
-    meta = response.get("_meta", {})
-    return meta.get("request_id")
-
-
-def parse_manifest(tool_info: dict) -> dict:
-    """Extract and normalize a manifest from a tool info dict."""
-    manifest = tool_info.get("manifest", {})
-    return infer_manifest_safe_defaults(manifest if manifest else None)
-
-
-def classify_risk(manifest: dict) -> str:
-    """Return the risk class from a manifest, defaulting to READ."""
-    return manifest.get("risk", "READ")
-
-
-# ── Capability Profile Inference (L1 Fallback) ─────────────────────────
-
-RISK_PREFIX_PATTERN = {
-    "[READ]",
-    "[WRITE]",
-    "[DESTRUCTIVE]",
-    "[DANGEROUS]",
-    "[SENSITIVE]",
-}
+    return Decision.DEFER
 
 
 def infer_capability_profile(
-    manifest: dict | None = None,
-    docstring: str | None = None,
-) -> dict:
-    """Build a capability profile from manifest, risk prefix, or safe default.
+    name: str,
+    metadata: Mapping[str, Any] | None = None,
+) -> CapabilityProfile:
+    """Infer a conservative capability profile from explicit metadata or a prefix.
 
-    Priority:
-    1. manifest (with safe defaults for missing fields)
-    2. risk prefix annotation in docstring (L1 servers without manifests)
-    3. documented fallback (treat as READ with all-safe defaults)
+    An explicit ``risk`` field has priority. Prefixes such as ``[READ]`` are a
+    compatibility fallback. MCP annotations are treated as descriptive hints and
+    never as authorization.
     """
-    if manifest is not None:
-        return infer_manifest_safe_defaults(manifest)
+    metadata = metadata or {}
+    explicit = _risk(metadata.get("risk"))
+    source = "metadata" if explicit is not Risk.UNKNOWN else "unknown"
+    inferred = explicit
 
-    if docstring is not None:
-        doc = docstring.strip()
-        for prefix in RISK_PREFIX_PATTERN:
-            if doc.startswith(prefix):
-                risk_value = prefix[1:-1]
-                return infer_manifest_safe_defaults({"risk": risk_value})
+    if inferred is Risk.UNKNOWN:
+        upper_name = name.strip().upper()
+        for candidate in Risk:
+            if candidate is not Risk.UNKNOWN and upper_name.startswith(f"[{candidate.value}]"):
+                inferred = candidate
+                source = "name-prefix"
+                break
 
-    return infer_manifest_safe_defaults(None)
+    annotations = metadata.get("annotations")
+    if inferred is Risk.UNKNOWN and isinstance(annotations, Mapping):
+        if annotations.get("destructiveHint") is True:
+            inferred = Risk.DESTRUCTIVE
+            source = "annotation"
+        elif annotations.get("readOnlyHint") is True:
+            inferred = Risk.READ
+            source = "annotation"
 
+    sensitive = bool(metadata.get("sensitive"))
+    if sensitive and inferred is Risk.READ:
+        inferred = Risk.SENSITIVE
+        source = f"{source}+sensitive"
 
-# ── Efficiency Selection ───────────────────────────────────────────────
-
-BATCH_HINT_TOKENS = frozenset(
-    {
-        "_batch",
-        "bulk_",
-        "bulk-",
-        "batch_",
-        "batch-",
-        "diagnose_",
-        "diagnose-",
-        "composite_",
-        "composite-",
-        "overview_",
-        "overview-",
-        "summary_",
-        "summary-",
-        "investigate_",
-        "investigate-",
-    }
-)
-BATCH_HINT_STEMS = frozenset(
-    {
-        "batch",
-        "bulk",
-        "diagnose",
-        "composite",
-        "overview",
-        "summary",
-        "investigate",
-    }
-)
+    idempotent_value = metadata.get("idempotent")
+    idempotent = idempotent_value if isinstance(idempotent_value, bool) else None
+    return CapabilityProfile(
+        risk=inferred,
+        requires_confirmation=bool(metadata.get("requires_confirmation")),
+        sensitive=sensitive,
+        idempotent=idempotent,
+        source=source,
+    )
 
 
-def _tool_name_matches_batch_hint(name: str) -> bool:
-    """Check if a tool name suggests batch/composite efficiency."""
-    name_lower = name.lower()
-    for hint in BATCH_HINT_TOKENS:
-        if hint in name_lower:
-            return True
-    for stem in BATCH_HINT_STEMS:
-        if ("_" + stem) in name_lower or (stem + "_") in name_lower:
-            return True
-        if name_lower.endswith(stem):
-            return True
-    return False
+def get_error_strategy(
+    error_code: str | None,
+    manifest: Mapping[str, Any] | None = None,
+) -> ErrorStrategy:
+    """Return a bounded strategy, respecting an explicit non-retryable contract."""
+    strategy = ERROR_STRATEGIES.get((error_code or "").upper(), DEFAULT_ERROR_STRATEGY)
+    if manifest and manifest.get("retryable") is False:
+        return DEFAULT_ERROR_STRATEGY
+    return strategy
+
+
+def should_retry(
+    *,
+    error_code: str | None,
+    attempt: int,
+    operation_idempotent: bool,
+    manifest: Mapping[str, Any] | None = None,
+    response_retryable: bool | None = None,
+) -> bool:
+    """Return whether another attempt is safe and permitted by every signal."""
+    strategy = get_error_strategy(error_code, manifest)
+    if not strategy.retryable or attempt >= strategy.max_retries:
+        return False
+    if response_retryable is False:
+        return False
+    if manifest and manifest.get("retryable") is not True and response_retryable is not True:
+        return False
+    return operation_idempotent
+
+
+def handle_response(response: Mapping[str, Any]) -> ResponseResult:
+    """Normalize common structured and protocol-native error response shapes."""
+    meta = response.get("_meta")
+    if not isinstance(meta, Mapping):
+        meta = {}
+    correlation = meta.get("correlation_id") or response.get("correlation_id")
+    correlation_id = str(correlation) if correlation is not None else None
+
+    if response.get("isError") is True:
+        error = response.get("error")
+        if isinstance(error, Mapping):
+            return ResponseResult(
+                success=False,
+                meta=meta,
+                error_code=str(error.get("code") or "UNKNOWN"),
+                error_message=str(error.get("message") or "Tool invocation failed"),
+                retryable=error.get("retryable") if isinstance(error.get("retryable"), bool) else None,
+                correlation_id=correlation_id,
+            )
+        return ResponseResult(
+            success=False,
+            meta=meta,
+            error_code="UNKNOWN",
+            error_message=str(error or "Tool invocation failed"),
+            correlation_id=correlation_id,
+        )
+
+    success = response.get("success")
+    if success is False:
+        error = response.get("error")
+        if isinstance(error, Mapping):
+            return ResponseResult(
+                success=False,
+                meta=meta,
+                error_code=str(error.get("code") or "UNKNOWN"),
+                error_message=str(error.get("message") or "Tool invocation failed"),
+                retryable=error.get("retryable") if isinstance(error.get("retryable"), bool) else None,
+                correlation_id=correlation_id,
+            )
+        return ResponseResult(
+            success=False,
+            meta=meta,
+            error_code="UNKNOWN",
+            error_message=str(error or "Tool invocation failed"),
+            correlation_id=correlation_id,
+        )
+
+    if success is True:
+        data = response.get("data")
+    elif "content" in response or "structuredContent" in response:
+        data = response.get("structuredContent", response.get("content"))
+    else:
+        return ResponseResult(
+            success=False,
+            meta=meta,
+            error_code="UNRECOGNIZED_RESPONSE",
+            error_message="Response does not contain a recognized success or error shape",
+            correlation_id=correlation_id,
+        )
+
+    return ResponseResult(
+        success=True,
+        data=data,
+        meta=meta,
+        correlation_id=correlation_id,
+    )
+
+
+def is_meaningful_empty_success(result: ResponseResult) -> bool:
+    """Return whether an empty value is still a successful contract result."""
+    return result.success and result.data in (None, [], {}, "")
 
 
 def prefer_batch_tool(
-    tools: list[dict],
-    individual_tool_name: str,
-    repeated_count: int = 1,
-) -> dict | None:
-    """Find a batch/composite alternative to repeated individual calls.
-
-    Returns None when no viable alternative exists or when repeated_count <= 1.
-    Never selects a non-READ tool as efficiency optimization for a READ task.
-    """
-    if repeated_count <= 1:
-        return None
-
-    if individual_tool_name:
-        individual_manifest = None
-        for t in tools:
-            if t.get("name") == individual_tool_name:
-                individual_manifest = t.get("manifest", {})
-                break
-        if individual_manifest and individual_manifest.get("risk") != "READ":
-            return None
-
-    for tool in tools:
-        name = tool.get("name", "")
-        manifest = tool.get("manifest", {})
-        if manifest.get("risk", "READ") != "READ":
-            continue
-        if _tool_name_matches_batch_hint(name):
-            return tool
-
-    return None
+    item_count: int,
+    *,
+    batch_available: bool,
+    preserves_policy_boundaries: bool,
+    preserves_verification: bool,
+) -> bool:
+    """Prefer a batch capability only when it retains control and evidence."""
+    return (
+        item_count > 1
+        and batch_available
+        and preserves_policy_boundaries
+        and preserves_verification
+    )
 
 
 def select_efficient_tool(
-    tools: list[dict],
-    task: dict | None = None,
-) -> dict | None:
-    """Select the most efficient tool for a task from a catalog.
-
-    Preference order:
-    1. Batch/composite READ tool if task involves repeated reads
-    2. Minimal-detail summary/diagnostic tool for initial discovery
-    3. Fastest available READ tool by latency
-    4. Fallback to None (caller uses standard selection)
-    """
-    if task is None:
+    tools: Sequence[Mapping[str, Any]],
+    *,
+    required_capabilities: Iterable[str],
+    prefer_batch: bool = False,
+) -> Mapping[str, Any] | None:
+    """Select the narrowest compatible tool using declared capability tags."""
+    required = set(required_capabilities)
+    candidates: list[tuple[int, int, str, Mapping[str, Any]]] = []
+    for tool in tools:
+        declared = set(tool.get("capabilities") or [])
+        if not required.issubset(declared):
+            continue
+        extra = len(declared - required)
+        batch_penalty = 0 if bool(tool.get("batch")) == prefer_batch else 1
+        candidates.append((extra, batch_penalty, str(tool.get("name") or ""), tool))
+    if not candidates:
         return None
-
-    repeat_count = task.get("repeated_count", 1)
-    individual_name = task.get("individual_tool_name", "")
-    if repeat_count > 1 and individual_name:
-        batch = prefer_batch_tool(tools, individual_name, repeat_count)
-        if batch is not None:
-            return batch
-
-    if task.get("phase") == "discovery":
-        for tool in tools:
-            manifest = tool.get("manifest", {})
-            if manifest.get("risk", "READ") != "READ":
-                continue
-            latency = manifest.get("latency", "moderate")
-            if _tool_name_matches_batch_hint(tool.get("name", "")) and latency in (
-                "instant",
-                "fast",
-            ):
-                return tool
-
-    return None
+    candidates.sort(key=lambda item: (item[0], item[1], item[2]))
+    return candidates[0][3]
 
 
-# ── Minimal Detail Params ─────────────────────────────────────────────
-
-DETAIL_PARAM_DEFAULTS: dict[str, object] = {
-    "detail_level": "minimal",
-    "compact": True,
-    "summary": True,
-    "limit": 50,
-    "include_state": False,
-    "include_attributes": False,
-    "include_code": False,
-    "max_results": 50,
-}
-
-
-def choose_initial_detail_params(
-    param_schema: dict | None = None,
-    user_overrides: dict | None = None,
-) -> dict:
-    """Choose minimal detail parameters for initial discovery calls.
-
-    Does NOT override explicitly user-provided parameter values.
-    Only applies defaults for parameters the user left unset.
-    """
-    result: dict = {}
-    overrides = user_overrides or {}
-    keys = list(DETAIL_PARAM_DEFAULTS) if param_schema is None else list(param_schema)
-
-    for key in keys:
-        if key in overrides:
-            result[key] = overrides[key]
-        elif key in DETAIL_PARAM_DEFAULTS:
-            result[key] = DETAIL_PARAM_DEFAULTS[key]
-
-    return result
-
-
-# ── Pagination Helper ──────────────────────────────────────────────────
-
-
-class PaginationDecision(str, Enum):
-    COMPLETE = "complete"
-    CONTINUE_PAGINATION = "continue_pagination"
-    PARTIAL_SCOPE_SATISFIED = "partial_scope_satisfied"
-
-
-PAGINATION_MARKERS = frozenset(
-    {
-        "has_more",
-        "next_offset",
-        "next_cursor",
-        "offset",
-        "limit",
-        "total",
-        "page",
-        "cursor",
-    }
-)
+def choose_initial_detail_params(schema: Mapping[str, Any]) -> dict[str, Any]:
+    """Choose conservative summary parameters when a schema exposes them."""
+    properties = schema.get("properties")
+    if not isinstance(properties, Mapping):
+        return {}
+    if "detail_level" in properties:
+        choices = properties["detail_level"].get("enum", []) if isinstance(properties["detail_level"], Mapping) else []
+        for candidate in ("summary", "minimal", "compact"):
+            if candidate in choices:
+                return {"detail_level": candidate}
+    if "compact" in properties:
+        return {"compact": True}
+    if "summary" in properties:
+        return {"summary": True}
+    return {}
 
 
 def get_pagination_decision(
-    response: dict,
-    desired_scope_satisfied: bool = False,
-) -> str:
-    """Determine pagination state from a response.
+    meta: Mapping[str, Any],
+    *,
+    outcome_satisfied: bool,
+    pages_seen: int,
+    max_pages: int,
+) -> PaginationDecision:
+    """Decide whether another bounded page should be requested."""
+    if outcome_satisfied:
+        return PaginationDecision(False, reason="requested outcome is already satisfied")
+    if pages_seen >= max_pages:
+        return PaginationDecision(False, reason="pagination limit reached")
+    if meta.get("has_more") is False:
+        return PaginationDecision(False, reason="server reports no more results")
 
-    Checks top-level fields and _meta envelope for pagination markers.
-    Returns:
-    - 'complete' — no pagination markers or has_more=false
-    - 'continue_pagination' — has_more=true or next_offset/next_cursor present
-    - 'partial_scope_satisfied' — pagination not exhausted but desired scope met
-    """
-    # Merge known pagination markers into a single lookup dict.
-    effective: dict = dict(response)
-    data = response.get("data")
-    if isinstance(data, dict):
-        for k, v in data.items():
-            if k not in effective and k in PAGINATION_MARKERS:
-                effective[k] = v
-
-    meta = response.get("_meta")
-    if isinstance(meta, dict):
-        for k, v in meta.items():
-            if k not in effective and k in PAGINATION_MARKERS:
-                effective[k] = v
-
-    if effective.get("has_more") is True:
-        return (
-            PaginationDecision.PARTIAL_SCOPE_SATISFIED
-            if desired_scope_satisfied
-            else PaginationDecision.CONTINUE_PAGINATION
-        )
-
-    if (
-        effective.get("next_offset") is not None
-        or effective.get("next_cursor") is not None
-    ):
-        return (
-            PaginationDecision.PARTIAL_SCOPE_SATISFIED
-            if desired_scope_satisfied
-            else PaginationDecision.CONTINUE_PAGINATION
-        )
-
-    return PaginationDecision.COMPLETE
-
-
-# ── Negative Capability Helper ─────────────────────────────────────────
-
-
-def is_meaningful_empty_success(response: dict) -> bool:
-    """Check if a successful response carries meaningful emptiness.
-
-    Returns True when success=true and data is an empty structure
-    (list, dict, None, or zero count). This is a valid result,
-    not an error.
-    """
-    if response.get("success") is not True:
-        return False
-
-    data = response.get("data")
-    if data is None:
-        return True
-    if isinstance(data, list) and len(data) == 0:
-        return True
-    if isinstance(data, dict) and len(data) == 0:
-        return True
-    if isinstance(data, dict) and data.get("count") == 0:
-        return True
-    if isinstance(data, (int, float)) and data == 0:
-        return True
-
-    return False
+    cursor = meta.get("next_cursor")
+    if cursor not in (None, ""):
+        return PaginationDecision(True, cursor=str(cursor), reason="next cursor available")
+    offset = meta.get("next_offset")
+    if isinstance(offset, int):
+        return PaginationDecision(True, offset=offset, reason="next offset available")
+    return PaginationDecision(False, reason="no continuation token available")

@@ -1,1 +1,43 @@
-"""MCP Consumer decision engine — normative reference implementation."""
+"""Reusable pure-logic helpers for MCP consumers."""
+
+from .decision_engine import (
+    CapabilityProfile,
+    Decision,
+    ErrorAction,
+    ErrorStrategy,
+    PaginationDecision,
+    ResponseResult,
+    Risk,
+    UserIntent,
+    choose_initial_detail_params,
+    evaluate_decision,
+    get_error_strategy,
+    get_pagination_decision,
+    handle_response,
+    infer_capability_profile,
+    is_meaningful_empty_success,
+    prefer_batch_tool,
+    select_efficient_tool,
+    should_retry,
+)
+
+__all__ = [
+    "CapabilityProfile",
+    "Decision",
+    "ErrorAction",
+    "ErrorStrategy",
+    "PaginationDecision",
+    "ResponseResult",
+    "Risk",
+    "UserIntent",
+    "choose_initial_detail_params",
+    "evaluate_decision",
+    "get_error_strategy",
+    "get_pagination_decision",
+    "handle_response",
+    "infer_capability_profile",
+    "is_meaningful_empty_success",
+    "prefer_batch_tool",
+    "select_efficient_tool",
+    "should_retry",
+]
