@@ -43,9 +43,11 @@ def test_untrusted_signals_can_only_increase_risk() -> None:
 
 def test_annotations_require_an_explicit_server_trust_boundary() -> None:
     engine = load_engine()
-    assert engine.infer_capability_profile(
+    untrusted_destructive = engine.infer_capability_profile(
         "remove", {"annotations": {"destructiveHint": True}}
-    ).risk is engine.Risk.UNKNOWN
+    )
+    assert untrusted_destructive.risk is engine.Risk.DESTRUCTIVE
+    assert untrusted_destructive.source == "untrusted-annotation-escalation"
     assert engine.infer_capability_profile(
         "list", {"annotations": {"readOnlyHint": True}}
     ).risk is engine.Risk.UNKNOWN
@@ -62,6 +64,9 @@ def test_side_effect_policy() -> None:
     assert engine.evaluate_decision("READ", False, "general") is engine.Decision.INVOKE
     assert engine.evaluate_decision("WRITE", False, "confirmed_workflow") is engine.Decision.INVOKE
     assert engine.evaluate_decision("WRITE", False, "general") is engine.Decision.CONFIRM_THEN_INVOKE
+    assert engine.evaluate_decision("SENSITIVE", False, "general") is engine.Decision.CONFIRM_THEN_INVOKE
+    assert engine.evaluate_decision("SENSITIVE", False, "explicit_by_name") is engine.Decision.CONFIRM_THEN_INVOKE
+    assert engine.evaluate_decision("SENSITIVE", False, "confirmed_workflow") is engine.Decision.INVOKE
     assert engine.evaluate_decision("DESTRUCTIVE", False, "general") is engine.Decision.CONFIRM_THEN_INVOKE
     assert engine.evaluate_decision("DANGEROUS", False, "general") is engine.Decision.REJECT
     assert engine.evaluate_decision("DANGEROUS", False, "explicit_by_name") is engine.Decision.CONFIRM_THEN_INVOKE

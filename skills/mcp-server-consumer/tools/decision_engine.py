@@ -143,10 +143,12 @@ def evaluate_decision(
     if normalized_risk is Risk.READ:
         return Decision.CONFIRM_THEN_INVOKE if requires_confirmation else Decision.INVOKE
     if normalized_risk is Risk.SENSITIVE:
+        if requires_confirmation:
+            return Decision.CONFIRM_THEN_INVOKE
         return (
-            Decision.CONFIRM_THEN_INVOKE
-            if requires_confirmation or intent is UserIntent.NOT_EXPLICIT
-            else Decision.INVOKE
+            Decision.INVOKE
+            if intent is UserIntent.CONFIRMED_WORKFLOW
+            else Decision.CONFIRM_THEN_INVOKE
         )
     if normalized_risk is Risk.WRITE:
         if requires_confirmation:
@@ -196,11 +198,19 @@ def infer_capability_profile(
 
     annotations = metadata.get("annotations")
     trusted_server = metadata.get("trusted_server") is True
-    if trusted_server and isinstance(annotations, Mapping):
+    if isinstance(annotations, Mapping):
         if annotations.get("destructiveHint") is True:
             inferred = Risk.DESTRUCTIVE
-            source = "trusted-annotation"
-        elif inferred is Risk.UNKNOWN and annotations.get("readOnlyHint") is True:
+            source = (
+                "trusted-annotation"
+                if trusted_server
+                else "untrusted-annotation-escalation"
+            )
+        elif (
+            trusted_server
+            and inferred is Risk.UNKNOWN
+            and annotations.get("readOnlyHint") is True
+        ):
             inferred = Risk.READ
             source = "trusted-annotation"
 
