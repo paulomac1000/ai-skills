@@ -5,7 +5,7 @@ type: reference
 status: active
 rigor: normative
 owners: [repository-maintainers]
-verification: Run domain, schema, policy, registration, transport, and representative upstream contract tests with a real MCP client or inspector.
+verification: Run layered domain, schema, policy, registration, transport, and representative upstream contract tests; exercise representative end-to-end workflows with a real MCP client or inspector.
 ---
 
 # MCP server standard

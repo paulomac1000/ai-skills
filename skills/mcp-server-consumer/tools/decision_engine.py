@@ -180,8 +180,8 @@ def infer_capability_profile(
     """Infer a conservative capability profile from explicit metadata or a prefix.
 
     An explicit ``risk`` field has priority. Prefixes such as ``[READ]`` are a
-    compatibility fallback. MCP annotations are treated as descriptive hints and
-    never as authorization.
+    compatibility fallback. MCP annotations are used only when ``trusted_server``
+    is explicitly true; otherwise they remain untrusted descriptive hints.
     """
     metadata = metadata or {}
     explicit = _risk(metadata.get("risk"))
@@ -197,13 +197,14 @@ def infer_capability_profile(
                 break
 
     annotations = metadata.get("annotations")
-    if inferred is Risk.UNKNOWN and isinstance(annotations, Mapping):
+    trusted_server = metadata.get("trusted_server") is True
+    if inferred is Risk.UNKNOWN and trusted_server and isinstance(annotations, Mapping):
         if annotations.get("destructiveHint") is True:
             inferred = Risk.DESTRUCTIVE
-            source = "annotation"
+            source = "trusted-annotation"
         elif annotations.get("readOnlyHint") is True:
             inferred = Risk.READ
-            source = "annotation"
+            source = "trusted-annotation"
 
     sensitive = bool(metadata.get("sensitive"))
     if sensitive and inferred is Risk.READ:
@@ -239,16 +240,69 @@ def should_retry(
     operation_idempotent: bool,
     manifest: Mapping[str, Any] | None = None,
     response_retryable: bool | None = None,
+    precondition_refreshed: bool = False,
 ) -> bool:
-    """Return whether another attempt is safe and permitted by every signal."""
+    """Return whether another attempt is safe and explicitly permitted."""
     strategy = get_error_strategy(error_code, manifest)
     if not strategy.retryable or attempt >= strategy.max_retries:
         return False
+    if strategy.action is ErrorAction.RETRY_AFTER_READ and not precondition_refreshed:
+        return False
     if response_retryable is False:
         return False
-    if manifest and manifest.get("retryable") is not True and response_retryable is not True:
+    manifest_retryable = manifest.get("retryable") if manifest is not None else None
+    if manifest_retryable is not True and response_retryable is not True:
         return False
     return operation_idempotent
+
+
+def _native_error_details(
+    response: Mapping[str, Any],
+) -> tuple[str, str, bool | None]:
+    """Extract a stable error tuple from protocol-native MCP result fields."""
+    structured = response.get("structuredContent")
+    if isinstance(structured, Mapping):
+        nested = structured.get("error")
+        payload = nested if isinstance(nested, Mapping) else structured
+        code = payload.get("code") or payload.get("error_code") or "MCP_TOOL_ERROR"
+        message = payload.get("message") or payload.get("error")
+        retryable = payload.get("retryable")
+        if message is not None:
+            return (
+                str(code),
+                str(message),
+                retryable if isinstance(retryable, bool) else None,
+            )
+
+    content = response.get("content")
+    texts: list[str] = []
+    if isinstance(content, str):
+        texts.append(content)
+    elif isinstance(content, Sequence) and not isinstance(content, (str, bytes, bytearray)):
+        for item in content:
+            if isinstance(item, Mapping) and item.get("text") is not None:
+                texts.append(str(item["text"]))
+            elif isinstance(item, str):
+                texts.append(item)
+    message = "\n".join(text for text in texts if text.strip()).strip()
+    return "MCP_TOOL_ERROR", message or "Tool invocation failed", None
+
+
+def _structured_error(
+    error: Mapping[str, Any],
+    *,
+    meta: Mapping[str, Any],
+    correlation_id: str | None,
+) -> ResponseResult:
+    """Normalize one explicit structured error mapping."""
+    return ResponseResult(
+        success=False,
+        meta=meta,
+        error_code=str(error.get("code") or "UNKNOWN"),
+        error_message=str(error.get("message") or "Tool invocation failed"),
+        retryable=error.get("retryable") if isinstance(error.get("retryable"), bool) else None,
+        correlation_id=correlation_id,
+    )
 
 
 def handle_response(response: Mapping[str, Any]) -> ResponseResult:
@@ -262,19 +316,14 @@ def handle_response(response: Mapping[str, Any]) -> ResponseResult:
     if response.get("isError") is True:
         error = response.get("error")
         if isinstance(error, Mapping):
-            return ResponseResult(
-                success=False,
-                meta=meta,
-                error_code=str(error.get("code") or "UNKNOWN"),
-                error_message=str(error.get("message") or "Tool invocation failed"),
-                retryable=error.get("retryable") if isinstance(error.get("retryable"), bool) else None,
-                correlation_id=correlation_id,
-            )
+            return _structured_error(error, meta=meta, correlation_id=correlation_id)
+        code, message, retryable = _native_error_details(response)
         return ResponseResult(
             success=False,
             meta=meta,
-            error_code="UNKNOWN",
-            error_message=str(error or "Tool invocation failed"),
+            error_code=code,
+            error_message=message,
+            retryable=retryable,
             correlation_id=correlation_id,
         )
 
@@ -282,14 +331,7 @@ def handle_response(response: Mapping[str, Any]) -> ResponseResult:
     if success is False:
         error = response.get("error")
         if isinstance(error, Mapping):
-            return ResponseResult(
-                success=False,
-                meta=meta,
-                error_code=str(error.get("code") or "UNKNOWN"),
-                error_message=str(error.get("message") or "Tool invocation failed"),
-                retryable=error.get("retryable") if isinstance(error.get("retryable"), bool) else None,
-                correlation_id=correlation_id,
-            )
+            return _structured_error(error, meta=meta, correlation_id=correlation_id)
         return ResponseResult(
             success=False,
             meta=meta,
@@ -348,6 +390,8 @@ def select_efficient_tool(
 ) -> Mapping[str, Any] | None:
     """Select the narrowest compatible tool using declared capability tags."""
     required = set(required_capabilities)
+    if not required:
+        return None
     candidates: list[tuple[int, int, str, Mapping[str, Any]]] = []
     for tool in tools:
         declared = set(tool.get("capabilities") or [])
@@ -362,20 +406,43 @@ def select_efficient_tool(
     return candidates[0][3]
 
 
+def _schema_accepts_true(schema: Any) -> bool:
+    """Return whether a JSON-Schema-like property explicitly accepts true."""
+    if not isinstance(schema, Mapping):
+        return False
+    if "const" in schema:
+        return schema.get("const") is True
+    enum = schema.get("enum")
+    if isinstance(enum, Sequence) and not isinstance(enum, (str, bytes, bytearray)):
+        return any(value is True for value in enum)
+    schema_type = schema.get("type")
+    if schema_type == "boolean":
+        return True
+    if isinstance(schema_type, Sequence) and not isinstance(schema_type, (str, bytes, bytearray)):
+        if "boolean" in schema_type:
+            return True
+    for keyword in ("anyOf", "oneOf"):
+        alternatives = schema.get(keyword)
+        if isinstance(alternatives, Sequence) and not isinstance(
+            alternatives, (str, bytes, bytearray)
+        ):
+            return any(_schema_accepts_true(alternative) for alternative in alternatives)
+    return False
+
+
 def choose_initial_detail_params(schema: Mapping[str, Any]) -> dict[str, Any]:
     """Choose conservative summary parameters when a schema exposes them."""
     properties = schema.get("properties")
     if not isinstance(properties, Mapping):
         return {}
-    if "detail_level" in properties:
-        choices = properties["detail_level"].get("enum", []) if isinstance(properties["detail_level"], Mapping) else []
-        for candidate in ("summary", "minimal", "compact"):
-            if candidate in choices:
-                return {"detail_level": candidate}
-    if "compact" in properties:
-        return {"compact": True}
-    if "summary" in properties:
-        return {"summary": True}
+    detail = properties.get("detail_level")
+    choices = detail.get("enum", []) if isinstance(detail, Mapping) else []
+    for candidate in ("summary", "minimal", "compact"):
+        if candidate in choices:
+            return {"detail_level": candidate}
+    for flag in ("compact", "summary"):
+        if _schema_accepts_true(properties.get(flag)):
+            return {flag: True}
     return {}
 
 
@@ -398,6 +465,6 @@ def get_pagination_decision(
     if cursor not in (None, ""):
         return PaginationDecision(True, cursor=str(cursor), reason="next cursor available")
     offset = meta.get("next_offset")
-    if isinstance(offset, int):
+    if isinstance(offset, int) and not isinstance(offset, bool) and offset >= 0:
         return PaginationDecision(True, offset=offset, reason="next offset available")
     return PaginationDecision(False, reason="no continuation token available")

@@ -4,7 +4,7 @@ name: CI
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [<DEFAULT_BRANCH>]
 
 permissions:
   contents: read
@@ -25,6 +25,7 @@ jobs:
         with:
           python-version: "<PYTHON_VERSION>"
           cache: pip
+          cache-dependency-path: <DEPENDENCY_FILE>
       - name: Install dependencies
         run: <INSTALL_COMMAND>
       - name: Run quality gate

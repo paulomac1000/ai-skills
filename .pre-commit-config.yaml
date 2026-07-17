@@ -12,8 +12,8 @@ repos:
         language: system
         pass_filenames: false
       - id: repository-tests
-        name: Run repository tests
-        entry: python -m pytest -q
+        name: Run bounded repository quality gate
+        entry: python scripts/ci.py
         language: system
         pass_filenames: false
         stages: [pre-push]

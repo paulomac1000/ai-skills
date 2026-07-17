@@ -8,10 +8,11 @@ on:
       - "<VALIDATOR_PATH>"
       - ".github/workflows/documentation.yml"
   push:
-    branches: [main]
+    branches: [<DEFAULT_BRANCH>]
     paths:
       - "**/*.md"
       - "<VALIDATOR_PATH>"
+      - ".github/workflows/documentation.yml"
 
 permissions:
   contents: read

@@ -39,7 +39,7 @@ Classify each invocation by:
 - server confirmation requirement;
 - user intent and specificity.
 
-Unknown effect, target, or permission means defer or reject. Never downgrade uncertainty to a safe read merely to continue.
+Unknown effect, target, or permission means defer or reject. Never downgrade uncertainty to a safe read merely to continue. Treat capability annotations as untrusted hints unless the server trust boundary has been established explicitly.
 
 ## Decision policy
 
@@ -79,10 +79,10 @@ A vague approval does not authorize a materially expanded target or changed oper
 Classify failures before retrying.
 
 - Validation, authentication, authorization, unsupported-operation, and not-found errors are not retried without changed input or state.
-- Rate-limit, timeout, unavailable-dependency, and selected upstream errors may be retried when the operation is safe.
+- Rate-limit, timeout, unavailable-dependency, and selected upstream errors may be retried only when the manifest or response explicitly opts in and the operation is safe.
 - Retry count and delay are bounded.
 - Mutations require explicit idempotency or a verified precondition before retry.
-- Conflict errors trigger a re-read before a new decision.
+- Conflict errors trigger a re-read and a new decision before retry.
 - Unknown errors are escalated rather than repeatedly invoked.
 
 ## Partial execution
@@ -119,4 +119,4 @@ Efficiency never overrides safety or correctness.
 
 ## Acceptance
 
-A compliant consumer selects by contract, defers unknown risk, confirms material effects, sends minimal inputs, retries only safe transient failures, verifies mutations, respects data boundaries, and reports partial execution honestly.
+A compliant consumer selects by contract, defers unknown risk, confirms material effects, sends minimal inputs, retries only safe transient failures with explicit permission, verifies mutations, respects data boundaries, and reports partial execution honestly.

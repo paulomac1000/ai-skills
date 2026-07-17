@@ -54,10 +54,19 @@ def test_profile_inference_prefers_explicit_metadata() -> None:
     assert profile.idempotent is False
 
 
-def test_profile_inference_supports_prefix_and_annotations_conservatively() -> None:
+def test_profile_inference_uses_annotations_only_for_trusted_servers() -> None:
     engine = load_engine()
     assert engine.infer_capability_profile("[READ] list-items").risk is engine.Risk.READ
-    assert engine.infer_capability_profile("remove", {"annotations": {"destructiveHint": True}}).risk is engine.Risk.DESTRUCTIVE
+    assert engine.infer_capability_profile(
+        "remove", {"annotations": {"destructiveHint": True}}
+    ).risk is engine.Risk.UNKNOWN
+    assert engine.infer_capability_profile(
+        "list", {"annotations": {"readOnlyHint": True}}
+    ).risk is engine.Risk.UNKNOWN
+    trusted = {"trusted_server": True, "annotations": {"destructiveHint": True}}
+    assert engine.infer_capability_profile("remove", trusted).risk is engine.Risk.DESTRUCTIVE
+    trusted_read = {"trusted_server": True, "annotations": {"readOnlyHint": True}}
+    assert engine.infer_capability_profile("list", trusted_read).risk is engine.Risk.READ
     sensitive = engine.infer_capability_profile("[READ] get-secret", {"sensitive": True})
     assert sensitive.risk is engine.Risk.SENSITIVE
 
@@ -65,32 +74,56 @@ def test_profile_inference_supports_prefix_and_annotations_conservatively() -> N
 def test_retry_requires_safe_operation_and_positive_retry_signal() -> None:
     engine = load_engine()
     assert engine.should_retry(
-        error_code="TIMEOUT",
-        attempt=0,
-        operation_idempotent=True,
-        manifest={"retryable": True},
+        error_code="TIMEOUT", attempt=0, operation_idempotent=True, manifest={"retryable": True}
+    )
+    assert engine.should_retry(
+        error_code="TIMEOUT", attempt=0, operation_idempotent=True, response_retryable=True
+    )
+    for manifest in (None, {}):
+        assert not engine.should_retry(
+            error_code="TIMEOUT",
+            attempt=0,
+            operation_idempotent=True,
+            manifest=manifest,
+        )
+    assert not engine.should_retry(
+        error_code="TIMEOUT", attempt=0, operation_idempotent=False, manifest={"retryable": True}
+    )
+    assert not engine.should_retry(
+        error_code="TIMEOUT", attempt=0, operation_idempotent=True, manifest={"retryable": False}
     )
     assert not engine.should_retry(
         error_code="TIMEOUT",
         attempt=0,
-        operation_idempotent=False,
+        operation_idempotent=True,
         manifest={"retryable": True},
+        response_retryable=False,
     )
     assert not engine.should_retry(
         error_code="TIMEOUT",
         attempt=0,
         operation_idempotent=True,
         manifest={"retryable": False},
+        response_retryable=True,
     )
     assert not engine.should_retry(
-        error_code="TIMEOUT",
-        attempt=2,
-        operation_idempotent=True,
-        manifest={"retryable": True},
+        error_code="TIMEOUT", attempt=2, operation_idempotent=True, manifest={"retryable": True}
     )
 
 
-def test_response_normalization_handles_success_and_protocol_error() -> None:
+def test_conflict_retry_requires_refreshed_precondition() -> None:
+    engine = load_engine()
+    kwargs = {
+        "error_code": "CONFLICT",
+        "attempt": 0,
+        "operation_idempotent": True,
+        "manifest": {"retryable": True},
+    }
+    assert not engine.should_retry(**kwargs)
+    assert engine.should_retry(**kwargs, precondition_refreshed=True)
+
+
+def test_response_normalization_handles_success_and_errors() -> None:
     engine = load_engine()
     success = engine.handle_response(
         {"structuredContent": {"items": []}, "_meta": {"correlation_id": "abc"}}
@@ -100,14 +133,23 @@ def test_response_normalization_handles_success_and_protocol_error() -> None:
     assert success.correlation_id == "abc"
 
     failure = engine.handle_response(
-        {
-            "isError": True,
-            "error": {"code": "TIMEOUT", "message": "slow", "retryable": True},
-        }
+        {"isError": True, "error": {"code": "TIMEOUT", "message": "slow", "retryable": True}}
     )
     assert failure.success is False
     assert failure.error_code == "TIMEOUT"
     assert failure.retryable is True
+
+    native = engine.handle_response(
+        {"isError": True, "content": [{"type": "text", "text": "device unavailable"}]}
+    )
+    assert native.error_code == "MCP_TOOL_ERROR"
+    assert native.error_message == "device unavailable"
+
+    structured = engine.handle_response(
+        {"isError": True, "structuredContent": {"code": "CONFLICT", "message": "stale"}}
+    )
+    assert structured.error_code == "CONFLICT"
+    assert structured.error_message == "stale"
 
 
 def test_empty_success_is_not_reinterpreted_as_failure() -> None:
@@ -132,7 +174,7 @@ def test_batch_preference_preserves_policy_and_verification() -> None:
     )
 
 
-def test_tool_selection_chooses_narrowest_compatible_contract() -> None:
+def test_tool_selection_chooses_narrowest_and_rejects_empty_requirements() -> None:
     engine = load_engine()
     tools = [
         {"name": "wide", "capabilities": ["search", "read", "write"]},
@@ -140,20 +182,30 @@ def test_tool_selection_chooses_narrowest_compatible_contract() -> None:
         {"name": "batch-read", "capabilities": ["search", "read"], "batch": True},
     ]
     assert engine.select_efficient_tool(
-        tools,
-        required_capabilities=["search", "read"],
-        prefer_batch=True,
+        tools, required_capabilities=["search", "read"], prefer_batch=True
     )["name"] == "batch-read"
+    assert engine.select_efficient_tool(tools, required_capabilities=[]) is None
 
 
-def test_initial_detail_parameters_choose_summary_mode() -> None:
+def test_initial_detail_parameters_validate_boolean_schemas() -> None:
     engine = load_engine()
     schema = {"properties": {"detail_level": {"enum": ["full", "summary"]}}}
     assert engine.choose_initial_detail_params(schema) == {"detail_level": "summary"}
-    assert engine.choose_initial_detail_params({"properties": {"compact": {"type": "boolean"}}}) == {"compact": True}
+    assert engine.choose_initial_detail_params(
+        {"properties": {"compact": {"type": "boolean"}}}
+    ) == {"compact": True}
+    assert engine.choose_initial_detail_params(
+        {"properties": {"compact": {"type": "string", "enum": ["short"]}}}
+    ) == {}
+    assert engine.choose_initial_detail_params(
+        {"properties": {"summary": {"type": "boolean", "const": False}}}
+    ) == {}
+    assert engine.choose_initial_detail_params(
+        {"properties": {"summary": {"enum": [False, True]}}}
+    ) == {"summary": True}
 
 
-def test_pagination_stops_on_outcome_or_limit_and_uses_tokens() -> None:
+def test_pagination_stops_on_limits_and_rejects_invalid_offsets() -> None:
     engine = load_engine()
     assert not engine.get_pagination_decision(
         {"next_cursor": "x"}, outcome_satisfied=True, pages_seen=1, max_pages=5
@@ -166,3 +218,11 @@ def test_pagination_stops_on_outcome_or_limit_and_uses_tokens() -> None:
     )
     assert decision.continue_paging is True
     assert decision.cursor == "x"
+    for offset in (True, -1):
+        assert not engine.get_pagination_decision(
+            {"next_offset": offset}, outcome_satisfied=False, pages_seen=1, max_pages=5
+        ).continue_paging
+    valid = engine.get_pagination_decision(
+        {"next_offset": 0}, outcome_satisfied=False, pages_seen=1, max_pages=5
+    )
+    assert valid.continue_paging and valid.offset == 0

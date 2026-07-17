@@ -42,7 +42,7 @@ PROJECT_SPECIFIC_TERMS = {
     "mikrus-" + "mcp",
     "local-home-devices-" + "mcp",
 }
-POLISH_MARKERS = re.compile("[\u0105\u0107\u0119\u0142\u0144\u00f3\u015b\u017a\u017c\u0104\u0106\u0118\u0141\u0143\u00d3\u015a\u0179\u017b]")
+POLISH_MARKERS = re.compile(r"[\u0105\u0107\u0119\u0142\u0144\u00f3\u015b\u017a\u017c\u0104\u0106\u0118\u0141\u0143\u00d3\u015a\u0179\u017b]")
 
 
 def load_validator():
@@ -56,11 +56,11 @@ def load_validator():
     return module
 
 
-def source_files() -> list[Path]:
+def source_files(root: Path = ROOT) -> list[Path]:
     """Return release files while excluding local runtime artifacts."""
     return [
         path
-        for path in ROOT.rglob("*")
+        for path in root.rglob("*")
         if path.is_file() and not IGNORED_PARTS.intersection(path.parts)
     ]
 
@@ -84,7 +84,6 @@ def test_every_discovered_skill_is_governed() -> None:
         if path.is_dir() and path.name != "__pycache__"
     }
     assert discovered == EXPECTED_SKILLS
-
     for name in discovered:
         directory = skill_root / name
         actual = {
@@ -146,16 +145,8 @@ def test_changelog_preserves_history_with_one_new_release_change() -> None:
 
 
 def test_repository_local_virtual_environment_is_ignored(tmp_path: Path) -> None:
-    """Document the exclusion that prevents local environments breaking file budgets."""
-    fake = ROOT / ".venv" / "lib" / "site-packages" / "generated.py"
+    """Test ignored environments without touching a developer checkout."""
+    fake = tmp_path / ".venv" / "lib" / "site-packages" / "generated.py"
     fake.parent.mkdir(parents=True, exist_ok=True)
     fake.write_text("# local artifact\n", encoding="utf-8")
-    try:
-        assert fake not in source_files()
-    finally:
-        fake.unlink()
-        for parent in [fake.parent, fake.parent.parent, fake.parent.parent.parent, ROOT / ".venv"]:
-            try:
-                parent.rmdir()
-            except OSError:
-                pass
+    assert fake not in source_files(tmp_path)

@@ -4,7 +4,7 @@ name: .NET CI
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [<DEFAULT_BRANCH>]
 
 permissions:
   contents: read

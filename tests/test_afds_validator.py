@@ -77,6 +77,17 @@ def test_fenced_headings_and_links_do_not_affect_structure(tmp_path: Path) -> No
     assert findings == []
 
 
+def test_longer_closing_fence_is_valid_and_ignored(tmp_path: Path) -> None:
+    validator = load_validator()
+    document = governed_body() + """
+````markdown
+# Example heading
+[missing](not-a-real-file.md)
+`````
+"""
+    assert validator.validate(write(tmp_path / "doc.md", document)) == []
+
+
 def test_normative_document_requires_concrete_verification(tmp_path: Path) -> None:
     validator = load_validator()
     document = governed_body(verification="")
@@ -93,6 +104,15 @@ def test_frontmatter_verification_is_accepted(tmp_path: Path) -> None:
         "owners: [maintainers]\nverification: Run the contract test suite.\n",
     ).replace("## Verification\n\n", "")
     assert validator.validate(write(tmp_path / "doc.md", document)) == []
+
+
+def test_owners_must_be_a_non_empty_string_list(tmp_path: Path) -> None:
+    validator = load_validator()
+    for invalid in ("maintainers", "{}", "[]", "[maintainers, 7]"):
+        document = governed_body().replace("owners: [maintainers]", f"owners: {invalid}")
+        assert "owners must be a non-empty list of role or team names" in messages(
+            validator.validate(write(tmp_path / "doc.md", document))
+        )
 
 
 def test_link_with_title_resolves_destination_only(tmp_path: Path) -> None:
@@ -116,9 +136,67 @@ def test_nested_parentheses_in_link_destination_are_supported(tmp_path: Path) ->
     assert validator.validate(write(tmp_path / "doc.md", document)) == []
 
 
+def test_tab_indented_backticks_do_not_open_a_fence(tmp_path: Path) -> None:
+    validator = load_validator()
+    document = governed_body() + """
+	```markdown
+# Hidden duplicate heading
+[Missing](missing.md)
+```
+"""
+    result = messages(validator.validate(write(tmp_path / "doc.md", document)))
+    assert "expected exactly one H1" in result
+    assert "broken relative link: missing.md" in result
+
+
+def test_exclamation_at_end_of_link_label_is_not_an_image(tmp_path: Path) -> None:
+    validator = load_validator()
+    document = governed_body() + "\n[Important!](missing.md)\n"
+    assert "broken relative link: missing.md" in messages(
+        validator.validate(write(tmp_path / "doc.md", document))
+    )
+
+
+def test_image_destination_is_not_checked_as_a_document_link(tmp_path: Path) -> None:
+    validator = load_validator()
+    document = governed_body() + "\n![Diagram](missing.png)\n"
+    assert validator.validate(write(tmp_path / "doc.md", document)) == []
+
+
 def test_broken_relative_link_is_reported(tmp_path: Path) -> None:
     validator = load_validator()
     document = governed_body() + "\n[Missing](missing.md)\n"
+    assert "broken relative link: missing.md" in messages(
+        validator.validate(write(tmp_path / "doc.md", document))
+    )
+
+
+def test_unhashable_metadata_values_report_findings(tmp_path: Path) -> None:
+    validator = load_validator()
+    document = governed_body().replace(
+        "type: reference\nstatus: active\nrigor: normative",
+        "type: [reference]\nstatus: [active]\nrigor: [normative]",
+    )
+    result = messages(validator.validate(write(tmp_path / "doc.md", document)))
+    assert "invalid type: ['reference']" in result
+    assert "invalid status: ['active']" in result
+    assert "invalid rigor: ['normative']" in result
+
+
+def test_inline_code_and_escaped_pseudo_links_are_ignored(tmp_path: Path) -> None:
+    validator = load_validator()
+    document = governed_body() + (
+        "\n`[example](missing-inline.md)`\n"
+        "\n\\[example](missing-escaped.md)\n"
+    )
+    assert validator.validate(write(tmp_path / "doc.md", document)) == []
+
+
+def test_real_link_next_to_inline_code_is_still_checked(tmp_path: Path) -> None:
+    validator = load_validator()
+    document = governed_body() + (
+        "\n`[example](ignored.md)` and [real](missing.md)\n"
+    )
     assert "broken relative link: missing.md" in messages(
         validator.validate(write(tmp_path / "doc.md", document))
     )
