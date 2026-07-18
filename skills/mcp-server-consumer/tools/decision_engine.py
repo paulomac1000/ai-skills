@@ -107,6 +107,17 @@ ERROR_STRATEGIES: dict[str, ErrorStrategy] = {
 }
 DEFAULT_ERROR_STRATEGY = ErrorStrategy(False, 0, ErrorAction.ESCALATE)
 
+# This order is deliberately conservative for the single-axis compatibility
+# projection. Confidentiality is also retained separately in ``sensitive``.
+_RISK_SEVERITY: dict[Risk, int] = {
+    Risk.UNKNOWN: 0,
+    Risk.READ: 1,
+    Risk.WRITE: 2,
+    Risk.SENSITIVE: 3,
+    Risk.DESTRUCTIVE: 4,
+    Risk.DANGEROUS: 5,
+}
+
 
 def _risk(value: str | Risk | None) -> Risk:
     """Normalize a risk value without silently treating unknown input as safe."""
@@ -118,6 +129,11 @@ def _risk(value: str | Risk | None) -> Risk:
         return Risk(value.upper())
     except ValueError:
         return Risk.UNKNOWN
+
+
+def _higher_risk(current: Risk, candidate: Risk) -> Risk:
+    """Return the more restrictive compatibility risk projection."""
+    return candidate if _RISK_SEVERITY[candidate] > _RISK_SEVERITY[current] else current
 
 
 def _intent(value: str | UserIntent) -> UserIntent:
@@ -200,12 +216,14 @@ def infer_capability_profile(
     trusted_server = metadata.get("trusted_server") is True
     if isinstance(annotations, Mapping):
         if annotations.get("destructiveHint") is True:
-            inferred = Risk.DESTRUCTIVE
-            source = (
-                "trusted-annotation"
-                if trusted_server
-                else "untrusted-annotation-escalation"
-            )
+            previous = inferred
+            inferred = _higher_risk(inferred, Risk.DESTRUCTIVE)
+            if inferred is not previous:
+                source = (
+                    "trusted-annotation"
+                    if trusted_server
+                    else "untrusted-annotation-escalation"
+                )
         elif (
             trusted_server
             and inferred is Risk.UNKNOWN
@@ -262,109 +280,76 @@ def should_retry(
         return False
     if manifest_retryable is not True and response_retryable is not True:
         return False
-    return operation_idempotent is True
+    return operation_idempotent
 
 
-def _native_error_details(response: Mapping[str, Any]) -> tuple[str, str, bool | None]:
-    """Extract a stable error tuple from protocol-native MCP result fields."""
+def _extract_protocol_error(response: Mapping[str, Any]) -> tuple[str, str]:
+    """Extract an MCP-native tool error when no nested error object exists."""
     structured = response.get("structuredContent")
     if isinstance(structured, Mapping):
-        nested = structured.get("error")
-        payload = nested if isinstance(nested, Mapping) else structured
-        code = payload.get("code") or payload.get("error_code") or "MCP_TOOL_ERROR"
-        message = payload.get("message") or payload.get("error")
-        retryable = payload.get("retryable")
-        if message is not None:
-            return str(code), str(message), retryable if isinstance(retryable, bool) else None
+        code = structured.get("code")
+        message = structured.get("message") or structured.get("error")
+        if isinstance(code, str) or isinstance(message, str):
+            return str(code or "MCP_TOOL_ERROR"), str(message or code or "MCP tool failed")
+
     content = response.get("content")
-    texts: list[str] = []
-    if isinstance(content, str):
-        texts.append(content)
-    elif isinstance(content, Sequence) and not isinstance(content, (str, bytes, bytearray)):
-        for item in content:
-            if isinstance(item, Mapping) and item.get("text") is not None:
-                texts.append(str(item["text"]))
-            elif isinstance(item, str):
-                texts.append(item)
-    message = "\n".join(text for text in texts if text.strip()).strip()
-    return "MCP_TOOL_ERROR", message or "Tool invocation failed", None
-
-
-def _structured_error(
-    error: Mapping[str, Any], *, meta: Mapping[str, Any], correlation_id: str | None
-) -> ResponseResult:
-    """Normalize one explicit structured error mapping."""
-    retryable = error.get("retryable")
-    return ResponseResult(
-        success=False,
-        meta=meta,
-        error_code=str(error.get("code") or "UNKNOWN"),
-        error_message=str(error.get("message") or "Tool invocation failed"),
-        retryable=retryable if isinstance(retryable, bool) else None,
-        correlation_id=correlation_id,
-    )
+    if isinstance(content, Sequence) and not isinstance(content, (str, bytes, bytearray)):
+        messages = [
+            item.get("text")
+            for item in content
+            if isinstance(item, Mapping) and isinstance(item.get("text"), str)
+        ]
+        if messages:
+            return "MCP_TOOL_ERROR", "\n".join(messages)
+    if isinstance(content, str) and content:
+        return "MCP_TOOL_ERROR", content
+    return "MCP_TOOL_ERROR", "MCP tool failed"
 
 
 def handle_response(response: Mapping[str, Any]) -> ResponseResult:
-    """Normalize common structured and protocol-native error response shapes."""
+    """Normalize structured and legacy responses without losing protocol errors."""
     meta = response.get("_meta")
     if not isinstance(meta, Mapping):
         meta = {}
-    correlation = meta.get("correlation_id") or response.get("correlation_id")
-    correlation_id = str(correlation) if correlation is not None else None
+    correlation_id = meta.get("correlation_id") or meta.get("request_id")
+    correlation = str(correlation_id) if correlation_id is not None else None
+    error = response.get("error")
+    if isinstance(error, Mapping):
+        return ResponseResult(
+            success=False,
+            meta=meta,
+            error_code=str(error.get("code") or "UNKNOWN"),
+            error_message=str(error.get("message") or "Tool failed"),
+            retryable=error.get("retryable") if isinstance(error.get("retryable"), bool) else None,
+            correlation_id=correlation,
+        )
     if response.get("isError") is True:
-        error = response.get("error")
-        if isinstance(error, Mapping):
-            return _structured_error(error, meta=meta, correlation_id=correlation_id)
-        code, message, retryable = _native_error_details(response)
-        return ResponseResult(False, meta=meta, error_code=code, error_message=message, retryable=retryable, correlation_id=correlation_id)
-    success = response.get("success")
-    if success is False:
-        error = response.get("error")
-        if isinstance(error, Mapping):
-            return _structured_error(error, meta=meta, correlation_id=correlation_id)
-        return ResponseResult(False, meta=meta, error_code="UNKNOWN", error_message=str(error or "Tool invocation failed"), correlation_id=correlation_id)
-    if success is True:
-        data = response.get("data")
-    elif "content" in response or "structuredContent" in response:
-        data = response.get("structuredContent", response.get("content"))
-    else:
-        return ResponseResult(False, meta=meta, error_code="UNRECOGNIZED_RESPONSE", error_message="Response does not contain a recognized success or error shape", correlation_id=correlation_id)
-    return ResponseResult(True, data=data, meta=meta, correlation_id=correlation_id)
-
-
-def is_meaningful_empty_success(result: ResponseResult) -> bool:
-    """Return whether an empty value is still a successful contract result."""
-    return result.success and result.data in (None, [], {}, "")
-
-
-def prefer_batch_tool(
-    item_count: int,
-    *,
-    batch_available: bool,
-    preserves_policy_boundaries: bool,
-    preserves_verification: bool,
-) -> bool:
-    """Prefer a batch capability only when it retains control and evidence."""
-    return item_count > 1 and batch_available and preserves_policy_boundaries and preserves_verification
+        code, message = _extract_protocol_error(response)
+        return ResponseResult(
+            success=False,
+            meta=meta,
+            error_code=code,
+            error_message=message,
+            retryable=response.get("retryable") if isinstance(response.get("retryable"), bool) else None,
+            correlation_id=correlation,
+        )
+    data = response.get("structuredContent", response.get("data", response.get("content")))
+    return ResponseResult(success=True, data=data, meta=meta, correlation_id=correlation)
 
 
 def select_efficient_tool(
-    tools: Sequence[Mapping[str, Any]],
+    tools: Iterable[Mapping[str, Any]],
     *,
     required_capabilities: Iterable[str],
     prefer_batch: bool = False,
 ) -> Mapping[str, Any] | None:
-    """Select the narrowest compatible tool using declared capability tags."""
+    """Select the narrowest tool satisfying explicit non-empty requirements."""
     required = set(required_capabilities)
     if not required:
         return None
     candidates: list[tuple[int, int, str, Mapping[str, Any]]] = []
     for tool in tools:
-        declared_value = tool.get("capabilities") or []
-        if not isinstance(declared_value, Sequence) or isinstance(declared_value, (str, bytes)):
-            continue
-        declared = {str(item) for item in declared_value}
+        declared = set(tool.get("capabilities") or [])
         if not required.issubset(declared):
             continue
         extra = len(declared - required)
@@ -377,36 +362,32 @@ def select_efficient_tool(
 
 
 def _schema_accepts_true(schema: Any) -> bool:
-    """Return whether a JSON-Schema-like property explicitly accepts true."""
+    """Return whether a property schema permits the literal boolean true."""
     if not isinstance(schema, Mapping):
         return False
-    if "const" in schema:
+    if schema.get("const") is not None:
         return schema.get("const") is True
     enum = schema.get("enum")
     if isinstance(enum, Sequence) and not isinstance(enum, (str, bytes, bytearray)):
-        return any(value is True for value in enum)
+        return True in enum and any(type(value) is bool for value in enum)
     schema_type = schema.get("type")
     if schema_type == "boolean":
         return True
-    if isinstance(schema_type, Sequence) and not isinstance(schema_type, (str, bytes, bytearray)) and "boolean" in schema_type:
-        return True
-    for keyword in ("anyOf", "oneOf"):
-        alternatives = schema.get(keyword)
-        if isinstance(alternatives, Sequence) and not isinstance(alternatives, (str, bytes, bytearray)):
-            return any(_schema_accepts_true(alternative) for alternative in alternatives)
+    if isinstance(schema_type, Sequence) and not isinstance(schema_type, (str, bytes, bytearray)):
+        return "boolean" in schema_type
     return False
 
 
-def choose_initial_detail_params(schema: Mapping[str, Any]) -> dict[str, Any]:
-    """Choose conservative summary parameters when a schema exposes them."""
-    properties = schema.get("properties")
+def choose_initial_detail_params(input_schema: Mapping[str, Any]) -> dict[str, Any]:
+    """Choose a schema-valid compact response without guessing parameters."""
+    properties = input_schema.get("properties")
     if not isinstance(properties, Mapping):
         return {}
     detail = properties.get("detail_level")
-    choices = detail.get("enum", []) if isinstance(detail, Mapping) else []
-    for candidate in ("summary", "minimal", "compact"):
-        if candidate in choices:
-            return {"detail_level": candidate}
+    if isinstance(detail, Mapping):
+        enum = detail.get("enum")
+        if isinstance(enum, Sequence) and "summary" in enum:
+            return {"detail_level": "summary"}
     for flag in ("compact", "summary"):
         if _schema_accepts_true(properties.get(flag)):
             return {flag: True}
@@ -420,19 +401,15 @@ def get_pagination_decision(
     pages_seen: int,
     max_pages: int,
 ) -> PaginationDecision:
-    """Decide whether another bounded page should be requested."""
+    """Continue only for a valid explicit continuation signal within a hard bound."""
     if outcome_satisfied:
-        return PaginationDecision(False, reason="requested outcome is already satisfied")
-    if type(pages_seen) is not int or type(max_pages) is not int or pages_seen < 0 or max_pages <= 0:
-        return PaginationDecision(False, reason="invalid pagination budget")
+        return PaginationDecision(False, reason="outcome already satisfied")
     if pages_seen >= max_pages:
-        return PaginationDecision(False, reason="pagination limit reached")
-    if meta.get("has_more") is False:
-        return PaginationDecision(False, reason="server reports no more results")
+        return PaginationDecision(False, reason="page limit reached")
     cursor = meta.get("next_cursor")
-    if isinstance(cursor, str) and cursor.strip():
+    if isinstance(cursor, str) and cursor:
         return PaginationDecision(True, cursor=cursor, reason="next cursor available")
     offset = meta.get("next_offset")
     if type(offset) is int and offset >= 0:
         return PaginationDecision(True, offset=offset, reason="next offset available")
-    return PaginationDecision(False, reason="no continuation token available")
+    return PaginationDecision(False, reason="no contract-valid continuation token")
