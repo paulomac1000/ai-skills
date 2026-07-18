@@ -55,6 +55,17 @@ def source_files(root: Path = ROOT) -> list[Path]:
     ]
 
 
+def markdown_section(text: str, heading: str) -> str:
+    """Return one second-level Markdown section body."""
+    lines = text.splitlines()
+    start = lines.index(heading) + 1
+    end = next(
+        (index for index in range(start, len(lines)) if lines[index].startswith("## ")),
+        len(lines),
+    )
+    return "\n".join(lines[start:end]).strip()
+
+
 def test_skill_manifests_govern_extensible_resource_categories() -> None:
     skill_root = ROOT / "skills"
     discovered = {path.name for path in skill_root.iterdir() if path.is_dir()}
@@ -155,10 +166,55 @@ def test_python_and_dotnet_profiles_cover_the_same_core_invariants() -> None:
     for name, text in profiles.items():
         missing = MCP_PARITY_HEADINGS - set(text.splitlines())
         assert not missing, (name, missing)
+        for heading in MCP_PARITY_HEADINGS:
+            body = markdown_section(text, heading)
+            assert len(body) >= 120, (name, heading, body)
+
+    required_platform_contracts = {
+        "python": {
+            "FastMCP",
+            "asyncio",
+            "contextvars",
+            "event loop",
+            "compatibility adapter",
+            "Streamable HTTP",
+        },
+        "dotnet": {
+            "ModelContextProtocol",
+            "Generic Host",
+            "CancellationToken",
+            "Activity",
+            "WithStdioServerTransport",
+            "WithHttpTransport",
+            "MapMcp",
+        },
+    }
+    for name, required in required_platform_contracts.items():
+        missing = required - set(
+            token for token in required if token in profiles[name]
+        )
+        assert not missing, (name, missing)
 
     standard = (ROOT / "skills/mcp-server-architect/STANDARD.md").read_text(encoding="utf-8")
     assert "capability-manifests-and-versioning.md" in standard
     assert "transport-lifecycle-and-conformance.md" in standard
+
+
+def test_mcp_examples_exercise_native_python_and_dotnet_hosting_surfaces() -> None:
+    examples = ROOT / "skills/mcp-server-architect/examples"
+    python_example = (examples / "python/server_composition.py.example").read_text(encoding="utf-8")
+    stdio_example = (examples / "dotnet/StdioProgram.cs.example").read_text(encoding="utf-8")
+    http_example = (examples / "dotnet/HttpProgram.cs.example").read_text(encoding="utf-8")
+    tool_example = (examples / "dotnet/InventoryTools.cs.example").read_text(encoding="utf-8")
+
+    for token in ("FastMCP", "lifespan", "stateless_http=True", "@mcp.tool"):
+        assert token in python_example
+    for token in ("AddMcpServer", "WithStdioServerTransport", "WithTools<InventoryTools>"):
+        assert token in stdio_example
+    for token in ("WithHttpTransport", "options.Stateless = true", "MapMcp"):
+        assert token in http_example
+    for token in ("[McpServerToolType]", "[McpServerTool", "CancellationToken"):
+        assert token in tool_example
 
 
 def test_legacy_standard_paths_remain_resolvable_deprecation_stubs() -> None:
