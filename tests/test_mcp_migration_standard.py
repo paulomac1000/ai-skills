@@ -12,6 +12,13 @@ def read(name: str) -> str:
     return (REFERENCES / name).read_text(encoding="utf-8")
 
 
+def assert_terms(text: str, required: set[str]) -> None:
+    """Require prose contracts without making capitalization an API."""
+    folded = text.casefold()
+    missing = {term for term in required if term.casefold() not in folded}
+    assert not missing, missing
+
+
 def test_language_neutral_standard_owns_migration_invariants() -> None:
     text = (MCP / "STANDARD.md").read_text(encoding="utf-8")
     required = {
@@ -24,7 +31,7 @@ def test_language_neutral_standard_owns_migration_invariants() -> None:
         "configuration-order",
         "Python migration simulation",
     }
-    assert all(term in text for term in required)
+    assert_terms(text, required)
 
 
 def test_manifest_contract_rejects_class_wide_optimistic_defaults() -> None:
@@ -40,7 +47,7 @@ def test_manifest_contract_rejects_class_wide_optimistic_defaults() -> None:
         "unknown-outcome state",
         "never falls back silently",
     }
-    assert all(term in text for term in required)
+    assert_terms(text, required)
 
 
 def test_python_profile_covers_real_migration_failure_modes() -> None:
@@ -61,21 +68,21 @@ def test_python_profile_covers_real_migration_failure_modes() -> None:
         "Pagination",
         "ISO 8601",
     }
-    assert all(term in text for term in required)
+    assert_terms(text, required)
 
 
 def test_transport_contract_prevents_adapter_policy_drift() -> None:
     text = read("transport-lifecycle-and-conformance.md")
     required = {
         "One invocation kernel",
-        "never falls back silently",
+        "does not silently select the first healthy target",
         "tool count or successful port binding alone never means ready",
         "acknowledging public exposure is never sufficient security",
         "does not call `asyncio.run`, `run_until_complete`",
         "expected disconnect",
         "failed-default",
     }
-    assert all(term in text for term in required)
+    assert_terms(text, required)
 
 
 def test_simulation_covers_each_python_server_archetype() -> None:
@@ -100,7 +107,7 @@ def test_simulation_covers_each_python_server_archetype() -> None:
         "post-restart verification",
         "secret-cache prohibition",
     }
-    assert all(term in text for term in regression_terms)
+    assert_terms(text, regression_terms)
 
 
 def test_testing_strategy_has_executable_migration_evidence() -> None:
@@ -109,10 +116,10 @@ def test_testing_strategy_has_executable_migration_evidence() -> None:
         "Invocation-kernel parity",
         "prohibition of silent fallback",
         "bounded executor saturation",
-        "commit-then-timeout",
+        "timeout after the upstream commits a mutation",
         "full-final",
         "configuration-order",
         "Archetype migration matrix",
         "stable production SDK lane",
     }
-    assert all(term in text for term in required)
+    assert_terms(text, required)
