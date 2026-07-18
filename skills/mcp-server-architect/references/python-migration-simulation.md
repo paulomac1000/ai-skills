@@ -31,17 +31,17 @@ A migration is incomplete when the new transport starts but policy, failure sema
 
 ## Archetype A: large read-only aggregator
 
-### Simulated rewrite
+### Aggregator rewrite
 
 Move a large collection of configuration, log, history, graph, diagnostic, batch, and export tools behind typed application services. Replace post-registration wrapper mutation and private registry enumeration with an application-owned capability registry registered through supported SDK APIs. Split the full supported catalog from smaller active profiles and progressive discovery.
 
-### Ambiguities discovered
+### Aggregator ambiguities
 
 “Read-only” describes side effects, not confidentiality, cost, or abuse potential. Logs, histories, configuration, network identifiers, and generated snapshots may contain protected data even when no mutation occurs. A full context export is not equivalent to a cheap point read: it may scan many files, call multiple APIs, produce a durable artifact, and exceed an agent context budget.
 
 A tool count cannot prove readiness. Registration can succeed while credentials, filesystem mounts, or upstream APIs are unavailable. Running the repository test suite during process startup is also not a health check; it couples production boot to development dependencies and may hang without a bound.
 
-### Hardened controls
+### Aggregator controls
 
 - Every read capability declares confidentiality, output bound, freshness, and cost.
 - Bulk exports use explicit selection, size limits, destination policy, atomic write, provenance, retention, cancellation, and deletion.
@@ -50,17 +50,17 @@ A tool count cannot prove readiness. Registration can succeed while credentials,
 - Active profiles are validated against the supported catalog and exposed through MCP discovery.
 - Startup diagnostics are bounded and dependency-oriented; full tests remain CI or deployment gates.
 
-### Regression evidence
+### Aggregator regression evidence
 
 Test confidential read classification, omitted-manifest failure, active-profile discovery, wrapper-preserved schemas, partial dependency readiness, export cancellation, output limits, and startup without test-only packages.
 
 ## Archetype B: heterogeneous local-device controller
 
-### Simulated rewrite
+### Device-controller rewrite
 
 Place network discovery, HTTP devices, message brokers, cloud adapters, raw TCP protocols, cameras, file transfer, firmware update, and container integration behind separate capability groups. Route all MCP and REST calls through one invocation kernel and isolate high-privilege adapters such as a container socket.
 
-### Ambiguities discovered
+### Device-controller ambiguities
 
 An IP address is not a stable device identity. DHCP reuse can cause an agent to discover one device and mutate another later. An agent-provided host or URL can also become an SSRF primitive through DNS changes, redirects, alternate address forms, or unexpected ports.
 
@@ -68,7 +68,7 @@ One global write switch is too coarse. Enabling a harmless light change must not
 
 Long operations commonly disconnect the target. OTA, restart, hardware tests, and network reconfiguration must not surface expected disconnect as an ordinary timeout that invites retry.
 
-### Hardened controls
+### Device-controller controls
 
 - Discovery returns a stable identity and observed address; mutation re-resolves and revalidates their binding before I/O.
 - Network policy validates scheme, normalized host, resolved addresses, CIDR, port, redirects, and DNS rebinding behavior.
@@ -77,17 +77,17 @@ Long operations commonly disconnect the target. OTA, restart, hardware tests, an
 - Long operations return accepted state, task identity, progress, cancellation support, expected-disconnect state, and post-reconnect verification.
 - Composite device changes expose plan, per-step result, verification, and compensation.
 
-### Regression evidence
+### Device-controller regression evidence
 
 Test DHCP identity change, DNS rebinding, redirect escape, IPv4 and IPv6 normalization, denied target CIDR, scoped operator policy, disabled privileged adapter, concurrent scan bounds, OTA cancellation, and post-restart verification.
 
 ## Archetype C: SSH network appliance
 
-### Simulated rewrite
+### Network-appliance rewrite
 
 Replace mutable shared SSH options and shell-fragment construction with immutable per-call requests, typed command builders, explicit target locks, verified host identity, and bounded command execution. Migrate legacy SSE to standard stdio or Streamable HTTP while preserving a compatibility window.
 
-### Ambiguities discovered
+### Network-appliance ambiguities
 
 Declaring `concurrent_safe: false` does not serialize anything. Mutating a shared timeout immediately before an `await` lets concurrent calls overwrite one another. A compatibility helper that creates and runs a new event loop from a request path can also fail when an event loop is already active.
 
@@ -95,7 +95,7 @@ A public-bind acknowledgement does not secure a privileged router. Host-key veri
 
 Configuration workflows are transactional. Setting a value, committing it, restarting an interface, and verifying connectivity span several states and may temporarily remove the management channel.
 
-### Hardened controls
+### Network-appliance controls
 
 - `concurrent_safe: false` maps to a tested keyed lock or isolated connection.
 - Per-call timeout, target, and credentials are immutable.
@@ -105,17 +105,17 @@ Configuration workflows are transactional. Setting a value, committing it, resta
 - Configuration changes use read-version, plan, apply, commit, reconnect, verify, and rollback semantics.
 - Readiness includes downstream identity and connectivity, not merely tool registration.
 
-### Regression evidence
+### Network-appliance regression evidence
 
 Overlap calls with different timeouts and targets, cancel while waiting for a lock, invoke through a running event loop, reject host-key mismatch, fuzz command arguments, simulate expected management disconnect, and prove rollback or explicit partial state.
 
 ## Archetype D: multi-backend privileged administrator
 
-### Simulated rewrite
+### Multi-backend rewrite
 
 Model every configured backend as a stable target with its own identity, credential set, health, capability matrix, quota, client lifecycle, and lock scope. Keep partial startup, but remove implicit fallback. Split read-only inspection from privileged administration when deployment boundaries permit.
 
-### Ambiguities discovered
+### Multi-backend ambiguities
 
 Selecting the first healthy backend when the configured default fails is convenient for reads but catastrophic for writes. A caller that omitted a target may unknowingly mutate a different server. The resolved target must therefore be an explicit part of authorization, telemetry, and response metadata.
 
@@ -123,7 +123,7 @@ A shared API client can have a race in its request-spacing timestamp even when i
 
 Caching credential-returning endpoints creates an additional secret store. Passing credentials through environment JSON or command-line examples may expose them through process inspection, history, diagnostics, or crash reporting.
 
-### Hardened controls
+### Multi-backend controls
 
 - An unavailable requested or default target produces a controlled error; it never selects another target implicitly.
 - Every response and audit event includes resolved target identity and backend kind.
@@ -134,17 +134,17 @@ Caching credential-returning endpoints creates an additional secret store. Passi
 - Secret files or managed stores are preferred over command-line or aggregate JSON credentials.
 - Privileged subprocesses are terminated and awaited on timeout or cancellation; client shutdown waits for closure.
 
-### Regression evidence
+### Multi-backend regression evidence
 
 Test failed-default behavior, explicit target authorization, backend capability mismatch, concurrent rate limiting, retry veto for mutations, `Retry-After`, deadline exhaustion, secret-cache prohibition, timeout process cleanup, and partial-startup reporting.
 
 ## Archetype E: financial API adapter
 
-### Simulated rewrite
+### Financial-adapter rewrite
 
 Convert a synchronous API client into a lifecycle-owned adapter or isolate it behind a bounded executor. Preserve upstream status classes instead of collapsing failures to null. Make financial types, dates, pagination, idempotency, confidentiality, and write verification explicit in application contracts.
 
-### Ambiguities discovered
+### Financial-adapter ambiguities
 
 Financial reads are sensitive even when they are side-effect free. Query-string API keys may be an upstream requirement but can leak through URL logging, proxies, traces, and exceptions. A recursive regular-expression sanitizer is not a substitute for data minimization and field classification.
 
@@ -154,7 +154,7 @@ Pagination cannot infer `has_more` from a non-empty page. Without a stable order
 
 Configuration loaded after importing constants can be ignored because modules already captured environment values. A health endpoint that always reports healthy while credentials are invalid makes orchestration unsafe.
 
-### Hardened controls
+### Financial-adapter controls
 
 - Financial accounts, transactions, wealth, and schedules use an explicit confidentiality class and minimization policy.
 - URL, query, trace, exception, and proxy logging are sanitized at source when credentials appear in query parameters.
@@ -166,7 +166,7 @@ Configuration loaded after importing constants can be ignored because modules al
 - Readiness reflects credentials and required API reachability; liveness remains independent.
 - Blocking adapters use a bounded executor and a downstream timeout that fits inside the MCP deadline.
 
-### Regression evidence
+### Financial-adapter regression evidence
 
 Test confidential output minimization, query-secret redaction, decimal and currency edges, locale date rejection, duplicate create after timeout, ambiguous mutation reconciliation, empty and final pagination pages, configuration import order, executor saturation, and readiness under invalid credentials.
 
