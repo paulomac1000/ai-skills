@@ -103,7 +103,7 @@ def test_simulation_covers_each_python_server_archetype() -> None:
         "failed-default behavior",
         "empty and final pagination pages",
         "configuration import order",
-        "ambiguous mutation completion",
+        "ambiguous mutation reconciliation",
         "post-restart verification",
         "secret-cache prohibition",
     }
