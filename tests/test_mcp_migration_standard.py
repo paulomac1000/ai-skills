@@ -63,7 +63,7 @@ def test_python_profile_covers_real_migration_failure_modes() -> None:
         "asyncio.to_thread",
         "bounded executor",
         "run_until_complete",
-        "default to no retry",
+        "default to non-retryable",
         "no-silent-fallback",
         "Pagination",
         "ISO 8601",
