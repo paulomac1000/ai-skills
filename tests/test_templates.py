@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 from typing import Any, Iterator
@@ -28,7 +29,10 @@ REPLACEMENTS = {
     "<CONTAINER_SMOKE_COMMAND>": "docker run --rm \"$IMAGE_REF\" --health-check",
     "<DOTNET_VERSION>": "10.0.x",
     "<SOLUTION_PATH>": "src/App.sln",
-    "<DOTNET_COVERAGE_COMMAND>": "reportgenerator -reports:TestResults/coverage.cobertura.xml -targetdir:coverage-report",
+    "<REPORTGENERATOR_VERSION>": "5.4.3",
+    "<DOTNET_COVERAGE_COMMAND>": "reportgenerator -reports:TestResults/**/coverage.cobertura.xml -targetdir:coverage-report",
+    "<DOTNET_BOUNDED_TEST_COMMAND>": "dotnet test tests/App.UnitTests/App.UnitTests.csproj --configuration Release --no-restore",
+    "<PYTHON_COMPILE_PATHS>": "src tests",
     "<RELEASE_ENVIRONMENT>": "production",
     "<DOTNET_RELEASE_IDENTITY_COMMAND>": "echo 'version=1.2.3' >> \"$GITHUB_OUTPUT\"",
     "<DOTNET_PACKAGE_VERIFY_COMMAND>": "test -n \"$(find nupkg -name '*.nupkg' -print -quit)\"",
@@ -132,7 +136,7 @@ def test_jobs_are_bounded_and_checkout_drops_credentials() -> None:
 def test_default_branch_is_parameterized_where_branch_push_exists() -> None:
     for path in workflow_files():
         source = path.read_text(encoding="utf-8")
-        if "branches:" in source and "tags:" not in source.split("branches:", 1)[0]:
+        if re.search(r"(?m)^\s+branches:\s*", source):
             assert "branches: [<DEFAULT_BRANCH>]" in source, path
 
 
@@ -193,6 +197,62 @@ def test_publish_reuses_validated_revision_and_locates_metadata_by_action() -> N
     assert "needs.validate.outputs.release_tag" in tags
     assert "needs.validate.outputs.release_short_sha" in tags
     assert "type=semver" not in tags and "type=sha" not in tags
+
+
+def test_dotnet_quality_provisions_coverage_and_reports_safely() -> None:
+    document = parse(TEMPLATES / "dotnet-ci.yml.template")
+    job = document["jobs"]["build-test"]
+    assert job["permissions"] == {"actions": "read", "checks": "write", "contents": "read"}
+    install = next(step for step in job["steps"] if step.get("name") == "Install pinned ReportGenerator")
+    coverage = next(step for step in job["steps"] if step.get("name") == "Generate coverage report")
+    reporter = next(step for step in job["steps"] if step.get("name") == "Publish test report")
+    assert "--version \"5.4.3\"" in install["run"]
+    assert "TestResults/**/coverage.cobertura.xml" in coverage["run"]
+    assert "pull_request.head.repo.full_name" in reporter["if"]
+
+
+def test_dotnet_package_release_uses_one_validated_tag_and_revision() -> None:
+    document = parse(TEMPLATES / "dotnet-package.yml.template")
+    steps = document["jobs"]["package"]["steps"]
+    resolver = next(step for step in steps if step.get("id") == "release_ref")
+    checkouts = [step for step in steps if str(step.get("uses", "")).startswith("actions/checkout@")]
+    publisher = next(step for step in steps if step.get("name") == "Publish package files")
+    release = next(step for step in steps if str(step.get("uses", "")).startswith("softprops/action-gh-release@"))
+    assert "refs/tags/$release_tag" in resolver["run"]
+    assert checkouts[-1]["with"]["ref"] == "${{ steps.release_ref.outputs.sha }}"
+    assert "for package in \"${packages[@]}\"" in publisher["run"]
+    assert release["with"]["tag_name"] == "${{ steps.release_ref.outputs.tag }}"
+    assert release["with"]["target_commitish"] == "${{ steps.release_ref.outputs.sha }}"
+
+
+def test_semgrep_manual_baseline_and_fork_upload_are_explicit() -> None:
+    document = parse(TEMPLATES / "semgrep-pr.yml.template")
+    steps = document["jobs"]["semgrep"]["steps"]
+    scan = next(step for step in steps if step.get("name") == "Scan changed code")
+    upload = next(step for step in steps if step.get("name") == "Upload SARIF")
+    baseline = scan["env"]["SEMGREP_BASELINE_REF"]
+    assert "pull_request.base.sha" in baseline
+    assert "repository.default_branch" in baseline
+    assert "pull_request.head.repo.full_name" in upload["if"]
+
+
+def test_renovate_manager_matches_action_subpaths_without_changing_dep_name() -> None:
+    config = json.loads((ROOT / "renovate.json").read_text(encoding="utf-8"))
+    pattern = config["customManagers"][0]["matchStrings"][0].replace("(?<", "(?P<")
+    match = re.search(
+        pattern,
+        "uses: github/codeql-action/upload-sarif@411bbbe57033eedfc1a82d68c01345aa96c737d7 # v4",
+    )
+    assert match is not None
+    assert match.group("depName") == "github/codeql-action"
+
+
+def test_local_gate_templates_are_parameterized_and_bounded() -> None:
+    python_gate = render(TEMPLATES / "pre-commit-python.yaml.template")
+    dotnet_gate = render(TEMPLATES / "pre-commit-dotnet.yaml.template")
+    assert "compileall -q src tests" in python_gate
+    assert "id: dotnet-restore" in dotnet_gate
+    assert "tests/App.UnitTests/App.UnitTests.csproj" in dotnet_gate
 
 
 def test_non_workflow_configuration_templates_parse() -> None:
