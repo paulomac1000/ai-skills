@@ -63,7 +63,7 @@ def test_python_profile_covers_real_migration_failure_modes() -> None:
         "asyncio.to_thread",
         "bounded executor",
         "run_until_complete",
-        "no automatic retry",
+        "default to no retry",
         "no-silent-fallback",
         "Pagination",
         "ISO 8601",
@@ -76,7 +76,7 @@ def test_transport_contract_prevents_adapter_policy_drift() -> None:
     required = {
         "One invocation kernel",
         "does not silently select the first healthy target",
-        "tool count or successful port binding alone never means ready",
+        "registration count or successful port binding alone never means ready",
         "acknowledging public exposure is never sufficient security",
         "does not call `asyncio.run`, `run_until_complete`",
         "expected disconnect",
