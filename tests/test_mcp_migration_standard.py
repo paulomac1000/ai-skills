@@ -101,7 +101,7 @@ def test_simulation_covers_each_python_server_archetype() -> None:
     regression_terms = {
         "DHCP identity change",
         "failed-default behavior",
-        "pagination termination",
+        "empty and final pagination pages",
         "configuration import order",
         "ambiguous mutation completion",
         "post-restart verification",
