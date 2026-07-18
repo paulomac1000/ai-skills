@@ -17,6 +17,10 @@ jobs:
   build-test:
     runs-on: ubuntu-latest
     timeout-minutes: <TIMEOUT_MINUTES>
+    permissions:
+      actions: read
+      checks: write
+      contents: read
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
@@ -38,11 +42,22 @@ jobs:
         run: >-
           dotnet test <SOLUTION_PATH> --no-build --configuration Release
           --collect:"XPlat Code Coverage" --results-directory TestResults --logger trx
-      - name: Generate coverage report
+      - name: Install pinned ReportGenerator
         if: always()
-        run: <DOTNET_COVERAGE_COMMAND>
+        run: >-
+          dotnet tool install --global dotnet-reportgenerator-globaltool
+          --version "<REPORTGENERATOR_VERSION>"
+      - name: Generate coverage report
+        if: always() && hashFiles('TestResults/**/coverage.cobertura.xml') != ''
+        run: >-
+          reportgenerator
+          -reports:"TestResults/**/coverage.cobertura.xml"
+          -targetdir:"coverage-report"
+          -reporttypes:"Html;Cobertura"
       - name: Publish test report
-        if: always() && hashFiles('TestResults/**/*.trx') != ''
+        if: >-
+          always() && hashFiles('TestResults/**/*.trx') != '' &&
+          (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
         uses: dorny/test-reporter@1cc81a5edf733718d4850df304aaa21c05cd7280 # v3
         with:
           name: .NET tests
