@@ -26,6 +26,15 @@ PROJECT_SPECIFIC_TERMS = {
     "mikrus-" + "mcp",
     "local-home-devices-" + "mcp",
 }
+MCP_PARITY_HEADINGS = {
+    "## Lifecycle ownership",
+    "## Transport parity",
+    "## Manifest coverage",
+    "## Concurrency enforcement",
+    "## Boundary sanitization",
+    "## SDK compatibility",
+    "## Verification",
+}
 
 
 def load_validator():
@@ -60,7 +69,11 @@ def test_skill_manifests_govern_extensible_resource_categories() -> None:
         assert categories and categories.issubset(ALLOWED_CATEGORIES)
         for relative in required:
             assert (directory / relative).is_file(), (name, relative)
-        actual_directories = {path.name for path in directory.iterdir() if path.is_dir() and path.name != "__pycache__"}
+        actual_directories = {
+            path.name
+            for path in directory.iterdir()
+            if path.is_dir() and path.name != "__pycache__"
+        }
         assert actual_directories.issubset(categories), (name, actual_directories, categories)
 
 
@@ -114,6 +127,10 @@ def test_recovery_audit_covers_removed_operational_domains() -> None:
         "lifecycle",
         "conflict",
         "same image",
+        "manifest",
+        "concurrency",
+        "transport parity",
+        "compatibility",
     }
     assert all(topic in text for topic in required_topics)
 
@@ -127,3 +144,30 @@ def test_template_action_pins_have_an_update_path() -> None:
         and "currentDigest" in " ".join(manager.get("matchStrings", []))
         for manager in managers
     )
+
+
+def test_python_and_dotnet_profiles_cover_the_same_core_invariants() -> None:
+    root = ROOT / "skills/mcp-server-architect/references"
+    profiles = {
+        "python": (root / "python-fastmcp.md").read_text(encoding="utf-8"),
+        "dotnet": (root / "dotnet-mcp.md").read_text(encoding="utf-8"),
+    }
+    for name, text in profiles.items():
+        missing = MCP_PARITY_HEADINGS - set(text.splitlines())
+        assert not missing, (name, missing)
+
+    standard = (ROOT / "skills/mcp-server-architect/STANDARD.md").read_text(encoding="utf-8")
+    assert "capability-manifests-and-versioning.md" in standard
+    assert "transport-lifecycle-and-conformance.md" in standard
+
+
+def test_legacy_standard_paths_remain_resolvable_deprecation_stubs() -> None:
+    entrypoints = {
+        ROOT / "skills/mcp-server-architect/mcp-server-standards.md": "STANDARD.md",
+        ROOT / "skills/afds-doc-writer/docs_standards.md": "STANDARD.md",
+    }
+    for path, target in entrypoints.items():
+        text = path.read_text(encoding="utf-8")
+        assert "status: deprecated" in text
+        assert target in text
+        assert len(text.splitlines()) < 50

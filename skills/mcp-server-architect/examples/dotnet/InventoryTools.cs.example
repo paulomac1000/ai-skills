@@ -1,15 +1,19 @@
 using System.ComponentModel;
+using ModelContextProtocol.Server;
 
 public sealed record ItemSummary(string ItemId, string Name);
 
 public interface IInventoryService
 {
-    Task<IReadOnlyList<ItemSummary>> ListAsync(int limit, CancellationToken cancellationToken);
+    Task<IReadOnlyList<ItemSummary>> ListAsync(
+        int limit,
+        CancellationToken cancellationToken);
 }
 
+[McpServerToolType]
 public sealed class InventoryTools(IInventoryService inventory)
 {
-    [Description("List bounded inventory summaries.")]
+    [McpServerTool, Description("Lists bounded inventory summaries.")]
     public async Task<object> ListItemsAsync(
         [Description("Maximum number of summaries, from 1 to 100.")] int limit = 25,
         CancellationToken cancellationToken = default)
@@ -20,6 +24,11 @@ public sealed class InventoryTools(IInventoryService inventory)
         }
 
         var items = await inventory.ListAsync(limit, cancellationToken);
-        return new { success = true, data = items };
+        return new
+        {
+            success = true,
+            data = items,
+            meta = new { count = items.Count }
+        };
     }
 }

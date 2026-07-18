@@ -1,6 +1,10 @@
-"""Illustrative composition; adapt imports to the supported MCP SDK version."""
+"""Illustrative composition; pin and adapt imports to the supported FastMCP version."""
 
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from typing import AsyncIterator
+
+from fastmcp import FastMCP
 
 
 @dataclass(frozen=True)
@@ -10,17 +14,30 @@ class ItemSummary:
 
 
 class InventoryService:
-    async def list_items(self, *, limit: int, cancellation) -> list[ItemSummary]:
+    async def list_items(self, *, limit: int) -> list[ItemSummary]:
         if not 1 <= limit <= 100:
             raise ValueError("limit must be between 1 and 100")
-        cancellation.raise_if_cancelled()
         return []
 
 
-def register_inventory_tools(server, service: InventoryService) -> None:
-    @server.tool()
-    async def list_items(limit: int = 25, context=None):
-        """List bounded inventory summaries."""
-        cancellation = context.cancellation
-        items = await service.list_items(limit=limit, cancellation=cancellation)
-        return {"success": True, "data": [item.__dict__ for item in items]}
+@asynccontextmanager
+async def lifespan(_server: FastMCP) -> AsyncIterator[dict[str, object]]:
+    service = InventoryService()
+    try:
+        yield {"inventory": service}
+    finally:
+        # Close application-owned clients here.
+        pass
+
+
+mcp = FastMCP("inventory", lifespan=lifespan, stateless_http=True)
+
+
+@mcp.tool
+async def list_items(limit: int = 25) -> dict[str, object]:
+    """List bounded inventory summaries."""
+    context = mcp.get_context()
+    service = context.request_context.lifespan_context["inventory"]
+    assert isinstance(service, InventoryService)
+    items = await service.list_items(limit=limit)
+    return {"success": True, "data": [item.__dict__ for item in items]}

@@ -5,42 +5,79 @@ type: reference
 status: active
 rigor: operational
 owners: [repository-maintainers]
-verification: Run authorization, cancellation, rate-limit, dependency-failure, graceful-shutdown, and deployment-artifact exercises.
+verification: Run authorization, sanitization, Origin, rate-limit, concurrency, dependency-failure, graceful-shutdown, and deployment-artifact exercises.
 ---
 
 # MCP security and operations
 
 ## Trust boundaries
 
-Identify caller, server, downstream dependency, model-visible data, secrets, filesystem, subprocess, and network boundaries. Authenticate the caller and intended audience. Authorize the resolved resource for every invocation. Tool annotations and descriptions do not grant access.
+Identify caller, server, transport, reverse proxy, downstream dependency, model-visible data, secrets, filesystem, subprocess, and network boundaries. Authenticate the caller and intended audience. Authorize the resolved resource for every invocation. Tool annotations and descriptions do not grant access.
+
+## Independent safety controls
+
+Treat these as separate controls:
+
+- operator enablement decides whether a class of mutation exists at runtime;
+- authentication establishes a principal;
+- authorization permits that principal to perform the resolved action;
+- consumer confirmation records user intent;
+- manifest risk describes behavior;
+- allowlists constrain the actual I/O.
+
+No single control replaces another, and each mutating path checks the server-side controls before I/O.
 
 ## Tool poisoning and confused deputy
 
-Treat remote tool descriptions, schemas, and annotations as untrusted input. Do not let one server redefine the safety class of another server's capability. Bind downstream credentials and resource selection to approved caller context. Reject instructions embedded in tool descriptions that request unrelated disclosure or policy changes.
+Treat remote descriptions, schemas, manifests, annotations, and upstream error text as untrusted. Do not let one server redefine another server's safety class. Bind downstream credentials and target selection to approved caller context. Reject embedded instructions requesting unrelated disclosure or policy changes.
 
-## Abuse controls
+## Network and transport security
 
-Apply rate limits by principal and capability. Bound payload size, result size, pagination, concurrent calls, subprocess output, filesystem scope, and external destinations. Dangerous tools use allowlists and isolation. Sensitive results are minimized and redacted.
+Remote HTTP validates `Origin`, authenticates before tool execution, binds intentionally, and aligns reverse-proxy trust, AllowedHosts, and CORS. Loopback is the default for local servers. Wildcard CORS requires a documented browser use case and cannot bypass Origin policy.
+
+Stdio inherits the local process boundary but still restricts environment forwarding, file permissions, working directory, and child-process execution.
+
+## Command, filesystem, and SSH safety
+
+Use separate read and write execution paths. Commands use a fixed executable and argument array, with metacharacter rejection, allowlists, timeout, output limit, and audit event. Raw command tools are `DANGEROUS` and isolated.
+
+Filesystem operations resolve canonical paths under approved roots, reject traversal and links escaping the root, and bound file size. Production SSH verifies host identity through known hosts or a reviewed trust policy; disabling host verification is explicit and never the silent production default.
+
+## Boundary sanitization
+
+Sanitize logs at the formatter or sink boundary and sanitize model-visible responses separately. Recursively redact credentials, authorization data, private keys, tokens, passwords, and protected upstream payloads. Preserve only operational identifiers needed for follow-up calls.
+
+Sanitization tests use nested mappings, lists, strings, exception messages, and structured content.
+
+## Abuse controls and concurrency
+
+Apply rate limits by principal and capability. Bound payloads, results, pagination, sessions, queues, concurrent calls, subprocess output, filesystem scope, and external destinations.
+
+Enforce manifest concurrency policy with resource-specific locks, semaphores, queues, or isolation. Measure queue time, lock contention, saturation, and rejected work.
 
 ## Dependency resilience
 
-Every dependency has timeout, cancellation, failure classification, and health state. Use bounded retries only for safe operations. Circuit breakers prevent cascading failure. Graceful degradation exposes which capabilities are unavailable instead of pretending the entire server is healthy.
+Every dependency has timeout, cancellation, failure classification, circuit-breaker policy, and capability health. Retry only safe operations. Partial failure exposes unavailable capabilities instead of pretending the entire workload is healthy.
 
 ## Health model
 
-- **startup:** configuration and mandatory resources can initialize;
-- **readiness:** the server can accept its declared workload;
-- **liveness:** the process is making progress and should not be restarted merely because one optional dependency failed;
-- **capability health:** individual integrations report usable, degraded, or unavailable state.
+- **startup:** configuration and mandatory resources initialize;
+- **readiness:** transport, registration, mandatory dependencies, and policy can accept declared work;
+- **liveness:** the process is making progress;
+- **capability health:** integrations are usable, degraded, or unavailable.
+
+Do not set readiness before registration and transport binding complete. A missing optional dependency does not fail liveness; all mandatory backends failing does fail readiness.
 
 ## Observability
 
-Record tool identity, duration, result category, correlation ID, principal class, dependency, cancellation, and policy decision. Never log raw secrets, tokens, full sensitive payloads, or protocol messages without redaction. Export traces and metrics through standard telemetry.
+Record component identity, duration, result category, correlation ID, principal class, dependency, policy decision, retry, cancellation, queueing, and saturation. Never log raw secrets or full sensitive payloads. Export traces and metrics through standard telemetry.
+
+One correlation ID is created at request entry and reused in logs, traces, audit, and response metadata. Audit sink failure follows a declared fail-open or fail-closed policy and remains observable.
 
 ## Shutdown and recovery
 
-Stop accepting work, cancel or drain within a deadline, close transports, release leases and subprocesses, flush bounded telemetry, and exit deterministically. Recovery drills cover dependency outage, stuck operation, partial configuration, and bad release rollback.
+Stop accepting work, cancel or drain within a deadline, close transports, sessions, clients, leases, subprocesses, and background tasks, flush bounded telemetry, and exit deterministically. Recovery drills cover dependency outage, stuck operation, partial startup, lock contention, session exhaustion, and bad release rollback.
 
 ## Verification
 
-Exercise denied access, confused-deputy attempts, malicious metadata, rate limits, timeout, cancellation, dependency outage, circuit opening, degraded health, shutdown with in-flight work, and rollback of a broken artifact.
+Exercise denied access, confused-deputy attempts, malicious metadata, public-bind refusal, Origin/CORS mismatch, secret leakage, command/path bypass, rate limits, timeout, cancellation, race conditions, dependency outage, degraded health, shutdown with in-flight work, and rollback of a broken artifact.

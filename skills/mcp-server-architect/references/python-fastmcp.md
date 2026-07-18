@@ -1,73 +1,88 @@
 ---
-description: Python and FastMCP implementation profile with tested patterns and known SDK failure modes.
+description: Python and FastMCP implementation profile with lifecycle, transport, manifest, concurrency, and SDK-upgrade controls.
 doc_id: reference.python-fastmcp-profile
 type: reference
 status: active
 rigor: operational
 owners: [repository-maintainers]
-verification: Run unit, registration, transport, cancellation, and content-shape regressions against the supported FastMCP version range.
+verification: Run unit, manifest, registration, lifecycle, transport-parity, cancellation, race, and content-shape regressions against every supported FastMCP major version.
 ---
 
 # Python and FastMCP profile
 
-## Composition
+## Project shape
 
-Keep domain services and typed models independent from FastMCP. A composition root creates dependencies, constructs the server, registers tools through public decorators or registration APIs, and starts the selected transport. Decorated functions remain thin adapters.
+Keep domain services, typed models, validators, and policy independent from FastMCP. A composition root loads validated settings, creates application-owned clients, registers components, installs middleware, and selects stdio or Streamable HTTP.
 
-## Registration stability
+Use current public FastMCP concepts for new code. FastMCP 3 providers, transforms, authorization, middleware, and stateless HTTP are preferred when they solve the requirement. Supporting FastMCP 2 and 3 simultaneously requires an explicit compatibility adapter and CI matrix; do not scatter `hasattr` probes through the server.
 
-FastMCP versions have exposed tools through different private locations such as `_tools` and `_tool_manager._tools`. Private traversal is not a compatibility strategy. Verify registration through the supported server or client API and pin the supported SDK range with contract tests.
+## Lifecycle ownership
 
-## Tool invocation tests
+Use an async lifespan or an application-owned async context manager for process resources. Account for SDK versions whose lifespan callback is connection-scoped: process clients must not be recreated per SSE or HTTP connection.
 
-`call_tool` signatures and returned content representations can vary by SDK generation. Tests normalize only protocol-defined content and assert structured content separately from text blocks. Do not assume a returned value is raw JSON when the SDK exposes `ContentBlock` objects.
+Initialize mandatory clients before readiness. Keep successful clients when optional targets fail, record unavailable targets, and close every initialized client on startup failure and shutdown. Do not assign application state through private SDK attributes outside the compatibility adapter.
 
-## Context and lifespan
+Request context is read only inside live invocations. Pass application context into domain services explicitly. Use `contextvars` for async request correlation and reset tokens in `finally`.
 
-Request context exists only inside a live invocation. Code that calls a global `get_context()` outside a request becomes difficult to test and may fail at startup. Pass an application-owned request abstraction or keep context use in the transport adapter. Lifespan resources are created once, exposed through typed state, and closed on shutdown.
+## Transport parity
 
-## Decorator mocking
+Use `stdio` for local subprocess integration and `http` for Streamable HTTP. Treat `sse` as legacy compatibility. Build an ASGI app when production needs middleware, workers, or an existing web host.
 
-A fake decorator used in unit imports must preserve the decorated callable:
+The same registration, manifests, auth policy, error mapping, and sanitization serve every transport. A REST bridge delegates through an application adapter or public MCP client; it never calls private tool wrappers directly.
 
-```python
-def tool(*_args, **_kwargs):
-    def decorate(function):
-        return function
-    return decorate
-```
+Stdio logs only to stderr. HTTP binds to loopback by default, validates Origin, authenticates remote calls, and uses restrictive CORS only when a browser client requires it. Use stateless HTTP for horizontal scaling unless the server needs session-bound protocol features.
 
-Returning a mock object or `None` changes module semantics and can hide registration defects.
+## Manifest coverage
 
-## Fixtures and collection
+Keep manifests in an application-owned registry keyed by stable component name. Generate descriptions or annotations from the registry when useful, but never infer a missing safe manifest from a docstring prefix.
 
-Pytest fixtures placed in package `__init__.py` are not a reliable discovery mechanism. Use `conftest.py` or explicit plugins. Apply `pytestmark` in collected test modules, not helper packages whose marker is never inherited.
+After registration, enumerate components through public APIs or one compatibility adapter. Fail startup and CI on missing, orphaned, or inconsistent manifests. Capability introspection is zero-I/O and exposes the governed registry over MCP.
 
-## Async correctness
+Registration wrappers may add `_meta`, tracing, or sanitization centrally. Wrapper order is tested, and argument-binding or protocol exceptions are not accidentally converted into successful content.
 
-Use asynchronous client and filesystem APIs in async tools. Do not call blocking I/O directly on the event loop. Every upstream operation receives a timeout. Cancellation is re-raised after bounded cleanup; broad `except Exception` blocks must not convert cancellation into a generic internal error.
+## Concurrency enforcement
 
-Use `contextvars` only for request-scoped correlation that must flow through async calls. Reset tokens in `finally`; never store a global request ID shared by concurrent invocations.
+Do not mutate shared client settings such as timeout, target, headers, or credentials immediately before `await`. Pass immutable per-call options or use separate clients.
 
-## Security
+Map `concurrent_safe: false` to a narrow keyed `asyncio.Lock`, semaphore, queue, or isolated client. Bound executor work and queues. Use `asyncio.to_thread` or a bounded executor for blocking libraries.
 
-Construct subprocess calls as executable plus argument list. Validate each argument against an allowlist and enforce timeout, output size, working directory, and environment. Never concatenate agent-controlled text into a shell command.
+Async connection pools are event-loop-affine. Integration helpers reuse one owning event loop for persistent clients instead of creating a loop per tool call. Add overlap tests that prove request IDs, targets, timeouts, and results cannot cross.
 
-## Mocking upstreams
+Cancellation is re-raised after bounded cleanup. Broad exception handling must not swallow the runtime's cancellation exception.
 
-Patch application-owned interfaces, HTTP transports, or async clients. Avoid patching `sys.modules`. For REST bridges, run the actual app in a test client or ephemeral server so routing, serialization, and exception mapping are exercised.
+## Boundary sanitization
 
-## Regression checklist
+Configure logging once and send it to stderr. Sanitize credentials and protected network or identity data at the logging formatter or handler boundary.
 
-- public tool registration works across the supported SDK range;
-- decorator imports preserve callables;
-- context is not accessed outside request scope;
-- lifespan cleanup runs on normal shutdown and cancellation;
-- content blocks and structured content are both tested;
-- async paths contain no sync-over-async or blocking calls;
-- stdout remains protocol-only on stdio;
-- test suite reports unit, integration, smoke, and e2e layers separately.
+Sanitize model-visible responses separately and recursively. Sensitive dictionary keys, bearer tokens, passwords, private keys, and upstream error bodies are redacted before serialization. Log sanitization alone is not sufficient.
+
+Operator write enablement is checked before any I/O in every mutating path. It is distinct from manifest confirmation metadata and caller authorization.
+
+## SDK compatibility
+
+Pin a tested SDK range. Prefer supported `list_tools`, client, provider, transform, middleware, and transport APIs. Private `_tools`, `_tool_manager`, or provider internals belong only in a compatibility adapter with version tests and fail-closed behavior.
+
+Decorator fakes preserve the callable. `call_tool` and content-block representations are normalized only at the test adapter boundary. Do not assume a raw JSON string when the SDK returns protocol content blocks or structured content.
+
+Run tests against the minimum and preferred supported versions. An SDK upgrade must prove registration, schema, middleware state, lifespan behavior, transport parity, and cleanup before release.
+
+## Errors and schemas
+
+Use typed parameters and generated schemas, then add application validation for cross-field, resource, path, command, and content-size rules before I/O. Do not publish placeholder object schemas.
+
+Return or raise errors according to the SDK's protocol contract. Preserve validation, auth, conflict, timeout, cancellation, unavailable dependency, and internal categories. Structured application errors include stable code, retryability, suggestion, and bounded alternatives.
+
+## Test strategy
+
+- domain tests call application services directly;
+- manifest tests enumerate every public component;
+- lifecycle tests cover all-failed and partially-failed startup;
+- race tests overlap calls sharing clients, locks, and correlation state;
+- transport tests use real stdio and HTTP;
+- content tests cover text blocks and structured content;
+- deployment tests start the built wheel or container;
+- unit, integration, smoke, and e2e markers are reported separately.
 
 ## Verification
 
-Run the profile regressions against the minimum and preferred FastMCP versions, then invoke representative tools through a real client over the chosen transport.
+Run the profile matrix against each supported FastMCP major version. Invoke representative tools through a real client over stdio and Streamable HTTP, cancel an in-flight call, overlap non-concurrent-safe calls, and verify deterministic cleanup and redaction.

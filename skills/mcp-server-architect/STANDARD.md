@@ -5,7 +5,7 @@ type: reference
 status: active
 rigor: normative
 owners: [repository-maintainers]
-verification: Run layered domain, schema, policy, registration, and transport tests; exercise representative end-to-end workflows with a real MCP client or inspector.
+verification: Run domain, manifest, policy, registration, lifecycle, transport-conformance, race, real-client, and deployment-artifact tests for every advertised transport.
 ---
 
 # MCP server standard
@@ -19,77 +19,97 @@ Define language-neutral invariants for servers consumed by agents. SDK profiles 
 | Level | Use case | Required evidence |
 | --- | --- | --- |
 | L1 personal | local or experimental server | domain unit tests, schema validation, controlled errors |
-| L2 team | shared internal server | L1 plus registration, integration, auth boundary, CI, health |
-| L3 production | always-on critical service | L2 plus real-client smoke, observability, SLOs, cancellation, deployment artifact tests |
-| L4 hardened | public, multi-tenant, or dangerous capabilities | L3 plus per-tool authorization, isolation, abuse controls, security tests, audit and recovery drills |
+| L2 team | shared internal server | L1 plus complete manifests, registration, integration, auth boundary, CI, health |
+| L3 production | always-on critical service | L2 plus real-client smoke, lifecycle and race tests, observability, SLOs, cancellation, artifact tests |
+| L4 hardened | public, multi-tenant, sensitive, or dangerous capabilities | L3 plus per-resource authorization, isolation, abuse controls, security tests, audit and recovery drills |
 
 ## Core architecture
 
-- Domain operations do not depend on MCP transport types.
-- Registration adapts typed domain operations to tool schemas and response contracts.
-- Transport, hosting, authentication, policy, telemetry, and lifecycle are composed around registration.
-- Tool identity, schema, and risk metadata are stable enough for consumers to reason about compatibility.
-- Optional integrations fail independently and do not prevent unrelated tools from loading.
+- Domain operations do not depend on MCP transport or SDK types.
+- Registration adapts typed operations to public tools, resources, prompts, schemas, and response contracts.
+- A composition root owns configuration, dependencies, lifecycle, registration, middleware, and transport.
+- Process, session, request, dependency-client, cache, lock, and background-task ownership are explicit.
+- Optional integrations fail independently; mandatory dependency failure prevents readiness.
+- SDK compatibility logic is isolated behind one adapter and never spread through domain code.
 
-## Tool contracts
+## Public component contracts
 
-Every tool has a clear outcome, bounded inputs, structured output, documented empty-success behavior, stable identifiers, and a machine-readable error shape. List or search tools return identifiers accepted by detail or mutation tools. Large results support pagination or bounded summaries. Batch tools preserve authorization, per-item results, and verification boundaries.
+Every public component has a stable name, bounded input, structured output, documented empty-success behavior, version policy, and machine-readable failure shape. Tool descriptions and annotations improve discovery but are not authorization.
 
-Tool descriptions are not authorization. Risk and side-effect metadata are advisory to consumers and must not replace server-side policy.
+At L2 and above, every public tool has a complete governed manifest. Missing or malformed metadata fails registration or CI; it never defaults to `READ`. The manifest, schema, description, and runtime policy must describe the same operation. See [Capability manifests and versioning](references/capability-manifests-and-versioning.md).
+
+List and search tools return identifiers accepted by detail or mutation tools. Large results support bounded summaries, fields, pagination, or progressive discovery. Batch tools preserve authorization, per-item results, and verification boundaries.
 
 ## Side effects and safety
 
-Classify operations as read, write, destructive, dangerous, or sensitive. Write operations define idempotency and concurrency preconditions. Destructive and dangerous operations require explicit server-side authorization and narrow allowlists. Filesystem paths, commands, URLs, service names, and content size are validated before I/O.
+Classify operations as `READ`, `WRITE`, `DESTRUCTIVE`, `DANGEROUS`, or `SENSITIVE`. Server authorization and operator enablement are separate from consumer confirmation metadata.
 
-Arbitrary command execution is not a general-purpose MCP convenience. When unavoidable, use fixed executables, argument arrays, allowlists, sandboxing, output limits, deadlines, and audit events.
+Write operations define idempotency, reversibility, concurrency preconditions, and conflict tokens. Destructive and dangerous operations require narrow allowlists and explicit server-side authorization. Filesystem paths, commands, URLs, service names, network targets, and content sizes are validated before I/O.
+
+Arbitrary command execution is exceptional. Use fixed executables, argument arrays, allowlists, isolation, output limits, deadlines, and audit events. A read execution path cannot reach write commands.
 
 ## Transport and lifecycle
 
-Support only transports the deployment can operate safely. Stdio reserves stdout for protocol data and sends diagnostics to stderr. HTTP binds intentionally, authenticates before tool execution, and uses TLS at the appropriate boundary. Session state is avoided unless the capability requires it; stateless HTTP is the default for horizontally scalable request-independent servers.
+The standard transports are stdio and Streamable HTTP. Legacy HTTP+SSE is compatibility-only and must not be presented as equivalent to Streamable HTTP. A server advertises only transports that pass protocol conformance and policy-parity tests.
 
-Startup, readiness, liveness, and shutdown have separate semantics. A process can be alive but not ready. Shutdown stops accepting work, cancels or drains in-flight operations within a bound, and releases resources.
+Stdio reserves stdout for protocol messages and sends diagnostics to stderr. Remote HTTP validates `Origin`, binds intentionally, authenticates before capability execution, and applies restrictive host and CORS policy. Stateless HTTP is preferred when server-to-client or cross-request state is unnecessary.
+
+Startup, readiness, liveness, capability health, and shutdown have separate meanings. Resources initialize once at their declared owner scope and close once on every exit path. Partial startup reports unavailable capabilities; it does not silently mark the entire workload ready. See [Transport, lifecycle, and conformance](references/transport-lifecycle-and-conformance.md).
 
 ## Deadlines, cancellation, retries, and concurrency
 
-- Propagate the request deadline and cancellation signal to every cancellable I/O operation.
-- Never use unbounded external calls.
-- Cleanup runs after cancellation and does not mask the cancellation outcome.
-- Retry only idempotent operations with explicit positive policy and bounded backoff.
-- Conflict retries require a refreshed precondition or re-read.
-- Shared state uses an explicit synchronization and ownership model.
-- Request-scoped identifiers are not global mutable variables.
+- Propagate request deadlines and cancellation to every cancellable I/O operation.
+- Never use unbounded external calls, queues, subprocess output, sessions, or caches.
+- Cleanup after cancellation is bounded and does not mask cancellation.
+- Retry only explicitly retryable, idempotent operations with bounded backoff.
+- Conflict retry requires a refreshed precondition or re-read.
+- `concurrent_safe` is an enforced runtime property, not documentation.
+- Shared mutable clients use immutable per-call options, a pool, a keyed lock, or a narrow semaphore.
+- Blocking work is offloaded from asynchronous event loops.
+- Request-scoped identifiers and principals are not process-global mutable values.
 
-## Error contract
+## Error and response contract
 
-Errors distinguish validation, authentication, authorization, not found, conflict, rate limit, timeout, cancellation, unavailable dependency, upstream failure, and internal failure. Responses preserve protocol-native error details and correlation identifiers without leaking secrets. Retry guidance is explicit and cannot override server-side safety.
+Errors distinguish validation, authentication, authorization, not found, conflict, rate limit, timeout, cancellation, unavailable dependency, upstream failure, and internal failure. Stable codes are machine-readable; messages and suggestions remain bounded and sanitized.
+
+Responses preserve protocol-native content and correlation identifiers. A central boundary sanitizes secrets from model-visible responses as well as logs. Unknown response metadata remains forward-compatible.
 
 ## Authentication and authorization
 
-Authenticate the calling principal and intended audience. Authorize each capability using resolved resource scope, not only the tool name. Prevent confused-deputy behavior by binding downstream credentials and resource access to the caller's approved context. Keep secrets out of tool descriptions, logs, and model-visible responses.
+Authenticate the calling principal and intended audience. Authorize every resolved resource and operation, not only a tool name. Bind downstream credentials and target selection to approved caller context to prevent confused-deputy behavior.
 
-## Consumer ergonomics
+Operator write gates, user confirmation hints, and per-principal authorization are independent controls. One cannot substitute for another.
 
-Provide bounded discovery, capability summaries, stable names, concise default output, optional detail levels, pagination metadata, batch operations where policy remains intact, and explicit negative capability. Empty results are successful when the query legitimately matched nothing.
+## Discovery, manifests, and compatibility
+
+Expose bounded capability discovery over the same MCP transport used by the agent. For large catalogs, provide categories, search, minimal listings, or on-demand schemas instead of dumping every full schema.
+
+Preserve stable documentation and tool entry points. Breaking schema changes require a major version or a versioned tool name, migration guidance, and a deprecation interval. Public response fields are additive within a major version.
 
 ## Observability and operations
 
-Emit structured logs, traces, duration, result category, dependency state, and sanitized audit events. Correlate transport and domain operations. Track per-tool latency, errors, cancellations, rate limits, and saturation. Define graceful degradation and circuit-breaker behavior for failing dependencies.
+Emit structured logs, traces, duration, result category, dependency state, policy decision, cancellation, and saturation. Correlate transport and domain operations with one request identifier. Track per-tool latency, errors, rate limits, queueing, and lock contention.
+
+Health reports mandatory and optional dependencies separately. Circuit breakers and graceful degradation prevent cascading failure. Audit failures are observable but must follow the declared fail-open or fail-closed policy.
 
 ## Verification layers
 
 1. domain unit tests;
-2. schema and serialization tests;
-3. policy and authorization tests;
-4. public registration tests;
-5. transport integration tests;
-6. representative real-client or inspector workflows;
-7. deployment-artifact smoke tests;
-8. upstream contract tests with controlled fakes or test containers.
+2. schema, serialization, and manifest-consistency tests;
+3. policy, authorization, and sanitization tests;
+4. public registration and discovery tests;
+5. lifecycle, cancellation, and concurrency/race tests;
+6. transport conformance and transport-parity tests;
+7. representative real-client or inspector workflows;
+8. deployment-artifact smoke tests;
+9. upstream contract tests with controlled fakes, recordings, or test containers.
 
-No one layer substitutes for the others. See [Testing strategy](references/testing-strategy.md).
+No layer substitutes for another. See [Testing strategy](references/testing-strategy.md).
 
 ## Implementation profiles
 
+- [Capability manifests and versioning](references/capability-manifests-and-versioning.md)
+- [Transport, lifecycle, and conformance](references/transport-lifecycle-and-conformance.md)
 - [Python and FastMCP](references/python-fastmcp.md)
 - [.NET MCP](references/dotnet-mcp.md)
 - [Cross-language invariant map](references/cross-language-invariant-map.md)
@@ -98,4 +118,4 @@ No one layer substitutes for the others. See [Testing strategy](references/testi
 
 ## Verification
 
-Run all applicable layers, including a representative client against the built server artifact. Review the public contract and trust boundaries independently from framework-specific code.
+Run all applicable layers against every advertised transport and the built artifact. Review public contracts, lifecycle ownership, trust boundaries, and runtime enforcement independently from framework-specific code.

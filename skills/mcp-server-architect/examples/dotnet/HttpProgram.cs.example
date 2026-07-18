@@ -1,0 +1,20 @@
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddSingleton<IInventoryService, InventoryService>();
+builder.Services
+    .AddMcpServer()
+    .WithHttpTransport(options =>
+    {
+        options.Stateless = true;
+    })
+    .WithTools<InventoryTools>();
+
+builder.Services.AddHealthChecks();
+
+var app = builder.Build();
+
+app.MapHealthChecks("/health/live");
+app.MapHealthChecks("/health/ready");
+app.MapMcp("/mcp");
+
+await app.RunAsync();
