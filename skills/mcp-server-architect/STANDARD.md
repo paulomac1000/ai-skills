@@ -5,7 +5,7 @@ type: reference
 status: active
 rigor: normative
 owners: [repository-maintainers]
-verification: Run domain, manifest, policy, registration, lifecycle, transport-conformance, race, real-client, and deployment-artifact tests for every advertised transport.
+verification: Run layered domain, manifest, policy, registration, lifecycle, and race tests; repeat transport-conformance, representative real-client, and deployment-artifact tests for every advertised transport.
 ---
 
 # MCP server standard
@@ -118,4 +118,4 @@ No layer substitutes for another. See [Testing strategy](references/testing-stra
 
 ## Verification
 
-Run all applicable layers against every advertised transport and the built artifact. Review public contracts, lifecycle ownership, trust boundaries, and runtime enforcement independently from framework-specific code.
+Run all applicable layers once at their proper abstraction level; repeat transport conformance, policy parity, representative client workflows, and artifact smoke tests for every advertised transport. Review public contracts, lifecycle ownership, trust boundaries, and runtime enforcement independently from framework-specific code.
