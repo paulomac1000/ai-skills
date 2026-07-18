@@ -65,7 +65,7 @@ Document an owner and scope for every resource:
 | long-running task | host lifecycle or durable task store |
 | generated export | task plus explicit retention owner |
 
-Initialize each resource once at its owner scope and close it once on normal shutdown, startup failure, cancellation, and transport disconnect. Do not let an SDK callback create a second process-level client per connection.
+Initialize each resource once at its owner scope. Close every initialized resource during startup-failure cleanup; close request- and session-owned resources on cancellation or transport disconnect, and close target-, tenant-, process-, and host-owned resources only during their owner-scope shutdown. An individual client disconnect must not tear down shared clients needed by other sessions. Do not let an SDK callback create a second process-level client per connection.
 
 Subprocess timeout or cancellation terminates the process group, drains bounded output, and awaits exit. Async connection closure waits for completion on the owning event loop. Background tasks are tracked; no fire-and-forget task is left outside host shutdown.
 
