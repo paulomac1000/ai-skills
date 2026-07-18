@@ -33,5 +33,9 @@ jobs:
         run: >-
           python skills/afds-doc-writer/validate.py
           README.md RECOVERY_AUDIT.md skills
-      - name: Run repository tests
-        run: python -m pytest -q
+      - name: Run MCP migration contract tests
+        run: python -m pytest -q tests/test_mcp_migration_standard.py
+      - name: Run remaining repository tests
+        run: >-
+          python -m pytest -q
+          --ignore=tests/test_mcp_migration_standard.py
