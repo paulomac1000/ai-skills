@@ -57,6 +57,14 @@ def test_annotations_require_an_explicit_server_trust_boundary() -> None:
     assert engine.infer_capability_profile(
         "list", {"trusted_server": True, "annotations": {"readOnlyHint": True}}
     ).risk is engine.Risk.READ
+    conflicting = engine.infer_capability_profile(
+        "[DANGEROUS] execute",
+        {"annotations": {"destructiveHint": True}},
+    )
+    assert conflicting.risk is engine.Risk.DANGEROUS
+    assert engine.evaluate_decision(
+        conflicting.risk, conflicting.requires_confirmation, "general"
+    ) is engine.Decision.REJECT
 
 
 def test_side_effect_policy() -> None:
