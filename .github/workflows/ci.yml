@@ -33,8 +33,30 @@ jobs:
         run: >-
           python skills/afds-doc-writer/validate.py
           README.md RECOVERY_AUDIT.md skills
-      - name: Run MCP migration contract tests
-        run: python -m pytest -q tests/test_mcp_migration_standard.py
+      - name: Verify language-neutral migration invariants
+        run: >-
+          python -m pytest -q
+          tests/test_mcp_migration_standard.py::test_language_neutral_standard_owns_migration_invariants
+      - name: Verify manifest migration invariants
+        run: >-
+          python -m pytest -q
+          tests/test_mcp_migration_standard.py::test_manifest_contract_rejects_class_wide_optimistic_defaults
+      - name: Verify Python profile migration invariants
+        run: >-
+          python -m pytest -q
+          tests/test_mcp_migration_standard.py::test_python_profile_covers_real_migration_failure_modes
+      - name: Verify transport migration invariants
+        run: >-
+          python -m pytest -q
+          tests/test_mcp_migration_standard.py::test_transport_contract_prevents_adapter_policy_drift
+      - name: Verify server archetype coverage
+        run: >-
+          python -m pytest -q
+          tests/test_mcp_migration_standard.py::test_simulation_covers_each_python_server_archetype
+      - name: Verify migration test evidence
+        run: >-
+          python -m pytest -q
+          tests/test_mcp_migration_standard.py::test_testing_strategy_has_executable_migration_evidence
       - name: Run remaining repository tests
         run: >-
           python -m pytest -q
