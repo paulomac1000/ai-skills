@@ -8,7 +8,7 @@
         "/^skills\\/ci-cd-architect\\/templates\\/.*\\.ya?ml\\.template$/"
       ],
       "matchStrings": [
-        "uses:\\s*(?<depName>[A-Za-z0-9_.-]+\\/[A-Za-z0-9_.-]+)@(?<currentDigest>[a-f0-9]{40})\\s*#\\s*(?<currentValue>v?[^\\s]+)"
+        "uses:\\s*(?<depName>[A-Za-z0-9_.-]+\\/[A-Za-z0-9_.-]+)(?:\\/[A-Za-z0-9_.-]+)*@(?<currentDigest>[a-f0-9]{40})\\s*#\\s*(?<currentValue>v?[^\\s]+)"
       ],
       "datasourceTemplate": "github-tags",
       "versioningTemplate": "semver-coerced"
