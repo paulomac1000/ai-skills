@@ -34,7 +34,7 @@ REPLACEMENTS = {
     "<DOTNET_BOUNDED_TEST_COMMAND>": "dotnet test tests/App.UnitTests/App.UnitTests.csproj --configuration Release --no-restore",
     "<PYTHON_COMPILE_PATHS>": "src tests",
     "<RELEASE_ENVIRONMENT>": "production",
-    "<DOTNET_RELEASE_IDENTITY_COMMAND>": "echo 'version=1.2.3' >> \"$GITHUB_OUTPUT\"",
+    "<DOTNET_RELEASE_IDENTITY_COMMAND>": "test \"$NORMALIZED_VERSION\" = \"1.2.3\"",
     "<DOTNET_PACKAGE_VERIFY_COMMAND>": "test -n \"$(find nupkg -name '*.nupkg' -print -quit)\"",
     "<VALIDATOR_PATH>": "skills/afds-doc-writer/validate.py",
     "<DOC_INSTALL_COMMAND>": "python -m pip install pyyaml",
@@ -215,11 +215,17 @@ def test_dotnet_package_release_uses_one_validated_tag_and_revision() -> None:
     document = parse(TEMPLATES / "dotnet-package.yml.template")
     steps = document["jobs"]["package"]["steps"]
     resolver = next(step for step in steps if step.get("id") == "release_ref")
+    identity = next(step for step in steps if step.get("id") == "release")
+    pack = next(step for step in steps if step.get("name") == "Pack")
     checkouts = [step for step in steps if str(step.get("uses", "")).startswith("actions/checkout@")]
     publisher = next(step for step in steps if step.get("name") == "Publish package files")
     release = next(step for step in steps if str(step.get("uses", "")).startswith("softprops/action-gh-release@"))
     assert "refs/tags/$release_tag" in resolver["run"]
     assert checkouts[-1]["with"]["ref"] == "${{ steps.release_ref.outputs.sha }}"
+    assert 'normalized_version="${RELEASE_TAG#v}"' in identity["run"]
+    assert 'echo "version=$normalized_version"' in identity["run"]
+    assert "$NORMALIZED_VERSION" in identity["run"]
+    assert "steps.release.outputs.version" in pack["run"]
     assert "for package in \"${packages[@]}\"" in publisher["run"]
     assert release["with"]["tag_name"] == "${{ steps.release_ref.outputs.tag }}"
     assert release["with"]["target_commitish"] == "${{ steps.release_ref.outputs.sha }}"
