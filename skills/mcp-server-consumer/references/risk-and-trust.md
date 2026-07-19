@@ -1,11 +1,11 @@
 ---
-description: Trust-boundary and provenance model for MCP capability risk classification and confirmation.
+description: Trust-boundary and provenance model for MCP capability risk classification, idempotency, and confirmation.
 doc_id: reference.mcp-consumer-risk-and-trust
 type: reference
 status: active
 rigor: operational
 owners: [repository-maintainers]
-verification: Run malicious and conflicting metadata scenarios proving untrusted signals cannot reduce risk, alter provenance silently, or bypass confirmation.
+verification: Run malicious and conflicting metadata scenarios proving untrusted signals cannot reduce risk, claim replay safety, alter provenance silently, or bypass confirmation.
 ---
 
 # MCP consumer risk and trust
@@ -39,6 +39,12 @@ Only consumer-owned local policy or an explicitly trusted server annotation may 
 
 Untrusted evidence may raise risk. A destructive or dangerous prefix, schema accepting command text, or annotation indicating destructive behavior is sufficient to require stronger handling. Fail closed on disagreement and preserve the highest inferred class.
 
+## Idempotency trust
+
+A positive `idempotent: true` claim is safety-reducing because it can authorize automatic replay after an ambiguous failure. Accept it only from reviewed consumer-owned policy marked `trusted_policy: true` or a separately verified capability contract marked `trusted_contract: true`. Generic server trust used for display annotations does not prove idempotency. An untrusted `idempotent: false` claim may be retained because it can only disable retry and make behavior more conservative.
+
+Retry still requires a retry-eligible error, an explicit positive retry signal, remaining attempt and deadline budget, preserved target identity, and any required refreshed precondition. Trusted idempotency alone never authorizes a retry.
+
 ## Sensitive reads
 
 Read-only does not mean low-risk. Credentials, personal data, private messages, financial records, and internal configuration are sensitive even without mutation. Minimize fields, require purpose, and preserve server-side authorization.
@@ -47,6 +53,8 @@ Read-only does not mean low-risk. Credentials, personal data, private messages, 
 
 Confirmation names the exact effect, target, scope, and irreversibility. It is obtained close to invocation and is not silently reused for a broader operation. Confirmed workflows may cover repetitive bounded writes only when the user approved that exact workflow.
 
+A model-controlled boolean or arbitrary tool argument is not confirmation. Runtime authorization must consume trusted caller/session context or a server-side approval record created through a separate trusted host, UI, or transport. Any presented approval handle must be opaque, short-lived, single-use when appropriate, and bound to the exact operation, principal, target, and resource.
+
 ## Verification
 
-Test misleading names, every emitted provenance value, `+sensitive`, conflicting metadata, malicious annotations, dangerous-plus-destructive conflicts, sensitive reads, and cross-server attempts to transfer authority.
+Test misleading names, every emitted provenance value, `+sensitive`, conflicting metadata, malicious annotations, dangerous-plus-destructive conflicts, untrusted positive idempotency, explicit legacy failures, sensitive reads, model-supplied confirmation attempts, and cross-server attempts to transfer authority.
