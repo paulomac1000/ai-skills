@@ -5,7 +5,7 @@ type: decision
 status: active
 rigor: operational
 owners: [repository-maintainers]
-verification: Compare commit 6a5f1850 with the current branch, run `python scripts/ci.py`, and inspect every mapping in this document.
+verification: Compare commit 6a5f1850 with the current branch, generate and execute a fresh MCP server, run `python scripts/ci.py`, and inspect every mapping in this document.
 ---
 
 # Skills recovery audit
@@ -22,34 +22,42 @@ The cleanup commit removed valuable production knowledge together with obsolete 
 | AFDS executable validation, fenced Markdown handling, links, metadata types, and explicit verification | `skills/afds-doc-writer/validate.py` and `tests/test_afds_validator.py` | Reimplemented with stronger CommonMark regressions |
 | Stable links used by downstream repositories | Deprecated `docs_standards.md` and `mcp-server-standards.md` entry points | Restored as redirects instead of duplicate standards |
 | Python quality, coverage, services, Docker smoke, MCP registration checks, and artifacts | CI templates for Python, MCP, containers, and references | Restored as composable profiles |
-| .NET format, analyzers, TRX, coverage, artifacts, package and release behavior | .NET CI and package templates plus template-selection guidance | Restored using current hosting and test conventions |
+| .NET format, analyzers, TRX, coverage, artifacts, package and release behavior | .NET CI and package templates plus template-selection guidance | Restored using current hosting and test conventions; package version is derived from one validated tag and SHA |
 | Incremental documentation validation and pull-request feedback | Documentation workflow template and failure-pattern guidance | Restored without unsafe write permissions on untrusted pull requests |
 | Semgrep pull-request and scheduled scans | Semgrep workflow templates | Restored with bounded permissions and SARIF handling |
 | Multi-ecosystem dependency updates and action pin maintenance | Dependabot template and action-SHA maintenance guidance | Restored; non-workflow action pins are checked by tests |
 | Local pre-commit and pre-push gates | CI/CD local-quality-gate reference and templates | Merged into CI/CD instead of remaining an empty top-level skill |
-| MCP maturity, transport independence, lifecycle, auth, errors, cancellation, observability, degradation, discovery, aggregation, and operations | MCP `STANDARD.md` plus focused references | Restored as a language-neutral core |
+| MCP maturity, transport independence, lifecycle, auth, errors, cancellation, observability, degradation, discovery, aggregation, server instructions, embedded hosting, and operations | MCP `STANDARD.md` plus focused references | Restored as a language-neutral core |
+| Executable Python MCP project baseline | `skills/mcp-server-architect/tools/generate_python_server.py` and `tests/test_mcp_generator.py` | Rebuilt as an atomic generator whose output compiles and runs through an official real MCP client |
 | MCP manifest schema, risk-consistency matrix, versioning, deprecation, and complete coverage gate | `capability-manifests-and-versioning.md` | Restored with fail-closed registration and runtime enforcement |
 | MCP transport parity, session safety, Origin policy, readiness, lifecycle ownership, and protocol conformance | `transport-lifecycle-and-conformance.md` | Restored and corrected for stdio and Streamable HTTP |
-| FastMCP registration, context, lifespan, content blocks, async I/O, SDK compatibility, and event-loop affinity | `python-fastmcp.md` and Python example | Restored for supported FastMCP generations |
+| Safe filesystem roots, generated exports, artifact ownership, long-running task registries, session quotas, browser profiles, interactive authentication, UI drift, multi-backend namespaces, and embedded-host ownership | `runtime-boundaries-and-artifacts.md` | Recovered from production server behavior and converted into normative runtime and test contracts |
+| FastMCP registration, context, lifespan, content blocks, async I/O, SDK compatibility, event-loop affinity, bounded executors, task and browser boundaries | `python-fastmcp.md`, Python example, and generator | Restored for the stable official SDK lane with separate candidate-major policy |
 | .NET hosting, DI, cancellation, request scope, Activity, official transports, filters, concurrency, and test host patterns | `dotnet-mcp.md` and .NET examples | Restored as a first-class profile, not a Python syntax translation |
 | Cross-language mapping of production incidents to enforceable controls | `cross-language-invariant-map.md` | Expanded with lifecycle, manifest, transport, sanitization, and race lessons |
-| MCP layered tests including manifest, lifecycle, race, parity, conformance, and artifacts | `testing-strategy.md` | Restored with independently falsifiable layers |
-| MCP consumer discovery, risk, retry, conflict refresh, errors, pagination, partial execution, and negotiation | MCP consumer standard, references, engine, and tests | Restored with fail-closed trust semantics |
+| MCP layered tests including generator, manifest, lifecycle, filesystem, task, browser, race, parity, conformance, real client, and artifacts | `testing-strategy.md`, migration tests, and generator tests | Restored with independently falsifiable layers |
+| Migration experience from read-only aggregators, heterogeneous devices, SSH appliances, multi-backend administration, financial APIs, and browser automation | `python-migration-simulation.md` | Generalized into six archetypes without retaining private repository names or unsafe implementation details |
+| MCP consumer discovery, risk, retry, conflict refresh, errors, pagination, partial execution, and negotiation | MCP consumer standard, references, engine, and tests | Restored with fail-closed trust semantics and monotonic aggregation of all risk signals |
 | Large consumer decision and efficiency regression suite | Decision-engine tests and focused policy references | Rebuilt around current safe behavior rather than legacy assumptions |
 
 ## Unsafe legacy behavior intentionally rejected
 
 - A missing manifest, a `[READ]` name prefix, or server-provided description never downgrades unknown risk to read-only.
+- Risk evidence is combined regardless of order; weaker metadata cannot hide a stronger dangerous prefix or annotation.
 - Tool annotations are advisory unless the server trust boundary is explicit.
 - A concurrency flag without runtime enforcement and race evidence is not accepted.
 - A custom REST or partial JSON-RPC bridge is not advertised as a conformant MCP transport.
+- A string-prefix path check is not accepted as filesystem containment.
+- Daemon threads and untracked async tasks are not accepted as long-running operation state.
+- Short, transferable session identifiers are not accepted for remote sessions or tasks.
+- Browser profiles are not treated as ordinary cache directories; they are credential stores with principal, process-lock, and cleanup policy.
 - Mutable GitHub Action tags are not accepted in bundled workflows.
 - A container is not published merely because source tests passed; the exact locally built image is smoke-tested and the same image is pushed.
-- Manual release inputs do not inherit tag or SHA identity from the dispatch branch.
+- Manual release inputs do not inherit tag, SHA, or package version identity from the dispatch branch.
 - Volatile action versions, timestamps, dependency matrices, semantic hashes, and fitness scores are not handwritten as durable truth.
 - A repository file-count limit is not used as an architectural quality metric.
 - Exact per-skill file allowlists do not prevent legitimate references, examples, templates, tools, or compatibility stubs.
 
 ## Verification
 
-Run the full repository quality gate. Compare the cleanup commit and the current branch by topic, not only filename or line count. A topic is recovered only when its invariant, language-specific implementation, runtime enforcement, and regression evidence are present.
+Generate a fresh Python server and execute its complete real-client suite. Run the full repository quality gate. Compare the cleanup commit and the current branch by topic, not only filename or line count. A topic is recovered only when its invariant, language-specific implementation, runtime enforcement, and regression evidence are present.
