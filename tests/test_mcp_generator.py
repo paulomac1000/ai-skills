@@ -43,6 +43,7 @@ def test_generator_emits_complete_deterministic_project(tmp_path: Path) -> None:
         Path("src/inventory_mcp/kernel.py"),
         Path("src/inventory_mcp/manifests.py"),
         Path("src/inventory_mcp/server.py"),
+        Path("tests/test_config.py"),
         Path("tests/test_http_limit.py"),
         Path("tests/test_kernel.py"),
         Path("tests/test_manifests.py"),
@@ -67,12 +68,19 @@ def test_generated_project_uses_public_sdk_and_fail_closed_controls(tmp_path: Pa
     )
     assert "from mcp.server.fastmcp import Context, FastMCP" in source
     assert "InvocationKernel" in source
+    assert "ApprovalRegistry" in source
+    assert "secrets.token_urlsafe(32)" in source
     assert "validate_manifests(REGISTERED_TOOLS)" in source
     assert "RequestBodyLimitMiddleware" in source
     assert "MCP_MAX_REQUEST_BODY_BYTES" in source
     assert "server.streamable_http_app()" in source
+    assert "address.is_loopback" in source
     assert "write operations are disabled by operator policy" in source
-    assert "expected_version" in source
+    assert "expected_version is mandatory" in source
+    assert "expected_version: int" in source
+    assert "confirmed: bool" not in source
+    assert "caller.confirmed" not in source
+    assert "await self._app(scope, replay_receive, send)" in source
     for forbidden in (
         "_tool_manager",
         "._mcp_server",
@@ -91,9 +99,9 @@ def test_generated_project_uses_public_sdk_and_fail_closed_controls(tmp_path: Pa
     assert "persist-credentials: false" in workflow
 
 
-def test_generator_refuses_invalid_or_existing_targets(tmp_path: Path) -> None:
+def test_generator_refuses_invalid_keywords_and_existing_targets(tmp_path: Path) -> None:
     generator = load_generator()
-    for package in ("Bad-Name", "a", "_hidden", "name.with.dot"):
+    for package in ("Bad-Name", "a", "_hidden", "name.with.dot", "class", "async"):
         try:
             generator.project_files(package, "Valid Server")
         except ValueError:
