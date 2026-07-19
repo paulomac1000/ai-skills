@@ -1,43 +1,47 @@
-"""Illustrative composition; pin and adapt imports to the supported FastMCP version."""
+"""Minimal official-SDK composition example; use the generator for a complete project."""
 
+from __future__ import annotations
+
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from typing import AsyncIterator
 
-from fastmcp import FastMCP
+from mcp.server.fastmcp import Context, FastMCP
+from mcp.server.session import ServerSession
 
 
-@dataclass(frozen=True)
-class ItemSummary:
-    item_id: str
-    name: str
+@dataclass(frozen=True, slots=True)
+class AppContext:
+    service: "InventoryService"
 
 
 class InventoryService:
-    async def list_items(self, *, limit: int) -> list[ItemSummary]:
-        if not 1 <= limit <= 100:
-            raise ValueError("limit must be between 1 and 100")
-        return []
+    async def list_items(self) -> list[dict[str, str]]:
+        return [{"item_id": "example", "name": "Example item"}]
 
 
 @asynccontextmanager
-async def lifespan(_server: FastMCP) -> AsyncIterator[dict[str, object]]:
+async def lifespan(_server: FastMCP) -> AsyncIterator[AppContext]:
     service = InventoryService()
-    try:
-        yield {"inventory": service}
-    finally:
-        # Close application-owned clients here.
-        pass
+    yield AppContext(service=service)
 
 
-mcp = FastMCP("inventory", lifespan=lifespan, stateless_http=True)
+mcp = FastMCP(
+    "inventory-mcp",
+    instructions="List items before using their stable item_id in follow-up tools.",
+    lifespan=lifespan,
+    stateless_http=True,
+    json_response=True,
+    max_request_body_size=1_048_576,
+)
 
 
-@mcp.tool
-async def list_items(limit: int = 25) -> dict[str, object]:
-    """List bounded inventory summaries."""
-    context = mcp.get_context()
-    service = context.request_context.lifespan_context["inventory"]
-    assert isinstance(service, InventoryService)
-    items = await service.list_items(limit=limit)
-    return {"success": True, "data": [item.__dict__ for item in items]}
+@mcp.tool()
+async def list_items(ctx: Context[ServerSession, AppContext]) -> dict[str, object]:
+    """List bounded inventory summaries in stable identifier order."""
+    items = await ctx.request_context.lifespan_context.service.list_items()
+    return {"success": True, "data": items}
+
+
+if __name__ == "__main__":
+    mcp.run()
