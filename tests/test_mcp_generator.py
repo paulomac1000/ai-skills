@@ -107,10 +107,17 @@ def test_generated_project_passes_its_own_real_client_suite(tmp_path: Path) -> N
     generator.generate_project(target, "inventory_mcp", "Inventory MCP")
     env = os.environ.copy()
     env["PYTHONPATH"] = str(target / "src")
-    subprocess.run(
+    completed = subprocess.run(
         [sys.executable, "-m", "pytest", "-q", "tests"],
         cwd=target,
         env=env,
-        check=True,
+        check=False,
+        capture_output=True,
+        text=True,
         timeout=120,
+    )
+    assert completed.returncode == 0, (
+        "generated project suite failed\n"
+        f"stdout:\n{completed.stdout}\n"
+        f"stderr:\n{completed.stderr}"
     )
