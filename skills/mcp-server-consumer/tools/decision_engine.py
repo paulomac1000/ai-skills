@@ -107,8 +107,6 @@ ERROR_STRATEGIES: dict[str, ErrorStrategy] = {
 }
 DEFAULT_ERROR_STRATEGY = ErrorStrategy(False, 0, ErrorAction.ESCALATE)
 
-# Conservative order for the legacy one-axis projection. Confidentiality remains
-# separately represented by CapabilityProfile.sensitive.
 _RISK_SEVERITY: dict[Risk, int] = {
     Risk.UNKNOWN: 0,
     Risk.READ: 1,
@@ -201,25 +199,29 @@ def _append_source(source: str, addition: str) -> str:
 def infer_capability_profile(
     name: str,
     metadata: Mapping[str, Any] | None = None,
+    *,
+    trusted_policy: bool = False,
+    trusted_contract: bool = False,
+    trusted_server: bool = False,
 ) -> CapabilityProfile:
-    """Infer a fail-closed profile with monotonic risk and explicit provenance.
+    """Infer a fail-closed profile with consumer-controlled trust provenance.
 
-    Safe classifications are accepted only from local policy or an explicitly
-    trusted server. Untrusted names, metadata, and annotations may elevate risk,
-    and all signals are combined even when a weaker signal was seen first.
-    A positive idempotency claim is safety-reducing because it can authorize a
-    replay, so it requires reviewed local policy or an explicitly trusted
-    capability contract. An untrusted ``idempotent=False`` claim is retained
-    because it can only make retry behavior more conservative.
+    ``metadata`` is always treated as server-supplied and untrusted. Trust facts
+    are separate keyword-only arguments that must come from consumer-owned policy
+    or a verified wrapper; identically named keys inside metadata are ignored.
+    Untrusted evidence may raise risk or disable retry, but cannot prove read-only
+    behavior or replay safety.
     """
     metadata = metadata or {}
-    trusted_policy = metadata.get("trusted_policy") is True
-    trusted_contract = metadata.get("trusted_contract") is True
-    explicit = _risk(metadata.get("risk")) if trusted_policy else _untrusted_risk_signal(metadata.get("risk"))
+    local_policy = trusted_policy is True
+    verified_contract = trusted_contract is True
+    verified_server = trusted_server is True
+
+    explicit = _risk(metadata.get("risk")) if local_policy else _untrusted_risk_signal(metadata.get("risk"))
     inferred = explicit
     source = (
         "local-policy"
-        if trusted_policy and explicit is not Risk.UNKNOWN
+        if local_policy and explicit is not Risk.UNKNOWN
         else "untrusted-risk-escalation"
         if explicit is not Risk.UNKNOWN
         else "unknown"
@@ -232,7 +234,6 @@ def infer_capability_profile(
         source = _append_source(source, "name-prefix-escalation")
 
     annotations = metadata.get("annotations")
-    trusted_server = metadata.get("trusted_server") is True
     if isinstance(annotations, Mapping):
         if annotations.get("destructiveHint") is True:
             previous = inferred
@@ -240,9 +241,9 @@ def infer_capability_profile(
             if inferred is not previous:
                 source = _append_source(
                     source,
-                    "trusted-annotation" if trusted_server else "untrusted-annotation-escalation",
+                    "trusted-annotation" if verified_server else "untrusted-annotation-escalation",
                 )
-        if trusted_server and inferred is Risk.UNKNOWN and annotations.get("readOnlyHint") is True:
+        if verified_server and inferred is Risk.UNKNOWN and annotations.get("readOnlyHint") is True:
             inferred = Risk.READ
             source = _append_source(source, "trusted-annotation")
 
@@ -256,7 +257,7 @@ def infer_capability_profile(
     idempotent_value = metadata.get("idempotent")
     if idempotent_value is False:
         idempotent: bool | None = False
-    elif idempotent_value is True and (trusted_policy or trusted_contract):
+    elif idempotent_value is True and (local_policy or verified_contract):
         idempotent = True
     else:
         idempotent = None
@@ -379,10 +380,12 @@ def handle_response(response: Mapping[str, Any]) -> ResponseResult:
             retryable=response.get("retryable") if isinstance(response.get("retryable"), bool) else None,
             correlation_id=correlation,
         )
+    if "error" in response:
+        return _legacy_failure(error=error, meta=meta, correlation_id=correlation)
 
     success_marker = response.get("success")
-    if success_marker is False or isinstance(error, str):
-        return _legacy_failure(error=error, meta=meta, correlation_id=correlation)
+    if success_marker is False:
+        return _legacy_failure(error=None, meta=meta, correlation_id=correlation)
     if "success" in response and success_marker is not True:
         return ResponseResult(
             success=False,
