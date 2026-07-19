@@ -36,6 +36,7 @@ REPLACEMENTS = {
     "<RELEASE_ENVIRONMENT>": "production",
     "<DOTNET_RELEASE_IDENTITY_COMMAND>": "test \"$NORMALIZED_VERSION\" = \"1.2.3\"",
     "<DOTNET_PACKAGE_VERIFY_COMMAND>": "test -n \"$(find nupkg -name '*.nupkg' -print -quit)\"",
+    "<DOTNET_PACKAGE_IDS>": "Example.Package",
     "<VALIDATOR_PATH>": "skills/afds-doc-writer/validate.py",
     "<DOC_INSTALL_COMMAND>": "python -m pip install pyyaml",
     "<VALIDATION_COMMAND>": "python skills/afds-doc-writer/validate.py skills",
@@ -211,12 +212,15 @@ def test_dotnet_quality_provisions_coverage_and_reports_safely() -> None:
     assert "pull_request.head.repo.full_name" in reporter["if"]
 
 
-def test_dotnet_package_release_uses_one_validated_tag_and_revision() -> None:
+def test_dotnet_package_release_uses_one_validated_tag_revision_and_identity_set() -> None:
     document = parse(TEMPLATES / "dotnet-package.yml.template")
     steps = document["jobs"]["package"]["steps"]
     resolver = next(step for step in steps if step.get("id") == "release_ref")
     identity = next(step for step in steps if step.get("id") == "release")
     pack = next(step for step in steps if step.get("name") == "Pack")
+    allowlist = next(
+        step for step in steps if step.get("name") == "Validate exact package identity allowlist"
+    )
     checkouts = [step for step in steps if str(step.get("uses", "")).startswith("actions/checkout@")]
     publisher = next(step for step in steps if step.get("name") == "Publish package files")
     release = next(step for step in steps if str(step.get("uses", "")).startswith("softprops/action-gh-release@"))
@@ -226,6 +230,19 @@ def test_dotnet_package_release_uses_one_validated_tag_and_revision() -> None:
     assert 'echo "version=$normalized_version"' in identity["run"]
     assert "$NORMALIZED_VERSION" in identity["run"]
     assert "steps.release.outputs.version" in pack["run"]
+
+    assert allowlist["env"]["EXPECTED_PACKAGE_IDS"] == "Example.Package"
+    allowlist_script = allowlist["run"]
+    for required in (
+        "zipfile.ZipFile",
+        ".nuspec",
+        "Unexpected PackageId",
+        "Missing allowlisted PackageId",
+        "version != expected_version",
+        "publish-files.txt",
+    ):
+        assert required in allowlist_script
+    assert "mapfile -t packages < nupkg/publish-files.txt" in publisher["run"]
     assert "for package in \"${packages[@]}\"" in publisher["run"]
     assert release["with"]["tag_name"] == "${{ steps.release_ref.outputs.tag }}"
     assert release["with"]["target_commitish"] == "${{ steps.release_ref.outputs.sha }}"
