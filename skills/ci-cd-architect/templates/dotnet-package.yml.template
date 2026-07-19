@@ -71,7 +71,16 @@ jobs:
         env:
           RELEASE_TAG: ${{ steps.release_ref.outputs.tag }}
           RELEASE_SHA: ${{ steps.release_ref.outputs.sha }}
-        run: <DOTNET_RELEASE_IDENTITY_COMMAND>
+        run: |
+          set -euo pipefail
+          normalized_version="${RELEASE_TAG#v}"
+          if [[ -z "$normalized_version" || "$normalized_version" == "$RELEASE_TAG" ]]; then
+            echo "validated release tag must start with v and contain a package version" >&2
+            exit 1
+          fi
+          export NORMALIZED_VERSION="$normalized_version"
+          <DOTNET_RELEASE_IDENTITY_COMMAND>
+          echo "version=$normalized_version" >> "$GITHUB_OUTPUT"
       - run: dotnet restore <SOLUTION_PATH>
       - run: dotnet build <SOLUTION_PATH> --no-restore --configuration Release
       - run: dotnet test <SOLUTION_PATH> --no-build --configuration Release
