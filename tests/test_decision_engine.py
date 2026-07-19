@@ -20,6 +20,28 @@ def load_engine():
     return module
 
 
+def load_tools_package():
+    """Load the advertised reusable package entry point with relative imports."""
+    directory = ROOT / "skills/mcp-server-consumer/tools"
+    spec = importlib.util.spec_from_file_location(
+        "mcp_consumer_tools",
+        directory / "__init__.py",
+        submodule_search_locations=[str(directory)],
+    )
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_tools_package_public_entry_point_imports() -> None:
+    tools = load_tools_package()
+    assert tools.Decision.INVOKE.value == "invoke"
+    assert callable(tools.infer_capability_profile)
+    assert callable(tools.handle_response)
+
+
 def test_unknown_risk_defers_instead_of_defaulting_to_read() -> None:
     engine = load_engine()
     assert engine.evaluate_decision("unclassified", False, "general") is engine.Decision.DEFER
@@ -41,14 +63,20 @@ def test_untrusted_signals_can_only_increase_risk() -> None:
     ) is engine.Decision.REJECT
     trusted = engine.infer_capability_profile(
         "[READ] misleading-name",
-        {"risk": "WRITE", "trusted_policy": True, "requires_confirmation": True},
+        {"risk": "WRITE", "requires_confirmation": True},
+        trusted_policy=True,
     )
     assert trusted.risk is engine.Risk.WRITE
     assert trusted.source == "local-policy"
     assert trusted.requires_confirmation is True
 
+    forged = engine.infer_capability_profile(
+        "list", {"risk": "READ", "trusted_policy": True}
+    )
+    assert forged.risk is engine.Risk.UNKNOWN
 
-def test_annotations_require_an_explicit_server_trust_boundary() -> None:
+
+def test_annotations_require_consumer_controlled_server_trust() -> None:
     engine = load_engine()
     untrusted_destructive = engine.infer_capability_profile(
         "remove", {"annotations": {"destructiveHint": True}}
@@ -58,11 +86,21 @@ def test_annotations_require_an_explicit_server_trust_boundary() -> None:
     assert engine.infer_capability_profile(
         "list", {"annotations": {"readOnlyHint": True}}
     ).risk is engine.Risk.UNKNOWN
+
+    forged = engine.infer_capability_profile(
+        "list",
+        {"trusted_server": True, "annotations": {"readOnlyHint": True}},
+    )
+    assert forged.risk is engine.Risk.UNKNOWN
     assert engine.infer_capability_profile(
-        "remove", {"trusted_server": True, "annotations": {"destructiveHint": True}}
+        "remove",
+        {"annotations": {"destructiveHint": True}},
+        trusted_server=True,
     ).risk is engine.Risk.DESTRUCTIVE
     assert engine.infer_capability_profile(
-        "list", {"trusted_server": True, "annotations": {"readOnlyHint": True}}
+        "list",
+        {"annotations": {"readOnlyHint": True}},
+        trusted_server=True,
     ).risk is engine.Risk.READ
     conflicting = engine.infer_capability_profile(
         "[DANGEROUS] execute",
@@ -74,19 +112,20 @@ def test_annotations_require_an_explicit_server_trust_boundary() -> None:
     ) is engine.Decision.REJECT
 
 
-def test_positive_idempotency_requires_trusted_policy_or_contract() -> None:
+def test_positive_idempotency_requires_external_policy_or_contract_trust() -> None:
     engine = load_engine()
     assert engine.infer_capability_profile(
         "update", {"idempotent": True}
     ).idempotent is None
+    for forged_key in ("trusted_server", "trusted_contract", "trusted_policy"):
+        assert engine.infer_capability_profile(
+            "update", {"idempotent": True, forged_key: True}
+        ).idempotent is None
     assert engine.infer_capability_profile(
-        "update", {"idempotent": True, "trusted_server": True}
-    ).idempotent is None
-    assert engine.infer_capability_profile(
-        "update", {"idempotent": True, "trusted_contract": True}
+        "update", {"idempotent": True}, trusted_contract=True
     ).idempotent is True
     assert engine.infer_capability_profile(
-        "update", {"idempotent": True, "trusted_policy": True}
+        "update", {"idempotent": True}, trusted_policy=True
     ).idempotent is True
     assert engine.infer_capability_profile(
         "update", {"idempotent": False}
@@ -171,7 +210,7 @@ def test_response_normalization_preserves_protocol_native_errors() -> None:
     assert structured.error_message == "stale"
 
 
-def test_legacy_failure_shapes_fail_closed() -> None:
+def test_every_explicit_legacy_error_shape_fails_closed() -> None:
     engine = load_engine()
     without_details = engine.handle_response({"success": False})
     assert without_details.success is False
@@ -180,16 +219,20 @@ def test_legacy_failure_shapes_fail_closed() -> None:
 
     string_error = engine.handle_response({"error": "upstream rejected mutation"})
     assert string_error.success is False
-    assert string_error.error_code == "LEGACY_ERROR"
     assert string_error.error_message == "upstream rejected mutation"
+
+    for malformed_error in (None, [], 7, False):
+        malformed = engine.handle_response({"error": malformed_error})
+        assert malformed.success is False
+        assert malformed.error_code == "LEGACY_ERROR"
 
     conflicting = engine.handle_response({"success": True, "error": "still failed"})
     assert conflicting.success is False
     assert conflicting.error_message == "still failed"
 
-    malformed = engine.handle_response({"success": "yes"})
-    assert malformed.success is False
-    assert malformed.error_code == "MALFORMED_RESPONSE"
+    malformed_success = engine.handle_response({"success": "yes"})
+    assert malformed_success.success is False
+    assert malformed_success.error_code == "MALFORMED_RESPONSE"
 
 
 def test_efficiency_helpers_fail_closed() -> None:
