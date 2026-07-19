@@ -32,6 +32,13 @@ def test_untrusted_signals_can_only_increase_risk() -> None:
     engine = load_engine()
     assert engine.infer_capability_profile("[WRITE] update").risk is engine.Risk.WRITE
     assert engine.infer_capability_profile("run", {"risk": "DESTRUCTIVE"}).risk is engine.Risk.DESTRUCTIVE
+    combined = engine.infer_capability_profile(
+        "[DANGEROUS] execute", {"risk": "WRITE"}
+    )
+    assert combined.risk is engine.Risk.DANGEROUS
+    assert engine.evaluate_decision(
+        combined.risk, combined.requires_confirmation, "general"
+    ) is engine.Decision.REJECT
     trusted = engine.infer_capability_profile(
         "[READ] misleading-name",
         {"risk": "WRITE", "trusted_policy": True, "requires_confirmation": True},
