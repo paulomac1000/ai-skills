@@ -23,14 +23,15 @@ def _render(text: str, *, package: str, server_name: str) -> str:
 
 
 def project_files(package: str, server_name: str) -> dict[str, str]:
-    """Return the complete generated project as relative UTF-8 text files."""
+    """Return a complete generated project as relative UTF-8 text files."""
     if not PACKAGE_RE.fullmatch(package):
         raise ValueError("package must match [a-z][a-z0-9_]{1,62}")
     if not SERVER_RE.fullmatch(server_name):
         raise ValueError("server name must be 2-79 safe display characters")
 
-    files: dict[str, str] = {
-        "pyproject.toml": _render(
+    render = lambda text: _render(text, package=package, server_name=server_name)
+    return {
+        "pyproject.toml": render(
             '''
             [build-system]
             requires = ["setuptools>=75", "wheel"]
@@ -41,7 +42,7 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
             version = "0.1.0"
             description = "Production-shaped MCP server generated from the MCP server architect standard"
             requires-python = ">=3.12"
-            dependencies = ["mcp>=1.27.2,<2"]
+            dependencies = ["mcp>=1.27.2,<2", "uvicorn>=0.30,<1"]
 
             [project.optional-dependencies]
             dev = ["pytest==9.0.2"]
@@ -55,13 +56,14 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
             [tool.pytest.ini_options]
             testpaths = ["tests"]
             addopts = "-q"
-            ''', package=package, server_name=server_name),
-        "README.md": _render(
+            '''
+        ),
+        "README.md": render(
             '''
             # __SERVER_NAME__
 
-            Generated production baseline for an MCP server. It deliberately separates domain code,
-            capability manifests, the invocation kernel, SDK registration, and transport startup.
+            Generated production baseline for an MCP server. It separates domain code,
+            capability manifests, one invocation kernel, SDK registration, and transports.
 
             ## Run
 
@@ -72,22 +74,21 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
             __PACKAGE__
             ```
 
-            Stdio is the default. For Streamable HTTP:
+            Stdio is the default. For loopback Streamable HTTP:
 
             ```bash
             MCP_TRANSPORT=streamable-http MCP_HOST=127.0.0.1 MCP_PORT=8000 __PACKAGE__
             ```
 
-            HTTP intentionally binds to loopback by default. Add real authentication and
-            resource-scoped authorization before exposing a remote transport.
+            The HTTP path is `/mcp`. The generated ASGI boundary rejects request bodies
+            larger than `MCP_MAX_REQUEST_BODY_BYTES` before the MCP application parses them.
 
-            ## Before production
-
-            Replace the in-memory domain adapter, review every manifest, connect authorization to a
-            real principal, add upstream contract tests, and smoke-test the built wheel or container.
-            A generated scaffold is a verified starting point, not evidence for domain-specific safety.
-            ''', package=package, server_name=server_name),
-        ".env.example": _render(
+            Before production, replace the in-memory adapter, review every manifest, add
+            authenticated principal extraction and resource-scoped authorization, add
+            upstream contract tests, and smoke-test the built wheel or container.
+            '''
+        ),
+        ".env.example": _clean(
             '''
             MCP_TRANSPORT=stdio
             MCP_HOST=127.0.0.1
@@ -95,8 +96,11 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
             MCP_WRITE_ENABLED=false
             MCP_DEFAULT_DEADLINE_MS=10000
             MCP_MAX_RESULT_ITEMS=100
-            ''', package=package, server_name=server_name),
-        ".gitignore": _clean('''
+            MCP_MAX_REQUEST_BODY_BYTES=1048576
+            '''
+        ),
+        ".gitignore": _clean(
+            '''
             .env
             .venv/
             __pycache__/
@@ -105,8 +109,9 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
             build/
             dist/
             *.egg-info/
-        '''),
-        "Dockerfile": _render(
+            '''
+        ),
+        "Dockerfile": render(
             '''
             FROM python:3.12-slim
             WORKDIR /app
@@ -117,17 +122,19 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
             USER appuser
             ENV MCP_TRANSPORT=stdio
             ENTRYPOINT ["__PACKAGE__"]
-            ''', package=package, server_name=server_name),
+            '''
+        ),
         "SECURITY.md": _clean(
             '''
             # Security model
 
-            The generated project is local-first. Stdio and loopback-only Streamable HTTP are the
-            supported baseline. Write operations are disabled unless the operator explicitly enables
-            them, and the sample mutation also requires exact confirmation and optimistic concurrency.
+            The generated project is local-first. Stdio and loopback-only Streamable HTTP
+            are the supported baseline. Writes are disabled unless the operator explicitly
+            enables them, and the sample mutation also requires exact confirmation and an
+            optimistic concurrency version.
 
-            Before remote or multi-user deployment, add authenticated principal extraction,
-            resource-scoped authorization, TLS or a reviewed reverse proxy, restrictive Origin and Host
+            Before remote or multi-user deployment, add authentication, per-resource
+            authorization, TLS or a reviewed reverse proxy, restrictive Origin and Host
             policy, quotas, audit retention, and deployment-specific secret storage.
             '''
         ),
@@ -161,22 +168,25 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
                   - run: python -m pytest
             '''
         ),
-        f"src/{package}/__init__.py": _clean('''
+        f"src/{package}/__init__.py": _clean(
+            '''
             """Generated MCP server package."""
 
             __all__ = ["__version__"]
             __version__ = "0.1.0"
-        '''),
-        f"src/{package}/__main__.py": _render(
+            '''
+        ),
+        f"src/{package}/__main__.py": render(
             '''
             from __PACKAGE__.server import main
 
             if __name__ == "__main__":
                 main()
-            ''', package=package, server_name=server_name),
-        f"src/{package}/config.py": _render(
             '''
-            """Typed, immutable process configuration loaded before dependency construction."""
+        ),
+        f"src/{package}/config.py": render(
+            '''
+            """Typed immutable process configuration loaded before dependency construction."""
 
             from __future__ import annotations
 
@@ -191,15 +201,15 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
                 raw = os.getenv(name)
                 if raw is None:
                     return default
-                normalized = raw.strip().casefold()
-                if normalized in {"1", "true", "yes", "on"}:
+                value = raw.strip().casefold()
+                if value in {"1", "true", "yes", "on"}:
                     return True
-                if normalized in {"0", "false", "no", "off"}:
+                if value in {"0", "false", "no", "off"}:
                     return False
                 raise ValueError(f"{name} must be a boolean")
 
 
-            def _integer(name: str, default: int, *, minimum: int, maximum: int) -> int:
+            def _integer(name: str, default: int, minimum: int, maximum: int) -> int:
                 raw = os.getenv(name)
                 value = default if raw is None else int(raw)
                 if not minimum <= value <= maximum:
@@ -215,6 +225,7 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
                 write_enabled: bool = False
                 default_deadline_ms: int = 10_000
                 max_result_items: int = 100
+                max_request_body_bytes: int = 1_048_576
 
                 @classmethod
                 def from_env(cls) -> "Settings":
@@ -226,23 +237,25 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
                         raise ValueError("MCP_HOST cannot be empty")
                     if host == "0.0.0.0":
                         raise ValueError(
-                            "Generated baseline refuses public binding; add authentication, authorization, "
-                            "TLS/proxy policy, Origin validation, and an explicit deployment review first"
+                            "Generated baseline refuses public binding; add authentication, "
+                            "authorization, TLS/proxy policy, Origin validation, and review first"
                         )
                     return cls(
                         transport=transport,  # type: ignore[arg-type]
                         host=host,
-                        port=_integer("MCP_PORT", 8000, minimum=1, maximum=65_535),
+                        port=_integer("MCP_PORT", 8000, 1, 65_535),
                         write_enabled=_boolean("MCP_WRITE_ENABLED", False),
                         default_deadline_ms=_integer(
-                            "MCP_DEFAULT_DEADLINE_MS", 10_000, minimum=100, maximum=120_000
+                            "MCP_DEFAULT_DEADLINE_MS", 10_000, 100, 120_000
                         ),
-                        max_result_items=_integer(
-                            "MCP_MAX_RESULT_ITEMS", 100, minimum=1, maximum=1_000
+                        max_result_items=_integer("MCP_MAX_RESULT_ITEMS", 100, 1, 1_000),
+                        max_request_body_bytes=_integer(
+                            "MCP_MAX_REQUEST_BODY_BYTES", 1_048_576, 1_024, 16_777_216
                         ),
                     )
-            ''', package=package, server_name=server_name),
-        f"src/{package}/manifests.py": _render(
+            '''
+        ),
+        f"src/{package}/manifests.py": render(
             '''
             """Application-owned capability manifests; missing metadata is a startup error."""
 
@@ -279,76 +292,27 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
                     return asdict(self)
 
 
+            def _read(name: str, confidentiality: Confidentiality, target: str) -> CapabilityManifest:
+                return CapabilityManifest(
+                    name=name, version="1.0.0", side_effects="read",
+                    confidentiality=confidentiality, operational_impact="none", cost="cheap",
+                    reversible=True, idempotent=True, idempotency_mechanism="natural read",
+                    retryable=False, retry_conditions=(), concurrent_safe=True,
+                    concurrency_scope="none", timeout_ms=5_000, requires_confirmation=False,
+                    target_binding=target,
+                )
+
+
             MANIFESTS: dict[str, CapabilityManifest] = {
-                "describe_capabilities": CapabilityManifest(
-                    name="describe_capabilities",
-                    version="1.0.0",
-                    side_effects="read",
-                    confidentiality="public",
-                    operational_impact="none",
-                    cost="cheap",
-                    reversible=True,
-                    idempotent=True,
-                    idempotency_mechanism="pure process-local catalog",
-                    retryable=False,
-                    retry_conditions=(),
-                    concurrent_safe=True,
-                    concurrency_scope="none",
-                    timeout_ms=1_000,
-                    requires_confirmation=False,
-                    target_binding="process capability catalog",
-                ),
-                "get_health": CapabilityManifest(
-                    name="get_health",
-                    version="1.0.0",
-                    side_effects="read",
-                    confidentiality="internal",
-                    operational_impact="none",
-                    cost="cheap",
-                    reversible=True,
-                    idempotent=True,
-                    idempotency_mechanism="process-local readiness snapshot",
-                    retryable=False,
-                    retry_conditions=(),
-                    concurrent_safe=True,
-                    concurrency_scope="none",
-                    timeout_ms=1_000,
-                    requires_confirmation=False,
-                    target_binding="process runtime",
-                ),
-                "list_items": CapabilityManifest(
-                    name="list_items",
-                    version="1.0.0",
-                    side_effects="read",
-                    confidentiality="internal",
-                    operational_impact="none",
-                    cost="cheap",
-                    reversible=True,
-                    idempotent=True,
-                    idempotency_mechanism="natural read",
-                    retryable=True,
-                    retry_conditions=("transient_unavailable_before_response",),
-                    concurrent_safe=True,
-                    concurrency_scope="inventory",
-                    timeout_ms=5_000,
-                    requires_confirmation=False,
-                    target_binding="process inventory",
-                ),
+                "describe_capabilities": _read("describe_capabilities", "public", "capability catalog"),
+                "get_health": _read("get_health", "internal", "process runtime"),
+                "list_items": _read("list_items", "internal", "process inventory"),
                 "put_item": CapabilityManifest(
-                    name="put_item",
-                    version="1.0.0",
-                    side_effects="write",
-                    confidentiality="internal",
-                    operational_impact="persistent",
-                    cost="cheap",
-                    reversible=True,
-                    idempotent=False,
-                    idempotency_mechanism=None,
-                    retryable=False,
-                    retry_conditions=(),
-                    concurrent_safe=False,
-                    concurrency_scope="inventory item",
-                    timeout_ms=5_000,
+                    name="put_item", version="1.0.0", side_effects="write",
+                    confidentiality="internal", operational_impact="persistent", cost="cheap",
+                    reversible=True, idempotent=False, idempotency_mechanism=None,
+                    retryable=False, retry_conditions=(), concurrent_safe=False,
+                    concurrency_scope="inventory item", timeout_ms=5_000,
                     requires_confirmation=True,
                     target_binding="stable item_id plus expected_version",
                 ),
@@ -356,22 +320,27 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
 
 
             def validate_manifests(registered_names: set[str]) -> None:
-                manifest_names = set(MANIFESTS)
-                missing = registered_names - manifest_names
-                orphaned = manifest_names - registered_names
+                missing = registered_names - set(MANIFESTS)
+                orphaned = set(MANIFESTS) - registered_names
                 if missing or orphaned:
                     raise RuntimeError(
-                        f"manifest coverage mismatch: missing={sorted(missing)}, orphaned={sorted(orphaned)}"
+                        f"manifest coverage mismatch: missing={sorted(missing)}, "
+                        f"orphaned={sorted(orphaned)}"
                     )
                 for manifest in MANIFESTS.values():
                     if manifest.timeout_ms <= 0:
                         raise RuntimeError(f"invalid timeout for {manifest.name}")
                     if manifest.retryable and not manifest.idempotent:
-                        raise RuntimeError(f"retryable capability lacks idempotency proof: {manifest.name}")
+                        raise RuntimeError(
+                            f"retryable capability lacks idempotency proof: {manifest.name}"
+                        )
                     if manifest.side_effects != "read" and manifest.retryable:
-                        raise RuntimeError(f"generated writes must default to non-retryable: {manifest.name}")
-            ''', package=package, server_name=server_name),
-        f"src/{package}/domain.py": _render(
+                        raise RuntimeError(
+                            f"generated writes must default to non-retryable: {manifest.name}"
+                        )
+            '''
+        ),
+        f"src/{package}/domain.py": render(
             '''
             """Transport-independent domain service and deterministic in-memory adapter."""
 
@@ -397,16 +366,16 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
 
             class InventoryService:
                 def __init__(self) -> None:
-                    self._items: dict[str, Item] = {"example": Item("example", "Example item", 1)}
+                    self._items = {"example": Item("example", "Example item", 1)}
                     self._lock = asyncio.Lock()
 
-                async def list_items(self, *, limit: int) -> list[Item]:
+                async def list_items(self, limit: int) -> list[Item]:
                     if not 1 <= limit <= 1_000:
                         raise ValueError("limit must be between 1 and 1000")
                     return sorted(self._items.values(), key=lambda item: item.item_id)[:limit]
 
                 async def put_item(
-                    self, *, item_id: str, name: str, expected_version: int | None
+                    self, item_id: str, name: str, expected_version: int | None
                 ) -> Item:
                     if not item_id or len(item_id) > 64:
                         raise ValueError("item_id must contain 1-64 characters")
@@ -414,16 +383,17 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
                         raise ValueError("name must contain 1-200 characters")
                     async with self._lock:
                         current = self._items.get(item_id)
-                        current_version = current.version if current else 0
-                        if expected_version is not None and expected_version != current_version:
+                        version = current.version if current else 0
+                        if expected_version is not None and expected_version != version:
                             raise ConflictError(
-                                f"stale expected_version={expected_version}; current_version={current_version}"
+                                f"stale expected_version={expected_version}; current_version={version}"
                             )
-                        updated = Item(item_id=item_id, name=name.strip(), version=current_version + 1)
+                        updated = Item(item_id, name.strip(), version + 1)
                         self._items[item_id] = updated
                         return updated
-            ''', package=package, server_name=server_name),
-        f"src/{package}/kernel.py": _render(
+            '''
+        ),
+        f"src/{package}/kernel.py": render(
             '''
             """Single invocation kernel shared by MCP and any future adapters."""
 
@@ -467,24 +437,24 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
                 def active_names(self) -> set[str]:
                     return {name for name, manifest in MANIFESTS.items() if manifest.active}
 
+                def catalog(self) -> list[dict[str, object]]:
+                    return [MANIFESTS[name].as_dict() for name in sorted(self.active_names)]
+
                 async def invoke(
-                    self,
-                    name: str,
-                    arguments: dict[str, Any],
-                    caller: CallerContext | None = None,
+                    self, name: str, arguments: dict[str, Any], caller: CallerContext | None = None
                 ) -> dict[str, Any]:
                     caller = caller or CallerContext()
                     request_id = uuid.uuid4().hex
                     token = _request_id.set(request_id)
                     started = time.monotonic()
                     try:
-                        manifest = self._resolve_manifest(name)
+                        manifest = self._manifest(name)
                         self._authorize(manifest, caller)
-                        timeout_seconds = min(
+                        seconds = min(
                             manifest.timeout_ms, self._settings.default_deadline_ms
                         ) / 1000
                         lock = self._lock_for(manifest, arguments)
-                        async with asyncio.timeout(timeout_seconds):
+                        async with asyncio.timeout(seconds):
                             if lock is None:
                                 data = await self._handlers[name](arguments)
                             else:
@@ -510,16 +480,11 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
                     except asyncio.CancelledError:
                         raise
                     except Exception:
-                        return self._failure(
-                            "INTERNAL_ERROR", "internal operation failure", request_id, started
-                        )
+                        return self._failure("INTERNAL_ERROR", "internal operation failure", request_id, started)
                     finally:
                         _request_id.reset(token)
 
-                def catalog(self) -> list[dict[str, object]]:
-                    return [MANIFESTS[name].as_dict() for name in sorted(self.active_names)]
-
-                def _resolve_manifest(self, name: str) -> CapabilityManifest:
+                def _manifest(self, name: str) -> CapabilityManifest:
                     manifest = MANIFESTS.get(name)
                     if manifest is None or not manifest.active or name not in self._handlers:
                         raise ValueError(f"unknown or inactive capability: {name}")
@@ -539,12 +504,10 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
                 ) -> asyncio.Lock | None:
                     if manifest.concurrent_safe:
                         return None
-                    stable_key = str(arguments.get("item_id") or manifest.concurrency_scope)
-                    return self._locks.setdefault(stable_key, asyncio.Lock())
+                    key = str(arguments.get("item_id") or manifest.concurrency_scope)
+                    return self._locks.setdefault(key, asyncio.Lock())
 
-                async def _describe_capabilities(
-                    self, _arguments: dict[str, Any]
-                ) -> list[dict[str, object]]:
+                async def _describe_capabilities(self, _arguments: dict[str, Any]) -> list[dict[str, object]]:
                     return self.catalog()
 
                 async def _get_health(self, _arguments: dict[str, Any]) -> dict[str, object]:
@@ -555,23 +518,19 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
                     }
 
                 async def _list_items(self, arguments: dict[str, Any]) -> list[dict[str, object]]:
-                    limit = int(arguments.get("limit", 25))
-                    limit = min(limit, self._settings.max_result_items)
-                    items = await self._service.list_items(limit=limit)
-                    return [item.as_dict() for item in items]
+                    limit = min(int(arguments.get("limit", 25)), self._settings.max_result_items)
+                    return [item.as_dict() for item in await self._service.list_items(limit)]
 
                 async def _put_item(self, arguments: dict[str, Any]) -> dict[str, object]:
                     item = await self._service.put_item(
-                        item_id=str(arguments.get("item_id", "")),
-                        name=str(arguments.get("name", "")),
-                        expected_version=arguments.get("expected_version"),
+                        str(arguments.get("item_id", "")),
+                        str(arguments.get("name", "")),
+                        arguments.get("expected_version"),
                     )
                     return item.as_dict()
 
                 @staticmethod
-                def _failure(
-                    code: str, message: str, request_id: str, started: float
-                ) -> dict[str, Any]:
+                def _failure(code: str, message: str, request_id: str, started: float) -> dict[str, Any]:
                     return {
                         "success": False,
                         "error": {"code": code, "message": message, "retryable": False},
@@ -580,8 +539,79 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
                             "duration_ms": int((time.monotonic() - started) * 1000),
                         },
                     }
-            ''', package=package, server_name=server_name),
-        f"src/{package}/server.py": _render(
+            '''
+        ),
+        f"src/{package}/http.py": render(
+            '''
+            """Small ASGI boundary that rejects oversized bodies before MCP parsing."""
+
+            from __future__ import annotations
+
+            from typing import Any
+
+
+            class RequestTooLarge(Exception):
+                """The cumulative HTTP request body exceeded the configured bound."""
+
+
+            class RequestBodyLimitMiddleware:
+                def __init__(self, app: Any, max_bytes: int) -> None:
+                    if max_bytes <= 0:
+                        raise ValueError("max_bytes must be positive")
+                    self._app = app
+                    self._max_bytes = max_bytes
+
+                async def __call__(self, scope: dict[str, Any], receive: Any, send: Any) -> None:
+                    if scope.get("type") != "http":
+                        await self._app(scope, receive, send)
+                        return
+                    for key, value in scope.get("headers", []):
+                        if key.lower() == b"content-length":
+                            try:
+                                if int(value) > self._max_bytes:
+                                    await self._reject(send)
+                                    return
+                            except ValueError:
+                                await self._reject(send, 400)
+                                return
+                    consumed = 0
+                    response_started = False
+
+                    async def limited_receive() -> dict[str, Any]:
+                        nonlocal consumed
+                        message = await receive()
+                        if message.get("type") == "http.request":
+                            consumed += len(message.get("body", b""))
+                            if consumed > self._max_bytes:
+                                raise RequestTooLarge
+                        return message
+
+                    async def tracked_send(message: dict[str, Any]) -> None:
+                        nonlocal response_started
+                        if message.get("type") == "http.response.start":
+                            response_started = True
+                        await send(message)
+
+                    try:
+                        await self._app(scope, limited_receive, tracked_send)
+                    except RequestTooLarge:
+                        if not response_started:
+                            await self._reject(send)
+
+                @staticmethod
+                async def _reject(send: Any, status: int = 413) -> None:
+                    body = b"request body too large" if status == 413 else b"invalid content-length"
+                    await send(
+                        {
+                            "type": "http.response.start",
+                            "status": status,
+                            "headers": [(b"content-type", b"text/plain; charset=utf-8")],
+                        }
+                    )
+                    await send({"type": "http.response.body", "body": body})
+            '''
+        ),
+        f"src/{package}/server.py": render(
             '''
             """Official MCP Python SDK composition root and transport entry point."""
 
@@ -593,12 +623,14 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
             from dataclasses import dataclass
             from typing import Any
 
+            import uvicorn
             from mcp.server.fastmcp import Context, FastMCP
             from mcp.server.fastmcp.exceptions import ToolError
             from mcp.server.session import ServerSession
 
             from __PACKAGE__.config import Settings
             from __PACKAGE__.domain import InventoryService
+            from __PACKAGE__.http import RequestBodyLimitMiddleware
             from __PACKAGE__.kernel import CallerContext, InvocationKernel
             from __PACKAGE__.manifests import validate_manifests
 
@@ -615,7 +647,9 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
                 if result.get("success") is True:
                     return result
                 error = result.get("error") or {}
-                raise ToolError(f"{error.get('code', 'ERROR')}: {error.get('message', 'operation failed')}")
+                raise ToolError(
+                    f"{error.get('code', 'ERROR')}: {error.get('message', 'operation failed')}"
+                )
 
 
             def build_server(settings: Settings | None = None) -> FastMCP:
@@ -624,51 +658,54 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
 
                 @asynccontextmanager
                 async def lifespan(_server: FastMCP) -> AsyncIterator[AppContext]:
-                    service = InventoryService()
-                    kernel = InvocationKernel(settings=settings, service=service)
-                    yield AppContext(settings=settings, kernel=kernel)
+                    yield AppContext(
+                        settings=settings,
+                        kernel=InvocationKernel(settings, InventoryService()),
+                    )
 
                 mcp = FastMCP(
                     "__SERVER_NAME__",
                     instructions=(
                         "Use list_items before put_item. Writes are disabled by default and require "
-                        "operator enablement plus exact confirmation. Preserve returned item_id and version."
+                        "operator enablement plus exact confirmation. Preserve item_id and version."
                     ),
                     lifespan=lifespan,
                     host=settings.host,
                     port=settings.port,
                     stateless_http=True,
                     json_response=True,
-                    max_request_body_size=1_048_576,
                 )
 
                 @mcp.tool()
                 async def describe_capabilities(
                     ctx: Context[ServerSession, AppContext],
                 ) -> dict[str, Any]:
-                    """Describe active capabilities and their governed manifests without upstream I/O."""
-                    result = await ctx.request_context.lifespan_context.kernel.invoke(
-                        "describe_capabilities", {}
+                    """Describe active governed capabilities without upstream I/O."""
+                    return _require_success(
+                        await ctx.request_context.lifespan_context.kernel.invoke(
+                            "describe_capabilities", {}
+                        )
                     )
-                    return _require_success(result)
 
                 @mcp.tool()
                 async def get_health(
                     ctx: Context[ServerSession, AppContext],
                 ) -> dict[str, Any]:
-                    """Return a bounded readiness snapshot for mandatory runtime dependencies."""
-                    result = await ctx.request_context.lifespan_context.kernel.invoke("get_health", {})
-                    return _require_success(result)
+                    """Return a bounded readiness snapshot."""
+                    return _require_success(
+                        await ctx.request_context.lifespan_context.kernel.invoke("get_health", {})
+                    )
 
                 @mcp.tool()
                 async def list_items(
                     ctx: Context[ServerSession, AppContext], limit: int = 25
                 ) -> dict[str, Any]:
                     """List bounded inventory summaries in stable item_id order."""
-                    result = await ctx.request_context.lifespan_context.kernel.invoke(
-                        "list_items", {"limit": limit}
+                    return _require_success(
+                        await ctx.request_context.lifespan_context.kernel.invoke(
+                            "list_items", {"limit": limit}
+                        )
                     )
-                    return _require_success(result)
 
                 @mcp.tool()
                 async def put_item(
@@ -680,29 +717,30 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
                 ) -> dict[str, Any]:
                     """Create or update one item using optimistic concurrency."""
                     app = ctx.request_context.lifespan_context
-                    result = await app.kernel.invoke(
-                        "put_item",
-                        {
-                            "item_id": item_id,
-                            "name": name,
-                            "expected_version": expected_version,
-                        },
-                        CallerContext(confirmed=confirmed),
+                    return _require_success(
+                        await app.kernel.invoke(
+                            "put_item",
+                            {
+                                "item_id": item_id,
+                                "name": name,
+                                "expected_version": expected_version,
+                            },
+                            CallerContext(confirmed=confirmed),
+                        )
                     )
-                    return _require_success(result)
 
                 @mcp.resource("capabilities://catalog", mime_type="application/json")
                 async def capability_catalog(
                     ctx: Context[ServerSession, AppContext],
                 ) -> str:
-                    """Return the active, governed capability catalog without upstream I/O."""
+                    """Return the active capability catalog without upstream I/O."""
                     return json.dumps(
                         ctx.request_context.lifespan_context.kernel.catalog(), sort_keys=True
                     )
 
                 @mcp.resource("health://ready", mime_type="application/json")
                 async def readiness(ctx: Context[ServerSession, AppContext]) -> str:
-                    """Report readiness for the generated in-memory mandatory dependency."""
+                    """Report readiness for the generated mandatory dependency."""
                     app = ctx.request_context.lifespan_context
                     return json.dumps(
                         {
@@ -717,14 +755,20 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
                 def inventory_workflow() -> str:
                     """Guide an agent through the version-aware inventory workflow."""
                     return (
-                        "List items first. For updates, reuse the stable item_id and current version. "
+                        "List items first. Reuse stable item_id and current version for updates. "
                         "Do not retry a failed write automatically."
                     )
 
                 return mcp
 
 
-            app = build_server(Settings())
+            def build_http_app(server: FastMCP, settings: Settings) -> RequestBodyLimitMiddleware:
+                return RequestBodyLimitMiddleware(
+                    server.streamable_http_app(), settings.max_request_body_bytes
+                )
+
+
+            mcp = build_server(Settings())
 
 
             def main() -> None:
@@ -733,12 +777,13 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
                 if settings.transport == "stdio":
                     server.run()
                 else:
-                    server.run(transport="streamable-http")
+                    uvicorn.run(build_http_app(server, settings), host=settings.host, port=settings.port)
 
 
             if __name__ == "__main__":
                 main()
-            ''', package=package, server_name=server_name),
+            '''
+        ),
         "tests/conftest.py": _clean(
             '''
             import pytest
@@ -749,7 +794,7 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
                 return "asyncio"
             '''
         ),
-        "tests/test_kernel.py": _render(
+        "tests/test_kernel.py": render(
             '''
             import pytest
 
@@ -776,15 +821,14 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
                 )
                 assert created["success"] is True
                 assert created["data"]["version"] == 1
-
                 conflict = await enabled.invoke(
                     "put_item", {"item_id": "a", "name": "B", "expected_version": 0},
                     CallerContext(confirmed=True),
                 )
-                assert conflict["success"] is False
                 assert conflict["error"]["code"] == "CONFLICT"
-            ''', package=package, server_name=server_name),
-        "tests/test_manifests.py": _render(
+            '''
+        ),
+        "tests/test_manifests.py": render(
             '''
             from __PACKAGE__.manifests import MANIFESTS, validate_manifests
             from __PACKAGE__.server import REGISTERED_TOOLS
@@ -797,8 +841,42 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
                 assert write.idempotent is False
                 assert write.retryable is False
                 assert write.concurrent_safe is False
-            ''', package=package, server_name=server_name),
-        "tests/test_mcp_smoke.py": _render(
+            '''
+        ),
+        "tests/test_http_limit.py": render(
+            '''
+            import pytest
+
+            from __PACKAGE__.http import RequestBodyLimitMiddleware
+
+
+            @pytest.mark.anyio
+            async def test_oversized_body_is_rejected_before_application() -> None:
+                called = False
+
+                async def app(scope, receive, send):
+                    nonlocal called
+                    called = True
+                    await receive()
+                    await send({"type": "http.response.start", "status": 200, "headers": []})
+                    await send({"type": "http.response.body", "body": b"ok"})
+
+                middleware = RequestBodyLimitMiddleware(app, 4)
+                messages = [{"type": "http.request", "body": b"12345", "more_body": False}]
+                sent = []
+
+                async def receive():
+                    return messages.pop(0)
+
+                async def send(message):
+                    sent.append(message)
+
+                await middleware({"type": "http", "headers": []}, receive, send)
+                assert called is True
+                assert sent[0]["status"] == 413
+            '''
+        ),
+        "tests/test_mcp_smoke.py": render(
             '''
             import pytest
             from mcp.shared.memory import create_connected_server_and_client_session
@@ -815,19 +893,21 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
                 ) as session:
                     listed = await session.list_tools()
                     names = {tool.name for tool in listed.tools}
-                    assert {"describe_capabilities", "get_health", "list_items", "put_item"}.issubset(names)
+                    assert {
+                        "describe_capabilities", "get_health", "list_items", "put_item"
+                    }.issubset(names)
                     result = await session.call_tool("list_items", {"limit": 10})
                     assert result.isError is not True
                     assert result.structuredContent is not None
                     structured = result.structuredContent.get("result", result.structuredContent)
                     assert structured["success"] is True
-            ''', package=package, server_name=server_name),
+            '''
+        ),
     }
-    return files
 
 
 def generate_project(target: Path, package: str, server_name: str) -> list[Path]:
-    """Generate a complete project atomically; refuse to overwrite an existing path."""
+    """Generate a project atomically and refuse to overwrite an existing path."""
     target = target.expanduser().resolve()
     if target.exists():
         raise FileExistsError(f"target already exists: {target}")
