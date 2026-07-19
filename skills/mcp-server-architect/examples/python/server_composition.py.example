@@ -22,8 +22,7 @@ class InventoryService:
 
 @asynccontextmanager
 async def lifespan(_server: FastMCP) -> AsyncIterator[AppContext]:
-    service = InventoryService()
-    yield AppContext(service=service)
+    yield AppContext(service=InventoryService())
 
 
 mcp = FastMCP(
@@ -32,7 +31,6 @@ mcp = FastMCP(
     lifespan=lifespan,
     stateless_http=True,
     json_response=True,
-    max_request_body_size=1_048_576,
 )
 
 
