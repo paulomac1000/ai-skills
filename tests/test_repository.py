@@ -18,7 +18,10 @@ EXPECTED_SKILLS = {
 }
 ALLOWED_CATEGORIES = {"core", "references", "templates", "examples", "tools"}
 IGNORED_PARTS = {".git", ".venv", ".pytest_cache", "__pycache__", ".ruff_cache"}
-POLISH_MARKERS = re.compile("[ąćęłńóśźżĄĆĘŁŃÓŚŹŻ]")
+POLISH_MARKERS = re.compile(
+    r"[\u0105\u0107\u0119\u0142\u0144\u00f3\u015b\u017a\u017c"
+    r"\u0104\u0106\u0118\u0141\u0143\u00d3\u015a\u0179\u017b]"
+)
 PROJECT_SPECIFIC_TERMS = {
     "ha-" + "mcp-readonly",
     "kontomierz-" + "mcp",
