@@ -14,16 +14,20 @@ verification: Run malicious and conflicting metadata scenarios proving untrusted
 
 The decision engine emits one of these stable base provenance values:
 
-- `local-policy`: reviewed consumer-owned configuration supplied with `trusted_policy: true`;
+- `local-policy`: reviewed consumer-owned configuration was supplied through the separate keyword-only `trusted_policy=True` argument;
 - `untrusted-risk-escalation`: untrusted explicit risk metadata raised the classification;
 - `name-prefix-escalation`: an untrusted risk prefix in the public capability name raised the classification;
-- `trusted-annotation`: an annotation from a server explicitly trusted for classification changed the result;
+- `trusted-annotation`: an annotation was evaluated with the separate consumer-controlled `trusted_server=True` argument;
 - `untrusted-annotation-escalation`: an untrusted annotation conservatively raised the result;
 - `unknown`: no authoritative or conservative signal classified the capability.
 
 When a separate trusted `sensitive: true` fact promotes `READ` or `UNKNOWN` to `SENSITIVE`, the engine appends `+sensitive` to the existing base value. Consumers should parse this as a base provenance plus an additive confidentiality marker rather than inventing undocumented source names.
 
 The decision engine exposes provenance so policy and audit logs can distinguish why a risk was selected. New source values require a documented contract and regression test before release.
+
+## Trust-channel separation
+
+Discovered capability metadata is always untrusted. Keys named `trusted_policy`, `trusted_contract`, or `trusted_server` inside that mapping have no authority and are ignored. The caller must derive trust from consumer-owned configuration, a pinned server identity, or another verified wrapper and pass it through separate keyword-only arguments. Never copy a server-provided boolean into those arguments without independent verification.
 
 ## Monotonic classification
 
@@ -41,7 +45,7 @@ Untrusted evidence may raise risk. A destructive or dangerous prefix, schema acc
 
 ## Idempotency trust
 
-A positive `idempotent: true` claim is safety-reducing because it can authorize automatic replay after an ambiguous failure. Accept it only from reviewed consumer-owned policy marked `trusted_policy: true` or a separately verified capability contract marked `trusted_contract: true`. Generic server trust used for display annotations does not prove idempotency. An untrusted `idempotent: false` claim may be retained because it can only disable retry and make behavior more conservative.
+A positive `idempotent: true` claim is safety-reducing because it can authorize automatic replay after an ambiguous failure. Accept it only when the consumer independently supplies `trusted_policy=True` for reviewed local policy or `trusted_contract=True` for a separately verified capability contract. Identically named keys inside discovered metadata do not count. Generic server trust used for display annotations does not prove idempotency. An untrusted `idempotent: false` claim may be retained because it can only disable retry and make behavior more conservative.
 
 Retry still requires a retry-eligible error, an explicit positive retry signal, remaining attempt and deadline budget, preserved target identity, and any required refreshed precondition. Trusted idempotency alone never authorizes a retry.
 
@@ -57,4 +61,4 @@ A model-controlled boolean or arbitrary tool argument is not confirmation. Runti
 
 ## Verification
 
-Test misleading names, every emitted provenance value, `+sensitive`, conflicting metadata, malicious annotations, dangerous-plus-destructive conflicts, untrusted positive idempotency, explicit legacy failures, sensitive reads, model-supplied confirmation attempts, and cross-server attempts to transfer authority.
+Test misleading names, every emitted provenance value, `+sensitive`, conflicting metadata, forged trust keys, malicious annotations, dangerous-plus-destructive conflicts, untrusted positive idempotency, explicit and malformed legacy failures, public package imports, sensitive reads, model-supplied confirmation attempts, and cross-server attempts to transfer authority.
