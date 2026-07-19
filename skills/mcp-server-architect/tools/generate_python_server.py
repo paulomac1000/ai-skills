@@ -85,12 +85,14 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
 
             The HTTP path is `/mcp`. Only literal IPv4 or IPv6 loopback addresses are
             accepted. The ASGI boundary buffers at most the configured request limit and
-            rejects oversized bodies before the MCP application is entered.
+            rejects oversized or excessively fragmented bodies before entering FastMCP.
 
             Writes are disabled by default. The sample write also requires a mandatory
-            current resource version and a one-time approval token that was issued earlier
-            by a trusted host through the server-side `ApprovalRegistry`. The MCP tool cannot
-            issue its own approval, and a caller-provided boolean is never treated as consent.
+            current resource version and a one-time approval token issued earlier by a
+            trusted host through the server-side `ApprovalRegistry`. Approval records are
+            bounded, expiring, and bound to capability, principal, target, and resource.
+            The MCP tool cannot issue its own approval, and a caller-provided boolean is
+            never treated as consent. Approval tokens are credentials and must be redacted.
 
             Before production, replace the in-memory adapter, review every manifest, add
             authenticated principal extraction and resource-scoped authorization, connect
@@ -146,7 +148,9 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
 
             The public MCP tool may present an approval token, but it cannot create one.
             Only a trusted host, UI, or transport integration may call `ApprovalRegistry.issue`.
-            Tokens are operation-, target-, resource-, expiry-, and single-use-bound.
+            Records are bounded, expiring, and capability-, principal-, target-, resource-,
+            and single-use-bound. Treat approval tokens as credentials: never log, trace,
+            cache, echo, or persist them in ordinary application telemetry.
 
             Before remote or multi-user deployment, add authentication, per-resource
             authorization, TLS or a reviewed reverse proxy, restrictive Origin and Host
@@ -261,10 +265,14 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
                 max_request_body_bytes: int = 1_048_576
 
                 def validate(self) -> "Settings":
-                    if self.transport not in {"stdio", "streamable-http"}:
+                    if not isinstance(self.transport, str) or self.transport not in {
+                        "stdio", "streamable-http"
+                    }:
                         raise ValueError("transport must be stdio or streamable-http")
-                    if not self.host:
-                        raise ValueError("host cannot be empty")
+                    if not isinstance(self.host, str) or not self.host:
+                        raise ValueError("host must be a non-empty string")
+                    if type(self.write_enabled) is not bool:
+                        raise ValueError("write_enabled must be a boolean")
                     if self.transport == "streamable-http":
                         _require_literal_loopback(self.host)
                     if type(self.port) is not int or not 1 <= self.port <= 65_535:
@@ -418,9 +426,9 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
                 async def put_item(
                     self, item_id: str, name: str, expected_version: int
                 ) -> Item:
-                    if not item_id or len(item_id) > 64:
+                    if not isinstance(item_id, str) or not item_id or len(item_id) > 64:
                         raise ValueError("item_id must contain 1-64 characters")
-                    if not name.strip() or len(name) > 200:
+                    if not isinstance(name, str) or not name.strip() or len(name) > 200:
                         raise ValueError("name must contain 1-200 characters")
                     if type(expected_version) is not int or expected_version < 0:
                         raise ValueError(
@@ -447,6 +455,7 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
             import asyncio
             import contextvars
             import secrets
+            import threading
             import time
             import uuid
             from collections.abc import Awaitable, Callable
@@ -470,52 +479,84 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
             @dataclass(frozen=True, slots=True)
             class ApprovalRecord:
                 capability: str
+                principal: str
                 target_id: str
                 resource_id: str
                 expires_at: float
 
 
             class ApprovalRegistry:
-                """One-time approvals issued only by a trusted embedding host or UI."""
+                """Bounded one-time approvals issued only by a trusted embedding host or UI."""
 
-                def __init__(self) -> None:
+                def __init__(self, max_records: int = 1_024) -> None:
+                    if type(max_records) is not int or not 1 <= max_records <= 10_000:
+                        raise ValueError("max_records must be an integer between 1 and 10000")
+                    self._max_records = max_records
                     self._records: dict[str, ApprovalRecord] = {}
+                    self._lock = threading.Lock()
+
+                def _purge_expired_locked(self, now: float) -> None:
+                    expired = [
+                        token for token, record in self._records.items()
+                        if record.expires_at < now
+                    ]
+                    for token in expired:
+                        self._records.pop(token, None)
 
                 def issue(
                     self,
                     capability: str,
+                    principal: str,
                     target_id: str,
                     resource_id: str,
                     *,
                     ttl_seconds: float = 60.0,
                 ) -> str:
-                    if not capability or not target_id or not resource_id:
-                        raise ValueError("approval binding values cannot be empty")
+                    if not all(
+                        isinstance(value, str) and value
+                        for value in (capability, principal, target_id, resource_id)
+                    ):
+                        raise ValueError("approval binding values must be non-empty strings")
+                    if not isinstance(ttl_seconds, (int, float)) or isinstance(ttl_seconds, bool):
+                        raise ValueError("approval ttl must be numeric")
                     if not 0 < ttl_seconds <= 300:
                         raise ValueError("approval ttl must be between 0 and 300 seconds")
-                    token = secrets.token_urlsafe(32)
-                    self._records[token] = ApprovalRecord(
-                        capability=capability,
-                        target_id=target_id,
-                        resource_id=resource_id,
-                        expires_at=time.monotonic() + ttl_seconds,
-                    )
-                    return token
+                    now = time.monotonic()
+                    with self._lock:
+                        self._purge_expired_locked(now)
+                        if len(self._records) >= self._max_records:
+                            raise RuntimeError("approval registry capacity reached")
+                        token = secrets.token_urlsafe(32)
+                        while token in self._records:
+                            token = secrets.token_urlsafe(32)
+                        self._records[token] = ApprovalRecord(
+                            capability=capability,
+                            principal=principal,
+                            target_id=target_id,
+                            resource_id=resource_id,
+                            expires_at=now + float(ttl_seconds),
+                        )
+                        return token
 
                 def consume(
                     self,
                     token: str | None,
                     capability: str,
+                    principal: str,
                     target_id: str,
                     resource_id: str,
                 ) -> bool:
                     if not isinstance(token, str) or not token:
                         return False
-                    record = self._records.pop(token, None)
-                    if record is None or record.expires_at < time.monotonic():
+                    now = time.monotonic()
+                    with self._lock:
+                        self._purge_expired_locked(now)
+                        record = self._records.pop(token, None)
+                    if record is None:
                         return False
                     return (
                         record.capability == capability
+                        and record.principal == principal
                         and record.target_id == target_id
                         and record.resource_id == resource_id
                     )
@@ -555,6 +596,7 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
                     started = time.monotonic()
                     try:
                         manifest = self._manifest(name)
+                        self._validate_arguments(name, arguments)
                         self._authorize(name, manifest, caller, arguments)
                         seconds = min(
                             manifest.timeout_ms, self._settings.default_deadline_ms
@@ -596,6 +638,27 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
                         raise ValueError(f"unknown or inactive capability: {name}")
                     return manifest
 
+                @staticmethod
+                def _validate_arguments(name: str, arguments: dict[str, Any]) -> None:
+                    if not isinstance(arguments, dict):
+                        raise ValueError("arguments must be an object")
+                    if name == "list_items":
+                        limit = arguments.get("limit", 25)
+                        if type(limit) is not int or not 1 <= limit <= 1_000:
+                            raise ValueError("limit must be an integer between 1 and 1000")
+                    if name == "put_item":
+                        item_id = arguments.get("item_id")
+                        item_name = arguments.get("name")
+                        expected_version = arguments.get("expected_version")
+                        if not isinstance(item_id, str) or not item_id or len(item_id) > 64:
+                            raise ValueError("item_id must contain 1-64 characters")
+                        if not isinstance(item_name, str) or not item_name.strip() or len(item_name) > 200:
+                            raise ValueError("name must contain 1-200 characters")
+                        if type(expected_version) is not int or expected_version < 0:
+                            raise ValueError(
+                                "expected_version is mandatory and must be a non-negative integer"
+                            )
+
                 def _authorize(
                     self,
                     name: str,
@@ -603,6 +666,8 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
                     caller: CallerContext,
                     arguments: dict[str, Any],
                 ) -> None:
+                    if not isinstance(caller.principal, str) or not caller.principal:
+                        raise PermissionError("principal is not authenticated")
                     if caller.target_id != "inventory":
                         raise PermissionError("target is not authorized")
                     if manifest.side_effects == "read":
@@ -610,9 +675,13 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
                     if not self._settings.write_enabled:
                         raise PermissionError("write operations are disabled by operator policy")
                     if manifest.requires_confirmation:
-                        resource_id = str(arguments.get("item_id") or "")
+                        resource_id = str(arguments["item_id"])
                         if not self._approvals.consume(
-                            caller.approval_token, name, caller.target_id, resource_id
+                            caller.approval_token,
+                            name,
+                            caller.principal,
+                            caller.target_id,
+                            resource_id,
                         ):
                             raise PermissionError(
                                 "a valid one-time server-side approval record is required"
@@ -637,19 +706,14 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
                     }
 
                 async def _list_items(self, arguments: dict[str, Any]) -> list[dict[str, object]]:
-                    limit = min(int(arguments.get("limit", 25)), self._settings.max_result_items)
+                    limit = min(arguments.get("limit", 25), self._settings.max_result_items)
                     return [item.as_dict() for item in await self._service.list_items(limit)]
 
                 async def _put_item(self, arguments: dict[str, Any]) -> dict[str, object]:
-                    expected_version = arguments.get("expected_version")
-                    if type(expected_version) is not int or expected_version < 0:
-                        raise ValueError(
-                            "expected_version is mandatory and must be a non-negative integer"
-                        )
                     item = await self._service.put_item(
-                        str(arguments.get("item_id", "")),
-                        str(arguments.get("name", "")),
-                        expected_version,
+                        arguments["item_id"],
+                        arguments["name"],
+                        arguments["expected_version"],
                     )
                     return item.as_dict()
 
@@ -671,16 +735,18 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
 
             from __future__ import annotations
 
-            from collections import deque
             from typing import Any
 
 
             class RequestBodyLimitMiddleware:
-                def __init__(self, app: Any, max_bytes: int) -> None:
+                def __init__(self, app: Any, max_bytes: int, max_events: int = 1_024) -> None:
                     if type(max_bytes) is not int or max_bytes <= 0:
                         raise ValueError("max_bytes must be a positive integer")
+                    if type(max_events) is not int or not 1 <= max_events <= 10_000:
+                        raise ValueError("max_events must be an integer between 1 and 10000")
                     self._app = app
                     self._max_bytes = max_bytes
+                    self._max_events = max_events
 
                 async def __call__(self, scope: dict[str, Any], receive: Any, send: Any) -> None:
                     if scope.get("type") != "http":
@@ -707,33 +773,47 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
                         await self._reject(send, 413, b"request body too large")
                         return
 
-                    buffered: deque[dict[str, Any]] = deque()
-                    consumed = 0
+                    body = bytearray()
+                    events = 0
                     while True:
+                        events += 1
+                        if events > self._max_events:
+                            await self._reject(send, 413, b"too many request body chunks")
+                            return
                         message = await receive()
                         message_type = message.get("type")
                         if message_type == "http.disconnect":
-                            buffered.append(message)
-                            break
+                            return
                         if message_type != "http.request":
                             await self._reject(send, 400, b"invalid request body event")
                             return
-                        body = message.get("body", b"")
-                        if not isinstance(body, bytes):
+                        chunk = message.get("body", b"")
+                        if not isinstance(chunk, bytes):
                             await self._reject(send, 400, b"invalid request body")
                             return
-                        consumed += len(body)
-                        if consumed > self._max_bytes:
+                        body.extend(chunk)
+                        if len(body) > self._max_bytes:
                             await self._reject(send, 413, b"request body too large")
                             return
-                        buffered.append(message)
                         if message.get("more_body") is not True:
                             break
 
+                    if lengths and len(body) != lengths[0]:
+                        await self._reject(send, 400, b"content-length mismatch")
+                        return
+
+                    replayed = False
+
                     async def replay_receive() -> dict[str, Any]:
-                        if buffered:
-                            return buffered.popleft()
-                        return {"type": "http.disconnect"}
+                        nonlocal replayed
+                        if replayed:
+                            return {"type": "http.disconnect"}
+                        replayed = True
+                        return {
+                            "type": "http.request",
+                            "body": bytes(body),
+                            "more_body": False,
+                        }
 
                     await self._app(scope, replay_receive, send)
 
@@ -810,7 +890,8 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
                     instructions=(
                         "Use list_items before put_item. Preserve item_id and current version. "
                         "Writes are disabled by default. A write requires a one-time approval "
-                        "token already issued by the trusted host; the MCP caller cannot issue it."
+                        "token already issued for the authenticated principal by the trusted host; "
+                        "the MCP caller cannot issue it."
                     ),
                     lifespan=lifespan,
                     host=settings.host,
@@ -906,13 +987,12 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
 
 
             def build_http_app(server: FastMCP, settings: Settings) -> RequestBodyLimitMiddleware:
+                if settings.transport != "streamable-http":
+                    raise ValueError("build_http_app requires streamable-http settings")
                 settings.validate()
                 return RequestBodyLimitMiddleware(
                     server.streamable_http_app(), settings.max_request_body_bytes
                 )
-
-
-            mcp = build_server(Settings())
 
 
             def main() -> None:
@@ -950,6 +1030,8 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
             from __PACKAGE__.domain import InventoryService
             from __PACKAGE__.kernel import ApprovalRegistry, CallerContext, InvocationKernel
 
+            PRINCIPAL = "local-stdio-user"
+
 
             @pytest.mark.anyio
             async def test_write_is_fail_closed_approved_once_and_versioned() -> None:
@@ -958,7 +1040,7 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
                 disabled = InvocationKernel(
                     Settings(write_enabled=False), service, approvals
                 )
-                disabled_token = approvals.issue("put_item", "inventory", "a")
+                disabled_token = approvals.issue("put_item", PRINCIPAL, "inventory", "a")
                 denied = await disabled.invoke(
                     "put_item",
                     {"item_id": "a", "name": "A", "expected_version": 0},
@@ -975,7 +1057,17 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
                 )
                 assert no_approval["error"]["code"] == "AUTHORIZATION_FAILED"
 
-                create_token = approvals.issue("put_item", "inventory", "a")
+                wrong_principal_token = approvals.issue(
+                    "put_item", PRINCIPAL, "inventory", "a"
+                )
+                wrong_principal = await enabled.invoke(
+                    "put_item",
+                    {"item_id": "a", "name": "A", "expected_version": 0},
+                    CallerContext(principal="other-user", approval_token=wrong_principal_token),
+                )
+                assert wrong_principal["error"]["code"] == "AUTHORIZATION_FAILED"
+
+                create_token = approvals.issue("put_item", PRINCIPAL, "inventory", "a")
                 created = await enabled.invoke(
                     "put_item",
                     {"item_id": "a", "name": "A", "expected_version": 0},
@@ -991,7 +1083,9 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
                 )
                 assert replay["error"]["code"] == "AUTHORIZATION_FAILED"
 
-                missing_version_token = approvals.issue("put_item", "inventory", "a")
+                missing_version_token = approvals.issue(
+                    "put_item", PRINCIPAL, "inventory", "a"
+                )
                 missing_version = await enabled.invoke(
                     "put_item",
                     {"item_id": "a", "name": "B"},
@@ -999,13 +1093,20 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
                 )
                 assert missing_version["error"]["code"] == "VALIDATION_FAILED"
 
-                conflict_token = approvals.issue("put_item", "inventory", "a")
+                conflict_token = approvals.issue("put_item", PRINCIPAL, "inventory", "a")
                 conflict = await enabled.invoke(
                     "put_item",
                     {"item_id": "a", "name": "B", "expected_version": 0},
                     CallerContext(approval_token=conflict_token),
                 )
                 assert conflict["error"]["code"] == "CONFLICT"
+
+
+            def test_approval_registry_is_bounded() -> None:
+                approvals = ApprovalRegistry(max_records=1)
+                approvals.issue("put_item", PRINCIPAL, "inventory", "a")
+                with pytest.raises(RuntimeError):
+                    approvals.issue("put_item", PRINCIPAL, "inventory", "b")
             '''
         ),
         "tests/test_manifests.py": render(
@@ -1090,6 +1191,33 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
                 await middleware({"type": "http", "headers": []}, receive, send)
                 assert bytes(received) == b"1234"
                 assert sent[0]["status"] == 200
+
+
+            @pytest.mark.anyio
+            async def test_excessive_empty_chunk_fragmentation_is_rejected() -> None:
+                called = False
+
+                async def app(scope, receive, send):
+                    nonlocal called
+                    called = True
+
+                middleware = RequestBodyLimitMiddleware(app, 4, max_events=2)
+                messages = [
+                    {"type": "http.request", "body": b"", "more_body": True},
+                    {"type": "http.request", "body": b"", "more_body": True},
+                    {"type": "http.request", "body": b"", "more_body": False},
+                ]
+                sent = []
+
+                async def receive():
+                    return messages.pop(0)
+
+                async def send(message):
+                    sent.append(message)
+
+                await middleware({"type": "http", "headers": []}, receive, send)
+                assert called is False
+                assert sent[0]["status"] == 413
             '''
         ),
         "tests/test_config.py": render(
@@ -1097,6 +1225,7 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
             import pytest
 
             from __PACKAGE__.config import Settings
+            from __PACKAGE__.server import build_http_app, build_server
 
 
             def test_http_requires_literal_loopback() -> None:
@@ -1105,6 +1234,19 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
                 for host in ("0.0.0.0", "::", "192.168.1.10", "localhost"):
                     with pytest.raises(ValueError):
                         Settings(transport="streamable-http", host=host).validate()
+
+
+            def test_direct_settings_cannot_smuggle_truthy_write_values() -> None:
+                with pytest.raises(ValueError):
+                    Settings(write_enabled="false").validate()  # type: ignore[arg-type]
+                with pytest.raises(ValueError):
+                    Settings(transport=["stdio"]).validate()  # type: ignore[arg-type]
+
+
+            def test_http_builder_requires_http_settings() -> None:
+                settings = Settings()
+                with pytest.raises(ValueError):
+                    build_http_app(build_server(settings), settings)
             '''
         ),
         "tests/test_mcp_smoke.py": render(
