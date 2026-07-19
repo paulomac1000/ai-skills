@@ -70,17 +70,25 @@ def test_generated_project_uses_public_sdk_and_fail_closed_controls(tmp_path: Pa
     assert "InvocationKernel" in source
     assert "ApprovalRegistry" in source
     assert "secrets.token_urlsafe(32)" in source
+    assert "max_records: int = 1_024" in source
+    assert "record.principal == principal" in source
+    assert "threading.Lock()" in source
+    assert "approval registry capacity reached" in source
     assert "validate_manifests(REGISTERED_TOOLS)" in source
     assert "RequestBodyLimitMiddleware" in source
     assert "MCP_MAX_REQUEST_BODY_BYTES" in source
     assert "server.streamable_http_app()" in source
     assert "address.is_loopback" in source
+    assert "write_enabled must be a boolean" in source
     assert "write operations are disabled by operator policy" in source
     assert "expected_version is mandatory" in source
     assert "expected_version: int" in source
+    assert "too many request body chunks" in source
+    assert "content-length mismatch" in source
     assert "confirmed: bool" not in source
     assert "caller.confirmed" not in source
     assert "await self._app(scope, replay_receive, send)" in source
+    assert "\nmcp = build_server" not in source
     for forbidden in (
         "_tool_manager",
         "._mcp_server",
