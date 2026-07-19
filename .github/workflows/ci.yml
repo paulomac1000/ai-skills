@@ -34,7 +34,14 @@ jobs:
           python skills/afds-doc-writer/validate.py
           README.md RECOVERY_AUDIT.md skills
       - name: Verify generated Python MCP server end to end
-        run: python -m pytest -q tests/test_mcp_generator.py
+        run: python -m pytest -q tests/test_mcp_generator.py --junitxml=generator-junit.xml
+      - name: Upload generator diagnostics
+        if: always() && hashFiles('generator-junit.xml') != ''
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: generator-junit-${{ github.run_id }}
+          path: generator-junit.xml
+          retention-days: 3
       - name: Verify language-neutral migration invariants
         run: >-
           python -m pytest -q
