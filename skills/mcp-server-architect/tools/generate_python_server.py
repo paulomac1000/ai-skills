@@ -7,12 +7,14 @@ import argparse
 import keyword
 import re
 import shutil
+import sys
 import tempfile
 import textwrap
 from pathlib import Path
 
 PACKAGE_RE = re.compile(r"[a-z][a-z0-9_]{1,62}$")
 SERVER_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9 ._-]{1,78}$")
+RESERVED_PACKAGE_NAMES = frozenset(sys.stdlib_module_names) | {"mcp", "uvicorn"}
 
 
 def _clean(text: str) -> str:
@@ -25,9 +27,14 @@ def _render(text: str, *, package: str, server_name: str) -> str:
 
 def project_files(package: str, server_name: str) -> dict[str, str]:
     """Return a complete generated project as relative UTF-8 text files."""
-    if not PACKAGE_RE.fullmatch(package) or keyword.iskeyword(package):
+    if (
+        not PACKAGE_RE.fullmatch(package)
+        or keyword.iskeyword(package)
+        or package in RESERVED_PACKAGE_NAMES
+    ):
         raise ValueError(
-            "package must be a non-keyword matching [a-z][a-z0-9_]{1,62}"
+            "package must be a non-keyword, non-reserved import name matching "
+            "[a-z][a-z0-9_]{1,62}"
         )
     if not SERVER_RE.fullmatch(server_name):
         raise ValueError("server name must be 2-79 safe display characters")
