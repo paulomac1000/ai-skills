@@ -74,6 +74,25 @@ def test_annotations_require_an_explicit_server_trust_boundary() -> None:
     ) is engine.Decision.REJECT
 
 
+def test_positive_idempotency_requires_trusted_policy_or_contract() -> None:
+    engine = load_engine()
+    assert engine.infer_capability_profile(
+        "update", {"idempotent": True}
+    ).idempotent is None
+    assert engine.infer_capability_profile(
+        "update", {"idempotent": True, "trusted_server": True}
+    ).idempotent is None
+    assert engine.infer_capability_profile(
+        "update", {"idempotent": True, "trusted_contract": True}
+    ).idempotent is True
+    assert engine.infer_capability_profile(
+        "update", {"idempotent": True, "trusted_policy": True}
+    ).idempotent is True
+    assert engine.infer_capability_profile(
+        "update", {"idempotent": False}
+    ).idempotent is False
+
+
 def test_side_effect_policy() -> None:
     engine = load_engine()
     assert engine.evaluate_decision("READ", False, "general") is engine.Decision.INVOKE
@@ -150,6 +169,27 @@ def test_response_normalization_preserves_protocol_native_errors() -> None:
     )
     assert structured.error_code == "CONFLICT"
     assert structured.error_message == "stale"
+
+
+def test_legacy_failure_shapes_fail_closed() -> None:
+    engine = load_engine()
+    without_details = engine.handle_response({"success": False})
+    assert without_details.success is False
+    assert without_details.error_code == "LEGACY_ERROR"
+    assert "without structured error" in without_details.error_message
+
+    string_error = engine.handle_response({"error": "upstream rejected mutation"})
+    assert string_error.success is False
+    assert string_error.error_code == "LEGACY_ERROR"
+    assert string_error.error_message == "upstream rejected mutation"
+
+    conflicting = engine.handle_response({"success": True, "error": "still failed"})
+    assert conflicting.success is False
+    assert conflicting.error_message == "still failed"
+
+    malformed = engine.handle_response({"success": "yes"})
+    assert malformed.success is False
+    assert malformed.error_code == "MALFORMED_RESPONSE"
 
 
 def test_efficiency_helpers_fail_closed() -> None:
