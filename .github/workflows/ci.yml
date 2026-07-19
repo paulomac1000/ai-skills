@@ -51,10 +51,14 @@ jobs:
         run: >-
           python -m pytest -q
           tests/test_mcp_migration_standard.py::test_transport_contract_prevents_adapter_policy_drift
+      - name: Verify runtime boundary invariants
+        run: >-
+          python -m pytest -q
+          tests/test_mcp_migration_standard.py::test_runtime_boundary_contract_covers_files_tasks_sessions_and_browsers
       - name: Verify server archetype coverage
         run: >-
           python -m pytest -q
-          tests/test_mcp_migration_standard.py::test_simulation_covers_each_python_server_archetype
+          tests/test_mcp_migration_standard.py::test_simulation_covers_each_server_archetype
       - name: Verify migration test evidence
         run: >-
           python -m pytest -q
