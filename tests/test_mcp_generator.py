@@ -107,15 +107,31 @@ def test_generated_project_uses_public_sdk_and_fail_closed_controls(tmp_path: Pa
     assert "persist-credentials: false" in workflow
 
 
-def test_generator_refuses_invalid_keywords_and_existing_targets(tmp_path: Path) -> None:
+def test_generator_refuses_invalid_reserved_and_existing_targets(tmp_path: Path) -> None:
     generator = load_generator()
-    for package in ("Bad-Name", "a", "_hidden", "name.with.dot", "class", "async"):
+    invalid_names = (
+        "Bad-Name",
+        "a",
+        "_hidden",
+        "name.with.dot",
+        "class",
+        "async",
+        "mcp",
+        "uvicorn",
+        "json",
+        "email",
+    )
+    for package in invalid_names:
         try:
             generator.project_files(package, "Valid Server")
         except ValueError:
             pass
         else:
             raise AssertionError(f"invalid package accepted: {package}")
+
+    assert {"mcp", "uvicorn", "json", "email"}.issubset(
+        generator.RESERVED_PACKAGE_NAMES
+    )
 
     existing = tmp_path / "existing"
     existing.mkdir()
