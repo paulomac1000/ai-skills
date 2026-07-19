@@ -221,10 +221,11 @@ def test_mcp_examples_exercise_native_python_and_dotnet_hosting_surfaces() -> No
         "from mcp.server.fastmcp import Context, FastMCP",
         "lifespan",
         "stateless_http=True",
-        "max_request_body_size=1_048_576",
+        "json_response=True",
         "@mcp.tool()",
     ):
         assert token in python_example
+    assert "max_request_body_size=" not in python_example
     for token in ("AddMcpServer", "WithStdioServerTransport", "WithTools<InventoryTools>"):
         assert token in stdio_example
     for token in ("WithHttpTransport", "options.Stateless = true", "MapMcp"):
