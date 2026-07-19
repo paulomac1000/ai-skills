@@ -18,13 +18,14 @@ EXPECTED_SKILLS = {
 }
 ALLOWED_CATEGORIES = {"core", "references", "templates", "examples", "tools"}
 IGNORED_PARTS = {".git", ".venv", ".pytest_cache", "__pycache__", ".ruff_cache"}
-POLISH_MARKERS = re.compile("[\u0105\u0107\u0119\u0142\u0144\u00f3\u015b\u017a\u017c\u0104\u0106\u0118\u0141\u0143\u00d3\u015a\u0179\u017b]")
+POLISH_MARKERS = re.compile("[ąćęłńóśźżĄĆĘŁŃÓŚŹŻ]")
 PROJECT_SPECIFIC_TERMS = {
     "ha-" + "mcp-readonly",
     "kontomierz-" + "mcp",
     "openwrt-" + "mcp",
     "mikrus-" + "mcp",
     "local-home-devices-" + "mcp",
+    "notebooklm-" + "mcp",
 }
 MCP_PARITY_HEADINGS = {
     "## Lifecycle ownership",
@@ -92,6 +93,7 @@ def test_repository_allows_intentional_knowledge_growth() -> None:
     assert (ROOT / "RECOVERY_AUDIT.md").exists()
     assert any((ROOT / "skills" / name / "references").exists() for name in EXPECTED_SKILLS)
     assert (ROOT / "skills/mcp-server-architect/examples").exists()
+    assert (ROOT / "skills/mcp-server-architect/tools/generate_python_server.py").is_file()
     assert len(source_files()) > 40
 
 
@@ -142,6 +144,14 @@ def test_recovery_audit_covers_removed_operational_domains() -> None:
         "concurrency",
         "transport parity",
         "compatibility",
+        "generator",
+        "real mcp client",
+        "filesystem",
+        "artifact",
+        "task registries",
+        "browser profiles",
+        "ui drift",
+        "embedded hosting",
     }
     assert all(topic in text for topic in required_topics)
 
@@ -190,14 +200,14 @@ def test_python_and_dotnet_profiles_cover_the_same_core_invariants() -> None:
         },
     }
     for name, required in required_platform_contracts.items():
-        missing = required - set(
-            token for token in required if token in profiles[name]
-        )
+        missing = required - set(token for token in required if token in profiles[name])
         assert not missing, (name, missing)
 
     standard = (ROOT / "skills/mcp-server-architect/STANDARD.md").read_text(encoding="utf-8")
     assert "capability-manifests-and-versioning.md" in standard
     assert "transport-lifecycle-and-conformance.md" in standard
+    assert "runtime-boundaries-and-artifacts.md" in standard
+    assert "Generated project acceptance" in standard
 
 
 def test_mcp_examples_exercise_native_python_and_dotnet_hosting_surfaces() -> None:
@@ -207,7 +217,13 @@ def test_mcp_examples_exercise_native_python_and_dotnet_hosting_surfaces() -> No
     http_example = (examples / "dotnet/HttpProgram.cs.example").read_text(encoding="utf-8")
     tool_example = (examples / "dotnet/InventoryTools.cs.example").read_text(encoding="utf-8")
 
-    for token in ("FastMCP", "lifespan", "stateless_http=True", "@mcp.tool"):
+    for token in (
+        "from mcp.server.fastmcp import Context, FastMCP",
+        "lifespan",
+        "stateless_http=True",
+        "max_request_body_size=1_048_576",
+        "@mcp.tool()",
+    ):
         assert token in python_example
     for token in ("AddMcpServer", "WithStdioServerTransport", "WithTools<InventoryTools>"):
         assert token in stdio_example
