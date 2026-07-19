@@ -29,7 +29,7 @@ class ErrorAction(str, Enum):
 
 
 class Risk(str, Enum):
-    """Normalized capability effect classes."""
+    """Normalized compatibility projection of capability risk."""
 
     READ = "READ"
     WRITE = "WRITE"
@@ -107,8 +107,8 @@ ERROR_STRATEGIES: dict[str, ErrorStrategy] = {
 }
 DEFAULT_ERROR_STRATEGY = ErrorStrategy(False, 0, ErrorAction.ESCALATE)
 
-# This order is deliberately conservative for the single-axis compatibility
-# projection. Confidentiality is also retained separately in ``sensitive``.
+# Conservative order for the legacy one-axis projection. Confidentiality remains
+# separately represented by CapabilityProfile.sensitive.
 _RISK_SEVERITY: dict[Risk, int] = {
     Risk.UNKNOWN: 0,
     Risk.READ: 1,
@@ -120,7 +120,7 @@ _RISK_SEVERITY: dict[Risk, int] = {
 
 
 def _risk(value: str | Risk | None) -> Risk:
-    """Normalize a risk value without silently treating unknown input as safe."""
+    """Normalize risk without silently treating unknown input as safe."""
     if isinstance(value, Risk):
         return value
     if not isinstance(value, str):
@@ -152,65 +152,79 @@ def evaluate_decision(
     user_intent: str | UserIntent,
 ) -> Decision:
     """Evaluate whether a capability may be invoked, confirmed, or rejected."""
-    normalized_risk = _risk(risk)
+    normalized = _risk(risk)
     intent = _intent(user_intent)
-    if normalized_risk is Risk.UNKNOWN:
+    if normalized is Risk.UNKNOWN:
         return Decision.DEFER
-    if normalized_risk is Risk.READ:
+    if normalized is Risk.READ:
         return Decision.CONFIRM_THEN_INVOKE if requires_confirmation else Decision.INVOKE
-    if normalized_risk is Risk.SENSITIVE:
-        if requires_confirmation:
-            return Decision.CONFIRM_THEN_INVOKE
-        return (
-            Decision.INVOKE
-            if intent is UserIntent.CONFIRMED_WORKFLOW
-            else Decision.CONFIRM_THEN_INVOKE
-        )
-    if normalized_risk is Risk.WRITE:
+    if normalized is Risk.SENSITIVE:
         if requires_confirmation:
             return Decision.CONFIRM_THEN_INVOKE
         return Decision.INVOKE if intent is UserIntent.CONFIRMED_WORKFLOW else Decision.CONFIRM_THEN_INVOKE
-    if normalized_risk is Risk.DESTRUCTIVE:
+    if normalized is Risk.WRITE:
+        if requires_confirmation:
+            return Decision.CONFIRM_THEN_INVOKE
+        return Decision.INVOKE if intent is UserIntent.CONFIRMED_WORKFLOW else Decision.CONFIRM_THEN_INVOKE
+    if normalized is Risk.DESTRUCTIVE:
         return Decision.CONFIRM_THEN_INVOKE
-    if normalized_risk is Risk.DANGEROUS:
+    if normalized is Risk.DANGEROUS:
         return Decision.CONFIRM_THEN_INVOKE if intent is UserIntent.EXPLICIT_BY_NAME else Decision.REJECT
     return Decision.DEFER
 
 
 def _untrusted_risk_signal(value: Any) -> Risk:
-    """Accept untrusted signals only when they increase, never reduce, risk."""
-    risk = _risk(value)
-    if risk in {Risk.WRITE, Risk.DESTRUCTIVE, Risk.DANGEROUS, Risk.SENSITIVE}:
-        return risk
+    """Accept untrusted metadata only when it can increase risk."""
+    normalized = _risk(value)
+    if normalized in {Risk.WRITE, Risk.SENSITIVE, Risk.DESTRUCTIVE, Risk.DANGEROUS}:
+        return normalized
     return Risk.UNKNOWN
+
+
+def _prefixed_risk(name: str) -> Risk:
+    """Return a conservative risk prefix; untrusted READ never proves safety."""
+    upper_name = name.strip().upper()
+    for candidate in (Risk.DANGEROUS, Risk.DESTRUCTIVE, Risk.SENSITIVE, Risk.WRITE):
+        if upper_name.startswith(f"[{candidate.value}]"):
+            return candidate
+    return Risk.UNKNOWN
+
+
+def _append_source(source: str, addition: str) -> str:
+    """Preserve every risk-elevation provenance signal without duplicates."""
+    if source == "unknown":
+        return addition
+    parts = source.split("+")
+    return source if addition in parts else f"{source}+{addition}"
 
 
 def infer_capability_profile(
     name: str,
     metadata: Mapping[str, Any] | None = None,
 ) -> CapabilityProfile:
-    """Infer a conservative profile with explicit provenance and trust boundaries.
+    """Infer a fail-closed profile with monotonic risk and explicit provenance.
 
-    ``trusted_policy`` marks metadata supplied by the local client policy. Server
-    names, descriptions, prefixes, and untrusted metadata may increase risk but
-    cannot downgrade an unknown capability to READ. MCP annotations are honored
-    only when ``trusted_server`` is explicitly true.
+    Safe classifications are accepted only from local policy or an explicitly
+    trusted server. Untrusted names, metadata, and annotations may elevate risk,
+    and all signals are combined even when a weaker signal was seen first.
     """
     metadata = metadata or {}
     trusted_policy = metadata.get("trusted_policy") is True
     explicit = _risk(metadata.get("risk")) if trusted_policy else _untrusted_risk_signal(metadata.get("risk"))
     inferred = explicit
-    source = "local-policy" if trusted_policy and explicit is not Risk.UNKNOWN else (
-        "untrusted-risk-escalation" if explicit is not Risk.UNKNOWN else "unknown"
+    source = (
+        "local-policy"
+        if trusted_policy and explicit is not Risk.UNKNOWN
+        else "untrusted-risk-escalation"
+        if explicit is not Risk.UNKNOWN
+        else "unknown"
     )
 
-    if inferred is Risk.UNKNOWN:
-        upper_name = name.strip().upper()
-        for candidate in (Risk.DANGEROUS, Risk.DESTRUCTIVE, Risk.SENSITIVE, Risk.WRITE):
-            if upper_name.startswith(f"[{candidate.value}]"):
-                inferred = candidate
-                source = "name-prefix-escalation"
-                break
+    prefix = _prefixed_risk(name)
+    previous = inferred
+    inferred = _higher_risk(inferred, prefix)
+    if inferred is not previous:
+        source = _append_source(source, "name-prefix-escalation")
 
     annotations = metadata.get("annotations")
     trusted_server = metadata.get("trusted_server") is True
@@ -219,39 +233,38 @@ def infer_capability_profile(
             previous = inferred
             inferred = _higher_risk(inferred, Risk.DESTRUCTIVE)
             if inferred is not previous:
-                source = (
-                    "trusted-annotation"
-                    if trusted_server
-                    else "untrusted-annotation-escalation"
+                source = _append_source(
+                    source,
+                    "trusted-annotation" if trusted_server else "untrusted-annotation-escalation",
                 )
-        elif (
-            trusted_server
-            and inferred is Risk.UNKNOWN
-            and annotations.get("readOnlyHint") is True
-        ):
+        if trusted_server and inferred is Risk.UNKNOWN and annotations.get("readOnlyHint") is True:
             inferred = Risk.READ
-            source = "trusted-annotation"
+            source = _append_source(source, "trusted-annotation")
 
     sensitive = metadata.get("sensitive") is True
-    if sensitive and inferred in {Risk.READ, Risk.UNKNOWN}:
-        inferred = Risk.SENSITIVE
-        source = f"{source}+sensitive"
+    if sensitive:
+        previous = inferred
+        inferred = _higher_risk(inferred, Risk.SENSITIVE)
+        if inferred is not previous:
+            source = _append_source(source, "sensitive")
 
     idempotent_value = metadata.get("idempotent")
-    idempotent = idempotent_value if isinstance(idempotent_value, bool) else None
     return CapabilityProfile(
         risk=inferred,
         requires_confirmation=metadata.get("requires_confirmation") is True,
         sensitive=sensitive,
-        idempotent=idempotent,
+        idempotent=idempotent_value if isinstance(idempotent_value, bool) else None,
         source=source,
     )
 
 
-def get_error_strategy(error_code: str | None, manifest: Mapping[str, Any] | None = None) -> ErrorStrategy:
-    """Return a bounded strategy, respecting an explicit non-retryable contract."""
+def get_error_strategy(
+    error_code: str | None,
+    manifest: Mapping[str, Any] | None = None,
+) -> ErrorStrategy:
+    """Return a bounded strategy, respecting an explicit manifest veto."""
     strategy = ERROR_STRATEGIES.get((error_code or "").upper(), DEFAULT_ERROR_STRATEGY)
-    if manifest and manifest.get("retryable") is False:
+    if manifest is not None and manifest.get("retryable") is False:
         return DEFAULT_ERROR_STRATEGY
     return strategy
 
@@ -280,7 +293,7 @@ def should_retry(
         return False
     if manifest_retryable is not True and response_retryable is not True:
         return False
-    return operation_idempotent
+    return operation_idempotent is True
 
 
 def _extract_protocol_error(response: Mapping[str, Any]) -> tuple[str, str]:
@@ -291,7 +304,6 @@ def _extract_protocol_error(response: Mapping[str, Any]) -> tuple[str, str]:
         message = structured.get("message") or structured.get("error")
         if isinstance(code, str) or isinstance(message, str):
             return str(code or "MCP_TOOL_ERROR"), str(message or code or "MCP tool failed")
-
     content = response.get("content")
     if isinstance(content, Sequence) and not isinstance(content, (str, bytes, bytearray)):
         messages = [
@@ -365,11 +377,11 @@ def _schema_accepts_true(schema: Any) -> bool:
     """Return whether a property schema permits the literal boolean true."""
     if not isinstance(schema, Mapping):
         return False
-    if schema.get("const") is not None:
+    if "const" in schema:
         return schema.get("const") is True
     enum = schema.get("enum")
     if isinstance(enum, Sequence) and not isinstance(enum, (str, bytes, bytearray)):
-        return True in enum and any(type(value) is bool for value in enum)
+        return any(type(value) is bool and value is True for value in enum)
     schema_type = schema.get("type")
     if schema_type == "boolean":
         return True
@@ -386,7 +398,7 @@ def choose_initial_detail_params(input_schema: Mapping[str, Any]) -> dict[str, A
     detail = properties.get("detail_level")
     if isinstance(detail, Mapping):
         enum = detail.get("enum")
-        if isinstance(enum, Sequence) and "summary" in enum:
+        if isinstance(enum, Sequence) and not isinstance(enum, (str, bytes, bytearray)) and "summary" in enum:
             return {"detail_level": "summary"}
     for flag in ("compact", "summary"):
         if _schema_accepts_true(properties.get(flag)):
@@ -402,6 +414,8 @@ def get_pagination_decision(
     max_pages: int,
 ) -> PaginationDecision:
     """Continue only for a valid explicit continuation signal within a hard bound."""
+    if type(pages_seen) is not int or type(max_pages) is not int or pages_seen < 0 or max_pages <= 0:
+        return PaginationDecision(False, reason="invalid pagination bounds")
     if outcome_satisfied:
         return PaginationDecision(False, reason="outcome already satisfied")
     if pages_seen >= max_pages:
