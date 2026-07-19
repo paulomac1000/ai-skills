@@ -207,9 +207,14 @@ def infer_capability_profile(
     Safe classifications are accepted only from local policy or an explicitly
     trusted server. Untrusted names, metadata, and annotations may elevate risk,
     and all signals are combined even when a weaker signal was seen first.
+    A positive idempotency claim is safety-reducing because it can authorize a
+    replay, so it requires reviewed local policy or an explicitly trusted
+    capability contract. An untrusted ``idempotent=False`` claim is retained
+    because it can only make retry behavior more conservative.
     """
     metadata = metadata or {}
     trusted_policy = metadata.get("trusted_policy") is True
+    trusted_contract = metadata.get("trusted_contract") is True
     explicit = _risk(metadata.get("risk")) if trusted_policy else _untrusted_risk_signal(metadata.get("risk"))
     inferred = explicit
     source = (
@@ -249,11 +254,18 @@ def infer_capability_profile(
             source = _append_source(source, "sensitive")
 
     idempotent_value = metadata.get("idempotent")
+    if idempotent_value is False:
+        idempotent: bool | None = False
+    elif idempotent_value is True and (trusted_policy or trusted_contract):
+        idempotent = True
+    else:
+        idempotent = None
+
     return CapabilityProfile(
         risk=inferred,
         requires_confirmation=metadata.get("requires_confirmation") is True,
         sensitive=sensitive,
-        idempotent=idempotent_value if isinstance(idempotent_value, bool) else None,
+        idempotent=idempotent,
         source=source,
     )
 
@@ -318,6 +330,28 @@ def _extract_protocol_error(response: Mapping[str, Any]) -> tuple[str, str]:
     return "MCP_TOOL_ERROR", "MCP tool failed"
 
 
+def _legacy_failure(
+    *,
+    error: Any,
+    meta: Mapping[str, Any],
+    correlation_id: str | None,
+) -> ResponseResult:
+    """Normalize explicit legacy failure shapes without guessing success."""
+    if isinstance(error, str) and error.strip():
+        message = error.strip()
+    elif error is None:
+        message = "Tool reported failure without structured error details"
+    else:
+        message = "Tool reported a malformed legacy error payload"
+    return ResponseResult(
+        success=False,
+        meta=meta,
+        error_code="LEGACY_ERROR",
+        error_message=message,
+        correlation_id=correlation_id,
+    )
+
+
 def handle_response(response: Mapping[str, Any]) -> ResponseResult:
     """Normalize structured and legacy responses without losing protocol errors."""
     meta = response.get("_meta")
@@ -345,6 +379,19 @@ def handle_response(response: Mapping[str, Any]) -> ResponseResult:
             retryable=response.get("retryable") if isinstance(response.get("retryable"), bool) else None,
             correlation_id=correlation,
         )
+
+    success_marker = response.get("success")
+    if success_marker is False or isinstance(error, str):
+        return _legacy_failure(error=error, meta=meta, correlation_id=correlation)
+    if "success" in response and success_marker is not True:
+        return ResponseResult(
+            success=False,
+            meta=meta,
+            error_code="MALFORMED_RESPONSE",
+            error_message="Legacy success marker must be a boolean",
+            correlation_id=correlation,
+        )
+
     data = response.get("structuredContent", response.get("data", response.get("content")))
     return ResponseResult(success=True, data=data, meta=meta, correlation_id=correlation)
 
