@@ -5,7 +5,7 @@ type: reference
 status: active
 rigor: normative
 owners: [repository-maintainers]
-verification: Run path-escape, symlink-swap, task-recovery, session-quota, request-body, browser-profile, UI-drift, embedded-host, and artifact-retention scenarios against the packaged server.
+verification: Run path-escape, symlink-swap, task-recovery, session-quota, request-body, browser-profile, UI-drift, peer-identity, redirect/retry, embedded-host, and artifact-retention scenarios against the packaged server.
 ---
 
 # MCP runtime boundaries and artifacts
@@ -60,10 +60,10 @@ Tool profiles and disabled-tool settings affect the active capability catalog, s
 
 ## Multi-backend and embedded hosts
 
-Multi-backend servers preserve the configured target. A failed default never changes to the first healthy backend. Before authentication, code may only parse and normalize a locally declared target selector without network I/O. The server then authenticates the principal and authorizes the capability and selector namespace before any network-backed discovery. It resolves the stable target within that authorized namespace, authorizes the resolved resource, and revalidates mutable address-to-identity mappings immediately before I/O. Capability health identifies unavailable targets and backend kinds. Gateways preserve originating server, target, manifest provenance, and namespace so equal tool names cannot collide or transfer authority.
+Multi-backend servers preserve the configured target. A failed default never changes to the first healthy backend. Before authentication, code may only parse and normalize a locally declared target selector without network I/O. The server then authenticates the principal and authorizes the capability and selector namespace before any network-backed discovery. It resolves the stable target within that authorized namespace, authorizes the resolved resource, and revalidates mutable address-to-identity mappings immediately before connection setup. For connection-oriented backends, it verifies the authenticated peer or service identity after connecting and before sending protected application data. Redirects and retries do not inherit the previous connection's authority: the server repeats selector-namespace authorization, target resolution, mutable address-to-identity revalidation, connection establishment, post-connect peer identity verification, and authorization of the resolved resource before continuing. Capability health identifies unavailable targets and backend kinds. Gateways preserve originating server, target, manifest provenance, and namespace so equal tool names cannot collide or transfer authority.
 
 An MCP server embedded in another application does not own the host process, global event loop, logging configuration, dependency container, or unrelated network listeners. It receives host-owned services through an explicit adapter, closes only resources it owns, participates in host startup and shutdown, avoids port and route collisions, and cannot call process exit from a tool or transport callback.
 
 ## Verification
 
-Package-level verification proves path containment under symlink races, artifact size and expiry, task admission and recovery, durable-task survival across session disconnect, session entropy and principal binding, bounded HTTP bodies, browser profile isolation and locking, selector-drift diagnostics, active-profile parity, multi-backend target preservation, and embedded-host cleanup. Skipped applicable scenarios mean the affected capability or transport is not production-ready.
+Package-level verification proves path containment under symlink races, artifact size and expiry, task admission and recovery, durable-task survival across session disconnect, session entropy and principal binding, bounded HTTP bodies, browser profile isolation and locking, selector-drift diagnostics, active-profile parity, multi-backend target preservation, post-connect peer/service identity verification, redirect/retry reauthorization, and embedded-host cleanup. Skipped applicable scenarios mean the affected capability or transport is not production-ready.
