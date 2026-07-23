@@ -163,15 +163,15 @@ static void VerifyManifestWireContract(JsonElement root)
 {
     var listManifest = FindManifest(root, "list_items")
         ?? throw new InvalidOperationException($"list_items manifest missing from discovery: {root}");
-    AssertString(listManifest.Value, "risk", "READ");
-    AssertString(listManifest.Value, "sideEffects", "read");
-    AssertString(listManifest.Value, "confidentiality", "internal");
-    AssertString(listManifest.Value, "determinism", "env-dependent");
-    AssertString(listManifest.Value, "impact", "none");
-    AssertString(listManifest.Value, "activeState", "active");
-    if (!listManifest.Value.TryGetProperty("retryable", out var retryable) || retryable.ValueKind is not JsonValueKind.False)
+    AssertString(listManifest, "risk", "READ");
+    AssertString(listManifest, "sideEffects", "read");
+    AssertString(listManifest, "confidentiality", "internal");
+    AssertString(listManifest, "determinism", "env-dependent");
+    AssertString(listManifest, "impact", "none");
+    AssertString(listManifest, "activeState", "active");
+    if (!listManifest.TryGetProperty("retryable", out var retryable) || retryable.ValueKind is not JsonValueKind.False)
         throw new InvalidOperationException("Manifest must expose top-level retryable=false.");
-    if (!listManifest.Value.TryGetProperty("retryConditions", out var conditions) ||
+    if (!listManifest.TryGetProperty("retryConditions", out var conditions) ||
         !conditions.TryGetProperty("retryable", out var nestedRetryable) ||
         nestedRetryable.ValueKind is not JsonValueKind.False)
         throw new InvalidOperationException("Nested retryConditions.retryable must agree with the top-level field.");
