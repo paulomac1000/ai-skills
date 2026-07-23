@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Parameterize NuGet project identities and teach the generator their lower-case form."""
+"""Apply final reviewed integration fixes and parameterize NuGet project identities."""
 
 from pathlib import Path
 
@@ -28,9 +28,9 @@ replace_once(
     '    )\n',
 )
 
-tests = ROOT / "tests/test_mcp_dotnet_generator.py"
+generator_tests = ROOT / "tests/test_mcp_dotnet_generator.py"
 replace_once(
-    tests,
+    generator_tests,
     '    assert "<RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>" in build_props\n\n'
     '    packages = (target / "Directory.Packages.props").read_text(encoding="utf-8")\n',
     '    assert "<RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>" in build_props\n\n'
@@ -43,6 +43,18 @@ replace_once(
     '    assert "acme.mcp.domain" in server_lock\n'
     '    assert "acme.mcp.server" in smoke_lock\n\n'
     '    packages = (target / "Directory.Packages.props").read_text(encoding="utf-8")\n',
+)
+
+decision_tests = ROOT / "tests/test_decision_engine.py"
+replace_once(
+    decision_tests,
+    '''def test_retry_requires_valid_attempt_and_positive_non_conflicting_signals() -> None:\n    engine = load_engine()\n    assert engine.should_retry(\n        error_code="TIMEOUT", attempt=0, operation_idempotent=True, manifest={"retryable": True}\n    )\n    assert engine.should_retry(\n        error_code="TIMEOUT", attempt=0, operation_idempotent=True, response_retryable=True\n    )\n    for attempt in (-1, True, 2):\n        assert not engine.should_retry(\n            error_code="TIMEOUT", attempt=attempt, operation_idempotent=True, manifest={"retryable": True}\n        )\n    for manifest in (None, {}, {"retryable": False}):\n        assert not engine.should_retry(\n            error_code="TIMEOUT", attempt=0, operation_idempotent=True, manifest=manifest\n        )\n    assert not engine.should_retry(\n        error_code="TIMEOUT",\n        attempt=0,\n        operation_idempotent=True,\n        manifest={"retryable": True},\n        response_retryable=False,\n    )\n    assert not engine.should_retry(\n        error_code="TIMEOUT",\n        attempt=0,\n        operation_idempotent=True,\n        manifest={"retryable": False},\n        response_retryable=True,\n    )\n''',
+    '''def test_retry_requires_valid_attempt_and_positive_non_conflicting_signals() -> None:\n    engine = load_engine()\n    governed = {\n        "retryable": True,\n        "retryConditions": {\n            "eligibleErrors": ["TIMEOUT"],\n            "maxTotalAttempts": 2,\n            "backoff": {"initialMilliseconds": 100},\n            "requiresReconciliation": True,\n        },\n    }\n    assert engine.should_retry(\n        error_code="TIMEOUT",\n        attempt=0,\n        operation_idempotent=True,\n        manifest=governed,\n        reconciliation_succeeded=True,\n    )\n    assert engine.should_retry(\n        error_code="TIMEOUT", attempt=0, operation_idempotent=True, response_retryable=True\n    )\n    for attempt in (-1, True, 2):\n        assert not engine.should_retry(\n            error_code="TIMEOUT",\n            attempt=attempt,\n            operation_idempotent=True,\n            manifest=governed,\n            reconciliation_succeeded=True,\n        )\n    for manifest in (None, {}, {"retryable": False}, {"retryable": True}):\n        assert not engine.should_retry(\n            error_code="TIMEOUT", attempt=0, operation_idempotent=True, manifest=manifest\n        )\n    assert not engine.should_retry(\n        error_code="TIMEOUT",\n        attempt=0,\n        operation_idempotent=True,\n        manifest=governed,\n        response_retryable=False,\n        reconciliation_succeeded=True,\n    )\n    assert not engine.should_retry(\n        error_code="TIMEOUT",\n        attempt=0,\n        operation_idempotent=True,\n        manifest={"retryable": False},\n        response_retryable=True,\n    )\n''',
+)
+replace_once(
+    decision_tests,
+    '''def test_conflict_retry_requires_refreshed_precondition() -> None:\n    engine = load_engine()\n    kwargs = {\n        "error_code": "CONFLICT",\n        "attempt": 0,\n        "operation_idempotent": True,\n        "manifest": {"retryable": True},\n    }\n    assert not engine.should_retry(**kwargs)\n    assert engine.should_retry(**kwargs, precondition_refreshed=True)\n''',
+    '''def test_conflict_retry_requires_refreshed_precondition() -> None:\n    engine = load_engine()\n    kwargs = {\n        "error_code": "CONFLICT",\n        "attempt": 0,\n        "operation_idempotent": True,\n        "manifest": {\n            "retryable": True,\n            "retryConditions": {\n                "eligibleErrors": ["CONFLICT"],\n                "maxTotalAttempts": 2,\n                "backoff": {"initialMilliseconds": 100},\n                "requiresReconciliation": False,\n            },\n        },\n    }\n    assert not engine.should_retry(**kwargs)\n    assert engine.should_retry(**kwargs, precondition_refreshed=True)\n''',
 )
 
 locks = (
