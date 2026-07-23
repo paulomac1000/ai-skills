@@ -23,6 +23,7 @@ static void AddApplication(IServiceCollection services, ServerSettings settings)
     services.AddSingleton(TimeProvider.System);
     services.AddSingleton<CapabilityRegistry>();
     services.AddSingleton<ApprovalRegistry>();
+    services.AddSingleton<KeyedOperationGate>();
     services.AddSingleton<IInventoryService, InMemoryInventoryService>();
     services.AddSingleton<InvocationKernel>();
     services.AddAuthorization(options =>
