@@ -1,5 +1,19 @@
 namespace __NAMESPACE__.Mcp.Server;
 
+public static class CapabilityNames
+{
+    public const string DescribeCapabilities = "describe_capabilities";
+    public const string ListItems = "list_items";
+    public const string PutItem = "put_item";
+
+    public static IReadOnlySet<string> Registered { get; } = new HashSet<string>(StringComparer.Ordinal)
+    {
+        DescribeCapabilities,
+        ListItems,
+        PutItem,
+    };
+}
+
 public sealed record CapabilityManifest(
     string Name,
     bool ReadOnly,
@@ -15,22 +29,21 @@ public sealed class CapabilityRegistry
     private static readonly IReadOnlyDictionary<string, CapabilityManifest> Manifests =
         new Dictionary<string, CapabilityManifest>(StringComparer.Ordinal)
         {
-            ["describe_capabilities"] = new(
-                "describe_capabilities", true, false, true, false,
+            [CapabilityNames.DescribeCapabilities] = new(
+                CapabilityNames.DescribeCapabilities, true, false, true, false,
                 "inventory.read", false, "process"),
-            ["list_items"] = new(
-                "list_items", true, false, true, false,
+            [CapabilityNames.ListItems] = new(
+                CapabilityNames.ListItems, true, false, true, false,
                 "inventory.read", false, "inventory"),
-            ["put_item"] = new(
-                "put_item", false, false, false, false,
+            [CapabilityNames.PutItem] = new(
+                CapabilityNames.PutItem, false, false, false, false,
                 "inventory.write", true, "inventory:itemId"),
         };
 
     public CapabilityRegistry()
     {
-        var expected = new[] { "describe_capabilities", "list_items", "put_item" };
-        if (!Manifests.Keys.Order(StringComparer.Ordinal).SequenceEqual(expected.Order(StringComparer.Ordinal)))
-            throw new InvalidOperationException("Capability manifests do not cover the registered tool catalog.");
+        if (!Manifests.Keys.ToHashSet(StringComparer.Ordinal).SetEquals(CapabilityNames.Registered))
+            throw new InvalidOperationException("Capability manifests do not cover the declared registered tool catalog.");
     }
 
     public IReadOnlyList<CapabilityManifest> ForScopes(IReadOnlySet<string> scopes) =>
