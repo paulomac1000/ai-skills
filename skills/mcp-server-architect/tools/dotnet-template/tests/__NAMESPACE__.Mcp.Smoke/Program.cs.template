@@ -4,11 +4,13 @@ using System.Net;
 using System.Net.Sockets;
 using System.Text.Json;
 
-if (args.Length is < 1 or > 2) throw new InvalidOperationException("Expected server DLL and optional --http.");
+if (args.Length is < 1 or > 2 ||
+    (args.Length == 2 && !string.Equals(args[1], "--http", StringComparison.Ordinal)))
+    throw new InvalidOperationException("Expected server DLL and optional --http.");
 var dll = Path.GetFullPath(args[0]);
 if (!File.Exists(dll)) throw new FileNotFoundException("Server DLL not found.", dll);
 
-if (args.Contains("--http", StringComparer.Ordinal))
+if (args.Length == 2)
     await RunHttpAsync(dll);
 else
     await RunStdioAsync(dll);
@@ -75,6 +77,9 @@ static async Task RunHttpCaseAsync(string dll, bool writesEnabled, string expect
                 if (ready) break;
             }
             catch (HttpRequestException)
+            {
+            }
+            catch (OperationCanceledException)
             {
             }
             await Task.Delay(250);
