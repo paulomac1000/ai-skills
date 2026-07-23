@@ -34,6 +34,8 @@ def test_language_neutral_standard_owns_migration_invariants() -> None:
         "Python migration simulation",
         ".NET migration simulation",
         "deprecated two-endpoint HTTP+SSE",
+        "before any network-backed target resolution",
+        "exclusive no-replace publication",
     }
     assert_terms(text, required)
 
@@ -45,17 +47,24 @@ def test_manifest_contract_rejects_class_wide_optimistic_defaults() -> None:
         "target_binding", "active_state",
         "A write defaults to `idempotent: false`, `retryable: false`, and `concurrent_safe: false`",
         "unknown-outcome state", "never falls back silently",
+        "authorizes the capability plus selector namespace before network-backed target resolution",
+        "revalidates any mutable address-to-identity mapping",
     })
 
 
 def test_python_profile_covers_real_migration_failure_modes() -> None:
     text = read("python-fastmcp.md")
     assert_terms(text, {
+        "skills/mcp-server-architect/tools/generate_python_server.py",
         "official MCP Python SDK", "separately distributed FastMCP package", "mcp>=1.27.2,<2",
         "real-client suite", "one invocation kernel", "threading.local", "contextvars.ContextVar",
         "asyncio.to_thread", "bounded executor", "run_until_complete", "default to non-retryable",
         "no-silent-fallback", "Path.resolve", "bounded task registry", "credential store",
         "UI drift", "Pagination", "ISO 8601",
+        "deprecated two-endpoint HTTP+SSE transport from protocol revision 2024-11-05",
+        "disabled by default", "named legacy clients", "owner and removal deadline",
+        "authenticates the principal and intended audience",
+        "explicit `has_more: false`",
     })
 
 
@@ -87,6 +96,8 @@ def test_runtime_boundary_contract_covers_files_tasks_sessions_and_browsers() ->
         "at least 128 bits of entropy", "rejects an oversized body before buffering it in full",
         "browser profile contains credentials", "profile lock", "selector drift",
         "server-level instructions", "embedded in another application",
+        "do not delete or cancel task records merely because the initiating session disconnected",
+        "until terminal completion", "before any network-backed discovery",
     })
 
 
