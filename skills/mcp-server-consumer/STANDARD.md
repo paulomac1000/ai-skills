@@ -5,7 +5,7 @@ type: reference
 status: active
 rigor: normative
 owners: [repository-maintainers]
-verification: Run `python -m pytest tests/test_decision_engine.py` and exercise representative read, write, partial-failure, pagination, and cross-server workflows.
+verification: Run `python -m pytest tests/test_decision_engine.py tests/test_consumer_payload_validation.py tests/test_consumer_retry_and_annotations.py` and exercise representative read, write, partial-failure, pagination, and cross-server workflows.
 ---
 
 # MCP consumer standard
@@ -51,6 +51,8 @@ Prefer the narrowest capability with the required contract. Prefer batch only wh
 
 Recognize explicit structured success and protocol-native MCP results. Preserve native error detail from `structuredContent` or content blocks. Empty `None`, list, map, or string may be a meaningful success. Unrecognized shapes fail closed.
 
+Validate every known field of content-block annotations before accepting either success or error content. `audience` is an array containing only `user` and `assistant`; `priority` is a finite number from zero through one; `lastModified`, when present, is a non-empty string. Unknown annotation fields remain available for forward-compatible extensions and never grant trust or retry permission.
+
 ## Retry policy
 
 Retry only when:
@@ -61,6 +63,8 @@ Retry only when:
 - at least one authoritative signal explicitly opts in;
 - no manifest or response signal explicitly vetoes retry;
 - a conflict precondition has been refreshed before retry.
+
+When a manifest includes `retryConditions`, top-level and nested `retryable` values must agree. The current error must appear in the eligible-error list, `maxAttempts` must leave another invocation in the total budget, backoff must be positive, and required reconciliation must have completed. Missing, malformed, incomplete, or contradictory conditions deny retry.
 
 Cancellation, validation, authentication, authorization, unsupported behavior, and unknown errors are not automatically retried.
 
@@ -82,4 +86,4 @@ Inspect protocol and capability versions before relying on optional fields. Pref
 
 ## Verification
 
-Run the decision-engine tests and scenario tests covering trust downgrade attempts, conflicting retry signals, conflict refresh, error-shape preservation, schema-aware detail selection, pagination limits, partial execution, and cross-server data boundaries.
+Run the decision-engine tests and scenario tests covering trust downgrade attempts, conflicting retry signals, nested retry constraints, conflict refresh, native and malformed error content, annotation field validation, schema-aware detail selection, pagination limits, partial execution, and cross-server data boundaries.
