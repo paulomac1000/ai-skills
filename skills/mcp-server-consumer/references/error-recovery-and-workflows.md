@@ -29,6 +29,8 @@ verification: Execute scenario tests for each error category, conflict refresh, 
 
 An explicit retry veto in either the manifest or response wins over a positive signal. Missing signals do not imply permission.
 
+When a manifest exposes both top-level `retryable` and nested `retryConditions.retryable`, the values must agree. A positive nested contract is usable only when the current error is listed in `eligibleErrors`, the zero-based retry number remains within `maxAttempts` after counting the original invocation, `backoffMilliseconds` is a positive integer, and any required reconciliation has completed. Malformed, contradictory, or incomplete conditions deny automatic retry. Consumers may read the snake-case field names used by language-neutral documents only as compatibility aliases and must reject conflicting duplicate aliases.
+
 ## Read-select-mutate-verify
 
 1. read bounded candidates;
