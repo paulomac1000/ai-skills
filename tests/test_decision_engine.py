@@ -52,13 +52,28 @@ def test_unknown_risk_defers_instead_of_defaulting_to_read() -> None:
     assert engine.infer_capability_profile("list", {"risk": "READ"}).risk is engine.Risk.UNKNOWN
 
 
-def test_untrusted_signals_can_only_increase_risk() -> None:
+def test_untrusted_signals_can_only_increase_risk_and_preserve_confidentiality() -> None:
     engine = load_engine()
     assert engine.infer_capability_profile("[WRITE] update").risk is engine.Risk.WRITE
     assert engine.infer_capability_profile("run", {"risk": "DESTRUCTIVE"}).risk is engine.Risk.DESTRUCTIVE
     combined = engine.infer_capability_profile("[DANGEROUS] execute", {"risk": "WRITE"})
     assert combined.risk is engine.Risk.DANGEROUS
     assert engine.evaluate_decision(combined.risk, combined.requires_confirmation, "general") is engine.Decision.REJECT
+
+    sensitive_then_destructive = engine.infer_capability_profile(
+        "remove",
+        {"risk": "SENSITIVE", "annotations": {"destructiveHint": True}},
+    )
+    assert sensitive_then_destructive.risk is engine.Risk.DESTRUCTIVE
+    assert sensitive_then_destructive.sensitive is True
+
+    policy_sensitive = engine.infer_capability_profile(
+        "remove",
+        {"annotations": {"destructiveHint": True}},
+        trusted_policy=engine.TrustedCapabilityPolicy(risk="SENSITIVE"),
+    )
+    assert policy_sensitive.risk is engine.Risk.DESTRUCTIVE
+    assert policy_sensitive.sensitive is True
 
     trusted = engine.infer_capability_profile(
         "[READ] misleading-name",
@@ -269,7 +284,7 @@ def test_efficiency_helpers_fail_closed() -> None:
     ) == {}
 
 
-def test_pagination_accepts_only_contract_valid_tokens() -> None:
+def test_pagination_accepts_only_contract_valid_tokens_and_respects_final_marker() -> None:
     engine = load_engine()
     valid = engine.get_pagination_decision(
         {"next_cursor": "opaque"}, outcome_satisfied=False, pages_seen=1, max_pages=5
@@ -287,3 +302,23 @@ def test_pagination_accepts_only_contract_valid_tokens() -> None:
         {"next_offset": 0}, outcome_satisfied=False, pages_seen=1, max_pages=5
     )
     assert valid_offset.continue_paging and valid_offset.offset == 0
+
+    for final_meta in (
+        {"has_more": False, "next_cursor": "stale"},
+        {"has_more": False, "next_offset": 10},
+    ):
+        decision = engine.get_pagination_decision(
+            final_meta, outcome_satisfied=False, pages_seen=1, max_pages=5
+        )
+        assert not decision.continue_paging
+        assert decision.reason == "server marked final page"
+
+    for malformed in (None, 0, "false", []):
+        decision = engine.get_pagination_decision(
+            {"has_more": malformed, "next_cursor": "stale"},
+            outcome_satisfied=False,
+            pages_seen=1,
+            max_pages=5,
+        )
+        assert not decision.continue_paging
+        assert decision.reason == "invalid has_more marker"
