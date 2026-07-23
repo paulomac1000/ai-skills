@@ -323,7 +323,7 @@ def _nested_retry_permits(
     *,
     error_code: str | None,
     attempt: int,
-    precondition_refreshed: bool,
+    reconciliation_completed: bool,
 ) -> bool:
     eligible = _alias_value(conditions, "eligibleErrors", "eligible_errors")
     if (
@@ -350,7 +350,7 @@ def _nested_retry_permits(
     reconciliation = _alias_value(conditions, "requiresReconciliation", "requires_reconciliation")
     if type(reconciliation) is not bool:
         return False
-    if reconciliation and not precondition_refreshed:
+    if reconciliation and not reconciliation_completed:
         return False
     return True
 
@@ -363,8 +363,15 @@ def should_retry(
     manifest: Mapping[str, Any] | None = None,
     response_retryable: bool | None = None,
     precondition_refreshed: bool = False,
+    reconciliation_completed: bool = False,
 ) -> bool:
-    if type(attempt) is not int or attempt < 0 or type(operation_idempotent) is not bool:
+    if (
+        type(attempt) is not int
+        or attempt < 0
+        or type(operation_idempotent) is not bool
+        or type(precondition_refreshed) is not bool
+        or type(reconciliation_completed) is not bool
+    ):
         return False
     if manifest is not None and not isinstance(manifest, Mapping):
         return False
@@ -398,7 +405,7 @@ def should_retry(
             conditions,
             error_code=error_code,
             attempt=attempt,
-            precondition_refreshed=precondition_refreshed,
+            reconciliation_completed=reconciliation_completed,
         ):
             return False
 
@@ -461,17 +468,19 @@ def _legacy_failure(
 
 
 def _optional_mapping(value: Mapping[str, Any], key: str) -> bool:
-    return key not in value or isinstance(value.get(key), Mapping)
+    candidate = value.get(key)
+    return key not in value or candidate is None or isinstance(candidate, Mapping)
 
 
 def _optional_string(value: Mapping[str, Any], key: str) -> bool:
-    return key not in value or isinstance(value.get(key), str)
+    candidate = value.get(key)
+    return key not in value or candidate is None or isinstance(candidate, str)
 
 
 def _valid_annotations(value: Any) -> bool:
     if not isinstance(value, Mapping):
         return False
-    if "audience" in value:
+    if "audience" in value and value.get("audience") is not None:
         audience = value.get("audience")
         if (
             not isinstance(audience, Sequence)
@@ -479,7 +488,7 @@ def _valid_annotations(value: Any) -> bool:
             or any(type(role) is not str or role not in _ANNOTATION_ROLES for role in audience)
         ):
             return False
-    if "priority" in value:
+    if "priority" in value and value.get("priority") is not None:
         priority = value.get("priority")
         if isinstance(priority, bool) or not isinstance(priority, (int, float)):
             return False
@@ -487,7 +496,7 @@ def _valid_annotations(value: Any) -> bool:
             return False
         if not 0 <= priority <= 1:
             return False
-    if "lastModified" in value:
+    if "lastModified" in value and value.get("lastModified") is not None:
         last_modified = value.get("lastModified")
         if not isinstance(last_modified, str) or not last_modified.strip():
             return False
@@ -495,7 +504,8 @@ def _valid_annotations(value: Any) -> bool:
 
 
 def _optional_annotations(value: Mapping[str, Any]) -> bool:
-    return "annotations" not in value or _valid_annotations(value.get("annotations"))
+    annotations = value.get("annotations")
+    return "annotations" not in value or annotations is None or _valid_annotations(annotations)
 
 
 def _valid_resource_contents(value: Any) -> bool:
@@ -536,7 +546,7 @@ def _valid_content_block(value: Any) -> bool:
         if any(not _optional_string(value, key) for key in ("title", "description", "mimeType")):
             return False
         size = value.get("size")
-        return "size" not in value or (type(size) is int and size >= 0)
+        return "size" not in value or size is None or (type(size) is int and size >= 0)
     if block_type == "resource":
         return _valid_resource_contents(value.get("resource"))
     return False
@@ -570,10 +580,11 @@ def handle_response(response: Mapping[str, Any]) -> ResponseResult:
             error.get("retryable") if isinstance(error.get("retryable"), bool) else None,
         )
     if response.get("isError") is True:
-        if "structuredContent" in response and not isinstance(response.get("structuredContent"), Mapping):
+        structured = response.get("structuredContent")
+        if "structuredContent" in response and structured is not None and not isinstance(structured, Mapping):
             return _failure(
                 "MALFORMED_RESPONSE",
-                "MCP structuredContent must be an object",
+                "MCP structuredContent must be an object or null",
                 meta,
                 correlation,
             )
@@ -603,12 +614,13 @@ def handle_response(response: Mapping[str, Any]) -> ResponseResult:
     if "success" in response and type(success_marker) is not bool:
         return _failure("MALFORMED_RESPONSE", "Legacy success marker must be a boolean", meta, correlation)
 
-    structured_present = "structuredContent" in response
+    structured = response.get("structuredContent")
+    structured_present = "structuredContent" in response and structured is not None
     content_present = "content" in response
-    if structured_present and not isinstance(response.get("structuredContent"), Mapping):
+    if structured_present and not isinstance(structured, Mapping):
         return _failure(
             "MALFORMED_RESPONSE",
-            "MCP structuredContent must be an object",
+            "MCP structuredContent must be an object or null",
             meta,
             correlation,
         )
@@ -620,7 +632,15 @@ def handle_response(response: Mapping[str, Any]) -> ResponseResult:
             correlation,
         )
 
-    payload_keys = [key for key in ("structuredContent", "data", "content") if key in response]
+    payload_keys = [
+        key
+        for key, present in (
+            ("structuredContent", structured_present),
+            ("data", "data" in response),
+            ("content", content_present),
+        )
+        if present
+    ]
     explicit_legacy_success = success_marker is True
     explicit_protocol_success = response.get("isError") is False and (structured_present or content_present)
     recognized_payload_success = bool(payload_keys)
@@ -631,7 +651,7 @@ def handle_response(response: Mapping[str, Any]) -> ResponseResult:
             meta,
             correlation,
         )
-    data = response.get("structuredContent", response.get("data", response.get("content")))
+    data = structured if structured_present else response.get("data", response.get("content"))
     return ResponseResult(True, data=data, meta=meta, correlation_id=correlation)
 
 
