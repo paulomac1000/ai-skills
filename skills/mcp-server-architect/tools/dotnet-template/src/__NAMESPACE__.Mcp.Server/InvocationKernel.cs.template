@@ -8,6 +8,7 @@ public sealed class InvocationKernel(
     IInventoryService inventory,
     CapabilityRegistry capabilities,
     ApprovalRegistry approvals,
+    KeyedOperationGate operationGate,
     ServerSettings settings)
 {
     private const string Target = "inventory";
@@ -27,10 +28,15 @@ public sealed class InvocationKernel(
         CancellationToken cancellationToken)
     {
         var caller = Caller(principal);
-        RequireScope(caller, "inventory.read");
+        var manifest = RequireActive(CapabilityNames.ListItems);
+        RequireScope(caller, manifest.RequiredScope);
         if (limit is < 1 or > 100)
             throw new McpException("VALIDATION_FAILED: limit must be from 1 to 100.");
-        return inventory.ListAsync(limit, cancellationToken);
+        return ExecuteAsync(
+            manifest,
+            Target,
+            token => inventory.ListAsync(limit, token),
+            cancellationToken);
     }
 
     public async ValueTask<InventoryItem> PutAsync(
@@ -42,7 +48,8 @@ public sealed class InvocationKernel(
         CancellationToken cancellationToken)
     {
         var caller = Caller(principal);
-        RequireScope(caller, "inventory.write");
+        var manifest = RequireActive(CapabilityNames.PutItem);
+        RequireScope(caller, manifest.RequiredScope);
         if (!settings.WritesEnabled)
             throw new McpException("WRITE_DISABLED: writes are disabled by operator policy.");
         if (string.IsNullOrWhiteSpace(itemId) || itemId.Length > 64)
@@ -53,16 +60,68 @@ public sealed class InvocationKernel(
             throw new McpException("VALIDATION_FAILED: expectedVersion is mandatory and non-negative.");
         if (string.IsNullOrWhiteSpace(approvalToken))
             throw new McpException("APPROVAL_REQUIRED: a trusted approval token is required.");
-        if (!approvals.Consume(approvalToken, caller.Principal, "put_item", Target, itemId))
-            throw new McpException("APPROVAL_INVALID: approval is expired, used, or bound to another principal or resource.");
 
         try
         {
-            return await inventory.PutAsync(new(itemId, name, expectedVersion), cancellationToken);
+            return await ExecuteAsync(
+                manifest,
+                itemId,
+                token => inventory.PutAsync(new(itemId, name, expectedVersion), token),
+                cancellationToken,
+                beforeExecution: () =>
+                {
+                    if (!approvals.Consume(approvalToken, caller.Principal, manifest.Name, Target, itemId))
+                        throw new McpException("APPROVAL_INVALID: approval is expired, used, or bound to another principal or resource.");
+                });
         }
         catch (InventoryConflictException exception)
         {
             throw new McpException($"CONFLICT: {exception.Message}", exception);
+        }
+    }
+
+    private CapabilityManifest RequireActive(string name)
+    {
+        var manifest = capabilities.Require(name);
+        if (manifest.ActiveState is not CapabilityActiveState.Active)
+            throw new McpException($"CAPABILITY_INACTIVE: {name} is {manifest.ActiveState}.");
+        return manifest;
+    }
+
+    private async ValueTask<T> ExecuteAsync<T>(
+        CapabilityManifest manifest,
+        string resourceKey,
+        Func<CancellationToken, ValueTask<T>> operation,
+        CancellationToken cancellationToken,
+        Action? beforeExecution = null)
+    {
+        using var timeout = new CancellationTokenSource();
+        timeout.CancelAfter(TimeSpan.FromMilliseconds(manifest.TimeoutMilliseconds));
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeout.Token);
+        IAsyncDisposable? lease = null;
+        try
+        {
+            if (!manifest.ConcurrentSafe)
+            {
+                lease = await operationGate.EnterAsync(
+                    $"{manifest.ConcurrencyScope}:{Target}:{resourceKey}",
+                    linked.Token);
+            }
+            linked.Token.ThrowIfCancellationRequested();
+            beforeExecution?.Invoke();
+            return await operation(linked.Token);
+        }
+        catch (OperationCanceledException exception) when (timeout.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+        {
+            throw new McpException($"TIMEOUT: {manifest.Name} exceeded {manifest.TimeoutMilliseconds} ms.", exception);
+        }
+        catch (McpOperationException exception)
+        {
+            throw new McpException($"{exception.Code}: {exception.Message}", exception);
+        }
+        finally
+        {
+            if (lease is not null) await lease.DisposeAsync();
         }
     }
 
