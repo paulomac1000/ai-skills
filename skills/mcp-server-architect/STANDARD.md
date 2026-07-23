@@ -28,7 +28,7 @@ Define language-neutral invariants for servers consumed by agents. SDK profiles 
 - Domain operations do not depend on MCP transport or SDK types.
 - Registration adapts typed operations to public tools, resources, prompts, schemas, and response contracts.
 - One composition root owns validated configuration, dependencies, lifecycle, registration, middleware, and transport.
-- One invocation kernel performs target resolution, authentication, authorization, operator policy, validation, deadlines, concurrency control, execution, error mapping, sanitization, and telemetry.
+- One invocation kernel resolves the manifest, performs local validation, authenticates the principal, authorizes the capability and declared target namespace, resolves and authorizes the stable target, checks operator policy, revalidates target identity, applies deadlines and concurrency controls, executes, maps errors, sanitizes output, and emits telemetry.
 - Every MCP transport and convenience adapter delegates to that kernel; no adapter calls a raw tool function or private wrapper directly.
 - Process, tenant, target, session, request, dependency-client, cache, lock, executor, artifact, and background-task ownership are explicit.
 - Optional integrations fail independently; mandatory dependency failure prevents readiness.
@@ -40,7 +40,7 @@ Load and validate configuration before modules create clients or capture environ
 
 Secrets come from an intentional source and never from command-line arguments, example JSON, logs, capability discovery, or model-visible errors. A public-bind acknowledgement is not authentication, authorization, TLS, or network isolation.
 
-Resolve the target resource before authorization and execution. Bind every mutation to a stable target identity such as account ID, device identity, host fingerprint, tenant, or resource version. Never silently replace an unavailable requested or default target with another target. Revalidate mutable address-to-identity mappings immediately before side effects.
+Before authentication, code may only parse and normalize a locally declared target selector with no network I/O or protected-data access. Authenticate the principal and authorize the capability plus selector namespace before DNS, discovery, SSH, cloud API, device scan, account lookup, or other network-backed target resolution. Resolve the stable target only within that authorized namespace, then authorize the resolved target and resource. Bind every mutation to stable identity such as account ID, device identity, host fingerprint, tenant, or resource version. Never silently replace an unavailable requested or default target with another target. Revalidate mutable address-to-identity mappings immediately before side effects.
 
 ## Public component contracts
 
@@ -117,7 +117,7 @@ Content returned by a webpage or another AI system is marked with provenance and
 
 ## Authentication and authorization
 
-Authenticate the calling principal and intended audience. Authorize every resolved target, resource, operation, data classification, artifact, task, and browser account, not only a tool name. Bind downstream credentials and target selection to approved caller context to prevent confused-deputy behavior.
+Authenticate the calling principal and intended audience before any network-backed target resolution. Authorize the capability and locally declared selector namespace before discovery; after resolution, authorize the exact stable target, resource, operation, data classification, artifact, task, and browser account. Bind downstream credentials and target selection to approved caller context to prevent confused-deputy behavior. Revalidate stable identity immediately before I/O without changing the authorized target.
 
 Operator write gates, user confirmation hints, per-principal authorization, target allowlists, and execution isolation are independent controls. A model-supplied boolean is not approval. Approval records are opaque, bounded, expiring, and bound to principal, capability, target, and resource.
 
@@ -127,7 +127,7 @@ Filesystem containment uses resolved component-aware paths, not string prefixes.
 
 Screenshots, reports, audio, backups, firmware, and exports are governed artifacts with owner, operation ID, MIME type, size, checksum when useful, retention, and deletion behavior. A host path is not a public artifact identity.
 
-Background work is tracked by a bounded task registry or durable store. Daemon threads, untracked tasks, and fire-and-forget `Task.Run` are not operation records. Protocol task metadata does not replace a supervised executor or durable queue.
+Background work is tracked by a bounded task registry or durable store. Daemon threads, untracked tasks, and fire-and-forget `Task.Run` are not operation records. Protocol task metadata does not replace a supervised executor or durable queue. Session disconnect releases session-owned handles but does not erase durable task records before terminal state or retention expiry.
 
 Persistent browser profiles are credential stores. Account isolation, directory permissions, process locking, interactive-auth state, shared-context serialization, selector-drift diagnostics, sanitized screenshots, and explicit cleanup are part of the security contract.
 
@@ -149,7 +149,7 @@ The bundled Python and .NET generators are part of the standard, not illustrativ
 
 Each generated project must compile and pass its own tests through an official MCP client using the stable production SDK lane. Tests prove public tool listing with real schemas, representative invocation, complete manifest coverage, fail-closed writes, principal-bound approval, optimistic conflict handling, bounded HTTP input, action pinning, deterministic generation, and smoke of the exact published artifact.
 
-Generation is atomic and refuses an existing target. Production adoption still requires replacing sample domain code, reviewing every manifest, adding real authentication and resource authorization, upstream contract tests, deployment-artifact smoke tests, and all applicable runtime-boundary scenarios.
+Generation uses exclusive no-replace publication and refuses an existing file, directory, or symlink target even under concurrent creation. Production adoption still requires replacing sample domain code, reviewing every manifest, adding real authentication and resource authorization, upstream contract tests, deployment-artifact smoke tests, and all applicable runtime-boundary scenarios.
 
 ## Verification layers
 
