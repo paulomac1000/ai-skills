@@ -172,6 +172,22 @@ def _untrusted_risk_signal(value: Any) -> Risk:
     return normalized if normalized in {Risk.WRITE, Risk.SENSITIVE, Risk.DESTRUCTIVE, Risk.DANGEROUS} else Risk.UNKNOWN
 
 
+def _untrusted_side_effect_signal(metadata: Mapping[str, Any]) -> Risk:
+    """Project canonical and compatibility side-effect fields monotonically into risk."""
+
+    inferred = Risk.UNKNOWN
+    for key in ("sideEffects", "side_effects"):
+        value = metadata.get(key, _MISSING)
+        if not isinstance(value, str):
+            continue
+        candidate = {
+            "write": Risk.WRITE,
+            "destructive": Risk.DESTRUCTIVE,
+        }.get(value.strip().lower(), Risk.UNKNOWN)
+        inferred = _higher_risk(inferred, candidate)
+    return inferred
+
+
 def _prefixed_risk(name: Any) -> Risk:
     if not isinstance(name, str):
         return Risk.UNKNOWN
@@ -210,6 +226,7 @@ def infer_capability_profile(
     policy_risk = _risk(trusted_policy.risk) if trusted_policy else Risk.UNKNOWN
     contract_risk = _risk(trusted_contract.risk) if trusted_contract else Risk.UNKNOWN
     untrusted_risk = _untrusted_risk_signal(metadata.get("risk"))
+    side_effect_risk = _untrusted_side_effect_signal(metadata)
     prefix = _prefixed_risk(name)
     inferred = _higher_risk(policy_risk, contract_risk)
     source = "consumer-policy" if policy_risk is not Risk.UNKNOWN else "unknown"
@@ -220,6 +237,10 @@ def infer_capability_profile(
     inferred = _higher_risk(inferred, untrusted_risk)
     if inferred is not previous:
         source = _append_source(source, "untrusted-risk-escalation")
+    previous = inferred
+    inferred = _higher_risk(inferred, side_effect_risk)
+    if inferred is not previous:
+        source = _append_source(source, "side-effect-escalation")
     previous = inferred
     inferred = _higher_risk(inferred, prefix)
     if inferred is not previous:
@@ -239,7 +260,7 @@ def infer_capability_profile(
             inferred = Risk.READ
             source = _append_source(source, "trusted-annotation")
 
-    risk_signals = (policy_risk, contract_risk, untrusted_risk, prefix)
+    risk_signals = (policy_risk, contract_risk, untrusted_risk, side_effect_risk, prefix)
     explicit_sensitive = metadata.get("sensitive") is True or (
         trusted_policy is not None and trusted_policy.sensitive is True
     )
@@ -250,8 +271,10 @@ def infer_capability_profile(
         if inferred is not previous:
             source = _append_source(source, "sensitive")
 
-    requires_confirmation = metadata.get("requires_confirmation") is True or (
-        trusted_policy is not None and trusted_policy.requires_confirmation is True
+    requires_confirmation = (
+        metadata.get("requiresConfirmation") is True
+        or metadata.get("requires_confirmation") is True
+        or (trusted_policy is not None and trusted_policy.requires_confirmation is True)
     )
     if (
         metadata.get("idempotent") is False
@@ -570,18 +593,31 @@ def handle_response(response: Mapping[str, Any]) -> ResponseResult:
     if not isinstance(response, Mapping):
         return _failure("MALFORMED_RESPONSE", "Tool response must be an object", {}, None)
     meta_value = response.get("_meta")
+    if "_meta" in response and meta_value is not None and not isinstance(meta_value, Mapping):
+        return _failure("MALFORMED_RESPONSE", "MCP _meta must be an object or null", {}, None)
     meta = meta_value if isinstance(meta_value, Mapping) else {}
+    response_retryable = response.get("retryable", _MISSING)
+    if response_retryable is not _MISSING and response_retryable is not None and type(response_retryable) is not bool:
+        return _failure("MALFORMED_RESPONSE", "MCP retryable marker must be a boolean or null", meta, None)
     correlation_id = meta.get("correlation_id") or meta.get("request_id")
     correlation = str(correlation_id) if correlation_id is not None else None
 
     error = response.get("error")
     if isinstance(error, Mapping):
+        nested_retryable = error.get("retryable", _MISSING)
+        if nested_retryable is not _MISSING and nested_retryable is not None and type(nested_retryable) is not bool:
+            return _failure(
+                "MALFORMED_RESPONSE",
+                "Structured error retryable marker must be a boolean or null",
+                meta,
+                correlation,
+            )
         return _failure(
             str(error.get("code") or "UNKNOWN"),
             str(error.get("message") or "Tool failed"),
             meta,
             correlation,
-            error.get("retryable") if isinstance(error.get("retryable"), bool) else None,
+            nested_retryable if type(nested_retryable) is bool else None,
         )
     if response.get("isError") is True:
         structured = response.get("structuredContent")
@@ -605,7 +641,7 @@ def handle_response(response: Mapping[str, Any]) -> ResponseResult:
             message,
             meta,
             correlation,
-            response.get("retryable") if isinstance(response.get("retryable"), bool) else None,
+            response_retryable if type(response_retryable) is bool else None,
         )
     if "error" in response:
         return _legacy_failure(error=error, meta=meta, correlation_id=correlation)
