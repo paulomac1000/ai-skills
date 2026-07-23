@@ -287,6 +287,8 @@ def iter_reference_link_destinations(text: str) -> Iterator[str]:
         start, end = match.span()
         if _is_escaped(text, start) or _is_image_label(text, start):
             continue
+        if start > 0 and text[start - 1] == "]" and not _is_escaped(text, start - 1):
+            continue
         if any(span_start <= start < span_end for span_start, span_end in definition_spans):
             continue
         if text[end : end + 1] in {"(", "[", ":"}:
