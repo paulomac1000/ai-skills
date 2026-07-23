@@ -24,7 +24,7 @@ A custom REST bridge may be useful operationally, but it is not an MCP transport
 
 One composition root creates typed settings, domain services, target resolvers, manifests, policy, lifecycle resources, and one invocation kernel. Transport entry points consume that same composition.
 
-The invocation kernel owns target resolution, authentication, authorization, operator policy, validation, deadline, idempotency, retry, rate limiting, concurrency, execution, error mapping, sanitization, and telemetry. Tool names, schemas, active profiles, and policy results remain identical across transports.
+The invocation kernel owns selector parsing, authentication, namespace authorization, target resolution, resolved-identity authorization, operator policy, validation, deadline, idempotency, retry, rate limiting, concurrency, execution, error mapping, sanitization, and telemetry. Tool names, schemas, active profiles, and policy results remain identical across transports.
 
 A convenience endpoint delegates to the same kernel through an application adapter or public MCP client. It never invokes raw tool callables through private SDK fields, fabricates request context, reconstructs weaker schemas, bypasses policy, or converts a domain failure into transport-specific success. Policy-parity tests compare kernel inputs and outputs, not only status codes.
 
@@ -71,7 +71,7 @@ Mandatory dependency failure prevents readiness. Optional dependency failure pro
 
 An unavailable requested target returns a controlled error. An unavailable configured default does not silently select the first healthy target. The operator must configure a replacement or the caller must select one explicitly. This applies to reads when confidentiality or tenant boundaries differ.
 
-Every invocation records the resolved target identity and backend kind. Authorization occurs after target resolution. Mutable address-to-identity bindings are revalidated immediately before side effects. If all configured backends fail and no useful zero-I/O capability remains, fail startup.
+Target selection follows a fail-closed two-stage authorization flow. First parse and canonicalize the caller-provided selector without network I/O, authenticate the caller, and authorize the selector namespace or tenant before any discovery or lookup. Only then may a resolver contact a registry, DNS, cloud API, device, or other backend. After resolution, authorize the concrete stable identity and requested resource again. Record the resolved identity and backend kind, then revalidate mutable address-to-identity bindings immediately before I/O and side effects. A failed preliminary authorization must produce no network-backed target probe. If all configured backends fail and no useful zero-I/O capability remains, fail startup.
 
 ## Health semantics
 
@@ -127,7 +127,7 @@ For each advertised transport, test:
 4. validation, structured output, and protocol-native errors;
 5. cancellation, blocking deadline, and late-result handling;
 6. malformed input and unknown method behavior;
-7. authentication, authorization, target binding, rate limiting, host, and Origin policy;
+7. authentication, pre-resolution selector authorization, resolved-identity authorization, target binding, rate limiting, host, and Origin policy;
 8. response and log minimization;
 9. disconnect, session expiry, long-task state, and shutdown cleanup;
 10. identical invocation-kernel manifest, schema, policy, target, and error results;
