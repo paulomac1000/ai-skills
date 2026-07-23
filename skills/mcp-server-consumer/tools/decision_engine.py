@@ -189,7 +189,12 @@ def infer_capability_profile(
     trusted_contract: TrustedCapabilityContract | None = None,
     trusted_server: bool = False,
 ) -> CapabilityProfile:
-    """Infer a fail-closed profile without upgrading untrusted metadata to policy."""
+    """Infer a fail-closed profile without upgrading untrusted metadata to policy.
+
+    Sensitivity is an orthogonal confidentiality fact. It remains true even when
+    another signal raises the compatibility risk projection to DESTRUCTIVE or
+    DANGEROUS.
+    """
     if trusted_policy is not None and not isinstance(trusted_policy, TrustedCapabilityPolicy):
         raise TypeError("trusted_policy must be TrustedCapabilityPolicy or None")
     if trusted_contract is not None and not isinstance(trusted_contract, TrustedCapabilityContract):
@@ -198,18 +203,19 @@ def infer_capability_profile(
     metadata = metadata or {}
     policy_risk = _risk(trusted_policy.risk) if trusted_policy is not None else Risk.UNKNOWN
     contract_risk = _risk(trusted_contract.risk) if trusted_contract is not None else Risk.UNKNOWN
+    untrusted_risk = _untrusted_risk_signal(metadata.get("risk"))
+    prefix = _prefixed_risk(name)
+
     inferred = _higher_risk(policy_risk, contract_risk)
     source = "consumer-policy" if policy_risk is not Risk.UNKNOWN else "unknown"
     if contract_risk is not Risk.UNKNOWN:
         source = _append_source(source, "consumer-contract")
 
-    untrusted_risk = _untrusted_risk_signal(metadata.get("risk"))
     previous = inferred
     inferred = _higher_risk(inferred, untrusted_risk)
     if inferred is not previous:
         source = _append_source(source, "untrusted-risk-escalation")
 
-    prefix = _prefixed_risk(name)
     previous = inferred
     inferred = _higher_risk(inferred, prefix)
     if inferred is not previous:
@@ -229,10 +235,12 @@ def infer_capability_profile(
             inferred = Risk.READ
             source = _append_source(source, "trusted-annotation")
 
-    sensitive = metadata.get("sensitive") is True or (
+    risk_signals = (policy_risk, contract_risk, untrusted_risk, prefix)
+    explicit_sensitive = metadata.get("sensitive") is True or (
         trusted_policy is not None and trusted_policy.sensitive is True
     )
-    if sensitive:
+    sensitive = explicit_sensitive or Risk.SENSITIVE in risk_signals
+    if explicit_sensitive:
         previous = inferred
         inferred = _higher_risk(inferred, Risk.SENSITIVE)
         if inferred is not previous:
@@ -447,6 +455,14 @@ def get_pagination_decision(
         return PaginationDecision(False, reason="outcome already satisfied")
     if pages_seen >= max_pages:
         return PaginationDecision(False, reason="page limit reached")
+
+    if "has_more" in meta:
+        has_more = meta.get("has_more")
+        if type(has_more) is not bool:
+            return PaginationDecision(False, reason="invalid has_more marker")
+        if has_more is False:
+            return PaginationDecision(False, reason="server marked final page")
+
     cursor = meta.get("next_cursor")
     if isinstance(cursor, str) and cursor:
         return PaginationDecision(True, cursor=cursor, reason="next cursor available")
