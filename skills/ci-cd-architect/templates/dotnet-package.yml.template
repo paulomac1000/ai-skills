@@ -78,6 +78,12 @@ jobs:
             echo "validated release tag must start with v and contain a package version" >&2
             exit 1
           fi
+          # Conservative SemVer 2.0 grammar. Reject shell syntax, whitespace, path
+          # separators, and every value that should never become an MSBuild property.
+          if [[ ! "$normalized_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z]+([.-][0-9A-Za-z]+)*)?(\+[0-9A-Za-z]+([.-][0-9A-Za-z]+)*)?$ ]]; then
+            echo "release tag version must be a canonical SemVer 2.0 value" >&2
+            exit 1
+          fi
           export NORMALIZED_VERSION="$normalized_version"
           <DOTNET_RELEASE_IDENTITY_COMMAND>
           echo "version=$normalized_version" >> "$GITHUB_OUTPUT"
@@ -85,7 +91,9 @@ jobs:
       - run: dotnet build <SOLUTION_PATH> --no-restore --configuration Release
       - run: dotnet test <SOLUTION_PATH> --no-build --configuration Release
       - name: Pack
-        run: dotnet pack <SOLUTION_PATH> --no-build --configuration Release --output nupkg -p:PackageVersion=${{ steps.release.outputs.version }}
+        env:
+          PACKAGE_VERSION: ${{ steps.release.outputs.version }}
+        run: dotnet pack <SOLUTION_PATH> --no-build --configuration Release --output nupkg -p:PackageVersion="$PACKAGE_VERSION"
       - name: Inspect package
         run: <DOTNET_PACKAGE_VERIFY_COMMAND>
       - name: Validate exact package identity allowlist
