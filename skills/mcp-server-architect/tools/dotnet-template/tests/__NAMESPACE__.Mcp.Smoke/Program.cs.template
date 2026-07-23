@@ -93,6 +93,12 @@ static async Task RunHttpCaseAsync(string dll, bool writesEnabled, string expect
         }
         if (!ready) throw new InvalidOperationException("HTTP server did not become ready.");
 
+        using var lowerCaseBearerRequest = new HttpRequestMessage(HttpMethod.Get, $"http://127.0.0.1:{port}/mcp");
+        lowerCaseBearerRequest.Headers.TryAddWithoutValidation("Authorization", $"bearer {token}");
+        using var lowerCaseBearerResponse = await probe.SendAsync(lowerCaseBearerRequest);
+        if (lowerCaseBearerResponse.StatusCode == HttpStatusCode.Unauthorized)
+            throw new InvalidOperationException("Case-insensitive Bearer authentication was rejected.");
+
         using var foreignOriginRequest = new HttpRequestMessage(HttpMethod.Get, $"http://127.0.0.1:{port}/mcp");
         foreignOriginRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
         foreignOriginRequest.Headers.TryAddWithoutValidation("Origin", "https://attacker.invalid");
