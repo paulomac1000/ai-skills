@@ -24,6 +24,18 @@ def test_malformed_success_payloads_fail_closed() -> None:
     for response in (
         {"content": None},
         {"content": 7},
+        {"content": [{}]},
+        {"content": [{"type": "unknown"}]},
+        {"content": [{"type": "text"}]},
+        {"content": [{"type": "text", "text": 7}]},
+        {"content": [{"type": "text", "text": "ok", "annotations": []}]},
+        {"content": [{"type": "image", "data": "Zm9v"}]},
+        {"content": [{"type": "audio", "data": "", "mimeType": "audio/wav"}]},
+        {"content": [{"type": "resource_link", "uri": "https://example.invalid"}]},
+        {"content": [{"type": "resource_link", "uri": "u", "name": "n", "size": True}]},
+        {"content": [{"type": "resource", "resource": {"text": "missing uri"}}]},
+        {"content": [{"type": "resource", "resource": {"uri": "u"}}]},
+        {"content": [{"type": "resource", "resource": {"uri": "u", "text": "x", "blob": "eA=="}}]},
         {"content": [{"type": "text", "text": "ok"}, 7]},
         {"structuredContent": None},
         {"structuredContent": []},
@@ -34,11 +46,35 @@ def test_malformed_success_payloads_fail_closed() -> None:
         assert result.error_code == "MALFORMED_RESPONSE", response
 
 
-def test_valid_empty_and_legacy_success_shapes_remain_supported() -> None:
+def test_valid_mcp_content_blocks_and_legacy_success_shapes_remain_supported() -> None:
     engine = load_engine()
     for response in (
         {"content": []},
         {"content": "legacy text"},
+        {"content": [{"type": "text", "text": "ok"}]},
+        {"content": [{"type": "image", "data": "Zm9v", "mimeType": "image/png"}]},
+        {"content": [{"type": "audio", "data": "Zm9v", "mimeType": "audio/wav"}]},
+        {
+            "content": [
+                {
+                    "type": "resource_link",
+                    "uri": "https://example.invalid/resource",
+                    "name": "resource",
+                    "description": "bounded resource",
+                    "mimeType": "text/plain",
+                    "size": 0,
+                }
+            ]
+        },
+        {"content": [{"type": "resource", "resource": {"uri": "file:///text", "text": ""}}]},
+        {
+            "content": [
+                {
+                    "type": "resource",
+                    "resource": {"uri": "file:///blob", "blob": "", "mimeType": "application/octet-stream"},
+                }
+            ]
+        },
         {"structuredContent": {}},
         {"data": None},
         {"success": True},
