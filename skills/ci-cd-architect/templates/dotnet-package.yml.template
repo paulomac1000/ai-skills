@@ -100,7 +100,6 @@ jobs:
 
           import os
           import pathlib
-          import sys
           import xml.etree.ElementTree as ET
           import zipfile
 
@@ -122,11 +121,15 @@ jobs:
           def local_name(tag: str) -> str:
               return tag.rsplit("}", 1)[-1]
 
-          def metadata_value(root: ET.Element, name: str) -> str:
-              for element in root.iter():
-                  if local_name(element.tag) == name and element.text:
-                      return element.text.strip()
-              return ""
+          def direct_child(parent: ET.Element, name: str) -> ET.Element | None:
+              matches = [child for child in list(parent) if local_name(child.tag) == name]
+              if len(matches) != 1:
+                  return None
+              return matches[0]
+
+          def direct_child_text(parent: ET.Element, name: str) -> str:
+              child = direct_child(parent, name)
+              return child.text.strip() if child is not None and child.text else ""
 
           verified: dict[str, pathlib.Path] = {}
           for package_path in package_paths:
@@ -135,10 +138,16 @@ jobs:
                   if len(nuspecs) != 1:
                       raise SystemExit(f"{package_path}: expected exactly one .nuspec, found {len(nuspecs)}")
                   root = ET.fromstring(archive.read(nuspecs[0]))
-              package_id = metadata_value(root, "id")
-              version = metadata_value(root, "version")
+
+              if local_name(root.tag) != "package":
+                  raise SystemExit(f"{package_path}: nuspec root must be package")
+              metadata = direct_child(root, "metadata")
+              if metadata is None:
+                  raise SystemExit(f"{package_path}: expected exactly one direct package/metadata element")
+              package_id = direct_child_text(metadata, "id")
+              version = direct_child_text(metadata, "version")
               if not package_id or not version:
-                  raise SystemExit(f"{package_path}: missing PackageId or version in .nuspec")
+                  raise SystemExit(f"{package_path}: missing direct package/metadata PackageId or version")
               if package_id not in expected:
                   raise SystemExit(f"Unexpected PackageId {package_id!r} in {package_path}")
               if package_id in verified:

@@ -1,0 +1,89 @@
+using ModelContextProtocol;
+using System.Security.Claims;
+using __NAMESPACE__.Mcp.Domain;
+
+namespace __NAMESPACE__.Mcp.Server;
+
+public sealed class InvocationKernel(
+    IInventoryService inventory,
+    CapabilityRegistry capabilities,
+    ApprovalRegistry approvals,
+    ServerSettings settings)
+{
+    private const string Target = "inventory";
+
+    public ValueTask<IReadOnlyList<CapabilityManifest>> DescribeAsync(
+        ClaimsPrincipal? principal,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var caller = Caller(principal);
+        return ValueTask.FromResult(capabilities.ForScopes(caller.Scopes));
+    }
+
+    public ValueTask<ListItemsResult> ListAsync(
+        ClaimsPrincipal? principal,
+        int limit,
+        CancellationToken cancellationToken)
+    {
+        var caller = Caller(principal);
+        RequireScope(caller, "inventory.read");
+        if (limit is < 1 or > 100)
+            throw new McpException("VALIDATION_FAILED: limit must be from 1 to 100.");
+        return inventory.ListAsync(limit, cancellationToken);
+    }
+
+    public async ValueTask<InventoryItem> PutAsync(
+        ClaimsPrincipal? principal,
+        string itemId,
+        string name,
+        int expectedVersion,
+        string approvalToken,
+        CancellationToken cancellationToken)
+    {
+        var caller = Caller(principal);
+        RequireScope(caller, "inventory.write");
+        if (!settings.WritesEnabled)
+            throw new McpException("WRITE_DISABLED: writes are disabled by operator policy.");
+        if (string.IsNullOrWhiteSpace(itemId) || itemId.Length > 64)
+            throw new McpException("VALIDATION_FAILED: itemId must contain 1-64 characters.");
+        if (string.IsNullOrWhiteSpace(name) || name.Length > 200)
+            throw new McpException("VALIDATION_FAILED: name must contain 1-200 characters.");
+        if (expectedVersion < 0)
+            throw new McpException("VALIDATION_FAILED: expectedVersion is mandatory and non-negative.");
+        if (string.IsNullOrWhiteSpace(approvalToken))
+            throw new McpException("APPROVAL_REQUIRED: a trusted approval token is required.");
+        if (!approvals.Consume(approvalToken, caller.Principal, "put_item", Target, itemId))
+            throw new McpException("APPROVAL_INVALID: approval is expired, used, or bound to another principal or resource.");
+
+        try
+        {
+            return await inventory.PutAsync(new(itemId, name, expectedVersion), cancellationToken);
+        }
+        catch (InventoryConflictException exception)
+        {
+            throw new McpException($"CONFLICT: {exception.Message}", exception);
+        }
+    }
+
+    private static CallerContext Caller(ClaimsPrincipal? principal)
+    {
+        if (principal?.Identity?.IsAuthenticated is not true)
+            throw new McpException("AUTHENTICATION_FAILED: an authenticated principal is required.");
+        var id = principal.FindFirstValue(ClaimTypes.NameIdentifier)
+            ?? principal.Identity.Name
+            ?? throw new McpException("AUTHENTICATION_FAILED: principal identifier is missing.");
+        var scopes = principal.FindAll("scope")
+            .SelectMany(claim => claim.Value.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+            .ToHashSet(StringComparer.Ordinal);
+        return new(id, scopes);
+    }
+
+    private static void RequireScope(CallerContext caller, string scope)
+    {
+        if (!caller.Scopes.Contains(scope))
+            throw new McpException($"AUTHORIZATION_FAILED: missing scope {scope}.");
+    }
+
+    private sealed record CallerContext(string Principal, IReadOnlySet<string> Scopes);
+}

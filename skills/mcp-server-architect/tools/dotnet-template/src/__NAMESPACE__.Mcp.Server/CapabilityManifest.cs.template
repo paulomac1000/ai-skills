@@ -1,0 +1,41 @@
+namespace __NAMESPACE__.Mcp.Server;
+
+public sealed record CapabilityManifest(
+    string Name,
+    bool ReadOnly,
+    bool Destructive,
+    bool Idempotent,
+    bool OpenWorld,
+    string RequiredScope,
+    bool RequiresApproval,
+    string TargetBinding);
+
+public sealed class CapabilityRegistry
+{
+    private static readonly IReadOnlyDictionary<string, CapabilityManifest> Manifests =
+        new Dictionary<string, CapabilityManifest>(StringComparer.Ordinal)
+        {
+            ["describe_capabilities"] = new(
+                "describe_capabilities", true, false, true, false,
+                "inventory.read", false, "process"),
+            ["list_items"] = new(
+                "list_items", true, false, true, false,
+                "inventory.read", false, "inventory"),
+            ["put_item"] = new(
+                "put_item", false, false, false, false,
+                "inventory.write", true, "inventory:itemId"),
+        };
+
+    public CapabilityRegistry()
+    {
+        var expected = new[] { "describe_capabilities", "list_items", "put_item" };
+        if (!Manifests.Keys.Order(StringComparer.Ordinal).SequenceEqual(expected.Order(StringComparer.Ordinal)))
+            throw new InvalidOperationException("Capability manifests do not cover the registered tool catalog.");
+    }
+
+    public IReadOnlyList<CapabilityManifest> ForScopes(IReadOnlySet<string> scopes) =>
+        Manifests.Values
+            .Where(manifest => scopes.Contains(manifest.RequiredScope))
+            .OrderBy(manifest => manifest.Name, StringComparer.Ordinal)
+            .ToArray();
+}

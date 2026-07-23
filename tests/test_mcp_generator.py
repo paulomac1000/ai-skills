@@ -32,27 +32,17 @@ def test_generator_emits_complete_deterministic_project(tmp_path: Path) -> None:
     generator.generate_project(second, "inventory_mcp", "Inventory MCP")
 
     expected = {
-        Path("pyproject.toml"),
-        Path("README.md"),
-        Path("SECURITY.md"),
-        Path("Dockerfile"),
-        Path(".github/workflows/ci.yml"),
-        Path("src/inventory_mcp/config.py"),
-        Path("src/inventory_mcp/domain.py"),
-        Path("src/inventory_mcp/http.py"),
-        Path("src/inventory_mcp/kernel.py"),
-        Path("src/inventory_mcp/manifests.py"),
-        Path("src/inventory_mcp/server.py"),
-        Path("tests/test_config.py"),
-        Path("tests/test_http_limit.py"),
-        Path("tests/test_kernel.py"),
-        Path("tests/test_manifests.py"),
-        Path("tests/test_mcp_smoke.py"),
+        Path("pyproject.toml"), Path("README.md"), Path("SECURITY.md"), Path("Dockerfile"),
+        Path(".github/workflows/ci.yml"), Path("src/inventory_mcp/config.py"),
+        Path("src/inventory_mcp/domain.py"), Path("src/inventory_mcp/http.py"),
+        Path("src/inventory_mcp/kernel.py"), Path("src/inventory_mcp/manifests.py"),
+        Path("src/inventory_mcp/server.py"), Path("tests/test_config.py"),
+        Path("tests/test_http_limit.py"), Path("tests/test_kernel.py"),
+        Path("tests/test_manifests.py"), Path("tests/test_mcp_smoke.py"),
     }
     assert expected.issubset(set(generated))
     assert compileall.compile_dir(first / "src", quiet=1)
     assert compileall.compile_dir(first / "tests", quiet=1)
-
     for relative in generated:
         assert (first / relative).read_bytes() == (second / relative).read_bytes()
 
@@ -61,41 +51,24 @@ def test_generated_project_uses_public_sdk_and_fail_closed_controls(tmp_path: Pa
     generator = load_generator()
     target = tmp_path / "server"
     generator.generate_project(target, "inventory_mcp", "Inventory MCP")
-
-    source = "\n".join(
-        path.read_text(encoding="utf-8")
-        for path in sorted((target / "src").rglob("*.py"))
-    )
-    assert "from mcp.server.fastmcp import Context, FastMCP" in source
-    assert "InvocationKernel" in source
-    assert "ApprovalRegistry" in source
-    assert "secrets.token_urlsafe(32)" in source
-    assert "max_records: int = 1_024" in source
-    assert "record.principal == principal" in source
-    assert "threading.Lock()" in source
-    assert "approval registry capacity reached" in source
-    assert "validate_manifests(REGISTERED_TOOLS)" in source
-    assert "RequestBodyLimitMiddleware" in source
-    assert "MCP_MAX_REQUEST_BODY_BYTES" in source
-    assert "server.streamable_http_app()" in source
-    assert "address.is_loopback" in source
-    assert "write_enabled must be a boolean" in source
-    assert "write operations are disabled by operator policy" in source
-    assert "expected_version is mandatory" in source
-    assert "expected_version: int" in source
-    assert "too many request body chunks" in source
-    assert "content-length mismatch" in source
+    source = "\n".join(path.read_text(encoding="utf-8") for path in sorted((target / "src").rglob("*.py")))
+    for token in (
+        "from mcp.server.fastmcp import Context, FastMCP",
+        "InvocationKernel", "ApprovalRegistry", "secrets.token_urlsafe(32)",
+        "max_records: int = 1_024", "record.principal == principal", "threading.Lock()",
+        "approval registry capacity reached", "validate_manifests(REGISTERED_TOOLS)",
+        "RequestBodyLimitMiddleware", "MCP_MAX_REQUEST_BODY_BYTES",
+        "server.streamable_http_app()", "address.is_loopback",
+        "write_enabled must be a boolean", "write operations are disabled by operator policy",
+        "expected_version is mandatory", "expected_version: int",
+        "too many request body chunks", "content-length mismatch",
+        "await self._app(scope, replay_receive, send)",
+    ):
+        assert token in source
     assert "confirmed: bool" not in source
     assert "caller.confirmed" not in source
-    assert "await self._app(scope, replay_receive, send)" in source
     assert "\nmcp = build_server" not in source
-    for forbidden in (
-        "_tool_manager",
-        "._mcp_server",
-        "_lifespan_data",
-        "run_until_complete",
-        "max_request_body_size=",
-    ):
+    for forbidden in ("_tool_manager", "._mcp_server", "_lifespan_data", "run_until_complete", "max_request_body_size="):
         assert forbidden not in source
 
     workflow = (target / ".github/workflows/ci.yml").read_text(encoding="utf-8")
@@ -110,16 +83,8 @@ def test_generated_project_uses_public_sdk_and_fail_closed_controls(tmp_path: Pa
 def test_generator_refuses_invalid_reserved_and_existing_targets(tmp_path: Path) -> None:
     generator = load_generator()
     invalid_names = (
-        "Bad-Name",
-        "a",
-        "_hidden",
-        "name.with.dot",
-        "class",
-        "async",
-        "mcp",
-        "uvicorn",
-        "json",
-        "email",
+        "Bad-Name", "a", "_hidden", "name.with.dot", "class", "async",
+        "mcp", "uvicorn", "pytest", "json", "email",
     )
     for package in invalid_names:
         try:
@@ -128,10 +93,7 @@ def test_generator_refuses_invalid_reserved_and_existing_targets(tmp_path: Path)
             pass
         else:
             raise AssertionError(f"invalid package accepted: {package}")
-
-    assert {"mcp", "uvicorn", "json", "email"}.issubset(
-        generator.RESERVED_PACKAGE_NAMES
-    )
+    assert {"mcp", "uvicorn", "pytest", "json", "email"}.issubset(generator.RESERVED_PACKAGE_NAMES)
 
     existing = tmp_path / "existing"
     existing.mkdir()

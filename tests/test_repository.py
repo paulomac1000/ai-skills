@@ -10,12 +10,7 @@ from pathlib import Path
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
-EXPECTED_SKILLS = {
-    "afds-doc-writer",
-    "ci-cd-architect",
-    "mcp-server-architect",
-    "mcp-server-consumer",
-}
+EXPECTED_SKILLS = {"afds-doc-writer", "ci-cd-architect", "mcp-server-architect", "mcp-server-consumer"}
 ALLOWED_CATEGORIES = {"core", "references", "templates", "examples", "tools"}
 IGNORED_PARTS = {".git", ".venv", ".pytest_cache", "__pycache__", ".ruff_cache"}
 POLISH_MARKERS = re.compile(
@@ -23,21 +18,12 @@ POLISH_MARKERS = re.compile(
     r"\u0104\u0106\u0118\u0141\u0143\u00d3\u015a\u0179\u017b]"
 )
 PROJECT_SPECIFIC_TERMS = {
-    "ha-" + "mcp-readonly",
-    "kontomierz-" + "mcp",
-    "openwrt-" + "mcp",
-    "mikrus-" + "mcp",
-    "local-home-devices-" + "mcp",
-    "notebooklm-" + "mcp",
+    "ha-" + "mcp-readonly", "kontomierz-" + "mcp", "openwrt-" + "mcp",
+    "mikrus-" + "mcp", "local-home-devices-" + "mcp", "notebooklm-" + "mcp",
 }
 MCP_PARITY_HEADINGS = {
-    "## Lifecycle ownership",
-    "## Transport parity",
-    "## Manifest coverage",
-    "## Concurrency enforcement",
-    "## Boundary sanitization",
-    "## SDK compatibility",
-    "## Verification",
+    "## Lifecycle ownership", "## Transport parity", "## Manifest coverage",
+    "## Concurrency enforcement", "## Boundary sanitization", "## SDK compatibility", "## Verification",
 }
 
 
@@ -52,21 +38,13 @@ def load_validator():
 
 
 def source_files(root: Path = ROOT) -> list[Path]:
-    return [
-        path
-        for path in root.rglob("*")
-        if path.is_file() and not IGNORED_PARTS.intersection(path.parts)
-    ]
+    return [path for path in root.rglob("*") if path.is_file() and not IGNORED_PARTS.intersection(path.parts)]
 
 
 def markdown_section(text: str, heading: str) -> str:
-    """Return one second-level Markdown section body."""
     lines = text.splitlines()
     start = lines.index(heading) + 1
-    end = next(
-        (index for index in range(start, len(lines)) if lines[index].startswith("## ")),
-        len(lines),
-    )
+    end = next((index for index in range(start, len(lines)) if lines[index].startswith("## ")), len(lines))
     return "\n".join(lines[start:end]).strip()
 
 
@@ -84,11 +62,7 @@ def test_skill_manifests_govern_extensible_resource_categories() -> None:
         assert categories and categories.issubset(ALLOWED_CATEGORIES)
         for relative in required:
             assert (directory / relative).is_file(), (name, relative)
-        actual_directories = {
-            path.name
-            for path in directory.iterdir()
-            if path.is_dir() and path.name != "__pycache__"
-        }
+        actual_directories = {path.name for path in directory.iterdir() if path.is_dir() and path.name != "__pycache__"}
         assert actual_directories.issubset(categories), (name, actual_directories, categories)
 
 
@@ -97,6 +71,8 @@ def test_repository_allows_intentional_knowledge_growth() -> None:
     assert any((ROOT / "skills" / name / "references").exists() for name in EXPECTED_SKILLS)
     assert (ROOT / "skills/mcp-server-architect/examples").exists()
     assert (ROOT / "skills/mcp-server-architect/tools/generate_python_server.py").is_file()
+    assert (ROOT / "skills/mcp-server-architect/tools/generate_dotnet_server.py").is_file()
+    assert (ROOT / "skills/mcp-server-architect/tools/dotnet-template").is_dir()
     assert len(source_files()) > 40
 
 
@@ -118,7 +94,7 @@ def test_skill_frontmatter_remains_portable() -> None:
 
 
 def test_release_contains_no_private_project_or_polish_examples() -> None:
-    suffixes = {".md", ".py", ".yml", ".yaml", ".template", ".toml", ".txt", ".example"}
+    suffixes = {".md", ".py", ".cs", ".csproj", ".yml", ".yaml", ".template", ".toml", ".txt", ".example"}
     for path in source_files():
         if path.suffix.lower() not in suffixes:
             continue
@@ -131,30 +107,11 @@ def test_release_contains_no_private_project_or_polish_examples() -> None:
 def test_recovery_audit_covers_removed_operational_domains() -> None:
     text = (ROOT / "RECOVERY_AUDIT.md").read_text(encoding="utf-8").lower()
     required_topics = {
-        "fastmcp",
-        ".net",
-        "cancellation",
-        "semgrep",
-        "dependabot",
-        "coverage",
-        "pagination",
-        "partial execution",
-        "pre-commit",
-        "lifecycle",
-        "conflict",
-        "same image",
-        "manifest",
-        "concurrency",
-        "transport parity",
-        "compatibility",
-        "generator",
-        "real mcp client",
-        "filesystem",
-        "artifact",
-        "task registries",
-        "browser profiles",
-        "ui drift",
-        "embedded hosting",
+        "fastmcp", ".net", "cancellation", "semgrep", "dependabot", "coverage", "pagination",
+        "partial execution", "pre-commit", "lifecycle", "conflict", "same image", "manifest",
+        "concurrency", "transport parity", "compatibility", "generator", "real mcp client",
+        "filesystem", "artifact", "task registries", "browser profiles", "ui drift",
+        "embedded hosting", "legacy http+sse", "structured content", "claimsprincipal", "nuget",
     }
     assert all(topic in text for topic in required_topics)
 
@@ -184,26 +141,15 @@ def test_python_and_dotnet_profiles_cover_the_same_core_invariants() -> None:
             assert len(body) >= 120, (name, heading, body)
 
     required_platform_contracts = {
-        "python": {
-            "FastMCP",
-            "asyncio",
-            "contextvars",
-            "event loop",
-            "compatibility adapter",
-            "Streamable HTTP",
-        },
+        "python": {"FastMCP", "asyncio", "contextvars", "event loop", "compatibility adapter", "Streamable HTTP"},
         "dotnet": {
-            "ModelContextProtocol",
-            "Generic Host",
-            "CancellationToken",
-            "Activity",
-            "WithStdioServerTransport",
-            "WithHttpTransport",
-            "MapMcp",
+            "ModelContextProtocol", "Generic Host", "CancellationToken", "Activity", "ClaimsPrincipal",
+            "AddAuthorizationFilters", "WithStdioServerTransport", "WithHttpTransport", "MapMcp",
+            "UseStructuredContent", "McpException",
         },
     }
     for name, required in required_platform_contracts.items():
-        missing = required - set(token for token in required if token in profiles[name])
+        missing = required - {token for token in required if token in profiles[name]}
         assert not missing, (name, missing)
 
     standard = (ROOT / "skills/mcp-server-architect/STANDARD.md").read_text(encoding="utf-8")
@@ -211,6 +157,7 @@ def test_python_and_dotnet_profiles_cover_the_same_core_invariants() -> None:
     assert "transport-lifecycle-and-conformance.md" in standard
     assert "runtime-boundaries-and-artifacts.md" in standard
     assert "Generated project acceptance" in standard
+    assert "dotnet-migration-simulation.md" in standard
 
 
 def test_mcp_examples_exercise_native_python_and_dotnet_hosting_surfaces() -> None:
@@ -220,21 +167,36 @@ def test_mcp_examples_exercise_native_python_and_dotnet_hosting_surfaces() -> No
     http_example = (examples / "dotnet/HttpProgram.cs.example").read_text(encoding="utf-8")
     tool_example = (examples / "dotnet/InventoryTools.cs.example").read_text(encoding="utf-8")
 
-    for token in (
-        "from mcp.server.fastmcp import Context, FastMCP",
-        "lifespan",
-        "stateless_http=True",
-        "json_response=True",
-        "@mcp.tool()",
-    ):
+    for token in ("from mcp.server.fastmcp import Context, FastMCP", "lifespan", "stateless_http=True", "json_response=True", "@mcp.tool()"):
         assert token in python_example
     assert "max_request_body_size=" not in python_example
-    for token in ("AddMcpServer", "WithStdioServerTransport", "WithTools<InventoryTools>"):
+    for token in ("AddMcpServer", "WithStdioServerTransport", "WithTools<InventoryTools>", "LogToStandardErrorThreshold"):
         assert token in stdio_example
-    for token in ("WithHttpTransport", "options.Stateless = true", "MapMcp"):
+    for token in (
+        "WithHttpTransport", "options.Stateless = true", "AddAuthorizationFilters", "UseAuthentication",
+        "UseAuthorization", "UseRateLimiter", "MapMcp", "AllowedHosts",
+    ):
         assert token in http_example
-    for token in ("[McpServerToolType]", "[McpServerTool", "CancellationToken"):
+    for token in (
+        "[McpServerToolType]", "[McpServerTool", "ClaimsPrincipal?", "CancellationToken",
+        "UseStructuredContent = true", "OutputSchemaType", "throw new McpException",
+    ):
         assert token in tool_example
+    for text in (stdio_example, http_example, tool_example):
+        assert "WithToolsFromAssembly" not in text
+        assert "EnableLegacySse" not in text
+
+
+def test_legacy_http_sse_is_forbidden_precisely_without_banning_modern_streaming() -> None:
+    skill = (ROOT / "skills/mcp-server-architect/SKILL.md").read_text(encoding="utf-8")
+    standard = (ROOT / "skills/mcp-server-architect/STANDARD.md").read_text(encoding="utf-8")
+    transport = (ROOT / "skills/mcp-server-architect/references/transport-lifecycle-and-conformance.md").read_text(encoding="utf-8")
+    combined = "\n".join((skill, standard, transport)).casefold()
+    assert "deprecated two-endpoint http+sse" in combined
+    assert "must not implement" in combined or "forbidden" in combined
+    assert "text/event-stream" in combined
+    assert "removal date" in combined
+    assert "july 28" not in combined
 
 
 def test_legacy_standard_paths_remain_resolvable_deprecation_stubs() -> None:

@@ -8,12 +8,10 @@ REFERENCES = MCP / "references"
 
 
 def read(name: str) -> str:
-    """Read one MCP standard document."""
     return (REFERENCES / name).read_text(encoding="utf-8")
 
 
 def assert_terms(text: str, required: set[str]) -> None:
-    """Require prose contracts without making capitalization an API."""
     folded = text.casefold()
     missing = {term for term in required if term.casefold() not in folded}
     assert not missing, missing
@@ -34,83 +32,65 @@ def test_language_neutral_standard_owns_migration_invariants() -> None:
         "browser profiles are credential stores",
         "configuration-order",
         "Python migration simulation",
+        ".NET migration simulation",
+        "deprecated two-endpoint HTTP+SSE",
     }
     assert_terms(text, required)
 
 
 def test_manifest_contract_rejects_class_wide_optimistic_defaults() -> None:
     text = read("capability-manifests-and-versioning.md")
-    required = {
-        "confidentiality",
-        "idempotency_mechanism",
-        "retry_conditions",
-        "concurrency_scope",
-        "target_binding",
-        "active_state",
+    assert_terms(text, {
+        "confidentiality", "idempotency_mechanism", "retry_conditions", "concurrency_scope",
+        "target_binding", "active_state",
         "A write defaults to `idempotent: false`, `retryable: false`, and `concurrent_safe: false`",
-        "unknown-outcome state",
-        "never falls back silently",
-    }
-    assert_terms(text, required)
+        "unknown-outcome state", "never falls back silently",
+    })
 
 
 def test_python_profile_covers_real_migration_failure_modes() -> None:
     text = read("python-fastmcp.md")
-    required = {
-        "official MCP Python SDK",
-        "separately distributed FastMCP package",
-        "mcp>=1.27.2,<2",
-        "real-client suite",
-        "one invocation kernel",
-        "threading.local",
-        "contextvars.ContextVar",
-        "asyncio.to_thread",
-        "bounded executor",
-        "run_until_complete",
-        "default to non-retryable",
-        "no-silent-fallback",
-        "Path.resolve",
-        "bounded task registry",
-        "credential store",
-        "UI drift",
-        "Pagination",
-        "ISO 8601",
-    }
-    assert_terms(text, required)
+    assert_terms(text, {
+        "official MCP Python SDK", "separately distributed FastMCP package", "mcp>=1.27.2,<2",
+        "real-client suite", "one invocation kernel", "threading.local", "contextvars.ContextVar",
+        "asyncio.to_thread", "bounded executor", "run_until_complete", "default to non-retryable",
+        "no-silent-fallback", "Path.resolve", "bounded task registry", "credential store",
+        "UI drift", "Pagination", "ISO 8601",
+    })
+
+
+def test_dotnet_profile_covers_executable_sdk_and_host_failure_modes() -> None:
+    text = read("dotnet-mcp.md")
+    assert_terms(text, {
+        "ModelContextProtocol.AspNetCore", "1.4.1", "AddAuthorizationFilters", "ClaimsPrincipal",
+        "authentication before principal-partitioned rate limiting", "UseStructuredContent",
+        "OutputSchemaType", "McpException", "WithTools<T>", "WithToolsFromAssembly",
+        "InheritEnvironmentVariables = false", "InMemoryMcpTaskStore", "supervised executor",
+        "package/metadata/id", "official C# MCP client", "exact published artifact", "EnableLegacySse",
+    })
 
 
 def test_transport_contract_prevents_adapter_policy_drift() -> None:
     text = read("transport-lifecycle-and-conformance.md")
-    required = {
-        "One invocation kernel",
-        "does not silently select the first healthy target",
-        "registration count or successful port binding alone never means ready",
-        "acknowledging public exposure is never sufficient security",
-        "does not call `asyncio.run`, `run_until_complete`",
-        "expected disconnect",
-        "failed-default",
-    }
-    assert_terms(text, required)
+    assert_terms(text, {
+        "One invocation kernel", "does not silently select", "registration count or successful port binding alone never means ready",
+        "public exposure is never sufficient security", "asyncio.run", "expected disconnect",
+        "configured default", "deprecated two-endpoint HTTP+SSE", "text/event-stream",
+        "no protocol-wide removal date",
+    })
 
 
 def test_runtime_boundary_contract_covers_files_tasks_sessions_and_browsers() -> None:
     text = read("runtime-boundaries-and-artifacts.md")
-    required = {
-        "Path.is_relative_to",
-        "time-of-check/time-of-use",
-        "opaque artifact handle",
-        "at least 128 bits of entropy",
-        "rejects an oversized body before buffering it in full",
-        "browser profile contains credentials",
-        "profile lock",
-        "selector drift",
-        "server-level instructions",
-        "embedded in another application",
-    }
-    assert_terms(text, required)
+    assert_terms(text, {
+        "Path.is_relative_to", "time-of-check/time-of-use", "opaque artifact handle",
+        "at least 128 bits of entropy", "rejects an oversized body before buffering it in full",
+        "browser profile contains credentials", "profile lock", "selector drift",
+        "server-level instructions", "embedded in another application",
+    })
 
 
-def test_simulation_covers_each_server_archetype() -> None:
+def test_python_simulation_covers_each_server_archetype() -> None:
     text = read("python-migration-simulation.md")
     headings = {
         "## Archetype A: large read-only aggregator",
@@ -123,39 +103,39 @@ def test_simulation_covers_each_server_archetype() -> None:
         "## Migration acceptance checklist",
     }
     assert headings.issubset(set(text.splitlines()))
+    assert_terms(text, {
+        "DHCP identity change", "failed-default behavior", "empty and final pagination pages",
+        "configuration import order", "ambiguous mutation reconciliation", "post-restart verification",
+        "secret-cache prohibition", "symlink escapes", "two-process locking",
+        "oversized HTTP bodies", "selector drift", "Generated code must execute",
+    })
 
-    regression_terms = {
-        "DHCP identity change",
-        "failed-default behavior",
-        "empty and final pagination pages",
-        "configuration import order",
-        "ambiguous mutation reconciliation",
-        "post-restart verification",
-        "secret-cache prohibition",
-        "symlink escapes",
-        "two-process locking",
-        "oversized HTTP bodies",
-        "selector drift",
-        "Generated code must execute",
+
+def test_dotnet_simulation_covers_distinct_archetypes_and_sdk_boundaries() -> None:
+    text = read("dotnet-migration-simulation.md")
+    headings = {
+        "## Archetype A: read-only aggregator with exports",
+        "## Archetype B: physical-device controller",
+        "## Archetype C: financial API adapter",
+        "## Archetype D: multi-backend SSH administrator",
+        "## .NET-specific ambiguity resolutions",
+        "## Migration acceptance checklist",
     }
-    assert_terms(text, regression_terms)
+    assert headings.issubset(set(text.splitlines()))
+    assert_terms(text, {
+        "ClaimsPrincipal", "principal-bound artifact", "physical effect", "decimal",
+        "host-key fingerprint", "no silent target fallback", "AddAuthorizationFilters",
+        "task store is not an executor", "legacy HTTP+SSE", "official C# MCP client",
+    })
 
 
 def test_testing_strategy_has_executable_migration_evidence() -> None:
     text = read("testing-strategy.md")
-    required = {
-        "Generator acceptance",
-        "official in-memory MCP client",
-        "Invocation-kernel parity",
-        "prohibition of silent fallback",
-        "bounded executor saturation",
-        "timeout after the upstream commits a mutation",
-        "Filesystem and artifact safety",
-        "Task registry",
-        "Browser automation",
-        "full-final",
-        "configuration-order",
-        "Archetype migration matrix",
-        "stable production SDK lane",
-    }
-    assert_terms(text, required)
+    assert_terms(text, {
+        "Generator acceptance", "official in-memory MCP client", "official C# MCP client",
+        "Invocation-kernel parity", "prohibition of silent fallback", "bounded executor saturation",
+        "timeout after the upstream commits a mutation", "Filesystem and artifact safety",
+        "Task registry", "Browser automation", "full-final", "configuration-order",
+        "Archetype migration matrix", "stable production SDK lane", "direct package/metadata",
+        "deprecated legacy HTTP+SSE",
+    })

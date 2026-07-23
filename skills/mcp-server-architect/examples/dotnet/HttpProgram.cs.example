@@ -1,30 +1,75 @@
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
+using ModelContextProtocol.Server;
+using System.Security.Claims;
+using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
 
+builder.Configuration["AllowedHosts"] = "localhost;127.0.0.1;[::1]";
+builder.WebHost.ConfigureKestrel(options =>
+{
+    options.ListenLocalhost(8000);
+    options.Limits.MaxRequestBodySize = 1_048_576;
+    options.Limits.MaxConcurrentConnections = 128;
+});
+
+builder.Services.AddAuthentication("Bearer").AddJwtBearer("Bearer", options =>
+{
+    // Configure an actual issuer, audience, signing keys, and lifetime validation.
+    options.Authority = builder.Configuration["Authentication:Authority"];
+    options.Audience = builder.Configuration["Authentication:Audience"];
+});
+builder.Services.AddAuthorization(options =>
+{
+    options.AddPolicy("mcp", policy => policy.RequireAuthenticatedUser());
+});
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.AddPolicy("mcp", context => RateLimitPartition.GetFixedWindowLimiter(
+        context.User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "anonymous",
+        _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = 60,
+            QueueLimit = 0,
+            Window = TimeSpan.FromMinutes(1),
+            AutoReplenishment = true,
+        }));
+});
+
 builder.Services.AddSingleton<IInventoryService, InventoryService>();
+builder.Services.AddSingleton<InventoryInvocationKernel>();
 builder.Services
     .AddMcpServer()
     .WithHttpTransport(options =>
     {
+        // Set this explicitly. Stateful is chosen only for a proven requirement.
         options.Stateless = true;
     })
+    .AddAuthorizationFilters()
     .WithTools<InventoryTools>();
 
 builder.Services
     .AddHealthChecks()
-    .AddCheck<InventoryReadinessHealthCheck>(
-        "inventory-dependency",
-        tags: ["ready"]);
+    .AddCheck("self", () => HealthCheckResult.Healthy(), tags: ["live"])
+    .AddCheck<InventoryReadinessHealthCheck>("inventory-dependency", tags: ["ready"]);
 
 var app = builder.Build();
+app.UseAuthentication();
+app.UseAuthorization();
+// Principal-partitioned rate limiting must run after authentication.
+app.UseRateLimiter();
 
 app.MapHealthChecks(
     "/health/live",
-    new HealthCheckOptions { Predicate = _ => false });
+    new HealthCheckOptions { Predicate = check => check.Tags.Contains("live") });
 app.MapHealthChecks(
     "/health/ready",
     new HealthCheckOptions { Predicate = check => check.Tags.Contains("ready") });
-app.MapMcp("/mcp");
+app.MapMcp("/mcp")
+    .RequireAuthorization("mcp")
+    .RequireRateLimiting("mcp");
 
 await app.RunAsync();

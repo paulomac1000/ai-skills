@@ -12,53 +12,62 @@ verification: Run malicious and conflicting metadata scenarios proving untrusted
 
 ## Sources
 
-The decision engine emits one of these stable base provenance values:
+The decision engine emits one or more stable provenance values joined with `+`:
 
-- `local-policy`: reviewed consumer-owned configuration was supplied through the separate keyword-only `trusted_policy=True` argument;
-- `untrusted-risk-escalation`: untrusted explicit risk metadata raised the classification;
-- `name-prefix-escalation`: an untrusted risk prefix in the public capability name raised the classification;
-- `trusted-annotation`: an annotation was evaluated with the separate consumer-controlled `trusted_server=True` argument;
-- `untrusted-annotation-escalation`: an untrusted annotation conservatively raised the result;
+- `consumer-policy`: a typed consumer-owned policy supplied an authoritative risk;
+- `consumer-contract`: a typed reviewed capability contract supplied an authoritative risk;
+- `untrusted-risk-escalation`: discovered metadata raised the classification conservatively;
+- `name-prefix-escalation`: a public capability-name prefix raised the classification conservatively;
+- `trusted-annotation`: a display annotation from an independently trusted server changed an otherwise unknown classification;
+- `untrusted-annotation-escalation`: an untrusted annotation raised the classification;
+- `sensitive`: discovered metadata conservatively raised confidentiality risk;
 - `unknown`: no authoritative or conservative signal classified the capability.
 
-When a separate trusted `sensitive: true` fact promotes `READ` or `UNKNOWN` to `SENSITIVE`, the engine appends `+sensitive` to the existing base value. Consumers should parse this as a base provenance plus an additive confidentiality marker rather than inventing undocumented source names.
-
-The decision engine exposes provenance so policy and audit logs can distinguish why a risk was selected. New source values require a documented contract and regression test before release.
+Every new provenance value requires a documented contract and a regression test. Policy and audit consumers must not infer authority from a string that the server can supply.
 
 ## Trust-channel separation
 
-Discovered capability metadata is always untrusted. Keys named `trusted_policy`, `trusted_contract`, or `trusted_server` inside that mapping have no authority and are ignored. The caller must derive trust from consumer-owned configuration, a pinned server identity, or another verified wrapper and pass it through separate keyword-only arguments. Never copy a server-provided boolean into those arguments without independent verification.
+Discovered capability metadata is always untrusted. Keys named `trusted_policy`, `trusted_contract`, `trusted_server`, `consumer_policy`, or similar have no authority inside that mapping.
+
+Authoritative values arrive through typed consumer-owned objects:
+
+- `TrustedCapabilityPolicy` for local reviewed policy;
+- `TrustedCapabilityContract` for a pinned and separately verified contract.
+
+Those objects carry the trusted risk and idempotency values themselves. A boolean must never upgrade fields from the untrusted metadata map. Server identity trust is a separate input used only for annotation interpretation; it does not make every metadata field authoritative.
 
 ## Monotonic classification
 
-Every additional signal is combined monotonically. It may preserve or raise the current compatibility risk projection but cannot replace it with a weaker result. In particular, `destructiveHint: true` must not turn an already `DANGEROUS` capability into merely `DESTRUCTIVE`.
+Every signal is combined monotonically. It may preserve or raise the current compatibility risk projection but cannot replace it with a weaker result. A destructive annotation cannot turn an already dangerous capability into merely destructive. A trusted local risk also does not suppress stronger conservative evidence discovered at runtime.
 
-Because confidentiality is partly orthogonal to side effects, the profile also retains the separate `sensitive` fact. A single compatibility enum is not a substitute for the server manifest's multi-axis safety contract.
+Confidentiality is partly orthogonal to side effects, so the profile retains a separate `sensitive` fact. A single compatibility enum is not a substitute for the server manifest's multi-axis safety contract.
 
 ## Downgrade rule
 
-Only consumer-owned local policy or an explicitly trusted server annotation may reduce unknown risk to read-only. A tool named `[READ] export_all`, a description claiming no side effects, or `readOnlyHint: true` from an untrusted server remains unknown.
+Only an explicit risk carried by typed consumer-owned policy or contract, or a read-only annotation from an independently trusted server, may classify an otherwise unknown tool as read-only. A tool named `[READ] export_all`, a description claiming no side effects, or `readOnlyHint: true` from an untrusted server remains unknown.
 
 ## Elevation rule
 
-Untrusted evidence may raise risk. A destructive or dangerous prefix, schema accepting command text, or annotation indicating destructive behavior is sufficient to require stronger handling. Fail closed on disagreement and preserve the highest inferred class.
+Untrusted evidence may raise risk. A destructive or dangerous prefix, a schema accepting command text, an explicit unsafe risk value, or an annotation indicating destructive behavior is sufficient to require stronger handling. Fail closed on disagreement and preserve the highest inferred class.
 
 ## Idempotency trust
 
-A positive `idempotent: true` claim is safety-reducing because it can authorize automatic replay after an ambiguous failure. Accept it only when the consumer independently supplies `trusted_policy=True` for reviewed local policy or `trusted_contract=True` for a separately verified capability contract. Identically named keys inside discovered metadata do not count. Generic server trust used for display annotations does not prove idempotency. An untrusted `idempotent: false` claim may be retained because it can only disable retry and make behavior more conservative.
+A positive `idempotent: true` claim is safety-reducing because it can authorize automatic replay after an ambiguous failure. Accept it only from the `idempotent` field of a typed `TrustedCapabilityPolicy` or `TrustedCapabilityContract`. Never read positive replay safety from discovered metadata, even when the server itself is trusted for display annotations.
 
-Retry still requires a retry-eligible error, an explicit positive retry signal, remaining attempt and deadline budget, preserved target identity, and any required refreshed precondition. Trusted idempotency alone never authorizes a retry.
+An untrusted `idempotent: false` claim may be retained because it only disables retry. Any explicit negative signal from policy, contract, manifest, or response wins over a positive signal.
+
+Retry still requires a retry-eligible error, an explicit positive retry signal, remaining attempt and deadline budget, preserved target identity, proven operation idempotency, and any required refreshed precondition. Trusted idempotency alone never authorizes a retry.
 
 ## Sensitive reads
 
-Read-only does not mean low-risk. Credentials, personal data, private messages, financial records, and internal configuration are sensitive even without mutation. Minimize fields, require purpose, and preserve server-side authorization.
+Read-only does not mean low-risk. Credentials, personal data, private messages, financial records, and internal configuration are sensitive even without mutation. Minimize fields, require purpose, preserve server-side authorization, and avoid caching protected output merely because the operation is read-only.
 
 ## Confirmation
 
 Confirmation names the exact effect, target, scope, and irreversibility. It is obtained close to invocation and is not silently reused for a broader operation. Confirmed workflows may cover repetitive bounded writes only when the user approved that exact workflow.
 
-A model-controlled boolean or arbitrary tool argument is not confirmation. Runtime authorization must consume trusted caller/session context or a server-side approval record created through a separate trusted host, UI, or transport. Any presented approval handle must be opaque, short-lived, single-use when appropriate, and bound to the exact operation, principal, target, and resource.
+A model-controlled boolean or arbitrary tool argument is not confirmation. Runtime authorization consumes trusted caller or session context, or a server-side approval record created through a separate trusted host, UI, or transport. Any presented approval handle is opaque, short-lived, bounded, and bound to the exact operation, principal, target, and resource.
 
 ## Verification
 
-Test misleading names, every emitted provenance value, `+sensitive`, conflicting metadata, forged trust keys, malicious annotations, dangerous-plus-destructive conflicts, untrusted positive idempotency, explicit and malformed legacy failures, public package imports, sensitive reads, model-supplied confirmation attempts, and cross-server attempts to transfer authority.
+Test misleading names, every emitted provenance value, conflicting typed policy and discovered metadata, forged trust keys, wrong trust-object types, malicious annotations, dangerous-plus-destructive conflicts, untrusted positive idempotency, explicit negative idempotency, malformed legacy failures, public package imports, sensitive reads, model-supplied confirmation attempts, and cross-server attempts to transfer authority.

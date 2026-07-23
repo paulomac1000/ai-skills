@@ -1,0 +1,5 @@
+# Security model
+
+HTTP binds only to loopback, requires a bearer token, validates host names, rejects oversized bodies in Kestrel, and enables no browser CORS. Remote deployment requires TLS, a real OAuth/JWT resource server, exact public hosts, per-resource authorization, abuse controls, and deployment-specific secret storage.
+
+Writes are disabled by default. Enabling them does not bypass authorization or the server-side approval registry. Approval tokens are random, short-lived, single-use, and bound to principal, capability, target, and resource. Never expose approval issuance as a model-controlled tool.

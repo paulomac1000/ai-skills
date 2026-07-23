@@ -1,0 +1,12 @@
+FROM mcr.microsoft.com/dotnet/sdk:10.0.302 AS build
+WORKDIR /src
+COPY . .
+RUN dotnet restore src/__NAMESPACE__.Mcp.Server/__NAMESPACE__.Mcp.Server.csproj \
+ && dotnet publish src/__NAMESPACE__.Mcp.Server/__NAMESPACE__.Mcp.Server.csproj \
+      --configuration Release --no-restore --output /out
+
+FROM mcr.microsoft.com/dotnet/aspnet:10.0
+WORKDIR /app
+COPY --from=build /out .
+USER $APP_UID
+ENTRYPOINT ["dotnet", "__NAMESPACE__.Mcp.Server.dll"]

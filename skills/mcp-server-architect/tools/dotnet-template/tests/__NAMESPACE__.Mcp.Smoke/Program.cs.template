@@ -1,0 +1,121 @@
+using ModelContextProtocol.Client;
+using System.Diagnostics;
+using System.Net;
+using System.Net.Sockets;
+
+if (args.Length is < 1 or > 2) throw new InvalidOperationException("Expected server DLL and optional --http.");
+var dll = Path.GetFullPath(args[0]);
+if (!File.Exists(dll)) throw new FileNotFoundException("Server DLL not found.", dll);
+
+if (args.Contains("--http", StringComparer.Ordinal))
+    await RunHttpAsync(dll);
+else
+    await RunStdioAsync(dll);
+
+static async Task RunStdioAsync(string dll)
+{
+    var environment = StdioClientTransportOptions.GetDefaultEnvironmentVariables();
+    environment["MCP_WRITES_ENABLED"] = "false";
+    var transport = new StdioClientTransport(new StdioClientTransportOptions
+    {
+        Name = "__SERVER_NAME__ stdio smoke",
+        Command = "dotnet",
+        Arguments = [dll],
+        InheritEnvironmentVariables = false,
+        EnvironmentVariables = environment,
+        ShutdownTimeout = TimeSpan.FromSeconds(10),
+    });
+    await using var client = await McpClient.CreateAsync(transport);
+    await VerifyContractAsync(client);
+}
+
+static async Task RunHttpAsync(string dll)
+{
+    var listener = new TcpListener(IPAddress.Loopback, 0);
+    listener.Start();
+    var port = ((IPEndPoint)listener.LocalEndpoint).Port;
+    listener.Stop();
+    var token = Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32));
+
+    using var process = Process.Start(new ProcessStartInfo
+    {
+        FileName = "dotnet",
+        UseShellExecute = false,
+        Arguments = $"\"{dll}\" --http",
+        Environment =
+        {
+            ["MCP_HTTP_PORT"] = port.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            ["MCP_HTTP_BEARER_TOKEN"] = token,
+            ["MCP_WRITES_ENABLED"] = "false",
+        },
+    }) ?? throw new InvalidOperationException("HTTP server process did not start.");
+
+    try
+    {
+        using var probe = new HttpClient { Timeout = TimeSpan.FromSeconds(1) };
+        var ready = false;
+        for (var attempt = 0; attempt < 40; attempt++)
+        {
+            try
+            {
+                ready = (await probe.GetAsync($"http://127.0.0.1:{port}/health/ready")).IsSuccessStatusCode;
+                if (ready) break;
+            }
+            catch (HttpRequestException)
+            {
+            }
+            await Task.Delay(250);
+        }
+        if (!ready) throw new InvalidOperationException("HTTP server did not become ready.");
+
+        var transport = new HttpClientTransport(new HttpClientTransportOptions
+        {
+            Name = "__SERVER_NAME__ HTTP smoke",
+            Endpoint = new Uri($"http://127.0.0.1:{port}/mcp"),
+            TransportMode = HttpTransportMode.StreamableHttp,
+            AdditionalHeaders = new Dictionary<string, string>
+            {
+                ["Authorization"] = $"Bearer {token}",
+            },
+        });
+        await using var client = await McpClient.CreateAsync(transport);
+        await VerifyContractAsync(client);
+    }
+    finally
+    {
+        if (!process.HasExited) process.Kill(entireProcessTree: true);
+        await process.WaitForExitAsync();
+    }
+}
+
+static async Task VerifyContractAsync(McpClient client)
+{
+    var tools = await client.ListToolsAsync();
+    var names = tools.Select(tool => tool.Name).ToHashSet(StringComparer.Ordinal);
+    var expected = new[] { "describe_capabilities", "list_items", "put_item" }.ToHashSet(StringComparer.Ordinal);
+    if (!names.SetEquals(expected))
+        throw new InvalidOperationException($"Tool catalog mismatch: {string.Join(',', names)}");
+
+    var discovery = await client.CallToolAsync("describe_capabilities", new Dictionary<string, object?>(), cancellationToken: CancellationToken.None);
+    if (discovery.IsError == true || discovery.StructuredContent is null)
+        throw new InvalidOperationException("Capability discovery was not structured success.");
+
+    var listed = await client.CallToolAsync("list_items", new Dictionary<string, object?> { ["limit"] = 2 }, cancellationToken: CancellationToken.None);
+    if (listed.IsError == true || listed.StructuredContent is null)
+        throw new InvalidOperationException("Representative read was not structured success.");
+
+    var rejected = await client.CallToolAsync(
+        "put_item",
+        new Dictionary<string, object?>
+        {
+            ["itemId"] = "gamma",
+            ["name"] = "Gamma",
+            ["expectedVersion"] = 0,
+            ["approvalToken"] = "model-controlled-token",
+        },
+        cancellationToken: CancellationToken.None);
+    if (rejected.IsError != true)
+        throw new InvalidOperationException("Fail-closed write did not set protocol isError.");
+
+    Console.WriteLine("PASS: official client listed tools, invoked structured reads, and observed protocol-native write rejection.");
+}

@@ -1,7 +1,7 @@
 """Pure decision helpers for safe and efficient MCP capability consumption.
 
-The module performs no network or protocol I/O. It exposes deterministic policy
-functions that can be tested independently from an MCP runtime.
+The module performs no network or protocol I/O. Discovered server metadata is
+always untrusted; safety-reducing policy values use typed consumer-owned inputs.
 """
 
 from __future__ import annotations
@@ -12,8 +12,6 @@ from typing import Any, Iterable, Mapping, Sequence
 
 
 class Decision(str, Enum):
-    """Allowed outcomes of the side-effect policy."""
-
     INVOKE = "invoke"
     CONFIRM_THEN_INVOKE = "confirm_then_invoke"
     REJECT = "reject"
@@ -21,16 +19,12 @@ class Decision(str, Enum):
 
 
 class ErrorAction(str, Enum):
-    """Recovery behavior associated with an error category."""
-
     RETRY = "retry"
     RETRY_AFTER_READ = "retry_after_read"
     ESCALATE = "escalate"
 
 
 class Risk(str, Enum):
-    """Normalized compatibility projection of capability risk."""
-
     READ = "READ"
     WRITE = "WRITE"
     DESTRUCTIVE = "DESTRUCTIVE"
@@ -40,8 +34,6 @@ class Risk(str, Enum):
 
 
 class UserIntent(str, Enum):
-    """How specifically the user authorized the operation."""
-
     GENERAL = "general"
     CONFIRMED_WORKFLOW = "confirmed_workflow"
     EXPLICIT_BY_NAME = "explicit_by_name"
@@ -49,9 +41,25 @@ class UserIntent(str, Enum):
 
 
 @dataclass(frozen=True)
-class CapabilityProfile:
-    """Policy-relevant facts discovered for one capability."""
+class TrustedCapabilityPolicy:
+    """Consumer-owned policy values, never populated from discovered metadata."""
 
+    risk: str | Risk | None = None
+    requires_confirmation: bool | None = None
+    sensitive: bool | None = None
+    idempotent: bool | None = None
+
+
+@dataclass(frozen=True)
+class TrustedCapabilityContract:
+    """Reviewed capability-contract facts kept outside server metadata."""
+
+    risk: str | Risk | None = None
+    idempotent: bool | None = None
+
+
+@dataclass(frozen=True)
+class CapabilityProfile:
     risk: Risk
     requires_confirmation: bool = False
     sensitive: bool = False
@@ -61,8 +69,6 @@ class CapabilityProfile:
 
 @dataclass(frozen=True)
 class ErrorStrategy:
-    """Bounded recovery policy for one failure category."""
-
     retryable: bool
     max_retries: int
     action: ErrorAction
@@ -70,8 +76,6 @@ class ErrorStrategy:
 
 @dataclass(frozen=True)
 class ResponseResult:
-    """Normalized representation of a tool response."""
-
     success: bool
     data: Any = None
     meta: Mapping[str, Any] = field(default_factory=dict)
@@ -83,8 +87,6 @@ class ResponseResult:
 
 @dataclass(frozen=True)
 class PaginationDecision:
-    """Whether and how a consumer should request another page."""
-
     continue_paging: bool
     cursor: str | None = None
     offset: int | None = None
@@ -107,7 +109,7 @@ ERROR_STRATEGIES: dict[str, ErrorStrategy] = {
 }
 DEFAULT_ERROR_STRATEGY = ErrorStrategy(False, 0, ErrorAction.ESCALATE)
 
-_RISK_SEVERITY: dict[Risk, int] = {
+_RISK_SEVERITY = {
     Risk.UNKNOWN: 0,
     Risk.READ: 1,
     Risk.WRITE: 2,
@@ -118,7 +120,6 @@ _RISK_SEVERITY: dict[Risk, int] = {
 
 
 def _risk(value: str | Risk | None) -> Risk:
-    """Normalize risk without silently treating unknown input as safe."""
     if isinstance(value, Risk):
         return value
     if not isinstance(value, str):
@@ -130,12 +131,10 @@ def _risk(value: str | Risk | None) -> Risk:
 
 
 def _higher_risk(current: Risk, candidate: Risk) -> Risk:
-    """Return the more restrictive compatibility risk projection."""
     return candidate if _RISK_SEVERITY[candidate] > _RISK_SEVERITY[current] else current
 
 
 def _intent(value: str | UserIntent) -> UserIntent:
-    """Normalize user intent, defaulting to the least specific form."""
     if isinstance(value, UserIntent):
         return value
     try:
@@ -144,23 +143,14 @@ def _intent(value: str | UserIntent) -> UserIntent:
         return UserIntent.NOT_EXPLICIT
 
 
-def evaluate_decision(
-    risk: str | Risk,
-    requires_confirmation: bool,
-    user_intent: str | UserIntent,
-) -> Decision:
-    """Evaluate whether a capability may be invoked, confirmed, or rejected."""
+def evaluate_decision(risk: str | Risk, requires_confirmation: bool, user_intent: str | UserIntent) -> Decision:
     normalized = _risk(risk)
     intent = _intent(user_intent)
     if normalized is Risk.UNKNOWN:
         return Decision.DEFER
     if normalized is Risk.READ:
         return Decision.CONFIRM_THEN_INVOKE if requires_confirmation else Decision.INVOKE
-    if normalized is Risk.SENSITIVE:
-        if requires_confirmation:
-            return Decision.CONFIRM_THEN_INVOKE
-        return Decision.INVOKE if intent is UserIntent.CONFIRMED_WORKFLOW else Decision.CONFIRM_THEN_INVOKE
-    if normalized is Risk.WRITE:
+    if normalized in {Risk.WRITE, Risk.SENSITIVE}:
         if requires_confirmation:
             return Decision.CONFIRM_THEN_INVOKE
         return Decision.INVOKE if intent is UserIntent.CONFIRMED_WORKFLOW else Decision.CONFIRM_THEN_INVOKE
@@ -172,15 +162,11 @@ def evaluate_decision(
 
 
 def _untrusted_risk_signal(value: Any) -> Risk:
-    """Accept untrusted metadata only when it can increase risk."""
     normalized = _risk(value)
-    if normalized in {Risk.WRITE, Risk.SENSITIVE, Risk.DESTRUCTIVE, Risk.DANGEROUS}:
-        return normalized
-    return Risk.UNKNOWN
+    return normalized if normalized in {Risk.WRITE, Risk.SENSITIVE, Risk.DESTRUCTIVE, Risk.DANGEROUS} else Risk.UNKNOWN
 
 
 def _prefixed_risk(name: str) -> Risk:
-    """Return a conservative risk prefix; untrusted READ never proves safety."""
     upper_name = name.strip().upper()
     for candidate in (Risk.DANGEROUS, Risk.DESTRUCTIVE, Risk.SENSITIVE, Risk.WRITE):
         if upper_name.startswith(f"[{candidate.value}]"):
@@ -189,7 +175,6 @@ def _prefixed_risk(name: str) -> Risk:
 
 
 def _append_source(source: str, addition: str) -> str:
-    """Preserve every risk-elevation provenance signal without duplicates."""
     if source == "unknown":
         return addition
     parts = source.split("+")
@@ -200,32 +185,29 @@ def infer_capability_profile(
     name: str,
     metadata: Mapping[str, Any] | None = None,
     *,
-    trusted_policy: bool = False,
-    trusted_contract: bool = False,
+    trusted_policy: TrustedCapabilityPolicy | None = None,
+    trusted_contract: TrustedCapabilityContract | None = None,
     trusted_server: bool = False,
 ) -> CapabilityProfile:
-    """Infer a fail-closed profile with consumer-controlled trust provenance.
+    """Infer a fail-closed profile without upgrading untrusted metadata to policy."""
+    if trusted_policy is not None and not isinstance(trusted_policy, TrustedCapabilityPolicy):
+        raise TypeError("trusted_policy must be TrustedCapabilityPolicy or None")
+    if trusted_contract is not None and not isinstance(trusted_contract, TrustedCapabilityContract):
+        raise TypeError("trusted_contract must be TrustedCapabilityContract or None")
 
-    ``metadata`` is always treated as server-supplied and untrusted. Trust facts
-    are separate keyword-only arguments that must come from consumer-owned policy
-    or a verified wrapper; identically named keys inside metadata are ignored.
-    Untrusted evidence may raise risk or disable retry, but cannot prove read-only
-    behavior or replay safety.
-    """
     metadata = metadata or {}
-    local_policy = trusted_policy is True
-    verified_contract = trusted_contract is True
-    verified_server = trusted_server is True
+    policy_risk = _risk(trusted_policy.risk) if trusted_policy is not None else Risk.UNKNOWN
+    contract_risk = _risk(trusted_contract.risk) if trusted_contract is not None else Risk.UNKNOWN
+    inferred = _higher_risk(policy_risk, contract_risk)
+    source = "consumer-policy" if policy_risk is not Risk.UNKNOWN else "unknown"
+    if contract_risk is not Risk.UNKNOWN:
+        source = _append_source(source, "consumer-contract")
 
-    explicit = _risk(metadata.get("risk")) if local_policy else _untrusted_risk_signal(metadata.get("risk"))
-    inferred = explicit
-    source = (
-        "local-policy"
-        if local_policy and explicit is not Risk.UNKNOWN
-        else "untrusted-risk-escalation"
-        if explicit is not Risk.UNKNOWN
-        else "unknown"
-    )
+    untrusted_risk = _untrusted_risk_signal(metadata.get("risk"))
+    previous = inferred
+    inferred = _higher_risk(inferred, untrusted_risk)
+    if inferred is not previous:
+        source = _append_source(source, "untrusted-risk-escalation")
 
     prefix = _prefixed_risk(name)
     previous = inferred
@@ -241,41 +223,50 @@ def infer_capability_profile(
             if inferred is not previous:
                 source = _append_source(
                     source,
-                    "trusted-annotation" if verified_server else "untrusted-annotation-escalation",
+                    "trusted-annotation" if trusted_server is True else "untrusted-annotation-escalation",
                 )
-        if verified_server and inferred is Risk.UNKNOWN and annotations.get("readOnlyHint") is True:
+        if trusted_server is True and inferred is Risk.UNKNOWN and annotations.get("readOnlyHint") is True:
             inferred = Risk.READ
             source = _append_source(source, "trusted-annotation")
 
-    sensitive = metadata.get("sensitive") is True
+    sensitive = metadata.get("sensitive") is True or (
+        trusted_policy is not None and trusted_policy.sensitive is True
+    )
     if sensitive:
         previous = inferred
         inferred = _higher_risk(inferred, Risk.SENSITIVE)
         if inferred is not previous:
             source = _append_source(source, "sensitive")
 
-    idempotent_value = metadata.get("idempotent")
-    if idempotent_value is False:
+    requires_confirmation = metadata.get("requires_confirmation") is True or (
+        trusted_policy is not None and trusted_policy.requires_confirmation is True
+    )
+
+    if metadata.get("idempotent") is False:
         idempotent: bool | None = False
-    elif idempotent_value is True and (local_policy or verified_contract):
+    elif trusted_policy is not None and trusted_policy.idempotent is False:
+        idempotent = False
+    elif trusted_contract is not None and trusted_contract.idempotent is False:
+        idempotent = False
+    elif (
+        trusted_policy is not None and trusted_policy.idempotent is True
+    ) or (
+        trusted_contract is not None and trusted_contract.idempotent is True
+    ):
         idempotent = True
     else:
         idempotent = None
 
     return CapabilityProfile(
         risk=inferred,
-        requires_confirmation=metadata.get("requires_confirmation") is True,
+        requires_confirmation=requires_confirmation,
         sensitive=sensitive,
         idempotent=idempotent,
         source=source,
     )
 
 
-def get_error_strategy(
-    error_code: str | None,
-    manifest: Mapping[str, Any] | None = None,
-) -> ErrorStrategy:
-    """Return a bounded strategy, respecting an explicit manifest veto."""
+def get_error_strategy(error_code: str | None, manifest: Mapping[str, Any] | None = None) -> ErrorStrategy:
     strategy = ERROR_STRATEGIES.get((error_code or "").upper(), DEFAULT_ERROR_STRATEGY)
     if manifest is not None and manifest.get("retryable") is False:
         return DEFAULT_ERROR_STRATEGY
@@ -291,7 +282,6 @@ def should_retry(
     response_retryable: bool | None = None,
     precondition_refreshed: bool = False,
 ) -> bool:
-    """Return whether another attempt is safe and explicitly permitted."""
     if type(attempt) is not int or attempt < 0:
         return False
     strategy = get_error_strategy(error_code, manifest)
@@ -310,7 +300,6 @@ def should_retry(
 
 
 def _extract_protocol_error(response: Mapping[str, Any]) -> tuple[str, str]:
-    """Extract an MCP-native tool error when no nested error object exists."""
     structured = response.get("structuredContent")
     if isinstance(structured, Mapping):
         code = structured.get("code")
@@ -331,13 +320,7 @@ def _extract_protocol_error(response: Mapping[str, Any]) -> tuple[str, str]:
     return "MCP_TOOL_ERROR", "MCP tool failed"
 
 
-def _legacy_failure(
-    *,
-    error: Any,
-    meta: Mapping[str, Any],
-    correlation_id: str | None,
-) -> ResponseResult:
-    """Normalize explicit legacy failure shapes without guessing success."""
+def _legacy_failure(*, error: Any, meta: Mapping[str, Any], correlation_id: str | None) -> ResponseResult:
     if isinstance(error, str) and error.strip():
         message = error.strip()
     elif error is None:
@@ -354,7 +337,6 @@ def _legacy_failure(
 
 
 def handle_response(response: Mapping[str, Any]) -> ResponseResult:
-    """Normalize structured and legacy responses without losing protocol errors."""
     meta = response.get("_meta")
     if not isinstance(meta, Mapping):
         meta = {}
@@ -394,7 +376,6 @@ def handle_response(response: Mapping[str, Any]) -> ResponseResult:
             error_message="Legacy success marker must be a boolean",
             correlation_id=correlation,
         )
-
     data = response.get("structuredContent", response.get("data", response.get("content")))
     return ResponseResult(success=True, data=data, meta=meta, correlation_id=correlation)
 
@@ -405,7 +386,6 @@ def select_efficient_tool(
     required_capabilities: Iterable[str],
     prefer_batch: bool = False,
 ) -> Mapping[str, Any] | None:
-    """Select the narrowest tool satisfying explicit non-empty requirements."""
     required = set(required_capabilities)
     if not required:
         return None
@@ -424,7 +404,6 @@ def select_efficient_tool(
 
 
 def _schema_accepts_true(schema: Any) -> bool:
-    """Return whether a property schema permits the literal boolean true."""
     if not isinstance(schema, Mapping):
         return False
     if "const" in schema:
@@ -441,7 +420,6 @@ def _schema_accepts_true(schema: Any) -> bool:
 
 
 def choose_initial_detail_params(input_schema: Mapping[str, Any]) -> dict[str, Any]:
-    """Choose a schema-valid compact response without guessing parameters."""
     properties = input_schema.get("properties")
     if not isinstance(properties, Mapping):
         return {}
@@ -463,7 +441,6 @@ def get_pagination_decision(
     pages_seen: int,
     max_pages: int,
 ) -> PaginationDecision:
-    """Continue only for a valid explicit continuation signal within a hard bound."""
     if type(pages_seen) is not int or type(max_pages) is not int or pages_seen < 0 or max_pages <= 0:
         return PaginationDecision(False, reason="invalid pagination bounds")
     if outcome_satisfied:

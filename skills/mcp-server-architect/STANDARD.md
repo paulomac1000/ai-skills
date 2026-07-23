@@ -5,7 +5,7 @@ type: reference
 status: active
 rigor: normative
 owners: [repository-maintainers]
-verification: Generate a fresh server and run its real-client suite, then run layered domain, manifest, policy, registration, lifecycle, race, transport-conformance, upstream-contract, and deployment-artifact tests for every advertised transport.
+verification: Generate fresh Python and .NET servers, execute each official-client suite, then run layered domain, manifest, policy, registration, lifecycle, race, transport-conformance, upstream-contract, and deployment-artifact tests for every advertised transport.
 ---
 
 # MCP server standard
@@ -36,7 +36,7 @@ Define language-neutral invariants for servers consumed by agents. SDK profiles 
 
 ## Configuration and identity
 
-Load and validate configuration before importing modules that read environment variables or create clients. Freeze one typed settings snapshot for the process. Runtime mutation requires an explicit reload transaction and revalidation.
+Load and validate configuration before modules create clients or capture environment values. Freeze one typed settings snapshot for the process. Runtime mutation requires an explicit reload transaction and revalidation.
 
 Secrets come from an intentional source and never from command-line arguments, example JSON, logs, capability discovery, or model-visible errors. A public-bind acknowledgement is not authentication, authorization, TLS, or network isolation.
 
@@ -46,20 +46,20 @@ Resolve the target resource before authorization and execution. Bind every mutat
 
 Every public component has a stable name, bounded input, structured output, documented empty-success behavior, version policy, and machine-readable failure shape. Tool descriptions and annotations improve discovery but are not authorization.
 
-At L2 and above, every public tool has a complete governed manifest. Missing or malformed metadata fails registration or CI; it never defaults to `READ`. The manifest, schema, description, runtime policy, and active profile must describe the same operation. See [Capability manifests and versioning](references/capability-manifests-and-versioning.md).
+At L2 and above, every public tool has a complete governed manifest. Missing or malformed metadata fails registration or CI; it never defaults to `READ`. The manifest, schema, description, runtime policy, active profile, SDK annotations, and tested behavior describe the same operation.
 
-Distinguish the supported catalog from the active catalog. Profiles, unavailable dependencies, operator policy, and deployment topology may reduce the active set, but discovery must explain why a supported capability is inactive. Large catalogs provide bounded categories, search, minimal listings, or on-demand schemas.
+Distinguish the supported catalog from the active catalog. Profiles, unavailable dependencies, operator policy, caller scopes, and deployment topology may reduce the active set, but discovery explains why a supported capability is inactive. Large catalogs provide bounded categories, search, minimal listings, or on-demand schemas.
 
-List and search tools return identifiers accepted by detail or mutation tools. Large results support bounded summaries, fields, pagination, or progressive discovery. Pagination defines stable ordering, continuation semantics, and a terminating condition; a non-empty page alone never proves that another page exists.
+List and search tools return identifiers accepted by detail or mutation tools. Large results support bounded summaries, fields, pagination, or progressive discovery. Pagination defines stable ordering, continuation semantics, and a terminating condition; a non-empty page alone never proves another page exists.
 
-Use server-level instructions for cross-tool ordering, stable ID flow, async polling, profile limitations, and reconciliation. Instructions improve agent behavior but do not replace runtime validation or authorization.
+Use server-level instructions for cross-tool ordering, stable ID flow, async polling, profile limitations, and reconciliation. Instructions improve agent behavior but never replace runtime validation or authorization.
 
 ## Multi-axis safety classification
 
 A single risk label is insufficient. Every capability independently declares:
 
 - side effects: none, read, write, or destructive;
-- confidentiality: public, internal, personal, sensitive, credential, or a stricter domain class;
+- confidentiality: public, internal, personal, sensitive, credential, financial, or a stricter domain class;
 - operational impact: none, transient, persistent, outage, safety-critical, or financial;
 - cost and abuse potential;
 - reversibility and compensation;
@@ -67,25 +67,29 @@ A single risk label is insufficient. Every capability independently declares:
 - target-binding and concurrency scope;
 - artifact, task, browser-profile, or privileged-adapter ownership when applicable.
 
-`READ`, `WRITE`, `DESTRUCTIVE`, `DANGEROUS`, and `SENSITIVE` may remain compatibility or UI projections, but policy evaluates every axis. Read-only financial data, logs, configuration, snapshots, browser profiles, and credentials are still confidential. A low-side-effect operation may still be expensive, privacy-sensitive, persistent, or capable of network abuse.
+`READ`, `WRITE`, `DESTRUCTIVE`, `DANGEROUS`, and `SENSITIVE` may remain compatibility or UI projections, but policy evaluates every axis. Read-only financial data, logs, configuration, snapshots, browser profiles, and credentials remain confidential.
 
 ## Side effects, retries, and workflows
 
-Write operations define idempotency, reversibility, concurrency preconditions, and conflict tokens. Never infer that every write is idempotent, retryable, reversible, or concurrent-safe from a factory name. Each positive claim has operation-specific evidence.
+Write operations define idempotency, reversibility, concurrency preconditions, and conflict tokens. Never infer that every write is idempotent, retryable, reversible, or concurrent-safe from a factory name or SDK annotation. Each positive claim has operation-specific evidence.
 
-Automatic retry requires all of the following: an eligible error category, an unexpired deadline, a proven idempotency mechanism, no explicit veto, and preserved target identity. Create, publish, copy, payment-state, command, browser-action, OTA, restart, and update operations default to no automatic retry unless a durable idempotency key, deduplication record, or equivalent proof exists.
+Automatic retry requires all of the following: an eligible error category, an unexpired deadline, a proven idempotency mechanism from trusted local policy, no explicit veto, preserved target identity, and any required refreshed precondition. Create, publish, copy, payment-state, command, browser-action, OTA, restart, and update operations default to no automatic retry.
 
-Multi-step changes use plan, execute, verify, and compensate phases. Per-step results preserve partial success. Operations that intentionally disconnect a target or continue after the request return an accepted or in-progress state, a verification window, and a follow-up method instead of disguising expected disconnect as a generic timeout.
+Multi-step changes use plan, execute, verify, and compensate phases. Per-step results preserve partial success. Operations that intentionally disconnect a target or continue after the request return an accepted or in-progress state, a verification window, and a follow-up method instead of disguising expected disconnect as generic timeout.
 
-Destructive and dangerous operations require narrow allowlists and explicit server-side authorization. Filesystem paths, commands, URLs, service names, network targets, content sizes, and resolved addresses are validated before I/O. Arbitrary command execution is exceptional and uses fixed executables, argument arrays, isolation, output limits, deadlines, and audit events. A read execution path cannot reach write commands.
+Destructive and dangerous operations require narrow allowlists and explicit server-side authorization. Filesystem paths, commands, URLs, service names, network targets, content sizes, and resolved addresses are validated before I/O. Arbitrary command execution uses fixed executables, argument arrays, isolation, output limits, deadlines, and audit events. A read execution path cannot reach write commands.
 
 ## Transport and lifecycle
 
-The standard transports are stdio and Streamable HTTP. Legacy HTTP+SSE is compatibility-only and must not be presented as equivalent to Streamable HTTP. A server advertises only transports that pass protocol conformance and policy-parity tests.
+The only standard transports for new servers are stdio and Streamable HTTP. The deprecated two-endpoint HTTP+SSE transport from protocol revision 2024-11-05 is forbidden for every new server at L1-L4. It must not appear in generated projects, examples, or default configuration.
 
-Stdio reserves stdout for protocol messages and sends diagnostics to stderr. Remote HTTP validates canonicalized Origin values, binds intentionally, authenticates before capability execution, and applies restrictive host and CORS policy. Stateless HTTP is preferred when server-to-client or cross-request state is unnecessary.
+Existing L2+ servers using legacy HTTP+SSE must migrate to Streamable HTTP. A temporary compatibility adapter is allowed only as a documented exception when a named legacy client cannot migrate yet. The adapter is disabled by default, isolated from the primary host, restricted to an explicit client or network allowlist, covered by dedicated conformance and policy-parity tests, assigned an owner and removal deadline, and receives no new feature development. This exception does not make legacy HTTP+SSE a supported transport.
 
-Startup, readiness, liveness, capability health, task health, and shutdown have separate meanings. Tool count or successful transport binding alone never means ready. Resources initialize once at their declared owner scope and close once on every owner-scope exit path. Partial startup reports unavailable capabilities and targets; it does not silently mark the entire workload healthy or redirect operations. See [Transport, lifecycle, and conformance](references/transport-lifecycle-and-conformance.md).
+Do not confuse legacy HTTP+SSE with optional `text/event-stream` responses or GET streams inside modern Streamable HTTP. The latter remain part of the current protocol. Avoid invented removal dates; follow the normative MCP deprecation lifecycle and reviewed SDK release notes.
+
+Stdio reserves stdout for protocol messages and sends diagnostics to stderr. Remote HTTP validates canonicalized Origin values, binds intentionally, authenticates before capability execution, and applies restrictive host and CORS policy. Stateless HTTP is preferred when server-to-client or cross-request state is unnecessary, and the choice is explicit rather than inherited from an SDK default.
+
+Startup, readiness, liveness, capability health, task health, and shutdown have separate meanings. Tool count or successful transport binding alone never means ready. Resources initialize once at their declared owner scope and close once on every owner-scope exit path. Partial startup reports unavailable capabilities and targets; it does not silently mark the workload healthy or redirect operations.
 
 ## Deadlines, cancellation, retries, and concurrency
 
@@ -99,13 +103,13 @@ Startup, readiness, liveness, capability health, task health, and shutdown have 
 - Shared mutable clients use immutable per-call options, a pool, a keyed lock, or a narrow semaphore.
 - Blocking work is offloaded to a bounded executor from asynchronous hosts.
 - Request-scoped identifiers and principals use request context, not process-global or thread-local mutable state in asynchronous code.
-- Session and task identifiers use a cryptographically secure generator with at least 128 bits of entropy and remain bound to the authenticated principal.
+- Session, approval, artifact, and task identifiers use a cryptographically secure generator with at least 128 bits of entropy and remain bound to the authenticated principal.
 
 ## Data, errors, and responses
 
-Errors distinguish validation, authentication, authorization, not found, conflict, rate limit, timeout, cancellation, unavailable dependency, upstream failure, UI drift, ambiguous outcome, and internal failure. Preserve upstream status and retry guidance without leaking secrets or raw protected bodies. Returning `None`, `False`, or generic `API_ERROR` for every failure is not a stable error contract.
+Errors distinguish validation, authentication, authorization, not found, conflict, rate limit, timeout, cancellation, unavailable dependency, upstream failure, UI drift, ambiguous outcome, and internal failure. Preserve upstream status and retry guidance without leaking secrets or raw protected bodies.
 
-Responses preserve protocol-native content, structured content, correlation identifiers, target identity, data provenance, freshness, and partial-result state. Central boundaries sanitize logs and model-visible responses separately. Confidential output is minimized before serialization; sensitive exports define retention, destination, maximum size, and deletion policy.
+Responses preserve protocol-native content, structured content, correlation identifiers, target identity, data provenance, freshness, and partial-result state. A custom DTO containing `success: false` does not automatically become a protocol-native tool error; tests assert `isError` or the SDK equivalent. Schema and data annotations improve discovery but do not enforce runtime validation.
 
 Domain values use unambiguous contracts. Money uses decimal or minor units plus currency and rounding policy. Dates use ISO 8601 with timezone or explicit date-only semantics. Localized upstream formats are converted only inside the upstream adapter.
 
@@ -115,17 +119,17 @@ Content returned by a webpage or another AI system is marked with provenance and
 
 Authenticate the calling principal and intended audience. Authorize every resolved target, resource, operation, data classification, artifact, task, and browser account, not only a tool name. Bind downstream credentials and target selection to approved caller context to prevent confused-deputy behavior.
 
-Operator write gates, user confirmation hints, per-principal authorization, target allowlists, and execution isolation are independent controls. One cannot substitute for another. High-privilege adapters such as container sockets, arbitrary SSH, writable browser profiles, or raw device protocols should be isolated into separate capability groups or processes.
+Operator write gates, user confirmation hints, per-principal authorization, target allowlists, and execution isolation are independent controls. A model-supplied boolean is not approval. Approval records are opaque, bounded, expiring, and bound to principal, capability, target, and resource.
 
 ## Runtime boundaries, artifacts, and browser automation
 
 Filesystem containment uses resolved component-aware paths, not string prefixes. Writes define symlink and time-of-check/time-of-use policy. Archives, uploads, and generated files enforce byte, type, destination, and extraction limits.
 
-Screenshots, reports, audio, backups, firmware, and exports are governed artifacts with owner, operation ID, MIME type, size, checksum when useful, retention, and deletion behavior. A host path is not returned as a public artifact identity.
+Screenshots, reports, audio, backups, firmware, and exports are governed artifacts with owner, operation ID, MIME type, size, checksum when useful, retention, and deletion behavior. A host path is not a public artifact identity.
 
-Background work is tracked by a bounded task registry or durable store. Daemon threads and untracked tasks are not operation records. Expected-disconnect and browser-generation workflows expose status, progress, verification, cancellation, final result, expiry, and cleanup.
+Background work is tracked by a bounded task registry or durable store. Daemon threads, untracked tasks, and fire-and-forget `Task.Run` are not operation records. Protocol task metadata does not replace a supervised executor or durable queue.
 
-Persistent browser profiles are credential stores. Account isolation, directory permissions, process locking, interactive-auth state, shared-context serialization, selector-drift diagnostics, sanitized screenshots, and explicit cleanup are part of the security contract. See [Runtime boundaries and artifacts](references/runtime-boundaries-and-artifacts.md).
+Persistent browser profiles are credential stores. Account isolation, directory permissions, process locking, interactive-auth state, shared-context serialization, selector-drift diagnostics, sanitized screenshots, and explicit cleanup are part of the security contract.
 
 ## Multi-backend and embedded hosting
 
@@ -135,15 +139,15 @@ An embedded MCP server does not own the host process, global event loop, global 
 
 ## Observability and operations
 
-Emit structured logs, traces, duration, result category, resolved target, dependency state, policy decision, cancellation, saturation, retry, artifact and task state, and partial success. Correlate transport and domain operations with one request identifier. Track per-tool latency, errors, rate limits, queueing, lock contention, task count, executor saturation, session count, and UI-drift category.
+Emit structured logs, traces, duration, result category, resolved target, dependency state, policy decision, cancellation, saturation, retry, artifact and task state, and partial success. Correlate transport and domain operations with one request identifier.
 
-Health reports mandatory and optional dependencies separately. Circuit breakers and graceful degradation prevent cascading failure. Audit failures are observable but follow an explicit fail-open or fail-closed policy. Full repository test suites are CI or deployment gates, not unbounded production startup checks.
+Health reports mandatory and optional dependencies separately. Circuit breakers and graceful degradation prevent cascading failure. Audit failures are observable but follow an explicit fail-open or fail-closed policy. Full repository suites are CI or deployment gates, not unbounded production startup checks.
 
 ## Generated project acceptance
 
-The bundled Python generator is part of the standard, not an illustrative snippet. A clean invocation must create a deterministic, installable project containing typed immutable settings, application-owned manifests, a transport-independent domain service, one invocation kernel, official SDK registration, stdio and loopback Streamable HTTP startup, tools, resources, prompts, server instructions, structured errors, conservative write controls, CI, packaging, security guidance, and tests.
+The bundled Python and .NET generators are part of the standard, not illustrative snippets. A clean invocation creates a deterministic, installable or restore-ready project containing typed immutable settings, application-owned manifests, a transport-independent domain service, one invocation kernel, official SDK registration, stdio and loopback Streamable HTTP, structured output, protocol-native errors, conservative write controls, CI, packaging, security guidance, and tests.
 
-The generated project must compile and pass its own tests through a real MCP client session using the supported stable SDK lane. Its tests prove tool listing with real schemas, representative invocation, complete manifest coverage, fail-closed writes, optimistic conflict handling, no private SDK fields, bounded HTTP body size, action pinning, and deterministic generation. A generator that emits text which is not installed and executed does not satisfy this standard.
+Each generated project must compile and pass its own tests through an official MCP client using the stable production SDK lane. Tests prove public tool listing with real schemas, representative invocation, complete manifest coverage, fail-closed writes, principal-bound approval, optimistic conflict handling, bounded HTTP input, action pinning, deterministic generation, and smoke of the exact published artifact.
 
 Generation is atomic and refuses an existing target. Production adoption still requires replacing sample domain code, reviewing every manifest, adding real authentication and resource authorization, upstream contract tests, deployment-artifact smoke tests, and all applicable runtime-boundary scenarios.
 
@@ -155,13 +159,13 @@ Generation is atomic and refuses an existing target. Production adoption still r
 4. public registration, active-profile, resources, prompts, instructions, and discovery tests;
 5. lifecycle, configuration-order, task, browser-profile, cancellation, executor, and concurrency tests;
 6. transport conformance and invocation-kernel parity tests;
-7. representative real-client workflows;
+7. representative official-client workflows;
 8. deployment-artifact smoke tests;
 9. upstream contract tests with controlled fakes, recordings, canaries, or test containers;
-10. migration simulations covering analogous server archetypes;
-11. fresh-project generation followed by installation, compilation, and its own real-client suite.
+10. Python migration simulation and .NET migration simulation across analogous archetypes;
+11. fresh-project generation followed by installation or restore, compilation, and its own real-client suite.
 
-No layer substitutes for another. See [Testing strategy](references/testing-strategy.md) and [Python migration simulation](references/python-migration-simulation.md).
+No layer substitutes for another.
 
 ## Implementation profiles
 
@@ -171,10 +175,11 @@ No layer substitutes for another. See [Testing strategy](references/testing-stra
 - [Python and FastMCP](references/python-fastmcp.md)
 - [Python migration simulation](references/python-migration-simulation.md)
 - [.NET MCP](references/dotnet-mcp.md)
+- [.NET migration simulation](references/dotnet-migration-simulation.md)
 - [Cross-language invariant map](references/cross-language-invariant-map.md)
 - [Security and operations](references/security-and-operations.md)
 - [Problem-solution matrix](references/problem-solution-matrix.md)
 
 ## Verification
 
-Generate a fresh Python project and execute its complete suite first. Then run all applicable layers once at their proper abstraction level; repeat transport conformance, invocation-kernel policy parity, representative client workflows, and artifact smoke tests for every advertised transport. Review public contracts, target identity, lifecycle ownership, trust boundaries, data classification, runtime enforcement, artifacts, tasks, profile isolation, and embedded-host ownership independently from framework-specific code.
+Generate fresh Python and .NET projects and execute their complete official-client suites first. Then run all applicable layers once at their proper abstraction level; repeat transport conformance, invocation-kernel policy parity, representative client workflows, and artifact smoke tests for every advertised transport. Review public contracts, target identity, lifecycle ownership, trust boundaries, data classification, runtime enforcement, artifacts, tasks, profile isolation, and embedded-host ownership independently from framework-specific code.

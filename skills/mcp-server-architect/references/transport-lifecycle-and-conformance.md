@@ -5,16 +5,20 @@ type: reference
 status: active
 rigor: normative
 owners: [repository-maintainers]
-verification: Run handshake, listing, invocation-kernel, malformed-message, cancellation, disconnect, session, Origin, target-failure, shutdown, and policy-parity tests for each advertised transport.
+verification: Run handshake, listing, invocation-kernel, malformed-message, cancellation, disconnect, session, Origin, target-failure, shutdown, legacy-transport absence, and policy-parity tests for each advertised transport.
 ---
 
 # MCP transport, lifecycle, and conformance
 
 ## Supported transports
 
-Use stdio for local subprocess servers and Streamable HTTP for remote servers. Legacy HTTP+SSE is compatibility-only. A custom REST bridge may be useful operationally, but it is not an MCP transport and cannot justify advertising MCP transport support.
+Use stdio for local subprocess servers and Streamable HTTP for remote servers. The deprecated two-endpoint HTTP+SSE transport from protocol revision 2024-11-05 is forbidden in every new server and generated project. Do not set an SDK's legacy-SSE compatibility switch in normal configuration, even to `false`, when the switch is obsolete and its default already disables the endpoints.
 
-Do not hand-roll a partial `/mcp` JSON-RPC endpoint when the maintained SDK transport is available. Placeholder streams, dummy input schemas, incomplete initialization, custom session semantics, or flattened error codes create false compatibility.
+Existing L2+ services migrate to Streamable HTTP. A temporary legacy compatibility adapter is permitted only for a named client that cannot migrate yet. It is disabled by default, isolated from the primary host, restricted to an explicit client or network allowlist, covered by dedicated conformance and policy-parity tests, assigned an owner and removal deadline, and receives no new capabilities. Remove the adapter as soon as the final client migrates.
+
+Do not use the shorthand “ban SSE” because modern Streamable HTTP may still use `text/event-stream` responses or a GET stream. That framing is part of Streamable HTTP and is not the deprecated split `/sse` plus `/message` transport. There is no protocol-wide removal date for legacy HTTP+SSE. Do not invent one; follow normative MCP deprecation policy and reviewed SDK release notes.
+
+A custom REST bridge may be useful operationally, but it is not an MCP transport and cannot justify advertising MCP transport support. Do not hand-roll a partial `/mcp` JSON-RPC endpoint when the maintained SDK transport is available. Placeholder streams, dummy schemas, incomplete initialization, custom session semantics, or flattened error codes create false compatibility.
 
 ## One invocation kernel
 
@@ -22,15 +26,7 @@ One composition root creates typed settings, domain services, target resolvers, 
 
 The invocation kernel owns target resolution, authentication, authorization, operator policy, validation, deadline, idempotency, retry, rate limiting, concurrency, execution, error mapping, sanitization, and telemetry. Tool names, schemas, active profiles, and policy results remain identical across transports.
 
-A REST convenience endpoint delegates to the same kernel through an application adapter or public MCP client. It never:
-
-- invokes raw tool callables through private SDK fields;
-- monkey-patches or fabricates an SDK request context;
-- reconstructs a weaker schema from a Python signature;
-- bypasses middleware, authorization, concurrency, or response minimization;
-- converts a domain failure into a transport-specific success.
-
-Policy-parity tests compare kernel inputs and outputs, not only response status codes.
+A convenience endpoint delegates to the same kernel through an application adapter or public MCP client. It never invokes raw tool callables through private SDK fields, fabricates request context, reconstructs weaker schemas, bypasses policy, or converts a domain failure into transport-specific success. Policy-parity tests compare kernel inputs and outputs, not only status codes.
 
 ## Configuration and startup order
 
@@ -65,26 +61,24 @@ Document an owner and scope for every resource:
 | long-running task | host lifecycle or durable task store |
 | generated export | task plus explicit retention owner |
 
-Initialize each resource once at its owner scope. Close every initialized resource during startup-failure cleanup; close request- and session-owned resources on cancellation or transport disconnect, and close target-, tenant-, process-, and host-owned resources only during their owner-scope shutdown. An individual client disconnect must not tear down shared clients needed by other sessions. Do not let an SDK callback create a second process-level client per connection.
+Initialize each resource once at its owner scope. Close initialized resources during startup-failure cleanup; close request- and session-owned resources on cancellation or transport disconnect, and close target-, tenant-, process-, and host-owned resources only during their owner-scope shutdown. An individual disconnect must not tear down shared clients.
 
-Subprocess timeout or cancellation terminates the process group, drains bounded output, and awaits exit. Async connection closure waits for completion on the owning event loop. Background tasks are tracked; no fire-and-forget task is left outside host shutdown.
+Subprocess timeout or cancellation terminates the process group, drains bounded output, and awaits exit. Async connection closure waits on the owning scheduler. Background work is supervised; no daemon thread, untracked coroutine, or fire-and-forget `Task.Run` remains outside host shutdown.
 
 ## Targets and partial startup
 
-Mandatory dependency failure prevents readiness. Optional dependency failure produces a capability or target state of `degraded` or `unavailable` while unrelated capabilities remain usable.
+Mandatory dependency failure prevents readiness. Optional dependency failure produces `degraded` or `unavailable` capability state while unrelated capabilities remain usable.
 
-An unavailable requested target returns a controlled error. An unavailable configured default does not silently select the first healthy target. The operator must configure a replacement or the caller must select one explicitly. This applies to reads as well as writes when confidentiality or tenant boundaries differ.
+An unavailable requested target returns a controlled error. An unavailable configured default does not silently select the first healthy target. The operator must configure a replacement or the caller must select one explicitly. This applies to reads when confidentiality or tenant boundaries differ.
 
-Every invocation records the resolved target identity and backend kind. Authorization occurs after target resolution. Mutable address-to-identity bindings are revalidated immediately before side effects.
-
-If all configured backends fail and the server has no useful zero-I/O capability, fail startup. If some succeed, report failed targets without leaking credentials and expose only capabilities that can actually execute.
+Every invocation records the resolved target identity and backend kind. Authorization occurs after target resolution. Mutable address-to-identity bindings are revalidated immediately before side effects. If all configured backends fail and no useful zero-I/O capability remains, fail startup.
 
 ## Health semantics
 
 - startup reports initialization progress and terminal startup failure;
 - readiness proves mandatory capabilities and declared workload can be accepted;
-- liveness proves the process and event loop are making progress;
-- capability health reports each optional integration, target, and privileged adapter;
+- liveness proves the process and scheduler are making progress;
+- capability health reports optional integration, target, and privileged-adapter state;
 - task health reports saturation and stuck work;
 - registration count or successful port binding alone never means ready;
 - readiness is withdrawn when a mandatory dependency or invocation kernel becomes unusable.
@@ -93,68 +87,56 @@ Health payloads are bounded and do not expose credentials, private endpoints, or
 
 ## Stateless and stateful HTTP
 
-Prefer stateless HTTP when server-to-client requests, subscriptions, resumability, per-client isolation, or cross-request state are unnecessary. Stateful servers bound session count, idle time, storage, cleanup, migration, and distributed deployment behavior.
+Set the mode explicitly. Prefer stateless HTTP when server-to-client requests, subscriptions, resumability, per-client isolation, or cross-request state are unnecessary. Stateful servers bound session count, idle time, storage, cleanup, principal ownership, migration, and distributed deployment behavior.
 
-Validate canonicalized `Origin` values on incoming HTTP connections, bind to loopback by default for local deployment, authenticate remote connections, and align host policy, reverse-proxy trust, TLS, and CORS. Wildcard CORS must not undermine an Origin allowlist.
+Validate canonicalized `Origin`, bind to loopback by default locally, authenticate remote connections, and align host policy, reverse-proxy trust, TLS, and restrictive CORS. Wildcard CORS must not undermine an Origin allowlist. A flag acknowledging public exposure is never sufficient security.
 
-Origin policy handles scheme, normalized hostname, explicit and default ports, bracketed IPv6, IDNA, malformed values, empty Origin, and proxy forwarding. Wildcard syntax is parsed by a dedicated matcher, not by passing non-numeric ports to a generic URL parser. Redirects and resolved addresses are rechecked against network policy.
-
-A flag acknowledging public exposure is never sufficient security. Privileged remote transports require authentication and authorization before capability execution, even on a trusted private network.
-
-Session identifiers are unguessable, expire, and release rate-limit, task, and resource state on deletion or timeout. Session state is never the sole source of authorization. Stateless mode does not justify process-global principal or target state.
+Session identifiers are unguessable, expire, remain bound to the authenticated principal, and release rate-limit, task, and resource state on deletion or timeout. Session state is never the sole source of authorization. Stateless mode does not justify process-global principal or target state.
 
 ## Async, blocking work, and scheduler affinity
 
 An async transport must not call blocking functions directly. Use a true async client or a bounded executor with explicit worker count, queue limit, deadline, saturation metrics, and shutdown.
 
-`asyncio.to_thread` without an executor policy does not bound capacity. Cancellation cannot stop an already executing blocking function, so downstream timeouts fit inside the request deadline and late results cannot mutate response or task state.
+`asyncio.to_thread` without executor policy does not bound capacity. Request code does not call `asyncio.run`, `run_until_complete`, or create a fresh event loop to reach an async SDK method. .NET request code does not use `.Result`, `.Wait()`, or untracked `Task.Run`.
 
-Connection pools and async clients can be event-loop-affine. Tests and bridges reuse the owning loop instead of creating or running a new loop from a request path. Request code does not call `asyncio.run`, `run_until_complete`, or create a fresh event loop to reach an async SDK method.
-
-Rate limiters and request-spacing state are concurrency-safe. Their key matches the upstream quota scope such as credential, tenant, target, or endpoint. Lock acquisition and queue waiting consume the request deadline and remain cancellable.
+Rate limiters and request-spacing state are concurrency-safe. Their key matches the upstream quota scope such as credential, principal, tenant, target, or endpoint. Authentication runs before principal-partitioned rate limiting.
 
 ## Long-running work and expected disconnect
 
-A long operation declares synchronous or task-based execution. Task-based transports expose bounded status, progress, cancellation, final result, expiry, and cleanup through stable capabilities.
+A long operation declares synchronous or task-based execution. Task-based transports expose bounded status, progress, cancellation, final result, expiry, and cleanup through stable capabilities. Protocol Tasks are not an executor; durable continuation requires durable metadata and supervised work execution.
 
-Restart, firmware, interface, service, and network changes may intentionally disconnect the target. The invocation kernel returns accepted or in-progress state with resolved target, verification deadline, and follow-up method. It does not turn expected disconnect into a generic retryable timeout.
+Restart, firmware, interface, service, and network changes may intentionally disconnect the target. The invocation kernel returns accepted or in-progress state with resolved target, verification deadline, and follow-up method. It does not turn expected disconnect into generic retryable timeout.
 
-Multi-step changes preserve plan, pre-state or conflict token, per-step result, commit boundary, verification, partial state, and compensation. Transport disconnect does not erase the server-side operation record when durable continuation is promised.
+Multi-step changes preserve plan, pre-state or conflict token, per-step result, commit boundary, verification, partial state, and compensation. Transport disconnect does not erase a durable operation record.
 
 ## SDK compatibility boundary
 
-Support a deliberate package and SDK range. Package identity matters: similarly named server classes from different distributions are not assumed compatible. Public registration, client, provider, middleware, transform, and transport APIs are preferred.
+Support a deliberate package and SDK range. Package identity matters: similarly named server classes from different distributions are not assumed compatible. Prefer public registration, client, provider, middleware, filter, and transport APIs.
 
-When supported SDK lanes expose different public APIs, one compatibility adapter normalizes enumeration, registration, invocation, and content. Private fields may appear only inside that adapter as a temporary measure. The adapter:
-
-- has no policy, target, configuration, or domain decisions;
-- fails closed when discovery or invocation is incomplete;
-- never imports test mocks or fabricates production context;
-- records package, version, and selected compatibility path;
-- has contract tests for every supported lane;
-- is removed when the old lane leaves support.
+When supported SDK lanes expose different APIs, one compatibility adapter normalizes registration, invocation, and content. Private fields may appear only inside a temporary, version-tested adapter. It contains no policy or domain decisions, fails closed, records package/version/path, and is removed when the old lane leaves support.
 
 Never swallow registration, wrapper, manifest, lifecycle, or compatibility failure and continue with an apparently healthy server.
 
 ## Conformance and parity matrix
 
-For each advertised MCP transport, test:
+For each advertised transport, test:
 
 1. initialization and protocol-version negotiation;
 2. component listing with real schemas and active-profile state;
 3. representative read and authorized mutation;
-4. validation and protocol-native errors;
+4. validation, structured output, and protocol-native errors;
 5. cancellation, blocking deadline, and late-result handling;
 6. malformed input and unknown method behavior;
-7. auth, authorization, target binding, rate limit, and Origin policy;
-8. response and log minimization and sanitization;
+7. authentication, authorization, target binding, rate limiting, host, and Origin policy;
+8. response and log minimization;
 9. disconnect, session expiry, long-task state, and shutdown cleanup;
 10. identical invocation-kernel manifest, schema, policy, target, and error results;
 11. failed-default and unavailable-target behavior;
-12. expected-disconnect and postcondition workflow when applicable.
+12. expected-disconnect and postcondition workflow;
+13. absence of legacy HTTP+SSE endpoints unless a documented compatibility exception is under test.
 
 A convenience REST bridge passes the same invocation-kernel policy tests but is not counted as MCP conformance.
 
 ## Verification
 
-Run the official client, inspector, or conformance tester against the packaged artifact. Remove a transport from capability discovery when any mandatory conformance or policy-parity test is skipped or failing. Prove that health, active catalogs, target identity, and cleanup remain correct under partial startup, concurrent calls, cancellation, and shutdown.
+Run the official client, inspector, or conformance tester against the exact packaged artifact. Remove a transport from capability discovery when any mandatory conformance or policy-parity test is skipped or failing. Prove health, active catalogs, target identity, legacy-endpoint absence, and cleanup under partial startup, concurrent calls, cancellation, and shutdown.

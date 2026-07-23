@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 import json
+import os
 import re
+import subprocess
+import sys
+import zipfile
 from pathlib import Path
 from typing import Any, Iterator
 
@@ -27,8 +31,12 @@ REPLACEMENTS = {
     "<MCP_FAILURE_TEST_COMMAND>": "python -m pytest tests/test_failures.py",
     "<LOCAL_IMAGE_REF>": "local/example:test",
     "<CONTAINER_SMOKE_COMMAND>": "docker run --rm \"$IMAGE_REF\" --health-check",
-    "<DOTNET_VERSION>": "10.0.x",
+    "<DOTNET_VERSION>": "10.0.302",
     "<SOLUTION_PATH>": "src/App.sln",
+    "<SERVER_PROJECT>": "src/App/App.csproj",
+    "<MCP_CONTRACT_TEST_PROJECT>": "tests/App.Mcp.ContractTests/App.Mcp.ContractTests.csproj",
+    "<PACKAGED_ARTIFACT_SMOKE_COMMAND>": "dotnet artifacts/server/App.dll --smoke",
+    "<SET_EXACT_CANDIDATE_MCP_VERSION_COMMAND>": "python scripts/set-candidate.py",
     "<REPORTGENERATOR_VERSION>": "5.4.3",
     "<DOTNET_COVERAGE_COMMAND>": "reportgenerator -reports:TestResults/**/coverage.cobertura.xml -targetdir:coverage-report",
     "<DOTNET_BOUNDED_TEST_COMMAND>": "dotnet test tests/App.UnitTests/App.UnitTests.csproj --configuration Release --no-restore",
@@ -96,6 +104,7 @@ def test_expected_production_profiles_are_present() -> None:
         "python-mcp.yml.template",
         "python-container.yml.template",
         "dotnet-ci.yml.template",
+        "dotnet-mcp.yml.template",
         "dotnet-package.yml.template",
         "docs-validation.yml.template",
         "semgrep-pr.yml.template",
@@ -153,21 +162,11 @@ def test_publish_builds_once_then_smoke_tests_before_push() -> None:
     jobs = document["jobs"]
     assert jobs["publish"]["needs"] == "validate"
     steps = jobs["publish"]["steps"]
-
-    metadata_index = next(
-        i for i, step in enumerate(steps)
-        if str(step.get("uses", "")).startswith("docker/metadata-action@")
-    )
-    build_index = next(
-        i for i, step in enumerate(steps)
-        if str(step.get("uses", "")).startswith("docker/build-push-action@")
-    )
+    metadata_index = next(i for i, step in enumerate(steps) if str(step.get("uses", "")).startswith("docker/metadata-action@"))
+    build_index = next(i for i, step in enumerate(steps) if str(step.get("uses", "")).startswith("docker/build-push-action@"))
     smoke_index = next(i for i, step in enumerate(steps) if step.get("name") == "Smoke-test exact release image")
     push_index = next(i for i, step in enumerate(steps) if step.get("name") == "Push smoke-tested image tags")
-    attest_index = next(
-        i for i, step in enumerate(steps)
-        if str(step.get("uses", "")).startswith("actions/attest-build-provenance@")
-    )
+    attest_index = next(i for i, step in enumerate(steps) if str(step.get("uses", "")).startswith("actions/attest-build-provenance@"))
     assert metadata_index < build_index < smoke_index < push_index < attest_index
     build = steps[build_index]
     assert build["with"]["load"] is True
@@ -180,20 +179,11 @@ def test_publish_reuses_validated_revision_and_locates_metadata_by_action() -> N
     document = parse(TEMPLATES / "publish.yml.template")
     validate = document["jobs"]["validate"]
     publish = document["jobs"]["publish"]
-    validate_checkout = next(
-        step for step in validate["steps"]
-        if str(step.get("uses", "")).startswith("actions/checkout@")
-    )
-    publish_checkout = next(
-        step for step in publish["steps"]
-        if str(step.get("uses", "")).startswith("actions/checkout@")
-    )
+    validate_checkout = next(step for step in validate["steps"] if str(step.get("uses", "")).startswith("actions/checkout@"))
+    publish_checkout = next(step for step in publish["steps"] if str(step.get("uses", "")).startswith("actions/checkout@"))
     assert "inputs.release_ref" in validate_checkout["with"]["ref"]
     assert publish_checkout["with"]["ref"] == "${{ needs.validate.outputs.release_sha }}"
-    metadata = next(
-        step for step in publish["steps"]
-        if str(step.get("uses", "")).startswith("docker/metadata-action@")
-    )
+    metadata = next(step for step in publish["steps"] if str(step.get("uses", "")).startswith("docker/metadata-action@"))
     tags = metadata["with"]["tags"]
     assert "needs.validate.outputs.release_tag" in tags
     assert "needs.validate.outputs.release_short_sha" in tags
@@ -212,15 +202,64 @@ def test_dotnet_quality_provisions_coverage_and_reports_safely() -> None:
     assert "pull_request.head.repo.full_name" in reporter["if"]
 
 
-def test_dotnet_package_release_uses_one_validated_tag_revision_and_identity_set() -> None:
+def test_dotnet_mcp_profile_runs_stable_contract_and_isolates_candidate_lane() -> None:
+    document = parse(TEMPLATES / "dotnet-mcp.yml.template")
+    jobs = document["jobs"]
+    stable = jobs["stable-contract"]
+    candidate = jobs["candidate-sdk"]
+    stable_names = {step.get("name") for step in stable["steps"]}
+    assert {
+        "Public-client stdio contract",
+        "Public-client Streamable HTTP contract",
+        "Authorization, catalog, and protocol error contract",
+        "Cancellation, shutdown, and task contract",
+        "Packaged artifact smoke",
+    }.issubset(stable_names)
+    assert stable.get("continue-on-error") is not True
+    assert candidate["if"] == "github.event_name == 'workflow_dispatch'"
+    assert candidate["continue-on-error"] is True
+    source = (TEMPLATES / "dotnet-mcp.yml.template").read_text(encoding="utf-8")
+    assert "EnableLegacySse" not in source
+    assert "WithToolsFromAssembly" not in source
+
+
+def _embedded_nuget_validator() -> str:
+    document = parse(TEMPLATES / "dotnet-package.yml.template")
+    step = next(step for step in document["jobs"]["package"]["steps"] if step.get("name") == "Validate exact package identity allowlist")
+    run = step["run"]
+    marker = "python - <<'PY'\n"
+    assert marker in run and run.rstrip().endswith("PY")
+    return run.split(marker, 1)[1].rsplit("\nPY", 1)[0]
+
+
+def _write_nupkg(path: Path, nuspec: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(path, "w") as archive:
+        archive.writestr("package.nuspec", nuspec)
+
+
+def _run_nuget_validator(tmp_path: Path) -> subprocess.CompletedProcess[str]:
+    env = os.environ.copy()
+    env["EXPECTED_PACKAGE_IDS"] = "Example.Package"
+    env["EXPECTED_VERSION"] = "1.2.3"
+    return subprocess.run(
+        [sys.executable, "-c", _embedded_nuget_validator()],
+        cwd=tmp_path,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+
+
+def test_dotnet_package_release_uses_direct_nuspec_metadata_and_identity_set(tmp_path: Path) -> None:
     document = parse(TEMPLATES / "dotnet-package.yml.template")
     steps = document["jobs"]["package"]["steps"]
     resolver = next(step for step in steps if step.get("id") == "release_ref")
     identity = next(step for step in steps if step.get("id") == "release")
     pack = next(step for step in steps if step.get("name") == "Pack")
-    allowlist = next(
-        step for step in steps if step.get("name") == "Validate exact package identity allowlist"
-    )
+    allowlist = next(step for step in steps if step.get("name") == "Validate exact package identity allowlist")
     checkouts = [step for step in steps if str(step.get("uses", "")).startswith("actions/checkout@")]
     publisher = next(step for step in steps if step.get("name") == "Publish package files")
     release = next(step for step in steps if str(step.get("uses", "")).startswith("softprops/action-gh-release@"))
@@ -230,22 +269,36 @@ def test_dotnet_package_release_uses_one_validated_tag_revision_and_identity_set
     assert 'echo "version=$normalized_version"' in identity["run"]
     assert "$NORMALIZED_VERSION" in identity["run"]
     assert "steps.release.outputs.version" in pack["run"]
-
     assert allowlist["env"]["EXPECTED_PACKAGE_IDS"] == "Example.Package"
-    allowlist_script = allowlist["run"]
+    script = allowlist["run"]
     for required in (
-        "zipfile.ZipFile",
-        ".nuspec",
+        'direct_child(root, "metadata")',
+        'direct_child_text(metadata, "id")',
+        'direct_child_text(metadata, "version")',
         "Unexpected PackageId",
         "Missing allowlisted PackageId",
-        "version != expected_version",
         "publish-files.txt",
     ):
-        assert required in allowlist_script
+        assert required in script
+    assert "root.iter()" not in script
     assert "mapfile -t packages < nupkg/publish-files.txt" in publisher["run"]
     assert "for package in \"${packages[@]}\"" in publisher["run"]
     assert release["with"]["tag_name"] == "${{ steps.release_ref.outputs.tag }}"
     assert release["with"]["target_commitish"] == "${{ steps.release_ref.outputs.sha }}"
+
+    malicious = """<?xml version="1.0"?><package><metadata><dependencies><group><dependency id="Example.Package" version="1.2.3" /></group></dependencies><id>Malicious.Package</id><version>9.9.9</version></metadata></package>"""
+    _write_nupkg(tmp_path / "nupkg/malicious.nupkg", malicious)
+    rejected = _run_nuget_validator(tmp_path)
+    assert rejected.returncode != 0
+    assert "Unexpected PackageId 'Malicious.Package'" in rejected.stderr
+
+    for path in (tmp_path / "nupkg").glob("*"):
+        path.unlink()
+    valid = """<?xml version="1.0"?><package xmlns="http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd"><metadata><id>Example.Package</id><version>1.2.3</version><dependencies><group><dependency id="Other" version="7.0.0" /></group></dependencies></metadata></package>"""
+    _write_nupkg(tmp_path / "nupkg/valid.nupkg", valid)
+    accepted = _run_nuget_validator(tmp_path)
+    assert accepted.returncode == 0, accepted.stderr
+    assert (tmp_path / "nupkg/publish-files.txt").read_text(encoding="utf-8") == "nupkg/valid.nupkg\n"
 
 
 def test_semgrep_manual_baseline_and_fork_upload_are_explicit() -> None:
@@ -262,10 +315,7 @@ def test_semgrep_manual_baseline_and_fork_upload_are_explicit() -> None:
 def test_renovate_manager_matches_action_subpaths_without_changing_dep_name() -> None:
     config = json.loads((ROOT / "renovate.json").read_text(encoding="utf-8"))
     pattern = config["customManagers"][0]["matchStrings"][0].replace("(?<", "(?P<")
-    match = re.search(
-        pattern,
-        "uses: github/codeql-action/upload-sarif@411bbbe57033eedfc1a82d68c01345aa96c737d7 # v4",
-    )
+    match = re.search(pattern, "uses: github/codeql-action/upload-sarif@411bbbe57033eedfc1a82d68c01345aa96c737d7 # v4")
     assert match is not None
     assert match.group("depName") == "github/codeql-action"
 

@@ -1,0 +1,54 @@
+using System.Collections.Concurrent;
+
+namespace __NAMESPACE__.Mcp.Domain;
+
+public sealed record InventoryItem(string ItemId, string Name, int Version);
+public sealed record ListItemsResult(IReadOnlyList<InventoryItem> Items, int Count);
+public sealed record PutItemCommand(string ItemId, string Name, int ExpectedVersion);
+
+public interface IInventoryService
+{
+    ValueTask<ListItemsResult> ListAsync(int limit, CancellationToken cancellationToken);
+    ValueTask<InventoryItem> PutAsync(PutItemCommand command, CancellationToken cancellationToken);
+}
+
+public sealed class InMemoryInventoryService : IInventoryService
+{
+    private readonly ConcurrentDictionary<string, InventoryItem> _items = new(
+        new[]
+        {
+            new KeyValuePair<string, InventoryItem>("alpha", new("alpha", "Alpha", 1)),
+            new KeyValuePair<string, InventoryItem>("beta", new("beta", "Beta", 1)),
+        },
+        StringComparer.Ordinal);
+
+    public ValueTask<ListItemsResult> ListAsync(int limit, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var items = _items.Values.OrderBy(item => item.ItemId, StringComparer.Ordinal).Take(limit).ToArray();
+        return ValueTask.FromResult(new ListItemsResult(items, items.Length));
+    }
+
+    public ValueTask<InventoryItem> PutAsync(PutItemCommand command, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        while (true)
+        {
+            _items.TryGetValue(command.ItemId, out var current);
+            var actualVersion = current?.Version ?? 0;
+            if (actualVersion != command.ExpectedVersion)
+            {
+                throw new InventoryConflictException(command.ExpectedVersion, actualVersion);
+            }
+
+            var next = new InventoryItem(command.ItemId, command.Name, actualVersion + 1);
+            var stored = current is null
+                ? _items.TryAdd(command.ItemId, next)
+                : _items.TryUpdate(command.ItemId, next, current);
+            if (stored) return ValueTask.FromResult(next);
+        }
+    }
+}
+
+public sealed class InventoryConflictException(int expected, int actual)
+    : Exception($"Expected version {expected}, actual version {actual}.");

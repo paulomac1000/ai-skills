@@ -17,6 +17,7 @@ owners: [repository-maintainers]
 | Python MCP server | `ci.yml.template`, `python-mcp.yml.template` | container publish, services, scheduled security |
 | Python container service | `ci.yml.template`, `python-container.yml.template` | protected publish |
 | .NET library or service | `dotnet-ci.yml.template` | package release, container profile |
+| .NET MCP server | `dotnet-ci.yml.template`, `dotnet-mcp.yml.template` | package/container release, candidate SDK lane |
 | NuGet package | `dotnet-ci.yml.template`, `dotnet-package.yml.template` | GitHub Release |
 | Governed documentation | `docs-validation.yml.template` | PR summary comment only from trusted workflow architecture |
 | Security-sensitive repository | `semgrep-pr.yml.template`, `semgrep-scheduled.yml.template` | CodeQL or ecosystem-native scanners |
@@ -31,11 +32,14 @@ owners: [repository-maintainers]
 - Add service containers only to jobs that need them.
 - Use matrices only when each axis represents supported behavior and total cost is bounded.
 - Use path filters as an optimization, never as the sole protection for a critical release.
+- Keep prerelease MCP SDKs in a separately visible candidate lane; candidate success never replaces the stable production lane.
 
 ## Python variants
 
-A library usually needs quality, tests, coverage, and package build. A web service adds integration and health checks. An MCP server adds protocol registration, client invocation, schema, cancellation, and error-shape checks. An MQTT or database integration adds a service container and readiness wait.
+A library usually needs quality, tests, coverage, and package build. A web service adds integration and health checks. An MCP server adds protocol registration, official-client invocation, schema, cancellation, error-shape, and exact-artifact checks. An MQTT or database integration adds a service container and readiness wait.
 
 ## .NET variants
 
-A library needs restore, format, analyzer build, tests, coverage, pack validation, and artifact inspection. A service adds integration hosting and health checks. A package release validates the tag-derived package version and publishes only the package built from the validated revision.
+A library needs restore, format, analyzer build, tests, coverage, pack validation, and artifact inspection. A service adds integration hosting and health checks. A .NET MCP server additionally needs real stdio and Streamable HTTP initialization, public tool-schema enumeration, authorization-filtered discovery, protocol-native errors, structured content, cancellation, explicit session mode, task policy, and smoke of the exact published artifact through the official C# MCP client.
+
+A package release validates the tag-derived package version, reads identity only from direct `package/metadata/id` and `package/metadata/version`, rejects extra or spoofed identities, and publishes only files in the verified manifest from the validated revision.

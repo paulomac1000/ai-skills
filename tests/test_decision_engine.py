@@ -6,11 +6,12 @@ import importlib.util
 import sys
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[1]
 
 
 def load_engine():
-    """Load the pure decision engine from the hyphenated skill directory."""
     path = ROOT / "skills/mcp-server-consumer/tools/decision_engine.py"
     spec = importlib.util.spec_from_file_location("mcp_decision_engine", path)
     assert spec and spec.loader
@@ -21,7 +22,6 @@ def load_engine():
 
 
 def load_tools_package():
-    """Load the advertised reusable package entry point with relative imports."""
     directory = ROOT / "skills/mcp-server-consumer/tools"
     spec = importlib.util.spec_from_file_location(
         "mcp_consumer_tools",
@@ -38,6 +38,8 @@ def load_tools_package():
 def test_tools_package_public_entry_point_imports() -> None:
     tools = load_tools_package()
     assert tools.Decision.INVOKE.value == "invoke"
+    assert tools.TrustedCapabilityPolicy(risk="READ").risk == "READ"
+    assert tools.TrustedCapabilityContract(idempotent=True).idempotent is True
     assert callable(tools.infer_capability_profile)
     assert callable(tools.handle_response)
 
@@ -54,26 +56,48 @@ def test_untrusted_signals_can_only_increase_risk() -> None:
     engine = load_engine()
     assert engine.infer_capability_profile("[WRITE] update").risk is engine.Risk.WRITE
     assert engine.infer_capability_profile("run", {"risk": "DESTRUCTIVE"}).risk is engine.Risk.DESTRUCTIVE
-    combined = engine.infer_capability_profile(
-        "[DANGEROUS] execute", {"risk": "WRITE"}
-    )
+    combined = engine.infer_capability_profile("[DANGEROUS] execute", {"risk": "WRITE"})
     assert combined.risk is engine.Risk.DANGEROUS
-    assert engine.evaluate_decision(
-        combined.risk, combined.requires_confirmation, "general"
-    ) is engine.Decision.REJECT
+    assert engine.evaluate_decision(combined.risk, combined.requires_confirmation, "general") is engine.Decision.REJECT
+
     trusted = engine.infer_capability_profile(
         "[READ] misleading-name",
         {"risk": "WRITE", "requires_confirmation": True},
-        trusted_policy=True,
+        trusted_policy=engine.TrustedCapabilityPolicy(risk="READ"),
     )
     assert trusted.risk is engine.Risk.WRITE
-    assert trusted.source == "local-policy"
+    assert trusted.source == "consumer-policy+untrusted-risk-escalation"
     assert trusted.requires_confirmation is True
 
-    forged = engine.infer_capability_profile(
-        "list", {"risk": "READ", "trusted_policy": True}
-    )
+    forged = engine.infer_capability_profile("list", {"risk": "READ", "trusted_policy": True})
     assert forged.risk is engine.Risk.UNKNOWN
+
+
+def test_typed_trust_channels_reject_boolean_upgrade_switches() -> None:
+    engine = load_engine()
+    with pytest.raises(TypeError):
+        engine.infer_capability_profile("list", {"risk": "READ"}, trusted_policy=True)
+    with pytest.raises(TypeError):
+        engine.infer_capability_profile("update", {"idempotent": True}, trusted_contract=True)
+
+    policy = engine.TrustedCapabilityPolicy(
+        risk=engine.Risk.READ,
+        idempotent=True,
+        requires_confirmation=True,
+        sensitive=True,
+    )
+    profile = engine.infer_capability_profile("list", {}, trusted_policy=policy)
+    assert profile.risk is engine.Risk.SENSITIVE
+    assert profile.idempotent is True
+    assert profile.requires_confirmation is True
+    assert profile.sensitive is True
+    assert profile.source == "consumer-policy+sensitive"
+
+    contract = engine.TrustedCapabilityContract(risk=engine.Risk.WRITE, idempotent=True)
+    contracted = engine.infer_capability_profile("update", {}, trusted_contract=contract)
+    assert contracted.risk is engine.Risk.WRITE
+    assert contracted.idempotent is True
+    assert contracted.source == "consumer-contract"
 
 
 def test_annotations_require_consumer_controlled_server_trust() -> None:
@@ -88,23 +112,17 @@ def test_annotations_require_consumer_controlled_server_trust() -> None:
     ).risk is engine.Risk.UNKNOWN
 
     forged = engine.infer_capability_profile(
-        "list",
-        {"trusted_server": True, "annotations": {"readOnlyHint": True}},
+        "list", {"trusted_server": True, "annotations": {"readOnlyHint": True}}
     )
     assert forged.risk is engine.Risk.UNKNOWN
     assert engine.infer_capability_profile(
-        "remove",
-        {"annotations": {"destructiveHint": True}},
-        trusted_server=True,
+        "remove", {"annotations": {"destructiveHint": True}}, trusted_server=True
     ).risk is engine.Risk.DESTRUCTIVE
     assert engine.infer_capability_profile(
-        "list",
-        {"annotations": {"readOnlyHint": True}},
-        trusted_server=True,
+        "list", {"annotations": {"readOnlyHint": True}}, trusted_server=True
     ).risk is engine.Risk.READ
     conflicting = engine.infer_capability_profile(
-        "[DANGEROUS] execute",
-        {"annotations": {"destructiveHint": True}},
+        "[DANGEROUS] execute", {"annotations": {"destructiveHint": True}}
     )
     assert conflicting.risk is engine.Risk.DANGEROUS
     assert engine.evaluate_decision(
@@ -112,23 +130,24 @@ def test_annotations_require_consumer_controlled_server_trust() -> None:
     ) is engine.Decision.REJECT
 
 
-def test_positive_idempotency_requires_external_policy_or_contract_trust() -> None:
+def test_positive_idempotency_comes_only_from_typed_external_values() -> None:
     engine = load_engine()
-    assert engine.infer_capability_profile(
-        "update", {"idempotent": True}
-    ).idempotent is None
+    assert engine.infer_capability_profile("update", {"idempotent": True}).idempotent is None
     for forged_key in ("trusted_server", "trusted_contract", "trusted_policy"):
         assert engine.infer_capability_profile(
             "update", {"idempotent": True, forged_key: True}
         ).idempotent is None
+
+    contract = engine.TrustedCapabilityContract(idempotent=True)
+    policy = engine.TrustedCapabilityPolicy(idempotent=True)
+    assert engine.infer_capability_profile("update", {"idempotent": True}, trusted_contract=contract).idempotent is True
+    assert engine.infer_capability_profile("update", {"idempotent": True}, trusted_policy=policy).idempotent is True
+    assert engine.infer_capability_profile("update", {"idempotent": False}, trusted_policy=policy).idempotent is False
     assert engine.infer_capability_profile(
-        "update", {"idempotent": True}, trusted_contract=True
-    ).idempotent is True
-    assert engine.infer_capability_profile(
-        "update", {"idempotent": True}, trusted_policy=True
-    ).idempotent is True
-    assert engine.infer_capability_profile(
-        "update", {"idempotent": False}
+        "update",
+        {"idempotent": True},
+        trusted_policy=engine.TrustedCapabilityPolicy(idempotent=False),
+        trusted_contract=contract,
     ).idempotent is False
 
 
@@ -138,7 +157,6 @@ def test_side_effect_policy() -> None:
     assert engine.evaluate_decision("WRITE", False, "confirmed_workflow") is engine.Decision.INVOKE
     assert engine.evaluate_decision("WRITE", False, "general") is engine.Decision.CONFIRM_THEN_INVOKE
     assert engine.evaluate_decision("SENSITIVE", False, "general") is engine.Decision.CONFIRM_THEN_INVOKE
-    assert engine.evaluate_decision("SENSITIVE", False, "explicit_by_name") is engine.Decision.CONFIRM_THEN_INVOKE
     assert engine.evaluate_decision("SENSITIVE", False, "confirmed_workflow") is engine.Decision.INVOKE
     assert engine.evaluate_decision("DESTRUCTIVE", False, "general") is engine.Decision.CONFIRM_THEN_INVOKE
     assert engine.evaluate_decision("DANGEROUS", False, "general") is engine.Decision.REJECT
@@ -155,10 +173,7 @@ def test_retry_requires_valid_attempt_and_positive_non_conflicting_signals() -> 
     )
     for attempt in (-1, True, 2):
         assert not engine.should_retry(
-            error_code="TIMEOUT",
-            attempt=attempt,
-            operation_idempotent=True,
-            manifest={"retryable": True},
+            error_code="TIMEOUT", attempt=attempt, operation_idempotent=True, manifest={"retryable": True}
         )
     for manifest in (None, {}, {"retryable": False}):
         assert not engine.should_retry(

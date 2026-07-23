@@ -1,0 +1,99 @@
+name: .NET MCP contract
+
+on:
+  pull_request:
+  push:
+    branches: [<DEFAULT_BRANCH>]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dotnet-mcp-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  stable-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: <TIMEOUT_MINUTES>
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@9a946fdbd5fb07b82b2f5a4466058b876ab72bb2 # v5
+        with:
+          dotnet-version: "<DOTNET_VERSION>"
+          cache: true
+          cache-dependency-path: |
+            **/*.csproj
+            **/Directory.Packages.props
+            **/packages.lock.json
+            global.json
+      - name: Restore exact locked graph
+        run: dotnet restore <SOLUTION_PATH> --locked-mode
+      - name: Analyzer-clean build
+        run: dotnet build <SOLUTION_PATH> --no-restore --configuration Release
+      - name: Domain, policy, manifest, and serialization tests
+        run: dotnet test <SOLUTION_PATH> --no-build --configuration Release --filter "Category!=Live"
+      - name: Publish exact MCP artifact
+        run: >-
+          dotnet publish <SERVER_PROJECT>
+          --no-build --configuration Release
+          --output artifacts/server
+      - name: Public-client stdio contract
+        run: >-
+          dotnet run --project <MCP_CONTRACT_TEST_PROJECT>
+          --no-build --configuration Release --
+          stdio --artifact artifacts/server
+      - name: Public-client Streamable HTTP contract
+        run: >-
+          dotnet run --project <MCP_CONTRACT_TEST_PROJECT>
+          --no-build --configuration Release --
+          http --artifact artifacts/server
+      - name: Authorization, catalog, and protocol error contract
+        run: >-
+          dotnet run --project <MCP_CONTRACT_TEST_PROJECT>
+          --no-build --configuration Release --
+          policy --artifact artifacts/server
+      - name: Cancellation, shutdown, and task contract
+        run: >-
+          dotnet run --project <MCP_CONTRACT_TEST_PROJECT>
+          --no-build --configuration Release --
+          lifecycle --artifact artifacts/server
+      - name: Packaged artifact smoke
+        run: <PACKAGED_ARTIFACT_SMOKE_COMMAND>
+      - name: Upload contract evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: dotnet-mcp-contract-${{ github.run_id }}
+          path: |
+            artifacts/
+            TestResults/
+          if-no-files-found: error
+          retention-days: 14
+
+  candidate-sdk:
+    if: github.event_name == 'workflow_dispatch'
+    continue-on-error: true
+    runs-on: ubuntu-latest
+    timeout-minutes: <TIMEOUT_MINUTES>
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@9a946fdbd5fb07b82b2f5a4466058b876ab72bb2 # v5
+        with:
+          dotnet-version: "<DOTNET_VERSION>"
+      - name: Select exact candidate SDK package graph
+        run: <SET_EXACT_CANDIDATE_MCP_VERSION_COMMAND>
+      - name: Restore candidate graph
+        run: dotnet restore <SOLUTION_PATH> --force-evaluate
+      - name: Build candidate lane
+        run: dotnet build <SOLUTION_PATH> --no-restore --configuration Release
+      - name: Run public-client compatibility subset
+        run: >-
+          dotnet test <MCP_CONTRACT_TEST_PROJECT>
+          --no-build --configuration Release
+          --filter Category=SdkCompatibility

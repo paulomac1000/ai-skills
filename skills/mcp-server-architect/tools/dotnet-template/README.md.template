@@ -1,0 +1,15 @@
+# __SERVER_NAME__
+
+Generated .NET MCP architecture seed. Domain code is independent from MCP, manifests fail closed, every transport uses one invocation kernel, and HTTP is loopback-only Streamable HTTP.
+
+## Verify
+
+```bash
+dotnet restore tests/__NAMESPACE__.Mcp.Smoke/__NAMESPACE__.Mcp.Smoke.csproj
+dotnet build tests/__NAMESPACE__.Mcp.Smoke/__NAMESPACE__.Mcp.Smoke.csproj -c Release --no-restore
+dotnet run --project tests/__NAMESPACE__.Mcp.Smoke/__NAMESPACE__.Mcp.Smoke.csproj -c Release --no-build -- src/__NAMESPACE__.Mcp.Server/bin/Release/net10.0/__NAMESPACE__.Mcp.Server.dll
+```
+
+Stdio is the default. For loopback Streamable HTTP, pass `--http` and set `MCP_HTTP_BEARER_TOKEN` to at least 32 random characters. Legacy `/sse` and `/message` endpoints are intentionally absent. Modern Streamable HTTP may still use `text/event-stream` framing; that is not the deprecated two-endpoint transport.
+
+Before production, replace the in-memory adapter, review every manifest, connect a real identity provider, authorize stable resource identities, add upstream contracts, and smoke the exact deployment artifact.
