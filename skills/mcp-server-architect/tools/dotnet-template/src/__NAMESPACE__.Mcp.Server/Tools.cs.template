@@ -13,7 +13,7 @@ public sealed class CapabilityTools(InvocationKernel kernel)
 {
     [Authorize(Policy = "inventory.read")]
     [McpServerTool(
-        Name = "describe_capabilities",
+        Name = CapabilityNames.DescribeCapabilities,
         ReadOnly = true,
         Destructive = false,
         Idempotent = true,
@@ -35,7 +35,7 @@ public sealed class InventoryTools(InvocationKernel kernel)
 {
     [Authorize(Policy = "inventory.read")]
     [McpServerTool(
-        Name = "list_items",
+        Name = CapabilityNames.ListItems,
         ReadOnly = true,
         Destructive = false,
         Idempotent = true,
@@ -51,7 +51,7 @@ public sealed class InventoryTools(InvocationKernel kernel)
 
     [Authorize(Policy = "inventory.write")]
     [McpServerTool(
-        Name = "put_item",
+        Name = CapabilityNames.PutItem,
         ReadOnly = false,
         Destructive = false,
         Idempotent = false,
