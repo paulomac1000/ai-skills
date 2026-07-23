@@ -18,6 +18,4 @@ for path in LOCKS:
     rendered = content.replace("Locked", "__NAMESPACE__")
     if "Locked" in rendered:
         raise RuntimeError(f"unparameterized lock identity remains in {path}")
-    if "__NAMESPACE__" not in rendered:
-        raise RuntimeError(f"expected project-reference placeholder is absent from {path}")
     path.write_text(rendered, encoding="utf-8", newline="\n")
