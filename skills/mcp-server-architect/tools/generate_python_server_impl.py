@@ -4,7 +4,10 @@
 from __future__ import annotations
 
 import argparse
+import ctypes
+import errno
 import keyword
+import os
 import re
 import shutil
 import sys
@@ -14,7 +17,10 @@ from pathlib import Path
 
 PACKAGE_RE = re.compile(r"[a-z][a-z0-9_]{1,62}$")
 SERVER_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9 ._-]{1,78}$")
-RESERVED_PACKAGE_NAMES = frozenset(sys.stdlib_module_names) | {"mcp", "uvicorn"}
+RESERVED_PACKAGE_NAMES = frozenset(sys.stdlib_module_names) | {"mcp", "uvicorn", "pytest"}
+_AT_FDCWD = -100
+_RENAME_NOREPLACE = 1
+_RENAME_EXCL = 0x00000004
 
 
 def _clean(text: str) -> str:
@@ -27,11 +33,7 @@ def _render(text: str, *, package: str, server_name: str) -> str:
 
 def project_files(package: str, server_name: str) -> dict[str, str]:
     """Return a complete generated project as relative UTF-8 text files."""
-    if (
-        not PACKAGE_RE.fullmatch(package)
-        or keyword.iskeyword(package)
-        or package in RESERVED_PACKAGE_NAMES
-    ):
+    if not PACKAGE_RE.fullmatch(package) or keyword.iskeyword(package) or package in RESERVED_PACKAGE_NAMES:
         raise ValueError(
             "package must be a non-keyword, non-reserved import name matching "
             "[a-z][a-z0-9_]{1,62}"
@@ -94,17 +96,33 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
             accepted. The ASGI boundary buffers at most the configured request limit and
             rejects oversized or excessively fragmented bodies before entering FastMCP.
 
-            Writes are disabled by default. The sample write also requires a mandatory
-            current resource version and a one-time approval token issued earlier by a
-            trusted host through the server-side `ApprovalRegistry`. Approval records are
-            bounded, expiring, and bound to capability, principal, target, and resource.
-            The MCP tool cannot issue its own approval, and a caller-provided boolean is
-            never treated as consent. Approval tokens are credentials and must be redacted.
+            Writes are disabled by default. A write requires a mandatory current version
+            and a one-time approval token issued earlier by a trusted host. Approval records
+            are bounded, expiring, and bound to capability, principal, target, and resource.
+            The MCP tool cannot issue approval and a caller-provided boolean is never consent.
 
             Before production, replace the in-memory adapter, review every manifest, add
             authenticated principal extraction and resource-scoped authorization, connect
-            the approval registry to a trusted UI or transport, add upstream contract tests,
-            and smoke-test the built wheel or container.
+            approvals to a trusted UI or transport, add upstream contract tests, and test
+            the exact built wheel or container.
+            '''
+        ),
+        "SECURITY.md": _clean(
+            '''
+            # Security model
+
+            The generated project is local-first. Stdio and literal-loopback-only
+            Streamable HTTP are supported. Writes are disabled unless the operator enables
+            them. A mutation additionally requires an exact optimistic-concurrency version
+            and a one-time opaque approval token that already exists server-side.
+
+            Only a trusted host, UI, or transport may issue approvals. Tokens are bounded,
+            expiring, principal-, capability-, target-, resource-, and single-use-bound.
+            Treat them as credentials and never log, trace, cache, or echo them.
+
+            Before remote or multi-user deployment, add authentication, per-resource
+            authorization, TLS or a reviewed proxy, Origin and Host policy, quotas, and
+            deployment-specific secret storage.
             '''
         ),
         ".env.example": _clean(
@@ -143,27 +161,6 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
             ENTRYPOINT ["__PACKAGE__"]
             '''
         ),
-        "SECURITY.md": _clean(
-            '''
-            # Security model
-
-            The generated project is local-first. Stdio and literal-loopback-only
-            Streamable HTTP are the supported baseline. Writes are disabled unless the
-            operator explicitly enables them. A mutation additionally requires both an
-            exact optimistic-concurrency version and a one-time opaque approval token that
-            already exists in the server-side approval registry.
-
-            The public MCP tool may present an approval token, but it cannot create one.
-            Only a trusted host, UI, or transport integration may call `ApprovalRegistry.issue`.
-            Records are bounded, expiring, and capability-, principal-, target-, resource-,
-            and single-use-bound. Treat approval tokens as credentials: never log, trace,
-            cache, echo, or persist them in ordinary application telemetry.
-
-            Before remote or multi-user deployment, add authentication, per-resource
-            authorization, TLS or a reviewed reverse proxy, restrictive Origin and Host
-            policy, quotas, audit retention, and deployment-specific secret storage.
-            '''
-        ),
         ".github/workflows/ci.yml": _clean(
             '''
             name: CI
@@ -197,7 +194,6 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
         f"src/{package}/__init__.py": _clean(
             '''
             """Generated MCP server package."""
-
             __all__ = ["__version__"]
             __version__ = "0.1.0"
             '''
@@ -223,7 +219,6 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
 
             Transport = Literal["stdio", "streamable-http"]
 
-
             def _boolean(name: str, default: bool) -> bool:
                 raw = os.getenv(name)
                 if raw is None:
@@ -235,7 +230,6 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
                     return False
                 raise ValueError(f"{name} must be a boolean")
 
-
             def _integer(name: str, default: int, minimum: int, maximum: int) -> int:
                 raw = os.getenv(name)
                 try:
@@ -246,20 +240,13 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
                     raise ValueError(f"{name} must be between {minimum} and {maximum}")
                 return value
 
-
             def _require_literal_loopback(host: str) -> None:
                 try:
                     address = ipaddress.ip_address(host)
                 except ValueError as exc:
-                    raise ValueError(
-                        "MCP_HOST must be a literal IPv4 or IPv6 loopback address"
-                    ) from exc
+                    raise ValueError("MCP_HOST must be a literal IPv4 or IPv6 loopback address") from exc
                 if not address.is_loopback:
-                    raise ValueError(
-                        "Generated baseline refuses non-loopback HTTP binding; add reviewed "
-                        "authentication, authorization, TLS/proxy, Origin, and Host policy first"
-                    )
-
+                    raise ValueError("Generated baseline refuses non-loopback HTTP binding")
 
             @dataclass(frozen=True, slots=True)
             class Settings:
@@ -272,9 +259,7 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
                 max_request_body_bytes: int = 1_048_576
 
                 def validate(self) -> "Settings":
-                    if not isinstance(self.transport, str) or self.transport not in {
-                        "stdio", "streamable-http"
-                    }:
+                    if not isinstance(self.transport, str) or self.transport not in {"stdio", "streamable-http"}:
                         raise ValueError("transport must be stdio or streamable-http")
                     if not isinstance(self.host, str) or not self.host:
                         raise ValueError("host must be a non-empty string")
@@ -294,35 +279,26 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
 
                 @classmethod
                 def from_env(cls) -> "Settings":
-                    transport = os.getenv("MCP_TRANSPORT", "stdio").strip().casefold()
-                    settings = cls(
-                        transport=transport,  # type: ignore[arg-type]
+                    return cls(
+                        transport=os.getenv("MCP_TRANSPORT", "stdio").strip().casefold(),  # type: ignore[arg-type]
                         host=os.getenv("MCP_HOST", "127.0.0.1").strip(),
                         port=_integer("MCP_PORT", 8000, 1, 65_535),
                         write_enabled=_boolean("MCP_WRITE_ENABLED", False),
-                        default_deadline_ms=_integer(
-                            "MCP_DEFAULT_DEADLINE_MS", 10_000, 100, 120_000
-                        ),
+                        default_deadline_ms=_integer("MCP_DEFAULT_DEADLINE_MS", 10_000, 100, 120_000),
                         max_result_items=_integer("MCP_MAX_RESULT_ITEMS", 100, 1, 1_000),
-                        max_request_body_bytes=_integer(
-                            "MCP_MAX_REQUEST_BODY_BYTES", 1_048_576, 1_024, 16_777_216
-                        ),
-                    )
-                    return settings.validate()
+                        max_request_body_bytes=_integer("MCP_MAX_REQUEST_BODY_BYTES", 1_048_576, 1_024, 16_777_216),
+                    ).validate()
             '''
         ),
         f"src/{package}/manifests.py": render(
             '''
             """Application-owned capability manifests; missing metadata is a startup error."""
 
-            from __future__ import annotations
-
             from dataclasses import asdict, dataclass
             from typing import Literal
 
             SideEffects = Literal["read", "write", "destructive"]
             Confidentiality = Literal["public", "internal", "personal", "sensitive", "credential"]
-
 
             @dataclass(frozen=True, slots=True)
             class CapabilityManifest:
@@ -347,78 +323,54 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
                 def as_dict(self) -> dict[str, object]:
                     return asdict(self)
 
-
             def _read(name: str, confidentiality: Confidentiality, target: str) -> CapabilityManifest:
                 return CapabilityManifest(
-                    name=name, version="1.0.0", side_effects="read",
-                    confidentiality=confidentiality, operational_impact="none", cost="cheap",
-                    reversible=True, idempotent=True, idempotency_mechanism="natural read",
-                    retryable=False, retry_conditions=(), concurrent_safe=True,
-                    concurrency_scope="none", timeout_ms=5_000, requires_confirmation=False,
-                    target_binding=target,
+                    name, "1.0.0", "read", confidentiality, "none", "cheap", True,
+                    True, "natural read", False, (), True, "none", 5_000, False, target,
                 )
 
-
-            MANIFESTS: dict[str, CapabilityManifest] = {
+            MANIFESTS = {
                 "describe_capabilities": _read("describe_capabilities", "public", "capability catalog"),
                 "get_health": _read("get_health", "internal", "process runtime"),
                 "list_items": _read("list_items", "internal", "process inventory"),
                 "put_item": CapabilityManifest(
-                    name="put_item", version="1.0.0", side_effects="write",
-                    confidentiality="internal", operational_impact="persistent", cost="cheap",
-                    reversible=True, idempotent=False, idempotency_mechanism=None,
-                    retryable=False, retry_conditions=(), concurrent_safe=False,
-                    concurrency_scope="inventory item", timeout_ms=5_000,
-                    requires_confirmation=True,
-                    target_binding="stable item_id plus mandatory expected_version",
+                    "put_item", "1.0.0", "write", "internal", "persistent", "cheap",
+                    True, False, None, False, (), False, "inventory item", 5_000, True,
+                    "stable item_id plus mandatory expected_version",
                 ),
             }
-
 
             def validate_manifests(registered_names: set[str]) -> None:
                 missing = registered_names - set(MANIFESTS)
                 orphaned = set(MANIFESTS) - registered_names
                 if missing or orphaned:
-                    raise RuntimeError(
-                        f"manifest coverage mismatch: missing={sorted(missing)}, "
-                        f"orphaned={sorted(orphaned)}"
-                    )
+                    raise RuntimeError(f"manifest coverage mismatch: missing={sorted(missing)}, orphaned={sorted(orphaned)}")
                 for manifest in MANIFESTS.values():
                     if manifest.timeout_ms <= 0:
                         raise RuntimeError(f"invalid timeout for {manifest.name}")
                     if manifest.retryable and not manifest.idempotent:
-                        raise RuntimeError(
-                            f"retryable capability lacks idempotency proof: {manifest.name}"
-                        )
+                        raise RuntimeError(f"retryable capability lacks idempotency proof: {manifest.name}")
                     if manifest.side_effects != "read" and manifest.retryable:
-                        raise RuntimeError(
-                            f"generated writes must default to non-retryable: {manifest.name}"
-                        )
+                        raise RuntimeError(f"generated writes must default to non-retryable: {manifest.name}")
             '''
         ),
         f"src/{package}/domain.py": render(
             '''
             """Transport-independent domain service and deterministic in-memory adapter."""
 
-            from __future__ import annotations
-
             import asyncio
             from dataclasses import asdict, dataclass
 
-
             class ConflictError(Exception):
                 """The caller used a stale resource version."""
-
 
             @dataclass(frozen=True, slots=True)
             class Item:
                 item_id: str
                 name: str
                 version: int
-
                 def as_dict(self) -> dict[str, object]:
                     return asdict(self)
-
 
             class InventoryService:
                 def __init__(self) -> None:
@@ -430,24 +382,18 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
                         raise ValueError("limit must be an integer between 1 and 1000")
                     return sorted(self._items.values(), key=lambda item: item.item_id)[:limit]
 
-                async def put_item(
-                    self, item_id: str, name: str, expected_version: int
-                ) -> Item:
+                async def put_item(self, item_id: str, name: str, expected_version: int) -> Item:
                     if not isinstance(item_id, str) or not item_id or len(item_id) > 64:
                         raise ValueError("item_id must contain 1-64 characters")
                     if not isinstance(name, str) or not name.strip() or len(name) > 200:
                         raise ValueError("name must contain 1-200 characters")
                     if type(expected_version) is not int or expected_version < 0:
-                        raise ValueError(
-                            "expected_version is mandatory and must be a non-negative integer"
-                        )
+                        raise ValueError("expected_version is mandatory and must be a non-negative integer")
                     async with self._lock:
                         current = self._items.get(item_id)
                         version = current.version if current else 0
                         if expected_version != version:
-                            raise ConflictError(
-                                f"stale expected_version={expected_version}; current_version={version}"
-                            )
+                            raise ConflictError(f"stale expected_version={expected_version}; current_version={version}")
                         updated = Item(item_id, name.strip(), version + 1)
                         self._items[item_id] = updated
                         return updated
@@ -456,8 +402,6 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
         f"src/{package}/kernel.py": render(
             '''
             """Single invocation kernel shared by MCP and any future adapters."""
-
-            from __future__ import annotations
 
             import asyncio
             import contextvars
@@ -475,13 +419,11 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
 
             _request_id: contextvars.ContextVar[str] = contextvars.ContextVar("request_id", default="")
 
-
             @dataclass(frozen=True, slots=True)
             class CallerContext:
                 principal: str = "local-stdio-user"
                 target_id: str = "inventory"
                 approval_token: str | None = None
-
 
             @dataclass(frozen=True, slots=True)
             class ApprovalRecord:
@@ -491,10 +433,8 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
                 resource_id: str
                 expires_at: float
 
-
             class ApprovalRegistry:
                 """Bounded one-time approvals issued only by a trusted embedding host or UI."""
-
                 def __init__(self, max_records: int = 1_024) -> None:
                     if type(max_records) is not int or not 1 <= max_records <= 10_000:
                         raise ValueError("max_records must be an integer between 1 and 10000")
@@ -503,31 +443,14 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
                     self._lock = threading.Lock()
 
                 def _purge_expired_locked(self, now: float) -> None:
-                    expired = [
-                        token for token, record in self._records.items()
-                        if record.expires_at < now
-                    ]
-                    for token in expired:
+                    for token in [token for token, record in self._records.items() if record.expires_at < now]:
                         self._records.pop(token, None)
 
-                def issue(
-                    self,
-                    capability: str,
-                    principal: str,
-                    target_id: str,
-                    resource_id: str,
-                    *,
-                    ttl_seconds: float = 60.0,
-                ) -> str:
-                    if not all(
-                        isinstance(value, str) and value
-                        for value in (capability, principal, target_id, resource_id)
-                    ):
+                def issue(self, capability: str, principal: str, target_id: str, resource_id: str, *, ttl_seconds: float = 60.0) -> str:
+                    if not all(isinstance(value, str) and value for value in (capability, principal, target_id, resource_id)):
                         raise ValueError("approval binding values must be non-empty strings")
-                    if not isinstance(ttl_seconds, (int, float)) or isinstance(ttl_seconds, bool):
-                        raise ValueError("approval ttl must be numeric")
-                    if not 0 < ttl_seconds <= 300:
-                        raise ValueError("approval ttl must be between 0 and 300 seconds")
+                    if not isinstance(ttl_seconds, (int, float)) or isinstance(ttl_seconds, bool) or not 0 < ttl_seconds <= 300:
+                        raise ValueError("approval ttl must be numeric and between 0 and 300 seconds")
                     now = time.monotonic()
                     with self._lock:
                         self._purge_expired_locked(now)
@@ -536,46 +459,20 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
                         token = secrets.token_urlsafe(32)
                         while token in self._records:
                             token = secrets.token_urlsafe(32)
-                        self._records[token] = ApprovalRecord(
-                            capability=capability,
-                            principal=principal,
-                            target_id=target_id,
-                            resource_id=resource_id,
-                            expires_at=now + float(ttl_seconds),
-                        )
+                        self._records[token] = ApprovalRecord(capability, principal, target_id, resource_id, now + float(ttl_seconds))
                         return token
 
-                def consume(
-                    self,
-                    token: str | None,
-                    capability: str,
-                    principal: str,
-                    target_id: str,
-                    resource_id: str,
-                ) -> bool:
+                def consume(self, token: str | None, capability: str, principal: str, target_id: str, resource_id: str) -> bool:
                     if not isinstance(token, str) or not token:
                         return False
                     now = time.monotonic()
                     with self._lock:
                         self._purge_expired_locked(now)
                         record = self._records.pop(token, None)
-                    if record is None:
-                        return False
-                    return (
-                        record.capability == capability
-                        and record.principal == principal
-                        and record.target_id == target_id
-                        and record.resource_id == resource_id
-                    )
-
+                    return record is not None and record.capability == capability and record.principal == principal and record.target_id == target_id and record.resource_id == resource_id
 
             class InvocationKernel:
-                def __init__(
-                    self,
-                    settings: Settings,
-                    service: InventoryService,
-                    approvals: ApprovalRegistry | None = None,
-                ) -> None:
+                def __init__(self, settings: Settings, service: InventoryService, approvals: ApprovalRegistry | None = None) -> None:
                     self._settings = settings.validate()
                     self._service = service
                     self._approvals = approvals or ApprovalRegistry()
@@ -594,20 +491,16 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
                 def catalog(self) -> list[dict[str, object]]:
                     return [MANIFESTS[name].as_dict() for name in sorted(self.active_names)]
 
-                async def invoke(
-                    self, name: str, arguments: dict[str, Any], caller: CallerContext | None = None
-                ) -> dict[str, Any]:
+                async def invoke(self, name: str, arguments: dict[str, Any], caller: CallerContext | None = None) -> dict[str, Any]:
                     caller = caller or CallerContext()
                     request_id = uuid.uuid4().hex
-                    token = _request_id.set(request_id)
+                    context_token = _request_id.set(request_id)
                     started = time.monotonic()
                     try:
                         manifest = self._manifest(name)
                         self._validate_arguments(name, arguments)
                         self._authorize(name, manifest, caller, arguments)
-                        seconds = min(
-                            manifest.timeout_ms, self._settings.default_deadline_ms
-                        ) / 1000
+                        seconds = min(manifest.timeout_ms, self._settings.default_deadline_ms) / 1000
                         lock = self._lock_for(manifest, arguments)
                         async with asyncio.timeout(seconds):
                             if lock is None:
@@ -615,15 +508,7 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
                             else:
                                 async with lock:
                                     data = await self._handlers[name](arguments)
-                        return {
-                            "success": True,
-                            "data": data,
-                            "_meta": {
-                                "request_id": request_id,
-                                "target_id": caller.target_id,
-                                "duration_ms": int((time.monotonic() - started) * 1000),
-                            },
-                        }
+                        return {"success": True, "data": data, "_meta": {"request_id": request_id, "target_id": caller.target_id, "duration_ms": int((time.monotonic() - started) * 1000)}}
                     except ValueError as exc:
                         return self._failure("VALIDATION_FAILED", str(exc), request_id, started)
                     except ConflictError as exc:
@@ -637,7 +522,7 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
                     except Exception:
                         return self._failure("INTERNAL_ERROR", "internal operation failure", request_id, started)
                     finally:
-                        _request_id.reset(token)
+                        _request_id.reset(context_token)
 
                 def _manifest(self, name: str) -> CapabilityManifest:
                     manifest = MANIFESTS.get(name)
@@ -654,25 +539,16 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
                         if type(limit) is not int or not 1 <= limit <= 1_000:
                             raise ValueError("limit must be an integer between 1 and 1000")
                     if name == "put_item":
-                        item_id = arguments.get("item_id")
-                        item_name = arguments.get("name")
+                        item_id, item_name = arguments.get("item_id"), arguments.get("name")
                         expected_version = arguments.get("expected_version")
                         if not isinstance(item_id, str) or not item_id or len(item_id) > 64:
                             raise ValueError("item_id must contain 1-64 characters")
                         if not isinstance(item_name, str) or not item_name.strip() or len(item_name) > 200:
                             raise ValueError("name must contain 1-200 characters")
                         if type(expected_version) is not int or expected_version < 0:
-                            raise ValueError(
-                                "expected_version is mandatory and must be a non-negative integer"
-                            )
+                            raise ValueError("expected_version is mandatory and must be a non-negative integer")
 
-                def _authorize(
-                    self,
-                    name: str,
-                    manifest: CapabilityManifest,
-                    caller: CallerContext,
-                    arguments: dict[str, Any],
-                ) -> None:
+                def _authorize(self, name: str, manifest: CapabilityManifest, caller: CallerContext, arguments: dict[str, Any]) -> None:
                     if not isinstance(caller.principal, str) or not caller.principal:
                         raise PermissionError("principal is not authenticated")
                     if caller.target_id != "inventory":
@@ -681,69 +557,39 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
                         return
                     if not self._settings.write_enabled:
                         raise PermissionError("write operations are disabled by operator policy")
-                    if manifest.requires_confirmation:
-                        resource_id = str(arguments["item_id"])
-                        if not self._approvals.consume(
-                            caller.approval_token,
-                            name,
-                            caller.principal,
-                            caller.target_id,
-                            resource_id,
-                        ):
-                            raise PermissionError(
-                                "a valid one-time server-side approval record is required"
-                            )
+                    if manifest.requires_confirmation and not self._approvals.consume(
+                        caller.approval_token, name, caller.principal, caller.target_id, str(arguments["item_id"])
+                    ):
+                        raise PermissionError("a valid one-time server-side approval record is required")
 
-                def _lock_for(
-                    self, manifest: CapabilityManifest, arguments: dict[str, Any]
-                ) -> asyncio.Lock | None:
+                def _lock_for(self, manifest: CapabilityManifest, arguments: dict[str, Any]) -> asyncio.Lock | None:
                     if manifest.concurrent_safe:
                         return None
-                    key = str(arguments.get("item_id") or manifest.concurrency_scope)
-                    return self._locks.setdefault(key, asyncio.Lock())
+                    return self._locks.setdefault(str(arguments.get("item_id") or manifest.concurrency_scope), asyncio.Lock())
 
                 async def _describe_capabilities(self, _arguments: dict[str, Any]) -> list[dict[str, object]]:
                     return self.catalog()
 
                 async def _get_health(self, _arguments: dict[str, Any]) -> dict[str, object]:
-                    return {
-                        "ready": True,
-                        "active_capabilities": len(self.active_names),
-                        "write_enabled": self._settings.write_enabled,
-                    }
+                    return {"ready": True, "active_capabilities": len(self.active_names), "write_enabled": self._settings.write_enabled}
 
                 async def _list_items(self, arguments: dict[str, Any]) -> list[dict[str, object]]:
                     limit = min(arguments.get("limit", 25), self._settings.max_result_items)
                     return [item.as_dict() for item in await self._service.list_items(limit)]
 
                 async def _put_item(self, arguments: dict[str, Any]) -> dict[str, object]:
-                    item = await self._service.put_item(
-                        arguments["item_id"],
-                        arguments["name"],
-                        arguments["expected_version"],
-                    )
-                    return item.as_dict()
+                    return (await self._service.put_item(arguments["item_id"], arguments["name"], arguments["expected_version"])).as_dict()
 
                 @staticmethod
                 def _failure(code: str, message: str, request_id: str, started: float) -> dict[str, Any]:
-                    return {
-                        "success": False,
-                        "error": {"code": code, "message": message, "retryable": False},
-                        "_meta": {
-                            "request_id": request_id,
-                            "duration_ms": int((time.monotonic() - started) * 1000),
-                        },
-                    }
+                    return {"success": False, "error": {"code": code, "message": message, "retryable": False}, "_meta": {"request_id": request_id, "duration_ms": int((time.monotonic() - started) * 1000)}}
             '''
         ),
         f"src/{package}/http.py": render(
             '''
             """ASGI boundary that bounds and buffers request bodies before MCP parsing."""
 
-            from __future__ import annotations
-
             from typing import Any
-
 
             class RequestBodyLimitMiddleware:
                 def __init__(self, app: Any, max_bytes: int, max_events: int = 1_024) -> None:
@@ -751,15 +597,12 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
                         raise ValueError("max_bytes must be a positive integer")
                     if type(max_events) is not int or not 1 <= max_events <= 10_000:
                         raise ValueError("max_events must be an integer between 1 and 10000")
-                    self._app = app
-                    self._max_bytes = max_bytes
-                    self._max_events = max_events
+                    self._app, self._max_bytes, self._max_events = app, max_bytes, max_events
 
                 async def __call__(self, scope: dict[str, Any], receive: Any, send: Any) -> None:
                     if scope.get("type") != "http":
                         await self._app(scope, receive, send)
                         return
-
                     lengths: list[int] = []
                     for key, value in scope.get("headers", []):
                         if key.lower() != b"content-length":
@@ -804,43 +647,28 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
                             return
                         if message.get("more_body") is not True:
                             break
-
                     if lengths and len(body) != lengths[0]:
                         await self._reject(send, 400, b"content-length mismatch")
                         return
 
                     replayed = False
-
                     async def replay_receive() -> dict[str, Any]:
                         nonlocal replayed
-                        if replayed:
-                            return {"type": "http.disconnect"}
-                        replayed = True
-                        return {
-                            "type": "http.request",
-                            "body": bytes(body),
-                            "more_body": False,
-                        }
-
+                        if not replayed:
+                            replayed = True
+                            return {"type": "http.request", "body": bytes(body), "more_body": False}
+                        return await receive()
                     await self._app(scope, replay_receive, send)
 
                 @staticmethod
                 async def _reject(send: Any, status: int, body: bytes) -> None:
-                    await send(
-                        {
-                            "type": "http.response.start",
-                            "status": status,
-                            "headers": [(b"content-type", b"text/plain; charset=utf-8")],
-                        }
-                    )
+                    await send({"type": "http.response.start", "status": status, "headers": [(b"content-type", b"text/plain; charset=utf-8")]})
                     await send({"type": "http.response.body", "body": body})
             '''
         ),
         f"src/{package}/server.py": render(
             '''
             """Official MCP Python SDK composition root and transport entry point."""
-
-            from __future__ import annotations
 
             import json
             from collections.abc import AsyncIterator
@@ -861,44 +689,31 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
 
             REGISTERED_TOOLS = {"describe_capabilities", "get_health", "list_items", "put_item"}
 
-
             @dataclass(frozen=True, slots=True)
             class AppContext:
                 settings: Settings
                 kernel: InvocationKernel
 
-
             def _require_success(result: dict[str, Any]) -> dict[str, Any]:
                 if result.get("success") is True:
                     return result
                 error = result.get("error") or {}
-                raise ToolError(
-                    f"{error.get('code', 'ERROR')}: {error.get('message', 'operation failed')}"
-                )
+                raise ToolError(f"{error.get('code', 'ERROR')}: {error.get('message', 'operation failed')}")
 
-
-            def build_server(
-                settings: Settings | None = None,
-                approvals: ApprovalRegistry | None = None,
-            ) -> FastMCP:
+            def build_server(settings: Settings | None = None, approvals: ApprovalRegistry | None = None) -> FastMCP:
                 settings = (settings or Settings.from_env()).validate()
                 approvals = approvals or ApprovalRegistry()
                 validate_manifests(REGISTERED_TOOLS)
 
                 @asynccontextmanager
                 async def lifespan(_server: FastMCP) -> AsyncIterator[AppContext]:
-                    yield AppContext(
-                        settings=settings,
-                        kernel=InvocationKernel(settings, InventoryService(), approvals),
-                    )
+                    yield AppContext(settings, InvocationKernel(settings, InventoryService(), approvals))
 
                 mcp = FastMCP(
                     "__SERVER_NAME__",
                     instructions=(
                         "Use list_items before put_item. Preserve item_id and current version. "
-                        "Writes are disabled by default. A write requires a one-time approval "
-                        "token already issued for the authenticated principal by the trusted host; "
-                        "the MCP caller cannot issue it."
+                        "Writes are disabled by default and require a trusted-host one-time approval."
                     ),
                     lifespan=lifespan,
                     host=settings.host,
@@ -908,99 +723,44 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
                 )
 
                 @mcp.tool()
-                async def describe_capabilities(
-                    ctx: Context[ServerSession, AppContext],
-                ) -> dict[str, Any]:
-                    """Describe active governed capabilities without upstream I/O."""
-                    return _require_success(
-                        await ctx.request_context.lifespan_context.kernel.invoke(
-                            "describe_capabilities", {}
-                        )
-                    )
+                async def describe_capabilities(ctx: Context[ServerSession, AppContext]) -> dict[str, Any]:
+                    return _require_success(await ctx.request_context.lifespan_context.kernel.invoke("describe_capabilities", {}))
 
                 @mcp.tool()
-                async def get_health(
-                    ctx: Context[ServerSession, AppContext],
-                ) -> dict[str, Any]:
-                    """Return a bounded readiness snapshot."""
-                    return _require_success(
-                        await ctx.request_context.lifespan_context.kernel.invoke("get_health", {})
-                    )
+                async def get_health(ctx: Context[ServerSession, AppContext]) -> dict[str, Any]:
+                    return _require_success(await ctx.request_context.lifespan_context.kernel.invoke("get_health", {}))
 
                 @mcp.tool()
-                async def list_items(
-                    ctx: Context[ServerSession, AppContext], limit: int = 25
-                ) -> dict[str, Any]:
-                    """List bounded inventory summaries in stable item_id order."""
-                    return _require_success(
-                        await ctx.request_context.lifespan_context.kernel.invoke(
-                            "list_items", {"limit": limit}
-                        )
-                    )
+                async def list_items(ctx: Context[ServerSession, AppContext], limit: int = 25) -> dict[str, Any]:
+                    return _require_success(await ctx.request_context.lifespan_context.kernel.invoke("list_items", {"limit": limit}))
 
                 @mcp.tool()
-                async def put_item(
-                    item_id: str,
-                    name: str,
-                    expected_version: int,
-                    ctx: Context[ServerSession, AppContext],
-                    approval_token: str | None = None,
-                ) -> dict[str, Any]:
-                    """Create or update one item with version and trusted-host approval binding."""
-                    app = ctx.request_context.lifespan_context
-                    return _require_success(
-                        await app.kernel.invoke(
-                            "put_item",
-                            {
-                                "item_id": item_id,
-                                "name": name,
-                                "expected_version": expected_version,
-                            },
-                            CallerContext(approval_token=approval_token),
-                        )
-                    )
+                async def put_item(item_id: str, name: str, expected_version: int, ctx: Context[ServerSession, AppContext], approval_token: str | None = None) -> dict[str, Any]:
+                    return _require_success(await ctx.request_context.lifespan_context.kernel.invoke(
+                        "put_item", {"item_id": item_id, "name": name, "expected_version": expected_version},
+                        CallerContext(approval_token=approval_token),
+                    ))
 
                 @mcp.resource("capabilities://catalog", mime_type="application/json")
-                async def capability_catalog(
-                    ctx: Context[ServerSession, AppContext],
-                ) -> str:
-                    """Return the active capability catalog without upstream I/O."""
-                    return json.dumps(
-                        ctx.request_context.lifespan_context.kernel.catalog(), sort_keys=True
-                    )
+                async def capability_catalog(ctx: Context[ServerSession, AppContext]) -> str:
+                    return json.dumps(ctx.request_context.lifespan_context.kernel.catalog(), sort_keys=True)
 
                 @mcp.resource("health://ready", mime_type="application/json")
                 async def readiness(ctx: Context[ServerSession, AppContext]) -> str:
-                    """Report readiness for the generated mandatory dependency."""
                     app = ctx.request_context.lifespan_context
-                    return json.dumps(
-                        {
-                            "ready": True,
-                            "transport": app.settings.transport,
-                            "active_capabilities": len(app.kernel.active_names),
-                        },
-                        sort_keys=True,
-                    )
+                    return json.dumps({"ready": True, "transport": app.settings.transport, "active_capabilities": len(app.kernel.active_names)}, sort_keys=True)
 
                 @mcp.prompt()
                 def inventory_workflow() -> str:
-                    """Guide an agent through the version-aware inventory workflow."""
-                    return (
-                        "List items first. Reuse stable item_id and current version for updates. "
-                        "Do not retry a failed write. A trusted host must separately issue approval."
-                    )
+                    return "List items first. Reuse stable item_id/current version. Never retry a write."
 
                 return mcp
-
 
             def build_http_app(server: FastMCP, settings: Settings) -> RequestBodyLimitMiddleware:
                 if settings.transport != "streamable-http":
                     raise ValueError("build_http_app requires streamable-http settings")
                 settings.validate()
-                return RequestBodyLimitMiddleware(
-                    server.streamable_http_app(), settings.max_request_body_bytes
-                )
-
+                return RequestBodyLimitMiddleware(server.streamable_http_app(), settings.max_request_body_bytes)
 
             def main() -> None:
                 settings = Settings.from_env()
@@ -1008,12 +768,7 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
                 if settings.transport == "stdio":
                     server.run()
                 else:
-                    uvicorn.run(
-                        build_http_app(server, settings),
-                        host=settings.host,
-                        port=settings.port,
-                    )
-
+                    uvicorn.run(build_http_app(server, settings), host=settings.host, port=settings.port)
 
             if __name__ == "__main__":
                 main()
@@ -1023,91 +778,60 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
             '''
             import pytest
 
-
             @pytest.fixture
             def anyio_backend():
                 return "asyncio"
             '''
         ),
+        "tests/test_config.py": render(
+            '''
+            import pytest
+            from __PACKAGE__.config import Settings
+            from __PACKAGE__.server import build_http_app, build_server
+
+            def test_http_transport_is_literal_loopback_only() -> None:
+                Settings(transport="streamable-http", host="127.0.0.1").validate()
+                Settings(transport="streamable-http", host="::1").validate()
+                for host in ("0.0.0.0", "::", "192.168.1.10", "localhost"):
+                    with pytest.raises(ValueError):
+                        Settings(transport="streamable-http", host=host).validate()
+
+            def test_direct_settings_are_type_checked() -> None:
+                with pytest.raises(ValueError):
+                    Settings(write_enabled="false").validate()  # type: ignore[arg-type]
+
+            def test_http_builder_requires_http_settings() -> None:
+                settings = Settings()
+                with pytest.raises(ValueError):
+                    build_http_app(build_server(settings), settings)
+            '''
+        ),
         "tests/test_kernel.py": render(
             '''
             import pytest
-
             from __PACKAGE__.config import Settings
             from __PACKAGE__.domain import InventoryService
             from __PACKAGE__.kernel import ApprovalRegistry, CallerContext, InvocationKernel
 
             PRINCIPAL = "local-stdio-user"
 
-
             @pytest.mark.anyio
             async def test_write_is_fail_closed_approved_once_and_versioned() -> None:
                 service = InventoryService()
                 approvals = ApprovalRegistry()
-                disabled = InvocationKernel(
-                    Settings(write_enabled=False), service, approvals
-                )
-                disabled_token = approvals.issue("put_item", PRINCIPAL, "inventory", "a")
-                denied = await disabled.invoke(
-                    "put_item",
-                    {"item_id": "a", "name": "A", "expected_version": 0},
-                    CallerContext(approval_token=disabled_token),
-                )
-                assert denied["success"] is False
+                disabled = InvocationKernel(Settings(write_enabled=False), service, approvals)
+                denied = await disabled.invoke("put_item", {"item_id": "a", "name": "A", "expected_version": 0}, CallerContext(approval_token=approvals.issue("put_item", PRINCIPAL, "inventory", "a")))
                 assert denied["error"]["code"] == "AUTHORIZATION_FAILED"
-
-                enabled = InvocationKernel(
-                    Settings(write_enabled=True), service, approvals
-                )
-                no_approval = await enabled.invoke(
-                    "put_item", {"item_id": "a", "name": "A", "expected_version": 0}
-                )
+                enabled = InvocationKernel(Settings(write_enabled=True), service, approvals)
+                no_approval = await enabled.invoke("put_item", {"item_id": "a", "name": "A", "expected_version": 0})
                 assert no_approval["error"]["code"] == "AUTHORIZATION_FAILED"
-
-                wrong_principal_token = approvals.issue(
-                    "put_item", PRINCIPAL, "inventory", "a"
-                )
-                wrong_principal = await enabled.invoke(
-                    "put_item",
-                    {"item_id": "a", "name": "A", "expected_version": 0},
-                    CallerContext(principal="other-user", approval_token=wrong_principal_token),
-                )
-                assert wrong_principal["error"]["code"] == "AUTHORIZATION_FAILED"
-
-                create_token = approvals.issue("put_item", PRINCIPAL, "inventory", "a")
-                created = await enabled.invoke(
-                    "put_item",
-                    {"item_id": "a", "name": "A", "expected_version": 0},
-                    CallerContext(approval_token=create_token),
-                )
-                assert created["success"] is True
-                assert created["data"]["version"] == 1
-
-                replay = await enabled.invoke(
-                    "put_item",
-                    {"item_id": "a", "name": "B", "expected_version": 1},
-                    CallerContext(approval_token=create_token),
-                )
+                token = approvals.issue("put_item", PRINCIPAL, "inventory", "a")
+                created = await enabled.invoke("put_item", {"item_id": "a", "name": "A", "expected_version": 0}, CallerContext(approval_token=token))
+                assert created["success"] is True and created["data"]["version"] == 1
+                replay = await enabled.invoke("put_item", {"item_id": "a", "name": "B", "expected_version": 1}, CallerContext(approval_token=token))
                 assert replay["error"]["code"] == "AUTHORIZATION_FAILED"
-
-                missing_version_token = approvals.issue(
-                    "put_item", PRINCIPAL, "inventory", "a"
-                )
-                missing_version = await enabled.invoke(
-                    "put_item",
-                    {"item_id": "a", "name": "B"},
-                    CallerContext(approval_token=missing_version_token),
-                )
-                assert missing_version["error"]["code"] == "VALIDATION_FAILED"
-
-                conflict_token = approvals.issue("put_item", PRINCIPAL, "inventory", "a")
-                conflict = await enabled.invoke(
-                    "put_item",
-                    {"item_id": "a", "name": "B", "expected_version": 0},
-                    CallerContext(approval_token=conflict_token),
-                )
-                assert conflict["error"]["code"] == "CONFLICT"
-
+                missing = await enabled.invoke("put_item", {"item_id": "a", "name": "B"}, CallerContext(approval_token=approvals.issue("put_item", PRINCIPAL, "inventory", "a")))
+                assert missing["error"]["code"] == "VALIDATION_FAILED"
 
             def test_approval_registry_is_bounded() -> None:
                 approvals = ApprovalRegistry(max_records=1)
@@ -1120,7 +844,6 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
             '''
             from __PACKAGE__.manifests import MANIFESTS, validate_manifests
             from __PACKAGE__.server import REGISTERED_TOOLS
-
 
             def test_manifest_coverage_and_conservative_write_defaults() -> None:
                 validate_manifests(REGISTERED_TOOLS)
@@ -1135,147 +858,61 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
         "tests/test_http_limit.py": render(
             '''
             import pytest
-
             from __PACKAGE__.http import RequestBodyLimitMiddleware
 
+            async def _run(middleware, messages):
+                sent = []
+                iterator = iter(messages)
+                async def receive():
+                    return next(iterator)
+                async def send(message):
+                    sent.append(message)
+                await middleware({"type": "http", "headers": []}, receive, send)
+                return sent
 
             @pytest.mark.anyio
             async def test_oversized_chunked_body_is_rejected_before_application() -> None:
                 called = False
-
                 async def app(scope, receive, send):
                     nonlocal called
                     called = True
-                    await send({"type": "http.response.start", "status": 200, "headers": []})
-                    await send({"type": "http.response.body", "body": b"ok"})
-
-                middleware = RequestBodyLimitMiddleware(app, 4)
-                messages = [
-                    {"type": "http.request", "body": b"123", "more_body": True},
-                    {"type": "http.request", "body": b"45", "more_body": False},
-                ]
-                sent = []
-
-                async def receive():
-                    return messages.pop(0)
-
-                async def send(message):
-                    sent.append(message)
-
-                await middleware({"type": "http", "headers": []}, receive, send)
-                assert called is False
-                assert sent[0]["status"] == 413
-
+                middleware = RequestBodyLimitMiddleware(app, 3)
+                sent = await _run(middleware, [
+                    {"type": "http.request", "body": b"ab", "more_body": True},
+                    {"type": "http.request", "body": b"cd", "more_body": False},
+                ])
+                assert not called and sent[0]["status"] == 413
 
             @pytest.mark.anyio
-            async def test_accepted_chunked_body_is_replayed_to_application() -> None:
-                received = bytearray()
-
+            async def test_replay_preserves_live_disconnect_stream() -> None:
+                observed = []
                 async def app(scope, receive, send):
-                    while True:
-                        message = await receive()
-                        if message["type"] == "http.disconnect":
-                            break
-                        received.extend(message.get("body", b""))
-                        if message.get("more_body") is not True:
-                            break
-                    await send({"type": "http.response.start", "status": 200, "headers": []})
-                    await send({"type": "http.response.body", "body": b"ok"})
-
-                middleware = RequestBodyLimitMiddleware(app, 4)
-                messages = [
-                    {"type": "http.request", "body": b"12", "more_body": True},
-                    {"type": "http.request", "body": b"34", "more_body": False},
-                ]
-                sent = []
-
-                async def receive():
-                    return messages.pop(0)
-
-                async def send(message):
-                    sent.append(message)
-
-                await middleware({"type": "http", "headers": []}, receive, send)
-                assert bytes(received) == b"1234"
-                assert sent[0]["status"] == 200
-
-
-            @pytest.mark.anyio
-            async def test_excessive_empty_chunk_fragmentation_is_rejected() -> None:
-                called = False
-
-                async def app(scope, receive, send):
-                    nonlocal called
-                    called = True
-
-                middleware = RequestBodyLimitMiddleware(app, 4, max_events=2)
-                messages = [
-                    {"type": "http.request", "body": b"", "more_body": True},
-                    {"type": "http.request", "body": b"", "more_body": True},
-                    {"type": "http.request", "body": b"", "more_body": False},
-                ]
-                sent = []
-
-                async def receive():
-                    return messages.pop(0)
-
-                async def send(message):
-                    sent.append(message)
-
-                await middleware({"type": "http", "headers": []}, receive, send)
-                assert called is False
-                assert sent[0]["status"] == 413
-            '''
-        ),
-        "tests/test_config.py": render(
-            '''
-            import pytest
-
-            from __PACKAGE__.config import Settings
-            from __PACKAGE__.server import build_http_app, build_server
-
-
-            def test_http_requires_literal_loopback() -> None:
-                Settings(transport="streamable-http", host="127.0.0.1").validate()
-                Settings(transport="streamable-http", host="::1").validate()
-                for host in ("0.0.0.0", "::", "192.168.1.10", "localhost"):
-                    with pytest.raises(ValueError):
-                        Settings(transport="streamable-http", host=host).validate()
-
-
-            def test_direct_settings_cannot_smuggle_truthy_write_values() -> None:
-                with pytest.raises(ValueError):
-                    Settings(write_enabled="false").validate()  # type: ignore[arg-type]
-                with pytest.raises(ValueError):
-                    Settings(transport=["stdio"]).validate()  # type: ignore[arg-type]
-
-
-            def test_http_builder_requires_http_settings() -> None:
-                settings = Settings()
-                with pytest.raises(ValueError):
-                    build_http_app(build_server(settings), settings)
+                    observed.append(await receive())
+                    observed.append(await receive())
+                middleware = RequestBodyLimitMiddleware(app, 16)
+                await _run(middleware, [
+                    {"type": "http.request", "body": b"ok", "more_body": False},
+                    {"type": "http.disconnect"},
+                ])
+                assert observed[0]["type"] == "http.request"
+                assert observed[0]["body"] == b"ok"
+                assert observed[1]["type"] == "http.disconnect"
             '''
         ),
         "tests/test_mcp_smoke.py": render(
             '''
             import pytest
             from mcp.shared.memory import create_connected_server_and_client_session
-
             from __PACKAGE__.config import Settings
             from __PACKAGE__.server import build_server
-
 
             @pytest.mark.anyio
             async def test_real_mcp_client_lists_and_calls_tool() -> None:
                 server = build_server(Settings())
-                async with create_connected_server_and_client_session(
-                    server, raise_exceptions=True
-                ) as session:
+                async with create_connected_server_and_client_session(server, raise_exceptions=True) as session:
                     listed = await session.list_tools()
                     names = {tool.name for tool in listed.tools}
-                    assert {
-                        "describe_capabilities", "get_health", "list_items", "put_item"
-                    }.issubset(names)
+                    assert {"describe_capabilities", "get_health", "list_items", "put_item"}.issubset(names)
                     put_schema = next(tool.inputSchema for tool in listed.tools if tool.name == "put_item")
                     assert "expected_version" in put_schema.get("required", [])
                     assert "confirmed" not in put_schema.get("properties", {})
@@ -1289,25 +926,62 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
     }
 
 
+def _raise_rename_error(error_number: int, destination: Path) -> None:
+    if error_number in {errno.EEXIST, errno.ENOTEMPTY}:
+        raise FileExistsError(error_number, "generation target already exists", destination)
+    raise OSError(error_number, os.strerror(error_number), destination)
+
+
+def _rename_noreplace(source: Path, destination: Path) -> None:
+    """Atomically publish one directory without replacing any destination object."""
+    source_bytes = os.fsencode(source)
+    destination_bytes = os.fsencode(destination)
+    if sys.platform.startswith("linux"):
+        libc = ctypes.CDLL(None, use_errno=True)
+        renameat2 = getattr(libc, "renameat2", None)
+        if renameat2 is None:
+            raise RuntimeError("atomic no-replace rename requires renameat2 on this Linux runtime")
+        renameat2.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint]
+        renameat2.restype = ctypes.c_int
+        if renameat2(_AT_FDCWD, source_bytes, _AT_FDCWD, destination_bytes, _RENAME_NOREPLACE) != 0:
+            _raise_rename_error(ctypes.get_errno(), destination)
+        return
+    if sys.platform == "darwin":
+        libc = ctypes.CDLL(None, use_errno=True)
+        renamex_np = getattr(libc, "renamex_np", None)
+        if renamex_np is None:
+            raise RuntimeError("atomic no-replace rename requires renamex_np on this macOS runtime")
+        renamex_np.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_uint]
+        renamex_np.restype = ctypes.c_int
+        if renamex_np(source_bytes, destination_bytes, _RENAME_EXCL) != 0:
+            _raise_rename_error(ctypes.get_errno(), destination)
+        return
+    if os.name == "nt":
+        os.rename(source, destination)
+        return
+    raise RuntimeError("this platform has no configured atomic no-replace directory rename")
+
+
 def generate_project(target: Path, package: str, server_name: str) -> list[Path]:
-    """Generate a project atomically and refuse to overwrite an existing path."""
-    target = target.expanduser().resolve()
-    if target.exists():
-        raise FileExistsError(f"target already exists: {target}")
+    """Generate a project atomically and never follow or replace the target leaf."""
+    expanded = target.expanduser()
+    target = expanded.parent.resolve(strict=False) / expanded.name
     target.parent.mkdir(parents=True, exist_ok=True)
-    staging = Path(tempfile.mkdtemp(prefix=f".{target.name}-", dir=target.parent))
-    created: list[Path] = []
+    if os.path.lexists(target):
+        raise FileExistsError(errno.EEXIST, "generation target already exists", target)
+    files = project_files(package, server_name)
+    staging: Path | None = Path(tempfile.mkdtemp(prefix=f".{target.name}-", dir=target.parent))
     try:
-        for relative, content in project_files(package, server_name).items():
+        for relative, content in sorted(files.items()):
             destination = staging / relative
             destination.parent.mkdir(parents=True, exist_ok=True)
             destination.write_text(content, encoding="utf-8", newline="\n")
-            created.append(Path(relative))
-        staging.replace(target)
-    except Exception:
-        shutil.rmtree(staging, ignore_errors=True)
-        raise
-    return sorted(created)
+        _rename_noreplace(staging, target)
+        staging = None
+        return [Path(relative) for relative in sorted(files)]
+    finally:
+        if staging is not None:
+            shutil.rmtree(staging, ignore_errors=True)
 
 
 def build_parser() -> argparse.ArgumentParser:
