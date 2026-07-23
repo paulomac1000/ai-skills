@@ -358,12 +358,64 @@ def _legacy_failure(
     return _failure("LEGACY_ERROR", message, meta, correlation_id)
 
 
+def _optional_mapping(value: Mapping[str, Any], key: str) -> bool:
+    return key not in value or isinstance(value.get(key), Mapping)
+
+
+def _optional_string(value: Mapping[str, Any], key: str) -> bool:
+    return key not in value or isinstance(value.get(key), str)
+
+
+def _valid_resource_contents(value: Any) -> bool:
+    if not isinstance(value, Mapping):
+        return False
+    uri = value.get("uri")
+    if not isinstance(uri, str) or not uri:
+        return False
+    if not _optional_string(value, "mimeType") or not _optional_mapping(value, "_meta"):
+        return False
+    has_text = "text" in value
+    has_blob = "blob" in value
+    if has_text == has_blob:
+        return False
+    return isinstance(value.get("text" if has_text else "blob"), str)
+
+
+def _valid_content_block(value: Any) -> bool:
+    if not isinstance(value, Mapping):
+        return False
+    if not _optional_mapping(value, "annotations") or not _optional_mapping(value, "_meta"):
+        return False
+    block_type = value.get("type")
+    if block_type == "text":
+        return isinstance(value.get("text"), str)
+    if block_type in {"image", "audio"}:
+        return (
+            isinstance(value.get("data"), str)
+            and bool(value.get("data"))
+            and isinstance(value.get("mimeType"), str)
+            and bool(value.get("mimeType"))
+        )
+    if block_type == "resource_link":
+        if not isinstance(value.get("uri"), str) or not value.get("uri"):
+            return False
+        if not isinstance(value.get("name"), str) or not value.get("name"):
+            return False
+        if any(not _optional_string(value, key) for key in ("title", "description", "mimeType")):
+            return False
+        size = value.get("size")
+        return "size" not in value or (type(size) is int and size >= 0)
+    if block_type == "resource":
+        return _valid_resource_contents(value.get("resource"))
+    return False
+
+
 def _valid_content_payload(value: Any) -> bool:
     if isinstance(value, str):
         return True
     if not isinstance(value, Sequence) or isinstance(value, (bytes, bytearray)):
         return False
-    return all(isinstance(item, Mapping) for item in value)
+    return all(_valid_content_block(item) for item in value)
 
 
 def handle_response(response: Mapping[str, Any]) -> ResponseResult:
@@ -417,7 +469,7 @@ def handle_response(response: Mapping[str, Any]) -> ResponseResult:
     if content_present and not _valid_content_payload(response.get("content")):
         return _failure(
             "MALFORMED_RESPONSE",
-            "MCP content must be text or a sequence of content-block objects",
+            "MCP content must be text or a sequence of valid MCP content blocks",
             meta,
             correlation,
         )
