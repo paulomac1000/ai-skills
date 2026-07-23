@@ -74,7 +74,9 @@ An ambiguous timeout after a mutation returns an unknown-outcome state when comp
 ## Runtime enforcement
 
 - Server authorization, operator enablement, target allowlists, and consumer confirmation are separate controls.
-- Target identity is resolved before authorization and remains unchanged throughout retry and execution.
+- Before authentication, code may only parse and normalize a locally declared target selector without network I/O.
+- The server authenticates the principal and authorizes the capability plus selector namespace before network-backed target resolution.
+- After resolution, it authorizes the exact stable target and resource, and immediately before I/O it revalidates any mutable address-to-identity mapping without changing the authorized target.
 - An unavailable requested or default target never falls back silently to another target.
 - `concurrent_safe: false` maps to a keyed lock, semaphore, serialized actor, queue, or isolated client.
 - `timeout_ms` maps to a real deadline passed to downstream I/O and task execution.
@@ -120,7 +122,7 @@ A manifest compliance test must:
 5. enforce multi-axis consistency and conservative defaults;
 6. compare public names, schemas, descriptions, and versions;
 7. assert runtime gates for write, destructive, dangerous, confidential, expensive, and unavailable capabilities;
-8. prove target binding, no-silent-fallback, timeout, and concurrency behavior;
+8. prove authentication precedes network-backed resolution, then prove exact target authorization, identity revalidation, no-silent-fallback, timeout, and concurrency behavior;
 9. prove every positive idempotency, retry, reversibility, cache, and long-running claim;
 10. inspect the manifest through a real client on every advertised transport.
 
