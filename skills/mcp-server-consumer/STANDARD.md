@@ -51,7 +51,7 @@ Prefer the narrowest capability with the required contract. Prefer batch only wh
 
 Recognize explicit structured success and protocol-native MCP results. Preserve native error detail from `structuredContent` or content blocks. Empty `None`, list, map, or string may be a meaningful success. Unrecognized shapes fail closed.
 
-Validate every known field of content-block annotations before accepting either success or error content. `audience` is an array containing only `user` and `assistant`; `priority` is a finite number from zero through one; `lastModified`, when present, is a non-empty string. Unknown annotation fields remain available for forward-compatible extensions and never grant trust or retry permission.
+Validate every known non-null field of content-block annotations before accepting either success or error content. Nullable optional fields emitted as `None` by an official SDK are treated as absent. `audience`, when non-null, is an array containing only `user` and `assistant`; `priority`, when non-null, is a finite number from zero through one; `lastModified`, when non-null, is a non-empty string. Unknown annotation fields remain available for forward-compatible extensions and never grant trust or retry permission.
 
 ## Retry policy
 
@@ -64,7 +64,7 @@ Retry only when:
 - no manifest or response signal explicitly vetoes retry;
 - a conflict precondition has been refreshed before retry.
 
-When a manifest includes `retryConditions`, top-level and nested `retryable` values must agree. The current error must appear in the eligible-error list, `maxAttempts` must leave another invocation in the total budget, backoff must be positive, and required reconciliation must have completed. Missing, malformed, incomplete, or contradictory conditions deny retry.
+When a manifest includes `retryConditions`, top-level and nested `retryable` values must agree. The current error must appear in the eligible-error list, `maxAttempts` must leave another invocation in the total budget, backoff must be positive, and required reconciliation must have completed. Precondition refresh and uncertain-outcome reconciliation are independent proofs: one cannot satisfy the other. Missing, malformed, incomplete, or contradictory conditions deny retry.
 
 Cancellation, validation, authentication, authorization, unsupported behavior, and unknown errors are not automatically retried.
 
@@ -86,4 +86,4 @@ Inspect protocol and capability versions before relying on optional fields. Pref
 
 ## Verification
 
-Run the decision-engine tests and scenario tests covering trust downgrade attempts, conflicting retry signals, nested retry constraints, conflict refresh, native and malformed error content, annotation field validation, schema-aware detail selection, pagination limits, partial execution, and cross-server data boundaries.
+Run the decision-engine tests and scenario tests covering trust downgrade attempts, conflicting retry signals, nested retry constraints, conflict refresh, independent reconciliation proof, native and malformed error content, nullable SDK fields, annotation field validation, schema-aware detail selection, pagination limits, partial execution, and cross-server data boundaries.
