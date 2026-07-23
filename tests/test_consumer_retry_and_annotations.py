@@ -72,12 +72,49 @@ def test_retry_conditions_restrict_error_attempt_and_reconciliation() -> None:
         operation_idempotent=True,
         manifest=reconciliation,
     )
-    assert engine.should_retry(
+    assert not engine.should_retry(
         error_code="TIMEOUT",
         attempt=0,
         operation_idempotent=True,
         manifest=reconciliation,
         precondition_refreshed=True,
+    )
+    assert engine.should_retry(
+        error_code="TIMEOUT",
+        attempt=0,
+        operation_idempotent=True,
+        manifest=reconciliation,
+        reconciliation_completed=True,
+    )
+
+
+def test_conflict_refresh_and_reconciliation_are_independent_proofs() -> None:
+    engine = load_engine()
+    manifest = canonical_retry_manifest(
+        eligibleErrors=["CONFLICT"],
+        requiresReconciliation=True,
+    )
+    assert not engine.should_retry(
+        error_code="CONFLICT",
+        attempt=0,
+        operation_idempotent=True,
+        manifest=manifest,
+        precondition_refreshed=True,
+    )
+    assert not engine.should_retry(
+        error_code="CONFLICT",
+        attempt=0,
+        operation_idempotent=True,
+        manifest=manifest,
+        reconciliation_completed=True,
+    )
+    assert engine.should_retry(
+        error_code="CONFLICT",
+        attempt=0,
+        operation_idempotent=True,
+        manifest=manifest,
+        precondition_refreshed=True,
+        reconciliation_completed=True,
     )
 
 
@@ -108,7 +145,9 @@ def annotated_text(annotations: Any):
 def test_valid_content_annotations_and_future_fields_are_preserved() -> None:
     engine = load_engine()
     for annotations in (
+        None,
         {},
+        {"audience": None, "priority": None, "lastModified": None},
         {"audience": []},
         {"audience": ["user"]},
         {"audience": ["user", "assistant"], "priority": 0.5},
@@ -119,10 +158,52 @@ def test_valid_content_annotations_and_future_fields_are_preserved() -> None:
         assert engine.handle_response(annotated_text(annotations)).success is True
 
 
+def test_official_model_dump_nullable_fields_are_accepted() -> None:
+    engine = load_engine()
+    result = engine.handle_response(
+        {
+            "content": [
+                {
+                    "type": "text",
+                    "text": "ok",
+                    "annotations": None,
+                    "_meta": None,
+                },
+                {
+                    "type": "resource_link",
+                    "uri": "https://example.invalid/item",
+                    "name": "item",
+                    "title": None,
+                    "description": None,
+                    "mimeType": None,
+                    "size": None,
+                    "annotations": None,
+                    "_meta": None,
+                },
+                {
+                    "type": "resource",
+                    "resource": {
+                        "uri": "file:///tmp/item.txt",
+                        "mimeType": None,
+                        "_meta": None,
+                        "text": "payload",
+                    },
+                    "annotations": None,
+                    "_meta": None,
+                },
+            ],
+            "structuredContent": None,
+            "isError": False,
+            "_meta": None,
+        }
+    )
+    assert result.success is True
+    assert isinstance(result.data, list)
+
+
 def test_malformed_content_annotation_fields_fail_closed() -> None:
     engine = load_engine()
     malformed = (
-        None,
         [],
         {"audience": "user"},
         {"audience": ["system"]},
@@ -142,6 +223,27 @@ def test_malformed_content_annotation_fields_fail_closed() -> None:
         result = engine.handle_response(annotated_text(annotations))
         assert result.success is False, annotations
         assert result.error_code == "MALFORMED_RESPONSE", annotations
+
+
+def test_nullable_fields_do_not_weaken_non_null_validation() -> None:
+    engine = load_engine()
+    malformed_blocks = (
+        {"type": "text", "text": "ok", "_meta": []},
+        {
+            "type": "resource_link",
+            "uri": "https://example.invalid/item",
+            "name": "item",
+            "size": True,
+        },
+        {
+            "type": "resource",
+            "resource": {"uri": "file:///tmp/item", "text": "ok", "mimeType": []},
+        },
+    )
+    for block in malformed_blocks:
+        result = engine.handle_response({"content": [block]})
+        assert result.success is False, block
+        assert result.error_code == "MALFORMED_RESPONSE", block
 
 
 def test_malformed_annotations_on_error_blocks_are_reported_as_malformed() -> None:
