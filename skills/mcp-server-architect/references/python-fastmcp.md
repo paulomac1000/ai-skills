@@ -12,7 +12,7 @@ verification: Generate a fresh project and run its official in-memory client sui
 
 ## Generated baseline
 
-For a new Python server, start with `tools/generate_python_server.py`. The generator is stdlib-only, deterministic, atomic, refuses existing targets, and emits an installable project using the stable official MCP Python SDK lane. The generated server contains typed immutable settings, domain code, application-owned manifests, one invocation kernel, official SDK registration, stdio and loopback Streamable HTTP, tools, resources, a prompt, server instructions, structured errors, packaging, Docker, pinned CI, and a real-client test.
+For a new Python server, start at the repository root with `python skills/mcp-server-architect/tools/generate_python_server.py <target> --package <package> --name <server-name>`. The generator is stdlib-only, deterministic, atomic, refuses existing targets, and emits an installable project using the stable official MCP Python SDK lane. The generated server contains typed immutable settings, domain code, application-owned manifests, one invocation kernel, official SDK registration, stdio and loopback Streamable HTTP, tools, resources, a prompt, server instructions, structured errors, packaging, Docker, pinned CI, and a real-client test.
 
 The repository CI installs the pinned stable SDK, generates a fresh project, compiles it, and runs its own suite through `mcp.shared.memory.create_connected_server_and_client_session`. Text inspection alone is not generator verification. A generated project becomes production code only after replacing the sample adapter, reviewing manifests, adding principal and resource authorization, and implementing applicable upstream, transport, artifact, task, filesystem, browser, and deployment tests.
 
@@ -32,7 +32,7 @@ Pin direct dependencies and record the minimum and preferred tested versions. Do
 
 ## Lifecycle ownership
 
-Use an async lifespan or application-owned async context manager for process resources. Account for SDK versions whose lifespan callback is connection-scoped: process clients must not be recreated per legacy SSE or HTTP connection.
+Use an async lifespan or application-owned async context manager for process resources. Account for SDK versions whose lifespan callback is connection-scoped: process clients must not be recreated for each connection of the deprecated two-endpoint HTTP+SSE compatibility transport or for each Streamable HTTP request.
 
 Initialize mandatory clients before readiness. Keep successful clients when optional targets fail, record unavailable targets, and close every initialized client on startup failure and shutdown. Do not assign application state through private SDK attributes outside a temporary compatibility adapter.
 
@@ -45,21 +45,22 @@ Request context is read only inside live invocations. Pass application context i
 Build one application-owned async entry point that accepts component name, typed arguments, caller context, transport metadata, and deadline. In this order it:
 
 1. resolves the manifest and active capability;
-2. validates and normalizes input;
-3. resolves and revalidates stable target identity;
-4. authenticates and authorizes the principal;
-5. checks operator policy and confirmation metadata;
-6. applies deadline, rate limit, concurrency, and idempotency controls;
-7. invokes the domain operation;
-8. maps errors and ambiguous outcomes;
-9. minimizes and sanitizes output;
-10. emits correlation, target, policy, and result telemetry.
+2. validates and normalizes local input and a declared target selector without network I/O;
+3. authenticates the principal and intended audience;
+4. authorizes the capability and declared target namespace;
+5. performs network-backed resolution only inside that authorized namespace and authorizes the exact stable target and resource;
+6. checks operator policy and trusted approval metadata;
+7. applies deadline, rate limit, concurrency, and idempotency controls;
+8. immediately revalidates mutable address-to-identity mappings without changing the authorized target;
+9. invokes the domain operation;
+10. maps errors and ambiguous outcomes;
+11. minimizes and sanitizes output and emits correlation, target, policy, and result telemetry.
 
 MCP, REST, tests, and compatibility transports delegate to this kernel. They may translate protocol envelopes, but they never call a raw registered function, monkey-patch request context, synthesize a fake SDK context, or duplicate policy.
 
 ## Transport parity
 
-Use stdio for local subprocess integration and Streamable HTTP for remote integration. Treat legacy SSE as a separate compatibility transport with an expiry plan. Build an ASGI app when production needs middleware, workers, reverse-proxy integration, or shared HTTP hosting.
+Use stdio for local subprocess integration and Streamable HTTP for remote integration. The deprecated two-endpoint HTTP+SSE transport from protocol revision 2024-11-05 is not a normal Python transport choice and is forbidden in generated or new servers. An existing server may retain it only in an isolated compatibility adapter that is disabled by default, restricted to named legacy clients or an explicit network allowlist, covered by conformance and invocation-policy parity tests, assigned an owner and removal deadline, and receives no new capabilities. Modern Streamable HTTP may still use `text/event-stream` framing; that does not make it the legacy two-endpoint transport. Build an ASGI app when production needs middleware, workers, reverse-proxy integration, or shared HTTP hosting.
 
 The same registration, manifests, active profile, target resolution, auth policy, error mapping, sanitization, and invocation kernel serve every transport. A REST bridge uses an application adapter or a public MCP client; it does not inspect private tool wrappers or reconstruct schemas from `inspect.signature` when the SDK already owns the public schema.
 
@@ -99,7 +100,7 @@ Use `Path.resolve` plus component-aware containment such as `is_relative_to`; le
 
 Persistent results are governed artifacts. Record opaque artifact ID, owner, target, operation, MIME type, byte size, checksum when useful, creation, expiry, and deletion. Do not expose host paths as public handles. Bound previews, downloads, retention, and cleanup.
 
-Long-running work uses a bounded task registry or durable store, not daemon threads or untracked `create_task`. Track accepted, running, verifying, succeeded, failed, cancelled, unknown-outcome, and expired states. Shutdown stops admission and deterministically cancels, persists, or waits for owned work.
+Long-running work uses a bounded task registry or durable store, not daemon threads or untracked `create_task`. Track accepted, running, verifying, succeeded, failed, cancelled, unknown-outcome, and expired states. Shutdown stops admission and deterministically cancels, persists, or waits for owned work. A transport-session disconnect releases only session-owned handles and does not erase a durable task record.
 
 ## Browser automation profile
 
@@ -121,7 +122,7 @@ Operator enablement is checked before any I/O in every mutating path. Prefer cap
 
 ## Target and network safety
 
-A mutable address is not a stable resource identity. Discovery returns both stable identity and observed address. Mutating calls re-resolve and verify that the address still belongs to the authorized identity immediately before I/O.
+A mutable address is not a stable resource identity. Before authentication, parse only a local target selector. Authenticate and authorize its namespace before DNS, discovery, device scan, SSH, account lookup, or any other network-backed resolution. Discovery returns both stable identity and observed address; authorize the resolved resource and revalidate that the address still belongs to the authorized identity immediately before I/O.
 
 For agent-supplied hosts and URLs, validate normalized scheme, hostname, resolved addresses, CIDR, port, redirect destinations, and DNS changes. Apply checks after every redirect and resolution. Bind authorization to the resolved target, not the original string alone.
 
@@ -135,7 +136,7 @@ Preserve validation, auth, not-found, conflict, rate-limit, timeout, cancellatio
 
 Money uses `Decimal` or integer minor units with currency, sign, range, and rounding policy. Public dates use ISO 8601 and explicit timezone or date-only semantics. Localized upstream formats are converted only inside the adapter.
 
-Pagination declares stable ordering, page or cursor semantics, page size, continuation, and termination. A non-empty page does not imply `has_more`. Test empty, partial, full-final, changing-data, invalid-cursor, and maximum-page cases.
+Pagination declares stable ordering, page or cursor semantics, page size, continuation, and termination. A non-empty page does not imply `has_more`. An explicit `has_more: false` or equivalent final-page marker overrides stale continuation tokens. Test empty, partial, full-final, changing-data, invalid-cursor, contradictory-marker, and maximum-page cases.
 
 ## Long-running and disconnecting operations
 
@@ -155,19 +156,19 @@ Normalize content blocks and structured content only at the transport or compati
 
 ## Test strategy
 
-- generator tests create two byte-identical projects, compile them, and execute one through a real official MCP client;
+- generator tests create two byte-identical projects, compile them, execute one through a real official MCP client, and race concurrent creators against the same target;
 - configuration-order tests prove `.env` or secret sources are loaded before settings capture;
 - domain tests call application services directly;
 - manifest tests enumerate supported, active, and registered components;
 - invocation-kernel tests compare MCP, REST, and test adapters;
-- lifecycle tests cover all-failed, partial, failed-default, owner-scoped disconnect, and cleanup paths;
-- target tests cover identity changes, no-silent-fallback, and authorization after resolution;
-- race tests overlap clients, locks, quotas, executors, browser contexts, profile transitions, and correlation state;
+- lifecycle tests cover all-failed, partial, failed-default, owner-scoped disconnect, durable-task survival, and cleanup paths;
+- target tests cover pre-auth local parsing, auth before network resolution, identity changes, no-silent-fallback, and authorization of the resolved target;
+- race tests overlap clients, locks, quotas, executors, browser contexts, profile transitions, generation targets, and correlation state;
 - retry tests cover mutation veto, idempotency keys, `Retry-After`, ambiguous completion, and deadline exhaustion;
 - filesystem and artifact tests cover sibling-prefix, symlink swap, extraction, byte limits, retention, and opaque handles;
 - task tests cover admission, entropy, progress, cancellation, restart or recovery, expiry, and shutdown;
 - browser tests cover profile isolation, process lock, interactive auth, UI drift, provenance, and sanitized diagnostics;
-- pagination tests prove termination;
+- pagination tests prove termination and explicit final markers overriding stale cursors;
 - transport tests use real stdio and Streamable HTTP;
 - content tests cover text blocks, structured content, confidentiality, and exports;
 - deployment tests start the built wheel or container;
