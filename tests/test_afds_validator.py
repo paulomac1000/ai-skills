@@ -145,6 +145,34 @@ def test_reference_style_links_are_validated(tmp_path: Path) -> None:
     assert validator.validate(write(tmp_path / "doc.md", valid)) == []
 
 
+def test_shortcut_reference_links_are_validated(tmp_path: Path) -> None:
+    validator = load_validator()
+    broken = governed_body() + "\n[Guide]\n\n[guide]: missing.md \"details\"\n"
+    assert "broken relative link: missing.md" in messages(
+        validator.validate(write(tmp_path / "doc.md", broken))
+    )
+    write(tmp_path / "guide.md", "# Guide\n")
+    valid = governed_body() + "\n[Guide]\n\n[guide]: guide.md\n"
+    assert validator.validate(write(tmp_path / "doc.md", valid)) == []
+
+
+def test_unused_reference_definition_is_not_treated_as_a_link(tmp_path: Path) -> None:
+    validator = load_validator()
+    document = governed_body() + "\n[unused]: missing.md\n"
+    assert validator.validate(write(tmp_path / "doc.md", document)) == []
+
+
+def test_shortcut_images_code_and_escaped_labels_are_ignored(tmp_path: Path) -> None:
+    validator = load_validator()
+    document = governed_body() + (
+        "\n![Guide]\n"
+        "\n`[Guide]`\n"
+        "\n\\[Guide]\n"
+        "\n[guide]: missing.md\n"
+    )
+    assert validator.validate(write(tmp_path / "doc.md", document)) == []
+
+
 def test_images_code_and_escaped_pseudo_links_are_ignored(tmp_path: Path) -> None:
     validator = load_validator()
     document = governed_body() + (
