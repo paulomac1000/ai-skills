@@ -89,6 +89,8 @@ def test_generated_project_uses_public_sdk_and_fail_closed_controls(tmp_path: Pa
         "MaxRequestBodySize",
         "RequireRateLimiting",
         "UseAuthorization();\n    app.UseRateLimiter();",
+        "StringComparison.OrdinalIgnoreCase",
+        "SHA256.HashData",
     ):
         assert token in source
 
@@ -130,6 +132,7 @@ def test_generated_project_uses_public_sdk_and_fail_closed_controls(tmp_path: Pa
     assert "VerifyApprovalContractAsync" in smoke
     assert "approvals.Issue" in smoke
     assert "other-principal" in smoke
+    assert "Case-insensitive Bearer authentication was rejected" in smoke
 
     workflow = (target / ".github/workflows/ci.yml").read_text(encoding="utf-8")
     for line in workflow.splitlines():
