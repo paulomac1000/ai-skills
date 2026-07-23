@@ -18,6 +18,7 @@ def test_dotnet_manifest_contains_every_normative_policy_axis() -> None:
         "SideEffectClass SideEffects",
         "ConfidentialityClass Confidentiality",
         "IdempotencyMechanism IdempotencyMechanism",
+        "bool Retryable",
         "RetryConditions RetryConditions",
         "bool ConcurrentSafe",
         "string ConcurrencyScope",
@@ -33,10 +34,31 @@ def test_dotnet_manifest_contains_every_normative_policy_axis() -> None:
         "IReadOnlyList<CapabilityEvidence> Evidence",
     ):
         assert token in manifest
+    assert "manifest.Retryable != manifest.RetryConditions.Retryable" in manifest
     assert "RequireEvidence(manifest, \"idempotent\", manifest.Idempotent)" in manifest
     assert "RequireEvidence(manifest, \"concurrent-safe\", manifest.ConcurrentSafe)" in manifest
     assert "RequireEvidence(manifest, \"reversible\", manifest.Reversible)" in manifest
-    assert "RequireEvidence(manifest, \"retryable\", manifest.RetryConditions.Retryable)" in manifest
+    assert "RequireEvidence(manifest, \"retryable\", manifest.Retryable)" in manifest
+
+
+def test_dotnet_manifest_serializes_canonical_wire_vocabulary() -> None:
+    manifest = read("src/__NAMESPACE__.Mcp.Server/CapabilityManifest.cs.template")
+    for canonical in (
+        "READ",
+        "WRITE",
+        "DESTRUCTIVE",
+        "DANGEROUS",
+        "SENSITIVE",
+        "none",
+        "idempotency_key",
+        "env-dependent",
+        "eventually-consistent",
+        "long-running",
+        "service_outage",
+        "active",
+        "deprecated",
+    ):
+        assert f'JsonStringEnumMemberName("{canonical}")' in manifest
 
 
 def test_dotnet_write_defaults_remain_conservative() -> None:
@@ -46,7 +68,7 @@ def test_dotnet_write_defaults_remain_conservative() -> None:
         "CapabilityRisk.Write",
         "SideEffectClass.Write",
         "false,\n                IdempotencyMechanism.None",
-        "RetryConditions.Never",
+        "IdempotencyMechanism.None,\n                false,\n                RetryConditions.Never",
         "false,\n                \"inventory:itemId\"",
         "ImpactClass.Persistent",
         "CapabilityActiveState.Active",
@@ -94,6 +116,7 @@ def test_dotnet_manifest_contract_matches_normative_reference() -> None:
         "side_effects": "SideEffectClass SideEffects",
         "confidentiality": "ConfidentialityClass Confidentiality",
         "idempotency_mechanism": "IdempotencyMechanism IdempotencyMechanism",
+        "retryable": "bool Retryable",
         "retry_conditions": "RetryConditions RetryConditions",
         "concurrent_safe": "bool ConcurrentSafe",
         "concurrency_scope": "string ConcurrencyScope",
