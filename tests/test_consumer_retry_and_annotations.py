@@ -150,13 +150,13 @@ def test_retry_conditions_accept_consistent_snake_case_compatibility_shape() -> 
     )
 
 
-def annotated_text(annotations: Any):
-    return {"content": [{"type": "text", "text": "ok", "annotations": annotations}]}
+def annotated_text(content_annotations: Any):
+    return {"content": [{"type": "text", "text": "ok", "annotations": content_annotations}]}
 
 
 def test_valid_content_annotations_and_future_fields_are_preserved() -> None:
     engine = load_engine()
-    for annotations in (
+    for content_annotations in (
         None,
         {},
         {"audience": None, "priority": None, "lastModified": None},
@@ -167,7 +167,7 @@ def test_valid_content_annotations_and_future_fields_are_preserved() -> None:
         {"priority": 1.0, "lastModified": "2025-01-12T15:00:58Z"},
         {"futureExtension": {"version": 1}},
     ):
-        assert engine.handle_response(annotated_text(annotations)).success is True
+        assert engine.handle_response(annotated_text(content_annotations)).success is True
 
 
 def test_official_model_dump_nullable_fields_are_accepted() -> None:
@@ -231,10 +231,10 @@ def test_malformed_content_annotation_fields_fail_closed() -> None:
         {"lastModified": ""},
         {"lastModified": "   "},
     )
-    for annotations in malformed:
-        result = engine.handle_response(annotated_text(annotations))
-        assert result.success is False, annotations
-        assert result.error_code == "MALFORMED_RESPONSE", annotations
+    for content_annotations in malformed:
+        result = engine.handle_response(annotated_text(content_annotations))
+        assert result.success is False, content_annotations
+        assert result.error_code == "MALFORMED_RESPONSE", content_annotations
 
 
 def test_nullable_fields_do_not_weaken_non_null_validation() -> None:
