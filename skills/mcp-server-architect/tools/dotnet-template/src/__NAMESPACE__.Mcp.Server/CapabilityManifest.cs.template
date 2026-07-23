@@ -232,7 +232,7 @@ public sealed class CapabilityRegistry
                 Array.Empty<CapabilityEvidence>()),
         };
 
-    public CapabilityRegistry()
+    static CapabilityRegistry()
     {
         foreach (var manifest in Manifests.Values)
             Validate(manifest);
@@ -278,6 +278,8 @@ public sealed class CapabilityRegistry
         }
         if ((manifest.SideEffects is SideEffectClass.Write or SideEffectClass.Destructive) && !manifest.RequiresApproval)
             throw new InvalidOperationException($"{manifest.Name}: mutations require an independent trusted approval gate.");
+        if (manifest.RequiresConfirmation && !manifest.RequiresApproval)
+            throw new InvalidOperationException($"{manifest.Name}: this generated baseline implements confirmation through a trusted approval record.");
         RequireEvidence(manifest, "idempotent", manifest.Idempotent);
         RequireEvidence(manifest, "concurrent-safe", manifest.ConcurrentSafe);
         RequireEvidence(manifest, "reversible", manifest.Reversible);
