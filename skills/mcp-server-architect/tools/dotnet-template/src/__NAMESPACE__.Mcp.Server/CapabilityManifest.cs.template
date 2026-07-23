@@ -19,88 +19,131 @@ public static class CapabilityNames
 [JsonConverter(typeof(JsonStringEnumConverter))]
 public enum CapabilityRisk
 {
+    [JsonStringEnumMemberName("READ")]
     Read,
+    [JsonStringEnumMemberName("WRITE")]
     Write,
+    [JsonStringEnumMemberName("DESTRUCTIVE")]
     Destructive,
+    [JsonStringEnumMemberName("DANGEROUS")]
     Dangerous,
+    [JsonStringEnumMemberName("SENSITIVE")]
     Sensitive,
 }
 
 [JsonConverter(typeof(JsonStringEnumConverter))]
 public enum SideEffectClass
 {
+    [JsonStringEnumMemberName("none")]
     None,
+    [JsonStringEnumMemberName("read")]
     Read,
+    [JsonStringEnumMemberName("write")]
     Write,
+    [JsonStringEnumMemberName("destructive")]
     Destructive,
 }
 
 [JsonConverter(typeof(JsonStringEnumConverter))]
 public enum ConfidentialityClass
 {
+    [JsonStringEnumMemberName("public")]
     Public,
+    [JsonStringEnumMemberName("internal")]
     Internal,
+    [JsonStringEnumMemberName("personal")]
     Personal,
+    [JsonStringEnumMemberName("sensitive")]
     Sensitive,
+    [JsonStringEnumMemberName("credential")]
     Credential,
+    [JsonStringEnumMemberName("financial")]
     Financial,
 }
 
 [JsonConverter(typeof(JsonStringEnumConverter))]
 public enum IdempotencyMechanism
 {
+    [JsonStringEnumMemberName("none")]
     None,
+    [JsonStringEnumMemberName("natural")]
     Natural,
+    [JsonStringEnumMemberName("idempotency_key")]
     IdempotencyKey,
+    [JsonStringEnumMemberName("precondition")]
     Precondition,
+    [JsonStringEnumMemberName("deduplication")]
     Deduplication,
 }
 
 [JsonConverter(typeof(JsonStringEnumConverter))]
 public enum DeterminismClass
 {
+    [JsonStringEnumMemberName("deterministic")]
     Deterministic,
+    [JsonStringEnumMemberName("probabilistic")]
     Probabilistic,
+    [JsonStringEnumMemberName("env-dependent")]
     EnvironmentDependent,
+    [JsonStringEnumMemberName("eventually-consistent")]
     EventuallyConsistent,
 }
 
 [JsonConverter(typeof(JsonStringEnumConverter))]
 public enum LatencyClass
 {
+    [JsonStringEnumMemberName("low")]
     Low,
+    [JsonStringEnumMemberName("medium")]
     Medium,
+    [JsonStringEnumMemberName("high")]
     High,
+    [JsonStringEnumMemberName("long-running")]
     LongRunning,
 }
 
 [JsonConverter(typeof(JsonStringEnumConverter))]
 public enum CostClass
 {
+    [JsonStringEnumMemberName("low")]
     Low,
+    [JsonStringEnumMemberName("medium")]
     Medium,
+    [JsonStringEnumMemberName("high")]
     High,
+    [JsonStringEnumMemberName("abuse-sensitive")]
     AbuseSensitive,
 }
 
 [JsonConverter(typeof(JsonStringEnumConverter))]
 public enum ImpactClass
 {
+    [JsonStringEnumMemberName("none")]
     None,
+    [JsonStringEnumMemberName("transient")]
     Transient,
+    [JsonStringEnumMemberName("persistent")]
     Persistent,
+    [JsonStringEnumMemberName("service_outage")]
     ServiceOutage,
+    [JsonStringEnumMemberName("financial")]
     Financial,
+    [JsonStringEnumMemberName("physical")]
     Physical,
 }
 
 [JsonConverter(typeof(JsonStringEnumConverter))]
 public enum CapabilityActiveState
 {
+    [JsonStringEnumMemberName("active")]
     Active,
+    [JsonStringEnumMemberName("disabled")]
     Disabled,
+    [JsonStringEnumMemberName("degraded")]
     Degraded,
+    [JsonStringEnumMemberName("unavailable")]
     Unavailable,
+    [JsonStringEnumMemberName("deprecated")]
     Deprecated,
 }
 
@@ -132,6 +175,7 @@ public sealed record CapabilityManifest(
     ConfidentialityClass Confidentiality,
     bool Idempotent,
     IdempotencyMechanism IdempotencyMechanism,
+    bool Retryable,
     RetryConditions RetryConditions,
     bool ConcurrentSafe,
     string ConcurrencyScope,
@@ -161,6 +205,7 @@ public sealed class CapabilityRegistry
                 ConfidentialityClass.Internal,
                 true,
                 IdempotencyMechanism.Natural,
+                false,
                 RetryConditions.Never,
                 true,
                 "none",
@@ -188,6 +233,7 @@ public sealed class CapabilityRegistry
                 ConfidentialityClass.Internal,
                 true,
                 IdempotencyMechanism.Natural,
+                false,
                 RetryConditions.Never,
                 true,
                 "none",
@@ -215,6 +261,7 @@ public sealed class CapabilityRegistry
                 ConfidentialityClass.Internal,
                 false,
                 IdempotencyMechanism.None,
+                false,
                 RetryConditions.Never,
                 false,
                 "inventory:itemId",
@@ -266,7 +313,9 @@ public sealed class CapabilityRegistry
             throw new InvalidOperationException($"{manifest.Name}: positive idempotency requires a mechanism.");
         if (!manifest.Idempotent && manifest.IdempotencyMechanism is not IdempotencyMechanism.None)
             throw new InvalidOperationException($"{manifest.Name}: an idempotency mechanism cannot accompany a negative claim.");
-        if (manifest.RetryConditions.Retryable)
+        if (manifest.Retryable != manifest.RetryConditions.Retryable)
+            throw new InvalidOperationException($"{manifest.Name}: top-level retryable must match retry_conditions.retryable.");
+        if (manifest.Retryable)
         {
             if (!manifest.Idempotent || manifest.RetryConditions.MaxAttempts is < 2 or > 5 ||
                 manifest.RetryConditions.BackoffMilliseconds <= 0 || manifest.RetryConditions.EligibleErrors.Count == 0)
@@ -283,7 +332,7 @@ public sealed class CapabilityRegistry
         RequireEvidence(manifest, "idempotent", manifest.Idempotent);
         RequireEvidence(manifest, "concurrent-safe", manifest.ConcurrentSafe);
         RequireEvidence(manifest, "reversible", manifest.Reversible);
-        RequireEvidence(manifest, "retryable", manifest.RetryConditions.Retryable);
+        RequireEvidence(manifest, "retryable", manifest.Retryable);
     }
 
     private static void RequireEvidence(CapabilityManifest manifest, string claim, bool required)
