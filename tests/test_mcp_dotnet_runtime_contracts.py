@@ -55,10 +55,11 @@ def test_dotnet_write_defaults_remain_conservative() -> None:
         assert token in put_section
 
 
-def test_dotnet_kernel_enforces_timeout_active_state_and_concurrency() -> None:
+def test_dotnet_kernel_enforces_timeout_active_state_concurrency_and_approval() -> None:
     kernel = read("src/__NAMESPACE__.Mcp.Server/InvocationKernel.cs.template")
     gate = read("src/__NAMESPACE__.Mcp.Server/OperationGate.cs.template")
     program = read("src/__NAMESPACE__.Mcp.Server/Program.cs.template")
+    manifest = read("src/__NAMESPACE__.Mcp.Server/CapabilityManifest.cs.template")
     for token in (
         "RequireActive(CapabilityNames.ListItems)",
         "RequireActive(CapabilityNames.PutItem)",
@@ -68,13 +69,18 @@ def test_dotnet_kernel_enforces_timeout_active_state_and_concurrency() -> None:
         "manifest.ConcurrencyScope",
         "TIMEOUT:",
         "beforeExecution?.Invoke()",
+        "if (manifest.RequiresApproval)",
+        "beforeExecution: approvalGate",
     ):
         assert token in kernel
     assert "SemaphoreSlim" in gate
     assert "References" in gate
     assert "maximumKeys" in gate
     assert "AddSingleton<KeyedOperationGate>()" in program
-    assert kernel.index("beforeExecution: () =>") < kernel.index("approvals.Consume")
+    assert "static CapabilityRegistry()" in manifest
+    assert "manifest.RequiresConfirmation && !manifest.RequiresApproval" in manifest
+    assert kernel.index("if (manifest.RequiresApproval)") < kernel.index("approvals.Consume")
+    assert kernel.index("Action? approvalGate = null") < kernel.index("beforeExecution: approvalGate")
     execute = kernel.split("private async ValueTask<T> ExecuteAsync", 1)[1]
     assert execute.index("operationGate.EnterAsync") < execute.index("beforeExecution?.Invoke()")
 
