@@ -151,6 +151,8 @@ jobs:
           path: |
             audit-fixes.log
             audit-fixes-junit.xml
+            skills/mcp-server-architect/tools/dotnet-template/src/__NAMESPACE__.Mcp.Server/packages.lock.json.template
+            skills/mcp-server-architect/tools/dotnet-template/tests/__NAMESPACE__.Mcp.Smoke/packages.lock.json.template
           if-no-files-found: error
           retention-days: 3
       - name: Run full repository gate
