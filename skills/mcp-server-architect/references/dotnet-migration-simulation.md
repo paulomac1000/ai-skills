@@ -46,7 +46,8 @@ The server discovers devices and can issue switch, gate, firmware, media, or raw
 
 ### Physical-device controller design
 
-- stable device identity is resolved before authorization and revalidated before a physical effect;
+- parse and canonicalize the device selector without network I/O, authenticate the caller, and authorize its device namespace before discovery;
+- resolve the stable device identity only after preliminary authorization, authorize the concrete device and resource, and revalidate the identity immediately before a physical effect;
 - ordinary write, physical effect, firmware update, and outage are separate manifest axes;
 - every write defaults to non-retryable and non-idempotent unless the operation proves a durable key or natural idempotency;
 - non-concurrent-safe operations serialize by device or controller through a keyed lock, `SemaphoreSlim`, `Channel`, or actor;
@@ -55,6 +56,7 @@ The server discovers devices and can issue switch, gate, firmware, media, or raw
 
 ### Physical-device controller failure simulations
 
+- attempt an unauthorized selector and prove the resolver performs no network-backed discovery;
 - change the address-to-device mapping between discovery and mutation;
 - send the same command after an ambiguous timeout and prove no blind replay occurs;
 - overlap two firmware operations for one device and one operation for another;
@@ -152,6 +154,7 @@ The official C# MCP client is the source of truth for initialization, tool schem
 - [ ] Stdio stdout is protocol-only and child environment inheritance is allowlisted.
 - [ ] Streamable HTTP sets stateless/stateful explicitly and exposes no legacy endpoints.
 - [ ] Authentication precedes principal-partitioned rate limiting.
+- [ ] Selector namespace authorization precedes network-backed resolution; concrete identity authorization and revalidation precede I/O.
 - [ ] Authorization-filter activation and caller-filtered listing are tested.
 - [ ] `ClaimsPrincipal`, scopes, target identity, approval, tasks, and artifacts are principal-bound.
 - [ ] Runtime validation happens before approval consumption and I/O.
