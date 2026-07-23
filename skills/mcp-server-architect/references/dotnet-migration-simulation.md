@@ -16,11 +16,11 @@ Transfer reusable experience into .NET without copying Python mechanics or retai
 
 ## Archetype A: read-only aggregator with exports
 
-### Shape
+### Read-only aggregator shape
 
 A large catalog reads configuration, diagnostics, state, and bounded filesystem data. Some operations generate snapshots or exports that finish after the request.
 
-### Required .NET design
+### Read-only aggregator design
 
 - `ClaimsPrincipal` and target identity flow into one invocation kernel;
 - read-only does not suppress confidentiality, purpose, or authorization;
@@ -29,7 +29,7 @@ A large catalog reads configuration, diagnostics, state, and bounded filesystem 
 - process-scoped clients survive an individual protocol-session disconnect;
 - liveness stays healthy while readiness reflects mandatory dependency failure.
 
-### Failure simulations
+### Read-only aggregator failure simulations
 
 - remove one manifest while keeping the attributed tool;
 - return a local path instead of an artifact handle;
@@ -40,11 +40,11 @@ A large catalog reads configuration, diagnostics, state, and bounded filesystem 
 
 ## Archetype B: physical-device controller
 
-### Shape
+### Physical-device controller shape
 
 The server discovers devices and can issue switch, gate, firmware, media, or raw-protocol operations. Address assignment can change independently of device identity.
 
-### Required .NET design
+### Physical-device controller design
 
 - stable device identity is resolved before authorization and revalidated before a physical effect;
 - ordinary write, physical effect, firmware update, and outage are separate manifest axes;
@@ -53,7 +53,7 @@ The server discovers devices and can issue switch, gate, firmware, media, or raw
 - firmware and media inputs have byte, type, checksum, destination, and retention limits;
 - expected disconnect returns an accepted state and verification deadline instead of a generic retryable timeout.
 
-### Failure simulations
+### Physical-device controller failure simulations
 
 - change the address-to-device mapping between discovery and mutation;
 - send the same command after an ambiguous timeout and prove no blind replay occurs;
@@ -64,11 +64,11 @@ The server discovers devices and can issue switch, gate, firmware, media, or raw
 
 ## Archetype C: financial API adapter
 
-### Shape
+### Financial API adapter shape
 
 The server reads accounts and transactions and may create, transition, or delete financial records.
 
-### Required .NET design
+### Financial API adapter design
 
 - money uses `decimal` or minor units plus currency and explicit rounding;
 - dates have ISO 8601 or explicit date-only semantics;
@@ -78,7 +78,7 @@ The server reads accounts and transactions and may create, transition, or delete
 - deletion approval is bound to principal, account, target, and exact record;
 - pagination terminates on explicit continuation state, including empty and full-final pages.
 
-### Failure simulations
+### Financial API adapter failure simulations
 
 - dependency metadata claims `idempotent=true` while the trusted contract does not;
 - a timeout occurs after the upstream accepted a create;
@@ -89,11 +89,11 @@ The server reads accounts and transactions and may create, transition, or delete
 
 ## Archetype D: multi-backend SSH administrator
 
-### Shape
+### Multi-backend SSH administrator shape
 
 The server manages several named backends or hosts and exposes bounded diagnostics, configuration, and restart operations.
 
-### Required .NET design
+### Multi-backend SSH administrator design
 
 - target namespaces remain explicit and equal tool names cannot transfer authority;
 - an unavailable requested or configured default target never becomes the first healthy backend;
@@ -103,7 +103,7 @@ The server manages several named backends or hosts and exposes bounded diagnosti
 - restart is an outage operation with expected-disconnect and postcondition verification;
 - process cleanup is owned by Generic Host and terminates process groups within a bound.
 
-### Failure simulations
+### Multi-backend SSH administrator failure simulations
 
 - fail the configured default while another target is healthy;
 - return the same hostname with a changed host-key fingerprint;
