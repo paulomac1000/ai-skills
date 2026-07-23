@@ -133,7 +133,7 @@ jobs:
       - name: Install deterministic test dependencies
         run: python -m pip install -r requirements-dev.txt
       - name: Apply reviewed fixes and materialize exact locks
-        run: python scripts/apply_audit_fixes.py
+        run: python scripts/apply_audit_fixes.py && python scripts/parameterize_lock_templates.py
       - name: Run focused regressions
         shell: bash
         run: |
