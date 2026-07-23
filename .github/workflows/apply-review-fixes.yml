@@ -1,5 +1,6 @@
 name: Apply audited review fixes
 
+# One-shot bootstrap. The verified fix commit deletes this workflow.
 on:
   push:
     branches: [refactor/skills-cleanup]
