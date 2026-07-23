@@ -93,35 +93,17 @@ def _rename_noreplace(source: Path, destination: Path) -> None:
     raise RuntimeError("this platform has no configured atomic no-replace directory rename")
 
 
-def _reserve_generation(target: Path) -> tuple[int, Path]:
-    """Serialize cooperative generators before staging without claiming the target path."""
-    lock_path = target.parent / f".{target.name}.generation.lock"
-    try:
-        descriptor = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
-    except FileExistsError as exception:
-        raise FileExistsError(errno.EEXIST, "generation is already in progress", target) from exception
-    try:
-        os.write(descriptor, f"pid={os.getpid()}\n".encode())
-    except BaseException:
-        os.close(descriptor)
-        lock_path.unlink(missing_ok=True)
-        raise
-    return descriptor, lock_path
-
-
 def generate_project(target: Path, namespace: str, server_name: str) -> list[Path]:
     """Create a complete project atomically and never replace an existing target."""
     expanded = target.expanduser()
     target = expanded.parent.resolve(strict=False) / expanded.name
     target.parent.mkdir(parents=True, exist_ok=True)
-    descriptor, lock_path = _reserve_generation(target)
-    staging: Path | None = None
-    try:
-        if os.path.lexists(target):
-            raise FileExistsError(errno.EEXIST, "generation target already exists", target)
+    if os.path.lexists(target):
+        raise FileExistsError(errno.EEXIST, "generation target already exists", target)
 
-        files = project_files(namespace, server_name)
-        staging = Path(tempfile.mkdtemp(prefix=f".{target.name}-", dir=target.parent))
+    files = project_files(namespace, server_name)
+    staging = Path(tempfile.mkdtemp(prefix=f".{target.name}-", dir=target.parent))
+    try:
         for relative, content in sorted(files.items()):
             destination = staging / relative
             destination.parent.mkdir(parents=True, exist_ok=True)
@@ -133,8 +115,6 @@ def generate_project(target: Path, namespace: str, server_name: str) -> list[Pat
     finally:
         if staging is not None:
             shutil.rmtree(staging, ignore_errors=True)
-        os.close(descriptor)
-        lock_path.unlink(missing_ok=True)
 
 
 def main() -> int:
