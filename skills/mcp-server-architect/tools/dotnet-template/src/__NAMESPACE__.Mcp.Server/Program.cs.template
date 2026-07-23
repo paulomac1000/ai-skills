@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Server;
+using System.Net;
 using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
@@ -45,6 +46,18 @@ static ClaimsPrincipal LocalPrincipal() => new(new ClaimsIdentity(
         new Claim("scope", "inventory.write"),
     ],
     "StdioProcess"));
+
+static bool IsAllowedOrigin(HttpRequest request, int expectedPort)
+{
+    if (!request.Headers.TryGetValue("Origin", out var values)) return true;
+    if (values.Count != 1 || !Uri.TryCreate(values[0], UriKind.Absolute, out var origin)) return false;
+    if (!string.Equals(origin.Scheme, Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase)) return false;
+    if (origin.Port != expectedPort) return false;
+
+    var host = origin.Host.Trim('[', ']');
+    if (string.Equals(host, "localhost", StringComparison.OrdinalIgnoreCase)) return true;
+    return IPAddress.TryParse(host, out var address) && IPAddress.IsLoopback(address);
+}
 
 static async Task RunStdioAsync(ServerSettings settings, string[] args)
 {
@@ -105,6 +118,15 @@ static async Task RunHttpAsync(ServerSettings settings, string[] args)
         .WithTools<InventoryTools>();
 
     var app = builder.Build();
+    app.Use(async (context, next) =>
+    {
+        if (context.Request.Path.StartsWithSegments("/mcp") && !IsAllowedOrigin(context.Request, settings.HttpPort))
+        {
+            context.Response.StatusCode = StatusCodes.Status403Forbidden;
+            return;
+        }
+        await next(context);
+    });
     app.Use(async (context, next) =>
     {
         if (!context.Request.Path.StartsWithSegments("/mcp"))
