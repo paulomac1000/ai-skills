@@ -137,12 +137,12 @@ static async Task RunHttpAsync(ServerSettings settings, string[] args)
         }
         var authorization = context.Request.Headers.Authorization.ToString();
         const string prefix = "Bearer ";
-        var candidate = authorization.StartsWith(prefix, StringComparison.Ordinal)
+        var candidate = authorization.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
             ? authorization[prefix.Length..]
             : string.Empty;
-        var expected = Encoding.UTF8.GetBytes(bearerToken);
-        var actual = Encoding.UTF8.GetBytes(candidate);
-        if (actual.Length != expected.Length || !CryptographicOperations.FixedTimeEquals(actual, expected))
+        var expected = SHA256.HashData(Encoding.UTF8.GetBytes(bearerToken));
+        var actual = SHA256.HashData(Encoding.UTF8.GetBytes(candidate));
+        if (!CryptographicOperations.FixedTimeEquals(actual, expected))
         {
             context.Response.StatusCode = StatusCodes.Status401Unauthorized;
             return;
