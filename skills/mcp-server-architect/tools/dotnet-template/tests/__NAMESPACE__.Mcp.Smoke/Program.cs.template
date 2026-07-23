@@ -2,6 +2,7 @@ using ModelContextProtocol.Client;
 using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
+using System.Text.Json;
 
 if (args.Length is < 1 or > 2) throw new InvalidOperationException("Expected server DLL and optional --http.");
 var dll = Path.GetFullPath(args[0]);
@@ -14,11 +15,17 @@ else
 
 static async Task RunStdioAsync(string dll)
 {
+    await RunStdioCaseAsync(dll, writesEnabled: false, expectedWriteError: "WRITE_DISABLED");
+    await RunStdioCaseAsync(dll, writesEnabled: true, expectedWriteError: "APPROVAL_INVALID");
+}
+
+static async Task RunStdioCaseAsync(string dll, bool writesEnabled, string expectedWriteError)
+{
     var environment = StdioClientTransportOptions.GetDefaultEnvironmentVariables();
-    environment["MCP_WRITES_ENABLED"] = "false";
+    environment["MCP_WRITES_ENABLED"] = writesEnabled ? "true" : "false";
     var transport = new StdioClientTransport(new StdioClientTransportOptions
     {
-        Name = "__SERVER_NAME__ stdio smoke",
+        Name = $"__SERVER_NAME__ stdio smoke writes={writesEnabled}",
         Command = "dotnet",
         Arguments = [dll],
         InheritEnvironmentVariables = false,
@@ -26,10 +33,16 @@ static async Task RunStdioAsync(string dll)
         ShutdownTimeout = TimeSpan.FromSeconds(10),
     });
     await using var client = await McpClient.CreateAsync(transport);
-    await VerifyContractAsync(client);
+    await VerifyContractAsync(client, expectedWriteError);
 }
 
 static async Task RunHttpAsync(string dll)
+{
+    await RunHttpCaseAsync(dll, writesEnabled: false, expectedWriteError: "WRITE_DISABLED");
+    await RunHttpCaseAsync(dll, writesEnabled: true, expectedWriteError: "APPROVAL_INVALID");
+}
+
+static async Task RunHttpCaseAsync(string dll, bool writesEnabled, string expectedWriteError)
 {
     var listener = new TcpListener(IPAddress.Loopback, 0);
     listener.Start();
@@ -46,7 +59,7 @@ static async Task RunHttpAsync(string dll)
         {
             ["MCP_HTTP_PORT"] = port.ToString(System.Globalization.CultureInfo.InvariantCulture),
             ["MCP_HTTP_BEARER_TOKEN"] = token,
-            ["MCP_WRITES_ENABLED"] = "false",
+            ["MCP_WRITES_ENABLED"] = writesEnabled ? "true" : "false",
         },
     }) ?? throw new InvalidOperationException("HTTP server process did not start.");
 
@@ -70,7 +83,7 @@ static async Task RunHttpAsync(string dll)
 
         var transport = new HttpClientTransport(new HttpClientTransportOptions
         {
-            Name = "__SERVER_NAME__ HTTP smoke",
+            Name = $"__SERVER_NAME__ HTTP smoke writes={writesEnabled}",
             Endpoint = new Uri($"http://127.0.0.1:{port}/mcp"),
             TransportMode = HttpTransportMode.StreamableHttp,
             AdditionalHeaders = new Dictionary<string, string>
@@ -79,7 +92,7 @@ static async Task RunHttpAsync(string dll)
             },
         });
         await using var client = await McpClient.CreateAsync(transport);
-        await VerifyContractAsync(client);
+        await VerifyContractAsync(client, expectedWriteError);
     }
     finally
     {
@@ -88,7 +101,7 @@ static async Task RunHttpAsync(string dll)
     }
 }
 
-static async Task VerifyContractAsync(McpClient client)
+static async Task VerifyContractAsync(McpClient client, string expectedWriteError)
 {
     var tools = await client.ListToolsAsync();
     var names = tools.Select(tool => tool.Name).ToHashSet(StringComparer.Ordinal);
@@ -122,5 +135,11 @@ static async Task VerifyContractAsync(McpClient client)
     if (rejected.IsError != true)
         throw new InvalidOperationException("Fail-closed write did not set protocol isError.");
 
-    Console.WriteLine("PASS: official client listed tools, invoked structured reads, and observed protocol-native write rejection.");
+    var serializedError = JsonSerializer.Serialize(rejected.Content);
+    if (!serializedError.Contains(expectedWriteError, StringComparison.Ordinal))
+        throw new InvalidOperationException(
+            $"Expected write rejection {expectedWriteError}, received: {serializedError}");
+
+    Console.WriteLine(
+        $"PASS: official client verified structured reads and {expectedWriteError} over the selected transport.");
 }
