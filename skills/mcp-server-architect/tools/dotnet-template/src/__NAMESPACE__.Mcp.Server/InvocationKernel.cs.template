@@ -58,8 +58,18 @@ public sealed class InvocationKernel(
             throw new McpException("VALIDATION_FAILED: name must contain 1-200 characters.");
         if (expectedVersion < 0)
             throw new McpException("VALIDATION_FAILED: expectedVersion is mandatory and non-negative.");
-        if (string.IsNullOrWhiteSpace(approvalToken))
-            throw new McpException("APPROVAL_REQUIRED: a trusted approval token is required.");
+
+        Action? approvalGate = null;
+        if (manifest.RequiresApproval)
+        {
+            if (string.IsNullOrWhiteSpace(approvalToken))
+                throw new McpException("APPROVAL_REQUIRED: a trusted approval token is required.");
+            approvalGate = () =>
+            {
+                if (!approvals.Consume(approvalToken, caller.Principal, manifest.Name, Target, itemId))
+                    throw new McpException("APPROVAL_INVALID: approval is expired, used, or bound to another principal or resource.");
+            };
+        }
 
         try
         {
@@ -68,11 +78,7 @@ public sealed class InvocationKernel(
                 itemId,
                 token => inventory.PutAsync(new(itemId, name, expectedVersion), token),
                 cancellationToken,
-                beforeExecution: () =>
-                {
-                    if (!approvals.Consume(approvalToken, caller.Principal, manifest.Name, Target, itemId))
-                        throw new McpException("APPROVAL_INVALID: approval is expired, used, or bound to another principal or resource.");
-                });
+                beforeExecution: approvalGate);
         }
         catch (InventoryConflictException exception)
         {
