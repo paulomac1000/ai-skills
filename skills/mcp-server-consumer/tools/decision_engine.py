@@ -6,6 +6,7 @@ always untrusted; safety-reducing policy values use typed consumer-owned inputs.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Iterable, Mapping, Sequence
@@ -116,6 +117,9 @@ _RISK_SEVERITY = {
     Risk.DESTRUCTIVE: 4,
     Risk.DANGEROUS: 5,
 }
+_MISSING = object()
+_INVALID = object()
+_ANNOTATION_ROLES = frozenset({"user", "assistant"})
 
 
 def _risk(value: str | Risk | None) -> Risk:
@@ -265,12 +269,90 @@ def infer_capability_profile(
     return CapabilityProfile(inferred, requires_confirmation, sensitive, idempotent, source)
 
 
+def _alias_value(mapping: Mapping[str, Any], camel: str, snake: str) -> Any:
+    """Read one canonical/legacy alias and reject contradictory duplicates."""
+
+    camel_value = mapping.get(camel, _MISSING)
+    snake_value = mapping.get(snake, _MISSING)
+    if camel_value is not _MISSING and snake_value is not _MISSING and camel_value != snake_value:
+        return _INVALID
+    return camel_value if camel_value is not _MISSING else snake_value
+
+
+def _retry_conditions(manifest: Mapping[str, Any] | None) -> Mapping[str, Any] | object | None:
+    if manifest is None:
+        return None
+    value = _alias_value(manifest, "retryConditions", "retry_conditions")
+    if value is _MISSING:
+        return None
+    return value if isinstance(value, Mapping) else _INVALID
+
+
+def _explicit_retry_veto(manifest: Mapping[str, Any] | None) -> bool:
+    if manifest is None:
+        return False
+    top = manifest.get("retryable", _MISSING)
+    if top is not _MISSING and type(top) is not bool:
+        return True
+    conditions = _retry_conditions(manifest)
+    if conditions is _INVALID:
+        return True
+    if isinstance(conditions, Mapping):
+        nested = conditions.get("retryable", _MISSING)
+        if type(nested) is not bool:
+            return True
+        if top is _MISSING or top is not nested:
+            return True
+        if nested is False:
+            return True
+    return top is False
+
+
 def get_error_strategy(
     error_code: str | None,
     manifest: Mapping[str, Any] | None = None,
 ) -> ErrorStrategy:
     strategy = ERROR_STRATEGIES.get((error_code or "").upper(), DEFAULT_ERROR_STRATEGY)
-    return DEFAULT_ERROR_STRATEGY if manifest is not None and manifest.get("retryable") is False else strategy
+    if manifest is not None and not isinstance(manifest, Mapping):
+        return DEFAULT_ERROR_STRATEGY
+    return DEFAULT_ERROR_STRATEGY if _explicit_retry_veto(manifest) else strategy
+
+
+def _nested_retry_permits(
+    conditions: Mapping[str, Any],
+    *,
+    error_code: str | None,
+    attempt: int,
+    precondition_refreshed: bool,
+) -> bool:
+    eligible = _alias_value(conditions, "eligibleErrors", "eligible_errors")
+    if (
+        not isinstance(eligible, Sequence)
+        or isinstance(eligible, (str, bytes, bytearray))
+        or not eligible
+        or any(not isinstance(value, str) or not value for value in eligible)
+    ):
+        return False
+    normalized_error = (error_code or "").upper()
+    if normalized_error not in {value.upper() for value in eligible}:
+        return False
+
+    max_attempts = _alias_value(conditions, "maxAttempts", "max_attempts")
+    if type(max_attempts) is not int or max_attempts < 1:
+        return False
+    if attempt + 1 >= max_attempts:
+        return False
+
+    backoff = _alias_value(conditions, "backoffMilliseconds", "backoff_milliseconds")
+    if type(backoff) is not int or backoff <= 0:
+        return False
+
+    reconciliation = _alias_value(conditions, "requiresReconciliation", "requires_reconciliation")
+    if type(reconciliation) is not bool:
+        return False
+    if reconciliation and not precondition_refreshed:
+        return False
+    return True
 
 
 def should_retry(
@@ -300,7 +382,27 @@ def should_retry(
     manifest_retryable = manifest.get("retryable") if manifest is not None else None
     if manifest_retryable is not None and type(manifest_retryable) is not bool:
         return False
-    if manifest_retryable is False or (manifest_retryable is not True and response_retryable is not True):
+    if manifest_retryable is False:
+        return False
+
+    conditions = _retry_conditions(manifest)
+    if conditions is _INVALID:
+        return False
+    if isinstance(conditions, Mapping):
+        nested_retryable = conditions.get("retryable", _MISSING)
+        if type(nested_retryable) is not bool:
+            return False
+        if manifest_retryable is None or nested_retryable is not manifest_retryable:
+            return False
+        if not nested_retryable or not _nested_retry_permits(
+            conditions,
+            error_code=error_code,
+            attempt=attempt,
+            precondition_refreshed=precondition_refreshed,
+        ):
+            return False
+
+    if manifest_retryable is not True and response_retryable is not True:
         return False
     return operation_idempotent is True
 
@@ -366,6 +468,37 @@ def _optional_string(value: Mapping[str, Any], key: str) -> bool:
     return key not in value or isinstance(value.get(key), str)
 
 
+def _valid_annotations(value: Any) -> bool:
+    if not isinstance(value, Mapping):
+        return False
+    if "audience" in value:
+        audience = value.get("audience")
+        if (
+            not isinstance(audience, Sequence)
+            or isinstance(audience, (str, bytes, bytearray))
+            or any(type(role) is not str or role not in _ANNOTATION_ROLES for role in audience)
+        ):
+            return False
+    if "priority" in value:
+        priority = value.get("priority")
+        if (
+            isinstance(priority, bool)
+            or not isinstance(priority, (int, float))
+            or not math.isfinite(float(priority))
+            or not 0 <= float(priority) <= 1
+        ):
+            return False
+    if "lastModified" in value:
+        last_modified = value.get("lastModified")
+        if not isinstance(last_modified, str) or not last_modified:
+            return False
+    return True
+
+
+def _optional_annotations(value: Mapping[str, Any]) -> bool:
+    return "annotations" not in value or _valid_annotations(value.get("annotations"))
+
+
 def _valid_resource_contents(value: Any) -> bool:
     if not isinstance(value, Mapping):
         return False
@@ -384,7 +517,7 @@ def _valid_resource_contents(value: Any) -> bool:
 def _valid_content_block(value: Any) -> bool:
     if not isinstance(value, Mapping):
         return False
-    if not _optional_mapping(value, "annotations") or not _optional_mapping(value, "_meta"):
+    if not _optional_annotations(value) or not _optional_mapping(value, "_meta"):
         return False
     block_type = value.get("type")
     if block_type == "text":
