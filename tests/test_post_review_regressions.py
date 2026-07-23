@@ -97,7 +97,7 @@ def test_dotnet_release_version_is_validated_and_passed_through_env() -> None:
     assert "PACKAGE_VERSION: ${{ steps.release.outputs.version }}" in source
     assert '-p:PackageVersion="$PACKAGE_VERSION"' in source
     assert "-p:PackageVersion=${{ steps.release.outputs.version }}" not in source
-    assert "[[ ! \"$normalized_version\" =~" in source
+    assert '[[ ! "$normalized_version" =~' in source
 
 
 def test_target_authorization_precedes_network_resolution_in_normative_docs() -> None:
@@ -127,3 +127,15 @@ def test_dotnet_approval_capacity_check_is_serialized() -> None:
     add_index = source.index("_records.TryAdd(token, record)")
     assert lock_index < count_index < add_index
     assert "while (true)" in source
+
+
+def test_dotnet_smoke_rejects_unknown_mode_and_retries_probe_timeout() -> None:
+    source = (
+        ROOT
+        / "skills/mcp-server-architect/tools/dotnet-template/tests/__NAMESPACE__.Mcp.Smoke/Program.cs.template"
+    ).read_text(encoding="utf-8")
+    assert 'args.Length == 2 && !string.Equals(args[1], "--http", StringComparison.Ordinal)' in source
+    assert "if (args.Length == 2)" in source
+    assert "args.Contains(" not in source
+    assert "catch (HttpRequestException)" in source
+    assert "catch (OperationCanceledException)" in source
