@@ -134,15 +134,21 @@ def test_inline_link_variants_are_validated(tmp_path: Path) -> None:
     assert validator.validate(write(tmp_path / "doc.md", document)) == []
 
 
-def test_reference_style_links_are_validated(tmp_path: Path) -> None:
+def test_reference_style_links_are_validated_once(tmp_path: Path) -> None:
     validator = load_validator()
     broken = governed_body() + "\n[Guide][spec]\n\n[spec]: missing.md \"details\"\n"
-    assert "broken relative link: missing.md" in messages(
-        validator.validate(write(tmp_path / "doc.md", broken))
-    )
+    findings = validator.validate(write(tmp_path / "doc.md", broken))
+    assert [finding.message for finding in findings].count("broken relative link: missing.md") == 1
+
     write(tmp_path / "guide.md", "# Guide\n")
     valid = governed_body() + "\n[Guide][]\n\n[guide]: guide.md\n"
     assert validator.validate(write(tmp_path / "doc.md", valid)) == []
+
+
+def test_full_reference_images_are_ignored(tmp_path: Path) -> None:
+    validator = load_validator()
+    document = governed_body() + "\n![Guide][spec]\n\n[spec]: missing.png\n"
+    assert validator.validate(write(tmp_path / "doc.md", document)) == []
 
 
 def test_shortcut_reference_links_are_validated(tmp_path: Path) -> None:
