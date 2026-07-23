@@ -57,7 +57,7 @@ The cleanup commit removed valuable production knowledge together with obsolete 
 - Custom success DTOs do not replace protocol-native `IsError`; structured C# output requires explicit structured-content configuration and tests.
 - Data annotations and generated JSON Schema do not replace runtime validation before I/O.
 - Mutable GitHub Action tags are not accepted in bundled workflows.
-- A container or package is not published merely because source tests passed; the exact artifact is smoke-tested.
+- A container or package is not published merely because source tests passed; the same image or exact artifact is smoke-tested before publication.
 - Manual release inputs do not inherit tag, SHA, or package version identity from the dispatch branch.
 - NuGet identity is read only from direct `package/metadata/id` and `package/metadata/version`, never from dependency descendants.
 - Volatile action versions, timestamps, dependency matrices, semantic hashes, fitness scores, or invented protocol-removal dates are not handwritten as durable truth.
