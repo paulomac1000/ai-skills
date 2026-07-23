@@ -114,3 +114,35 @@ def test_untrusted_helper_shapes_do_not_raise_or_select() -> None:
     )
     assert not decision.continue_paging
     assert decision.reason == "invalid pagination metadata"
+
+
+def test_dotnet_manifest_canonical_fields_escalate_monotonically() -> None:
+    engine = load_engine()
+    profile = engine.infer_capability_profile(
+        "list_items",
+        {"risk": "READ", "sideEffects": "write", "requiresConfirmation": True},
+        trusted_policy=engine.TrustedCapabilityPolicy(risk=engine.Risk.READ),
+    )
+    assert profile.risk is engine.Risk.WRITE
+    assert profile.requires_confirmation is True
+    assert "side-effect-escalation" in profile.source
+
+    destructive = engine.infer_capability_profile(
+        "tool",
+        {"side_effects": "destructive"},
+    )
+    assert destructive.risk is engine.Risk.DESTRUCTIVE
+
+
+def test_malformed_top_level_meta_and_retry_markers_fail_closed() -> None:
+    engine = load_engine()
+    malformed = (
+        {"content": [], "_meta": []},
+        {"content": [], "retryable": "yes"},
+        {"isError": True, "content": [], "retryable": 1},
+        {"error": {"code": "TIMEOUT", "message": "failed", "retryable": "yes"}},
+    )
+    for response in malformed:
+        result = engine.handle_response(response)
+        assert result.success is False, response
+        assert result.error_code == "MALFORMED_RESPONSE", response
