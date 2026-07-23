@@ -197,7 +197,7 @@ def test_dotnet_quality_provisions_coverage_and_reports_safely() -> None:
     install = next(step for step in job["steps"] if step.get("name") == "Install pinned ReportGenerator")
     coverage = next(step for step in job["steps"] if step.get("name") == "Generate coverage report")
     reporter = next(step for step in job["steps"] if step.get("name") == "Publish test report")
-    assert "--version \"5.4.3\"" in install["run"]
+    assert '--version "5.4.3"' in install["run"]
     assert "TestResults/**/coverage.cobertura.xml" in coverage["run"]
     assert "pull_request.head.repo.full_name" in reporter["if"]
 
@@ -268,7 +268,10 @@ def test_dotnet_package_release_uses_direct_nuspec_metadata_and_identity_set(tmp
     assert 'normalized_version="${RELEASE_TAG#v}"' in identity["run"]
     assert 'echo "version=$normalized_version"' in identity["run"]
     assert "$NORMALIZED_VERSION" in identity["run"]
-    assert "steps.release.outputs.version" in pack["run"]
+    assert "canonical SemVer 2.0" in identity["run"]
+    assert pack["env"]["PACKAGE_VERSION"] == "${{ steps.release.outputs.version }}"
+    assert '-p:PackageVersion="$PACKAGE_VERSION"' in pack["run"]
+    assert "-p:PackageVersion=${{ steps.release.outputs.version }}" not in pack["run"]
     assert allowlist["env"]["EXPECTED_PACKAGE_IDS"] == "Example.Package"
     script = allowlist["run"]
     for required in (
@@ -282,7 +285,7 @@ def test_dotnet_package_release_uses_direct_nuspec_metadata_and_identity_set(tmp
         assert required in script
     assert "root.iter()" not in script
     assert "mapfile -t packages < nupkg/publish-files.txt" in publisher["run"]
-    assert "for package in \"${packages[@]}\"" in publisher["run"]
+    assert 'for package in "${packages[@]}"' in publisher["run"]
     assert release["with"]["tag_name"] == "${{ steps.release_ref.outputs.tag }}"
     assert release["with"]["target_commitish"] == "${{ steps.release_ref.outputs.sha }}"
 
