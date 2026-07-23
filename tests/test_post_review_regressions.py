@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import importlib.util
+import re
+import shlex
+import subprocess
 import sys
 import threading
 from pathlib import Path
@@ -89,15 +92,64 @@ def test_consumer_rejects_empty_or_meta_only_response() -> None:
     assert protocol_empty.success is True
 
 
-def test_dotnet_release_version_is_validated_and_passed_through_env() -> None:
-    source = (
+def _release_template() -> str:
+    return (
         ROOT / "skills/ci-cd-architect/templates/dotnet-package.yml.template"
     ).read_text(encoding="utf-8")
+
+
+def _semver_is_accepted(version: str) -> bool:
+    source = _release_template()
+    assignments = []
+    for name in (
+        "core_identifier",
+        "prerelease_identifier",
+        "build_identifier",
+        "semver_regex",
+    ):
+        match = re.search(rf"^\s*{name}=.*$", source, re.M)
+        assert match, name
+        assignments.append(match.group(0).strip())
+    script = "\n".join(assignments)
+    script += f"\nnormalized_version={shlex.quote(version)}\n"
+    script += '[[ "$normalized_version" =~ $semver_regex ]]\n'
+    return subprocess.run(["bash", "-c", script], check=False).returncode == 0
+
+
+def test_dotnet_release_version_is_validated_and_passed_through_env() -> None:
+    source = _release_template()
     assert "canonical SemVer 2.0" in source
     assert "PACKAGE_VERSION: ${{ steps.release.outputs.version }}" in source
     assert '-p:PackageVersion="$PACKAGE_VERSION"' in source
     assert "-p:PackageVersion=${{ steps.release.outputs.version }}" not in source
-    assert '[[ ! "$normalized_version" =~' in source
+    assert '[[ ! "$normalized_version" =~ $semver_regex ]]' in source
+
+
+def test_dotnet_release_semver_rejects_leading_zeroes_and_empty_identifiers() -> None:
+    for version in (
+        "0.0.0",
+        "1.2.3",
+        "1.2.3-alpha",
+        "1.2.3-alpha.0",
+        "1.2.3-0.3.7",
+        "1.2.3-x.7.z.92+001",
+        "1.2.3+001",
+    ):
+        assert _semver_is_accepted(version), version
+
+    for version in (
+        "01.2.3",
+        "1.02.3",
+        "1.2.03",
+        "1.2.3-01",
+        "1.2.3-alpha.01",
+        "1.2.3-alpha..1",
+        "1.2.3+build..1",
+        "1.2",
+        "1.2.3/evil",
+        "1.2.3 alpha",
+    ):
+        assert not _semver_is_accepted(version), version
 
 
 def test_target_authorization_precedes_network_resolution_in_normative_docs() -> None:
