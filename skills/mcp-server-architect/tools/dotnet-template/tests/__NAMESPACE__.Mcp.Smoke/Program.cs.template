@@ -131,6 +131,7 @@ static async Task VerifyContractAsync(McpClient client, string expectedWriteErro
     var discovery = await client.CallToolAsync("describe_capabilities", new Dictionary<string, object?>(), cancellationToken: CancellationToken.None);
     if (discovery.IsError == true || discovery.StructuredContent is null)
         throw new InvalidOperationException("Capability discovery was not structured success.");
+    VerifyManifestWireContract(JsonSerializer.SerializeToElement(discovery.StructuredContent));
 
     var listed = await client.CallToolAsync("list_items", new Dictionary<string, object?> { ["limit"] = 2 }, cancellationToken: CancellationToken.None);
     if (listed.IsError == true || listed.StructuredContent is null)
@@ -155,5 +156,57 @@ static async Task VerifyContractAsync(McpClient client, string expectedWriteErro
             $"Expected write rejection {expectedWriteError}, received: {serializedError}");
 
     Console.WriteLine(
-        $"PASS: official client verified structured reads and {expectedWriteError} over the selected transport.");
+        $"PASS: official client verified canonical manifest wire values, structured reads, and {expectedWriteError} over the selected transport.");
+}
+
+static void VerifyManifestWireContract(JsonElement root)
+{
+    var listManifest = FindManifest(root, "list_items")
+        ?? throw new InvalidOperationException($"list_items manifest missing from discovery: {root}");
+    AssertString(listManifest.Value, "risk", "READ");
+    AssertString(listManifest.Value, "sideEffects", "read");
+    AssertString(listManifest.Value, "confidentiality", "internal");
+    AssertString(listManifest.Value, "determinism", "env-dependent");
+    AssertString(listManifest.Value, "impact", "none");
+    AssertString(listManifest.Value, "activeState", "active");
+    if (!listManifest.Value.TryGetProperty("retryable", out var retryable) || retryable.ValueKind is not JsonValueKind.False)
+        throw new InvalidOperationException("Manifest must expose top-level retryable=false.");
+    if (!listManifest.Value.TryGetProperty("retryConditions", out var conditions) ||
+        !conditions.TryGetProperty("retryable", out var nestedRetryable) ||
+        nestedRetryable.ValueKind is not JsonValueKind.False)
+        throw new InvalidOperationException("Nested retryConditions.retryable must agree with the top-level field.");
+}
+
+static JsonElement? FindManifest(JsonElement element, string name)
+{
+    if (element.ValueKind is JsonValueKind.Object)
+    {
+        if (element.TryGetProperty("name", out var property) &&
+            property.ValueKind is JsonValueKind.String &&
+            string.Equals(property.GetString(), name, StringComparison.Ordinal))
+            return element;
+        foreach (var child in element.EnumerateObject())
+        {
+            var found = FindManifest(child.Value, name);
+            if (found is not null) return found;
+        }
+    }
+    else if (element.ValueKind is JsonValueKind.Array)
+    {
+        foreach (var child in element.EnumerateArray())
+        {
+            var found = FindManifest(child, name);
+            if (found is not null) return found;
+        }
+    }
+    return null;
+}
+
+static void AssertString(JsonElement manifest, string propertyName, string expected)
+{
+    if (!manifest.TryGetProperty(propertyName, out var value) ||
+        value.ValueKind is not JsonValueKind.String ||
+        !string.Equals(value.GetString(), expected, StringComparison.Ordinal))
+        throw new InvalidOperationException(
+            $"Manifest property {propertyName} must equal {expected}; received {manifest}.");
 }
