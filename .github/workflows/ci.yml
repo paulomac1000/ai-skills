@@ -30,9 +30,17 @@ jobs:
       - name: Compile Python sources
         run: python -m compileall -q scripts skills
       - name: Validate governed documentation
-        run: >-
-          python skills/afds-doc-writer/validate.py
-          README.md RECOVERY_AUDIT.md skills
+        shell: bash
+        run: |
+          set -o pipefail
+          python skills/afds-doc-writer/validate.py README.md RECOVERY_AUDIT.md skills 2>&1 | tee validator.log
+      - name: Upload documentation validator diagnostics
+        if: always() && hashFiles('validator.log') != ''
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: documentation-validator-${{ github.run_id }}
+          path: validator.log
+          retention-days: 3
       - name: Verify generated Python MCP server end to end
         run: python -m pytest -q tests/test_mcp_generator.py --junitxml=python-generator-junit.xml
       - name: Upload Python generator diagnostics

@@ -92,7 +92,12 @@ static async Task VerifyContractAsync(McpClient client)
 {
     var tools = await client.ListToolsAsync();
     var names = tools.Select(tool => tool.Name).ToHashSet(StringComparer.Ordinal);
-    var expected = new[] { "describe_capabilities", "list_items", "put_item" }.ToHashSet(StringComparer.Ordinal);
+    var expected = new HashSet<string>(StringComparer.Ordinal)
+    {
+        "describe_capabilities",
+        "list_items",
+        "put_item",
+    };
     if (!names.SetEquals(expected))
         throw new InvalidOperationException($"Tool catalog mismatch: {string.Join(',', names)}");
 
