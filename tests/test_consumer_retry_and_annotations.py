@@ -133,10 +133,30 @@ def test_malformed_content_annotation_fields_fail_closed() -> None:
         {"priority": 1.1},
         {"priority": math.nan},
         {"priority": math.inf},
+        {"priority": 10**10000},
         {"lastModified": 7},
         {"lastModified": ""},
+        {"lastModified": "   "},
     )
     for annotations in malformed:
         result = engine.handle_response(annotated_text(annotations))
         assert result.success is False, annotations
         assert result.error_code == "MALFORMED_RESPONSE", annotations
+
+
+def test_malformed_annotations_on_error_blocks_are_reported_as_malformed() -> None:
+    engine = load_engine()
+    result = engine.handle_response(
+        {
+            "isError": True,
+            "content": [
+                {
+                    "type": "text",
+                    "text": "upstream failed",
+                    "annotations": {"priority": "high"},
+                }
+            ],
+        }
+    )
+    assert result.success is False
+    assert result.error_code == "MALFORMED_RESPONSE"
