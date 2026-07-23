@@ -49,6 +49,18 @@ def test_nested_retry_veto_and_conflicts_win() -> None:
         )
 
 
+def test_positive_retry_claim_requires_named_conditions() -> None:
+    engine = load_engine()
+    manifest = {"retryable": True}
+    assert engine.get_error_strategy("TIMEOUT", manifest).retryable is False
+    assert not engine.should_retry(
+        error_code="TIMEOUT",
+        attempt=0,
+        operation_idempotent=True,
+        manifest=manifest,
+    )
+
+
 def test_retry_conditions_restrict_error_attempt_and_reconciliation() -> None:
     engine = load_engine()
     manifest = canonical_retry_manifest()

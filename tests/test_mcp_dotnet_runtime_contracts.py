@@ -77,6 +77,19 @@ def test_dotnet_write_defaults_remain_conservative() -> None:
         assert token in put_section
 
 
+def test_dotnet_read_capabilities_do_not_claim_compensation() -> None:
+    manifest = read("src/__NAMESPACE__.Mcp.Server/CapabilityManifest.cs.template")
+    describe = manifest.split("[CapabilityNames.DescribeCapabilities] = new(", 1)[1].split(
+        "[CapabilityNames.ListItems]", 1
+    )[0]
+    listed = manifest.split("[CapabilityNames.ListItems] = new(", 1)[1].split(
+        "[CapabilityNames.PutItem]", 1
+    )[0]
+    for section in (describe, listed):
+        assert "ImpactClass.None,\n                false," in section
+        assert 'new("reversible"' not in section
+
+
 def test_dotnet_kernel_enforces_timeout_active_state_concurrency_and_approval() -> None:
     kernel = read("src/__NAMESPACE__.Mcp.Server/InvocationKernel.cs.template")
     gate = read("src/__NAMESPACE__.Mcp.Server/OperationGate.cs.template")

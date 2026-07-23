@@ -297,6 +297,8 @@ def _explicit_retry_veto(manifest: Mapping[str, Any] | None) -> bool:
     conditions = _retry_conditions(manifest)
     if conditions is _INVALID:
         return True
+    if top is True and conditions is None:
+        return True
     if isinstance(conditions, Mapping):
         nested = conditions.get("retryable", _MISSING)
         if type(nested) is not bool:
@@ -394,6 +396,8 @@ def should_retry(
 
     conditions = _retry_conditions(manifest)
     if conditions is _INVALID:
+        return False
+    if manifest_retryable is True and conditions is None:
         return False
     if isinstance(conditions, Mapping):
         nested_retryable = conditions.get("retryable", _MISSING)

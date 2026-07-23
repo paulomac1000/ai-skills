@@ -1,4 +1,8 @@
+using ModelContextProtocol;
 using ModelContextProtocol.Client;
+using System.Security.Claims;
+using __NAMESPACE__.Mcp.Domain;
+using __NAMESPACE__.Mcp.Server;
 using System.Diagnostics;
 using System.Net;
 using System.Net.Http.Headers;
@@ -10,6 +14,8 @@ if (args.Length is < 1 or > 2 ||
     throw new InvalidOperationException("Expected server DLL and optional --http.");
 var dll = Path.GetFullPath(args[0]);
 if (!File.Exists(dll)) throw new FileNotFoundException("Server DLL not found.", dll);
+
+await VerifyApprovalContractAsync();
 
 if (args.Length == 2)
     await RunHttpAsync(dll);
@@ -209,4 +215,58 @@ static void AssertString(JsonElement manifest, string propertyName, string expec
         !string.Equals(value.GetString(), expected, StringComparison.Ordinal))
         throw new InvalidOperationException(
             $"Manifest property {propertyName} must equal {expected}; received {manifest}.");
+}
+
+
+static async Task VerifyApprovalContractAsync()
+{
+    var approvals = new ApprovalRegistry(TimeProvider.System);
+    var kernel = new InvocationKernel(
+        new InMemoryInventoryService(),
+        new CapabilityRegistry(),
+        approvals,
+        new KeyedOperationGate(),
+        new ServerSettings(false, 8000, 1_048_576, true));
+    var approved = Principal("approved-principal");
+
+    var token = approvals.Issue(
+        "approved-principal", CapabilityNames.PutItem, "inventory", "gamma");
+    var item = await kernel.PutAsync(
+        approved, "gamma", "Gamma", 0, token, CancellationToken.None);
+    if (item.Version != 1 || item.ItemId != "gamma")
+        throw new InvalidOperationException("Trusted approval did not execute the intended write.");
+
+    await ExpectApprovalFailureAsync(() => kernel.PutAsync(
+        approved, "gamma", "Gamma replay", 1, token, CancellationToken.None).AsTask());
+
+    var principalBound = approvals.Issue(
+        "approved-principal", CapabilityNames.PutItem, "inventory", "delta");
+    await ExpectApprovalFailureAsync(() => kernel.PutAsync(
+        Principal("other-principal"), "delta", "Delta", 0, principalBound, CancellationToken.None).AsTask());
+
+    var resourceBound = approvals.Issue(
+        "approved-principal", CapabilityNames.PutItem, "inventory", "epsilon");
+    await ExpectApprovalFailureAsync(() => kernel.PutAsync(
+        approved, "zeta", "Zeta", 0, resourceBound, CancellationToken.None).AsTask());
+}
+
+static ClaimsPrincipal Principal(string id) => new(new ClaimsIdentity(
+    [
+        new Claim(ClaimTypes.NameIdentifier, id),
+        new Claim(ClaimTypes.Name, id),
+        new Claim("scope", "inventory.write"),
+    ],
+    "SmokeApproval"));
+
+static async Task ExpectApprovalFailureAsync(Func<Task> operation)
+{
+    try
+    {
+        await operation();
+    }
+    catch (McpException exception) when (exception.Message.Contains("APPROVAL_INVALID", StringComparison.Ordinal))
+    {
+        return;
+    }
+    throw new InvalidOperationException("Approval binding or one-time replay was not rejected.");
 }

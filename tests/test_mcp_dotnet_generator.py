@@ -46,6 +46,7 @@ def test_generator_emits_complete_deterministic_project(tmp_path: Path) -> None:
         Path("src/Acme.Mcp.Domain/Acme.Mcp.Domain.csproj"),
         Path("src/Acme.Mcp.Domain/Inventory.cs"),
         Path("src/Acme.Mcp.Server/Acme.Mcp.Server.csproj"),
+        Path("src/Acme.Mcp.Server/packages.lock.json"),
         Path("src/Acme.Mcp.Server/Program.cs"),
         Path("src/Acme.Mcp.Server/Tools.cs"),
         Path("src/Acme.Mcp.Server/InvocationKernel.cs"),
@@ -53,6 +54,7 @@ def test_generator_emits_complete_deterministic_project(tmp_path: Path) -> None:
         Path("src/Acme.Mcp.Server/ApprovalRegistry.cs"),
         Path("src/Acme.Mcp.Server/ServerSettings.cs"),
         Path("tests/Acme.Mcp.Smoke/Acme.Mcp.Smoke.csproj"),
+        Path("tests/Acme.Mcp.Smoke/packages.lock.json"),
         Path("tests/Acme.Mcp.Smoke/Program.cs"),
     }
     assert expected.issubset(set(generated))
@@ -101,6 +103,18 @@ def test_generated_project_uses_public_sdk_and_fail_closed_controls(tmp_path: Pa
     ):
         assert forbidden not in source
 
+    build_props = (target / "Directory.Build.props").read_text(encoding="utf-8")
+    assert "<RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>" in build_props
+
+    server_lock = (target / "src/Acme.Mcp.Server/packages.lock.json").read_text(encoding="utf-8")
+    smoke_lock = (target / "tests/Acme.Mcp.Smoke/packages.lock.json").read_text(encoding="utf-8")
+    for lock in (server_lock, smoke_lock):
+        assert "Locked" not in lock
+        assert "locked.mcp." not in lock
+        assert "__NAMESPACE" not in lock
+    assert "acme.mcp.domain" in server_lock
+    assert "acme.mcp.server" in smoke_lock
+
     packages = (target / "Directory.Packages.props").read_text(encoding="utf-8")
     assert 'ModelContextProtocol" Version="1.4.1"' in packages
     assert 'ModelContextProtocol.AspNetCore" Version="1.4.1"' in packages
@@ -113,6 +127,9 @@ def test_generated_project_uses_public_sdk_and_fail_closed_controls(tmp_path: Pa
     assert '"APPROVAL_INVALID"' in smoke
     assert "writesEnabled: false" in smoke
     assert "writesEnabled: true" in smoke
+    assert "VerifyApprovalContractAsync" in smoke
+    assert "approvals.Issue" in smoke
+    assert "other-principal" in smoke
 
     workflow = (target / ".github/workflows/ci.yml").read_text(encoding="utf-8")
     for line in workflow.splitlines():
@@ -121,6 +138,7 @@ def test_generated_project_uses_public_sdk_and_fail_closed_controls(tmp_path: Pa
         revision = line.rsplit("@", 1)[1].split()[0]
         assert FULL_SHA.fullmatch(revision)
     assert "persist-credentials: false" in workflow
+    assert "--locked-mode" in workflow
     assert "Official-client stdio smoke" in workflow
     assert "Official-client Streamable HTTP smoke" in workflow
     assert "Smoke exact artifact over stdio" in workflow
@@ -195,7 +213,7 @@ def test_generated_project_builds_and_passes_real_client_smoke(tmp_path: Path) -
     smoke_dll = "tests/Acme.Mcp.Smoke/bin/Release/net10.0/Acme.Mcp.Smoke.dll"
     published = "publish/Acme.Mcp.Server.dll"
     commands = [
-        ["dotnet", "restore", project],
+        ["dotnet", "restore", project, "--locked-mode"],
         ["dotnet", "build", project, "--configuration", "Release", "--no-restore"],
         ["dotnet", "run", "--project", project, "--configuration", "Release", "--no-build", "--", server_dll],
         ["dotnet", "run", "--project", project, "--configuration", "Release", "--no-build", "--", server_dll, "--http"],

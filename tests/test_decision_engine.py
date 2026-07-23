@@ -180,17 +180,35 @@ def test_side_effect_policy() -> None:
 
 def test_retry_requires_valid_attempt_and_positive_non_conflicting_signals() -> None:
     engine = load_engine()
+    governed = {
+        "retryable": True,
+        "retryConditions": {
+            "retryable": True,
+            "eligibleErrors": ["TIMEOUT"],
+            "maxAttempts": 2,
+            "backoffMilliseconds": 100,
+            "requiresReconciliation": True,
+        },
+    }
     assert engine.should_retry(
-        error_code="TIMEOUT", attempt=0, operation_idempotent=True, manifest={"retryable": True}
+        error_code="TIMEOUT",
+        attempt=0,
+        operation_idempotent=True,
+        manifest=governed,
+        reconciliation_completed=True,
     )
     assert engine.should_retry(
         error_code="TIMEOUT", attempt=0, operation_idempotent=True, response_retryable=True
     )
     for attempt in (-1, True, 2):
         assert not engine.should_retry(
-            error_code="TIMEOUT", attempt=attempt, operation_idempotent=True, manifest={"retryable": True}
+            error_code="TIMEOUT",
+            attempt=attempt,
+            operation_idempotent=True,
+            manifest=governed,
+            reconciliation_completed=True,
         )
-    for manifest in (None, {}, {"retryable": False}):
+    for manifest in (None, {}, {"retryable": False}, {"retryable": True}):
         assert not engine.should_retry(
             error_code="TIMEOUT", attempt=0, operation_idempotent=True, manifest=manifest
         )
@@ -198,8 +216,9 @@ def test_retry_requires_valid_attempt_and_positive_non_conflicting_signals() -> 
         error_code="TIMEOUT",
         attempt=0,
         operation_idempotent=True,
-        manifest={"retryable": True},
+        manifest=governed,
         response_retryable=False,
+        reconciliation_completed=True,
     )
     assert not engine.should_retry(
         error_code="TIMEOUT",
@@ -216,7 +235,16 @@ def test_conflict_retry_requires_refreshed_precondition() -> None:
         "error_code": "CONFLICT",
         "attempt": 0,
         "operation_idempotent": True,
-        "manifest": {"retryable": True},
+        "manifest": {
+            "retryable": True,
+            "retryConditions": {
+                "retryable": True,
+                "eligibleErrors": ["CONFLICT"],
+                "maxAttempts": 2,
+                "backoffMilliseconds": 100,
+                "requiresReconciliation": False,
+            },
+        },
     }
     assert not engine.should_retry(**kwargs)
     assert engine.should_retry(**kwargs, precondition_refreshed=True)

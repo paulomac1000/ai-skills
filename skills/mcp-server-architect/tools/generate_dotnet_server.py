@@ -30,7 +30,11 @@ def _validate(namespace: str, server_name: str) -> None:
 
 
 def _render(value: str, *, namespace: str, server_name: str) -> str:
-    return value.replace("__NAMESPACE__", namespace).replace("__SERVER_NAME__", server_name)
+    return (
+        value.replace("__NAMESPACE_LOWER__", namespace.lower())
+        .replace("__NAMESPACE__", namespace)
+        .replace("__SERVER_NAME__", server_name)
+    )
 
 
 def project_files(namespace: str, server_name: str) -> dict[str, str]:

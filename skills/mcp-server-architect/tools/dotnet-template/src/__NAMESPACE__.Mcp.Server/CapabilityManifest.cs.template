@@ -215,7 +215,7 @@ public sealed class CapabilityRegistry
                 LatencyClass.Low,
                 CostClass.Low,
                 ImpactClass.None,
-                true,
+                false,
                 "process",
                 CapabilityActiveState.Active,
                 "inventory.read",
@@ -223,7 +223,6 @@ public sealed class CapabilityRegistry
                 [
                     new("idempotent", "generated-baseline", "CapabilityDiscoveryRepeated"),
                     new("concurrent-safe", "generated-baseline", "CapabilityDiscoveryConcurrent"),
-                    new("reversible", "generated-baseline", "CapabilityDiscoveryHasNoSideEffect"),
                 ]),
             [CapabilityNames.ListItems] = new(
                 CapabilityNames.ListItems,
@@ -243,7 +242,7 @@ public sealed class CapabilityRegistry
                 LatencyClass.Low,
                 CostClass.Low,
                 ImpactClass.None,
-                true,
+                false,
                 "inventory",
                 CapabilityActiveState.Active,
                 "inventory.read",
@@ -251,7 +250,6 @@ public sealed class CapabilityRegistry
                 [
                     new("idempotent", "generated-baseline", "ListItemsRepeatedRead"),
                     new("concurrent-safe", "generated-baseline", "ListItemsConcurrentRead"),
-                    new("reversible", "generated-baseline", "ListItemsHasNoMutation"),
                 ]),
             [CapabilityNames.PutItem] = new(
                 CapabilityNames.PutItem,

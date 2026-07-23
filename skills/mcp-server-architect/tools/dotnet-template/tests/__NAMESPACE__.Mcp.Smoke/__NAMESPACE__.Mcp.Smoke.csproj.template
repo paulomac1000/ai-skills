@@ -3,7 +3,7 @@
     <OutputType>Exe</OutputType>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="../../src/__NAMESPACE__.Mcp.Server/__NAMESPACE__.Mcp.Server.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="../../src/__NAMESPACE__.Mcp.Server/__NAMESPACE__.Mcp.Server.csproj" />
     <PackageReference Include="ModelContextProtocol" />
   </ItemGroup>
 </Project>
