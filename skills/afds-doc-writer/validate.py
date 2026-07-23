@@ -23,6 +23,7 @@ REFERENCE_DEFINITION = re.compile(
 REFERENCE_LINK = re.compile(
     r"(?<!\!)\[(?P<label>(?:\\.|[^\]\n])+)\]\[(?P<reference>[^\]\n]*)\]"
 )
+BRACKETED_LABEL = re.compile(r"\[(?P<label>(?:\\.|[^\]\n])+)\]")
 DOC_ID = re.compile(r"^(workflow|reference|system|guide|decision|contract)\.[a-z0-9][a-z0-9.-]*$")
 REQUIRED = {"description", "doc_id", "type", "status", "rigor", "owners"}
 VALID_TYPES = {"workflow", "reference", "system", "guide", "decision", "contract"}
@@ -169,8 +170,6 @@ def strip_inline_code_spans(text: str) -> str:
         cursor = run_end
         closing_start: int | None = None
         while cursor < len(text):
-            # Backslashes are literal inside a code span. A backtick following one
-            # remains eligible to close the span.
             if text[cursor] != "`":
                 cursor += 1
                 continue
@@ -261,19 +260,38 @@ def _normalize_reference_label(label: str) -> str:
     return " ".join(label.replace("\\", "").split()).casefold()
 
 
+def _is_image_label(text: str, index: int) -> bool:
+    """Return whether a bracketed label is preceded by an unescaped image marker."""
+    return index > 0 and text[index - 1] == "!" and not _is_escaped(text, index - 1)
+
+
 def iter_reference_link_destinations(text: str) -> Iterator[str]:
-    """Yield destinations used by full and collapsed reference-style links."""
+    """Yield destinations used by full, collapsed, and shortcut reference links."""
     definitions: dict[str, str] = {}
+    definition_spans: list[tuple[int, int]] = []
     for match in REFERENCE_DEFINITION.finditer(text):
         destination = _extract_destination(match.group("raw"))
         if destination:
             definitions[_normalize_reference_label(match.group("label"))] = destination
+            definition_spans.append(match.span())
 
     for match in REFERENCE_LINK.finditer(text):
-        if _is_escaped(text, match.start()):
+        if _is_escaped(text, match.start()) or _is_image_label(text, match.start()):
             continue
         reference = match.group("reference") or match.group("label")
         destination = definitions.get(_normalize_reference_label(reference))
+        if destination:
+            yield destination
+
+    for match in BRACKETED_LABEL.finditer(text):
+        start, end = match.span()
+        if _is_escaped(text, start) or _is_image_label(text, start):
+            continue
+        if any(span_start <= start < span_end for span_start, span_end in definition_spans):
+            continue
+        if text[end : end + 1] in {"(", "[", ":"}:
+            continue
+        destination = definitions.get(_normalize_reference_label(match.group("label")))
         if destination:
             yield destination
 
