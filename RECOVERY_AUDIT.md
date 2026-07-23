@@ -66,4 +66,14 @@ The cleanup commit removed valuable production knowledge together with obsolete 
 
 ## Verification
 
-Generate fresh Python and .NET servers and execute their complete real-client suites. Run the full repository quality gate. Compare the cleanup commit and the current branch by topic, not only filename or line count. A topic is recovered only when its invariant, language-specific implementation, runtime enforcement, and regression evidence are present.
+Generate fresh Python and .NET servers and execute their complete real-client suites. Run the full repository quality gate. Compare the cleanup commit and the current branch by topic, not only filename or line count.
+
+A topic is recovered only when its stable invariant, canonical owner, and regression evidence are present. The required evidence class depends on the topic:
+
+- executable runtime behavior requires language-specific implementation, runtime enforcement, and behavioral tests;
+- CI/CD behavior requires an executable workflow or validator plus template tests and failure-path evidence;
+- documentation governance requires a validated playbook, lifecycle or ownership rules, and document-type regressions;
+- compatibility redirects require a deprecation stub, link-resolution evidence, and a canonical destination;
+- architectural decisions that intentionally remove unsafe behavior require a recorded rationale and a regression that prevents reintroduction.
+
+A topic is not declared unrecovered merely because a language-specific runtime implementation is inapplicable to that topic.
