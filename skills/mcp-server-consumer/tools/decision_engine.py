@@ -481,16 +481,15 @@ def _valid_annotations(value: Any) -> bool:
             return False
     if "priority" in value:
         priority = value.get("priority")
-        if (
-            isinstance(priority, bool)
-            or not isinstance(priority, (int, float))
-            or not math.isfinite(float(priority))
-            or not 0 <= float(priority) <= 1
-        ):
+        if isinstance(priority, bool) or not isinstance(priority, (int, float)):
+            return False
+        if isinstance(priority, float) and not math.isfinite(priority):
+            return False
+        if not 0 <= priority <= 1:
             return False
     if "lastModified" in value:
         last_modified = value.get("lastModified")
-        if not isinstance(last_modified, str) or not last_modified:
+        if not isinstance(last_modified, str) or not last_modified.strip():
             return False
     return True
 
@@ -571,6 +570,20 @@ def handle_response(response: Mapping[str, Any]) -> ResponseResult:
             error.get("retryable") if isinstance(error.get("retryable"), bool) else None,
         )
     if response.get("isError") is True:
+        if "structuredContent" in response and not isinstance(response.get("structuredContent"), Mapping):
+            return _failure(
+                "MALFORMED_RESPONSE",
+                "MCP structuredContent must be an object",
+                meta,
+                correlation,
+            )
+        if "content" in response and not _valid_content_payload(response.get("content")):
+            return _failure(
+                "MALFORMED_RESPONSE",
+                "MCP content must be text or a sequence of valid MCP content blocks",
+                meta,
+                correlation,
+            )
         code, message = _extract_protocol_error(response)
         return _failure(
             code,
