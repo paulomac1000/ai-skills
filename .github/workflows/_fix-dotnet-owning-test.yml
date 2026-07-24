@@ -48,6 +48,8 @@ jobs:
                   assert token in kernel
               assert "Capability manifests do not cover" in manifest
               assert "RandomNumberGenerator.GetBytes(32)" in approvals
+              assert "StringComparison.OrdinalIgnoreCase" in server_settings
+              assert "SHA256.HashData" in server_settings
           '''
           new = '''    for token in (
                   "ClaimsPrincipal? principal",
@@ -65,6 +67,9 @@ jobs:
               assert "Capability manifests do not cover" in manifest
               assert "RandomNumberGenerator.GetBytes(32)" in approvals
               assert "record.Principal" in approvals
+              assert 'ParseBool("MCP_WRITES_ENABLED", false)' in server_settings
+              assert "StringComparison.OrdinalIgnoreCase" in program
+              assert "SHA256.HashData" in program
           '''
           if source.count(old) != 1:
               raise SystemExit("expected owning-file assertion block was not found exactly once")
@@ -117,6 +122,8 @@ jobs:
                   assert token in kernel
               assert "Capability manifests do not cover" in manifest
               assert "RandomNumberGenerator.GetBytes(32)" in approvals
+              assert "StringComparison.OrdinalIgnoreCase" in server_settings
+              assert "SHA256.HashData" in server_settings
           '''
           new = '''    for token in (
                   "ClaimsPrincipal? principal",
@@ -134,6 +141,9 @@ jobs:
               assert "Capability manifests do not cover" in manifest
               assert "RandomNumberGenerator.GetBytes(32)" in approvals
               assert "record.Principal" in approvals
+              assert 'ParseBool("MCP_WRITES_ENABLED", false)' in server_settings
+              assert "StringComparison.OrdinalIgnoreCase" in program
+              assert "SHA256.HashData" in program
           '''
           if source.count(old) != 1:
               raise SystemExit("expected owning-file assertion block was not found exactly once")
