@@ -65,6 +65,7 @@ jobs:
           if source.count(old) != 1:
               raise SystemExit("expected owning-file assertion block was not found exactly once")
           path.write_text(source.replace(old, new), encoding="utf-8", newline="\n")
+      - run: python -m ruff format tests/test_mcp_dotnet_generator.py
       - run: python -m ruff check tests/test_mcp_dotnet_generator.py
       - run: python -m ruff format --check tests/test_mcp_dotnet_generator.py
       - run: python -m pytest tests/test_mcp_dotnet_generator.py::test_generated_project_uses_public_sdk_and_fail_closed_controls -q
@@ -130,6 +131,7 @@ jobs:
               raise SystemExit("expected owning-file assertion block was not found exactly once")
           path.write_text(source.replace(old, new), encoding="utf-8", newline="\n")
           PY
+          python -m ruff format tests/test_mcp_dotnet_generator.py
           python -m ruff check tests/test_mcp_dotnet_generator.py
           python -m ruff format --check tests/test_mcp_dotnet_generator.py
           python -m pytest tests/test_mcp_dotnet_generator.py::test_generated_project_uses_public_sdk_and_fail_closed_controls -q
