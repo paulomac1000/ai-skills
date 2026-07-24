@@ -103,22 +103,22 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
     )
     files[".github/workflows/ci.yml"] = _replace_required(
         files[".github/workflows/ci.yml"],
-        '                  - run: python -m pip install -e ".[dev]"\n'
-        "                  - run: python -m compileall -q src tests\n"
-        "                  - run: python -m pytest\n",
-        "                  - name: Install locked build tooling\n"
-        "                    run: >-\n"
-        "                      python -m pip install --constraint requirements.lock\n"
-        "                      build==1.5.1 setuptools==83.0.0 wheel==0.47.0\n"
-        "                  - run: python -m compileall -q src tests\n"
-        "                  - name: Build exact wheel\n"
-        "                    run: python -m build --wheel --no-isolation\n"
-        "                  - name: Test exact wheel with the official MCP client\n"
-        "                    shell: bash\n"
-        "                    run: |\n"
-        "                      python -m venv .artifact-venv\n"
-        "                      .artifact-venv/bin/python -m pip install --constraint requirements.lock dist/*.whl pytest==9.0.2\n"
-        "                      .artifact-venv/bin/python -m pytest\n",
+        '      - run: python -m pip install -e ".[dev]"\n'
+        "      - run: python -m compileall -q src tests\n"
+        "      - run: python -m pytest\n",
+        "      - name: Install locked build tooling\n"
+        "        run: >-\n"
+        "          python -m pip install --constraint requirements.lock\n"
+        "          build==1.5.1 setuptools==83.0.0 wheel==0.47.0\n"
+        "      - run: python -m compileall -q src tests\n"
+        "      - name: Build exact wheel\n"
+        "        run: python -m build --wheel --no-isolation\n"
+        "      - name: Test exact wheel with the official MCP client\n"
+        "        shell: bash\n"
+        "        run: |\n"
+        "          python -m venv .artifact-venv\n"
+        "          .artifact-venv/bin/python -m pip install --constraint requirements.lock dist/*.whl pytest==9.0.2\n"
+        "          .artifact-venv/bin/python -m pytest\n",
         file_name=".github/workflows/ci.yml",
     )
     return files
