@@ -8,7 +8,7 @@
  import subprocess
  import sys
  import threading
-@@ -111,9 +110,17 @@
+@@ -111,9 +110,16 @@
          assert match, name
          assignments.append(match.group(0).strip())
      script = "\n".join(assignments)
@@ -19,8 +19,7 @@
 +    return (
 +        subprocess.run(
 +            ["bash", "-s", "--", version],
-+            input=script,
-+            text=True,
++            input=script.encode("utf-8"),
 +            check=False,
 +        ).returncode
 +        == 0
