@@ -11,7 +11,7 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 CATALOG_PATH = ROOT / "contracts/rule-catalog.yaml"
 MAP_PATH = ROOT / "contracts/standard-rule-map.yaml"
-HEADING = re.compile(r"^##\s+(.+?)\s*$", re.MULTILINE)
+HEADING = re.compile(r"^##\s+(.+?)\s*$")
 SOURCE = re.compile(r"^STANDARD\.md#([a-z0-9-]+)$")
 
 
@@ -21,6 +21,27 @@ def heading_anchor(title: str) -> str:
     normalized = re.sub(r"[^a-z0-9 _-]", "", normalized)
     normalized = re.sub(r"[ _]+", "-", normalized)
     return re.sub(r"-+", "-", normalized).strip("-")
+
+
+def normative_h2_titles(text: str) -> list[str]:
+    """Return H2 titles outside fenced code blocks."""
+    titles: list[str] = []
+    fence: str | None = None
+    for line in text.splitlines():
+        stripped = line.lstrip()
+        marker = "```" if stripped.startswith("```") else "~~~" if stripped.startswith("~~~") else None
+        if marker is not None:
+            if fence is None:
+                fence = marker
+            elif fence == marker:
+                fence = None
+            continue
+        if fence is not None:
+            continue
+        match = HEADING.fullmatch(line)
+        if match is not None:
+            titles.append(match.group(1))
+    return titles
 
 
 def load_yaml(path: Path) -> dict[str, Any]:
@@ -51,7 +72,7 @@ def test_every_normative_h2_is_mapped_or_explicitly_excluded() -> None:
 
     for skill_name, mapping in rule_map["skills"].items():
         standard = ROOT / "skills" / skill_name / "STANDARD.md"
-        anchors = {heading_anchor(title) for title in HEADING.findall(standard.read_text(encoding="utf-8"))}
+        anchors = {heading_anchor(title) for title in normative_h2_titles(standard.read_text(encoding="utf-8"))}
         mapped = mapping["headings"]
         assert set(mapped) == anchors, skill_name
 
@@ -85,6 +106,11 @@ def test_every_normative_h2_is_mapped_or_explicitly_excluded() -> None:
             assert match.group(1) in anchors
             assert primary_rules[rule_id] == match.group(1), (skill_name, rule_id)
             assert isinstance(rule.get("description"), str) and rule["description"].strip()
+
+
+def test_fenced_h2_examples_are_not_normative_rules() -> None:
+    source = "## Real rule\n\n```text\n## Not a rule\n```\n\n~~~markdown\n## Also not a rule\n~~~\n"
+    assert normative_h2_titles(source) == ["Real rule"]
 
 
 def test_manifests_pin_the_catalog_and_heading_map() -> None:
