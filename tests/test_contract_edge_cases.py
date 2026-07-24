@@ -7,13 +7,20 @@ import json
 import os
 import stat
 import zipfile
-from datetime import date
 from pathlib import Path
-from types import SimpleNamespace
 from urllib.error import HTTPError, URLError
 
 import pytest
-import yaml
+from test_adoption_contract import FakeVerifier, assessment_for, findings
+from test_evidence_verifier import (
+    CLAIM,
+    REPORT_PATH,
+    SHA,
+    StubVerifier,
+    make_report,
+    make_zip,
+    successful_fixture,
+)
 
 import contracts.evidence as evidence_module
 from contracts.evidence import GitHubEvidenceVerifier
@@ -33,16 +40,6 @@ from contracts.validate_adoption import (
     _sequence,
     _text,
     _text_list,
-)
-from test_adoption_contract import FakeVerifier, assessment_for, findings
-from test_evidence_verifier import (
-    CLAIM,
-    REPORT_PATH,
-    SHA,
-    StubVerifier,
-    make_report,
-    make_zip,
-    successful_fixture,
 )
 
 
@@ -307,14 +304,10 @@ def test_invalid_report_json_and_provider_reference_are_findings() -> None:
         "digest": digest,
         "workflow_run": {"id": 100, "head_sha": SHA},
     }
-    assert any(
-        "UTF-8 JSON" in error
-        for error in StubVerifier(responses, archive).verify_action(reference, SHA)
-    )
+    assert any("UTF-8 JSON" in error for error in StubVerifier(responses, archive).verify_action(reference, SHA))
     bad_reference = dict(reference, run_id="bad")
     assert any(
-        "positive integer" in error
-        for error in StubVerifier(responses, archive).verify_action(bad_reference, SHA)
+        "positive integer" in error for error in StubVerifier(responses, archive).verify_action(bad_reference, SHA)
     )
 
 
@@ -469,9 +462,7 @@ def test_semantic_mutations_cover_waivers_scope_risks_and_review(tmp_path: Path)
     ]
     mutations.append((changed, "expired"))
     changed = json.loads(json.dumps(document))
-    changed["residual_risks"] = [
-        {"risk": "r", "owner": "o", "mitigation": "m", "blocking": True}
-    ]
+    changed["residual_risks"] = [{"risk": "r", "owner": "o", "mitigation": "m", "blocking": True}]
     mutations.append((changed, "blocking residual risk"))
     changed = json.loads(json.dumps(document))
     changed["decision"]["reviewer"]["id"] = 1001
@@ -493,9 +484,7 @@ def test_mcp_extension_rejects_unknown_transport_and_missing_checks(tmp_path: Pa
     )
     document["extensions"]["mcp"]["target_level"] = "L9"
     document["extensions"]["mcp"]["advertised_transports"].append("sse")
-    document["extensions"]["mcp"]["transport_results"]["stdio"]["capability_listing"][
-        "result"
-    ] = "failed"
+    document["extensions"]["mcp"]["transport_results"]["stdio"]["capability_listing"]["result"] = "failed"
     output = "\n".join(findings(document, catalog, skills, tmp_path))
     assert "must be L1" in output
     assert "unsupported transports" in output
