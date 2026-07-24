@@ -1,7 +1,7 @@
 ---
 description: Required machine-readable assessment contract for MCP server migrations and production-readiness adoption.
 doc_id: reference.mcp-migration-assessment
- type: reference
+type: reference
 status: active
 rigor: normative
 owners: [repository-maintainers]
