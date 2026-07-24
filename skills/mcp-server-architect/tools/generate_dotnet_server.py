@@ -7,9 +7,9 @@ import argparse
 import ctypes
 import errno
 import os
+import platform
 import re
 import shutil
-import sys
 import tempfile
 from pathlib import Path
 
@@ -61,7 +61,11 @@ def project_files(namespace: str, server_name: str) -> dict[str, str]:
         if relative.endswith(".template"):
             relative = relative[: -len(".template")]
         rendered_path = _render(relative, namespace=namespace, server_name=server_name)
-        content = _render(source.read_text(encoding="utf-8"), namespace=namespace, server_name=server_name)
+        content = _render(
+            source.read_text(encoding="utf-8"),
+            namespace=namespace,
+            server_name=server_name,
+        )
         files[rendered_path] = content.rstrip() + "\n"
     if not files:
         raise RuntimeError("the .NET template is empty")
@@ -79,19 +83,32 @@ def _rename_noreplace(source: Path, destination: Path) -> None:
     """Atomically publish one directory without replacing any destination object."""
     source_bytes = os.fsencode(source)
     destination_bytes = os.fsencode(destination)
+    operating_system = platform.system()
 
-    if sys.platform.startswith("linux"):
+    if operating_system == "Linux":
         libc = ctypes.CDLL(None, use_errno=True)
         renameat2 = getattr(libc, "renameat2", None)
         if renameat2 is None:
             raise RuntimeError("atomic no-replace rename requires renameat2 on this Linux runtime")
-        renameat2.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint]
+        renameat2.argtypes = [
+            ctypes.c_int,
+            ctypes.c_char_p,
+            ctypes.c_int,
+            ctypes.c_char_p,
+            ctypes.c_uint,
+        ]
         renameat2.restype = ctypes.c_int
-        if renameat2(_AT_FDCWD, source_bytes, _AT_FDCWD, destination_bytes, _RENAME_NOREPLACE) != 0:
+        if renameat2(
+            _AT_FDCWD,
+            source_bytes,
+            _AT_FDCWD,
+            destination_bytes,
+            _RENAME_NOREPLACE,
+        ) != 0:
             _raise_rename_error(ctypes.get_errno(), destination)
         return
 
-    if sys.platform == "darwin":
+    if operating_system == "Darwin":
         libc = ctypes.CDLL(None, use_errno=True)
         renamex_np = getattr(libc, "renamex_np", None)
         if renamex_np is None:
@@ -102,7 +119,7 @@ def _rename_noreplace(source: Path, destination: Path) -> None:
             _raise_rename_error(ctypes.get_errno(), destination)
         return
 
-    if os.name == "nt":
+    if operating_system == "Windows":
         # Windows os.rename is no-replace and raises FileExistsError when dst exists.
         os.rename(source, destination)
         return
@@ -119,7 +136,8 @@ def generate_project(target: Path, namespace: str, server_name: str) -> list[Pat
         raise FileExistsError(errno.EEXIST, "generation target already exists", target)
 
     files = project_files(namespace, server_name)
-    staging: Path | None = Path(tempfile.mkdtemp(prefix=f".{target.name}-", dir=target.parent))
+    staging = Path(tempfile.mkdtemp(prefix=f".{target.name}-", dir=target.parent))
+    published = False
     try:
         for relative, content in sorted(files.items()):
             destination = staging / relative
@@ -127,10 +145,10 @@ def generate_project(target: Path, namespace: str, server_name: str) -> list[Pat
             destination.write_text(content, encoding="utf-8", newline="\n")
 
         _rename_noreplace(staging, target)
-        staging = None
+        published = True
         return [Path(relative) for relative in sorted(files)]
     finally:
-        if staging is not None:
+        if not published:
             shutil.rmtree(staging, ignore_errors=True)
 
 
