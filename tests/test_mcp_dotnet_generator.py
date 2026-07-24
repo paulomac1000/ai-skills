@@ -44,9 +44,7 @@ def has_required_dotnet_sdk() -> bool:
     except (OSError, subprocess.TimeoutExpired):
         return False
     return completed.returncode == 0 and any(
-        line.split()[0] == REQUIRED_DOTNET_SDK
-        for line in completed.stdout.splitlines()
-        if line.split()
+        line.split()[0] == REQUIRED_DOTNET_SDK for line in completed.stdout.splitlines() if line.split()
     )
 
 
@@ -119,16 +117,21 @@ def test_generated_project_uses_public_sdk_and_fail_closed_controls(tmp_path: Pa
         "ClaimsPrincipal? principal",
         "UseStructuredContent = true",
         "OutputSchemaType",
-        "throw new McpException",
     ):
         assert token in tools
 
-    for token in ("expectedVersion", "writes are disabled by operator policy", "record.Principal"):
+    for token in (
+        "expectedVersion",
+        "writes are disabled by operator policy",
+        "throw new McpException",
+    ):
         assert token in kernel
     assert "Capability manifests do not cover" in manifest
     assert "RandomNumberGenerator.GetBytes(32)" in approvals
-    assert "StringComparison.OrdinalIgnoreCase" in server_settings
-    assert "SHA256.HashData" in server_settings
+    assert "record.Principal" in approvals
+    assert 'ParseBool("MCP_WRITES_ENABLED", false)' in server_settings
+    assert "StringComparison.OrdinalIgnoreCase" in program
+    assert "SHA256.HashData" in program
 
     all_sources = "\n".join((program, tools, kernel, manifest, approvals, server_settings))
     for forbidden in (
@@ -260,8 +263,7 @@ def test_generator_preserves_competing_target_created_before_publish(tmp_path: P
 )
 def test_generated_project_builds_and_passes_real_client_smoke(tmp_path: Path) -> None:
     assert has_required_dotnet_sdk(), (
-        f"CI requires exact .NET SDK {REQUIRED_DOTNET_SDK}; "
-        "the mandatory artifact gate must fail rather than skip"
+        f"CI requires exact .NET SDK {REQUIRED_DOTNET_SDK}; the mandatory artifact gate must fail rather than skip"
     )
     generator = load_generator()
     target = tmp_path / "server"
@@ -312,7 +314,5 @@ def test_generated_project_builds_and_passes_real_client_smoke(tmp_path: Path) -
             timeout=180,
         )
         assert completed.returncode == 0, (
-            f"command failed: {' '.join(command)}\n"
-            f"stdout:\n{completed.stdout}\n"
-            f"stderr:\n{completed.stderr}"
+            f"command failed: {' '.join(command)}\nstdout:\n{completed.stdout}\nstderr:\n{completed.stderr}"
         )
