@@ -7,7 +7,7 @@ repository:
   source_branch: replace-me
 skill:
   name: mcp-server-architect
-  version: 1.0.0-rc.1
+  version: 1.1.0-rc.1
   maturity: release-candidate
   target_level: L3
   profiles: [python]
