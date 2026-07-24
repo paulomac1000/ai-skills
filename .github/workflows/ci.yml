@@ -34,38 +34,93 @@ jobs:
           EXPECTED_SHA: ${{ github.sha }}
         run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
       - name: Lint production Python
-        run: >-
-          python -m ruff check contracts scripts
-          skills/afds-doc-writer/validate.py
-          skills/mcp-server-consumer/tools
-          skills/mcp-server-architect/tools/generate_python_server.py
-          skills/mcp-server-architect/tools/generate_python_server_impl.py
-          skills/mcp-server-architect/tools/generate_dotnet_server.py
+        id: ruff_lint
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          python -m ruff check contracts scripts \
+            skills/afds-doc-writer/validate.py \
+            skills/mcp-server-consumer/tools \
+            skills/mcp-server-architect/tools/generate_python_server.py \
+            skills/mcp-server-architect/tools/generate_python_server_impl.py \
+            skills/mcp-server-architect/tools/generate_dotnet_server.py \
+            2>&1 | tee ruff-lint.txt
       - name: Verify production Python formatting
-        run: >-
-          python -m ruff format --check contracts scripts
-          skills/afds-doc-writer/validate.py
-          skills/mcp-server-consumer/tools
-          skills/mcp-server-architect/tools/generate_python_server.py
-          skills/mcp-server-architect/tools/generate_python_server_impl.py
-          skills/mcp-server-architect/tools/generate_dotnet_server.py
+        id: ruff_format
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          python -m ruff format --check contracts scripts \
+            skills/afds-doc-writer/validate.py \
+            skills/mcp-server-consumer/tools \
+            skills/mcp-server-architect/tools/generate_python_server.py \
+            skills/mcp-server-architect/tools/generate_python_server_impl.py \
+            skills/mcp-server-architect/tools/generate_dotnet_server.py \
+            2>&1 | tee ruff-format.txt
       - name: Type-check public and policy-critical Python
-        run: >-
-          python -m mypy
-          contracts/semver.py contracts/validate_adoption.py
-          scripts/ci.py scripts/install_locked.py scripts/select_lock.py
-          skills/afds-doc-writer/validate.py
-          skills/mcp-server-consumer/tools/decision_engine.py
-          skills/mcp-server-architect/tools/generate_python_server.py
-          skills/mcp-server-architect/tools/generate_python_server_impl.py
-          skills/mcp-server-architect/tools/generate_dotnet_server.py
+        id: mypy
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          python -m mypy \
+            contracts/semver.py contracts/validate_adoption.py \
+            scripts/ci.py scripts/install_locked.py scripts/select_lock.py \
+            skills/afds-doc-writer/validate.py \
+            skills/mcp-server-consumer/tools/decision_engine.py \
+            skills/mcp-server-architect/tools/generate_python_server.py \
+            skills/mcp-server-architect/tools/generate_python_server_impl.py \
+            skills/mcp-server-architect/tools/generate_dotnet_server.py \
+            2>&1 | tee mypy.txt
       - name: Scan Python for high-confidence high-severity issues
-        run: >-
-          python -m bandit -q -lll -iii -r
-          contracts scripts skills/afds-doc-writer
-          skills/mcp-server-consumer/tools skills/mcp-server-architect/tools
+        id: bandit
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          python -m bandit -q -lll -iii -r \
+            contracts scripts skills/afds-doc-writer \
+            skills/mcp-server-consumer/tools skills/mcp-server-architect/tools \
+            2>&1 | tee bandit.txt
       - name: Audit complete development lock
-        run: python -m pip_audit -r requirements-dev-linux.lock --progress-spinner off
+        id: dependency_audit
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          python -m pip_audit -r requirements-dev-linux.lock --progress-spinner off \
+            2>&1 | tee pip-audit.txt
+      - name: Upload Python quality diagnostics
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: python-quality-diagnostics-${{ github.run_id }}
+          path: |
+            ruff-lint.txt
+            ruff-format.txt
+            mypy.txt
+            bandit.txt
+            pip-audit.txt
+          if-no-files-found: error
+          retention-days: 3
+      - name: Enforce Python quality outcomes
+        if: always()
+        shell: bash
+        env:
+          RUFF_LINT: ${{ steps.ruff_lint.outcome }}
+          RUFF_FORMAT: ${{ steps.ruff_format.outcome }}
+          MYPY: ${{ steps.mypy.outcome }}
+          BANDIT: ${{ steps.bandit.outcome }}
+          DEPENDENCY_AUDIT: ${{ steps.dependency_audit.outcome }}
+        run: |
+          set -euo pipefail
+          test "$RUFF_LINT" = success
+          test "$RUFF_FORMAT" = success
+          test "$MYPY" = success
+          test "$BANDIT" = success
+          test "$DEPENDENCY_AUDIT" = success
 
   python:
     runs-on: ubuntu-latest
