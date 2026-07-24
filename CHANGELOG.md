@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.1.0-rc.1 - 2026-07-24
+
+- Added versioned, machine-readable skill contracts with compatibility, maturity, dependency, deprecation, and normative-entrypoint metadata.
+- Added a required MCP migration assessment with applicability mapping, immutable revision and artifact evidence, behavioral accounting, waivers, rollback, residual risks, and an independent decision.
+- Defined normative precedence so standards and active decisions cannot be weakened by profiles, workflows, generators, examples, or simulations.
+- Changed generated Python acceptance to build a wheel, install the exact wheel into an isolated environment, and execute the official MCP client suite without editable installs or `PYTHONPATH`.
+- Added a reviewed Python stable-lane constraints file used by generated CI and Docker, and moved the MCP SDK baseline to the fixed 1.28.x line.
+- Added Linux, macOS, and Windows tests for atomic no-replace generator publication.
+- Added support for production dot-separated .NET namespaces while rejecting unsafe and reserved namespace roots.
+- Added pinned Ruff, formatting, mypy, Bandit, dependency-audit, branch-coverage, and retained-diagnostics gates to repository CI and local validation.
+- Replaced the brittle migration-test function allowlist with execution of the complete migration contract file.
+- Clarified that the bundled MCP consumer engine is a conservative reference helper rather than complete organizational authorization or multi-axis policy.
+
 ## Unreleased - 2026-07-18
 
 - Recovered operational knowledge removed by the cleanup refactor into focused AFDS, CI/CD, MCP server, and MCP consumer playbooks, examples, templates, tools, and regression tests.
