@@ -23,6 +23,21 @@ Define language-neutral invariants for servers consumed by agents. SDK profiles 
 | L3 production | always-on critical service | L2 plus real-client smoke, lifecycle and race tests, observability, SLOs, cancellation, artifact tests |
 | L4 hardened | public, multi-tenant, sensitive, or dangerous capabilities | L3 plus per-resource authorization, isolation, abuse controls, security tests, audit and recovery drills |
 
+## Skill contract and precedence
+
+At L2 and above, pin both the immutable repository revision and the skill version from `manifest.yaml`. A release-candidate skill is eligible for controlled pilots and independent review; a stable claim requires completed compatibility evidence and a migration path for every breaking change.
+
+When resources disagree, apply this order:
+
+1. this `STANDARD.md` and active normative decisions;
+2. the applicable implementation profile;
+3. `SKILL.md` workflow instructions;
+4. generators and templates;
+5. examples;
+6. migration simulations.
+
+A lower-ranked resource cannot weaken a higher-ranked requirement. A generator is a verified baseline, not a policy exception, and an example cannot create a new invariant. Stop the migration and request a standard decision when a conflict remains unresolved.
+
 ## Core architecture
 
 - Domain operations do not depend on MCP transport or SDK types.
@@ -149,7 +164,17 @@ The bundled Python and .NET generators are part of the standard, not illustrativ
 
 Each generated project must compile and pass its own tests through an official MCP client using the stable production SDK lane. Tests prove public tool listing with real schemas, representative invocation, complete manifest coverage, fail-closed writes, principal-bound approval, optimistic conflict handling, bounded HTTP input, action pinning, deterministic generation, and smoke of the exact published artifact.
 
-Generation uses exclusive no-replace publication and refuses an existing file, directory, or symlink target even under concurrent creation. Production adoption still requires replacing sample domain code, reviewing every manifest, adding real authentication and resource authorization, upstream contract tests, deployment-artifact smoke tests, and all applicable runtime-boundary scenarios.
+The Python baseline carries a reviewed stable-lane constraints file. Acceptance builds a wheel, installs that wheel into an isolated environment, proves imports resolve from the installed artifact rather than `PYTHONPATH` or an editable tree, and executes the official-client suite. The container consumes the same constraints. Candidate dependency upgrades are separate, non-authoritative evidence until the constraints and compatibility tests are reviewed together.
+
+Generation uses exclusive no-replace publication and refuses an existing file, directory, or symlink target even under concurrent creation. The operating-system-specific publication primitive is tested on every declared supported platform. Production adoption still requires replacing sample domain code, reviewing every manifest, adding real authentication and resource authorization, upstream contract tests, deployment-artifact smoke tests, and all applicable runtime-boundary scenarios.
+
+## Migration acceptance
+
+Every L2+ migration produces `migration-assessment.yaml` from `templates/migration-assessment.yaml.template` and follows `references/migration-assessment.md`. The assessment pins the immutable source revision, skill version, maturity target, profiles, scope, applicability matrix, implementation evidence, verification commands, preserved and intentionally changed behavior, removed legacy behavior, waivers, exact artifact identity, rollback, residual risks, and independent decision.
+
+`not-applicable` requires an architectural rationale. `deferred` requires an owned, expiring waiver and compensating controls. No waiver may permit model-controlled authorization, fail-open risk, target substitution, unbounded privileged execution, or a new legacy HTTP+SSE implementation. A green aggregate check without rule-to-code-to-test evidence is insufficient.
+
+An independent reviewer may approve only the immutable assessed revision after every advertised transport passes official-client smoke against the exact deployment artifact and all applicable rules have executable evidence. An undocumented behavioral difference or unresolved normative conflict is a migration defect.
 
 ## Verification layers
 
@@ -163,12 +188,14 @@ Generation uses exclusive no-replace publication and refuses an existing file, d
 8. deployment-artifact smoke tests;
 9. upstream contract tests with controlled fakes, recordings, canaries, or test containers;
 10. Python migration simulation and .NET migration simulation across analogous archetypes;
-11. fresh-project generation followed by installation or restore, compilation, and its own real-client suite.
+11. fresh-project generation followed by installation or restore, compilation, and its own real-client suite;
+12. completed migration assessment with independent decision for every L2+ adoption or migration.
 
 No layer substitutes for another.
 
 ## Implementation profiles
 
+- [Migration assessment](references/migration-assessment.md)
 - [Capability manifests and versioning](references/capability-manifests-and-versioning.md)
 - [Transport, lifecycle, and conformance](references/transport-lifecycle-and-conformance.md)
 - [Runtime boundaries and artifacts](references/runtime-boundaries-and-artifacts.md)
@@ -182,4 +209,4 @@ No layer substitutes for another.
 
 ## Verification
 
-Generate fresh Python and .NET projects and execute their complete official-client suites first. Then run all applicable layers once at their proper abstraction level; repeat transport conformance, invocation-kernel policy parity, representative client workflows, and artifact smoke tests for every advertised transport. Review public contracts, target identity, lifecycle ownership, trust boundaries, data classification, runtime enforcement, artifacts, tasks, profile isolation, and embedded-host ownership independently from framework-specific code.
+Generate fresh Python and .NET projects and execute their complete official-client suites first. Then run all applicable layers once at their proper abstraction level; repeat transport conformance, invocation-kernel policy parity, representative client workflows, and artifact smoke tests for every advertised transport. Review public contracts, target identity, lifecycle ownership, trust boundaries, data classification, runtime enforcement, artifacts, tasks, profile isolation, and embedded-host ownership independently from framework-specific code. For every L2+ migration, validate the completed assessment against the immutable reviewed revision before approval.
