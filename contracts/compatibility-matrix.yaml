@@ -18,10 +18,12 @@ lanes:
       - {runner: ubuntu-24.04, operating_system: linux, architecture: x64, runtime: dotnet, version: "10.0.302"}
       - {runner: macos-15, operating_system: macos, architecture: arm64, runtime: dotnet, version: "10.0.302"}
       - {runner: windows-2025, operating_system: windows, architecture: x64, runtime: dotnet, version: "10.0.302"}
+    providers: [github-actions]
     evidence: Generates, restores, builds, publishes, and invokes the exact .NET artifact on each declared tuple.
   docker-artifact:
     workflow_job: python-container-artifact
     skills: [mcp-server-architect]
     combinations:
       - {runner: ubuntu-24.04, operating_system: linux, architecture: x64, runtime: python, version: "3.12"}
+    providers: [github-actions]
     evidence: Builds the generated non-root image and invokes it through the official MCP stdio client.
