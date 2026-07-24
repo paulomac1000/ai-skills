@@ -152,17 +152,44 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
         "contain the complete resolved graph and hashes; regenerate them only with the pinned lock workflow.",
         file_name="README.md",
     )
+    files["README.md"] = _replace_required(
+        files["README.md"],
+        "```\n\nStdio is the default.",
+        "```\n\n"
+        "## Build the container from the verified wheel\n\n"
+        "The image never rebuilds the package from source. Build exactly one wheel first, pass its "
+        "SHA-256 into Docker, and let the Dockerfile verify the copied bytes before installation:\n\n"
+        "```bash\n"
+        ".venv/bin/python -m build --wheel --no-isolation\n"
+        "WHEEL=$(find dist -maxdepth 1 -type f -name '*.whl')\n"
+        "test \"$(find dist -maxdepth 1 -type f -name '*.whl' | wc -l)\" -eq 1\n"
+        "WHEEL_SHA256=$(sha256sum \"$WHEEL\" | cut -d' ' -f1)\n"
+        f'docker build --build-arg WHEEL_SHA256="$WHEEL_SHA256" -t {package}:0.1.0 .\n'
+        "```\n\n"
+        "Stdio is the default.",
+        file_name="README.md",
+    )
 
     files["Dockerfile"] = _replace_required(
         files["Dockerfile"],
         "COPY pyproject.toml README.md ./\nCOPY src ./src\nRUN pip install --no-cache-dir .",
-        "COPY pyproject.toml README.md ./\n"
-        "COPY requirements ./requirements\n"
-        "COPY src ./src\n"
-        "RUN pip install --no-cache-dir --require-hashes -r requirements/runtime-linux-x64-py312.lock \\\n"
-        "    && pip install --no-cache-dir --no-deps . \\\n"
-        "    && pip check",
+        "ARG WHEEL_SHA256\n"
+        "COPY requirements/runtime-linux-x64-py312.lock /tmp/runtime.lock\n"
+        "COPY dist/*.whl /tmp/wheel/\n"
+        "RUN set -eux; \\\n"
+        '    test -n "$WHEEL_SHA256"; \\\n'
+        "    test \"$(find /tmp/wheel -maxdepth 1 -type f -name '*.whl' | wc -l)\" -eq 1; \\\n"
+        "    wheel=\"$(find /tmp/wheel -maxdepth 1 -type f -name '*.whl')\"; \\\n"
+        '    printf \'%s  %s\\n\' "$WHEEL_SHA256" "$wheel" | sha256sum --check --strict; \\\n'
+        "    pip install --no-cache-dir --require-hashes -r /tmp/runtime.lock; \\\n"
+        '    pip install --no-cache-dir --no-deps "$wheel"; \\\n'
+        "    pip check; \\\n"
+        "    rm -rf /tmp/wheel /tmp/runtime.lock\n"
+        "LABEL org.opencontainers.image.source-wheel-sha256=$WHEEL_SHA256",
         file_name="Dockerfile",
+    )
+    files[".dockerignore"] = (
+        "*\n!Dockerfile\n!requirements/\n!requirements/runtime-linux-x64-py312.lock\n!dist/\n!dist/*.whl\n"
     )
 
     files[".github/workflows/ci.yml"] = _replace_required(
@@ -188,13 +215,34 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
         "      - run: python -m compileall -q src tests requirements/select_lock.py\n"
         "      - name: Build exact wheel\n"
         "        run: python -m build --wheel --no-isolation\n"
+        "      - name: Record exact wheel identity\n"
+        "        id: wheel\n"
+        "        shell: bash\n"
+        "        run: |\n"
+        "          set -euo pipefail\n"
+        "          mapfile -t WHEELS < <(find dist -maxdepth 1 -type f -name '*.whl' -print)\n"
+        '          test "${#WHEELS[@]}" -eq 1\n'
+        "          WHEEL_SHA256=$(sha256sum \"${WHEELS[0]}\" | cut -d' ' -f1)\n"
+        '          echo "path=${WHEELS[0]}" >> "$GITHUB_OUTPUT"\n'
+        '          echo "sha256=$WHEEL_SHA256" >> "$GITHUB_OUTPUT"\n'
         "      - name: Install exact wheel without dependency resolution\n"
         "        shell: bash\n"
         "        run: |\n"
-        "          python -m pip install --no-deps dist/*.whl\n"
+        '          python -m pip install --no-deps "${{ steps.wheel.outputs.path }}"\n'
         "          python -m pip check\n"
         "      - name: Test exact wheel with the official MCP client\n"
-        "        run: python -m pytest\n",
+        "        run: python -m pytest\n"
+        "      - name: Build container from exact wheel\n"
+        "        run: >-\n"
+        "          docker build\n"
+        "          --build-arg WHEEL_SHA256=${{ steps.wheel.outputs.sha256 }}\n"
+        "          --tag generated-mcp:ci .\n"
+        "      - name: Verify container wheel identity\n"
+        "        shell: bash\n"
+        "        run: |\n"
+        "          LABEL=$(docker inspect --format "
+        "'{{ index .Config.Labels \"org.opencontainers.image.source-wheel-sha256\" }}' generated-mcp:ci)\n"
+        '          test "$LABEL" = "${{ steps.wheel.outputs.sha256 }}"\n',
         file_name=".github/workflows/ci.yml",
     )
     return files

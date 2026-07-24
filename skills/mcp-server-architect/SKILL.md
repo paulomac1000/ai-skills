@@ -35,7 +35,7 @@ Read `STANDARD.md`, then use `references/migration-assessment.md`, `references/c
 
 Both generators are atomic and non-overwriting. They create typed settings, application-owned manifests, one invocation kernel, official SDK registration, stdio and loopback Streamable HTTP, structured results and protocol-native errors, conservative writes, packaging, pinned CI, and a real-client smoke.
 
-The Python seed carries complete platform-specific runtime and development lock graphs with artifact hashes, installs them with `--require-hashes`, runs `pip check`, builds a wheel, installs that exact wheel into an isolated environment, and runs the official-client suite without editable installs or `PYTHONPATH`. The .NET seed restores exact NuGet lock files, publishes the server, and smokes the published DLL.
+The Python seed carries complete platform-specific runtime and development lock graphs with artifact hashes, installs them with `--require-hashes`, runs `pip check`, builds a wheel, installs that exact wheel into an isolated environment, and runs the official-client suite without editable installs or `PYTHONPATH`. Its container copies that same prebuilt wheel, verifies the wheel SHA-256, and never rebuilds the package from source. The .NET seed restores exact NuGet lock files, publishes the server, and smokes the published DLL.
 
 The .NET seed additionally demonstrates generic tool registration, explicit stateless HTTP, `ClaimsPrincipal`, authorization-filter activation, principal-partitioned rate limiting, separate liveness/readiness, mandatory optimistic concurrency, and principal-bound server-side approvals.
 

@@ -171,7 +171,7 @@ Normalize content blocks and structured content only at the transport or compati
 - pagination tests prove termination and explicit final markers overriding stale cursors;
 - transport tests use real stdio and Streamable HTTP;
 - content tests cover text blocks, structured content, confidentiality, and exports;
-- deployment tests start the built wheel or container;
+- deployment tests start the same prebuilt wheel directly and inside the container, verifying its SHA-256 before image installation;
 - stable and candidate SDK lanes remain separately visible.
 
 ## Verification

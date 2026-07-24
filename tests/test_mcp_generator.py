@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import compileall
+import hashlib
 import importlib.util
 import re
 import shutil
@@ -62,6 +63,7 @@ def test_generator_emits_complete_deterministic_project(tmp_path: Path) -> None:
         Path("README.md"),
         Path("SECURITY.md"),
         Path("Dockerfile"),
+        Path(".dockerignore"),
         Path(".github/workflows/ci.yml"),
         Path("src/inventory_mcp/config.py"),
         Path("src/inventory_mcp/domain.py"),
@@ -133,10 +135,20 @@ def test_generated_project_uses_public_sdk_and_fail_closed_controls(tmp_path: Pa
     assert "pytest==9.1.1" in pyproject
 
     dockerfile = (target / "Dockerfile").read_text(encoding="utf-8")
-    assert "COPY requirements ./requirements" in dockerfile
-    assert "--require-hashes -r requirements/runtime-linux-x64-py312.lock" in dockerfile
-    assert "pip install --no-cache-dir --no-deps ." in dockerfile
+    assert "COPY requirements/runtime-linux-x64-py312.lock /tmp/runtime.lock" in dockerfile
+    assert "COPY dist/*.whl /tmp/wheel/" in dockerfile
+    assert "WHEEL_SHA256" in dockerfile
+    assert "sha256sum --check --strict" in dockerfile
+    assert 'pip install --no-cache-dir --no-deps "$wheel"' in dockerfile
+    assert "org.opencontainers.image.source-wheel-sha256" in dockerfile
+    assert "COPY src" not in dockerfile
+    assert "COPY pyproject.toml" not in dockerfile
     assert "pip check" in dockerfile
+
+    dockerignore = (target / ".dockerignore").read_text(encoding="utf-8")
+    assert dockerignore.startswith("*\n")
+    assert "!dist/*.whl" in dockerignore
+    assert "!requirements/runtime-linux-x64-py312.lock" in dockerignore
 
     workflow = (target / ".github/workflows/ci.yml").read_text(encoding="utf-8")
     for line in workflow.splitlines():
@@ -148,7 +160,10 @@ def test_generated_project_uses_public_sdk_and_fail_closed_controls(tmp_path: Pa
     assert "Build exact wheel" in workflow
     assert "Test exact wheel with the official MCP client" in workflow
     assert "--require-hashes" in workflow
-    assert "--no-deps dist/*.whl" in workflow
+    assert "Record exact wheel identity" in workflow
+    assert '--no-deps "${{ steps.wheel.outputs.path }}"' in workflow
+    assert "Build container from exact wheel" in workflow
+    assert "Verify container wheel identity" in workflow
 
 
 def test_generator_refuses_invalid_reserved_and_existing_targets(tmp_path: Path) -> None:
@@ -260,9 +275,37 @@ async def test_generated_container_is_non_root_and_passes_official_stdio_smoke(t
     generator = load_generator()
     target = tmp_path / "server"
     generator.generate_project(target, "inventory_mcp", "Inventory MCP")
+    run_checked([sys.executable, "-m", "build", "--wheel", "--no-isolation"], cwd=target)
+    wheels = list((target / "dist").glob("*.whl"))
+    assert len(wheels) == 1
+    wheel_sha256 = hashlib.sha256(wheels[0].read_bytes()).hexdigest()
+
     image = f"ai-skills-python-mcp:{tmp_path.name.lower()}"
-    run_checked(["docker", "build", "--tag", image, "."], cwd=target, timeout=300)
+    run_checked(
+        [
+            "docker",
+            "build",
+            "--build-arg",
+            f"WHEEL_SHA256={wheel_sha256}",
+            "--tag",
+            image,
+            ".",
+        ],
+        cwd=target,
+        timeout=300,
+    )
     try:
+        label = run_checked(
+            [
+                "docker",
+                "inspect",
+                "--format",
+                '{{ index .Config.Labels "org.opencontainers.image.source-wheel-sha256" }}',
+                image,
+            ],
+            cwd=target,
+        )
+        assert label.stdout.strip() == wheel_sha256
         identity = run_checked(
             [
                 "docker",
