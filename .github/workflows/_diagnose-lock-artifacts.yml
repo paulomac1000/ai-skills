@@ -1,0 +1,58 @@
+name: Diagnose lock artifact access
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/_diagnose-lock-artifacts.yml
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  diagnose:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Inspect artifact metadata and bytes
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from hashlib import sha256
+          from urllib.error import HTTPError
+          from urllib.request import Request, urlopen
+          import json
+          import os
+
+          repository = os.environ["GH_REPOSITORY"]
+          token = os.environ["GH_TOKEN"]
+          headers = {
+              "Accept": "application/vnd.github+json",
+              "Authorization": f"Bearer {token}",
+              "X-GitHub-Api-Version": "2022-11-28",
+              "User-Agent": "ai-skills-artifact-diagnostic",
+          }
+          for artifact_id in (8602866324, 8602853663, 8602860005, 8602859605, 8602875685):
+              print(f"ARTIFACT {artifact_id}", flush=True)
+              for suffix in ("", "/zip"):
+                  url = f"https://api.github.com/repos/{repository}/actions/artifacts/{artifact_id}{suffix}"
+                  try:
+                      with urlopen(Request(url, headers=headers), timeout=60) as response:
+                          data = response.read()
+                          print(f"  {suffix or 'metadata'} status={response.status} final={response.url}", flush=True)
+                          if suffix:
+                              print(f"  bytes={len(data)} sha256={sha256(data).hexdigest()}", flush=True)
+                          else:
+                              metadata = json.loads(data)
+                              print(f"  digest={metadata.get('digest')} expired={metadata.get('expired')} workflow_run={metadata.get('workflow_run')}", flush=True)
+                  except HTTPError as exc:
+                      body = exc.read().decode("utf-8", errors="replace")
+                      print(f"  {suffix or 'metadata'} HTTP {exc.code}: {body}", flush=True)
+                      raise
+          PY
