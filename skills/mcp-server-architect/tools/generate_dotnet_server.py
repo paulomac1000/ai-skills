@@ -33,9 +33,7 @@ def _validate(namespace: str, server_name: str) -> None:
         or namespace in RESERVED_NAMESPACES
         or root in RESERVED_NAMESPACE_ROOTS
     ):
-        raise ValueError(
-            "namespace must be 1-191 characters of dot-separated, non-reserved PascalCase identifiers"
-        )
+        raise ValueError("namespace must be 1-191 characters of dot-separated, non-reserved PascalCase identifiers")
     if not SERVER_RE.fullmatch(server_name):
         raise ValueError("server name must be 2-79 safe display characters")
 
@@ -98,13 +96,16 @@ def _rename_noreplace(source: Path, destination: Path) -> None:
             ctypes.c_uint,
         ]
         renameat2.restype = ctypes.c_int
-        if renameat2(
-            _AT_FDCWD,
-            source_bytes,
-            _AT_FDCWD,
-            destination_bytes,
-            _RENAME_NOREPLACE,
-        ) != 0:
+        if (
+            renameat2(
+                _AT_FDCWD,
+                source_bytes,
+                _AT_FDCWD,
+                destination_bytes,
+                _RENAME_NOREPLACE,
+            )
+            != 0
+        ):
             _raise_rename_error(ctypes.get_errno(), destination)
         return
 
