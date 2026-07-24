@@ -92,11 +92,13 @@ jobs:
           git config user.name "ai-skills hardening bot"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git commit -m "feat: enforce stable adoption and reproducibility contracts"
-      - name: Publish final immutable revision
+      - name: Publish verified commit to staging ref
         shell: bash
         env:
           EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
           test "$(git ls-remote origin refs/heads/refactor/skills-cleanup | cut -f1)" = "$EXPECTED_SHA"
-          git push origin HEAD:refs/heads/refactor/skills-cleanup
+          final_sha="$(git rev-parse HEAD)"
+          echo "FINAL_SHA=${final_sha}"
+          git push origin HEAD:refs/heads/automation/audit-hardening-final-20260724
