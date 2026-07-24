@@ -6,16 +6,35 @@ skill_format: ai-skills/v1
 normative_entrypoint: STANDARD.md
 compatibility:
   agent_contract: tool-capable-instruction-agent
-  operating_systems: [linux, macos, windows]
+  operating_systems:
+  - linux
+  - macos
+  - windows
   runtimes:
-    python: ">=3.12,<3.15"
+    python: '>=3.12,<3.15'
+  evidence_lanes:
+  - python-compatibility
+  tested_runtime_versions:
+    python:
+    - '3.12'
+    - '3.13'
+    - '3.14'
 dependencies:
   skills: []
-  tools: [python]
+  tools:
+  - python
 deprecation:
   policy: semantic-versioning
   minimum_notice: one-minor-release
 required:
-  - SKILL.md
-  - STANDARD.md
-categories: [core, references, tools]
+- SKILL.md
+- STANDARD.md
+categories:
+- core
+- references
+- tools
+adoption:
+  template: contracts/adoption-assessment.yaml.template
+  validator: contracts/validate_adoption.py
+  rule_catalog: contracts/rule-catalog.yaml
+  extension: generic

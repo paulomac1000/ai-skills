@@ -12,7 +12,7 @@ verification: Complete the template against an immutable repository revision, ma
 
 ## Purpose
 
-A migration is not complete merely because the new transport starts or a generated project compiles. Every adoption or migration at L2 and above produces `migration-assessment.yaml` from `templates/migration-assessment.yaml.template`. The assessment is committed with the implementation or retained as an immutable release artifact.
+A migration is not complete merely because the new transport starts or a generated project compiles. Every adoption or migration at L2 and above produces `migration-assessment.yaml` from `templates/migration-assessment.yaml.template`. The template is an MCP extension of the generic repository contract in `contracts/adoption-assessment.yaml.template`. The assessment is committed with the implementation or retained as an immutable release artifact.
 
 The file makes scope, applicability, evidence, behavioral change, waivers, rollback, and residual risk comparable across agents and repositories. It is not a narrative status report and must not contain unverified claims.
 
@@ -31,7 +31,7 @@ A lower-ranked resource cannot weaken a higher-ranked requirement. Examples demo
 
 ## Applicability matrix
 
-Record every materially relevant standard section or stable rule identifier. Each entry has exactly one status:
+Record every stable rule identifier assigned to `mcp-server-architect` in `contracts/rule-catalog.yaml`; completeness is mandatory, including rules judged not applicable or deferred. Each entry has exactly one status:
 
 - `applicable`: implementation and executable verification are required;
 - `not-applicable`: provide a concrete architectural reason, not merely “unused”;
@@ -56,6 +56,10 @@ A waiver is exceptional and temporary. It names one rule, one accountable owner,
 ## Rollback and residual risk
 
 Define observable rollback triggers, executable rollback steps, and data or artifact recovery before enabling production traffic. Residual risks remain specific, owned, and visible in the final decision. “Monitor after release” is not a rollback plan.
+
+## Machine validation
+
+Before review, run `python contracts/validate_adoption.py migration-assessment.yaml`. Before claiming acceptance, run the same command with `--require-approval`. The validator rejects missing or unknown catalog rules, inconsistent revisions, placeholder evidence, failed commands, expired waivers, unsupported compatibility claims, incomplete MCP transport evidence, blocking residual risks, and self-approval. A green aggregate CI status cannot replace the completed assessment.
 
 ## Acceptance
 

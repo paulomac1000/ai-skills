@@ -1,0 +1,116 @@
+schema_version: 1
+catalog_version: 1.0.0
+skills:
+  afds-doc-writer:
+    rules:
+      - id: afds.metadata.required
+        source: STANDARD.md#required-metadata
+        description: Governed documents provide valid, typed, stable metadata.
+      - id: afds.structure.links
+        source: STANDARD.md#structure-and-links
+        description: Structure, headings, and relative links pass the AFDS validator.
+      - id: afds.evidence.uncertainty
+        source: STANDARD.md#evidence-and-uncertainty
+        description: Claims identify evidence, confidence, and unresolved uncertainty.
+      - id: afds.ownership.lifecycle
+        source: STANDARD.md#canonical-ownership-and-lifecycle
+        description: Each rule has one canonical owner and an explicit lifecycle.
+      - id: afds.quality.executable
+        source: STANDARD.md#quality-gate
+        description: The repository executes the governed-document quality gate.
+      - id: afds.verification.recorded
+        source: STANDARD.md#verification
+        description: Verification commands and observed results are recorded.
+  ci-cd-architect:
+    rules:
+      - id: cicd.layers.separated
+        source: STANDARD.md#pipeline-layers
+        description: Fast local, hosted validation, release, and deployment layers are separated.
+      - id: cicd.workflow.least-privilege
+        source: STANDARD.md#universal-workflow-controls
+        description: Workflows are bounded, least-privileged, pinned, and concurrency-safe.
+      - id: cicd.quality.language
+        source: STANDARD.md#python-quality
+        description: Applicable language quality, typing, test, and coverage gates execute.
+      - id: cicd.security.documentation
+        source: STANDARD.md#documentation-and-security
+        description: Documentation and security gates are executable and fail closed.
+      - id: cicd.release.identity
+        source: STANDARD.md#release-identity-and-artifact-promotion
+        description: Release identity is validated and the tested artifact is promoted unchanged.
+      - id: cicd.local.bounded
+        source: STANDARD.md#local-quality-gates
+        description: Local hooks are bounded and consistent with hosted CI.
+      - id: cicd.verification.recorded
+        source: STANDARD.md#verification
+        description: Rendered workflows and representative release paths are verified.
+  mcp-server-architect:
+    rules:
+      - id: mcp.architecture.boundaries
+        source: STANDARD.md#core-architecture
+        description: Domain, adapters, invocation policy, registration, and transports remain separated.
+      - id: mcp.identity.target-binding
+        source: STANDARD.md#configuration-and-identity
+        description: Caller and target identities are authenticated, authorized, and revalidated around I/O.
+      - id: mcp.manifest.complete
+        source: STANDARD.md#multi-axis-safety-classification
+        description: Every capability has a complete application-owned manifest and conservative defaults.
+      - id: mcp.retry.fail-closed
+        source: STANDARD.md#side-effects-retries-and-workflows
+        description: Retry, reconciliation, idempotency, and compensation rules fail closed.
+      - id: mcp.transport.supported
+        source: STANDARD.md#transport-and-lifecycle
+        description: Only supported MCP transports are advertised and lifecycle ownership is explicit.
+      - id: mcp.deadline.concurrency
+        source: STANDARD.md#deadlines-cancellation-retries-and-concurrency
+        description: Deadlines, cancellation, concurrency, and resource limits are enforced at runtime.
+      - id: mcp.response.structured
+        source: STANDARD.md#data-errors-and-responses
+        description: Inputs and response envelopes are validated, bounded, structured, and sanitized.
+      - id: mcp.authorization.server-side
+        source: STANDARD.md#authentication-and-authorization
+        description: Authorization and approval are server-side and cannot be asserted by model input.
+      - id: mcp.operations.observable
+        source: STANDARD.md#observability-and-operations
+        description: Health, readiness, audit, metrics, and failure diagnostics are production-ready.
+      - id: mcp.artifact.exact
+        source: STANDARD.md#generated-project-acceptance
+        description: Exact wheels, packages, binaries, or images are built, installed, and smoke-tested.
+      - id: mcp.migration.accounted
+        source: STANDARD.md#migration-acceptance
+        description: Scope, behavior changes, waivers, rollback, and residual risks are fully accounted for.
+      - id: mcp.verification.layered
+        source: STANDARD.md#verification-layers
+        description: Layered tests and official-client workflows cover every advertised transport.
+  mcp-server-consumer:
+    rules:
+      - id: consumer.outcome.first
+        source: STANDARD.md#outcome-before-capability
+        description: Desired outcome and constraints are defined before capability selection.
+      - id: consumer.trust.provenance
+        source: STANDARD.md#trust-and-provenance
+        description: Remote metadata remains untrusted and provenance is explicit.
+      - id: consumer.policy.fail-closed
+        source: STANDARD.md#decision-policy
+        description: Unknown, sensitive, write, destructive, and dangerous operations fail closed.
+      - id: consumer.selection.efficient
+        source: STANDARD.md#efficient-selection
+        description: Selection minimizes calls and validates schemas before adding optional arguments.
+      - id: consumer.response.validated
+        source: STANDARD.md#response-contract
+        description: MCP and legacy response envelopes are strictly validated and normalized.
+      - id: consumer.retry.reconciled
+        source: STANDARD.md#retry-policy
+        description: Retry requires trusted idempotency, consistent policy, and completed reconciliation.
+      - id: consumer.pagination.bounded
+        source: STANDARD.md#pagination
+        description: Pagination obeys completion markers, validates tokens, and remains bounded.
+      - id: consumer.workflow.compensated
+        source: STANDARD.md#partial-execution-and-compensation
+        description: Cross-server partial execution is recorded, verified, and compensated safely.
+      - id: consumer.compatibility.negotiated
+        source: STANDARD.md#compatibility-and-negotiation
+        description: Feature support is negotiated explicitly rather than inferred from names.
+      - id: consumer.verification.adversarial
+        source: STANDARD.md#verification
+        description: Adversarial trust, retry, response, and pagination cases are executable.

@@ -10,7 +10,7 @@ Use this skill for new MCP servers, transport migrations, SDK upgrades, security
 ## Workflow
 
 1. Define consumer outcomes, cross-tool workflows, stable ID flow, tool boundaries, risk axes, authorization, and response contracts before choosing an SDK.
-2. For an existing server, create `migration-assessment.yaml` from `templates/migration-assessment.yaml.template`, pin the immutable source revision, declare scope and target maturity, and classify every applicable standard rule before changing code.
+2. For an existing server, create `migration-assessment.yaml` from `templates/migration-assessment.yaml.template`, pin the immutable source revision, and classify every rule from `contracts/rule-catalog.yaml` before changing code. The file is the repository-wide adoption contract plus the required `extensions.mcp` evidence.
 3. For a new server, generate a baseline instead of copying an old server:
    - Python: `python skills/mcp-server-architect/tools/generate_python_server.py <target> --package <package_name> --name "<Server Name>"`;
    - .NET: `python skills/mcp-server-architect/tools/generate_dotnet_server.py <target> --namespace <Root.Namespace> --name "<Server Name>"`.
@@ -26,7 +26,7 @@ Use this skill for new MCP servers, transport migrations, SDK upgrades, security
 13. Implement transport-parity policy, correlation, traces, metrics, audit events, and separate response and log sanitization.
 14. Test domain, manifest, policy, registration, lifecycle, filesystem, artifacts, tasks, browser state, transport, race, and real-client behavior separately.
 15. Build and smoke-test the exact deployment artifact.
-16. Complete the applicability, behavior, waiver, rollback, residual-risk, and exact-artifact sections of `migration-assessment.yaml`; an independent reviewer owns the final decision.
+16. Complete the applicability, compatibility, behavior, waiver, rollback, residual-risk, exact-artifact, and MCP transport sections of `migration-assessment.yaml`; run `python contracts/validate_adoption.py migration-assessment.yaml --require-approval`; an independent reviewer owns the final decision.
 17. Review both language profiles and the cross-language incident map before claiming Python/.NET parity.
 
 Read `STANDARD.md`, then use `references/migration-assessment.md`, `references/capability-manifests-and-versioning.md`, `references/transport-lifecycle-and-conformance.md`, `references/runtime-boundaries-and-artifacts.md`, and the relevant Python or .NET profile. Use both migration simulations, `references/testing-strategy.md`, `references/security-and-operations.md`, and `references/problem-solution-matrix.md` for production work.
@@ -35,7 +35,7 @@ Read `STANDARD.md`, then use `references/migration-assessment.md`, `references/c
 
 Both generators are atomic and non-overwriting. They create typed settings, application-owned manifests, one invocation kernel, official SDK registration, stdio and loopback Streamable HTTP, structured results and protocol-native errors, conservative writes, packaging, pinned CI, and a real-client smoke.
 
-The Python seed carries a reviewed stable-lane constraints file, builds a wheel, installs that wheel into an isolated environment, and runs the official-client suite without editable installs or `PYTHONPATH`. The .NET seed restores exact NuGet lock files, publishes the server, and smokes the published DLL.
+The Python seed carries complete platform-specific runtime and development lock graphs with artifact hashes, installs them with `--require-hashes`, runs `pip check`, builds a wheel, installs that exact wheel into an isolated environment, and runs the official-client suite without editable installs or `PYTHONPATH`. The .NET seed restores exact NuGet lock files, publishes the server, and smokes the published DLL.
 
 The .NET seed additionally demonstrates generic tool registration, explicit stateless HTTP, `ClaimsPrincipal`, authorization-filter activation, principal-partitioned rate limiting, separate liveness/readiness, mandatory optimistic concurrency, and principal-bound server-side approvals.
 
@@ -58,5 +58,5 @@ Treat each result as a verified architecture seed. Replace the sample domain ada
 - Do not swallow cancellation or convert expected disconnect into generic retryable failure.
 - Do not treat data annotations, tool annotations, or a typed DTO as runtime validation, authorization, or protocol error signaling.
 - Do not claim a generated server works until a real MCP client lists and invokes the exact installed or published artifact.
-- Do not claim a migration is complete without the machine-readable assessment and independently reviewed evidence.
+- Do not claim a migration is complete unless the completed assessment passes `contracts/validate_adoption.py --require-approval` against the full stable rule catalog and independently reviewed evidence.
 - Do not claim parity between SDKs without mapping the invariant to each platform's lifecycle, DI, and concurrency model.

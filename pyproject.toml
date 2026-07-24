@@ -2,6 +2,7 @@
 addopts = "-q"
 testpaths = ["tests"]
 python_files = ["test_*.py"]
+markers = ["container: requires a local Docker daemon"]
 
 [tool.ruff]
 target-version = "py312"

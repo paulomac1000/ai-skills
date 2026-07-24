@@ -7,7 +7,7 @@ repository:
   revision: full-immutable-commit-sha
   source_branch: replace-me
 skill:
-  name: mcp-server-architect
+  name: replace-with-skill-name
   version: 1.1.0-rc.1
   maturity: release-candidate
 scope:
@@ -37,51 +37,19 @@ waivers: []
 artifact_verification:
   exact_revision: full-immutable-commit-sha
   artifacts:
-    - kind: replace-with-wheel-package-binary-or-image
+    - kind: replace-with-wheel-package-binary-image-or-document-set
       identity: replace-with-versioned-identity
       digest: sha256:replace-with-64-hex-digest
       commands: []
-      result: not-run
+      result: not-run # passed | failed | not-run
 compatibility_results: []
-extensions:
-  mcp:
-    target_level: L3
-    profiles: [python]
-    advertised_transports: [stdio]
-    official_client_commands: []
-    transport_results:
-      stdio:
-        capability_listing:
-          result: not-run
-          evidence: replace-me
-        representative_read:
-          result: not-run
-          evidence: replace-me
-        failure_path:
-          result: not-run
-          evidence: replace-me
-        write_boundary:
-          result: not-run
-          evidence: replace-me
-      streamable_http:
-        capability_listing:
-          result: not-applicable
-          evidence: transport-not-advertised
-        representative_read:
-          result: not-applicable
-          evidence: transport-not-advertised
-        failure_path:
-          result: not-applicable
-          evidence: transport-not-advertised
-        write_boundary:
-          result: not-applicable
-          evidence: transport-not-advertised
+extensions: {}
 rollback:
   trigger_conditions: []
   procedure: []
   data_recovery: []
 residual_risks: []
 decision:
-  status: request-changes
+  status: request-changes # approve | request-changes | rejected
   rationale: replace-me
   reviewer: replace-with-independent-reviewer

@@ -21,11 +21,11 @@ Every skill contains:
 - `STANDARD.md` — stable cross-project invariants and acceptance criteria;
 - `manifest.yaml` — versioned compatibility, maturity, dependency, deprecation, resource-category, and required-entry-point contract.
 
-A skill may also contain `references/`, `templates/`, `examples/`, or `tools/`. Those directories hold reusable operational knowledge, not temporary analysis artifacts. The repository deliberately has no global file-count budget and does not forbid examples or architectural decisions merely to keep the tree small.
+A skill may also contain `references/`, `templates/`, `examples/`, `tools/`, or reviewed dependency `locks/`. Those directories hold reusable operational knowledge, not temporary analysis artifacts. The repository deliberately has no global file-count budget and does not forbid examples or architectural decisions merely to keep the tree small.
 
 ## Contract and precedence
 
-Consumers pin the repository revision and the skill version recorded in `manifest.yaml`. A release-candidate skill is suitable for controlled pilots and independent review; a stable skill requires completed compatibility evidence and a documented migration path for breaking changes.
+Consumers pin the repository revision and the skill version recorded in `manifest.yaml`. A release-candidate skill is suitable for controlled pilots and independent review; a stable skill requires completed compatibility evidence, complete hashed dependency locks where Python is executed, and a validated adoption assessment for the immutable revision.
 
 When resources disagree, use this order:
 
@@ -43,11 +43,26 @@ A lower-ranked resource cannot weaken a higher-ranked requirement. Generators ar
 ```bash
 python3 -m venv .venv
 . .venv/bin/activate
-python -m pip install -r requirements-dev.txt
+python scripts/install_locked.py
 python scripts/ci.py
 ```
 
-The command compiles Python sources, runs lint, formatting, typing, static security and dependency-vulnerability gates, validates governed Markdown and skill manifests, executes exact-artifact generator tests, enforces critical-module branch coverage, and runs the complete test suite.
+The installer selects the committed platform lock, installs the complete transitive graph with `--require-hashes`, and runs `pip check`. The validation command compiles Python sources, runs lint, formatting, typing, static security and dependency-vulnerability gates, validates governed Markdown, manifests, adoption contracts, and full stable rule coverage, executes exact-artifact generator tests, enforces critical-module branch coverage, and runs the complete non-container test suite.
+
+## Adoption and compatibility evidence
+
+Repository-wide adoption contracts live in [`contracts/`](contracts/README.md). Every skill manifest points to the same generic assessment template, semantic validator, and stable rule catalog. Skill-specific evidence is an extension of that base contract rather than an incompatible private form.
+
+A completed assessment is accepted only when:
+
+- every catalog rule appears exactly once;
+- immutable repository and artifact revisions agree;
+- executable verification and compatibility results passed;
+- deferred rules have live, owned waivers;
+- rollback and residual risks are explicit;
+- an independent reviewer approves the immutable revision.
+
+Run `python contracts/validate_adoption.py <assessment.yaml> --require-approval` in each adopting repository. The committed [`contracts/compatibility-matrix.yaml`](contracts/compatibility-matrix.yaml) maps every declared OS, Python, .NET, provider, and container claim to a named GitHub Actions lane.
 
 ## Design principles
 

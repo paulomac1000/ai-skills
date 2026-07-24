@@ -9,133 +9,11 @@ permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   python-quality:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-        with:
-          persist-credentials: false
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
-        with:
-          python-version: "3.12"
-          cache: pip
-          cache-dependency-path: requirements-dev.txt
-      - name: Install pinned quality dependencies
-        run: python -m pip install -r requirements-dev.txt
-      - name: Lint production Python
-        id: ruff_lint
-        continue-on-error: true
-        shell: bash
-        run: |
-          set -o pipefail
-          python -m ruff check \
-            scripts/ci.py \
-            skills/afds-doc-writer/validate.py \
-            skills/mcp-server-consumer/tools \
-            skills/mcp-server-architect/tools/generate_python_server.py \
-            skills/mcp-server-architect/tools/generate_dotnet_server.py \
-            2>&1 | tee ruff-lint.log
-      - name: Verify production Python formatting
-        id: ruff_format
-        continue-on-error: true
-        shell: bash
-        run: |
-          set -o pipefail
-          python -m ruff format --check \
-            scripts/ci.py \
-            skills/afds-doc-writer/validate.py \
-            skills/mcp-server-consumer/tools \
-            skills/mcp-server-architect/tools/generate_python_server.py \
-            skills/mcp-server-architect/tools/generate_dotnet_server.py \
-            2>&1 | tee ruff-format.log
-      - name: Type-check public and policy-critical Python
-        id: mypy
-        continue-on-error: true
-        shell: bash
-        run: |
-          set -o pipefail
-          python -m mypy \
-            scripts/ci.py \
-            skills/afds-doc-writer/validate.py \
-            skills/mcp-server-consumer/tools/decision_engine.py \
-            skills/mcp-server-architect/tools/generate_python_server.py \
-            skills/mcp-server-architect/tools/generate_dotnet_server.py \
-            2>&1 | tee mypy.log
-      - name: Scan Python for high-confidence high-severity issues
-        id: bandit
-        continue-on-error: true
-        shell: bash
-        run: |
-          set -o pipefail
-          python -m bandit -q -lll -iii -r \
-            scripts \
-            skills/afds-doc-writer \
-            skills/mcp-server-consumer/tools \
-            skills/mcp-server-architect/tools \
-            2>&1 | tee bandit.log
-      - name: Audit pinned development dependencies
-        id: dependency_audit
-        continue-on-error: true
-        shell: bash
-        run: |
-          set -o pipefail
-          python -m pip_audit -r requirements-dev.txt --progress-spinner off 2>&1 | tee dependency-audit.log
-      - name: Render exact Ruff formatting diagnostics
-        if: always() && steps.ruff_format.outcome == 'failure'
-        shell: bash
-        run: |
-          set -eu
-          files=(
-            scripts/ci.py
-            skills/afds-doc-writer/validate.py
-            skills/mcp-server-consumer/tools/decision_engine.py
-            skills/mcp-server-architect/tools/generate_python_server.py
-            skills/mcp-server-architect/tools/generate_dotnet_server.py
-          )
-          for file in "${files[@]}"; do
-            mkdir -p "quality-sources/original/$(dirname "$file")"
-            cp "$file" "quality-sources/original/$file"
-          done
-          python -m ruff format "${files[@]}"
-          for file in "${files[@]}"; do
-            mkdir -p "quality-sources/formatted/$(dirname "$file")"
-            cp "$file" "quality-sources/formatted/$file"
-          done
-      - name: Upload Python quality diagnostics
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: python-quality-${{ github.run_id }}
-          path: |
-            ruff-lint.log
-            ruff-format.log
-            mypy.log
-            bandit.log
-            dependency-audit.log
-            quality-sources
-          if-no-files-found: error
-          retention-days: 3
-      - name: Enforce Python quality outcomes
-        if: always()
-        env:
-          RUFF_LINT: ${{ steps.ruff_lint.outcome }}
-          RUFF_FORMAT: ${{ steps.ruff_format.outcome }}
-          MYPY: ${{ steps.mypy.outcome }}
-          BANDIT: ${{ steps.bandit.outcome }}
-          DEPENDENCY_AUDIT: ${{ steps.dependency_audit.outcome }}
-        shell: bash
-        run: |
-          set -eu
-          for outcome in "$RUFF_LINT" "$RUFF_FORMAT" "$MYPY" "$BANDIT" "$DEPENDENCY_AUDIT"; do
-            test "$outcome" = success
-          done
-
-  python:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -146,64 +24,52 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: requirements-dev.txt
-      - name: Install pinned test dependencies
-        run: python -m pip install -r requirements-dev.txt
-      - name: Compile Python sources
-        run: python -m compileall -q scripts skills
-      - name: Validate governed documentation
+          cache-dependency-path: requirements-dev-linux.lock
+      - name: Install complete hashed development graph
+        run: python scripts/install_locked.py
+      - name: Verify merge-result revision
+        if: github.event_name == 'pull_request'
         shell: bash
-        run: |
-          set -o pipefail
-          python skills/afds-doc-writer/validate.py README.md RECOVERY_AUDIT.md skills 2>&1 | tee validator.log
-      - name: Upload documentation validator diagnostics
-        if: always() && hashFiles('validator.log') != ''
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: documentation-validator-${{ github.run_id }}
-          path: validator.log
-          retention-days: 3
-      - name: Build, install, and invoke generated Python MCP wheel
-        run: python -m pytest -q tests/test_mcp_generator.py --junitxml=python-generator-junit.xml
-      - name: Upload Python generator diagnostics
-        if: always() && hashFiles('python-generator-junit.xml') != ''
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: python-generator-junit-${{ github.run_id }}
-          path: python-generator-junit.xml
-          retention-days: 3
-      - name: Verify all migration invariants
-        run: python -m pytest -q tests/test_mcp_migration_standard.py --junitxml=migration-junit.xml
-      - name: Run remaining repository tests with branch coverage
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+      - name: Lint production Python
         run: >-
-          python -m coverage run --branch -m pytest -q
-          --ignore=tests/test_mcp_generator.py
-          --ignore=tests/test_mcp_dotnet_generator.py
-          --ignore=tests/test_mcp_migration_standard.py
-          --junitxml=repository-junit.xml
-      - name: Enforce policy-engine and validator coverage
+          python -m ruff check contracts scripts
+          skills/afds-doc-writer/validate.py
+          skills/mcp-server-consumer/tools
+          skills/mcp-server-architect/tools/generate_python_server.py
+          skills/mcp-server-architect/tools/generate_python_server_impl.py
+          skills/mcp-server-architect/tools/generate_dotnet_server.py
+      - name: Verify production Python formatting
         run: >-
-          python -m coverage report
-          --include="skills/afds-doc-writer/*.py,skills/mcp-server-consumer/tools/*.py"
-          --fail-under=80
-      - name: Upload repository diagnostics
-        if: always() && (hashFiles('repository-junit.xml') != '' || hashFiles('migration-junit.xml') != '')
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: repository-junit-${{ github.run_id }}
-          path: |
-            repository-junit.xml
-            migration-junit.xml
-          retention-days: 3
+          python -m ruff format --check contracts scripts
+          skills/afds-doc-writer/validate.py
+          skills/mcp-server-consumer/tools
+          skills/mcp-server-architect/tools/generate_python_server.py
+          skills/mcp-server-architect/tools/generate_python_server_impl.py
+          skills/mcp-server-architect/tools/generate_dotnet_server.py
+      - name: Type-check public and policy-critical Python
+        run: >-
+          python -m mypy
+          contracts/semver.py contracts/validate_adoption.py
+          scripts/ci.py scripts/install_locked.py scripts/select_lock.py
+          skills/afds-doc-writer/validate.py
+          skills/mcp-server-consumer/tools/decision_engine.py
+          skills/mcp-server-architect/tools/generate_python_server.py
+          skills/mcp-server-architect/tools/generate_python_server_impl.py
+          skills/mcp-server-architect/tools/generate_dotnet_server.py
+      - name: Scan Python for high-confidence high-severity issues
+        run: >-
+          python -m bandit -q -lll -iii -r
+          contracts scripts skills/afds-doc-writer
+          skills/mcp-server-consumer/tools skills/mcp-server-architect/tools
+      - name: Audit complete development lock
+        run: python -m pip_audit -r requirements-dev-linux.lock --progress-spinner off
 
-  generator-filesystem-contracts:
-    name: Generator filesystem contracts (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 10
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+  python:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
@@ -212,18 +78,176 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: requirements-dev.txt
-      - name: Install pinned test dependencies
-        run: python -m pip install -r requirements-dev.txt
-      - name: Exercise no-replace publication and namespace rendering
+          cache-dependency-path: requirements-dev-linux.lock
+      - run: python scripts/install_locked.py
+      - name: Compile Python sources
+        run: python -m compileall -q contracts scripts skills
+      - name: Validate governed documentation
+        run: python skills/afds-doc-writer/validate.py README.md RECOVERY_AUDIT.md contracts skills
+      - name: Validate exact generated Python wheel
+        run: python -m pytest tests/test_mcp_generator.py -m "not container" --junitxml=python-generator-junit.xml
+      - name: Verify all migration and adoption invariants
         run: >-
-          python -m pytest -q
+          python -m pytest
+          tests/test_mcp_migration_standard.py
+          tests/test_mcp_migration_assessment.py
+          tests/test_adoption_contract.py
+          tests/test_semver_contract.py
+          tests/test_lock_contract.py
+          --junitxml=adoption-junit.xml
+      - name: Run repository tests with branch coverage
+        run: >-
+          python -m coverage run --branch -m pytest
+          -m "not container"
+          --ignore=tests/test_mcp_generator.py
+          --ignore=tests/test_mcp_dotnet_generator.py
+          --ignore=tests/test_mcp_migration_standard.py
+          --ignore=tests/test_mcp_migration_assessment.py
+          --ignore=tests/test_adoption_contract.py
+          --ignore=tests/test_semver_contract.py
+          --ignore=tests/test_lock_contract.py
+          --junitxml=repository-junit.xml
+      - name: Enforce critical-module coverage
+        run: >-
+          python -m coverage report
+          --include="contracts/*.py,skills/afds-doc-writer/*.py,skills/mcp-server-consumer/tools/*.py"
+          --fail-under=80
+      - name: Upload repository diagnostics
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: repository-diagnostics-${{ github.run_id }}
+          path: |
+            *-junit.xml
+            .coverage
+          if-no-files-found: warn
+          retention-days: 3
+
+  exact-head:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-dev-linux.lock
+      - run: python scripts/install_locked.py
+      - name: Verify exact branch head
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+      - name: Execute complete local gate on exact head
+        run: python scripts/ci.py
+
+  compatibility-python:
+    name: Python compatibility (${{ matrix.os }}, ${{ matrix.python }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            python: "3.12"
+            suffix: linux
+          - os: ubuntu-latest
+            python: "3.13"
+            suffix: linux
+          - os: ubuntu-latest
+            python: "3.14"
+            suffix: linux
+          - os: macos-latest
+            python: "3.12"
+            suffix: macos
+          - os: windows-latest
+            python: "3.12"
+            suffix: windows
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+          cache-dependency-path: requirements-dev-${{ matrix.suffix }}.lock
+      - run: python scripts/install_locked.py
+      - name: Run full Python contract suite for declared compatibility
+        run: >-
+          python -m pytest -m "not container"
+          --ignore=tests/test_mcp_dotnet_generator.py
+          --ignore=tests/test_mcp_dotnet_runtime_contracts.py
+
+  generator-filesystem-contracts:
+    name: Generator filesystem contracts (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            suffix: linux
+          - os: macos-latest
+            suffix: macos
+          - os: windows-latest
+            suffix: windows
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-dev-${{ matrix.suffix }}.lock
+      - run: python scripts/install_locked.py
+      - name: Exercise atomic no-replace publication and namespace rendering
+        run: >-
+          python -m pytest
           tests/test_mcp_generator.py::test_generator_concurrent_create_has_one_winner_and_never_replaces
           tests/test_mcp_dotnet_generator.py::test_generator_concurrent_create_has_one_winner_and_never_replaces
           tests/test_mcp_dotnet_generator.py::test_generator_preserves_competing_target_created_before_publish
           tests/test_mcp_dotnet_namespace.py
 
   dotnet-generator:
+    name: .NET artifact (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            suffix: linux
+          - os: macos-latest
+            suffix: macos
+          - os: windows-latest
+            suffix: windows
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-dev-${{ matrix.suffix }}.lock
+      - uses: actions/setup-dotnet@9a946fdbd5fb07b82b2f5a4466058b876ab72bb2 # v5
+        with:
+          dotnet-version: "10.0.302"
+      - run: python scripts/install_locked.py
+      - name: Generate, restore, build, publish, and invoke exact .NET artifact
+        run: python -m pytest tests/test_mcp_dotnet_generator.py tests/test_mcp_dotnet_runtime_contracts.py
+
+  python-container-artifact:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -234,18 +258,7 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: requirements-dev.txt
-      - uses: actions/setup-dotnet@9a946fdbd5fb07b82b2f5a4466058b876ab72bb2 # v5
-        with:
-          dotnet-version: "10.0.302"
-      - name: Install pinned test dependencies
-        run: python -m pip install -r requirements-dev.txt
-      - name: Generate, build, publish, and invoke .NET MCP server
-        run: python -m pytest -q tests/test_mcp_dotnet_generator.py --junitxml=dotnet-generator-junit.xml
-      - name: Upload .NET generator diagnostics
-        if: always() && hashFiles('dotnet-generator-junit.xml') != ''
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: dotnet-generator-junit-${{ github.run_id }}
-          path: dotnet-generator-junit.xml
-          retention-days: 3
+          cache-dependency-path: requirements-dev-linux.lock
+      - run: python scripts/install_locked.py
+      - name: Build non-root generated image and invoke through official MCP client
+        run: python -m pytest tests/test_mcp_generator.py -m container

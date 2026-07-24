@@ -5,12 +5,15 @@ from __future__ import annotations
 import compileall
 import importlib.util
 import re
+import shutil
 import subprocess
 import sys
 import threading
 import venv
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+
+import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 GENERATOR = ROOT / "skills/mcp-server-architect/tools/generate_python_server.py"
@@ -54,7 +57,15 @@ def test_generator_emits_complete_deterministic_project(tmp_path: Path) -> None:
 
     expected = {
         Path("pyproject.toml"),
-        Path("requirements.lock"),
+        Path("requirements/runtime-linux.lock"),
+        Path("requirements/runtime-macos.lock"),
+        Path("requirements/runtime-windows.lock"),
+        Path("requirements/dev-linux.lock"),
+        Path("requirements/dev-macos.lock"),
+        Path("requirements/dev-windows.lock"),
+        Path("requirements/python-runtime.in"),
+        Path("requirements/python-dev.in"),
+        Path("requirements/select_lock.py"),
         Path("README.md"),
         Path("SECURITY.md"),
         Path("Dockerfile"),
@@ -118,24 +129,21 @@ def test_generated_project_uses_public_sdk_and_fail_closed_controls(tmp_path: Pa
     ):
         assert forbidden not in source
 
-    lock = (target / "requirements.lock").read_text(encoding="utf-8")
-    for pin in (
-        "mcp==1.28.1",
-        "uvicorn==0.51.0",
-        "pytest==9.1.1",
-        "build==1.5.1",
-        "setuptools==83.0.0",
-        "wheel==0.47.0",
-    ):
-        assert pin in lock
+    for name in generator.LOCK_NAMES:
+        lock = (target / "requirements" / name).read_text(encoding="utf-8")
+        assert "--hash=sha256:" in lock
+        assert "==" in lock
 
     pyproject = (target / "pyproject.toml").read_text(encoding="utf-8")
     assert 'mcp>=1.28.1,<2' in pyproject
     assert 'setuptools==83.0.0' in pyproject
+    assert 'pytest==9.1.1' in pyproject
 
     dockerfile = (target / "Dockerfile").read_text(encoding="utf-8")
-    assert "COPY pyproject.toml README.md requirements.lock ./" in dockerfile
-    assert "PIP_CONSTRAINT=/app/requirements.lock" in dockerfile
+    assert "COPY requirements ./requirements" in dockerfile
+    assert "--require-hashes -r requirements/runtime-linux.lock" in dockerfile
+    assert "pip install --no-cache-dir --no-deps ." in dockerfile
+    assert "pip check" in dockerfile
 
     workflow = (target / ".github/workflows/ci.yml").read_text(encoding="utf-8")
     for line in workflow.splitlines():
@@ -146,7 +154,9 @@ def test_generated_project_uses_public_sdk_and_fail_closed_controls(tmp_path: Pa
     assert "persist-credentials: false" in workflow
     assert "Build exact wheel" in workflow
     assert "Test exact wheel with the official MCP client" in workflow
-    assert "--constraint requirements.lock" in workflow
+    assert "--require-hashes" in workflow
+    assert "--no-deps dist/*.whl" in workflow
+
 
 
 def test_generator_refuses_invalid_reserved_and_existing_targets(tmp_path: Path) -> None:
@@ -205,8 +215,15 @@ def test_generator_concurrent_create_has_one_winner_and_never_replaces(tmp_path:
     assert not list(tmp_path.glob(".server-*/"))
 
 
+def _platform_lock_name(kind: str) -> str:
+    suffix = {"linux": "linux", "darwin": "macos", "win32": "windows"}.get(sys.platform)
+    if suffix is None:
+        pytest.skip(f"unsupported lock platform: {sys.platform}")
+    return f"requirements/{kind}-{suffix}.lock"
+
+
 def test_generated_project_builds_installs_and_tests_exact_wheel(tmp_path: Path) -> None:
-    """Prove installability without PYTHONPATH or editable-source shortcuts."""
+    """Prove installability without PYTHONPATH, editable source, or dependency resolution."""
     generator = load_generator()
     target = tmp_path / "server"
     generator.generate_project(target, "inventory_mcp", "Inventory MCP")
@@ -214,37 +231,15 @@ def test_generated_project_builds_installs_and_tests_exact_wheel(tmp_path: Path)
     environment = tmp_path / "artifact-venv"
     venv.EnvBuilder(with_pip=True).create(environment)
     python = environment / ("Scripts/python.exe" if sys.platform == "win32" else "bin/python")
+    dev_lock = _platform_lock_name("dev")
 
-    run_checked(
-        [
-            str(python),
-            "-m",
-            "pip",
-            "install",
-            "--constraint",
-            "requirements.lock",
-            "build==1.5.1",
-            "setuptools==83.0.0",
-            "wheel==0.47.0",
-        ],
-        cwd=target,
-    )
+    run_checked([str(python), "-m", "pip", "install", "--require-hashes", "-r", dev_lock], cwd=target)
+    run_checked([str(python), "-m", "pip", "check"], cwd=target)
     run_checked([str(python), "-m", "build", "--wheel", "--no-isolation"], cwd=target)
     wheels = list((target / "dist").glob("*.whl"))
     assert len(wheels) == 1
-    run_checked(
-        [
-            str(python),
-            "-m",
-            "pip",
-            "install",
-            "--constraint",
-            "requirements.lock",
-            str(wheels[0]),
-            "pytest==9.1.1",
-        ],
-        cwd=target,
-    )
+    run_checked([str(python), "-m", "pip", "install", "--no-deps", str(wheels[0])], cwd=target)
+    run_checked([str(python), "-m", "pip", "check"], cwd=target)
     run_checked(
         [
             str(python),
@@ -256,3 +251,44 @@ def test_generated_project_builds_installs_and_tests_exact_wheel(tmp_path: Path)
         cwd=target,
     )
     run_checked([str(python), "-m", "pytest", "-q", "tests"], cwd=target)
+
+
+@pytest.mark.container
+@pytest.mark.anyio
+async def test_generated_container_is_non_root_and_passes_official_stdio_smoke(tmp_path: Path) -> None:
+    """Build and invoke the exact generated image rather than only inspecting Dockerfile text."""
+    if shutil.which("docker") is None:
+        pytest.skip("docker is unavailable")
+    from mcp import ClientSession, StdioServerParameters
+    from mcp.client.stdio import stdio_client
+
+    generator = load_generator()
+    target = tmp_path / "server"
+    generator.generate_project(target, "inventory_mcp", "Inventory MCP")
+    image = f"ai-skills-python-mcp:{tmp_path.name.lower()}"
+    run_checked(["docker", "build", "--tag", image, "."], cwd=target, timeout=300)
+    try:
+        identity = run_checked(
+            [
+                "docker",
+                "run",
+                "--rm",
+                "--entrypoint",
+                "python",
+                image,
+                "-c",
+                "import os, inventory_mcp; assert os.getuid() != 0; print(inventory_mcp.__version__)",
+            ],
+            cwd=target,
+        )
+        assert "0.1.0" in identity.stdout
+        parameters = StdioServerParameters(command="docker", args=["run", "--rm", image])
+        async with stdio_client(parameters) as (read_stream, write_stream):
+            async with ClientSession(read_stream, write_stream) as session:
+                await session.initialize()
+                tools = await session.list_tools()
+                assert "list_items" in {tool.name for tool in tools.tools}
+                result = await session.call_tool("list_items", {"limit": 1})
+                assert result.isError is not True
+    finally:
+        subprocess.run(["docker", "image", "rm", "--force", image], check=False, capture_output=True, text=True)

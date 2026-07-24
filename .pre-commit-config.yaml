@@ -3,12 +3,12 @@ repos:
     hooks:
       - id: validate-skills
         name: Validate governed documentation
-        entry: python skills/afds-doc-writer/validate.py README.md skills
+        entry: python skills/afds-doc-writer/validate.py README.md RECOVERY_AUDIT.md contracts skills
         language: system
         pass_filenames: false
       - id: compile-python
         name: Compile Python sources
-        entry: python -m compileall -q scripts skills
+        entry: python -m compileall -q contracts scripts skills
         language: system
         pass_filenames: false
       - id: repository-tests

@@ -3,15 +3,16 @@
 ## 1.1.0-rc.1 - 2026-07-24
 
 - Added versioned, machine-readable skill contracts with compatibility, maturity, dependency, deprecation, and normative-entrypoint metadata.
-- Added a required MCP migration assessment with applicability mapping, immutable revision and artifact evidence, behavioral accounting, waivers, rollback, residual risks, and an independent decision.
+- Added one repository-wide adoption assessment, JSON Schema, semantic validator, stable per-skill rule catalog, compatibility evidence contract, and MCP-specific extension with adversarial approval tests.
 - Defined normative precedence so standards and active decisions cannot be weakened by profiles, workflows, generators, examples, or simulations.
 - Changed generated Python acceptance to build a wheel, install the exact wheel into an isolated environment, and execute the official MCP client suite without editable installs or `PYTHONPATH`.
-- Added a reviewed Python stable-lane constraints file used by generated CI and Docker, and moved the MCP SDK baseline to the fixed 1.28.x line.
+- Replaced direct-only Python constraints with complete platform-specific runtime and development lock graphs, artifact hashes, `--require-hashes`, and post-install `pip check`; moved the MCP SDK baseline to the fixed 1.28.x line.
 - Added Linux, macOS, and Windows tests for atomic no-replace generator publication.
 - Added support for production dot-separated .NET namespaces while rejecting unsafe and reserved namespace roots.
-- Added pinned Ruff, formatting, mypy, Bandit, dependency-audit, branch-coverage, and retained-diagnostics gates to repository CI and local validation.
+- Added pinned Ruff, formatting, mypy, Bandit, dependency-audit, branch-coverage, and retained-diagnostics gates to repository CI and local validation, including the complete Python generator implementation.
 - Replaced the brittle migration-test function allowlist with execution of the complete migration contract file.
 - Clarified that the bundled MCP consumer engine is a conservative reference helper rather than complete organizational authorization or multi-axis policy.
+- Added strict shared SemVer 2.0 validation, exact-head and merge-result CI evidence, Python 3.12-3.14 plus Linux/macOS/Windows compatibility lanes, cross-platform .NET artifact lanes, and a built non-root container smoke through the official MCP client.
 
 ## Unreleased - 2026-07-18
 

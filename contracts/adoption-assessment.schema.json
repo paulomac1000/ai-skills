@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/ai-skills/adoption-assessment.schema.json",
+  "title": "AI Skills adoption assessment",
+  "type": "object",
+  "required": [
+    "schema_version", "assessment_id", "generated_at", "prepared_by", "repository",
+    "skill", "scope", "compatibility_claims", "applicability", "behavior", "waivers",
+    "artifact_verification", "compatibility_results", "extensions", "rollback",
+    "residual_risks", "decision"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "assessment_id": {"type": "string", "minLength": 3},
+    "generated_at": {"type": "string", "format": "date-time"},
+    "prepared_by": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+    "repository": {
+      "type": "object",
+      "required": ["name", "revision", "source_branch"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "revision": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "source_branch": {"type": "string", "minLength": 1}
+      },
+      "additionalProperties": false
+    },
+    "skill": {
+      "type": "object",
+      "required": ["name", "version", "maturity"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "version": {"type": "string", "minLength": 5},
+        "maturity": {"enum": ["experimental", "release-candidate", "stable", "deprecated"]}
+      },
+      "additionalProperties": false
+    },
+    "applicability": {"type": "array", "minItems": 1},
+    "waivers": {"type": "array"},
+    "compatibility_results": {"type": "array"},
+    "residual_risks": {"type": "array"},
+    "extensions": {"type": "object"}
+  },
+  "additionalProperties": false
+}

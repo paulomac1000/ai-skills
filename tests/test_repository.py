@@ -11,7 +11,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 EXPECTED_SKILLS = {"afds-doc-writer", "ci-cd-architect", "mcp-server-architect", "mcp-server-consumer"}
-ALLOWED_CATEGORIES = {"core", "references", "templates", "examples", "tools"}
+ALLOWED_CATEGORIES = {"core", "references", "templates", "examples", "tools", "locks"}
 IGNORED_PARTS = {".git", ".venv", ".pytest_cache", "__pycache__", ".ruff_cache"}
 POLISH_MARKERS = re.compile(
     r"[\u0105\u0107\u0119\u0142\u0144\u00f3\u015b\u017a\u017c"
@@ -78,7 +78,7 @@ def test_repository_allows_intentional_knowledge_growth() -> None:
 
 def test_all_governed_markdown_validates() -> None:
     validator = load_validator()
-    paths, findings = validator.collect_files([ROOT / "RECOVERY_AUDIT.md", ROOT / "skills"])
+    paths, findings = validator.collect_files([ROOT / "RECOVERY_AUDIT.md", ROOT / "contracts", ROOT / "skills"])
     findings.extend(finding for path in paths for finding in validator.validate(path))
     assert findings == []
 

@@ -1,0 +1,24 @@
+schema_version: 1
+lanes:
+  python-compatibility:
+    workflow_job: compatibility-python
+    skills: [afds-doc-writer, ci-cd-architect, mcp-server-architect, mcp-server-consumer]
+    operating_systems: [linux, macos, windows]
+    runtimes:
+      python: ["3.12", "3.13", "3.14"]
+    providers: [github-actions]
+    evidence: Runs contract, validator, consumer, template, generator, and exact-wheel smoke subsets.
+  dotnet-compatibility:
+    workflow_job: dotnet-generator
+    skills: [mcp-server-architect]
+    operating_systems: [linux, macos, windows]
+    runtimes:
+      dotnet: ["10.0.302"]
+    evidence: Generates, restores, builds, publishes, and invokes the exact .NET artifact.
+  docker-artifact:
+    workflow_job: python-container-artifact
+    skills: [mcp-server-architect]
+    operating_systems: [linux]
+    runtimes:
+      python: ["3.12"]
+    evidence: Builds the generated non-root image and invokes it through the official MCP stdio client.
