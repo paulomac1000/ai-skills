@@ -46,6 +46,8 @@ jobs:
 
               for token in ("expectedVersion", "writes are disabled by operator policy", "record.Principal"):
                   assert token in kernel
+              assert "Capability manifests do not cover" in manifest
+              assert "RandomNumberGenerator.GetBytes(32)" in approvals
           '''
           new = '''    for token in (
                   "ClaimsPrincipal? principal",
@@ -57,10 +59,12 @@ jobs:
               for token in (
                   "expectedVersion",
                   "writes are disabled by operator policy",
-                  "record.Principal",
                   "throw new McpException",
               ):
                   assert token in kernel
+              assert "Capability manifests do not cover" in manifest
+              assert "RandomNumberGenerator.GetBytes(32)" in approvals
+              assert "record.Principal" in approvals
           '''
           if source.count(old) != 1:
               raise SystemExit("expected owning-file assertion block was not found exactly once")
@@ -111,6 +115,8 @@ jobs:
 
               for token in ("expectedVersion", "writes are disabled by operator policy", "record.Principal"):
                   assert token in kernel
+              assert "Capability manifests do not cover" in manifest
+              assert "RandomNumberGenerator.GetBytes(32)" in approvals
           '''
           new = '''    for token in (
                   "ClaimsPrincipal? principal",
@@ -122,10 +128,12 @@ jobs:
               for token in (
                   "expectedVersion",
                   "writes are disabled by operator policy",
-                  "record.Principal",
                   "throw new McpException",
               ):
                   assert token in kernel
+              assert "Capability manifests do not cover" in manifest
+              assert "RandomNumberGenerator.GetBytes(32)" in approvals
+              assert "record.Principal" in approvals
           '''
           if source.count(old) != 1:
               raise SystemExit("expected owning-file assertion block was not found exactly once")
@@ -140,7 +148,7 @@ jobs:
           test "$(git diff --cached --name-only | wc -l)" -eq 1
           git config user.name ai-skills-audit-bot
           git config user.email ai-skills-audit-bot@users.noreply.github.com
-          git commit -m "test: bind .NET exception assertion to owning kernel"
+          git commit -m "test: bind .NET security assertions to owning files"
           test "$(git rev-parse HEAD^)" = "$PARENT_SHA"
           git config --local --unset-all http.https://github.com/.extraheader || true
           git push \
