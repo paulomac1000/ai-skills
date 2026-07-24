@@ -14,7 +14,10 @@ import sys
 from pathlib import Path
 
 _IMPLEMENTATION_PATH = Path(__file__).with_name("generate_python_server_impl.py")
-_SPEC = importlib.util.spec_from_file_location("mcp_python_generator_implementation", _IMPLEMENTATION_PATH)
+_SPEC = importlib.util.spec_from_file_location(
+    "mcp_python_generator_implementation",
+    _IMPLEMENTATION_PATH,
+)
 if _SPEC is None or _SPEC.loader is None:
     raise ImportError(f"Cannot load generator implementation: {_IMPLEMENTATION_PATH}")
 _implementation = importlib.util.module_from_spec(_SPEC)
@@ -23,7 +26,7 @@ _SPEC.loader.exec_module(_implementation)
 
 # A generated package must not shadow any direct runtime or test dependency.
 RESERVED_PACKAGE_NAMES = frozenset(_implementation.RESERVED_PACKAGE_NAMES) | {"pytest"}
-_implementation.RESERVED_PACKAGE_NAMES = RESERVED_PACKAGE_NAMES
+setattr(_implementation, "RESERVED_PACKAGE_NAMES", RESERVED_PACKAGE_NAMES)
 
 PACKAGE_RE = _implementation.PACKAGE_RE
 SERVER_RE = _implementation.SERVER_RE
@@ -36,7 +39,7 @@ REQUIREMENTS_LOCK = """\
 # Generated stable lane. Update only with an SDK compatibility review and smoke.
 build==1.5.1
 mcp==1.28.1
-pytest==9.0.2
+pytest==9.1.1
 setuptools==83.0.0
 uvicorn==0.51.0
 wheel==0.47.0
@@ -117,7 +120,8 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
         "        shell: bash\n"
         "        run: |\n"
         "          python -m venv .artifact-venv\n"
-        "          .artifact-venv/bin/python -m pip install --constraint requirements.lock dist/*.whl pytest==9.0.2\n"
+        "          .artifact-venv/bin/python -m pip install --constraint requirements.lock "
+        "dist/*.whl pytest==9.1.1\n"
         "          .artifact-venv/bin/python -m pytest\n",
         file_name=".github/workflows/ci.yml",
     )
@@ -126,7 +130,7 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
 
 # The implementation's atomic publisher resolves this symbol at call time. Patch
 # it once so CLI and imported use paths produce the same reviewed file set.
-_implementation.project_files = project_files
+setattr(_implementation, "project_files", project_files)
 generate_project = _implementation.generate_project
 main = _implementation.main
 
