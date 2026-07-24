@@ -7,25 +7,26 @@ always untrusted; safety-reducing policy values use typed consumer-owned inputs.
 from __future__ import annotations
 
 import math
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
-from enum import Enum
-from typing import Any, Iterable, Mapping, Sequence
+from enum import StrEnum
+from typing import Any
 
 
-class Decision(str, Enum):
+class Decision(StrEnum):
     INVOKE = "invoke"
     CONFIRM_THEN_INVOKE = "confirm_then_invoke"
     REJECT = "reject"
     DEFER = "defer"
 
 
-class ErrorAction(str, Enum):
+class ErrorAction(StrEnum):
     RETRY = "retry"
     RETRY_AFTER_READ = "retry_after_read"
     ESCALATE = "escalate"
 
 
-class Risk(str, Enum):
+class Risk(StrEnum):
     READ = "READ"
     WRITE = "WRITE"
     DESTRUCTIVE = "DESTRUCTIVE"
@@ -34,7 +35,7 @@ class Risk(str, Enum):
     UNKNOWN = "UNKNOWN"
 
 
-class UserIntent(str, Enum):
+class UserIntent(StrEnum):
     GENERAL = "general"
     CONFIRMED_WORKFLOW = "confirmed_workflow"
     EXPLICIT_BY_NAME = "explicit_by_name"
@@ -164,7 +165,6 @@ def evaluate_decision(
         return Decision.CONFIRM_THEN_INVOKE
     if normalized is Risk.DANGEROUS:
         return Decision.CONFIRM_THEN_INVOKE if intent is UserIntent.EXPLICIT_BY_NAME else Decision.REJECT
-    return Decision.DEFER
 
 
 def _untrusted_risk_signal(value: Any) -> Risk:
@@ -282,9 +282,8 @@ def infer_capability_profile(
         or (trusted_contract and trusted_contract.idempotent is False)
     ):
         idempotent: bool | None = False
-    elif (
-        (trusted_policy and trusted_policy.idempotent is True)
-        or (trusted_contract and trusted_contract.idempotent is True)
+    elif (trusted_policy and trusted_policy.idempotent is True) or (
+        trusted_contract and trusted_contract.idempotent is True
     ):
         idempotent = True
     else:
@@ -335,7 +334,7 @@ def _explicit_retry_veto(manifest: Mapping[str, Any] | None) -> bool:
 
 def get_error_strategy(
     error_code: str | None,
-    manifest: Mapping[str, Any] | None = None,
+    manifest: object = None,
 ) -> ErrorStrategy:
     strategy = ERROR_STRATEGIES.get((error_code or "").upper(), DEFAULT_ERROR_STRATEGY)
     if manifest is not None and not isinstance(manifest, Mapping):
@@ -383,12 +382,12 @@ def _nested_retry_permits(
 def should_retry(
     *,
     error_code: str | None,
-    attempt: int,
-    operation_idempotent: bool,
-    manifest: Mapping[str, Any] | None = None,
-    response_retryable: bool | None = None,
-    precondition_refreshed: bool = False,
-    reconciliation_completed: bool = False,
+    attempt: object,
+    operation_idempotent: object,
+    manifest: object = None,
+    response_retryable: object = None,
+    precondition_refreshed: object = False,
+    reconciliation_completed: object = False,
 ) -> bool:
     if (
         type(attempt) is not int
@@ -450,11 +449,12 @@ def _extract_protocol_error(response: Mapping[str, Any]) -> tuple[str, str]:
             return str(code or "MCP_TOOL_ERROR"), str(message or code or "MCP tool failed")
     content = response.get("content")
     if isinstance(content, Sequence) and not isinstance(content, (str, bytes, bytearray)):
-        messages = [
-            item.get("text")
-            for item in content
-            if isinstance(item, Mapping) and isinstance(item.get("text"), str)
-        ]
+        messages: list[str] = []
+        for item in content:
+            if isinstance(item, Mapping):
+                item_text = item.get("text")
+                if isinstance(item_text, str):
+                    messages.append(item_text)
         if messages:
             return "MCP_TOOL_ERROR", "\n".join(messages)
     if isinstance(content, str) and content:
@@ -587,7 +587,7 @@ def _valid_content_payload(value: Any) -> bool:
     return all(_valid_content_block(item) for item in value)
 
 
-def handle_response(response: Mapping[str, Any]) -> ResponseResult:
+def handle_response(response: object) -> ResponseResult:
     """Normalize explicit protocol/legacy shapes and reject malformed success payloads."""
 
     if not isinstance(response, Mapping):
@@ -696,9 +696,9 @@ def handle_response(response: Mapping[str, Any]) -> ResponseResult:
 
 
 def select_efficient_tool(
-    tools: Iterable[Mapping[str, Any]],
+    tools: Iterable[object],
     *,
-    required_capabilities: Iterable[str],
+    required_capabilities: Iterable[object],
     prefer_batch: bool = False,
 ) -> Mapping[str, Any] | None:
     try:
@@ -749,7 +749,7 @@ def _schema_accepts_true(schema: Any) -> bool:
     )
 
 
-def choose_initial_detail_params(input_schema: Mapping[str, Any]) -> dict[str, Any]:
+def choose_initial_detail_params(input_schema: object) -> dict[str, Any]:
     if not isinstance(input_schema, Mapping):
         return {}
     properties = input_schema.get("properties")
@@ -767,15 +767,21 @@ def choose_initial_detail_params(input_schema: Mapping[str, Any]) -> dict[str, A
 
 
 def get_pagination_decision(
-    meta: Mapping[str, Any],
+    meta: object,
     *,
-    outcome_satisfied: bool,
-    pages_seen: int,
-    max_pages: int,
+    outcome_satisfied: object,
+    pages_seen: object,
+    max_pages: object,
 ) -> PaginationDecision:
     if not isinstance(meta, Mapping):
         return PaginationDecision(False, reason="invalid pagination metadata")
-    if type(pages_seen) is not int or type(max_pages) is not int or pages_seen < 0 or max_pages <= 0:
+    if (
+        type(outcome_satisfied) is not bool
+        or type(pages_seen) is not int
+        or type(max_pages) is not int
+        or pages_seen < 0
+        or max_pages <= 0
+    ):
         return PaginationDecision(False, reason="invalid pagination bounds")
     if outcome_satisfied:
         return PaginationDecision(False, reason="outcome already satisfied")
