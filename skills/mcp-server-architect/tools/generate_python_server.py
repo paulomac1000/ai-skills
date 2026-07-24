@@ -26,7 +26,7 @@ _SPEC.loader.exec_module(_implementation)
 
 # A generated package must not shadow any direct runtime or test dependency.
 RESERVED_PACKAGE_NAMES = frozenset(_implementation.RESERVED_PACKAGE_NAMES) | {"pytest"}
-setattr(_implementation, "RESERVED_PACKAGE_NAMES", RESERVED_PACKAGE_NAMES)
+vars(_implementation)["RESERVED_PACKAGE_NAMES"] = RESERVED_PACKAGE_NAMES
 
 PACKAGE_RE = _implementation.PACKAGE_RE
 SERVER_RE = _implementation.SERVER_RE
@@ -50,9 +50,7 @@ def _replace_required(text: str, old: str, new: str, *, file_name: str) -> str:
     """Replace one reviewed template fragment or fail instead of drifting silently."""
     occurrences = text.count(old)
     if occurrences != 1:
-        raise RuntimeError(
-            f"expected exactly one {old!r} fragment in generated {file_name}, found {occurrences}"
-        )
+        raise RuntimeError(f"expected exactly one {old!r} fragment in generated {file_name}, found {occurrences}")
     return text.replace(old, new)
 
 
@@ -130,7 +128,7 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
 
 # The implementation's atomic publisher resolves this symbol at call time. Patch
 # it once so CLI and imported use paths produce the same reviewed file set.
-setattr(_implementation, "project_files", project_files)
+vars(_implementation)["project_files"] = project_files
 generate_project = _implementation.generate_project
 main = _implementation.main
 
