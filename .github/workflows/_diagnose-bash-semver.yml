@@ -1,0 +1,71 @@
+name: Diagnose Bash SemVer invocation
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/_diagnose-bash-semver.yml
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: windows-2025
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.12"
+          architecture: x64
+      - name: Capture exact Bash behavior
+        shell: pwsh
+        run: |
+          @'
+          import json
+          import shutil
+          import subprocess
+          from pathlib import Path
+
+          version = "0.0.0"
+          script = """core_identifier='(0|[1-9][0-9]*)'
+          prerelease_identifier='(0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)'
+          build_identifier='[0-9A-Za-z-]+'
+          semver_regex="^${core_identifier}[.]${core_identifier}[.]${core_identifier}(-${prerelease_identifier}([.]${prerelease_identifier})*)?([+]${build_identifier}([.]${build_identifier})*)?$"
+          normalized_version="$1"
+          printf 'zero=<%s> one=<%s> version=<%s> regex=<%s>\\n' "$0" "$1" "$normalized_version" "$semver_regex"
+          [[ "$normalized_version" =~ $semver_regex ]]
+          """
+          result = subprocess.run(
+              ["bash", "-s", "--", version],
+              input=script.encode("utf-8"),
+              check=False,
+              capture_output=True,
+          )
+          Path("bash-semver-diagnostics.json").write_text(
+              json.dumps(
+                  {
+                      "bash": shutil.which("bash"),
+                      "argv": ["bash", "-s", "--", version],
+                      "script_repr": repr(script),
+                      "returncode": result.returncode,
+                      "stdout_repr": repr(result.stdout),
+                      "stderr_repr": repr(result.stderr),
+                  },
+                  indent=2,
+              ),
+              encoding="utf-8",
+          )
+          '@ | Set-Content -Path diagnose_semver.py -Encoding utf8NoBOM
+          python diagnose_semver.py
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v4.6.2
+        with:
+          name: bash-semver-diagnostics-${{ github.run_id }}
+          path: bash-semver-diagnostics.json
+          if-no-files-found: error
+          retention-days: 1
