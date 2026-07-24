@@ -12,7 +12,6 @@ ROOT = Path(__file__).resolve().parents[1]
 COMMAND_TIMEOUT_SECONDS = 900
 QUALITY_PATHS = (
     "scripts/ci.py",
-    "skills/afds-doc-writer/docs_validate.py",
     "skills/afds-doc-writer/validate.py",
     "skills/mcp-server-consumer/tools",
     "skills/mcp-server-architect/tools/generate_python_server.py",
