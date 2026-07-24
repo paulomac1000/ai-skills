@@ -14,6 +14,14 @@ verification: Run `python -m pytest tests/test_decision_engine.py tests/test_con
 
 Define deterministic safety and efficiency rules for consumers that operate across servers with different trust, maturity, and response contracts.
 
+## Scope and non-goals
+
+The bundled decision engine is a conservative reference helper for monotonic trust, risk, retry, payload, and pagination decisions. It is not a complete organizational authorization or policy engine and its return value is never sufficient authority to execute an operation.
+
+The helper intentionally compresses some decisions into compatibility projections such as `read`, `write`, `destructive`, `dangerous`, `sensitive`, and `unknown`. Production policy must independently evaluate applicable confidentiality, operational impact, financial or physical consequence, cost and abuse potential, target binding, reversibility, regulatory class, principal scope, and environment-specific controls. Missing axes remain unresolved; they are not inferred as safe.
+
+Server-side authentication, resource authorization, operator gates, stable-target enforcement, and runtime validation remain mandatory even when the consumer permits or confirms an invocation. A consumer confirmation cannot mint server approval, broaden credentials, or downgrade server policy.
+
 ## Outcome before capability
 
 State the desired outcome and required capability tags before tool selection. Empty requirements do not authorize an arbitrary tool. Discovery is bounded by server, category, count, and context budget.
@@ -86,4 +94,4 @@ Inspect protocol and capability versions before relying on optional fields. Pref
 
 ## Verification
 
-Run the decision-engine tests and scenario tests covering trust downgrade attempts, conflicting retry signals, nested retry constraints, conflict refresh, independent reconciliation proof, native and malformed error content, nullable SDK fields, annotation field validation, schema-aware detail selection, pagination limits, partial execution, and cross-server data boundaries.
+Run the decision-engine tests and scenario tests covering trust downgrade attempts, conflicting retry signals, nested retry constraints, conflict refresh, independent reconciliation proof, native and malformed error content, nullable SDK fields, annotation field validation, schema-aware detail selection, pagination limits, partial execution, and cross-server data boundaries. Add organization-specific tests for every risk axis and authorization boundary not represented by the reference helper.
