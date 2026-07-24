@@ -1,16 +1,20 @@
 --- a/tests/test_post_review_regressions.py
 +++ b/tests/test_post_review_regressions.py
-@@ -4,7 +4,6 @@
+@@ -4,7 +4,7 @@
  
  import importlib.util
  import re
 -import shlex
++import shutil
  import subprocess
  import sys
  import threading
-@@ -111,9 +110,16 @@
+@@ -110,10 +110,19 @@
+         match = re.search(rf"^\s*{name}=.*$", source, re.M)
          assert match, name
          assignments.append(match.group(0).strip())
++    bash = shutil.which("bash")
++    assert bash is not None
      script = "\n".join(assignments)
 -    script += f"\nnormalized_version={shlex.quote(version)}\n"
 +    script += '\nnormalized_version="$1"\n'
@@ -18,7 +22,7 @@
 -    return subprocess.run(["bash", "-c", script], check=False).returncode == 0
 +    return (
 +        subprocess.run(
-+            ["bash", "-s", "--", version],
++            [bash, "-s", "--", version],
 +            input=script.encode("utf-8"),
 +            check=False,
 +        ).returncode
