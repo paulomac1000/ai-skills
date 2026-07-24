@@ -174,7 +174,11 @@ def test_report_archive_rejects_bad_missing_duplicate_symlink_and_limits(monkeyp
         duplicate = _zip_with_entries([(REPORT_PATH, b"{}"), (REPORT_PATH, b"{}")])
     with pytest.raises(ValueError, match="duplicate"):
         GitHubEvidenceVerifier._read_report(duplicate, REPORT_PATH)
-    for unsafe in ("/absolute", "a\\b", "../escape"):
+    unsafe_entries = ["../escape", "a/../b", "a//b"]
+    if os.name != "nt":
+        # zipfile normalizes these names while constructing archives on Windows.
+        unsafe_entries.extend(["/absolute", "a\\b"])
+    for unsafe in unsafe_entries:
         with pytest.raises(ValueError, match="non-POSIX|unsafe"):
             GitHubEvidenceVerifier._read_report(
                 _zip_with_entries([(unsafe, b"x"), (REPORT_PATH, b"{}")]),
