@@ -19,9 +19,24 @@ Every skill contains:
 
 - `SKILL.md` — concise agent workflow and routing instructions;
 - `STANDARD.md` — stable cross-project invariants and acceptance criteria;
-- `manifest.yaml` — declared resource categories and required entry points.
+- `manifest.yaml` — versioned compatibility, maturity, dependency, deprecation, resource-category, and required-entry-point contract.
 
 A skill may also contain `references/`, `templates/`, `examples/`, or `tools/`. Those directories hold reusable operational knowledge, not temporary analysis artifacts. The repository deliberately has no global file-count budget and does not forbid examples or architectural decisions merely to keep the tree small.
+
+## Contract and precedence
+
+Consumers pin the repository revision and the skill version recorded in `manifest.yaml`. A release-candidate skill is suitable for controlled pilots and independent review; a stable skill requires completed compatibility evidence and a documented migration path for breaking changes.
+
+When resources disagree, use this order:
+
+1. `STANDARD.md` and active normative decisions;
+2. the applicable implementation profile;
+3. `SKILL.md` workflow instructions;
+4. generators and templates;
+5. examples;
+6. migration simulations.
+
+A lower-ranked resource cannot weaken a higher-ranked requirement. Generators are verified baselines rather than policy owners, and examples do not create exceptions. Stop and request a standard decision when a conflict remains unresolved.
 
 ## Local validation
 
@@ -32,7 +47,7 @@ python -m pip install -r requirements-dev.txt
 python scripts/ci.py
 ```
 
-The command compiles Python sources, validates governed Markdown, validates skill manifests and workflow templates, and runs the complete test suite.
+The command compiles Python sources, runs lint, formatting, typing, static security and dependency-vulnerability gates, validates governed Markdown and skill manifests, executes exact-artifact generator tests, enforces critical-module branch coverage, and runs the complete test suite.
 
 ## Design principles
 
