@@ -1,0 +1,43 @@
+--- a/tests/test_post_review_regressions.py
++++ b/tests/test_post_review_regressions.py
+@@ -4,7 +4,6 @@
+ 
+ import importlib.util
+ import re
+-import shlex
+ import subprocess
+ import sys
+ import threading
+@@ -111,9 +110,17 @@
+         assert match, name
+         assignments.append(match.group(0).strip())
+     script = "\n".join(assignments)
+-    script += f"\nnormalized_version={shlex.quote(version)}\n"
++    script += '\nnormalized_version="$1"\n'
+     script += '[[ "$normalized_version" =~ $semver_regex ]]\n'
+-    return subprocess.run(["bash", "-c", script], check=False).returncode == 0
++    return (
++        subprocess.run(
++            ["bash", "-s", "--", version],
++            input=script,
++            text=True,
++            check=False,
++        ).returncode
++        == 0
++    )
+ 
+ 
+ def test_dotnet_release_version_is_validated_and_passed_through_env() -> None:
+--- a/skills/ci-cd-architect/templates/dotnet-package.yml.template
++++ b/skills/ci-cd-architect/templates/dotnet-package.yml.template
+@@ -176,7 +176,9 @@
+ 
+           manifest = pathlib.Path("nupkg/publish-files.txt")
+           manifest.write_text(
+-              "".join(f"{verified[package_id]}\n" for package_id in sorted(verified)),
++              "".join(
++                  f"{verified[package_id].as_posix()}\n" for package_id in sorted(verified)
++              ),
+               encoding="utf-8",
+           )
+           print(f"Validated {len(verified)} exact package identities")
