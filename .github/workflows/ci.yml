@@ -35,7 +35,6 @@ jobs:
           set -o pipefail
           python -m ruff check \
             scripts/ci.py \
-            skills/afds-doc-writer/docs_validate.py \
             skills/afds-doc-writer/validate.py \
             skills/mcp-server-consumer/tools \
             skills/mcp-server-architect/tools/generate_python_server.py \
@@ -49,7 +48,6 @@ jobs:
           set -o pipefail
           python -m ruff format --check \
             scripts/ci.py \
-            skills/afds-doc-writer/docs_validate.py \
             skills/afds-doc-writer/validate.py \
             skills/mcp-server-consumer/tools \
             skills/mcp-server-architect/tools/generate_python_server.py \
