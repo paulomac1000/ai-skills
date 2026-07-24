@@ -85,20 +85,92 @@ jobs:
           git diff --cached --check
           python -m compileall -q contracts scripts skills tests
           test -z "$(git ls-files --others --exclude-standard)"
-      - name: Commit final staged tree
+      - name: Commit final staged tree locally
         shell: bash
         run: |
           set -euo pipefail
           git config user.name "ai-skills hardening bot"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git commit -m "feat: enforce stable adoption and reproducibility contracts"
-      - name: Publish verified commit to staging ref
+      - name: Create verified final commit object
         shell: bash
         env:
-          EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}
+          GH_TOKEN: ${{ github.token }}
+          PARENT_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
-          test "$(git ls-remote origin refs/heads/refactor/skills-cleanup | cut -f1)" = "$EXPECTED_SHA"
-          final_sha="$(git rev-parse HEAD)"
-          echo "FINAL_SHA=${final_sha}"
-          git push origin HEAD:refs/heads/automation/audit-hardening-final-20260724
+          python - <<'PY'
+          import base64
+          import json
+          import os
+          import subprocess
+          import urllib.request
+          from pathlib import Path
+
+          repo = os.environ["GITHUB_REPOSITORY"]
+          token = os.environ["GH_TOKEN"]
+          parent = os.environ["PARENT_SHA"]
+
+          def git(*args: str) -> str:
+              return subprocess.check_output(["git", *args], text=True).strip()
+
+          def post(endpoint: str, payload: dict) -> dict:
+              request = urllib.request.Request(
+                  f"https://api.github.com/repos/{repo}{endpoint}",
+                  data=json.dumps(payload).encode("utf-8"),
+                  method="POST",
+                  headers={
+                      "Authorization": f"Bearer {token}",
+                      "Accept": "application/vnd.github+json",
+                      "X-GitHub-Api-Version": "2022-11-28",
+                      "Content-Type": "application/json",
+                  },
+              )
+              with urllib.request.urlopen(request) as response:
+                  return json.load(response)
+
+          raw = subprocess.check_output(
+              ["git", "diff", "--name-status", "-z", "--no-renames", parent, "HEAD"]
+          )
+          fields = raw.split(b"\0")
+          if fields and fields[-1] == b"":
+              fields.pop()
+          if len(fields) % 2:
+              raise RuntimeError("unexpected git diff field count")
+
+          entries = []
+          for index in range(0, len(fields), 2):
+              status = fields[index].decode("ascii")
+              path = fields[index + 1].decode("utf-8")
+              if status.startswith("D"):
+                  entries.append({"path": path, "mode": "100644", "type": "blob", "sha": None})
+                  continue
+              content = base64.b64encode(Path(path).read_bytes()).decode("ascii")
+              blob = post("/git/blobs", {"content": content, "encoding": "base64"})["sha"]
+              mode = git("ls-files", "-s", "--", path).split()[0]
+              entries.append({"path": path, "mode": mode, "type": "blob", "sha": blob})
+
+          base_tree = git("rev-parse", f"{parent}^{{tree}}")
+          tree = post("/git/trees", {"base_tree": base_tree, "tree": entries})["sha"]
+          expected_tree = git("rev-parse", "HEAD^{tree}")
+          if tree != expected_tree:
+              raise RuntimeError(f"tree mismatch: API={tree} local={expected_tree}")
+
+          commit = post(
+              "/git/commits",
+              {
+                  "message": "feat: enforce stable adoption and reproducibility contracts",
+                  "tree": tree,
+                  "parents": [parent],
+              },
+          )["sha"]
+          Path("/tmp/final-sha.txt").write_text(commit + "\n", encoding="utf-8")
+          print(f"FINAL_SHA={commit}")
+          print(f"FINAL_TREE={tree}")
+          PY
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: verified-final-sha-${{ github.event.pull_request.head.sha }}
+          path: /tmp/final-sha.txt
+          retention-days: 1
+          if-no-files-found: error
