@@ -50,6 +50,16 @@ jobs:
               --output "/tmp/${artifact_id}.zip"
             unzip -oq "/tmp/${artifact_id}.zip" -d .
           done
+          python - <<'PY'
+          from pathlib import Path
+
+          for path in [
+              *Path('.').glob('requirements-dev-*.lock'),
+              *Path('skills/mcp-server-architect/locks').glob('*.lock'),
+          ]:
+              path.write_bytes(path.read_bytes().replace(b'\r\n', b'\n'))
+          PY
+          printf '*.lock text eol=lf\n*.in text eol=lf\n' > .gitattributes
           for suffix in linux macos windows; do
             test -s "requirements-dev-${suffix}.lock"
             test -s "skills/mcp-server-architect/locks/runtime-${suffix}.lock"
@@ -58,7 +68,7 @@ jobs:
             grep -q -- '--hash=sha256:' "skills/mcp-server-architect/locks/runtime-${suffix}.lock"
             grep -q -- '--hash=sha256:' "skills/mcp-server-architect/locks/dev-${suffix}.lock"
           done
-          git add requirements-dev-*.lock skills/mcp-server-architect/locks/*.lock
+          git add .gitattributes requirements-dev-*.lock skills/mcp-server-architect/locks/*.lock
       - name: Remove one-time migration machinery
         shell: bash
         run: |
