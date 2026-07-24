@@ -29,7 +29,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cat .audit-patch/part* > /tmp/source.patch.b64
+          cat .audit-patch/head00 .audit-patch/head01 .audit-patch/head02 .audit-patch/head03 \
+              .audit-patch/part01 .audit-patch/part02 .audit-patch/part03 \
+              .audit-patch/part04 .audit-patch/part05 > /tmp/source.patch.b64
           base64 --decode /tmp/source.patch.b64 | gzip --decompress > /tmp/source.patch
           test "$(sha256sum /tmp/source.patch | cut -d' ' -f1)" = "cce5eb9ce0d368f1cb505f284e58edb7760364af1348dd5b97e51e4773264849"
           git apply --index /tmp/source.patch
