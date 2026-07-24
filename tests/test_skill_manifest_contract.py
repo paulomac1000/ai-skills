@@ -12,6 +12,7 @@ from contracts.semver import is_semver
 ROOT = Path(__file__).resolve().parents[1]
 SUPPORTED_MATURITY = {"experimental", "release-candidate", "stable", "deprecated"}
 ALLOWED_OPERATING_SYSTEMS = {"linux", "macos", "windows"}
+RUNNER_OPERATING_SYSTEM = {"ubuntu": "linux", "macos": "macos", "windows": "windows"}
 
 
 def load_matrix() -> dict[str, Any]:
@@ -26,6 +27,17 @@ def combination(value: dict[str, Any], lane: str | None = None) -> tuple[str, st
         str(value["version"]),
         str(lane or value["lane"]),
     )
+
+
+def _runner_operating_system(runner: str) -> str:
+    for prefix, operating_system in RUNNER_OPERATING_SYSTEM.items():
+        if runner.startswith(prefix):
+            return operating_system
+    raise AssertionError(f"unsupported workflow runner: {runner}")
+
+
+def _setup_python(step_list: list[dict[str, Any]]) -> dict[str, Any]:
+    return next(step["with"] for step in step_list if str(step.get("uses", "")).startswith("actions/setup-python@"))
 
 
 def workflow_combinations(workflow: dict[str, Any]) -> dict[str, set[tuple[str, str, str, str, str]]]:
@@ -54,7 +66,18 @@ def workflow_combinations(workflow: dict[str, Any]) -> dict[str, set[tuple[str, 
         )
         for item in jobs["dotnet-generator"]["strategy"]["matrix"]["include"]
     }
-    docker = {("linux", "x64", "python", "3.12", "docker-artifact")}
+    container_job = jobs["python-container-artifact"]
+    setup = _setup_python(container_job["steps"])
+    runner = str(container_job["runs-on"])
+    docker = {
+        (
+            _runner_operating_system(runner),
+            str(setup.get("architecture", "x64")),
+            "python",
+            str(setup["python-version"]),
+            "docker-artifact",
+        )
+    }
     return {
         "python-compatibility": python,
         "dotnet-compatibility": dotnet,
@@ -72,8 +95,13 @@ def test_every_skill_manifest_is_versioned_and_declares_exact_evidenced_combinat
 
     for lane_id, lane in lanes.items():
         assert lane["workflow_job"] in workflow["jobs"], lane_id
+        assert lane.get("providers") == ["github-actions"], lane_id
         declared = {combination(item, lane_id) for item in lane["combinations"]}
-        assert declared == actual_workflow_combinations[lane_id], (lane_id, declared, actual_workflow_combinations[lane_id])
+        assert declared == actual_workflow_combinations[lane_id], (
+            lane_id,
+            declared,
+            actual_workflow_combinations[lane_id],
+        )
 
     for path in manifests:
         manifest = yaml.safe_load(path.read_text(encoding="utf-8"))
@@ -112,7 +140,11 @@ def test_every_skill_manifest_is_versioned_and_declares_exact_evidenced_combinat
 
         providers = set(compatibility.get("providers") or [])
         if providers:
-            covered = {provider for lane_id in evidence_lanes for provider in lanes[lane_id].get("providers", [])}
+            covered = {
+                provider
+                for lane_id in evidence_lanes
+                for provider in lanes[lane_id].get("providers", [])
+            }
             assert providers <= covered, (path, providers - covered)
 
         adoption = manifest["adoption"]
