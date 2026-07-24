@@ -28,6 +28,22 @@ def load_generator():
     return module
 
 
+
+def has_required_dotnet_sdk() -> bool:
+    """Return whether the exact SDK pinned by the generated project is installed."""
+    if shutil.which("dotnet") is None:
+        return False
+    completed = subprocess.run(
+        ["dotnet", "--list-sdks"],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    return completed.returncode == 0 and any(
+        line.split()[0] == "10.0.302" for line in completed.stdout.splitlines() if line.split()
+    )
+
 def test_generator_emits_complete_deterministic_project(tmp_path: Path) -> None:
     generator = load_generator()
     first = tmp_path / "first"
@@ -132,7 +148,10 @@ def test_generated_project_uses_public_sdk_and_fail_closed_controls(tmp_path: Pa
     assert "VerifyApprovalContractAsync" in smoke
     assert "approvals.Issue" in smoke
     assert "other-principal" in smoke
-    assert "Case-insensitive Bearer authentication was rejected" in smoke
+    assert '["Authorization"] = $"bearer {token}"' in smoke
+    assert "await using var client = await McpClient.CreateAsync(transport);" in smoke
+    assert "var tools = await client.ListToolsAsync();" in smoke
+    assert "lowerCaseBearerResponse" not in smoke
 
     workflow = (target / ".github/workflows/ci.yml").read_text(encoding="utf-8")
     for line in workflow.splitlines():
@@ -206,7 +225,7 @@ def test_generator_preserves_competing_target_created_before_publish(tmp_path: P
     assert not (tmp_path / ".server.generation.lock").exists()
 
 
-@pytest.mark.skipif(shutil.which("dotnet") is None, reason="dotnet SDK is unavailable")
+@pytest.mark.skipif(not has_required_dotnet_sdk(), reason="required .NET SDK 10.0.302 is unavailable")
 def test_generated_project_builds_and_passes_real_client_smoke(tmp_path: Path) -> None:
     generator = load_generator()
     target = tmp_path / "server"

@@ -26,7 +26,7 @@ Use this skill for new MCP servers, transport migrations, SDK upgrades, security
 13. Implement transport-parity policy, correlation, traces, metrics, audit events, and separate response and log sanitization.
 14. Test domain, manifest, policy, registration, lifecycle, filesystem, artifacts, tasks, browser state, transport, race, and real-client behavior separately.
 15. Build and smoke-test the exact deployment artifact.
-16. Complete the applicability, compatibility, behavior, waiver, rollback, residual-risk, exact-artifact, and MCP transport sections of `migration-assessment.yaml`; run `python contracts/validate_adoption.py migration-assessment.yaml --require-approval`; an independent reviewer owns the final decision.
+16. Complete the applicability, compatibility, behavior, waiver, rollback, residual-risk, exact-artifact, and MCP transport sections of `migration-assessment.yaml`; set `verification_mode: provider-backed`, run `python contracts/validate_adoption.py migration-assessment.yaml --require-approval` with read-only provider credentials, and bind the final decision to a canonical independent reviewer and the exact SHA.
 17. Review both language profiles and the cross-language incident map before claiming Python/.NET parity.
 
 Read `STANDARD.md`, then use `references/migration-assessment.md`, `references/capability-manifests-and-versioning.md`, `references/transport-lifecycle-and-conformance.md`, `references/runtime-boundaries-and-artifacts.md`, and the relevant Python or .NET profile. Use both migration simulations, `references/testing-strategy.md`, `references/security-and-operations.md`, and `references/problem-solution-matrix.md` for production work.

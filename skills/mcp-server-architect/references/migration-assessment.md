@@ -41,7 +41,7 @@ Do not mark a rule not applicable because the current implementation lacks the f
 
 ## Evidence contract
 
-Evidence names an immutable revision, relative code path, symbol or configuration owner, executable command, and observed result. Screenshots, prose, generated comments, or a green aggregate check are supplementary only. The assessment must identify the exact wheel, package, DLL, image digest, or equivalent deployment artifact tested through an official MCP client.
+Evidence names an immutable revision, relative code path, symbol or configuration owner, executable command, and observed result. `structural-attestation` validates those local declarations but cannot approve a migration. `provider-backed` additionally verifies the GitHub Actions run, job, artifact, digest, and pull-request review against the same SHA. Screenshots, prose, generated comments, free-form evidence URIs, or a green aggregate check are supplementary only. The assessment must identify the exact wheel, package, DLL, image digest, or equivalent deployment artifact tested through an official MCP client.
 
 For each advertised transport, capture listing, representative read, representative failure, and every applicable write or approval boundary. Preserve target identity, principal, manifest, error, artifact, and task evidence where relevant.
 
@@ -59,11 +59,11 @@ Define observable rollback triggers, executable rollback steps, and data or arti
 
 ## Machine validation
 
-Before review, run `python contracts/validate_adoption.py migration-assessment.yaml`. Before claiming acceptance, run the same command with `--require-approval`. The validator rejects missing or unknown catalog rules, inconsistent revisions, placeholder evidence, failed commands, expired waivers, unsupported compatibility claims, incomplete MCP transport evidence, blocking residual risks, and self-approval. A green aggregate CI status cannot replace the completed assessment.
+Before review, run `python contracts/validate_adoption.py migration-assessment.yaml` in structural-attestation mode. Before claiming acceptance, set `verification_mode: provider-backed` and run the same command with `--require-approval` and a read-only `GITHUB_TOKEN`. The validator rejects missing or unknown catalog rules, inconsistent revisions, placeholder evidence, failed commands, expired waivers, unsupported compatibility claims, incomplete MCP transport evidence, blocking residual risks, self-approval, provider records that do not exist, evidence from another revision, artifact digest mismatch, or a review not bound to the assessed commit. A green aggregate CI status cannot replace the completed assessment.
 
 ## Acceptance
 
-An independent reviewer may set `decision.status: approve` only when:
+A reviewer identified by canonical provider, login, and numeric ID may set `decision.status: approve` only when the provider-backed review record is `APPROVED` for the exact assessed commit and:
 
 - the assessed revision is immutable and matches the reviewed implementation;
 - all applicable rules have implementation and executable evidence;

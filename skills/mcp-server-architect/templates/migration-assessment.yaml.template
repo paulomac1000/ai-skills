@@ -1,9 +1,13 @@
 schema_version: 1
+verification_mode: structural-attestation # structural-attestation | provider-backed
 assessment_id: replace-with-stable-id
 generated_at: "YYYY-MM-DDTHH:MM:SSZ"
-prepared_by: [replace-with-author-login]
+prepared_by:
+  - provider: github
+    login: replace-with-author-login
+    id: 1
 repository:
-  name: replace-me
+  name: owner/repository
   revision: full-immutable-commit-sha
   source_branch: replace-me
 skill:
@@ -15,8 +19,12 @@ scope:
   excluded: []
   exclusion_rationale: []
 compatibility_claims:
-  operating_systems: []
-  runtimes: {}
+  combinations:
+    - operating_system: linux
+      architecture: x64
+      runtime: python
+      version: "3.12"
+      lane: python-compatibility
 applicability:
   - rule_id: replace-with-catalog-rule-id
     status: applicable # applicable | not-applicable | deferred
@@ -26,7 +34,12 @@ applicability:
         symbol: replace-me
     verification:
       - command: replace-me
-        evidence: replace-me
+        evidence:
+          provider: github-actions
+          repository: owner/repository
+          run_id: 1
+          job_id: 1
+          revision: full-immutable-commit-sha
         result: not-run # passed | failed | not-run
     waiver_id: null
 behavior:
@@ -37,10 +50,19 @@ waivers: []
 artifact_verification:
   exact_revision: full-immutable-commit-sha
   artifacts:
-    - kind: replace-with-wheel-package-binary-or-image
+    - kind: wheel
       identity: replace-with-versioned-identity
+      path: relative/artifact/path
       digest: sha256:replace-with-64-hex-digest
       commands: []
+      evidence:
+        provider: github-actions
+        repository: owner/repository
+        run_id: 1
+        job_id: 1
+        artifact_id: 1
+        provider_digest: sha256:replace-with-64-hex-provider-digest
+        revision: full-immutable-commit-sha
       result: not-run
 compatibility_results: []
 extensions:
@@ -48,34 +70,46 @@ extensions:
     target_level: L3
     profiles: [python]
     advertised_transports: [stdio]
-    official_client_commands: []
+    official_client_commands: [replace-with-official-client-command]
     transport_results:
       stdio:
         capability_listing:
           result: not-run
-          evidence: replace-me
+          evidence:
+            provider: github-actions
+            repository: owner/repository
+            run_id: 1
+            job_id: 1
+            revision: full-immutable-commit-sha
         representative_read:
           result: not-run
-          evidence: replace-me
+          evidence:
+            provider: github-actions
+            repository: owner/repository
+            run_id: 1
+            job_id: 1
+            revision: full-immutable-commit-sha
         failure_path:
           result: not-run
-          evidence: replace-me
+          evidence:
+            provider: github-actions
+            repository: owner/repository
+            run_id: 1
+            job_id: 1
+            revision: full-immutable-commit-sha
         write_boundary:
           result: not-run
-          evidence: replace-me
+          evidence:
+            provider: github-actions
+            repository: owner/repository
+            run_id: 1
+            job_id: 1
+            revision: full-immutable-commit-sha
       streamable_http:
-        capability_listing:
-          result: not-applicable
-          evidence: transport-not-advertised
-        representative_read:
-          result: not-applicable
-          evidence: transport-not-advertised
-        failure_path:
-          result: not-applicable
-          evidence: transport-not-advertised
-        write_boundary:
-          result: not-applicable
-          evidence: transport-not-advertised
+        capability_listing: {result: not-applicable, evidence: null}
+        representative_read: {result: not-applicable, evidence: null}
+        failure_path: {result: not-applicable, evidence: null}
+        write_boundary: {result: not-applicable, evidence: null}
 rollback:
   trigger_conditions: []
   procedure: []
@@ -84,4 +118,12 @@ residual_risks: []
 decision:
   status: request-changes
   rationale: replace-me
-  reviewer: replace-with-independent-reviewer
+  reviewer:
+    provider: github
+    repository: owner/repository
+    pull_request: 1
+    review_id: 1
+    login: replace-with-independent-reviewer
+    id: 2
+    revision: full-immutable-commit-sha
+    state: CHANGES_REQUESTED

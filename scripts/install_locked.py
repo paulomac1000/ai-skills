@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Install and verify the complete hashed dependency graph for this platform."""
+"""Install and verify the complete hashed graph for the active target tuple."""
 
 from __future__ import annotations
 

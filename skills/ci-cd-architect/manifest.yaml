@@ -14,6 +14,32 @@ compatibility:
   - github-actions
   evidence_lanes:
   - python-compatibility
+  tested_combinations:
+  - operating_system: linux
+    architecture: x64
+    runtime: python
+    version: '3.12'
+    lane: python-compatibility
+  - operating_system: linux
+    architecture: x64
+    runtime: python
+    version: '3.13'
+    lane: python-compatibility
+  - operating_system: linux
+    architecture: x64
+    runtime: python
+    version: '3.14'
+    lane: python-compatibility
+  - operating_system: macos
+    architecture: arm64
+    runtime: python
+    version: '3.12'
+    lane: python-compatibility
+  - operating_system: windows
+    architecture: x64
+    runtime: python
+    version: '3.12'
+    lane: python-compatibility
 dependencies:
   skills: []
   tools:
@@ -34,3 +60,4 @@ adoption:
   validator: contracts/validate_adoption.py
   rule_catalog: contracts/rule-catalog.yaml
   extension: generic
+  rule_map: contracts/standard-rule-map.yaml

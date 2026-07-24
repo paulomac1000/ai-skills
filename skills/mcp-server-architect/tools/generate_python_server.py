@@ -25,14 +25,14 @@ vars(_implementation)["RESERVED_PACKAGE_NAMES"] = RESERVED_PACKAGE_NAMES
 PACKAGE_RE = _implementation.PACKAGE_RE
 SERVER_RE = _implementation.SERVER_RE
 _BASE_PROJECT_FILES = _implementation.project_files
-LOCK_NAMES = (
-    "runtime-linux.lock",
-    "runtime-macos.lock",
-    "runtime-windows.lock",
-    "dev-linux.lock",
-    "dev-macos.lock",
-    "dev-windows.lock",
+LOCK_IDS = (
+    "linux-x64-py312",
+    "linux-x64-py313",
+    "linux-x64-py314",
+    "macos-arm64-py312",
+    "windows-x64-py312",
 )
+LOCK_NAMES = tuple(f"{kind}-{lock_id}.lock" for kind in ("runtime", "dev") for lock_id in LOCK_IDS)
 SOURCE_NAMES = ("python-runtime.in", "python-dev.in")
 
 
@@ -57,10 +57,25 @@ def _lock_selector() -> str:
     return """from __future__ import annotations
 
 import argparse
+import platform as host_platform
 import sys
 from pathlib import Path
 
 PLATFORMS = {"linux": "linux", "darwin": "macos", "win32": "windows"}
+ARCHITECTURES = {
+    "amd64": "x64",
+    "x86_64": "x64",
+    "x64": "x64",
+    "arm64": "arm64",
+    "aarch64": "arm64",
+}
+SUPPORTED = {
+    ("linux", "x64", "3.12"),
+    ("linux", "x64", "3.13"),
+    ("linux", "x64", "3.14"),
+    ("macos", "arm64", "3.12"),
+    ("windows", "x64", "3.12"),
+}
 
 
 def main() -> int:
@@ -68,9 +83,14 @@ def main() -> int:
     parser.add_argument("kind", choices=("runtime", "dev"))
     args = parser.parse_args()
     platform = PLATFORMS.get(sys.platform)
-    if platform is None:
-        raise SystemExit(f"unsupported lock platform: {sys.platform}")
-    print(Path(__file__).with_name(f"{args.kind}-{platform}.lock"))
+    architecture = ARCHITECTURES.get(host_platform.machine().casefold())
+    version = f"{sys.version_info.major}.{sys.version_info.minor}"
+    if platform is None or architecture is None or (platform, architecture, version) not in SUPPORTED:
+        raise SystemExit(
+            f"unsupported lock target: {sys.platform}/{host_platform.machine()}/python-{version}"
+        )
+    lock_id = f"{platform}-{architecture}-py{version.replace('.', '')}"
+    print(Path(__file__).with_name(f"{args.kind}-{lock_id}.lock"))
     return 0
 
 
@@ -109,11 +129,20 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
 
     files["README.md"] = _replace_required(
         files["README.md"],
-        'pip install -e ".[dev]"',
-        "LOCK=$(python requirements/select_lock.py dev)\n"
-        'python -m pip install --require-hashes -r "$LOCK"\n'
-        "python -m pip install --no-deps -e .\n"
-        "python -m pip check",
+        'python -m venv .venv\n. .venv/bin/activate\npip install -e ".[dev]"',
+        "python -m venv .venv\n\n"
+        "# POSIX\n"
+        ".venv/bin/python requirements/select_lock.py dev > selected-lock.txt\n"
+        "LOCK=$(cat selected-lock.txt)\n"
+        '.venv/bin/python -m pip install --require-hashes -r "$LOCK"\n'
+        ".venv/bin/python -m pip install --no-deps -e .\n"
+        ".venv/bin/python -m pip check\n\n"
+        "# Windows PowerShell\n"
+        ".venv\\Scripts\\python.exe requirements\\select_lock.py dev | Set-Content selected-lock.txt\n"
+        "$Lock = Get-Content selected-lock.txt\n"
+        ".venv\\Scripts\\python.exe -m pip install --require-hashes -r $Lock\n"
+        ".venv\\Scripts\\python.exe -m pip install --no-deps -e .\n"
+        ".venv\\Scripts\\python.exe -m pip check",
         file_name="README.md",
     )
     files["README.md"] = _replace_required(
@@ -130,7 +159,7 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
         "COPY pyproject.toml README.md ./\n"
         "COPY requirements ./requirements\n"
         "COPY src ./src\n"
-        "RUN pip install --no-cache-dir --require-hashes -r requirements/runtime-linux.lock \\\n"
+        "RUN pip install --no-cache-dir --require-hashes -r requirements/runtime-linux-x64-py312.lock \\\n"
         "    && pip install --no-cache-dir --no-deps . \\\n"
         "    && pip check",
         file_name="Dockerfile",
@@ -179,6 +208,7 @@ __all__ = [
     "PACKAGE_RE",
     "SERVER_RE",
     "RESERVED_PACKAGE_NAMES",
+    "LOCK_IDS",
     "LOCK_NAMES",
     "SOURCE_NAMES",
     "project_files",

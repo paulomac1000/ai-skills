@@ -25,6 +25,7 @@ QUALITY_PATHS = (
 )
 TYPE_PATHS = (
     "contracts/semver.py",
+    "contracts/evidence.py",
     "contracts/validate_adoption.py",
     "scripts/ci.py",
     "scripts/install_locked.py",
@@ -95,6 +96,22 @@ def main() -> int:
         "report",
         "--include=contracts/*.py,skills/afds-doc-writer/*.py,skills/mcp-server-consumer/tools/*.py",
         "--fail-under=80",
+    )
+    run(
+        sys.executable,
+        "-m",
+        "coverage",
+        "report",
+        "--include=skills/mcp-server-architect/tools/generate_python_server.py,skills/mcp-server-architect/tools/generate_python_server_impl.py,skills/mcp-server-architect/tools/generate_dotnet_server.py",
+        "--fail-under=85",
+    )
+    run(
+        sys.executable,
+        "-m",
+        "coverage",
+        "report",
+        "--include=scripts/*.py",
+        "--fail-under=75",
     )
     return 0
 

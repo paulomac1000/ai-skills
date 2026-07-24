@@ -55,12 +55,7 @@ def test_generator_emits_complete_deterministic_project(tmp_path: Path) -> None:
 
     expected = {
         Path("pyproject.toml"),
-        Path("requirements/runtime-linux.lock"),
-        Path("requirements/runtime-macos.lock"),
-        Path("requirements/runtime-windows.lock"),
-        Path("requirements/dev-linux.lock"),
-        Path("requirements/dev-macos.lock"),
-        Path("requirements/dev-windows.lock"),
+        *(Path("requirements") / name for name in generator.LOCK_NAMES),
         Path("requirements/python-runtime.in"),
         Path("requirements/python-dev.in"),
         Path("requirements/select_lock.py"),
@@ -139,7 +134,7 @@ def test_generated_project_uses_public_sdk_and_fail_closed_controls(tmp_path: Pa
 
     dockerfile = (target / "Dockerfile").read_text(encoding="utf-8")
     assert "COPY requirements ./requirements" in dockerfile
-    assert "--require-hashes -r requirements/runtime-linux.lock" in dockerfile
+    assert "--require-hashes -r requirements/runtime-linux-x64-py312.lock" in dockerfile
     assert "pip install --no-cache-dir --no-deps ." in dockerfile
     assert "pip check" in dockerfile
 
@@ -213,10 +208,13 @@ def test_generator_concurrent_create_has_one_winner_and_never_replaces(tmp_path:
 
 
 def _platform_lock_name(kind: str) -> str:
-    suffix = {"linux": "linux", "darwin": "macos", "win32": "windows"}.get(sys.platform)
-    if suffix is None:
-        pytest.skip(f"unsupported lock platform: {sys.platform}")
-    return f"requirements/{kind}-{suffix}.lock"
+    from scripts.select_lock import lock_id
+
+    try:
+        identifier = lock_id()
+    except RuntimeError as exception:
+        pytest.skip(str(exception))
+    return f"requirements/{kind}-{identifier}.lock"
 
 
 def test_generated_project_builds_installs_and_tests_exact_wheel(tmp_path: Path) -> None:

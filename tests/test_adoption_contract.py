@@ -3,28 +3,82 @@
 from __future__ import annotations
 
 import copy
+import hashlib
+import json
+from collections.abc import Mapping, Sequence
 from datetime import date
 from pathlib import Path
+from typing import Any
 
 import yaml
+from jsonschema import Draft202012Validator, FormatChecker
 
 from contracts.validate_adoption import validate_document
 
 ROOT = Path(__file__).resolve().parents[1]
 CATALOG = yaml.safe_load((ROOT / "contracts/rule-catalog.yaml").read_text(encoding="utf-8"))
+SCHEMA = json.loads((ROOT / "contracts/adoption-assessment.schema.json").read_text(encoding="utf-8"))
+REVISION = "a" * 40
+REPOSITORY = "example/repository"
+ARTIFACT_PATH = "contracts/README.md"
+ARTIFACT_DIGEST = "sha256:" + hashlib.sha256((ROOT / ARTIFACT_PATH).read_bytes()).hexdigest()
+PROVIDER_DIGEST = "sha256:" + "c" * 64
 
 
-def assessment_for(skill_name: str, *, mcp: bool = False) -> dict:
+class FakeVerifier:
+    """Deterministic provider adapter used by semantic contract tests."""
+
+    def __init__(self, failures: Sequence[str] = ()) -> None:
+        self.failures = list(failures)
+        self.action_calls = 0
+        self.artifact_calls = 0
+        self.review_calls = 0
+
+    def verify_action(self, reference: Mapping[str, Any], expected_revision: str) -> Sequence[str]:
+        self.action_calls += 1
+        return self.failures
+
+    def verify_artifact(
+        self,
+        reference: Mapping[str, Any],
+        expected_revision: str,
+        expected_digest: str,
+    ) -> Sequence[str]:
+        self.artifact_calls += 1
+        return self.failures
+
+    def verify_review(self, reference: Mapping[str, Any], expected_revision: str) -> Sequence[str]:
+        self.review_calls += 1
+        return self.failures
+
+
+def evidence(job_id: int, *, artifact_id: int | None = None) -> dict[str, Any]:
+    result: dict[str, Any] = {
+        "provider": "github-actions",
+        "repository": REPOSITORY,
+        "run_id": 100,
+        "job_id": job_id,
+        "revision": REVISION,
+    }
+    if artifact_id is not None:
+        result["artifact_id"] = artifact_id
+        result["provider_digest"] = PROVIDER_DIGEST
+    return result
+
+
+def assessment_for(skill_name: str, *, mcp: bool = False) -> dict[str, Any]:
     manifest = yaml.safe_load((ROOT / "skills" / skill_name / "manifest.yaml").read_text(encoding="utf-8"))
     rules = CATALOG["skills"][skill_name]["rules"]
-    assessment = {
+    combination = copy.deepcopy(manifest["compatibility"]["tested_combinations"][0])
+    assessment: dict[str, Any] = {
         "schema_version": 1,
+        "verification_mode": "provider-backed",
         "assessment_id": f"{skill_name}-pilot-001",
         "generated_at": "2026-07-24T12:00:00Z",
-        "prepared_by": ["migration-author"],
+        "prepared_by": [{"provider": "github", "login": "migration-author", "id": 1001}],
         "repository": {
-            "name": "example/repository",
-            "revision": "a" * 40,
+            "name": REPOSITORY,
+            "revision": REVISION,
             "source_branch": "migration/skills",
         },
         "skill": {
@@ -37,20 +91,17 @@ def assessment_for(skill_name: str, *, mcp: bool = False) -> dict:
             "excluded": [],
             "exclusion_rationale": [],
         },
-        "compatibility_claims": {
-            "operating_systems": ["linux"],
-            "runtimes": {"python": ["3.12"]} if "python" in (manifest["compatibility"].get("runtimes") or {}) else {},
-        },
+        "compatibility_claims": {"combinations": [combination]},
         "applicability": [
             {
                 "rule_id": rule["id"],
                 "status": "applicable",
                 "rationale": "Required by the selected production scope.",
-                "implementation": [{"path": "src/implementation.py", "symbol": "production_boundary"}],
+                "implementation": [{"path": ARTIFACT_PATH, "symbol": "Repository adoption contracts"}],
                 "verification": [
                     {
                         "command": f"pytest -q tests/test_{index}.py",
-                        "evidence": f"ci://run/100/job/{index}",
+                        "evidence": evidence(index + 1),
                         "result": "passed",
                     }
                 ],
@@ -65,24 +116,24 @@ def assessment_for(skill_name: str, *, mcp: bool = False) -> dict:
         },
         "waivers": [],
         "artifact_verification": {
-            "exact_revision": "a" * 40,
+            "exact_revision": REVISION,
             "artifacts": [
                 {
-                    "kind": "wheel",
-                    "identity": "example-package==1.0.0",
-                    "digest": "sha256:" + "b" * 64,
-                    "commands": ["python -m pytest -q tests/artifact"],
+                    "kind": "document-set",
+                    "identity": "repository-adoption-contracts==1.0.0",
+                    "path": ARTIFACT_PATH,
+                    "digest": ARTIFACT_DIGEST,
+                    "commands": ["python -m pytest -q tests/test_adoption_contract.py"],
+                    "evidence": evidence(200, artifact_id=300),
                     "result": "passed",
                 }
             ],
         },
         "compatibility_results": [
             {
-                "operating_system": "linux",
-                "runtime": "python",
-                "version": "3.12",
+                **combination,
                 "command": "python -m pytest -q",
-                "evidence": "ci://run/100/job/linux-python-312",
+                "evidence": evidence(400),
                 "result": "passed",
             }
         ],
@@ -95,13 +146,19 @@ def assessment_for(skill_name: str, *, mcp: bool = False) -> dict:
         "residual_risks": [],
         "decision": {
             "status": "approve",
-            "rationale": "Every catalog rule and claimed environment has passed evidence.",
-            "reviewer": "independent-reviewer",
+            "rationale": "Every catalog rule and claimed target tuple has provider-backed evidence.",
+            "reviewer": {
+                "provider": "github",
+                "repository": REPOSITORY,
+                "pull_request": 12,
+                "review_id": 9001,
+                "login": "independent-reviewer",
+                "id": 2002,
+                "revision": REVISION,
+                "state": "APPROVED",
+            },
         },
     }
-    if not assessment["compatibility_claims"]["runtimes"]:
-        assessment["compatibility_results"][0].pop("runtime")
-        assessment["compatibility_results"][0].pop("version")
     if mcp:
         assessment["extensions"] = {
             "mcp": {
@@ -113,23 +170,20 @@ def assessment_for(skill_name: str, *, mcp: bool = False) -> dict:
                     transport: {
                         field: {
                             "result": "passed",
-                            "evidence": f"ci://run/100/mcp/{transport}/{field}",
+                            "evidence": evidence(500 + transport_index * 10 + field_index),
                         }
-                        for field in (
-                            "capability_listing",
-                            "representative_read",
-                            "failure_path",
-                            "write_boundary",
+                        for field_index, field in enumerate(
+                            ("capability_listing", "representative_read", "failure_path", "write_boundary")
                         )
                     }
-                    for transport in ("stdio", "streamable_http")
+                    for transport_index, transport in enumerate(("stdio", "streamable_http"))
                 },
             }
         }
     return assessment
 
 
-def findings(document: dict) -> list[str]:
+def findings(document: dict[str, Any], *, verifier: FakeVerifier | None = None) -> list[str]:
     return [
         str(finding)
         for finding in validate_document(
@@ -138,8 +192,59 @@ def findings(document: dict) -> list[str]:
             ROOT / "skills",
             require_approval=True,
             as_of=date(2026, 7, 24),
+            schema=SCHEMA,
+            repository_root=ROOT,
+            evidence_verifier=verifier or FakeVerifier(),
         )
     ]
+
+
+
+def assert_template_shape(template: Any, completed: Any, location: str = "root") -> None:
+    """Require every template key and item shape to exist in a complete document."""
+    if isinstance(template, Mapping):
+        assert isinstance(completed, Mapping), location
+        for key, value in template.items():
+            assert key in completed, f"{location}.{key}"
+            assert_template_shape(value, completed[key], f"{location}.{key}")
+    elif isinstance(template, list) and template:
+        assert isinstance(completed, list) and completed, location
+        assert_template_shape(template[0], completed[0], f"{location}[0]")
+
+
+def test_published_templates_follow_the_schema_backed_complete_shapes() -> None:
+    generic_template = yaml.safe_load(
+        (ROOT / "contracts/adoption-assessment.yaml.template").read_text(encoding="utf-8")
+    )
+    mcp_template = yaml.safe_load(
+        (ROOT / "skills/mcp-server-architect/templates/migration-assessment.yaml.template").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert_template_shape(generic_template, assessment_for("afds-doc-writer"))
+    assert_template_shape(mcp_template, assessment_for("mcp-server-architect", mcp=True))
+
+def test_public_schema_is_valid_and_matches_template_top_level_contract() -> None:
+    Draft202012Validator.check_schema(SCHEMA)
+    template = yaml.safe_load((ROOT / "contracts/adoption-assessment.yaml.template").read_text(encoding="utf-8"))
+    assert set(SCHEMA["required"]) == set(template)
+    assert "example.invalid" not in SCHEMA["$id"]
+
+
+def test_public_schema_accepts_complete_non_mcp_and_mcp_documents() -> None:
+    validator = Draft202012Validator(SCHEMA, format_checker=FormatChecker())
+    for document in (assessment_for("afds-doc-writer"), assessment_for("mcp-server-architect", mcp=True)):
+        assert list(validator.iter_errors(document)) == []
+
+
+def test_public_schema_rejects_unknown_and_missing_fields() -> None:
+    validator = Draft202012Validator(SCHEMA, format_checker=FormatChecker())
+    document = assessment_for("ci-cd-architect")
+    document["unknown"] = True
+    document.pop("rollback")
+    messages = "\n".join(error.message for error in validator.iter_errors(document))
+    assert "Additional properties are not allowed" in messages
+    assert "'rollback' is a required property" in messages
 
 
 def test_generic_assessment_accepts_complete_non_mcp_adoption() -> None:
@@ -147,7 +252,35 @@ def test_generic_assessment_accepts_complete_non_mcp_adoption() -> None:
 
 
 def test_mcp_extension_accepts_complete_official_client_transport_evidence() -> None:
-    assert findings(assessment_for("mcp-server-architect", mcp=True)) == []
+    verifier = FakeVerifier()
+    assert findings(assessment_for("mcp-server-architect", mcp=True), verifier=verifier) == []
+    assert verifier.action_calls > 0 and verifier.artifact_calls == 1 and verifier.review_calls == 1
+
+
+def test_structural_attestation_cannot_approve() -> None:
+    document = assessment_for("afds-doc-writer")
+    document["verification_mode"] = "structural-attestation"
+    assert "approval requires provider-backed evidence" in "\n".join(findings(document))
+
+
+def test_provider_backed_mode_requires_a_verifier() -> None:
+    document = assessment_for("afds-doc-writer")
+    result = validate_document(
+        document,
+        CATALOG,
+        ROOT / "skills",
+        require_approval=True,
+        as_of=date(2026, 7, 24),
+        schema=SCHEMA,
+        repository_root=ROOT,
+        evidence_verifier=None,
+    )
+    assert any("requires an evidence verifier" in str(item) for item in result)
+
+
+def test_provider_failures_block_approval() -> None:
+    result = "\n".join(findings(assessment_for("afds-doc-writer"), verifier=FakeVerifier(["run missing"])))
+    assert "provider verification failed: run missing" in result
 
 
 def test_missing_unknown_and_duplicate_rules_fail_completeness() -> None:
@@ -164,14 +297,26 @@ def test_missing_unknown_and_duplicate_rules_fail_completeness() -> None:
 def test_revision_artifact_and_verification_claims_fail_closed() -> None:
     document = assessment_for("ci-cd-architect")
     document["artifact_verification"]["exact_revision"] = "c" * 40
-    document["artifact_verification"]["artifacts"][0]["identity"] = "replace-with-artifact"
-    document["artifact_verification"]["artifacts"][0]["digest"] = "sha256:bad"
+    artifact = document["artifact_verification"]["artifacts"][0]
+    artifact["identity"] = "replace-with-artifact"
+    artifact["digest"] = "sha256:" + "c" * 64
     document["applicability"][0]["verification"][0]["result"] = "not-run"
     result = "\n".join(findings(document))
     assert "must equal repository.revision" in result
     assert "must not contain a placeholder" in result
-    assert "must be a sha256 digest" in result
+    assert "does not match the artifact at path" in result
     assert "must be passed" in result
+
+
+def test_missing_implementation_path_and_symbol_are_rejected() -> None:
+    document = assessment_for("afds-doc-writer")
+    document["applicability"][0]["implementation"] = [
+        {"path": "missing/file.py", "symbol": "missing_symbol"},
+        {"path": ARTIFACT_PATH, "symbol": "missing_symbol"},
+    ]
+    result = "\n".join(findings(document))
+    assert "does not identify an existing file" in result
+    assert "was not found in the implementation file" in result
 
 
 def test_deferred_rule_requires_live_matching_waiver() -> None:
@@ -188,17 +333,26 @@ def test_deferred_rule_requires_live_matching_waiver() -> None:
             "expires_at": "2026-07-23",
         }
     ]
-    result = "\n".join(findings(document))
-    assert "waiver expired" in result
+    assert "waiver expired" in "\n".join(findings(document))
 
 
-def test_approval_requires_independent_reviewer_and_complete_compatibility() -> None:
+def test_approval_requires_canonical_independent_reviewer_and_complete_tuple() -> None:
     document = assessment_for("mcp-server-consumer")
-    document["decision"]["reviewer"] = "migration-author"
+    document["decision"]["reviewer"].update({"login": "MIGRATION-AUTHOR", "id": 1001})
     document["compatibility_results"][0]["result"] = "failed"
     result = "\n".join(findings(document))
     assert "must be independent" in result
-    assert "missing passed evidence" in result
+    assert "missing passed evidence for combinations" in result
+
+
+def test_evidence_revision_and_repository_must_match_assessment() -> None:
+    document = assessment_for("afds-doc-writer")
+    reference = document["applicability"][0]["verification"][0]["evidence"]
+    reference["repository"] = "other/repository"
+    reference["revision"] = "b" * 40
+    result = "\n".join(findings(document))
+    assert "must equal repository.name" in result
+    assert "must equal repository.revision" in result
 
 
 def test_mcp_approval_rejects_incomplete_transport_and_blocking_risk() -> None:

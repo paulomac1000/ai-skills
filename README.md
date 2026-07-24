@@ -40,29 +40,39 @@ A lower-ranked resource cannot weaken a higher-ranked requirement. Generators ar
 
 ## Local validation
 
+POSIX:
+
 ```bash
 python3 -m venv .venv
-. .venv/bin/activate
-python scripts/install_locked.py
-python scripts/ci.py
+.venv/bin/python scripts/install_locked.py
+.venv/bin/python scripts/ci.py
+```
+
+Windows PowerShell:
+
+```powershell
+py -3.12 -m venv .venv
+.venv\Scripts\python.exe scripts\install_locked.py
+.venv\Scripts\python.exe scripts\ci.py
 ```
 
 The installer selects the committed platform lock, installs the complete transitive graph with `--require-hashes`, and runs `pip check`. The validation command compiles Python sources, runs lint, formatting, typing, static security and dependency-vulnerability gates, validates governed Markdown, manifests, adoption contracts, and full stable rule coverage, executes exact-artifact generator tests, enforces critical-module branch coverage, and runs the complete non-container test suite.
 
 ## Adoption and compatibility evidence
 
-Repository-wide adoption contracts live in [`contracts/`](contracts/README.md). Every skill manifest points to the same generic assessment template, semantic validator, and stable rule catalog. Skill-specific evidence is an extension of that base contract rather than an incompatible private form.
+Repository-wide adoption contracts live in [`contracts/`](contracts/README.md). Every skill manifest points to the same JSON Schema, generic assessment template, semantic validator, stable rule catalog, and normative-heading map. Skill-specific evidence is an extension of that base contract rather than an incompatible private form.
 
 A completed assessment is accepted only when:
 
 - every catalog rule appears exactly once;
 - immutable repository and artifact revisions agree;
-- executable verification and compatibility results passed;
+- exact OS, architecture, runtime, version, and lane results passed;
+- approving assessments use provider-backed run, job, artifact, digest, and review evidence on the same SHA;
 - deferred rules have live, owned waivers;
 - rollback and residual risks are explicit;
-- an independent reviewer approves the immutable revision.
+- a canonical independent reviewer identity approves the immutable revision.
 
-Run `python contracts/validate_adoption.py <assessment.yaml> --require-approval` in each adopting repository. The committed [`contracts/compatibility-matrix.yaml`](contracts/compatibility-matrix.yaml) maps every declared OS, Python, .NET, provider, and container claim to a named GitHub Actions lane.
+Run `python contracts/validate_adoption.py <assessment.yaml> --require-approval` in each adopting repository. The committed [`contracts/compatibility-matrix.yaml`](contracts/compatibility-matrix.yaml) maps every declared OS, architecture, runtime, version, provider, and container claim to a named GitHub Actions lane. Structural attestation cannot approve an adoption; `--require-approval` requires provider-backed evidence verified against GitHub.
 
 ## Design principles
 

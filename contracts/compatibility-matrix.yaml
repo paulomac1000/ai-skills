@@ -1,24 +1,27 @@
-schema_version: 1
+schema_version: 2
 lanes:
   python-compatibility:
     workflow_job: compatibility-python
     skills: [afds-doc-writer, ci-cd-architect, mcp-server-architect, mcp-server-consumer]
-    operating_systems: [linux, macos, windows]
-    runtimes:
-      python: ["3.12", "3.13", "3.14"]
+    combinations:
+      - {runner: ubuntu-24.04, operating_system: linux, architecture: x64, runtime: python, version: "3.12", lock_id: linux-x64-py312}
+      - {runner: ubuntu-24.04, operating_system: linux, architecture: x64, runtime: python, version: "3.13", lock_id: linux-x64-py313}
+      - {runner: ubuntu-24.04, operating_system: linux, architecture: x64, runtime: python, version: "3.14", lock_id: linux-x64-py314}
+      - {runner: macos-15, operating_system: macos, architecture: arm64, runtime: python, version: "3.12", lock_id: macos-arm64-py312}
+      - {runner: windows-2025, operating_system: windows, architecture: x64, runtime: python, version: "3.12", lock_id: windows-x64-py312}
     providers: [github-actions]
-    evidence: Runs contract, validator, consumer, template, generator, and exact-wheel smoke subsets.
+    evidence: Runs the full non-container Python contract suite with a lock resolved natively for each exact target tuple.
   dotnet-compatibility:
     workflow_job: dotnet-generator
     skills: [mcp-server-architect]
-    operating_systems: [linux, macos, windows]
-    runtimes:
-      dotnet: ["10.0.302"]
-    evidence: Generates, restores, builds, publishes, and invokes the exact .NET artifact.
+    combinations:
+      - {runner: ubuntu-24.04, operating_system: linux, architecture: x64, runtime: dotnet, version: "10.0.302"}
+      - {runner: macos-15, operating_system: macos, architecture: arm64, runtime: dotnet, version: "10.0.302"}
+      - {runner: windows-2025, operating_system: windows, architecture: x64, runtime: dotnet, version: "10.0.302"}
+    evidence: Generates, restores, builds, publishes, and invokes the exact .NET artifact on each declared tuple.
   docker-artifact:
     workflow_job: python-container-artifact
     skills: [mcp-server-architect]
-    operating_systems: [linux]
-    runtimes:
-      python: ["3.12"]
+    combinations:
+      - {runner: ubuntu-24.04, operating_system: linux, architecture: x64, runtime: python, version: "3.12"}
     evidence: Builds the generated non-root image and invokes it through the official MCP stdio client.

@@ -23,6 +23,7 @@ def test_mcp_template_extends_the_generic_adoption_contract() -> None:
     assert template["skill"]["version"] == manifest["version"]
     assert template["skill"]["maturity"] == manifest["maturity"]
     for field in (
+        "verification_mode",
         "prepared_by",
         "compatibility_claims",
         "applicability",
@@ -48,9 +49,10 @@ def test_manifest_requires_repository_adoption_contract_and_mcp_extension() -> N
         "template": "contracts/adoption-assessment.yaml.template",
         "validator": "contracts/validate_adoption.py",
         "rule_catalog": "contracts/rule-catalog.yaml",
+        "rule_map": "contracts/standard-rule-map.yaml",
         "extension": "mcp",
     }
-    for key in ("template", "validator", "rule_catalog"):
+    for key in ("template", "validator", "rule_catalog", "rule_map"):
         assert (ROOT / adoption[key]).is_file()
 
 
@@ -70,4 +72,4 @@ def test_normative_precedence_and_machine_validation_fail_closed() -> None:
     assert "contracts/rule-catalog.yaml" in reference
     assert "contracts/validate_adoption.py" in reference
     assert "--require-approval" in reference
-    assert "independent reviewer" in reference
+    assert "canonical provider, login, and numeric ID" in reference

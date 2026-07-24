@@ -1,5 +1,6 @@
 bandit==1.9.4
 build==1.5.1
+jsonschema==4.26.0
 mcp==1.28.1
 mypy==2.3.0
 pip-audit==2.10.1
@@ -8,6 +9,7 @@ pytest-cov==7.1.0
 PyYAML==6.0.3
 ruff==0.15.22
 setuptools==83.0.0
+types-jsonschema==4.26.0.20260518
 types-PyYAML==6.0.12.20260518
 wheel==0.47.0
 

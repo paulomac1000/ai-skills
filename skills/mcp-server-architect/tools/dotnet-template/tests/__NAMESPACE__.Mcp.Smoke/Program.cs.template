@@ -93,11 +93,8 @@ static async Task RunHttpCaseAsync(string dll, bool writesEnabled, string expect
         }
         if (!ready) throw new InvalidOperationException("HTTP server did not become ready.");
 
-        using var lowerCaseBearerRequest = new HttpRequestMessage(HttpMethod.Get, $"http://127.0.0.1:{port}/mcp");
-        lowerCaseBearerRequest.Headers.TryAddWithoutValidation("Authorization", $"bearer {token}");
-        using var lowerCaseBearerResponse = await probe.SendAsync(lowerCaseBearerRequest);
-        if (lowerCaseBearerResponse.StatusCode == HttpStatusCode.Unauthorized)
-            throw new InvalidOperationException("Case-insensitive Bearer authentication was rejected.");
+        await VerifyUnauthorizedAsync(probe, $"http://127.0.0.1:{port}/mcp", authorization: null);
+        await VerifyUnauthorizedAsync(probe, $"http://127.0.0.1:{port}/mcp", $"Bearer invalid-{token}");
 
         using var foreignOriginRequest = new HttpRequestMessage(HttpMethod.Get, $"http://127.0.0.1:{port}/mcp");
         foreignOriginRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
@@ -114,7 +111,7 @@ static async Task RunHttpCaseAsync(string dll, bool writesEnabled, string expect
             TransportMode = HttpTransportMode.StreamableHttp,
             AdditionalHeaders = new Dictionary<string, string>
             {
-                ["Authorization"] = $"Bearer {token}",
+                ["Authorization"] = $"bearer {token}",
             },
         });
         await using var client = await McpClient.CreateAsync(transport);
@@ -125,6 +122,18 @@ static async Task RunHttpCaseAsync(string dll, bool writesEnabled, string expect
         if (!process.HasExited) process.Kill(entireProcessTree: true);
         await process.WaitForExitAsync();
     }
+}
+
+
+static async Task VerifyUnauthorizedAsync(HttpClient client, string endpoint, string? authorization)
+{
+    using var request = new HttpRequestMessage(HttpMethod.Get, endpoint);
+    if (authorization is not null)
+        request.Headers.TryAddWithoutValidation("Authorization", authorization);
+    using var response = await client.SendAsync(request);
+    if (response.StatusCode != HttpStatusCode.Unauthorized)
+        throw new InvalidOperationException(
+            $"Unauthenticated or invalid-token MCP request was not rejected: {(int)response.StatusCode} {response.StatusCode}");
 }
 
 static async Task VerifyContractAsync(McpClient client, string expectedWriteError)
