@@ -32,7 +32,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          base64 -d .github/final-code.patch.gz.b64 > /tmp/final-code.patch.gz
+          cat .github/final-code.patch.part{00..07} > /tmp/final-code.patch.gz.b64
+          test "$(wc -c < /tmp/final-code.patch.gz.b64)" -eq 52088
+          base64 -d /tmp/final-code.patch.gz.b64 > /tmp/final-code.patch.gz
           printf '%s  %s\n' 99c77e28a69499c8b4f5b7dd9ee5e5452581369496fa05102650ae45f7fd9f4e /tmp/final-code.patch.gz | sha256sum --check --strict
           gzip -dc /tmp/final-code.patch.gz > /tmp/final-code.patch
           git apply --index --binary /tmp/final-code.patch
@@ -102,7 +104,7 @@ jobs:
           rm -f skills/mcp-server-architect/locks/{runtime,dev}-{linux,macos,windows}.lock
           rm -f .github/workflows/_audit-export.yml .github/workflows/_audit-export-pr.yml
           rm -f .github/workflows/_generate-target-locks.yml .github/workflows/_apply-final-fixes.yml
-          rm -f .github/final-code.patch.gz.b64
+          rm -f .github/final-code.patch.gz.b64 .github/final-code.patch.part{00..07}
           git add -A
           git diff --cached --check
           test "$(git write-tree)" = "7ab39e0764fc3b0d54f10acd4f947a1c1134c27a"
