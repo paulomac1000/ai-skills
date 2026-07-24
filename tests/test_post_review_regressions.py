@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import re
-import shlex
+import shutil
 import subprocess
 import sys
 import threading
@@ -93,9 +93,7 @@ def test_consumer_rejects_empty_or_meta_only_response() -> None:
 
 
 def _release_template() -> str:
-    return (
-        ROOT / "skills/ci-cd-architect/templates/dotnet-package.yml.template"
-    ).read_text(encoding="utf-8")
+    return (ROOT / "skills/ci-cd-architect/templates/dotnet-package.yml.template").read_text(encoding="utf-8")
 
 
 def _semver_is_accepted(version: str) -> bool:
@@ -110,10 +108,19 @@ def _semver_is_accepted(version: str) -> bool:
         match = re.search(rf"^\s*{name}=.*$", source, re.M)
         assert match, name
         assignments.append(match.group(0).strip())
+    bash = shutil.which("bash")
+    assert bash is not None
     script = "\n".join(assignments)
-    script += f"\nnormalized_version={shlex.quote(version)}\n"
+    script += '\nnormalized_version="$1"\n'
     script += '[[ "$normalized_version" =~ $semver_regex ]]\n'
-    return subprocess.run(["bash", "-c", script], check=False).returncode == 0
+    return (
+        subprocess.run(
+            [bash, "-s", "--", version],
+            input=script.encode("utf-8"),
+            check=False,
+        ).returncode
+        == 0
+    )
 
 
 def test_dotnet_release_version_is_validated_and_passed_through_env() -> None:
@@ -153,14 +160,12 @@ def test_dotnet_release_semver_rejects_leading_zeroes_and_empty_identifiers() ->
 
 
 def test_target_authorization_precedes_network_resolution_in_normative_docs() -> None:
-    transport = (
-        ROOT
-        / "skills/mcp-server-architect/references/transport-lifecycle-and-conformance.md"
-    ).read_text(encoding="utf-8")
-    simulation = (
-        ROOT
-        / "skills/mcp-server-architect/references/dotnet-migration-simulation.md"
-    ).read_text(encoding="utf-8")
+    transport = (ROOT / "skills/mcp-server-architect/references/transport-lifecycle-and-conformance.md").read_text(
+        encoding="utf-8"
+    )
+    simulation = (ROOT / "skills/mcp-server-architect/references/dotnet-migration-simulation.md").read_text(
+        encoding="utf-8"
+    )
 
     assert "authorize the selector namespace or tenant before any discovery or lookup" in transport
     assert "failed preliminary authorization must produce no network-backed target probe" in transport
@@ -183,8 +188,7 @@ def test_dotnet_approval_capacity_check_is_serialized() -> None:
 
 def test_dotnet_smoke_rejects_unknown_mode_and_retries_probe_timeout() -> None:
     source = (
-        ROOT
-        / "skills/mcp-server-architect/tools/dotnet-template/tests/__NAMESPACE__.Mcp.Smoke/Program.cs.template"
+        ROOT / "skills/mcp-server-architect/tools/dotnet-template/tests/__NAMESPACE__.Mcp.Smoke/Program.cs.template"
     ).read_text(encoding="utf-8")
     assert 'args.Length == 2 && !string.Equals(args[1], "--http", StringComparison.Ordinal)' in source
     assert "if (args.Length == 2)" in source
