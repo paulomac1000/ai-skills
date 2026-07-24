@@ -548,9 +548,7 @@ def _tree_digest(path: Path) -> str:
             if stat.S_ISLNK(mode):
                 raise ValueError(f"artifact tree contains symlink: {child.relative_to(path).as_posix()}")
             if not stat.S_ISDIR(mode):
-                raise ValueError(
-                    f"artifact tree contains a non-directory entry: {child.relative_to(path).as_posix()}"
-                )
+                raise ValueError(f"artifact tree contains a non-directory entry: {child.relative_to(path).as_posix()}")
         for name in sorted(file_names):
             child = current / name
             mode = child.lstat().st_mode
