@@ -50,7 +50,7 @@ class EvidenceVerifier(Protocol):
 class _NoRedirect(HTTPRedirectHandler):
     """Expose the signed artifact URL instead of forwarding API credentials."""
 
-    def redirect_request(self, req, fp, code, msg, headers, newurl):  # type: ignore[no-untyped-def]
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
         return None
 
 
@@ -219,8 +219,7 @@ class GitHubEvidenceVerifier:
             return False
         claims = report.get("claims")
         return isinstance(claims, list) and any(
-            isinstance(claim, Mapping) and dict(claim) == dict(expected_claim)
-            for claim in claims
+            isinstance(claim, Mapping) and dict(claim) == dict(expected_claim) for claim in claims
         )
 
     def _verify_report(
