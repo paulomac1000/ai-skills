@@ -1,0 +1,39 @@
+name: Audit snapshot export
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/_audit-export-pr.yml
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Archive exact PR head
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          git archive --format=tar.gz --output=ai-skills-${EXPECTED_SHA}.tar.gz HEAD
+          sha256sum ai-skills-${EXPECTED_SHA}.tar.gz > snapshot.sha256
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v4.6.2
+        with:
+          name: ai-skills-snapshot-${{ github.event.pull_request.head.sha }}
+          path: |
+            ai-skills-${{ github.event.pull_request.head.sha }}.tar.gz
+            snapshot.sha256
+          if-no-files-found: error
+          retention-days: 1
