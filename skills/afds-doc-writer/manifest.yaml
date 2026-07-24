@@ -1,4 +1,20 @@
+schema_version: 1
 name: afds-doc-writer
+version: 1.0.0-rc.1
+maturity: release-candidate
+skill_format: ai-skills/v1
+normative_entrypoint: STANDARD.md
+compatibility:
+  agent_contract: tool-capable-instruction-agent
+  operating_systems: [linux, macos, windows]
+  runtimes:
+    python: ">=3.12,<3.15"
+dependencies:
+  skills: []
+  tools: [python]
+deprecation:
+  policy: semantic-versioning
+  minimum_notice: one-minor-release
 required:
   - SKILL.md
   - STANDARD.md
