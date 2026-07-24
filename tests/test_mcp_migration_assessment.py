@@ -11,7 +11,7 @@ SKILL = ROOT / "skills/mcp-server-architect"
 CONTRACTS = ROOT / "contracts"
 
 
-def test_mcp_template_extends_the_generic_adoption_contract() -> None:
+def test_mcp_template_extends_the_generic_adoption_contract_without_false_defaults() -> None:
     generic = yaml.safe_load((CONTRACTS / "adoption-assessment.yaml.template").read_text(encoding="utf-8"))
     template = yaml.safe_load(
         (SKILL / "templates/migration-assessment.yaml.template").read_text(encoding="utf-8")
@@ -35,11 +35,42 @@ def test_mcp_template_extends_the_generic_adoption_contract() -> None:
         "decision",
     ):
         assert field in template
+
     mcp = template["extensions"]["mcp"]
     assert mcp["target_level"] in {"L1", "L2", "L3", "L4"}
-    assert mcp["profiles"]
+    assert mcp["profiles"] == ["REPLACE_WITH_IMPLEMENTED_PROFILE"]
+    assert mcp["advertised_transports"] == ["REPLACE_WITH_ADVERTISED_TRANSPORT"]
     assert set(mcp["transport_results"]) == {"stdio", "streamable_http"}
+    for transport in mcp["transport_results"].values():
+        for check in transport.values():
+            assert check == {"result": "not-applicable", "evidence": None}
     assert template["decision"]["status"] == "request-changes"
+
+
+def test_every_provider_reference_carries_execution_and_report_identity() -> None:
+    template = yaml.safe_load(
+        (SKILL / "templates/migration-assessment.yaml.template").read_text(encoding="utf-8")
+    )
+    references = [
+        template["applicability"][0]["verification"][0]["evidence"],
+        template["artifact_verification"]["artifacts"][0]["evidence"],
+        template["compatibility_results"][0]["evidence"],
+    ]
+    required = {
+        "workflow_path",
+        "workflow_name",
+        "event",
+        "job_name",
+        "check_run_id",
+        "lane",
+        "artifact_id",
+        "artifact_name",
+        "provider_digest",
+        "report_path",
+        "report_digest",
+    }
+    for reference in references:
+        assert required <= set(reference)
 
 
 def test_manifest_requires_repository_adoption_contract_and_mcp_extension() -> None:
