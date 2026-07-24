@@ -8,6 +8,7 @@ import hashlib
 import json
 import os
 import re
+import stat
 import sys
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -22,7 +23,6 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-# Direct script execution needs the repository root before the package import.
 from contracts.evidence import EvidenceVerifier, GitHubEvidenceVerifier  # noqa: E402
 from contracts.semver import is_semver  # noqa: E402
 
@@ -31,8 +31,9 @@ DEFAULT_SCHEMA = Path(__file__).with_name("adoption-assessment.schema.json")
 DEFAULT_SKILLS = ROOT / "skills"
 FULL_SHA = re.compile(r"[0-9a-f]{40}")
 DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
+WORKFLOW_PATH = re.compile(r"[.]github/workflows/[A-Za-z0-9._/-]+[.]ya?ml")
 PLACEHOLDER = re.compile(
-    r"(?:replace(?:-with|-me)?|full-immutable|yyyy-mm-dd|not-run|not-tested|todo|tbd|example\.invalid)",
+    r"(?:replace(?:-with|-me)?|full-immutable|yyyy-mm-dd|not-run|not-tested|todo|tbd|example[.]invalid)",
     re.IGNORECASE,
 )
 ALLOWED_STATUSES = {"applicable", "not-applicable", "deferred"}
@@ -40,6 +41,7 @@ ALLOWED_DECISIONS = {"approve", "request-changes", "rejected"}
 ALLOWED_RESULTS = {"passed", "failed", "not-run"}
 MCP_TRANSPORTS = {"stdio", "streamable_http"}
 VERIFICATION_MODES = {"structural-attestation", "provider-backed"}
+ACTION_EVENTS = {"pull_request", "push", "workflow_dispatch", "workflow_run"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,7 +69,13 @@ def _sequence(value: object, location: str, findings: list[Finding]) -> Sequence
     return value
 
 
-def _text(value: object, location: str, findings: list[Finding], *, allow_placeholder: bool = False) -> str:
+def _text(
+    value: object,
+    location: str,
+    findings: list[Finding],
+    *,
+    allow_placeholder: bool = False,
+) -> str:
     if not isinstance(value, str) or not value.strip():
         findings.append(Finding(location, "must be a non-empty string"))
         return ""
@@ -77,11 +85,15 @@ def _text(value: object, location: str, findings: list[Finding], *, allow_placeh
     return normalized
 
 
-def _text_list(value: object, location: str, findings: list[Finding], *, nonempty: bool = False) -> list[str]:
+def _text_list(
+    value: object,
+    location: str,
+    findings: list[Finding],
+    *,
+    nonempty: bool = False,
+) -> list[str]:
     values = _sequence(value, location, findings)
-    result: list[str] = []
-    for index, item in enumerate(values):
-        result.append(_text(item, f"{location}[{index}]", findings))
+    result = [_text(item, f"{location}[{index}]", findings) for index, item in enumerate(values)]
     if nonempty and not result:
         findings.append(Finding(location, "must contain at least one value"))
     return result
@@ -171,12 +183,19 @@ def _identity(value: object, location: str, findings: list[Finding]) -> tuple[st
     provider = _text(identity.get("provider"), f"{location}.provider", findings)
     login = _text(identity.get("login"), f"{location}.login", findings)
     raw_id = identity.get("id")
-    if not isinstance(raw_id, int) or isinstance(raw_id, bool) or raw_id <= 0:
+    if type(raw_id) is not int or raw_id <= 0:
         findings.append(Finding(f"{location}.id", "must be a positive integer"))
         numeric_id = 0
     else:
         numeric_id = raw_id
     return provider.casefold(), numeric_id, login.casefold()
+
+
+def _positive_int(value: object, location: str, findings: list[Finding]) -> int:
+    if type(value) is not int or value <= 0:
+        findings.append(Finding(location, "must be a positive integer"))
+        return 0
+    return value
 
 
 def _evidence_reference(
@@ -196,16 +215,55 @@ def _evidence_reference(
     evidence_revision = _text(evidence.get("revision"), f"{location}.revision", findings)
     if evidence_revision and revision and evidence_revision != revision:
         findings.append(Finding(f"{location}.revision", "must equal repository.revision"))
-    for field in ("run_id", "job_id"):
-        raw = evidence.get(field)
-        if not isinstance(raw, int) or isinstance(raw, bool) or raw <= 0:
-            findings.append(Finding(f"{location}.{field}", "must be a positive integer"))
+    for field in ("run_id", "job_id", "check_run_id", "artifact_id"):
+        _positive_int(evidence.get(field), f"{location}.{field}", findings)
+    if evidence.get("workflow_id") is not None:
+        _positive_int(evidence.get("workflow_id"), f"{location}.workflow_id", findings)
+    workflow_path = _text(evidence.get("workflow_path"), f"{location}.workflow_path", findings)
+    if workflow_path and WORKFLOW_PATH.fullmatch(workflow_path) is None:
+        findings.append(Finding(f"{location}.workflow_path", "must identify a .github/workflows YAML file"))
+    for field in ("workflow_name", "job_name", "lane", "artifact_name", "report_path"):
+        _text(evidence.get(field), f"{location}.{field}", findings)
+    event = _text(evidence.get("event"), f"{location}.event", findings)
+    if event and event not in ACTION_EVENTS:
+        findings.append(Finding(f"{location}.event", f"must be one of {sorted(ACTION_EVENTS)}"))
+    report_path = evidence.get("report_path")
+    if isinstance(report_path, str) and (
+        report_path.startswith(("/", "\\"))
+        or "\\" in report_path
+        or any(part in {"", ".", ".."} for part in report_path.split("/"))
+    ):
+        findings.append(Finding(f"{location}.report_path", "must be a safe relative POSIX path"))
+    for field in ("provider_digest", "report_digest"):
+        digest = _text(evidence.get(field), f"{location}.{field}", findings)
+        if digest and DIGEST.fullmatch(digest) is None:
+            findings.append(
+                Finding(
+                    f"{location}.{field}",
+                    "must be a sha256 digest with 64 lowercase hex digits",
+                )
+            )
     return evidence
 
 
 def _provider_findings(location: str, messages: Sequence[str], findings: list[Finding]) -> None:
     for message in messages:
         findings.append(Finding(location, f"provider verification failed: {message}"))
+
+
+def _command_digest(command: str) -> str:
+    return f"sha256:{hashlib.sha256(command.encode('utf-8')).hexdigest()}"
+
+
+def _commands_digest(commands: Sequence[str]) -> str:
+    encoded = json.dumps(list(commands), ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    return f"sha256:{hashlib.sha256(encoded).hexdigest()}"
+
+
+def _with_claim(evidence: Mapping[str, Any], claim: Mapping[str, Any]) -> Mapping[str, Any]:
+    enriched = dict(evidence)
+    enriched["_expected_claim"] = dict(claim)
+    return enriched
 
 
 def _combination(value: object, location: str, findings: list[Finding]) -> tuple[str, str, str, str, str]:
@@ -217,6 +275,17 @@ def _combination(value: object, location: str, findings: list[Finding]) -> tuple
         _text(combination.get("version"), f"{location}.version", findings),
         _text(combination.get("lane"), f"{location}.lane", findings),
     )
+
+
+def _combination_object(combination: tuple[str, str, str, str, str]) -> dict[str, str]:
+    operating_system, architecture, runtime, version, lane = combination
+    return {
+        "operating_system": operating_system,
+        "architecture": architecture,
+        "runtime": runtime,
+        "version": version,
+        "lane": lane,
+    }
 
 
 def _validate_compatibility(
@@ -236,7 +305,6 @@ def _validate_compatibility(
     }
     if not claimed:
         findings.append(Finding("compatibility_claims.combinations", "must claim at least one combination"))
-
     manifest_compatibility = _mapping(manifest.get("compatibility"), "manifest.compatibility", findings)
     raw_supported = _sequence(
         manifest_compatibility.get("tested_combinations"),
@@ -250,7 +318,10 @@ def _validate_compatibility(
     unsupported = claimed - supported
     if unsupported:
         findings.append(
-            Finding("compatibility_claims.combinations", f"unsupported combinations: {sorted(unsupported)}")
+            Finding(
+                "compatibility_claims.combinations",
+                f"unsupported combinations: {sorted(unsupported)}",
+            )
         )
 
     raw_results = _sequence(assessment.get("compatibility_results"), "compatibility_results", findings)
@@ -259,7 +330,7 @@ def _validate_compatibility(
         location = f"compatibility_results[{index}]"
         result = _mapping(raw, location, findings)
         combination = _combination(result, location, findings)
-        _text(result.get("command"), f"{location}.command", findings)
+        command = _text(result.get("command"), f"{location}.command", findings)
         evidence = _evidence_reference(
             result.get("evidence"),
             f"{location}.evidence",
@@ -270,32 +341,57 @@ def _validate_compatibility(
         outcome = result.get("result")
         if outcome not in ALLOWED_RESULTS:
             findings.append(Finding(f"{location}.result", f"must be one of {sorted(ALLOWED_RESULTS)}"))
+        if str(evidence.get("lane") or "") != combination[4]:
+            findings.append(Finding(f"{location}.evidence.lane", "must equal the claimed compatibility lane"))
         if outcome == "passed":
             passed.add(combination)
             if verifier is not None:
+                subject = "|".join(combination)
+                claim = {
+                    "kind": "compatibility",
+                    "subject": subject,
+                    "result": "passed",
+                    "command_digest": _command_digest(command),
+                    "combination": _combination_object(combination),
+                }
                 _provider_findings(
                     f"{location}.evidence",
-                    verifier.verify_action(evidence, revision),
+                    verifier.verify_action(_with_claim(evidence, claim), revision),
                     findings,
                 )
     missing = claimed - passed
     if missing:
         findings.append(
-            Finding("compatibility_results", f"missing passed evidence for combinations: {sorted(missing)}")
+            Finding(
+                "compatibility_results",
+                f"missing passed evidence for combinations: {sorted(missing)}",
+            )
         )
 
 
 def _safe_repository_path(repository_root: Path, raw_path: str) -> Path | None:
     candidate = Path(raw_path)
-    if candidate.is_absolute() or ".." in candidate.parts:
+    if not raw_path or candidate.is_absolute() or any(part in {"", ".", ".."} for part in candidate.parts):
         return None
-    root = repository_root.resolve()
-    resolved = (root / candidate).resolve(strict=False)
     try:
-        resolved.relative_to(root)
-    except ValueError:
+        root = repository_root.resolve(strict=True)
+    except OSError:
         return None
-    return resolved
+    current = root
+    for part in candidate.parts:
+        current = current / part
+        if os.path.lexists(current):
+            try:
+                mode = current.lstat().st_mode
+            except OSError:
+                return None
+            if stat.S_ISLNK(mode):
+                return None
+    try:
+        current.resolve(strict=False).relative_to(root)
+    except (OSError, ValueError):
+        return None
+    return current
 
 
 def _validate_implementation(
@@ -309,7 +405,7 @@ def _validate_implementation(
     symbol = _text(implementation.get("symbol"), f"{location}.symbol", findings)
     candidate = _safe_repository_path(repository_root, path_text) if path_text else None
     if candidate is None:
-        findings.append(Finding(f"{location}.path", "must be a repository-relative path inside repository_root"))
+        findings.append(Finding(f"{location}.path", "must be a repository-relative path without symlinks"))
         return
     if not candidate.is_file():
         findings.append(Finding(f"{location}.path", "does not identify an existing file"))
@@ -346,12 +442,12 @@ def _validate_applicability(
         entries[rule_id] = entry
         if rule_id not in catalog_rules:
             findings.append(Finding(f"{location}.rule_id", "does not exist in the stable rule catalog"))
-        status = entry.get("status")
-        if status not in ALLOWED_STATUSES:
+        status_value = entry.get("status")
+        if status_value not in ALLOWED_STATUSES:
             findings.append(Finding(f"{location}.status", f"must be one of {sorted(ALLOWED_STATUSES)}"))
         _text(entry.get("rationale"), f"{location}.rationale", findings)
         waiver_id = entry.get("waiver_id")
-        if status == "applicable":
+        if status_value == "applicable":
             implementations = _sequence(entry.get("implementation"), f"{location}.implementation", findings)
             verifications = _sequence(entry.get("verification"), f"{location}.verification", findings)
             if not implementations:
@@ -360,12 +456,16 @@ def _validate_applicability(
                 findings.append(Finding(f"{location}.verification", "applicable rule needs executable verification"))
             for impl_index, raw_impl in enumerate(implementations):
                 impl_location = f"{location}.implementation[{impl_index}]"
-                implementation = _mapping(raw_impl, impl_location, findings)
-                _validate_implementation(implementation, impl_location, findings, repository_root=repository_root)
+                _validate_implementation(
+                    _mapping(raw_impl, impl_location, findings),
+                    impl_location,
+                    findings,
+                    repository_root=repository_root,
+                )
             for verification_index, raw_verification in enumerate(verifications):
                 verification_location = f"{location}.verification[{verification_index}]"
                 verification = _mapping(raw_verification, verification_location, findings)
-                _text(verification.get("command"), f"{verification_location}.command", findings)
+                command = _text(verification.get("command"), f"{verification_location}.command", findings)
                 evidence = _evidence_reference(
                     verification.get("evidence"),
                     f"{verification_location}.evidence",
@@ -376,17 +476,23 @@ def _validate_applicability(
                 if verification.get("result") != "passed":
                     findings.append(Finding(f"{verification_location}.result", "must be passed"))
                 elif verifier is not None:
+                    claim = {
+                        "kind": "rule",
+                        "subject": rule_id,
+                        "result": "passed",
+                        "command_digest": _command_digest(command),
+                    }
                     _provider_findings(
                         f"{verification_location}.evidence",
-                        verifier.verify_action(evidence, revision),
+                        verifier.verify_action(_with_claim(evidence, claim), revision),
                         findings,
                     )
             if waiver_id is not None:
                 findings.append(Finding(f"{location}.waiver_id", "applicable rule must not use a waiver"))
-        elif status == "not-applicable":
+        elif status_value == "not-applicable":
             if waiver_id is not None:
                 findings.append(Finding(f"{location}.waiver_id", "not-applicable rule must not use a waiver"))
-        elif status == "deferred":
+        elif status_value == "deferred":
             _text(waiver_id, f"{location}.waiver_id", findings)
 
     missing = catalog_rules - set(entries)
@@ -405,7 +511,12 @@ def _validate_applicability(
         rule_id = _text(waiver.get("rule_id"), f"{location}.rule_id", findings)
         _text(waiver.get("owner"), f"{location}.owner", findings)
         _text(waiver.get("rationale"), f"{location}.rationale", findings)
-        _text_list(waiver.get("compensating_controls"), f"{location}.compensating_controls", findings, nonempty=True)
+        _text_list(
+            waiver.get("compensating_controls"),
+            f"{location}.compensating_controls",
+            findings,
+            nonempty=True,
+        )
         expiry = _date(waiver.get("expires_at"), f"{location}.expires_at", findings)
         if expiry is not None and expiry < as_of:
             findings.append(Finding(f"{location}.expires_at", f"waiver expired before {as_of.isoformat()}"))
@@ -424,20 +535,47 @@ def _validate_applicability(
 
 
 def _tree_digest(path: Path) -> str:
+    root_mode = path.lstat().st_mode
+    if stat.S_ISLNK(root_mode) or not stat.S_ISDIR(root_mode):
+        raise ValueError("artifact directory must be a real directory")
     digest = hashlib.sha256()
-    for child in sorted(item for item in path.rglob("*") if item.is_file()):
-        relative = child.relative_to(path).as_posix().encode()
-        digest.update(len(relative).to_bytes(8, "big"))
-        digest.update(relative)
-        content = child.read_bytes()
-        digest.update(len(content).to_bytes(8, "big"))
-        digest.update(content)
+    for current_root, directory_names, file_names in os.walk(path, topdown=True, followlinks=False):
+        directory_names[:] = sorted(directory_names)
+        current = Path(current_root)
+        for name in list(directory_names):
+            child = current / name
+            mode = child.lstat().st_mode
+            if stat.S_ISLNK(mode):
+                raise ValueError(f"artifact tree contains symlink: {child.relative_to(path).as_posix()}")
+            if not stat.S_ISDIR(mode):
+                raise ValueError(
+                    f"artifact tree contains a non-directory entry: {child.relative_to(path).as_posix()}"
+                )
+        for name in sorted(file_names):
+            child = current / name
+            mode = child.lstat().st_mode
+            relative = child.relative_to(path).as_posix()
+            if stat.S_ISLNK(mode):
+                raise ValueError(f"artifact tree contains symlink: {relative}")
+            if not stat.S_ISREG(mode):
+                raise ValueError(f"artifact tree contains a non-regular file: {relative}")
+            relative_bytes = relative.encode("utf-8")
+            content = child.read_bytes()
+            digest.update(len(relative_bytes).to_bytes(8, "big"))
+            digest.update(relative_bytes)
+            digest.update(len(content).to_bytes(8, "big"))
+            digest.update(content)
     return f"sha256:{digest.hexdigest()}"
 
 
 def _path_digest(path: Path) -> str:
-    if path.is_dir():
+    mode = path.lstat().st_mode
+    if stat.S_ISLNK(mode):
+        raise ValueError("artifact path must not be a symlink")
+    if stat.S_ISDIR(mode):
         return _tree_digest(path)
+    if not stat.S_ISREG(mode):
+        raise ValueError("artifact path must be a regular file or directory")
     return f"sha256:{hashlib.sha256(path.read_bytes()).hexdigest()}"
 
 
@@ -461,12 +599,12 @@ def _validate_artifacts(
         location = f"artifact_verification.artifacts[{index}]"
         artifact = _mapping(raw, location, findings)
         _text(artifact.get("kind"), f"{location}.kind", findings)
-        _text(artifact.get("identity"), f"{location}.identity", findings)
+        identity = _text(artifact.get("identity"), f"{location}.identity", findings)
         path_text = _text(artifact.get("path"), f"{location}.path", findings)
         digest = _text(artifact.get("digest"), f"{location}.digest", findings)
         if digest and DIGEST.fullmatch(digest) is None:
             findings.append(Finding(f"{location}.digest", "must be a sha256 digest with 64 lowercase hex digits"))
-        _text_list(artifact.get("commands"), f"{location}.commands", findings, nonempty=True)
+        commands = _text_list(artifact.get("commands"), f"{location}.commands", findings, nonempty=True)
         evidence = _evidence_reference(
             artifact.get("evidence"),
             f"{location}.evidence",
@@ -474,42 +612,35 @@ def _validate_artifacts(
             repository=repository,
             revision=revision,
         )
-        artifact_id = evidence.get("artifact_id")
-        if not isinstance(artifact_id, int) or isinstance(artifact_id, bool) or artifact_id <= 0:
-            findings.append(Finding(f"{location}.evidence.artifact_id", "must be a positive integer"))
-        provider_digest = _text(
-            evidence.get("provider_digest"),
-            f"{location}.evidence.provider_digest",
-            findings,
-        )
-        if provider_digest and DIGEST.fullmatch(provider_digest) is None:
-            findings.append(
-                Finding(
-                    f"{location}.evidence.provider_digest",
-                    "must be a sha256 digest with 64 lowercase hex digits",
-                )
-            )
+        provider_digest = str(evidence.get("provider_digest") or "")
         if artifact.get("result") != "passed":
             findings.append(Finding(f"{location}.result", "must be passed"))
 
         candidate = _safe_repository_path(repository_root, path_text) if path_text else None
         if candidate is None:
-            findings.append(Finding(f"{location}.path", "must be a repository-relative path inside repository_root"))
-        elif not candidate.exists() or candidate.is_symlink():
+            findings.append(Finding(f"{location}.path", "must be a repository-relative path without symlinks"))
+        elif not os.path.lexists(candidate):
             findings.append(Finding(f"{location}.path", "must identify an existing non-symlink artifact"))
         elif digest and DIGEST.fullmatch(digest) is not None:
             try:
                 observed = _path_digest(candidate)
-            except OSError as exc:
-                findings.append(Finding(f"{location}.path", f"cannot read artifact: {exc}"))
+            except (OSError, ValueError) as exc:
+                findings.append(Finding(f"{location}.path", f"cannot read artifact safely: {exc}"))
             else:
                 if observed != digest:
                     findings.append(Finding(f"{location}.digest", "does not match the artifact at path"))
 
         if artifact.get("result") == "passed" and verifier is not None and provider_digest:
+            claim = {
+                "kind": "artifact",
+                "subject": identity,
+                "result": "passed",
+                "content_digest": digest,
+                "commands_digest": _commands_digest(commands),
+            }
             _provider_findings(
                 f"{location}.evidence",
-                verifier.verify_artifact(evidence, revision, provider_digest),
+                verifier.verify_artifact(_with_claim(evidence, claim), revision, provider_digest),
                 findings,
             )
 
@@ -531,12 +662,22 @@ def _validate_mcp_extension(
         findings.append(Finding("extensions.mcp.target_level", "must be L1, L2, L3, or L4"))
     _text_list(mcp.get("profiles"), "extensions.mcp.profiles", findings, nonempty=True)
     advertised = set(
-        _text_list(mcp.get("advertised_transports"), "extensions.mcp.advertised_transports", findings, nonempty=True)
+        _text_list(
+            mcp.get("advertised_transports"),
+            "extensions.mcp.advertised_transports",
+            findings,
+            nonempty=True,
+        )
     )
     unknown = advertised - MCP_TRANSPORTS
     if unknown:
         findings.append(Finding("extensions.mcp.advertised_transports", f"unsupported transports: {sorted(unknown)}"))
-    _text_list(mcp.get("official_client_commands"), "extensions.mcp.official_client_commands", findings, nonempty=True)
+    _text_list(
+        mcp.get("official_client_commands"),
+        "extensions.mcp.official_client_commands",
+        findings,
+        nonempty=True,
+    )
     results = _mapping(mcp.get("transport_results"), "extensions.mcp.transport_results", findings)
     for transport in advertised:
         result = _mapping(results.get(transport), f"extensions.mcp.transport_results.{transport}", findings)
@@ -545,19 +686,27 @@ def _validate_mcp_extension(
             check = _mapping(result.get(field), location, findings)
             if check.get("result") not in {"passed", "not-applicable"}:
                 findings.append(Finding(f"{location}.result", "must be passed or explicitly not-applicable"))
-            evidence = _evidence_reference(
-                check.get("evidence"),
-                f"{location}.evidence",
-                findings,
-                repository=repository,
-                revision=revision,
-            )
-            if check.get("result") == "passed" and verifier is not None:
-                _provider_findings(
+            if check.get("result") == "passed":
+                evidence = _evidence_reference(
+                    check.get("evidence"),
                     f"{location}.evidence",
-                    verifier.verify_action(evidence, revision),
                     findings,
+                    repository=repository,
+                    revision=revision,
                 )
+                if verifier is not None:
+                    claim = {
+                        "kind": "transport",
+                        "subject": f"{transport}:{field}",
+                        "result": "passed",
+                    }
+                    _provider_findings(
+                        f"{location}.evidence",
+                        verifier.verify_action(_with_claim(evidence, claim), revision),
+                        findings,
+                    )
+            elif check.get("result") == "not-applicable" and check.get("evidence") is not None:
+                findings.append(Finding(f"{location}.evidence", "must be null when result is not-applicable"))
 
 
 def validate_document(
@@ -609,10 +758,10 @@ def validate_document(
             findings.append(Finding("skill.maturity", "must equal the selected skill manifest maturity"))
 
     decision = _mapping(assessment.get("decision"), "decision", findings)
-    status = decision.get("status")
-    if status not in ALLOWED_DECISIONS:
+    decision_status = decision.get("status")
+    if decision_status not in ALLOWED_DECISIONS:
         findings.append(Finding("decision.status", f"must be one of {sorted(ALLOWED_DECISIONS)}"))
-    approval_gate = require_approval or status == "approve"
+    approval_gate = require_approval or decision_status == "approve"
     if approval_gate and mode != "provider-backed":
         findings.append(Finding("verification_mode", "approval requires provider-backed evidence"))
     if mode == "provider-backed" and evidence_verifier is None:
@@ -677,7 +826,7 @@ def validate_document(
         _text(risk.get("risk"), f"{location}.risk", findings)
         _text(risk.get("owner"), f"{location}.owner", findings)
         _text(risk.get("mitigation"), f"{location}.mitigation", findings)
-        if risk.get("blocking") not in {True, False}:
+        if type(risk.get("blocking")) is not bool:
             findings.append(Finding(f"{location}.blocking", "must be a boolean"))
 
     _text(decision.get("rationale"), "decision.rationale", findings)
@@ -696,18 +845,16 @@ def validate_document(
         for identity in prepared
     ):
         findings.append(Finding("decision.reviewer", "must be independent from every prepared_by identity"))
-    if status == "approve" and reviewer_state != "APPROVED":
+    if decision_status == "approve" and reviewer_state != "APPROVED":
         findings.append(Finding("decision.reviewer.state", "must be APPROVED for an approval decision"))
-    if require_approval and status != "approve":
+    if require_approval and decision_status != "approve":
         findings.append(Finding("decision.status", "must be approve for an acceptance gate"))
-    if status == "approve" and any(isinstance(risk, Mapping) and risk.get("blocking") is True for risk in risks):
+    if decision_status == "approve" and any(
+        isinstance(risk, Mapping) and risk.get("blocking") is True for risk in risks
+    ):
         findings.append(Finding("decision.status", "cannot approve while a blocking residual risk remains"))
-    if status == "approve" and verifier is not None:
-        _provider_findings(
-            "decision.reviewer",
-            verifier.verify_review(reviewer_value, revision),
-            findings,
-        )
+    if decision_status == "approve" and verifier is not None:
+        _provider_findings("decision.reviewer", verifier.verify_review(reviewer_value, revision), findings)
 
     return sorted(set(findings), key=lambda finding: (finding.location, finding.message))
 
