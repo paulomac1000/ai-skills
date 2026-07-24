@@ -1,0 +1,102 @@
+name: Generate exact target locks
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/_generate-target-locks.yml
+
+permissions:
+  contents: read
+
+jobs:
+  generate:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            architecture: x64
+            python: "3.12"
+            lock_id: linux-x64-py312
+            bootstrap_lock: requirements-dev-linux.lock
+          - os: ubuntu-latest
+            architecture: x64
+            python: "3.13"
+            lock_id: linux-x64-py313
+            bootstrap_lock: requirements-dev-linux.lock
+          - os: ubuntu-latest
+            architecture: x64
+            python: "3.14"
+            lock_id: linux-x64-py314
+            bootstrap_lock: requirements-dev-linux.lock
+          - os: macos-latest
+            architecture: arm64
+            python: "3.12"
+            lock_id: macos-arm64-py312
+            bootstrap_lock: requirements-dev-macos.lock
+          - os: windows-latest
+            architecture: x64
+            python: "3.12"
+            lock_id: windows-x64-py312
+            bootstrap_lock: requirements-dev-windows.lock
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: ${{ matrix.python }}
+          architecture: ${{ matrix.architecture }}
+          cache: pip
+          cache-dependency-path: ${{ matrix.bootstrap_lock }}
+      - name: Materialize and verify reviewed dependency inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          path = Path("requirements-dev.in")
+          lines = path.read_text(encoding="utf-8").splitlines()
+          if "jsonschema==4.26.0" not in lines:
+              lines.insert(lines.index("build==1.5.1") + 1, "jsonschema==4.26.0")
+          path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+          PY
+          printf '%s  %s\n' \
+            e71ad4c213726ff6d22292829f6d715f92c4164461160319191a648ea7766302 requirements-dev.in \
+            70b2a08c51918eca79839bed1364341d8bb8922366429314d6193cbaa192f046 skills/mcp-server-architect/locks/python-runtime.in \
+            29423057f995f5cb0cef224b6033e16cb5021918670a041ecb3e88b054973df0 skills/mcp-server-architect/locks/python-dev.in \
+            | sha256sum --check --strict
+      - name: Install pinned lock compiler
+        shell: bash
+        env:
+          BOOTSTRAP_LOCK: ${{ matrix.bootstrap_lock }}
+        run: |
+          set -euo pipefail
+          python -m pip install --require-hashes -r "$BOOTSTRAP_LOCK"
+          python -m pip check
+      - name: Resolve native target graphs
+        shell: bash
+        env:
+          LOCK_ID: ${{ matrix.lock_id }}
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          python -m piptools compile --allow-unsafe --generate-hashes --strip-extras \
+            --output-file "out/requirements-dev-${LOCK_ID}.lock" requirements-dev.in
+          python -m piptools compile --allow-unsafe --generate-hashes --strip-extras \
+            --output-file "out/runtime-${LOCK_ID}.lock" skills/mcp-server-architect/locks/python-runtime.in
+          python -m piptools compile --allow-unsafe --generate-hashes --strip-extras \
+            --output-file "out/dev-${LOCK_ID}.lock" skills/mcp-server-architect/locks/python-dev.in
+          python -m pip install --require-hashes -r "out/requirements-dev-${LOCK_ID}.lock"
+          python -m pip check
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v4.6.2
+        with:
+          name: target-locks-${{ matrix.lock_id }}
+          path: out/*.lock
+          if-no-files-found: error
+          retention-days: 1
