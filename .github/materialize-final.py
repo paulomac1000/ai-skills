@@ -16,14 +16,14 @@ from zipfile import ZipFile
 REPOSITORY = os.environ["GH_REPOSITORY"]
 TOKEN = os.environ["GH_TOKEN"]
 PARENT_SHA = os.environ["PARENT_SHA"]
-EXPECTED_TREE = "f14d2e1c8180992beafc0b27784ef75815a597bd"
-GENERATED_REVISION = "c93a728e572ad9260555707cd46d0a6db42ca09f"
+EXPECTED_TREE = "46e2e497965467713cfb77c800f24c7bdb1f9b14"
+GENERATED_REVISION = "840cc5fe26605bf24eb4706e8937be4ebca7cc64"
 ARTIFACTS = {
-    "linux-x64-py312": (8602866324, "sha256:3c0c75f2cc49d2c4a3f53604abd3504987152ffa753b105a9a0cc479ba6e1b6c"),
-    "linux-x64-py313": (8602853663, "sha256:f318a2f6d9b401b8b9cbb4e7f0ddd89be2011a231d782976aaf5111e0fddc6df"),
-    "linux-x64-py314": (8602860005, "sha256:df3ff7d3b9d0858770da223daceb1b23f58940c56f6b005775db814130746e06"),
-    "macos-arm64-py312": (8602859605, "sha256:09d29193580287dedc3f354e967121f7a58fa40e7e9be78dc677afb891031df1"),
-    "windows-x64-py312": (8602875685, "sha256:3d1a6c056d051f396b37307eccb9ceb03335f0c16003d771b0306cc40d1bee93"),
+    "linux-x64-py312": (8605177378, "sha256:625dba09cca79be5d45f3510bcd1003738d0cb2fcdb4c5d9a5b17724f744ec92"),
+    "linux-x64-py313": (8605178514, "sha256:bef11adbd6f9884b3cec72002c176e6b696cb56f75bf8c77bd9d14dd4b7ce6f6"),
+    "linux-x64-py314": (8605180632, "sha256:3a0823af6b0d44e604f93456b80ec0eb234976bc7e58a8a13a2ef1080b23671c"),
+    "macos-arm64-py312": (8605185071, "sha256:98a0da68ebd8511b7da0616e08bf948dafbeeafa4792b5761c094a79d4390881"),
+    "windows-x64-py312": (8605214691, "sha256:c4d58fa2f1ff4a50fb6ed05e33cdd7d5d7ca87b27dffdc437c0f495f0b6b5c87"),
 }
 API_HEADERS = {
     "Accept": "application/vnd.github+json",
@@ -70,6 +70,13 @@ def download_artifact(artifact_id: int) -> bytes:
 
 
 def stage_final_tree() -> None:
+    requirements_path = Path("requirements-dev.in")
+    requirements = requirements_path.read_text(encoding="utf-8").splitlines()
+    stub_requirement = "types-jsonschema==4.26.0.20260518"
+    if stub_requirement not in requirements:
+        requirements.insert(requirements.index("setuptools==83.0.0") + 1, stub_requirement)
+    requirements_path.write_text("\n".join(requirements) + "\n", encoding="utf-8")
+
     for lock_id, (artifact_id, expected_digest) in ARTIFACTS.items():
         metadata = api_json(f"/actions/artifacts/{artifact_id}")
         if metadata.get("expired") is True or metadata.get("digest") != expected_digest:
