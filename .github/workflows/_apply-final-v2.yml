@@ -48,7 +48,18 @@ jobs:
       - name: Install exact development graph
         run: python scripts/install_locked.py
       - name: Run complete local gate
-        run: python scripts/ci.py
+        shell: bash
+        run: |
+          set -o pipefail
+          python scripts/ci.py 2>&1 | tee /tmp/final-gate.log
+      - name: Upload final gate diagnostics
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v4.6.2
+        with:
+          name: final-gate-diagnostics-${{ github.run_id }}
+          path: /tmp/final-gate.log
+          if-no-files-found: warn
+          retention-days: 1
       - name: Create verified clean commit object
         env:
           GH_TOKEN: ${{ github.token }}
