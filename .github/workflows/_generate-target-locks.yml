@@ -59,18 +59,25 @@ jobs:
         run: |
           set -euo pipefail
           python - <<'PY'
+          from hashlib import sha256
           from pathlib import Path
+
           path = Path("requirements-dev.in")
           lines = path.read_text(encoding="utf-8").splitlines()
           if "jsonschema==4.26.0" not in lines:
               lines.insert(lines.index("build==1.5.1") + 1, "jsonschema==4.26.0")
-          path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+          path.write_bytes(("\n".join(lines) + "\n").encode("utf-8"))
+
+          expected = {
+              "requirements-dev.in": "e71ad4c213726ff6d22292829f6d715f92c4164461160319191a648ea7766302",
+              "skills/mcp-server-architect/locks/python-runtime.in": "70b2a08c51918eca79839bed1364341d8bb8922366429314d6193cbaa192f046",
+              "skills/mcp-server-architect/locks/python-dev.in": "29423057f995f5cb0cef224b6033e16cb5021918670a041ecb3e88b054973df0",
+          }
+          for filename, digest in expected.items():
+              observed = sha256(Path(filename).read_bytes()).hexdigest()
+              if observed != digest:
+                  raise SystemExit(f"input digest mismatch for {filename}: {observed}")
           PY
-          printf '%s  %s\n' \
-            e71ad4c213726ff6d22292829f6d715f92c4164461160319191a648ea7766302 requirements-dev.in \
-            70b2a08c51918eca79839bed1364341d8bb8922366429314d6193cbaa192f046 skills/mcp-server-architect/locks/python-runtime.in \
-            29423057f995f5cb0cef224b6033e16cb5021918670a041ecb3e88b054973df0 skills/mcp-server-architect/locks/python-dev.in \
-            | sha256sum --check --strict
       - name: Install pinned lock compiler
         shell: bash
         env:
