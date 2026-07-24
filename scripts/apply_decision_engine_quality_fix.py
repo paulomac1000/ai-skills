@@ -10,12 +10,12 @@ TARGET = Path("skills/mcp-server-consumer/tools/decision_engine.py")
 
 def replace_once(text: str, old: str, new: str) -> str:
     """Replace one expected fragment, while allowing an already-applied result."""
-    if new in text:
-        return text
     count = text.count(old)
-    if count != 1:
-        raise RuntimeError(f"expected one source fragment, found {count}: {old[:80]!r}")
-    return text.replace(old, new)
+    if count == 1:
+        return text.replace(old, new)
+    if count == 0 and new in text:
+        return text
+    raise RuntimeError(f"expected one source fragment, found {count}: {old[:80]!r}")
 
 
 def main() -> int:
