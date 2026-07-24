@@ -1,7 +1,26 @@
+schema_version: 1
 name: mcp-server-architect
+version: 1.0.0-rc.1
+maturity: release-candidate
+skill_format: ai-skills/v1
+normative_entrypoint: STANDARD.md
+compatibility:
+  agent_contract: tool-capable-instruction-agent
+  operating_systems: [linux, macos, windows]
+  runtimes:
+    python: ">=3.12,<3.15"
+    dotnet: "10.0.x"
+dependencies:
+  skills: []
+  tools: [python, dotnet-sdk]
+deprecation:
+  policy: semantic-versioning
+  minimum_notice: one-minor-release
 required:
   - SKILL.md
   - STANDARD.md
+  - references/migration-assessment.md
+  - templates/migration-assessment.yaml.template
   - tools/generate_python_server.py
   - tools/generate_dotnet_server.py
-categories: [core, references, examples, tools]
+categories: [core, references, examples, templates, tools]
