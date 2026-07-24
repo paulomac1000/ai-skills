@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - .github/workflows/_diagnose-lock-artifacts.yml
+      - .github/materialize-final.py
 
 permissions:
   actions: read
