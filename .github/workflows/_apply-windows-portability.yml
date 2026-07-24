@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - .github/workflows/_apply-windows-portability.yml
+      - .github/windows-portability.patch
 
 permissions:
   contents: write
@@ -37,7 +38,7 @@ jobs:
           patch = Path(".github/windows-portability.patch")
           patch.write_bytes(patch.read_bytes().replace(b"\r\n", b"\n"))
           observed = sha256(patch.read_bytes()).hexdigest()
-          expected = "9b8010b0e9e39458babee6875f01e243d2da8efe53c1da6a05c836c879b25851"
+          expected = "b2aa2727d78df8dd3eaae83fe24ed0d77bec2e080aa476904ef297f7312a16ac"
           if observed != expected:
               raise SystemExit(f"patch digest mismatch: {observed}")
           PY
@@ -80,7 +81,7 @@ jobs:
           patch = Path(".github/windows-portability.patch")
           patch.write_bytes(patch.read_bytes().replace(b"\r\n", b"\n"))
           observed = sha256(patch.read_bytes()).hexdigest()
-          expected = "9b8010b0e9e39458babee6875f01e243d2da8efe53c1da6a05c836c879b25851"
+          expected = "b2aa2727d78df8dd3eaae83fe24ed0d77bec2e080aa476904ef297f7312a16ac"
           if observed != expected:
               raise SystemExit(f"patch digest mismatch: {observed}")
           PY
@@ -122,7 +123,7 @@ jobs:
           patch = Path(".github/windows-portability.patch")
           patch.write_bytes(patch.read_bytes().replace(b"\r\n", b"\n"))
           observed = sha256(patch.read_bytes()).hexdigest()
-          expected = "9b8010b0e9e39458babee6875f01e243d2da8efe53c1da6a05c836c879b25851"
+          expected = "b2aa2727d78df8dd3eaae83fe24ed0d77bec2e080aa476904ef297f7312a16ac"
           if observed != expected:
               raise SystemExit(f"patch digest mismatch: {observed}")
           PY
