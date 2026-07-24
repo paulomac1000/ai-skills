@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - .github/workflows/_apply-final-v2.yml
+      - .github/materialize-final.py
 
 permissions:
   actions: read
