@@ -14,10 +14,12 @@ def test_migration_assessment_template_covers_production_decision_evidence() -> 
     template = yaml.safe_load(
         (SKILL / "templates/migration-assessment.yaml.template").read_text(encoding="utf-8")
     )
+    manifest = yaml.safe_load((SKILL / "manifest.yaml").read_text(encoding="utf-8"))
 
     assert template["schema_version"] == 1
-    assert template["skill"]["name"] == "mcp-server-architect"
-    assert template["skill"]["version"] == "1.0.0-rc.1"
+    assert template["skill"]["name"] == manifest["name"]
+    assert template["skill"]["version"] == manifest["version"]
+    assert template["skill"]["maturity"] == manifest["maturity"]
     assert template["repository"]["revision"] == "full-immutable-commit-sha"
     assert template["applicability"]
     entry = template["applicability"][0]
