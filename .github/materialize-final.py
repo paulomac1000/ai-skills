@@ -177,48 +177,41 @@ def create_commit() -> None:
     if local_tree != EXPECTED_TREE:
         raise RuntimeError(f"local tree changed after validation: {local_tree}")
 
-    base_tree = subprocess.check_output(["git", "rev-parse", "HEAD^{tree}"], text=True).strip()
-    entries: list[dict[str, object]] = []
-    status_output = subprocess.check_output(
-        ["git", "diff", "--cached", "--name-status", "-z", "HEAD"],
+    subprocess.run(["git", "config", "user.name", "ai-skills-audit-bot"], check=True)
+    subprocess.run(
+        ["git", "config", "user.email", "ai-skills-audit-bot@users.noreply.github.com"],
+        check=True,
     )
-    fields = status_output.split(b"\0")
-    index = 0
-    while index < len(fields) - 1:
-        status = fields[index].decode("utf-8")
-        path = fields[index + 1].decode("utf-8")
-        index += 2
-        if status.startswith("R") or status.startswith("C"):
-            path = fields[index].decode("utf-8")
-            index += 1
-        if status == "D":
-            entries.append({"path": path, "mode": "100644", "type": "blob", "sha": None})
-            continue
-        mode_line = subprocess.check_output(["git", "ls-files", "-s", "--", path], text=True).strip()
-        mode = mode_line.split(None, 1)[0]
-        content = Path(path).read_text(encoding="utf-8")
-        entries.append({"path": path, "mode": mode, "type": "blob", "content": content})
+    subprocess.run(
+        ["git", "commit", "-m", "fix: verify production adoption evidence"],
+        check=True,
+    )
+    commit_sha = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+    commit_tree = subprocess.check_output(["git", "rev-parse", "HEAD^{tree}"], text=True).strip()
+    commit_parent = subprocess.check_output(["git", "rev-parse", "HEAD^"], text=True).strip()
+    if commit_tree != EXPECTED_TREE or commit_parent != PARENT_SHA:
+        raise RuntimeError(
+            f"commit identity mismatch: tree={commit_tree} parent={commit_parent}"
+        )
 
-    tree = post("/git/trees", {"base_tree": base_tree, "tree": entries})
-    tree_sha = str(tree.get("sha") or "")
-    if tree_sha != EXPECTED_TREE:
-        raise RuntimeError(f"GitHub tree mismatch: {tree_sha} != {EXPECTED_TREE}")
-    commit = post(
-        "/git/commits",
-        {
-            "message": "fix: verify production adoption evidence",
-            "tree": tree_sha,
-            "parents": [PARENT_SHA],
-        },
+    basic = base64.b64encode(f"x-access-token:{TOKEN}".encode("utf-8")).decode("ascii")
+    subprocess.run(
+        [
+            "git",
+            "-c",
+            f"http.https://github.com/.extraheader=AUTHORIZATION: basic {basic}",
+            "push",
+            f"--force-with-lease=refs/heads/refactor/skills-cleanup:{PARENT_SHA}",
+            "origin",
+            "HEAD:refs/heads/refactor/skills-cleanup",
+        ],
+        check=True,
     )
-    commit_sha = str(commit.get("sha") or "")
-    if len(commit_sha) != 40:
-        raise RuntimeError("GitHub did not return a commit SHA")
     Path("final-commit.txt").write_text(
-        f"commit={commit_sha}\ntree={tree_sha}\nparent={PARENT_SHA}\n",
+        f"commit={commit_sha}\ntree={commit_tree}\nparent={commit_parent}\n",
         encoding="utf-8",
     )
-    print(f"created verified commit {commit_sha}")
+    print(f"pushed verified commit {commit_sha}")
 
 
 if __name__ == "__main__":
