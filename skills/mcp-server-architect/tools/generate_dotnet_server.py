@@ -13,9 +13,11 @@ import sys
 import tempfile
 from pathlib import Path
 
-NAMESPACE_RE = re.compile(r"[A-Z][A-Za-z0-9]{1,62}$")
+_NAMESPACE_SEGMENT = r"[A-Z][A-Za-z0-9]{0,62}"
+NAMESPACE_RE = re.compile(rf"{_NAMESPACE_SEGMENT}(?:\.{_NAMESPACE_SEGMENT})*$")
 SERVER_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9 ._-]{1,78}$")
-RESERVED_NAMESPACES = frozenset({"System", "Microsoft", "ModelContextProtocol", "InventoryMcp"})
+RESERVED_NAMESPACE_ROOTS = frozenset({"System", "Microsoft", "ModelContextProtocol"})
+RESERVED_NAMESPACES = RESERVED_NAMESPACE_ROOTS | {"InventoryMcp"}
 TEMPLATE_ROOT = Path(__file__).with_name("dotnet-template")
 _AT_FDCWD = -100
 _RENAME_NOREPLACE = 1
@@ -23,13 +25,23 @@ _RENAME_EXCL = 0x00000004
 
 
 def _validate(namespace: str, server_name: str) -> None:
-    if not NAMESPACE_RE.fullmatch(namespace) or namespace in RESERVED_NAMESPACES:
-        raise ValueError("namespace must be a non-reserved PascalCase identifier with 2-63 characters")
+    """Validate portable project identity before touching the filesystem."""
+    root = namespace.partition(".")[0]
+    if (
+        len(namespace) > 191
+        or not NAMESPACE_RE.fullmatch(namespace)
+        or namespace in RESERVED_NAMESPACES
+        or root in RESERVED_NAMESPACE_ROOTS
+    ):
+        raise ValueError(
+            "namespace must be 1-191 characters of dot-separated, non-reserved PascalCase identifiers"
+        )
     if not SERVER_RE.fullmatch(server_name):
         raise ValueError("server name must be 2-79 safe display characters")
 
 
 def _render(value: str, *, namespace: str, server_name: str) -> str:
+    """Render one template path or body using the validated project identity."""
     return (
         value.replace("__NAMESPACE_LOWER__", namespace.lower())
         .replace("__NAMESPACE__", namespace)
@@ -57,6 +69,7 @@ def project_files(namespace: str, server_name: str) -> dict[str, str]:
 
 
 def _raise_rename_error(error_number: int, destination: Path) -> None:
+    """Translate platform rename errors without hiding unexpected failures."""
     if error_number in {errno.EEXIST, errno.ENOTEMPTY}:
         raise FileExistsError(error_number, "generation target already exists", destination)
     raise OSError(error_number, os.strerror(error_number), destination)
@@ -106,7 +119,7 @@ def generate_project(target: Path, namespace: str, server_name: str) -> list[Pat
         raise FileExistsError(errno.EEXIST, "generation target already exists", target)
 
     files = project_files(namespace, server_name)
-    staging = Path(tempfile.mkdtemp(prefix=f".{target.name}-", dir=target.parent))
+    staging: Path | None = Path(tempfile.mkdtemp(prefix=f".{target.name}-", dir=target.parent))
     try:
         for relative, content in sorted(files.items()):
             destination = staging / relative
@@ -121,12 +134,18 @@ def generate_project(target: Path, namespace: str, server_name: str) -> list[Pat
             shutil.rmtree(staging, ignore_errors=True)
 
 
-def main() -> int:
+def build_parser() -> argparse.ArgumentParser:
+    """Create the CLI parser separately so command-line validation is testable."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("target", type=Path)
     parser.add_argument("--namespace", required=True)
     parser.add_argument("--name", required=True)
-    args = parser.parse_args()
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Generate one project from validated command-line arguments."""
+    args = build_parser().parse_args(argv)
     generated = generate_project(args.target, args.namespace, args.name)
     print(f"generated {len(generated)} files in {args.target}")
     return 0
