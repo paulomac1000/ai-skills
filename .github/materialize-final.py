@@ -16,7 +16,7 @@ from zipfile import ZipFile
 REPOSITORY = os.environ["GH_REPOSITORY"]
 TOKEN = os.environ["GH_TOKEN"]
 PARENT_SHA = os.environ["PARENT_SHA"]
-EXPECTED_TREE = "7ab39e0764fc3b0d54f10acd4f947a1c1134c27a"
+EXPECTED_TREE = "f14d2e1c8180992beafc0b27784ef75815a597bd"
 GENERATED_REVISION = "c93a728e572ad9260555707cd46d0a6db42ca09f"
 ARTIFACTS = {
     "linux-x64-py312": (8602866324, "sha256:3c0c75f2cc49d2c4a3f53604abd3504987152ffa753b105a9a0cc479ba6e1b6c"),
@@ -115,12 +115,23 @@ def stage_final_tree() -> None:
         ".github/workflows/_apply-final-fixes.yml",
         ".github/workflows/_diagnose-lock-artifacts.yml",
         ".github/workflows/_apply-final-v2.yml",
+        ".github/workflows/_format-final-files.yml",
         ".github/materialize-final.py",
         ".github/final-code.patch.gz.b64",
     ]
     temporary_paths.extend(f".github/final-code.patch.part{index:02d}" for index in range(8))
     for path in temporary_paths:
         Path(path).unlink(missing_ok=True)
+
+    formatted_paths = [
+        "contracts/validate_adoption.py",
+        "skills/mcp-server-architect/tools/generate_python_server.py",
+    ]
+    subprocess.run([sys.executable, "-m", "ruff", "format", *formatted_paths], check=True)
+    subprocess.run(
+        [sys.executable, "-m", "ruff", "format", "--check", *formatted_paths],
+        check=True,
+    )
 
     subprocess.run(["git", "add", "-A"], check=True)
     subprocess.run(["git", "diff", "--cached", "--check"], check=True)
