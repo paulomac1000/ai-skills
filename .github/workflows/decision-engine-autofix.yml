@@ -25,23 +25,10 @@ jobs:
         with:
           python-version: "3.12"
       - name: Apply reviewed source transformation
-        id: transform
-        continue-on-error: true
         shell: bash
         run: |
           set -o pipefail
           python scripts/apply_decision_engine_quality_fix.py 2>&1 | tee decision-engine-autofix.log
-      - name: Upload transformation diagnostics
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: decision-engine-autofix-${{ github.run_id }}
-          path: decision-engine-autofix.log
-          if-no-files-found: error
-          retention-days: 1
-      - name: Enforce transformation result
-        if: always() && steps.transform.outcome != 'success'
-        run: exit 1
       - name: Apply deterministic Ruff modernization and formatting
         run: |
           python -m pip install ruff==0.15.22
