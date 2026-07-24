@@ -71,24 +71,18 @@ def main() -> int:
     )
     text = replace_once(
         text,
-        """    if isinstance(content, Sequence) and not isinstance(content, (str, bytes, bytearray)):
-        messages = [
+        """        messages = [
             item.get("text")
             for item in content
             if isinstance(item, Mapping) and isinstance(item.get("text"), str)
         ]
-        if messages:
-            return "MCP_TOOL_ERROR", "\n".join(messages)
 """,
-        """    if isinstance(content, Sequence) and not isinstance(content, (str, bytes, bytearray)):
-        messages: list[str] = []
+        """        messages: list[str] = []
         for item in content:
             if isinstance(item, Mapping):
                 item_text = item.get("text")
                 if isinstance(item_text, str):
                     messages.append(item_text)
-        if messages:
-            return "MCP_TOOL_ERROR", "\n".join(messages)
 """,
     )
     text = replace_once(
