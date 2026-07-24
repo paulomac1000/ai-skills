@@ -6,9 +6,10 @@ from __future__ import annotations
 import argparse
 import re
 import sys
+from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable, Iterator, Mapping
+from typing import Any
 from urllib.parse import unquote
 
 import yaml
@@ -20,9 +21,7 @@ REFERENCE_DEFINITION = re.compile(
     r"^(?P<indent>[ ]{0,3})\[(?P<label>[^\]\n]+)\]:[ \t]*(?P<raw>[^\r\n]+)$",
     re.M,
 )
-REFERENCE_LINK = re.compile(
-    r"(?<!\!)\[(?P<label>(?:\\.|[^\]\n])+)\]\[(?P<reference>[^\]\n]*)\]"
-)
+REFERENCE_LINK = re.compile(r"(?<!\!)\[(?P<label>(?:\\.|[^\]\n])+)\]\[(?P<reference>[^\]\n]*)\]")
 BRACKETED_LABEL = re.compile(r"\[(?P<label>(?:\\.|[^\]\n])+)\]")
 DOC_ID = re.compile(r"^(workflow|reference|system|guide|decision|contract)\.[a-z0-9][a-z0-9.-]*$")
 REQUIRED = {"description", "doc_id", "type", "status", "rigor", "owners"}
@@ -61,9 +60,7 @@ def collect_files(inputs: Iterable[Path]) -> tuple[list[Path], list[Finding]]:
                 files.add(item)
         elif item.is_dir():
             files.update(
-                path
-                for path in item.rglob("*.md")
-                if not {".git", ".venv", "__pycache__"}.intersection(path.parts)
+                path for path in item.rglob("*.md") if not {".git", ".venv", "__pycache__"}.intersection(path.parts)
             )
         else:
             findings.append(Finding(item, "unsupported input type"))
@@ -111,9 +108,7 @@ def strip_fenced_blocks(text: str) -> str:
 
         stripped = candidate.lstrip(" \t")
         indentation_prefix = candidate[: len(candidate) - len(stripped)]
-        closing = re.fullmatch(
-            rf"{re.escape(fence_character)}{{{minimum_length},}}[ \t]*", stripped
-        )
+        closing = re.fullmatch(rf"{re.escape(fence_character)}{{{minimum_length},}}[ \t]*", stripped)
         output.append(_blank_line(line))
         if closing and _indentation_columns(indentation_prefix) <= 3:
             fence_character = None
@@ -217,11 +212,7 @@ def iter_inline_link_destinations(text: str) -> Iterator[str]:
         if open_bracket is None or _is_escaped(text, open_bracket):
             cursor = close_bracket + 2
             continue
-        if (
-            open_bracket > 0
-            and text[open_bracket - 1] == "!"
-            and not _is_escaped(text, open_bracket - 1)
-        ):
+        if open_bracket > 0 and text[open_bracket - 1] == "!" and not _is_escaped(text, open_bracket - 1):
             cursor = close_bracket + 2
             continue
         start = close_bracket + 2
@@ -344,11 +335,7 @@ def validate(path: Path) -> list[Finding]:
         findings.append(Finding(path, "description must be a non-empty string"))
 
     owners = metadata.get("owners")
-    if not (
-        isinstance(owners, list)
-        and owners
-        and all(isinstance(owner, str) and owner.strip() for owner in owners)
-    ):
+    if not (isinstance(owners, list) and owners and all(isinstance(owner, str) and owner.strip() for owner in owners)):
         findings.append(Finding(path, "owners must be a non-empty list of role or team names"))
 
     doc_type = metadata.get("type")
@@ -387,7 +374,11 @@ def validate(path: Path) -> list[Finding]:
         if not (path.parent / target).resolve().exists():
             findings.append(Finding(path, f"broken relative link: {target}"))
 
-    if isinstance(rigor, str) and rigor in {"operational", "normative"} and not _has_explicit_verification(metadata, structural_body):
+    if (
+        isinstance(rigor, str)
+        and rigor in {"operational", "normative"}
+        and not _has_explicit_verification(metadata, structural_body)
+    ):
         findings.append(Finding(path, "missing explicit verification method"))
     return findings
 
