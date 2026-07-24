@@ -17,6 +17,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 GENERATOR = ROOT / "skills/mcp-server-architect/tools/generate_dotnet_server.py"
 FULL_SHA = re.compile(r"[0-9a-f]{40}")
+REQUIRED_DOTNET_SDK = "10.0.302"
 
 
 def load_generator():
@@ -28,21 +29,30 @@ def load_generator():
     return module
 
 
-
 def has_required_dotnet_sdk() -> bool:
     """Return whether the exact SDK pinned by the generated project is installed."""
     if shutil.which("dotnet") is None:
         return False
-    completed = subprocess.run(
-        ["dotnet", "--list-sdks"],
-        check=False,
-        capture_output=True,
-        text=True,
-        timeout=30,
-    )
+    try:
+        completed = subprocess.run(
+            ["dotnet", "--list-sdks"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
     return completed.returncode == 0 and any(
-        line.split()[0] == "10.0.302" for line in completed.stdout.splitlines() if line.split()
+        line.split()[0] == REQUIRED_DOTNET_SDK
+        for line in completed.stdout.splitlines()
+        if line.split()
     )
+
+
+def _ci_requires_dotnet() -> bool:
+    return os.environ.get("CI", "").casefold() == "true"
+
 
 def test_generator_emits_complete_deterministic_project(tmp_path: Path) -> None:
     generator = load_generator()
@@ -82,7 +92,13 @@ def test_generated_project_uses_public_sdk_and_fail_closed_controls(tmp_path: Pa
     generator = load_generator()
     target = tmp_path / "server"
     generator.generate_project(target, "Acme", "Acme MCP")
-    source = "\n".join(path.read_text(encoding="utf-8") for path in sorted((target / "src").rglob("*.cs")))
+
+    program = (target / "src/Acme.Mcp.Server/Program.cs").read_text(encoding="utf-8")
+    tools = (target / "src/Acme.Mcp.Server/Tools.cs").read_text(encoding="utf-8")
+    kernel = (target / "src/Acme.Mcp.Server/InvocationKernel.cs").read_text(encoding="utf-8")
+    manifest = (target / "src/Acme.Mcp.Server/CapabilityManifest.cs").read_text(encoding="utf-8")
+    approvals = (target / "src/Acme.Mcp.Server/ApprovalRegistry.cs").read_text(encoding="utf-8")
+    server_settings = (target / "src/Acme.Mcp.Server/ServerSettings.cs").read_text(encoding="utf-8")
 
     for token in (
         "ModelContextProtocol",
@@ -92,24 +108,29 @@ def test_generated_project_uses_public_sdk_and_fail_closed_controls(tmp_path: Pa
         "AddAuthorizationFilters",
         "WithTools<CapabilityTools>",
         "WithTools<InventoryTools>",
-        "ClaimsPrincipal? principal",
-        "UseStructuredContent = true",
-        "OutputSchemaType",
-        "throw new McpException",
-        "Capability manifests do not cover",
-        "record.Principal",
-        "RandomNumberGenerator.GetBytes(32)",
-        "expectedVersion",
-        "writes are disabled by operator policy",
         "ListenLocalhost",
         "MaxRequestBodySize",
         "RequireRateLimiting",
         "UseAuthorization();\n    app.UseRateLimiter();",
-        "StringComparison.OrdinalIgnoreCase",
-        "SHA256.HashData",
     ):
-        assert token in source
+        assert token in program
 
+    for token in (
+        "ClaimsPrincipal? principal",
+        "UseStructuredContent = true",
+        "OutputSchemaType",
+        "throw new McpException",
+    ):
+        assert token in tools
+
+    for token in ("expectedVersion", "writes are disabled by operator policy", "record.Principal"):
+        assert token in kernel
+    assert "Capability manifests do not cover" in manifest
+    assert "RandomNumberGenerator.GetBytes(32)" in approvals
+    assert "StringComparison.OrdinalIgnoreCase" in server_settings
+    assert "SHA256.HashData" in server_settings
+
+    all_sources = "\n".join((program, tools, kernel, manifest, approvals, server_settings))
     for forbidden in (
         "WithToolsFromAssembly",
         "EnableLegacySse",
@@ -119,7 +140,7 @@ def test_generated_project_uses_public_sdk_and_fail_closed_controls(tmp_path: Pa
         "Task.Run(",
         "confirmed: bool",
     ):
-        assert forbidden not in source
+        assert forbidden not in all_sources
 
     build_props = (target / "Directory.Build.props").read_text(encoding="utf-8")
     assert "<RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>" in build_props
@@ -169,7 +190,15 @@ def test_generated_project_uses_public_sdk_and_fail_closed_controls(tmp_path: Pa
 
 def test_generator_refuses_invalid_reserved_and_existing_targets(tmp_path: Path) -> None:
     generator = load_generator()
-    for namespace in ("a", "bad-name", "lowercase", "System", "Microsoft", "ModelContextProtocol", "InventoryMcp"):
+    for namespace in (
+        "a",
+        "bad-name",
+        "lowercase",
+        "System",
+        "Microsoft",
+        "ModelContextProtocol",
+        "InventoryMcp",
+    ):
         with pytest.raises(ValueError):
             generator.project_files(namespace, "Valid Server")
 
@@ -218,15 +247,22 @@ def test_generator_preserves_competing_target_created_before_publish(tmp_path: P
 
     monkeypatch.setattr(generator, "_rename_noreplace", competing_publish)
     with pytest.raises(FileExistsError):
-        generator.generate_project(target, "Acme", "Acme MCP")
+        generator.generate_project(target, "Acme", "Valid Server")
 
     assert (target / "owner.txt").read_text(encoding="utf-8") == "other process"
     assert not (target / "src").exists()
     assert not (tmp_path / ".server.generation.lock").exists()
 
 
-@pytest.mark.skipif(not has_required_dotnet_sdk(), reason="required .NET SDK 10.0.302 is unavailable")
+@pytest.mark.skipif(
+    not has_required_dotnet_sdk() and not _ci_requires_dotnet(),
+    reason=f"required .NET SDK {REQUIRED_DOTNET_SDK} is unavailable outside CI",
+)
 def test_generated_project_builds_and_passes_real_client_smoke(tmp_path: Path) -> None:
+    assert has_required_dotnet_sdk(), (
+        f"CI requires exact .NET SDK {REQUIRED_DOTNET_SDK}; "
+        "the mandatory artifact gate must fail rather than skip"
+    )
     generator = load_generator()
     target = tmp_path / "server"
     generator.generate_project(target, "Acme", "Acme MCP")
@@ -238,8 +274,28 @@ def test_generated_project_builds_and_passes_real_client_smoke(tmp_path: Path) -
         ["dotnet", "restore", project, "--locked-mode"],
         ["dotnet", "build", project, "--configuration", "Release", "--no-restore"],
         ["dotnet", "run", "--project", project, "--configuration", "Release", "--no-build", "--", server_dll],
-        ["dotnet", "run", "--project", project, "--configuration", "Release", "--no-build", "--", server_dll, "--http"],
-        ["dotnet", "publish", "src/Acme.Mcp.Server/Acme.Mcp.Server.csproj", "--configuration", "Release", "--no-build", "--output", "publish"],
+        [
+            "dotnet",
+            "run",
+            "--project",
+            project,
+            "--configuration",
+            "Release",
+            "--no-build",
+            "--",
+            server_dll,
+            "--http",
+        ],
+        [
+            "dotnet",
+            "publish",
+            "src/Acme.Mcp.Server/Acme.Mcp.Server.csproj",
+            "--configuration",
+            "Release",
+            "--no-build",
+            "--output",
+            "publish",
+        ],
         ["dotnet", smoke_dll, published],
         ["dotnet", smoke_dll, published, "--http"],
     ]
