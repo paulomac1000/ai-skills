@@ -30,7 +30,17 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          printf '%s  %s\n' 9b8010b0e9e39458babee6875f01e243d2da8efe53c1da6a05c836c879b25851 .github/windows-portability.patch | sha256sum --check --strict
+          python - <<'PY'
+          from hashlib import sha256
+          from pathlib import Path
+
+          patch = Path(".github/windows-portability.patch")
+          patch.write_bytes(patch.read_bytes().replace(b"\r\n", b"\n"))
+          observed = sha256(patch.read_bytes()).hexdigest()
+          expected = "9b8010b0e9e39458babee6875f01e243d2da8efe53c1da6a05c836c879b25851"
+          if observed != expected:
+              raise SystemExit(f"patch digest mismatch: {observed}")
+          PY
           git apply --check .github/windows-portability.patch
           git apply .github/windows-portability.patch
       - name: Run Windows-specific regression tests
@@ -63,7 +73,17 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          printf '%s  %s\n' 9b8010b0e9e39458babee6875f01e243d2da8efe53c1da6a05c836c879b25851 .github/windows-portability.patch | sha256sum --check --strict
+          python - <<'PY'
+          from hashlib import sha256
+          from pathlib import Path
+
+          patch = Path(".github/windows-portability.patch")
+          patch.write_bytes(patch.read_bytes().replace(b"\r\n", b"\n"))
+          observed = sha256(patch.read_bytes()).hexdigest()
+          expected = "9b8010b0e9e39458babee6875f01e243d2da8efe53c1da6a05c836c879b25851"
+          if observed != expected:
+              raise SystemExit(f"patch digest mismatch: {observed}")
+          PY
           git apply --check .github/windows-portability.patch
           git apply .github/windows-portability.patch
           git diff --check
@@ -95,7 +115,17 @@ jobs:
           PARENT_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
-          printf '%s  %s\n' 9b8010b0e9e39458babee6875f01e243d2da8efe53c1da6a05c836c879b25851 .github/windows-portability.patch | sha256sum --check --strict
+          python - <<'PY'
+          from hashlib import sha256
+          from pathlib import Path
+
+          patch = Path(".github/windows-portability.patch")
+          patch.write_bytes(patch.read_bytes().replace(b"\r\n", b"\n"))
+          observed = sha256(patch.read_bytes()).hexdigest()
+          expected = "9b8010b0e9e39458babee6875f01e243d2da8efe53c1da6a05c836c879b25851"
+          if observed != expected:
+              raise SystemExit(f"patch digest mismatch: {observed}")
+          PY
           git apply --check .github/windows-portability.patch
           git apply .github/windows-portability.patch
           python -m ruff format tests/test_post_review_regressions.py
