@@ -194,15 +194,17 @@ def create_commit() -> None:
             f"commit identity mismatch: tree={commit_tree} parent={commit_parent}"
         )
 
-    basic = base64.b64encode(f"x-access-token:{TOKEN}".encode("utf-8")).decode("ascii")
+    subprocess.run(
+        ["git", "config", "--local", "--unset-all", "http.https://github.com/.extraheader"],
+        check=False,
+    )
+    push_url = f"https://x-access-token:{TOKEN}@github.com/{REPOSITORY}.git"
     subprocess.run(
         [
             "git",
-            "-c",
-            f"http.https://github.com/.extraheader=AUTHORIZATION: basic {basic}",
             "push",
             f"--force-with-lease=refs/heads/refactor/skills-cleanup:{PARENT_SHA}",
-            "origin",
+            push_url,
             "HEAD:refs/heads/refactor/skills-cleanup",
         ],
         check=True,
