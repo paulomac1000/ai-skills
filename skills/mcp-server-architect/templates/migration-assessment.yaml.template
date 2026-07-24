@@ -1,15 +1,15 @@
 schema_version: 1
 verification_mode: structural-attestation # structural-attestation | provider-backed
-assessment_id: replace-with-stable-id
+assessment_id: REPLACE_WITH_STABLE_ID
 generated_at: "YYYY-MM-DDTHH:MM:SSZ"
 prepared_by:
   - provider: github
-    login: replace-with-author-login
+    login: REPLACE_WITH_AUTHOR_LOGIN
     id: 1
 repository:
   name: owner/repository
-  revision: full-immutable-commit-sha
-  source_branch: replace-me
+  revision: REPLACE_WITH_FULL_IMMUTABLE_COMMIT_SHA
+  source_branch: REPLACE_WITH_SOURCE_BRANCH
 skill:
   name: mcp-server-architect
   version: 1.1.0-rc.1
@@ -20,27 +20,39 @@ scope:
   exclusion_rationale: []
 compatibility_claims:
   combinations:
-    - operating_system: linux
-      architecture: x64
-      runtime: python
-      version: "3.12"
-      lane: python-compatibility
+    - operating_system: REPLACE_WITH_OPERATING_SYSTEM
+      architecture: REPLACE_WITH_ARCHITECTURE
+      runtime: REPLACE_WITH_RUNTIME
+      version: REPLACE_WITH_RUNTIME_VERSION
+      lane: REPLACE_WITH_COMPATIBILITY_LANE
 applicability:
-  - rule_id: replace-with-catalog-rule-id
-    status: applicable # applicable | not-applicable | deferred
-    rationale: replace-me
+  - rule_id: REPLACE_WITH_CATALOG_RULE_ID
+    status: applicable
+    rationale: REPLACE_WITH_RATIONALE
     implementation:
       - path: relative/path
-        symbol: replace-me
+        symbol: REPLACE_WITH_SYMBOL
     verification:
-      - command: replace-me
-        evidence:
+      - command: REPLACE_WITH_EXACT_COMMAND
+        evidence: &action_evidence
           provider: github-actions
           repository: owner/repository
           run_id: 1
           job_id: 1
-          revision: full-immutable-commit-sha
-        result: not-run # passed | failed | not-run
+          check_run_id: 1
+          revision: REPLACE_WITH_FULL_IMMUTABLE_COMMIT_SHA
+          workflow_id: 1
+          workflow_path: .github/workflows/ci.yml
+          workflow_name: CI
+          event: pull_request
+          job_name: REPLACE_WITH_EXACT_JOB_NAME
+          lane: REPLACE_WITH_EVIDENCE_LANE
+          artifact_id: 1
+          artifact_name: REPLACE_WITH_EVIDENCE_ARTIFACT_NAME
+          provider_digest: sha256:REPLACE_WITH_64_HEX_PROVIDER_DIGEST
+          report_path: evidence/report.json
+          report_digest: sha256:REPLACE_WITH_64_HEX_REPORT_DIGEST
+        result: not-run
     waiver_id: null
 behavior:
   preserved: []
@@ -48,63 +60,50 @@ behavior:
   removed_legacy: []
 waivers: []
 artifact_verification:
-  exact_revision: full-immutable-commit-sha
+  exact_revision: REPLACE_WITH_FULL_IMMUTABLE_COMMIT_SHA
   artifacts:
-    - kind: wheel
-      identity: replace-with-versioned-identity
+    - kind: REPLACE_WITH_ARTIFACT_KIND
+      identity: REPLACE_WITH_VERSIONED_IDENTITY
       path: relative/artifact/path
-      digest: sha256:replace-with-64-hex-digest
+      digest: sha256:REPLACE_WITH_64_HEX_CONTENT_DIGEST
       commands: []
       evidence:
-        provider: github-actions
-        repository: owner/repository
-        run_id: 1
-        job_id: 1
-        artifact_id: 1
-        provider_digest: sha256:replace-with-64-hex-provider-digest
-        revision: full-immutable-commit-sha
+        <<: *action_evidence
+        job_id: 2
+        check_run_id: 2
+        job_name: REPLACE_WITH_EXACT_ARTIFACT_JOB_NAME
+        lane: REPLACE_WITH_ARTIFACT_LANE
+        artifact_id: 2
+        artifact_name: REPLACE_WITH_ARTIFACT_NAME
       result: not-run
-compatibility_results: []
+compatibility_results:
+  - operating_system: REPLACE_WITH_OPERATING_SYSTEM
+    architecture: REPLACE_WITH_ARCHITECTURE
+    runtime: REPLACE_WITH_RUNTIME
+    version: REPLACE_WITH_RUNTIME_VERSION
+    lane: REPLACE_WITH_COMPATIBILITY_LANE
+    command: REPLACE_WITH_EXACT_COMPATIBILITY_COMMAND
+    evidence:
+      <<: *action_evidence
+      job_id: 3
+      check_run_id: 3
+      job_name: REPLACE_WITH_EXACT_COMPATIBILITY_JOB_NAME
+      lane: REPLACE_WITH_COMPATIBILITY_LANE
+      artifact_id: 3
+      artifact_name: REPLACE_WITH_COMPATIBILITY_EVIDENCE_ARTIFACT
+    result: not-run
 extensions:
   mcp:
     target_level: L3
-    profiles: [python]
-    advertised_transports: [stdio]
-    official_client_commands: [replace-with-official-client-command]
+    profiles: [REPLACE_WITH_IMPLEMENTED_PROFILE]
+    advertised_transports: [REPLACE_WITH_ADVERTISED_TRANSPORT]
+    official_client_commands: [REPLACE_WITH_OFFICIAL_CLIENT_COMMAND]
     transport_results:
       stdio:
-        capability_listing:
-          result: not-run
-          evidence:
-            provider: github-actions
-            repository: owner/repository
-            run_id: 1
-            job_id: 1
-            revision: full-immutable-commit-sha
-        representative_read:
-          result: not-run
-          evidence:
-            provider: github-actions
-            repository: owner/repository
-            run_id: 1
-            job_id: 1
-            revision: full-immutable-commit-sha
-        failure_path:
-          result: not-run
-          evidence:
-            provider: github-actions
-            repository: owner/repository
-            run_id: 1
-            job_id: 1
-            revision: full-immutable-commit-sha
-        write_boundary:
-          result: not-run
-          evidence:
-            provider: github-actions
-            repository: owner/repository
-            run_id: 1
-            job_id: 1
-            revision: full-immutable-commit-sha
+        capability_listing: {result: not-applicable, evidence: null}
+        representative_read: {result: not-applicable, evidence: null}
+        failure_path: {result: not-applicable, evidence: null}
+        write_boundary: {result: not-applicable, evidence: null}
       streamable_http:
         capability_listing: {result: not-applicable, evidence: null}
         representative_read: {result: not-applicable, evidence: null}
@@ -117,13 +116,13 @@ rollback:
 residual_risks: []
 decision:
   status: request-changes
-  rationale: replace-me
+  rationale: REPLACE_WITH_DECISION_RATIONALE
   reviewer:
     provider: github
     repository: owner/repository
     pull_request: 1
     review_id: 1
-    login: replace-with-independent-reviewer
+    login: REPLACE_WITH_INDEPENDENT_REVIEWER
     id: 2
-    revision: full-immutable-commit-sha
+    revision: REPLACE_WITH_FULL_IMMUTABLE_COMMIT_SHA
     state: CHANGES_REQUESTED
