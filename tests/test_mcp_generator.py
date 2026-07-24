@@ -122,7 +122,7 @@ def test_generated_project_uses_public_sdk_and_fail_closed_controls(tmp_path: Pa
     for pin in (
         "mcp==1.28.1",
         "uvicorn==0.51.0",
-        "pytest==9.0.2",
+        "pytest==9.1.1",
         "build==1.5.1",
         "setuptools==83.0.0",
         "wheel==0.47.0",
@@ -241,7 +241,7 @@ def test_generated_project_builds_installs_and_tests_exact_wheel(tmp_path: Path)
             "--constraint",
             "requirements.lock",
             str(wheels[0]),
-            "pytest==9.0.2",
+            "pytest==9.1.1",
         ],
         cwd=target,
     )
