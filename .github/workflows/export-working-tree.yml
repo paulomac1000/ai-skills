@@ -68,17 +68,25 @@ jobs:
           git rm .github/workflows/generate-locks.yml
           rm -f requirements-dev.txt
           git add -A
-      - name: Verify and publish one atomic final commit
+      - name: Verify final staged tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --cached --check
+          python -m compileall -q contracts scripts skills tests
+          test -z "$(git ls-files --others --exclude-standard)"
+      - name: Commit final staged tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "ai-skills hardening bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "feat: enforce stable adoption and reproducibility contracts"
+      - name: Publish final immutable revision
         shell: bash
         env:
           EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
-          git diff --cached --check
-          python -m compileall -q contracts scripts skills tests
-          test -z "$(git status --short | awk '$1 == "??" {print}')"
-          git config user.name "ai-skills hardening bot"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -m "feat: enforce stable adoption and reproducibility contracts"
           test "$(git ls-remote origin refs/heads/refactor/skills-cleanup | cut -f1)" = "$EXPECTED_SHA"
           git push origin HEAD:refs/heads/refactor/skills-cleanup
