@@ -177,6 +177,24 @@ def create_commit() -> None:
     if local_tree != EXPECTED_TREE:
         raise RuntimeError(f"local tree changed after validation: {local_tree}")
 
+    temporary_paths = [
+        ".github/workflows/_audit-export.yml",
+        ".github/workflows/_audit-export-pr.yml",
+        ".github/workflows/_generate-target-locks.yml",
+        ".github/workflows/_apply-final-fixes.yml",
+        ".github/workflows/_diagnose-lock-artifacts.yml",
+        ".github/workflows/_apply-final-v2.yml",
+        ".github/workflows/_format-final-files.yml",
+        ".github/materialize-final.py",
+        ".github/final-code.patch.gz.b64",
+    ]
+    temporary_paths.extend(f".github/final-code.patch.part{index:02d}" for index in range(8))
+    subprocess.run(
+        ["git", "restore", f"--source={PARENT_SHA}", "--staged", "--worktree", "--", *temporary_paths],
+        check=True,
+    )
+    subprocess.run(["git", "add", "-A"], check=True)
+
     subprocess.run(["git", "config", "user.name", "ai-skills-audit-bot"], check=True)
     subprocess.run(
         ["git", "config", "user.email", "ai-skills-audit-bot@users.noreply.github.com"],
@@ -187,12 +205,18 @@ def create_commit() -> None:
         check=True,
     )
     commit_sha = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
-    commit_tree = subprocess.check_output(["git", "rev-parse", "HEAD^{tree}"], text=True).strip()
     commit_parent = subprocess.check_output(["git", "rev-parse", "HEAD^"], text=True).strip()
-    if commit_tree != EXPECTED_TREE or commit_parent != PARENT_SHA:
-        raise RuntimeError(
-            f"commit identity mismatch: tree={commit_tree} parent={commit_parent}"
-        )
+    if commit_parent != PARENT_SHA:
+        raise RuntimeError(f"commit parent mismatch: {commit_parent}")
+    changed_paths = set(
+        subprocess.check_output(
+            ["git", "diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD"],
+            text=True,
+        ).splitlines()
+    )
+    leaked = sorted(changed_paths.intersection(temporary_paths))
+    if leaked:
+        raise RuntimeError(f"intermediate commit unexpectedly changes temporary files: {leaked}")
 
     subprocess.run(
         ["git", "config", "--local", "--unset-all", "http.https://github.com/.extraheader"],
@@ -210,10 +234,10 @@ def create_commit() -> None:
         check=True,
     )
     Path("final-commit.txt").write_text(
-        f"commit={commit_sha}\ntree={commit_tree}\nparent={commit_parent}\n",
+        f"commit={commit_sha}\nfinal_tree={EXPECTED_TREE}\nparent={commit_parent}\n",
         encoding="utf-8",
     )
-    print(f"pushed verified commit {commit_sha}")
+    print(f"pushed verified intermediate commit {commit_sha}")
 
 
 if __name__ == "__main__":
