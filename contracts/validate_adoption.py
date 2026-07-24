@@ -6,10 +6,11 @@ from __future__ import annotations
 import argparse
 import re
 import sys
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any
 
 import yaml
 
@@ -17,7 +18,9 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from contracts.semver import is_semver
+# Direct script execution needs the repository root before the package import.
+from contracts.semver import is_semver  # noqa: E402
+
 DEFAULT_CATALOG = Path(__file__).with_name("rule-catalog.yaml")
 DEFAULT_SKILLS = ROOT / "skills"
 FULL_SHA = re.compile(r"[0-9a-f]{40}")
@@ -143,20 +146,36 @@ def _validate_compatibility(
     claimed_os = set(_text_list(claims.get("operating_systems"), "compatibility_claims.operating_systems", findings))
     manifest_compatibility = _mapping(manifest.get("compatibility"), "manifest.compatibility", findings)
     supported_os = set(
-        _text_list(manifest_compatibility.get("operating_systems"), "manifest.compatibility.operating_systems", findings)
+        _text_list(
+            manifest_compatibility.get("operating_systems"), "manifest.compatibility.operating_systems", findings
+        )
     )
     if not claimed_os:
         findings.append(Finding("compatibility_claims.operating_systems", "must claim at least one target OS"))
     unsupported_os = claimed_os - supported_os
     if unsupported_os:
-        findings.append(Finding("compatibility_claims.operating_systems", f"unsupported values: {sorted(unsupported_os)}"))
+        findings.append(
+            Finding("compatibility_claims.operating_systems", f"unsupported values: {sorted(unsupported_os)}")
+        )
 
     claimed_runtimes = _mapping(claims.get("runtimes"), "compatibility_claims.runtimes", findings)
-    manifest_runtimes = _mapping(manifest_compatibility.get("runtimes", {}), "manifest.compatibility.runtimes", findings)
-    for runtime, raw_versions in claimed_runtimes.items():
-        if runtime not in manifest_runtimes:
-            findings.append(Finding(f"compatibility_claims.runtimes.{runtime}", "runtime is not declared by the skill"))
-        _text_list(raw_versions, f"compatibility_claims.runtimes.{runtime}", findings, nonempty=True)
+    manifest_runtimes = _mapping(
+        manifest_compatibility.get("runtimes", {}), "manifest.compatibility.runtimes", findings
+    )
+    for runtime_name, raw_versions in claimed_runtimes.items():
+        if runtime_name not in manifest_runtimes:
+            findings.append(
+                Finding(
+                    f"compatibility_claims.runtimes.{runtime_name}",
+                    "runtime is not declared by the skill",
+                )
+            )
+        _text_list(
+            raw_versions,
+            f"compatibility_claims.runtimes.{runtime_name}",
+            findings,
+            nonempty=True,
+        )
 
     results = _sequence(assessment.get("compatibility_results"), "compatibility_results", findings)
     observed_os: set[str] = set()
@@ -168,14 +187,16 @@ def _validate_compatibility(
         evidence = _text(result.get("evidence"), f"compatibility_results[{index}].evidence", findings)
         outcome = result.get("result")
         if outcome not in ALLOWED_RESULTS:
-            findings.append(Finding(f"compatibility_results[{index}].result", f"must be one of {sorted(ALLOWED_RESULTS)}"))
-        runtime = result.get("runtime")
-        version = result.get("version")
+            findings.append(
+                Finding(f"compatibility_results[{index}].result", f"must be one of {sorted(ALLOWED_RESULTS)}")
+            )
+        runtime_value = result.get("runtime")
+        version_value = result.get("version")
         runtime_text = ""
         version_text = ""
-        if runtime is not None or version is not None:
-            runtime_text = _text(runtime, f"compatibility_results[{index}].runtime", findings)
-            version_text = _text(version, f"compatibility_results[{index}].version", findings)
+        if runtime_value is not None or version_value is not None:
+            runtime_text = _text(runtime_value, f"compatibility_results[{index}].runtime", findings)
+            version_text = _text(version_value, f"compatibility_results[{index}].version", findings)
         if os_name and command and evidence and outcome == "passed":
             observed_os.add(os_name)
             if runtime_text and version_text:
@@ -183,12 +204,19 @@ def _validate_compatibility(
 
     missing_os = claimed_os - observed_os
     if missing_os:
-        findings.append(Finding("compatibility_results", f"missing passed evidence for OS values: {sorted(missing_os)}"))
-    for runtime, raw_versions in claimed_runtimes.items():
-        expected = set(item for item in raw_versions if isinstance(item, str)) if isinstance(raw_versions, list) else set()
-        missing = expected - observed_runtimes.get(str(runtime), set())
+        findings.append(
+            Finding("compatibility_results", f"missing passed evidence for OS values: {sorted(missing_os)}")
+        )
+    for runtime_name, raw_versions in claimed_runtimes.items():
+        expected = {item for item in raw_versions if isinstance(item, str)} if isinstance(raw_versions, list) else set()
+        missing = expected - observed_runtimes.get(str(runtime_name), set())
         if missing:
-            findings.append(Finding("compatibility_results", f"missing passed {runtime} versions: {sorted(missing)}"))
+            findings.append(
+                Finding(
+                    "compatibility_results",
+                    f"missing passed {runtime_name} versions: {sorted(missing)}",
+                )
+            )
 
 
 def _validate_applicability(
@@ -223,11 +251,11 @@ def _validate_applicability(
                 _text(implementation.get("symbol"), f"{location}.implementation[{impl_index}].symbol", findings)
                 candidate = Path(path)
                 if path and (candidate.is_absolute() or ".." in candidate.parts):
-                    findings.append(Finding(f"{location}.implementation[{impl_index}].path", "must be repository-relative"))
+                    findings.append(
+                        Finding(f"{location}.implementation[{impl_index}].path", "must be repository-relative")
+                    )
             for verification_index, raw_verification in enumerate(verifications):
-                verification = _mapping(
-                    raw_verification, f"{location}.verification[{verification_index}]", findings
-                )
+                verification = _mapping(raw_verification, f"{location}.verification[{verification_index}]", findings)
                 _text(
                     verification.get("command"),
                     f"{location}.verification[{verification_index}].command",
@@ -239,9 +267,7 @@ def _validate_applicability(
                     findings,
                 )
                 if verification.get("result") != "passed":
-                    findings.append(
-                        Finding(f"{location}.verification[{verification_index}].result", "must be passed")
-                    )
+                    findings.append(Finding(f"{location}.verification[{verification_index}].result", "must be passed"))
             if waiver_id is not None:
                 findings.append(Finding(f"{location}.waiver_id", "applicable rule must not use a waiver"))
         elif status == "not-applicable":
@@ -277,10 +303,10 @@ def _validate_applicability(
         if entry.get("status") != "deferred":
             continue
         waiver_id = entry.get("waiver_id")
-        waiver = by_id.get(str(waiver_id))
-        if waiver is None:
+        linked_waiver = by_id.get(str(waiver_id))
+        if linked_waiver is None:
             findings.append(Finding(f"applicability.{rule_id}.waiver_id", "does not reference an existing waiver"))
-        elif waiver.get("rule_id") != rule_id:
+        elif linked_waiver.get("rule_id") != rule_id:
             findings.append(Finding(f"applicability.{rule_id}.waiver_id", "waiver is bound to another rule"))
 
 
@@ -313,7 +339,9 @@ def _validate_mcp_extension(assessment: Mapping[str, Any], skill_name: str, find
     if mcp.get("target_level") not in {"L1", "L2", "L3", "L4"}:
         findings.append(Finding("extensions.mcp.target_level", "must be L1, L2, L3, or L4"))
     _text_list(mcp.get("profiles"), "extensions.mcp.profiles", findings, nonempty=True)
-    advertised = set(_text_list(mcp.get("advertised_transports"), "extensions.mcp.advertised_transports", findings, nonempty=True))
+    advertised = set(
+        _text_list(mcp.get("advertised_transports"), "extensions.mcp.advertised_transports", findings, nonempty=True)
+    )
     unknown = advertised - MCP_TRANSPORTS
     if unknown:
         findings.append(Finding("extensions.mcp.advertised_transports", f"unsupported transports: {sorted(unknown)}"))

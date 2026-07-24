@@ -41,9 +41,7 @@ def run_checked(command: list[str], *, cwd: Path, timeout: int = 180) -> subproc
         timeout=timeout,
     )
     assert completed.returncode == 0, (
-        f"command failed: {' '.join(command)}\n"
-        f"stdout:\n{completed.stdout}\n"
-        f"stderr:\n{completed.stderr}"
+        f"command failed: {' '.join(command)}\nstdout:\n{completed.stdout}\nstderr:\n{completed.stderr}"
     )
     return completed
 
@@ -135,9 +133,9 @@ def test_generated_project_uses_public_sdk_and_fail_closed_controls(tmp_path: Pa
         assert "==" in lock
 
     pyproject = (target / "pyproject.toml").read_text(encoding="utf-8")
-    assert 'mcp>=1.28.1,<2' in pyproject
-    assert 'setuptools==83.0.0' in pyproject
-    assert 'pytest==9.1.1' in pyproject
+    assert "mcp>=1.28.1,<2" in pyproject
+    assert "setuptools==83.0.0" in pyproject
+    assert "pytest==9.1.1" in pyproject
 
     dockerfile = (target / "Dockerfile").read_text(encoding="utf-8")
     assert "COPY requirements ./requirements" in dockerfile
@@ -156,7 +154,6 @@ def test_generated_project_uses_public_sdk_and_fail_closed_controls(tmp_path: Pa
     assert "Test exact wheel with the official MCP client" in workflow
     assert "--require-hashes" in workflow
     assert "--no-deps dist/*.whl" in workflow
-
 
 
 def test_generator_refuses_invalid_reserved_and_existing_targets(tmp_path: Path) -> None:
@@ -282,7 +279,7 @@ async def test_generated_container_is_non_root_and_passes_official_stdio_smoke(t
             cwd=target,
         )
         assert "0.1.0" in identity.stdout
-        parameters = StdioServerParameters(command="docker", args=["run", "--rm", image])
+        parameters = StdioServerParameters(command="docker", args=["run", "--rm", "-i", image])
         async with stdio_client(parameters) as (read_stream, write_stream):
             async with ClientSession(read_stream, write_stream) as session:
                 await session.initialize()

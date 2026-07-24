@@ -54,7 +54,7 @@ def _replace_required(text: str, old: str, new: str, *, file_name: str) -> str:
 
 
 def _lock_selector() -> str:
-    return '''from __future__ import annotations
+    return """from __future__ import annotations
 
 import argparse
 import sys
@@ -76,7 +76,7 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-'''
+"""
 
 
 def project_files(package: str, server_name: str) -> dict[str, str]:
@@ -110,10 +110,10 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
     files["README.md"] = _replace_required(
         files["README.md"],
         'pip install -e ".[dev]"',
-        'LOCK=$(python requirements/select_lock.py dev)\n'
+        "LOCK=$(python requirements/select_lock.py dev)\n"
         'python -m pip install --require-hashes -r "$LOCK"\n'
-        'python -m pip install --no-deps -e .\n'
-        'python -m pip check',
+        "python -m pip install --no-deps -e .\n"
+        "python -m pip check",
         file_name="README.md",
     )
     files["README.md"] = _replace_required(
@@ -154,7 +154,7 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
         "        shell: bash\n"
         "        run: |\n"
         "          LOCK=$(cat selected-lock.txt)\n"
-        "          python -m pip install --require-hashes -r \"$LOCK\"\n"
+        '          python -m pip install --require-hashes -r "$LOCK"\n'
         "          python -m pip check\n"
         "      - run: python -m compileall -q src tests requirements/select_lock.py\n"
         "      - name: Build exact wheel\n"

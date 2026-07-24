@@ -34,17 +34,16 @@ def _render(text: str, *, package: str, server_name: str) -> str:
 def project_files(package: str, server_name: str) -> dict[str, str]:
     """Return a complete generated project as relative UTF-8 text files."""
     if not PACKAGE_RE.fullmatch(package) or keyword.iskeyword(package) or package in RESERVED_PACKAGE_NAMES:
-        raise ValueError(
-            "package must be a non-keyword, non-reserved import name matching "
-            "[a-z][a-z0-9_]{1,62}"
-        )
+        raise ValueError("package must be a non-keyword, non-reserved import name matching [a-z][a-z0-9_]{1,62}")
     if not SERVER_RE.fullmatch(server_name):
         raise ValueError("server name must be 2-79 safe display characters")
 
-    render = lambda text: _render(text, package=package, server_name=server_name)
+    def render(text: str) -> str:
+        return _render(text, package=package, server_name=server_name)
+
     return {
         "pyproject.toml": render(
-            '''
+            """
             [build-system]
             requires = ["setuptools>=75", "wheel"]
             build-backend = "setuptools.build_meta"
@@ -68,10 +67,10 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
             [tool.pytest.ini_options]
             testpaths = ["tests"]
             addopts = "-q"
-            '''
+            """
         ),
         "README.md": render(
-            '''
+            """
             # __SERVER_NAME__
 
             Generated production baseline for an MCP server. It separates domain code,
@@ -105,10 +104,10 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
             authenticated principal extraction and resource-scoped authorization, connect
             approvals to a trusted UI or transport, add upstream contract tests, and test
             the exact built wheel or container.
-            '''
+            """
         ),
         "SECURITY.md": _clean(
-            '''
+            """
             # Security model
 
             The generated project is local-first. Stdio and literal-loopback-only
@@ -123,10 +122,10 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
             Before remote or multi-user deployment, add authentication, per-resource
             authorization, TLS or a reviewed proxy, Origin and Host policy, quotas, and
             deployment-specific secret storage.
-            '''
+            """
         ),
         ".env.example": _clean(
-            '''
+            """
             MCP_TRANSPORT=stdio
             MCP_HOST=127.0.0.1
             MCP_PORT=8000
@@ -134,10 +133,10 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
             MCP_DEFAULT_DEADLINE_MS=10000
             MCP_MAX_RESULT_ITEMS=100
             MCP_MAX_REQUEST_BODY_BYTES=1048576
-            '''
+            """
         ),
         ".gitignore": _clean(
-            '''
+            """
             .env
             .venv/
             __pycache__/
@@ -146,10 +145,10 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
             build/
             dist/
             *.egg-info/
-            '''
+            """
         ),
         "Dockerfile": render(
-            '''
+            """
             FROM python:3.12-slim
             WORKDIR /app
             RUN useradd --create-home --uid 10001 appuser
@@ -159,10 +158,10 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
             USER appuser
             ENV MCP_TRANSPORT=stdio
             ENTRYPOINT ["__PACKAGE__"]
-            '''
+            """
         ),
         ".github/workflows/ci.yml": _clean(
-            '''
+            """
             name: CI
 
             on:
@@ -189,7 +188,7 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
                   - run: python -m pip install -e ".[dev]"
                   - run: python -m compileall -q src tests
                   - run: python -m pytest
-            '''
+            """
         ),
         f"src/{package}/__init__.py": _clean(
             '''
@@ -199,12 +198,12 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
             '''
         ),
         f"src/{package}/__main__.py": render(
-            '''
+            """
             from __PACKAGE__.server import main
 
             if __name__ == "__main__":
                 main()
-            '''
+            """
         ),
         f"src/{package}/config.py": render(
             '''
@@ -775,16 +774,16 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
             '''
         ),
         "tests/conftest.py": _clean(
-            '''
+            """
             import pytest
 
             @pytest.fixture
             def anyio_backend():
                 return "asyncio"
-            '''
+            """
         ),
         "tests/test_config.py": render(
-            '''
+            """
             import pytest
             from __PACKAGE__.config import Settings
             from __PACKAGE__.server import build_http_app, build_server
@@ -804,10 +803,10 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
                 settings = Settings()
                 with pytest.raises(ValueError):
                     build_http_app(build_server(settings), settings)
-            '''
+            """
         ),
         "tests/test_kernel.py": render(
-            '''
+            """
             import pytest
             from __PACKAGE__.config import Settings
             from __PACKAGE__.domain import InventoryService
@@ -838,10 +837,10 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
                 approvals.issue("put_item", PRINCIPAL, "inventory", "a")
                 with pytest.raises(RuntimeError):
                     approvals.issue("put_item", PRINCIPAL, "inventory", "b")
-            '''
+            """
         ),
         "tests/test_manifests.py": render(
-            '''
+            """
             from __PACKAGE__.manifests import MANIFESTS, validate_manifests
             from __PACKAGE__.server import REGISTERED_TOOLS
 
@@ -853,10 +852,10 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
                 assert write.retryable is False
                 assert write.concurrent_safe is False
                 assert "mandatory expected_version" in write.target_binding
-            '''
+            """
         ),
         "tests/test_http_limit.py": render(
-            '''
+            """
             import pytest
             from __PACKAGE__.http import RequestBodyLimitMiddleware
 
@@ -897,10 +896,10 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
                 assert observed[0]["type"] == "http.request"
                 assert observed[0]["body"] == b"ok"
                 assert observed[1]["type"] == "http.disconnect"
-            '''
+            """
         ),
         "tests/test_mcp_smoke.py": render(
-            '''
+            """
             import pytest
             from mcp.shared.memory import create_connected_server_and_client_session
             from __PACKAGE__.config import Settings
@@ -921,7 +920,7 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
                     assert result.structuredContent is not None
                     structured = result.structuredContent.get("result", result.structuredContent)
                     assert structured["success"] is True
-            '''
+            """
         ),
     }
 
@@ -932,11 +931,22 @@ def _raise_rename_error(error_number: int, destination: Path) -> None:
     raise OSError(error_number, os.strerror(error_number), destination)
 
 
+def _runtime_platform() -> str:
+    """Return the runtime platform without static narrowing by type checkers."""
+    return sys.platform
+
+
+def _runtime_os_name() -> str:
+    """Return the runtime OS family without static narrowing by type checkers."""
+    return os.name
+
+
 def _rename_noreplace(source: Path, destination: Path) -> None:
     """Atomically publish one directory without replacing any destination object."""
     source_bytes = os.fsencode(source)
     destination_bytes = os.fsencode(destination)
-    if sys.platform.startswith("linux"):
+    platform_name = _runtime_platform()
+    if platform_name.startswith("linux"):
         libc = ctypes.CDLL(None, use_errno=True)
         renameat2 = getattr(libc, "renameat2", None)
         if renameat2 is None:
@@ -946,7 +956,7 @@ def _rename_noreplace(source: Path, destination: Path) -> None:
         if renameat2(_AT_FDCWD, source_bytes, _AT_FDCWD, destination_bytes, _RENAME_NOREPLACE) != 0:
             _raise_rename_error(ctypes.get_errno(), destination)
         return
-    if sys.platform == "darwin":
+    if platform_name == "darwin":
         libc = ctypes.CDLL(None, use_errno=True)
         renamex_np = getattr(libc, "renamex_np", None)
         if renamex_np is None:
@@ -956,7 +966,7 @@ def _rename_noreplace(source: Path, destination: Path) -> None:
         if renamex_np(source_bytes, destination_bytes, _RENAME_EXCL) != 0:
             _raise_rename_error(ctypes.get_errno(), destination)
         return
-    if os.name == "nt":
+    if _runtime_os_name() == "nt":
         os.rename(source, destination)
         return
     raise RuntimeError("this platform has no configured atomic no-replace directory rename")
@@ -970,17 +980,18 @@ def generate_project(target: Path, package: str, server_name: str) -> list[Path]
     if os.path.lexists(target):
         raise FileExistsError(errno.EEXIST, "generation target already exists", target)
     files = project_files(package, server_name)
-    staging: Path | None = Path(tempfile.mkdtemp(prefix=f".{target.name}-", dir=target.parent))
+    staging = Path(tempfile.mkdtemp(prefix=f".{target.name}-", dir=target.parent))
+    published = False
     try:
         for relative, content in sorted(files.items()):
             destination = staging / relative
             destination.parent.mkdir(parents=True, exist_ok=True)
             destination.write_text(content, encoding="utf-8", newline="\n")
         _rename_noreplace(staging, target)
-        staging = None
+        published = True
         return [Path(relative) for relative in sorted(files)]
     finally:
-        if staging is not None:
+        if not published:
             shutil.rmtree(staging, ignore_errors=True)
 
 
