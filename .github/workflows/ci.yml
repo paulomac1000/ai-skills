@@ -28,40 +28,92 @@ jobs:
       - name: Install pinned quality dependencies
         run: python -m pip install -r requirements-dev.txt
       - name: Lint production Python
-        run: >-
-          python -m ruff check
-          scripts/ci.py
-          skills/afds-doc-writer/docs_validate.py
-          skills/afds-doc-writer/validate.py
-          skills/mcp-server-consumer/tools
-          skills/mcp-server-architect/tools/generate_python_server.py
-          skills/mcp-server-architect/tools/generate_dotnet_server.py
+        id: ruff-lint
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          python -m ruff check \
+            scripts/ci.py \
+            skills/afds-doc-writer/docs_validate.py \
+            skills/afds-doc-writer/validate.py \
+            skills/mcp-server-consumer/tools \
+            skills/mcp-server-architect/tools/generate_python_server.py \
+            skills/mcp-server-architect/tools/generate_dotnet_server.py \
+            2>&1 | tee ruff-lint.log
       - name: Verify production Python formatting
-        run: >-
-          python -m ruff format --check
-          scripts/ci.py
-          skills/afds-doc-writer/docs_validate.py
-          skills/afds-doc-writer/validate.py
-          skills/mcp-server-consumer/tools
-          skills/mcp-server-architect/tools/generate_python_server.py
-          skills/mcp-server-architect/tools/generate_dotnet_server.py
+        id: ruff-format
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          python -m ruff format --check \
+            scripts/ci.py \
+            skills/afds-doc-writer/docs_validate.py \
+            skills/afds-doc-writer/validate.py \
+            skills/mcp-server-consumer/tools \
+            skills/mcp-server-architect/tools/generate_python_server.py \
+            skills/mcp-server-architect/tools/generate_dotnet_server.py \
+            2>&1 | tee ruff-format.log
       - name: Type-check public and policy-critical Python
-        run: >-
-          python -m mypy
-          scripts/ci.py
-          skills/afds-doc-writer/validate.py
-          skills/mcp-server-consumer/tools/decision_engine.py
-          skills/mcp-server-architect/tools/generate_python_server.py
-          skills/mcp-server-architect/tools/generate_dotnet_server.py
+        id: mypy
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          python -m mypy \
+            scripts/ci.py \
+            skills/afds-doc-writer/validate.py \
+            skills/mcp-server-consumer/tools/decision_engine.py \
+            skills/mcp-server-architect/tools/generate_python_server.py \
+            skills/mcp-server-architect/tools/generate_dotnet_server.py \
+            2>&1 | tee mypy.log
       - name: Scan Python for high-confidence high-severity issues
-        run: >-
-          python -m bandit -q -lll -iii -r
-          scripts
-          skills/afds-doc-writer
-          skills/mcp-server-consumer/tools
-          skills/mcp-server-architect/tools
+        id: bandit
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          python -m bandit -q -lll -iii -r \
+            scripts \
+            skills/afds-doc-writer \
+            skills/mcp-server-consumer/tools \
+            skills/mcp-server-architect/tools \
+            2>&1 | tee bandit.log
       - name: Audit pinned development dependencies
-        run: python -m pip_audit -r requirements-dev.txt --progress-spinner off
+        id: dependency-audit
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          python -m pip_audit -r requirements-dev.txt --progress-spinner off 2>&1 | tee dependency-audit.log
+      - name: Upload Python quality diagnostics
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: python-quality-${{ github.run_id }}
+          path: |
+            ruff-lint.log
+            ruff-format.log
+            mypy.log
+            bandit.log
+            dependency-audit.log
+          if-no-files-found: error
+          retention-days: 3
+      - name: Enforce Python quality outcomes
+        if: always()
+        env:
+          RUFF_LINT: ${{ steps.ruff-lint.outcome }}
+          RUFF_FORMAT: ${{ steps.ruff-format.outcome }}
+          MYPY: ${{ steps.mypy.outcome }}
+          BANDIT: ${{ steps.bandit.outcome }}
+          DEPENDENCY_AUDIT: ${{ steps.dependency-audit.outcome }}
+        shell: bash
+        run: |
+          set -eu
+          for outcome in "$RUFF_LINT" "$RUFF_FORMAT" "$MYPY" "$BANDIT" "$DEPENDENCY_AUDIT"; do
+            test "$outcome" = success
+          done
 
   python:
     runs-on: ubuntu-latest
