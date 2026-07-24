@@ -64,12 +64,17 @@ jobs:
 
           path = Path("requirements-dev.in")
           lines = path.read_text(encoding="utf-8").splitlines()
-          if "jsonschema==4.26.0" not in lines:
-              lines.insert(lines.index("build==1.5.1") + 1, "jsonschema==4.26.0")
+          additions = {
+              "jsonschema==4.26.0": "build==1.5.1",
+              "types-jsonschema==4.26.0.20260518": "setuptools==83.0.0",
+          }
+          for requirement, predecessor in additions.items():
+              if requirement not in lines:
+                  lines.insert(lines.index(predecessor) + 1, requirement)
           path.write_bytes(("\n".join(lines) + "\n").encode("utf-8"))
 
           expected = {
-              "requirements-dev.in": "e71ad4c213726ff6d22292829f6d715f92c4164461160319191a648ea7766302",
+              "requirements-dev.in": "21070185a63e2fad2698e9284ccc342f16ebe62ea8a58974f47a3d101e3ccbb4",
               "skills/mcp-server-architect/locks/python-runtime.in": "70b2a08c51918eca79839bed1364341d8bb8922366429314d6193cbaa192f046",
               "skills/mcp-server-architect/locks/python-dev.in": "29423057f995f5cb0cef224b6033e16cb5021918670a041ecb3e88b054973df0",
           }
