@@ -42,9 +42,7 @@ def expected_lock_paths() -> set[Path]:
     root_locks = {ROOT / f"requirements-dev-{identifier}.lock" for identifier in ids}
     generator_root = ROOT / "skills/mcp-server-architect/locks"
     generator_locks = {
-        generator_root / f"{kind}-{identifier}.lock"
-        for kind in ("runtime", "dev")
-        for identifier in ids
+        generator_root / f"{kind}-{identifier}.lock" for kind in ("runtime", "dev") for identifier in ids
     }
     return root_locks | generator_locks
 
@@ -93,9 +91,7 @@ def test_selector_binds_os_architecture_and_python_version() -> None:
 
 
 def test_legacy_os_only_locks_are_not_published() -> None:
-    legacy = {
-        ROOT / f"requirements-dev-{platform}.lock" for platform in ("linux", "macos", "windows")
-    }
+    legacy = {ROOT / f"requirements-dev-{platform}.lock" for platform in ("linux", "macos", "windows")}
     generator_root = ROOT / "skills/mcp-server-architect/locks"
     legacy |= {
         generator_root / f"{kind}-{platform}.lock"

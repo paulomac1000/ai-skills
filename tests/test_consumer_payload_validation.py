@@ -102,10 +102,13 @@ def test_retry_rejects_malformed_boolean_claims() -> None:
 
 def test_untrusted_helper_shapes_do_not_raise_or_select() -> None:
     engine = load_engine()
-    assert engine.select_efficient_tool(
-        [{"name": "bad", "capabilities": True}],
-        required_capabilities=["read"],
-    ) is None
+    assert (
+        engine.select_efficient_tool(
+            [{"name": "bad", "capabilities": True}],
+            required_capabilities=["read"],
+        )
+        is None
+    )
     decision = engine.get_pagination_decision(
         None,
         outcome_satisfied=False,

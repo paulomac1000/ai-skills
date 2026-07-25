@@ -27,6 +27,7 @@ TYPE_PATHS = (
     "contracts/semver.py",
     "contracts/evidence.py",
     "contracts/validate_adoption.py",
+    "contracts/write_evidence_report.py",
     "scripts/ci.py",
     "scripts/install_locked.py",
     "scripts/select_lock.py",

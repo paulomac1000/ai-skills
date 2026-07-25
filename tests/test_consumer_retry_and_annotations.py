@@ -64,18 +64,10 @@ def test_positive_retry_claim_requires_named_conditions() -> None:
 def test_retry_conditions_restrict_error_attempt_and_reconciliation() -> None:
     engine = load_engine()
     manifest = canonical_retry_manifest()
-    assert engine.should_retry(
-        error_code="TIMEOUT", attempt=0, operation_idempotent=True, manifest=manifest
-    )
-    assert engine.should_retry(
-        error_code="TIMEOUT", attempt=1, operation_idempotent=True, manifest=manifest
-    )
-    assert not engine.should_retry(
-        error_code="TIMEOUT", attempt=2, operation_idempotent=True, manifest=manifest
-    )
-    assert not engine.should_retry(
-        error_code="RATE_LIMITED", attempt=0, operation_idempotent=True, manifest=manifest
-    )
+    assert engine.should_retry(error_code="TIMEOUT", attempt=0, operation_idempotent=True, manifest=manifest)
+    assert engine.should_retry(error_code="TIMEOUT", attempt=1, operation_idempotent=True, manifest=manifest)
+    assert not engine.should_retry(error_code="TIMEOUT", attempt=2, operation_idempotent=True, manifest=manifest)
+    assert not engine.should_retry(error_code="RATE_LIMITED", attempt=0, operation_idempotent=True, manifest=manifest)
 
     reconciliation = canonical_retry_manifest(requiresReconciliation=True)
     assert not engine.should_retry(
@@ -142,12 +134,8 @@ def test_retry_conditions_accept_consistent_snake_case_compatibility_shape() -> 
             "requires_reconciliation": False,
         },
     }
-    assert engine.should_retry(
-        error_code="timeout", attempt=0, operation_idempotent=True, manifest=manifest
-    )
-    assert not engine.should_retry(
-        error_code="timeout", attempt=1, operation_idempotent=True, manifest=manifest
-    )
+    assert engine.should_retry(error_code="timeout", attempt=0, operation_idempotent=True, manifest=manifest)
+    assert not engine.should_retry(error_code="timeout", attempt=1, operation_idempotent=True, manifest=manifest)
 
 
 def annotated_text(content_annotations: Any):

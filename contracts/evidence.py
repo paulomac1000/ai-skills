@@ -1,10 +1,4 @@
-"""Provider-backed evidence verification for adoption assessments.
-
-The semantic validator owns policy and injects the exact expected claim into a
-copy of each evidence reference. This module proves that the referenced GitHub
-Actions workflow, job, artifact, and machine-readable report all describe that
-same claim on the assessed immutable revision.
-"""
+"""Provider-backed GitHub.com evidence verification for adoption assessments."""
 
 from __future__ import annotations
 
@@ -12,6 +6,7 @@ import hashlib
 import io
 import json
 import stat
+import xml.etree.ElementTree as ET
 import zipfile
 from collections.abc import Mapping, Sequence
 from typing import Any, Protocol
@@ -55,8 +50,12 @@ class _NoRedirect(HTTPRedirectHandler):
         return None
 
 
+def _tag(element: ET.Element) -> str:
+    return element.tag.rsplit("}", 1)[-1]
+
+
 class GitHubEvidenceVerifier:
-    """Verify GitHub Actions, artifact reports, and review evidence."""
+    """Verify GitHub.com Actions, artifact reports, and review evidence."""
 
     def __init__(
         self,
@@ -68,14 +67,15 @@ class GitHubEvidenceVerifier:
         if not token.strip():
             raise ValueError("GitHub evidence verification requires a non-empty token")
         if api_base != "https://api.github.com":
-            raise ValueError("only the canonical GitHub API endpoint is supported")
+            raise ValueError("only the canonical GitHub.com API endpoint is supported")
         if timeout_seconds <= 0:
             raise ValueError("timeout_seconds must be positive")
         self._token = token.strip()
         self._api_base = api_base
         self._timeout_seconds = timeout_seconds
-        self._cache: dict[str, Mapping[str, Any]] = {}
+        self._cache: dict[str, object] = {}
         self._artifact_cache: dict[tuple[str, int], bytes] = {}
+        self._observed_producers: set[tuple[int, str]] = set()
 
     def _api_request(self, path: str) -> Request:
         return Request(  # noqa: S310 - fixed HTTPS GitHub API origin.
@@ -88,16 +88,28 @@ class GitHubEvidenceVerifier:
             },
         )
 
-    def _get(self, path: str) -> Mapping[str, Any]:
+    def _get_json(self, path: str) -> object:
         cached = self._cache.get(path)
         if cached is not None:
             return cached
         with urlopen(self._api_request(path), timeout=self._timeout_seconds) as response:  # noqa: S310
             payload = json.load(response)
-        if not isinstance(payload, Mapping):
-            raise ValueError(f"GitHub API returned a non-object for {path}")
+        if not isinstance(payload, (Mapping, list)):
+            raise ValueError(f"GitHub API returned an unsupported payload for {path}")
         self._cache[path] = payload
         return payload
+
+    def _get(self, path: str) -> Mapping[str, Any]:
+        payload = self._get_json(path)
+        if not isinstance(payload, Mapping):
+            raise ValueError(f"GitHub API returned a non-object for {path}")
+        return payload
+
+    def _get_list(self, path: str) -> list[Mapping[str, Any]]:
+        payload = self._get_json(path)
+        if not isinstance(payload, list):
+            raise ValueError(f"GitHub API returned a non-array for {path}")
+        return [item for item in payload if isinstance(item, Mapping)]
 
     @staticmethod
     def _repository_path(reference: Mapping[str, Any]) -> str:
@@ -184,7 +196,8 @@ class GitHubEvidenceVerifier:
         return data
 
     @staticmethod
-    def _read_report(archive_bytes: bytes, report_path: str) -> bytes:
+    def _read_member(archive_bytes: bytes, member_path: str) -> bytes:
+        safe_path = GitHubEvidenceVerifier._safe_report_path(member_path)
         try:
             archive = zipfile.ZipFile(io.BytesIO(archive_bytes))
         except zipfile.BadZipFile as exc:
@@ -195,7 +208,7 @@ class GitHubEvidenceVerifier:
                 raise ValueError("GitHub artifact contains too many entries")
             declared_total = 0
             seen: set[str] = set()
-            report: bytes | None = None
+            selected: bytes | None = None
             for member in members:
                 name = member.filename
                 if name in seen:
@@ -212,35 +225,84 @@ class GitHubEvidenceVerifier:
                 declared_total += member.file_size
                 if declared_total > MAX_UNCOMPRESSED_BYTES:
                     raise ValueError("GitHub artifact exceeds the declared uncompressed size limit")
-                if name == report_path:
-                    report_buffer = bytearray()
-                    try:
-                        with archive.open(member, "r") as source:
-                            while True:
-                                remaining = MAX_UNCOMPRESSED_BYTES - len(report_buffer)
-                                chunk = source.read(min(READ_CHUNK_BYTES, remaining + 1))
-                                if not chunk:
-                                    break
-                                report_buffer.extend(chunk)
-                                if len(report_buffer) > MAX_UNCOMPRESSED_BYTES:
-                                    raise ValueError(
-                                        "GitHub artifact report exceeds the actual uncompressed size limit"
-                                    )
-                    except zipfile.BadZipFile as exc:
-                        raise ValueError("GitHub artifact contains an invalid ZIP entry") from exc
-                    report = bytes(report_buffer)
-            if report is None:
-                raise ValueError("GitHub artifact does not contain evidence.report_path")
-            return report
+                if name != safe_path:
+                    continue
+                buffer = bytearray()
+                try:
+                    with archive.open(member, "r") as source:
+                        while True:
+                            remaining = MAX_UNCOMPRESSED_BYTES - len(buffer)
+                            chunk = source.read(min(READ_CHUNK_BYTES, remaining + 1))
+                            if not chunk:
+                                break
+                            buffer.extend(chunk)
+                            if len(buffer) > MAX_UNCOMPRESSED_BYTES:
+                                raise ValueError("GitHub artifact member exceeds the actual uncompressed size limit")
+                except zipfile.BadZipFile as exc:
+                    raise ValueError("GitHub artifact contains an invalid ZIP entry") from exc
+                selected = bytes(buffer)
+            if selected is None:
+                raise ValueError(f"GitHub artifact does not contain {safe_path}")
+            return selected
+
+    @staticmethod
+    def _read_report(archive_bytes: bytes, report_path: str) -> bytes:
+        try:
+            return GitHubEvidenceVerifier._read_member(archive_bytes, report_path)
+        except ValueError as exc:
+            if "does not contain" in str(exc):
+                raise ValueError("GitHub artifact does not contain evidence.report_path") from exc
+            raise
 
     @staticmethod
     def _claim_matches(report: Mapping[str, Any], expected_claim: object) -> bool:
         if not isinstance(expected_claim, Mapping):
             return False
         claims = report.get("claims")
-        return isinstance(claims, list) and any(
-            isinstance(claim, Mapping) and dict(claim) == dict(expected_claim) for claim in claims
+        if not isinstance(claims, list):
+            return False
+        return any(
+            isinstance(claim, Mapping) and all(claim.get(key) == value for key, value in expected_claim.items())
+            for claim in claims
         )
+
+    @staticmethod
+    def _junit_cases(payload: bytes) -> dict[str, str]:
+        try:
+            root = ET.fromstring(payload)
+        except ET.ParseError as exc:
+            raise ValueError("evidence result is not valid JUnit XML") from exc
+        cases: dict[str, str] = {}
+        for element in root.iter():
+            if _tag(element) != "testcase":
+                continue
+            classname = str(element.attrib.get("classname") or "").strip()
+            name = str(element.attrib.get("name") or "").strip()
+            if not name:
+                raise ValueError("JUnit testcase has no name")
+            identity = f"{classname}::{name}" if classname else name
+            status = "passed"
+            for child in element:
+                child_tag = _tag(child)
+                if child_tag in {"failure", "error", "skipped"}:
+                    status = child_tag
+                    break
+            cases[identity] = status
+        if not cases:
+            raise ValueError("evidence JUnit result contains no test cases")
+        if any(status in {"failure", "error"} for status in cases.values()):
+            raise ValueError("evidence JUnit result contains failures or errors")
+        return cases
+
+    @staticmethod
+    def _producer_identity(value: object) -> tuple[int, str]:
+        if not isinstance(value, Mapping):
+            raise ValueError("evidence report producer must be an object")
+        raw_id = value.get("id")
+        login = value.get("login")
+        if type(raw_id) is not int or raw_id <= 0 or not isinstance(login, str) or not login.strip():
+            raise ValueError("evidence report producer has an invalid canonical identity")
+        return raw_id, login.strip().casefold()
 
     def _verify_report(
         self,
@@ -248,6 +310,7 @@ class GitHubEvidenceVerifier:
         expected_revision: str,
         repository: str,
         run_id: int,
+        run: Mapping[str, Any],
         artifact: Mapping[str, Any],
     ) -> list[str]:
         errors: list[str] = []
@@ -288,11 +351,16 @@ class GitHubEvidenceVerifier:
             raise ValueError("evidence report must contain a JSON object")
 
         expected_fields = {
-            "schema_version": 1,
+            "schema_version": 2,
             "repository": str(reference.get("repository") or ""),
             "revision": expected_revision,
+            "source_head_sha": expected_revision,
+            "tested_checkout_sha": expected_revision,
+            "provider_run_head_sha": str(run.get("head_sha") or ""),
             "run_id": run_id,
+            "job_id": self._positive_int(reference, "job_id"),
             "check_run_id": self._positive_int(reference, "check_run_id"),
+            "workflow_id": self._positive_int(reference, "workflow_id"),
             "workflow_path": self._required_text(reference, "workflow_path"),
             "workflow_name": self._required_text(reference, "workflow_name"),
             "event": self._required_text(reference, "event"),
@@ -302,6 +370,73 @@ class GitHubEvidenceVerifier:
         for field, expected in expected_fields.items():
             if report.get(field) != expected:
                 errors.append(f"evidence report {field} does not match the referenced execution")
+
+        producer = self._producer_identity(report.get("producer"))
+        run_actor = run.get("actor")
+        if not isinstance(run_actor, Mapping):
+            errors.append("workflow run has no canonical actor")
+        else:
+            actor_id = run_actor.get("id")
+            actor_login = str(run_actor.get("login") or "").casefold()
+            if producer != (actor_id, actor_login):
+                errors.append("evidence report producer does not match the workflow run actor")
+            else:
+                self._observed_producers.add(producer)
+
+        raw_results = report.get("results")
+        if not isinstance(raw_results, list) or not raw_results:
+            errors.append("evidence report has no machine result files")
+            result_digests: set[str] = set()
+            passed_cases: set[str] = set()
+        else:
+            result_digests = set()
+            passed_cases = set()
+            for index, raw in enumerate(raw_results):
+                if not isinstance(raw, Mapping):
+                    errors.append(f"evidence report results[{index}] is not an object")
+                    continue
+                path = self._safe_report_path(str(raw.get("path") or ""))
+                if raw.get("format") != "junit":
+                    errors.append(f"evidence report results[{index}] is not JUnit")
+                    continue
+                payload = self._read_member(archive_bytes, path)
+                digest = f"sha256:{hashlib.sha256(payload).hexdigest()}"
+                if raw.get("digest") != digest:
+                    errors.append(f"evidence report results[{index}] digest does not match artifact bytes")
+                    continue
+                result_digests.add(digest)
+                passed_cases.update(
+                    identity for identity, status in self._junit_cases(payload).items() if status == "passed"
+                )
+
+        claims = report.get("claims")
+        if not isinstance(claims, list) or not claims:
+            errors.append("evidence report has no claims")
+        else:
+            for index, raw in enumerate(claims):
+                if not isinstance(raw, Mapping):
+                    errors.append(f"evidence report claims[{index}] is not an object")
+                    continue
+                digests = raw.get("result_digests")
+                tests = raw.get("test_cases")
+                command_digest = str(raw.get("command_digest") or "")
+                if (
+                    not isinstance(digests, list)
+                    or not digests
+                    or any(digest not in result_digests for digest in digests)
+                ):
+                    errors.append(f"evidence report claims[{index}] is not bound to verified result bytes")
+                if (
+                    not isinstance(tests, list)
+                    or not tests
+                    or any(not isinstance(test, str) or test not in passed_cases for test in tests)
+                ):
+                    errors.append(f"evidence report claims[{index}] is not bound to passed test cases")
+                if raw.get("exit_status") != 0:
+                    errors.append(f"evidence report claims[{index}] has a nonzero exit status")
+                if not command_digest.startswith("sha256:") or len(command_digest) != 71:
+                    errors.append(f"evidence report claims[{index}] has an invalid command digest")
+
         if not self._claim_matches(report, reference.get("_expected_claim")):
             errors.append("evidence report does not contain the exact assessed claim")
         return errors
@@ -343,7 +478,7 @@ class GitHubEvidenceVerifier:
             errors.append("workflow run head_sha does not match the assessed revision")
         if run.get("status") != "completed" or run.get("conclusion") != "success":
             errors.append("workflow run is not completed successfully")
-        if workflow_id is not None and run.get("workflow_id") != workflow_id:
+        if run.get("workflow_id") != workflow_id:
             errors.append("workflow id does not match evidence.workflow_id")
         if str(run.get("path") or "") != workflow_path:
             errors.append("workflow path does not match evidence.workflow_path")
@@ -372,6 +507,7 @@ class GitHubEvidenceVerifier:
                     expected_revision,
                     repository,
                     run_id,
+                    run,
                     artifact,
                 )
             )
@@ -398,6 +534,38 @@ class GitHubEvidenceVerifier:
     ) -> Sequence[str]:
         return self._verify_action_common(reference, expected_revision, expected_provider_digest)
 
+    @staticmethod
+    def _canonical_user(value: object) -> tuple[int, str] | None:
+        if not isinstance(value, Mapping):
+            return None
+        raw_id = value.get("id")
+        login = value.get("login")
+        if type(raw_id) is not int or raw_id <= 0 or not isinstance(login, str) or not login.strip():
+            return None
+        return raw_id, login.strip().casefold()
+
+    def _pull_request_identities(self, repository: str, pull_request: int) -> tuple[str, set[tuple[int, str]]]:
+        pull = self._get(f"/repos/{repository}/pulls/{pull_request}")
+        head = pull.get("head")
+        head_sha = str(head.get("sha") or "") if isinstance(head, Mapping) else ""
+        identities: set[tuple[int, str]] = set()
+        author = self._canonical_user(pull.get("user"))
+        if author is not None:
+            identities.add(author)
+        page = 1
+        while True:
+            commits = self._get_list(f"/repos/{repository}/pulls/{pull_request}/commits?per_page=100&page={page}")
+            for commit in commits:
+                for field in ("author", "committer"):
+                    identity = self._canonical_user(commit.get(field))
+                    if identity is not None:
+                        identities.add(identity)
+            if len(commits) < 100:
+                break
+            page += 1
+        identities.update(self._observed_producers)
+        return head_sha, identities
+
     def verify_review(self, reference: Mapping[str, Any], expected_revision: str) -> Sequence[str]:
         errors: list[str] = []
         try:
@@ -406,6 +574,7 @@ class GitHubEvidenceVerifier:
             review_id = self._positive_int(reference, "review_id")
             expected_id = self._positive_int(reference, "id")
             review = self._get(f"/repos/{repository}/pulls/{pull_request}/reviews/{review_id}")
+            head_sha, forbidden = self._pull_request_identities(repository, pull_request)
         except (
             KeyError,
             TypeError,
@@ -418,16 +587,18 @@ class GitHubEvidenceVerifier:
             return [self._api_error(exc)]
 
         user = review.get("user")
-        if not isinstance(user, Mapping):
-            errors.append("review has no canonical GitHub user")
+        actual = self._canonical_user(user)
+        if actual is None:
+            errors.append("review author has an invalid numeric identity")
         else:
-            actual_id = user.get("id")
-            if type(actual_id) is not int or actual_id <= 0:
-                errors.append("review author has an invalid numeric identity")
-            elif actual_id != expected_id:
+            if actual[0] != expected_id:
                 errors.append("reviewer numeric identity does not match the review author")
-            if str(user.get("login") or "").casefold() != str(reference.get("login") or "").casefold():
+            if actual[1] != str(reference.get("login") or "").casefold():
                 errors.append("reviewer login does not match the review author")
+            if actual in forbidden:
+                errors.append("reviewer is not independent from PR, commit, or evidence provenance")
+        if head_sha != expected_revision:
+            errors.append("pull request head does not match the assessed revision")
         if str(review.get("state") or "").upper() != "APPROVED":
             errors.append("review state is not APPROVED")
         if str(review.get("commit_id") or "") != expected_revision:

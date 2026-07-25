@@ -148,8 +148,11 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
     files["README.md"] = _replace_required(
         files["README.md"],
         "the exact built wheel or container.",
-        "the exact built wheel or container. Platform-specific runtime and development lockfiles "
-        "contain the complete resolved graph and hashes; regenerate them only with the pinned lock workflow.",
+        "the exact built wheel or container. This generated architecture seed is not production-accepted "
+        "until the applicable ci-cd-architect profile adds lint, formatting, typing, security, dependency, "
+        "coverage, and deployment-artifact gates and the repository completes an adoption assessment. "
+        "Platform-specific runtime and development lockfiles contain the complete resolved graph and hashes; "
+        "regenerate them only with the pinned lock workflow.",
         file_name="README.md",
     )
     files["README.md"] = _replace_required(

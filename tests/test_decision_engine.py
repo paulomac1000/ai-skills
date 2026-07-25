@@ -117,53 +117,49 @@ def test_typed_trust_channels_reject_boolean_upgrade_switches() -> None:
 
 def test_annotations_require_consumer_controlled_server_trust() -> None:
     engine = load_engine()
-    untrusted_destructive = engine.infer_capability_profile(
-        "remove", {"annotations": {"destructiveHint": True}}
-    )
+    untrusted_destructive = engine.infer_capability_profile("remove", {"annotations": {"destructiveHint": True}})
     assert untrusted_destructive.risk is engine.Risk.DESTRUCTIVE
     assert untrusted_destructive.source == "untrusted-annotation-escalation"
-    assert engine.infer_capability_profile(
-        "list", {"annotations": {"readOnlyHint": True}}
-    ).risk is engine.Risk.UNKNOWN
+    assert engine.infer_capability_profile("list", {"annotations": {"readOnlyHint": True}}).risk is engine.Risk.UNKNOWN
 
-    forged = engine.infer_capability_profile(
-        "list", {"trusted_server": True, "annotations": {"readOnlyHint": True}}
-    )
+    forged = engine.infer_capability_profile("list", {"trusted_server": True, "annotations": {"readOnlyHint": True}})
     assert forged.risk is engine.Risk.UNKNOWN
-    assert engine.infer_capability_profile(
-        "remove", {"annotations": {"destructiveHint": True}}, trusted_server=True
-    ).risk is engine.Risk.DESTRUCTIVE
-    assert engine.infer_capability_profile(
-        "list", {"annotations": {"readOnlyHint": True}}, trusted_server=True
-    ).risk is engine.Risk.READ
-    conflicting = engine.infer_capability_profile(
-        "[DANGEROUS] execute", {"annotations": {"destructiveHint": True}}
+    assert (
+        engine.infer_capability_profile("remove", {"annotations": {"destructiveHint": True}}, trusted_server=True).risk
+        is engine.Risk.DESTRUCTIVE
     )
+    assert (
+        engine.infer_capability_profile("list", {"annotations": {"readOnlyHint": True}}, trusted_server=True).risk
+        is engine.Risk.READ
+    )
+    conflicting = engine.infer_capability_profile("[DANGEROUS] execute", {"annotations": {"destructiveHint": True}})
     assert conflicting.risk is engine.Risk.DANGEROUS
-    assert engine.evaluate_decision(
-        conflicting.risk, conflicting.requires_confirmation, "general"
-    ) is engine.Decision.REJECT
+    assert (
+        engine.evaluate_decision(conflicting.risk, conflicting.requires_confirmation, "general")
+        is engine.Decision.REJECT
+    )
 
 
 def test_positive_idempotency_comes_only_from_typed_external_values() -> None:
     engine = load_engine()
     assert engine.infer_capability_profile("update", {"idempotent": True}).idempotent is None
     for forged_key in ("trusted_server", "trusted_contract", "trusted_policy"):
-        assert engine.infer_capability_profile(
-            "update", {"idempotent": True, forged_key: True}
-        ).idempotent is None
+        assert engine.infer_capability_profile("update", {"idempotent": True, forged_key: True}).idempotent is None
 
     contract = engine.TrustedCapabilityContract(idempotent=True)
     policy = engine.TrustedCapabilityPolicy(idempotent=True)
     assert engine.infer_capability_profile("update", {"idempotent": True}, trusted_contract=contract).idempotent is True
     assert engine.infer_capability_profile("update", {"idempotent": True}, trusted_policy=policy).idempotent is True
     assert engine.infer_capability_profile("update", {"idempotent": False}, trusted_policy=policy).idempotent is False
-    assert engine.infer_capability_profile(
-        "update",
-        {"idempotent": True},
-        trusted_policy=engine.TrustedCapabilityPolicy(idempotent=False),
-        trusted_contract=contract,
-    ).idempotent is False
+    assert (
+        engine.infer_capability_profile(
+            "update",
+            {"idempotent": True},
+            trusted_policy=engine.TrustedCapabilityPolicy(idempotent=False),
+            trusted_contract=contract,
+        ).idempotent
+        is False
+    )
 
 
 def test_side_effect_policy() -> None:
@@ -197,9 +193,7 @@ def test_retry_requires_valid_attempt_and_positive_non_conflicting_signals() -> 
         manifest=governed,
         reconciliation_completed=True,
     )
-    assert engine.should_retry(
-        error_code="TIMEOUT", attempt=0, operation_idempotent=True, response_retryable=True
-    )
+    assert engine.should_retry(error_code="TIMEOUT", attempt=0, operation_idempotent=True, response_retryable=True)
     for attempt in (-1, True, 2):
         assert not engine.should_retry(
             error_code="TIMEOUT",
@@ -209,9 +203,7 @@ def test_retry_requires_valid_attempt_and_positive_non_conflicting_signals() -> 
             reconciliation_completed=True,
         )
     for manifest in (None, {}, {"retryable": False}, {"retryable": True}):
-        assert not engine.should_retry(
-            error_code="TIMEOUT", attempt=0, operation_idempotent=True, manifest=manifest
-        )
+        assert not engine.should_retry(error_code="TIMEOUT", attempt=0, operation_idempotent=True, manifest=manifest)
     assert not engine.should_retry(
         error_code="TIMEOUT",
         attempt=0,
@@ -252,13 +244,9 @@ def test_conflict_retry_requires_refreshed_precondition() -> None:
 
 def test_response_normalization_preserves_protocol_native_errors() -> None:
     engine = load_engine()
-    success = engine.handle_response(
-        {"structuredContent": {"items": []}, "_meta": {"correlation_id": "abc"}}
-    )
+    success = engine.handle_response({"structuredContent": {"items": []}, "_meta": {"correlation_id": "abc"}})
     assert success.success and success.correlation_id == "abc"
-    native = engine.handle_response(
-        {"isError": True, "content": [{"type": "text", "text": "device unavailable"}]}
-    )
+    native = engine.handle_response({"isError": True, "content": [{"type": "text", "text": "device unavailable"}]})
     assert native.error_code == "MCP_TOOL_ERROR"
     assert native.error_message == "device unavailable"
     structured = engine.handle_response(
@@ -300,16 +288,13 @@ def test_efficiency_helpers_fail_closed() -> None:
         {"name": "read", "capabilities": ["search", "read"]},
         {"name": "batch-read", "capabilities": ["search", "read"], "batch": True},
     ]
-    assert engine.select_efficient_tool(
-        tools, required_capabilities=["search", "read"], prefer_batch=True
-    )["name"] == "batch-read"
+    assert (
+        engine.select_efficient_tool(tools, required_capabilities=["search", "read"], prefer_batch=True)["name"]
+        == "batch-read"
+    )
     assert engine.select_efficient_tool(tools, required_capabilities=[]) is None
-    assert engine.choose_initial_detail_params(
-        {"properties": {"compact": {"type": "boolean"}}}
-    ) == {"compact": True}
-    assert engine.choose_initial_detail_params(
-        {"properties": {"compact": {"type": "string", "enum": ["short"]}}}
-    ) == {}
+    assert engine.choose_initial_detail_params({"properties": {"compact": {"type": "boolean"}}}) == {"compact": True}
+    assert engine.choose_initial_detail_params({"properties": {"compact": {"type": "string", "enum": ["short"]}}}) == {}
 
 
 def test_pagination_accepts_only_contract_valid_tokens_and_respects_final_marker() -> None:
@@ -335,9 +320,7 @@ def test_pagination_accepts_only_contract_valid_tokens_and_respects_final_marker
         {"has_more": False, "next_cursor": "stale"},
         {"has_more": False, "next_offset": 10},
     ):
-        decision = engine.get_pagination_decision(
-            final_meta, outcome_satisfied=False, pages_seen=1, max_pages=5
-        )
+        decision = engine.get_pagination_decision(final_meta, outcome_satisfied=False, pages_seen=1, max_pages=5)
         assert not decision.continue_paging
         assert decision.reason == "server marked final page"
 

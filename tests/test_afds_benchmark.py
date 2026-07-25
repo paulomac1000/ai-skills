@@ -22,13 +22,25 @@ QUERIES = [
     ("ci-cd-architect/references/failure-patterns.md", "nuget cache workflow token tag pip semgrep failure"),
     ("mcp-server-architect/SKILL.md", "design secure agent friendly mcp server sdk review"),
     ("mcp-server-architect/STANDARD.md", "transport authorization errors cancellation observability maturity"),
-    ("mcp-server-architect/references/python-fastmcp.md", "fastmcp private tools decorator context lifespan contentblock"),
-    ("mcp-server-architect/references/dotnet-mcp.md", "dotnet dependency injection cancellationtoken activity test host"),
-    ("mcp-server-architect/references/security-and-operations.md", "confused deputy tool poisoning health rate limit shutdown"),
+    (
+        "mcp-server-architect/references/python-fastmcp.md",
+        "fastmcp private tools decorator context lifespan contentblock",
+    ),
+    (
+        "mcp-server-architect/references/dotnet-mcp.md",
+        "dotnet dependency injection cancellationtoken activity test host",
+    ),
+    (
+        "mcp-server-architect/references/security-and-operations.md",
+        "confused deputy tool poisoning health rate limit shutdown",
+    ),
     ("mcp-server-consumer/SKILL.md", "invoke mcp capabilities safely efficiently verify"),
     ("mcp-server-consumer/STANDARD.md", "unknown risk defer retry partial execution pagination"),
     ("mcp-server-consumer/references/risk-and-trust.md", "untrusted read prefix downgrade provenance confirmation"),
-    ("mcp-server-consumer/references/error-recovery-and-workflows.md", "conflict refresh compensation timeout partial batch"),
+    (
+        "mcp-server-consumer/references/error-recovery-and-workflows.md",
+        "conflict refresh compensation timeout partial batch",
+    ),
 ]
 
 
@@ -61,10 +73,7 @@ class Ranker:
         self.lengths = [sum(count.values()) for count in self.counts]
         self.average = sum(self.lengths) / len(self.lengths)
         frequency = Counter(term for count in self.counts for term in count)
-        self.idf = {
-            term: math.log(1 + (len(items) - value + 0.5) / (value + 0.5))
-            for term, value in frequency.items()
-        }
+        self.idf = {term: math.log(1 + (len(items) - value + 0.5) / (value + 0.5)) for term, value in frequency.items()}
 
     def rank(self, query: str) -> list[int]:
         scored = []
@@ -73,9 +82,10 @@ class Ranker:
             for term in tokens(query):
                 frequency = count.get(term, 0)
                 if frequency:
-                    score += self.idf.get(term, 0.0) * frequency / (
-                        frequency
-                        + 1.5 * (0.25 + 0.75 * self.lengths[index] / self.average)
+                    score += (
+                        self.idf.get(term, 0.0)
+                        * frequency
+                        / (frequency + 1.5 * (0.25 + 0.75 * self.lengths[index] / self.average))
                     )
             scored.append((score, self.items[index].key, index))
         scored.sort(key=lambda item: (-item[0], item[1]))
@@ -89,11 +99,7 @@ def evaluate() -> tuple[float, float, float]:
     context_sizes = []
     for target, query in QUERIES:
         ranking = ranker.rank(query)
-        position = next(
-            index + 1
-            for index, item_index in enumerate(ranking)
-            if items[item_index].key == target
-        )
+        position = next(index + 1 for index, item_index in enumerate(ranking) if items[item_index].key == target)
         positions.append(position)
         context_sizes.append(sum(len(items[item_index].text) for item_index in ranking[:3]))
     recall_at_three = sum(position <= 3 for position in positions) / len(positions)

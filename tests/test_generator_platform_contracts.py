@@ -157,9 +157,7 @@ def test_python_generator_error_platform_and_cli_contracts(tmp_path: Path, monke
     assert (target / "src/valid_mcp/server.py").is_file()
 
 
-def test_python_generator_facade_rejects_missing_or_ambiguous_contract_fragments(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_python_generator_facade_rejects_missing_or_ambiguous_contract_fragments(tmp_path: Path, monkeypatch) -> None:
     facade = load(PYTHON_GENERATOR, "python_generator_facade_contract")
     monkeypatch.setattr(facade, "_LOCK_ROOT", tmp_path)
     with pytest.raises(RuntimeError, match="missing reviewed dependency contract"):

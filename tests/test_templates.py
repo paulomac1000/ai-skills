@@ -8,8 +8,9 @@ import re
 import subprocess
 import sys
 import zipfile
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 import yaml
 
@@ -30,7 +31,7 @@ REPLACEMENTS = {
     "<MCP_CLIENT_TEST_COMMAND>": "python -m pytest tests/test_client.py",
     "<MCP_FAILURE_TEST_COMMAND>": "python -m pytest tests/test_failures.py",
     "<LOCAL_IMAGE_REF>": "local/example:test",
-    "<CONTAINER_SMOKE_COMMAND>": "docker run --rm \"$IMAGE_REF\" --health-check",
+    "<CONTAINER_SMOKE_COMMAND>": 'docker run --rm "$IMAGE_REF" --health-check',
     "<DOTNET_VERSION>": "10.0.302",
     "<SOLUTION_PATH>": "src/App.sln",
     "<SERVER_PROJECT>": "src/App/App.csproj",
@@ -42,7 +43,7 @@ REPLACEMENTS = {
     "<DOTNET_BOUNDED_TEST_COMMAND>": "dotnet test tests/App.UnitTests/App.UnitTests.csproj --configuration Release --no-restore",
     "<PYTHON_COMPILE_PATHS>": "src tests",
     "<RELEASE_ENVIRONMENT>": "production",
-    "<DOTNET_RELEASE_IDENTITY_COMMAND>": "test \"$NORMALIZED_VERSION\" = \"1.2.3\"",
+    "<DOTNET_RELEASE_IDENTITY_COMMAND>": 'test "$NORMALIZED_VERSION" = "1.2.3"',
     "<DOTNET_PACKAGE_VERIFY_COMMAND>": "test -n \"$(find nupkg -name '*.nupkg' -print -quit)\"",
     "<DOTNET_PACKAGE_IDS>": "Example.Package",
     "<VALIDATOR_PATH>": "skills/afds-doc-writer/validate.py",
@@ -162,11 +163,17 @@ def test_publish_builds_once_then_smoke_tests_before_push() -> None:
     jobs = document["jobs"]
     assert jobs["publish"]["needs"] == "validate"
     steps = jobs["publish"]["steps"]
-    metadata_index = next(i for i, step in enumerate(steps) if str(step.get("uses", "")).startswith("docker/metadata-action@"))
-    build_index = next(i for i, step in enumerate(steps) if str(step.get("uses", "")).startswith("docker/build-push-action@"))
+    metadata_index = next(
+        i for i, step in enumerate(steps) if str(step.get("uses", "")).startswith("docker/metadata-action@")
+    )
+    build_index = next(
+        i for i, step in enumerate(steps) if str(step.get("uses", "")).startswith("docker/build-push-action@")
+    )
     smoke_index = next(i for i, step in enumerate(steps) if step.get("name") == "Smoke-test exact release image")
     push_index = next(i for i, step in enumerate(steps) if step.get("name") == "Push smoke-tested image tags")
-    attest_index = next(i for i, step in enumerate(steps) if str(step.get("uses", "")).startswith("actions/attest-build-provenance@"))
+    attest_index = next(
+        i for i, step in enumerate(steps) if str(step.get("uses", "")).startswith("actions/attest-build-provenance@")
+    )
     assert metadata_index < build_index < smoke_index < push_index < attest_index
     build = steps[build_index]
     assert build["with"]["load"] is True
@@ -179,11 +186,17 @@ def test_publish_reuses_validated_revision_and_locates_metadata_by_action() -> N
     document = parse(TEMPLATES / "publish.yml.template")
     validate = document["jobs"]["validate"]
     publish = document["jobs"]["publish"]
-    validate_checkout = next(step for step in validate["steps"] if str(step.get("uses", "")).startswith("actions/checkout@"))
-    publish_checkout = next(step for step in publish["steps"] if str(step.get("uses", "")).startswith("actions/checkout@"))
+    validate_checkout = next(
+        step for step in validate["steps"] if str(step.get("uses", "")).startswith("actions/checkout@")
+    )
+    publish_checkout = next(
+        step for step in publish["steps"] if str(step.get("uses", "")).startswith("actions/checkout@")
+    )
     assert "inputs.release_ref" in validate_checkout["with"]["ref"]
     assert publish_checkout["with"]["ref"] == "${{ needs.validate.outputs.release_sha }}"
-    metadata = next(step for step in publish["steps"] if str(step.get("uses", "")).startswith("docker/metadata-action@"))
+    metadata = next(
+        step for step in publish["steps"] if str(step.get("uses", "")).startswith("docker/metadata-action@")
+    )
     tags = metadata["with"]["tags"]
     assert "needs.validate.outputs.release_tag" in tags
     assert "needs.validate.outputs.release_short_sha" in tags
@@ -225,7 +238,11 @@ def test_dotnet_mcp_profile_runs_stable_contract_and_isolates_candidate_lane() -
 
 def _embedded_nuget_validator() -> str:
     document = parse(TEMPLATES / "dotnet-package.yml.template")
-    step = next(step for step in document["jobs"]["package"]["steps"] if step.get("name") == "Validate exact package identity allowlist")
+    step = next(
+        step
+        for step in document["jobs"]["package"]["steps"]
+        if step.get("name") == "Validate exact package identity allowlist"
+    )
     run = step["run"]
     marker = "python - <<'PY'\n"
     assert marker in run and run.rstrip().endswith("PY")

@@ -2,6 +2,11 @@
 
 ## 1.1.0-rc.1 - 2026-07-24
 
+- Bind provider-backed evidence to exact source checkouts, provider-derived job and producer identities, uploaded JUnit digests, and passed test-case selectors.
+- Generate schema-version 2 evidence reports in every compatibility, .NET, container, filesystem, and repository evidence lane with 90-day retention.
+- Derive reviewer independence from PR authors, commit authors/committers, and evidence-producing workflow actors.
+- Add the shared adoption and migration evidence gate to every skill and state the GitHub.com-only provider scope of `1.1.0-rc.1`.
+
 - Added versioned, machine-readable skill contracts with compatibility, maturity, dependency, deprecation, and normative-entrypoint metadata.
 - Added one repository-wide adoption assessment, JSON Schema, semantic validator, stable per-skill rule catalog, compatibility evidence contract, and MCP-specific extension with adversarial approval tests.
 - Defined normative precedence so standards and active decisions cannot be weakened by profiles, workflows, generators, examples, or simulations.

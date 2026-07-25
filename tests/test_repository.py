@@ -18,12 +18,21 @@ POLISH_MARKERS = re.compile(
     r"\u0104\u0106\u0118\u0141\u0143\u00d3\u015a\u0179\u017b]"
 )
 PROJECT_SPECIFIC_TERMS = {
-    "ha-" + "mcp-readonly", "kontomierz-" + "mcp", "openwrt-" + "mcp",
-    "mikrus-" + "mcp", "local-home-devices-" + "mcp", "notebooklm-" + "mcp",
+    "ha-" + "mcp-readonly",
+    "kontomierz-" + "mcp",
+    "openwrt-" + "mcp",
+    "mikrus-" + "mcp",
+    "local-home-devices-" + "mcp",
+    "notebooklm-" + "mcp",
 }
 MCP_PARITY_HEADINGS = {
-    "## Lifecycle ownership", "## Transport parity", "## Manifest coverage",
-    "## Concurrency enforcement", "## Boundary sanitization", "## SDK compatibility", "## Verification",
+    "## Lifecycle ownership",
+    "## Transport parity",
+    "## Manifest coverage",
+    "## Concurrency enforcement",
+    "## Boundary sanitization",
+    "## SDK compatibility",
+    "## Verification",
 }
 
 
@@ -107,11 +116,34 @@ def test_release_contains_no_private_project_or_polish_examples() -> None:
 def test_recovery_audit_covers_removed_operational_domains() -> None:
     text = (ROOT / "RECOVERY_AUDIT.md").read_text(encoding="utf-8").lower()
     required_topics = {
-        "fastmcp", ".net", "cancellation", "semgrep", "dependabot", "coverage", "pagination",
-        "partial execution", "pre-commit", "lifecycle", "conflict", "same image", "manifest",
-        "concurrency", "transport parity", "compatibility", "generator", "real mcp client",
-        "filesystem", "artifact", "task registries", "browser profiles", "ui drift",
-        "embedded hosting", "legacy http+sse", "structured content", "claimsprincipal", "nuget",
+        "fastmcp",
+        ".net",
+        "cancellation",
+        "semgrep",
+        "dependabot",
+        "coverage",
+        "pagination",
+        "partial execution",
+        "pre-commit",
+        "lifecycle",
+        "conflict",
+        "same image",
+        "manifest",
+        "concurrency",
+        "transport parity",
+        "compatibility",
+        "generator",
+        "real mcp client",
+        "filesystem",
+        "artifact",
+        "task registries",
+        "browser profiles",
+        "ui drift",
+        "embedded hosting",
+        "legacy http+sse",
+        "structured content",
+        "claimsprincipal",
+        "nuget",
     }
     assert all(topic in text for topic in required_topics)
 
@@ -143,9 +175,17 @@ def test_python_and_dotnet_profiles_cover_the_same_core_invariants() -> None:
     required_platform_contracts = {
         "python": {"FastMCP", "asyncio", "contextvars", "event loop", "compatibility adapter", "Streamable HTTP"},
         "dotnet": {
-            "ModelContextProtocol", "Generic Host", "CancellationToken", "Activity", "ClaimsPrincipal",
-            "AddAuthorizationFilters", "WithStdioServerTransport", "WithHttpTransport", "MapMcp",
-            "UseStructuredContent", "McpException",
+            "ModelContextProtocol",
+            "Generic Host",
+            "CancellationToken",
+            "Activity",
+            "ClaimsPrincipal",
+            "AddAuthorizationFilters",
+            "WithStdioServerTransport",
+            "WithHttpTransport",
+            "MapMcp",
+            "UseStructuredContent",
+            "McpException",
         },
     }
     for name, required in required_platform_contracts.items():
@@ -167,19 +207,41 @@ def test_mcp_examples_exercise_native_python_and_dotnet_hosting_surfaces() -> No
     http_example = (examples / "dotnet/HttpProgram.cs.example").read_text(encoding="utf-8")
     tool_example = (examples / "dotnet/InventoryTools.cs.example").read_text(encoding="utf-8")
 
-    for token in ("from mcp.server.fastmcp import Context, FastMCP", "lifespan", "stateless_http=True", "json_response=True", "@mcp.tool()"):
+    for token in (
+        "from mcp.server.fastmcp import Context, FastMCP",
+        "lifespan",
+        "stateless_http=True",
+        "json_response=True",
+        "@mcp.tool()",
+    ):
         assert token in python_example
     assert "max_request_body_size=" not in python_example
-    for token in ("AddMcpServer", "WithStdioServerTransport", "WithTools<InventoryTools>", "LogToStandardErrorThreshold"):
+    for token in (
+        "AddMcpServer",
+        "WithStdioServerTransport",
+        "WithTools<InventoryTools>",
+        "LogToStandardErrorThreshold",
+    ):
         assert token in stdio_example
     for token in (
-        "WithHttpTransport", "options.Stateless = true", "AddAuthorizationFilters", "UseAuthentication",
-        "UseAuthorization", "UseRateLimiter", "MapMcp", "AllowedHosts",
+        "WithHttpTransport",
+        "options.Stateless = true",
+        "AddAuthorizationFilters",
+        "UseAuthentication",
+        "UseAuthorization",
+        "UseRateLimiter",
+        "MapMcp",
+        "AllowedHosts",
     ):
         assert token in http_example
     for token in (
-        "[McpServerToolType]", "[McpServerTool", "ClaimsPrincipal?", "CancellationToken",
-        "UseStructuredContent = true", "OutputSchemaType", "throw new McpException",
+        "[McpServerToolType]",
+        "[McpServerTool",
+        "ClaimsPrincipal?",
+        "CancellationToken",
+        "UseStructuredContent = true",
+        "OutputSchemaType",
+        "throw new McpException",
     ):
         assert token in tool_example
     for text in (stdio_example, http_example, tool_example):
@@ -190,7 +252,9 @@ def test_mcp_examples_exercise_native_python_and_dotnet_hosting_surfaces() -> No
 def test_legacy_http_sse_is_forbidden_precisely_without_banning_modern_streaming() -> None:
     skill = (ROOT / "skills/mcp-server-architect/SKILL.md").read_text(encoding="utf-8")
     standard = (ROOT / "skills/mcp-server-architect/STANDARD.md").read_text(encoding="utf-8")
-    transport = (ROOT / "skills/mcp-server-architect/references/transport-lifecycle-and-conformance.md").read_text(encoding="utf-8")
+    transport = (ROOT / "skills/mcp-server-architect/references/transport-lifecycle-and-conformance.md").read_text(
+        encoding="utf-8"
+    )
     combined = "\n".join((skill, standard, transport)).casefold()
     assert "deprecated two-endpoint http+sse" in combined
     assert "must not implement" in combined or "forbidden" in combined

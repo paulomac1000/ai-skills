@@ -1,0 +1,254 @@
+schema_version: 1
+profiles:
+  repository-rules:
+    - kind: rule
+      subject: afds.metadata.required
+      command: 'python -m coverage run --branch -m pytest -m "not container"'
+      selectors: ["*test_afds*"]
+      result_files: ["repository-junit.xml"]
+    - kind: rule
+      subject: afds.structure.links
+      command: 'python -m coverage run --branch -m pytest -m "not container"'
+      selectors: ["*test_afds*"]
+      result_files: ["repository-junit.xml"]
+    - kind: rule
+      subject: afds.evidence.uncertainty
+      command: 'python -m coverage run --branch -m pytest -m "not container"'
+      selectors: ["*test_afds*"]
+      result_files: ["repository-junit.xml"]
+    - kind: rule
+      subject: afds.ownership.lifecycle
+      command: 'python -m coverage run --branch -m pytest -m "not container"'
+      selectors: ["*test_afds*"]
+      result_files: ["repository-junit.xml"]
+    - kind: rule
+      subject: afds.quality.executable
+      command: 'python -m coverage run --branch -m pytest -m "not container"'
+      selectors: ["*test_afds*"]
+      result_files: ["repository-junit.xml"]
+    - kind: rule
+      subject: afds.verification.recorded
+      command: 'python -m coverage run --branch -m pytest -m "not container"'
+      selectors: ["*test_afds*"]
+      result_files: ["repository-junit.xml"]
+    - kind: rule
+      subject: cicd.layers.separated
+      command: 'python -m coverage run --branch -m pytest -m "not container"'
+      selectors: ["*test_templates*"]
+      result_files: ["repository-junit.xml"]
+    - kind: rule
+      subject: cicd.workflow.least-privilege
+      command: 'python -m coverage run --branch -m pytest -m "not container"'
+      selectors: ["*test_templates*"]
+      result_files: ["repository-junit.xml"]
+    - kind: rule
+      subject: cicd.quality.language
+      command: 'python -m coverage run --branch -m pytest -m "not container"'
+      selectors: ["*test_ci_scripts*"]
+      result_files: ["repository-junit.xml"]
+    - kind: rule
+      subject: cicd.security.documentation
+      command: 'python -m coverage run --branch -m pytest -m "not container"'
+      selectors: ["*test_templates*"]
+      result_files: ["repository-junit.xml"]
+    - kind: rule
+      subject: cicd.release.identity
+      command: 'python -m coverage run --branch -m pytest -m "not container"'
+      selectors: ["*test_templates*"]
+      result_files: ["repository-junit.xml"]
+    - kind: rule
+      subject: cicd.local.bounded
+      command: 'python -m coverage run --branch -m pytest -m "not container"'
+      selectors: ["*test_ci_scripts*"]
+      result_files: ["repository-junit.xml"]
+    - kind: rule
+      subject: cicd.verification.recorded
+      command: 'python -m coverage run --branch -m pytest -m "not container"'
+      selectors: ["*test_write_evidence_report*"]
+      result_files: ["repository-junit.xml"]
+    - kind: rule
+      subject: mcp.architecture.boundaries
+      command: 'python -m coverage run --branch -m pytest -m "not container"'
+      selectors: ["*test_mcp_*"]
+      result_files: ["repository-junit.xml"]
+    - kind: rule
+      subject: mcp.identity.target-binding
+      command: 'python -m coverage run --branch -m pytest -m "not container"'
+      selectors: ["*test_mcp_*"]
+      result_files: ["repository-junit.xml"]
+    - kind: rule
+      subject: mcp.manifest.complete
+      command: 'python -m coverage run --branch -m pytest -m "not container"'
+      selectors: ["*test_mcp_*"]
+      result_files: ["repository-junit.xml"]
+    - kind: rule
+      subject: mcp.retry.fail-closed
+      command: 'python -m coverage run --branch -m pytest -m "not container"'
+      selectors: ["*test_mcp_*"]
+      result_files: ["repository-junit.xml"]
+    - kind: rule
+      subject: mcp.transport.supported
+      command: 'python -m coverage run --branch -m pytest -m "not container"'
+      selectors: ["*test_mcp_*"]
+      result_files: ["repository-junit.xml"]
+    - kind: rule
+      subject: mcp.deadline.concurrency
+      command: 'python -m coverage run --branch -m pytest -m "not container"'
+      selectors: ["*test_mcp_*"]
+      result_files: ["repository-junit.xml"]
+    - kind: rule
+      subject: mcp.response.structured
+      command: 'python -m coverage run --branch -m pytest -m "not container"'
+      selectors: ["*test_mcp_*"]
+      result_files: ["repository-junit.xml"]
+    - kind: rule
+      subject: mcp.authorization.server-side
+      command: 'python -m coverage run --branch -m pytest -m "not container"'
+      selectors: ["*test_mcp_*"]
+      result_files: ["repository-junit.xml"]
+    - kind: rule
+      subject: mcp.operations.observable
+      command: 'python -m coverage run --branch -m pytest -m "not container"'
+      selectors: ["*test_mcp_*"]
+      result_files: ["repository-junit.xml"]
+    - kind: rule
+      subject: mcp.artifact.exact
+      command: 'python -m pytest tests/test_mcp_generator.py -m "not container"'
+      selectors: ["*test_mcp_generator*"]
+      result_files: ["python-generator-junit.xml"]
+    - kind: rule
+      subject: mcp.migration.accounted
+      command: 'python -m pytest tests/test_mcp_migration_standard.py tests/test_mcp_migration_assessment.py tests/test_adoption_contract.py tests/test_semver_contract.py tests/test_lock_contract.py tests/test_rule_catalog_contract.py tests/test_evidence_verifier.py'
+      selectors: ["*test_mcp_migration*"]
+      result_files: ["adoption-junit.xml"]
+    - kind: rule
+      subject: mcp.verification.layered
+      command: 'python -m coverage run --branch -m pytest -m "not container"'
+      selectors: ["*test_mcp_*"]
+      result_files: ["repository-junit.xml"]
+    - kind: rule
+      subject: consumer.outcome.first
+      command: 'python -m coverage run --branch -m pytest -m "not container"'
+      selectors: ["*test_decision_engine*"]
+      result_files: ["repository-junit.xml"]
+    - kind: rule
+      subject: consumer.trust.provenance
+      command: 'python -m coverage run --branch -m pytest -m "not container"'
+      selectors: ["*test_consumer_*"]
+      result_files: ["repository-junit.xml"]
+    - kind: rule
+      subject: consumer.policy.fail-closed
+      command: 'python -m coverage run --branch -m pytest -m "not container"'
+      selectors: ["*test_decision_engine*"]
+      result_files: ["repository-junit.xml"]
+    - kind: rule
+      subject: consumer.selection.efficient
+      command: 'python -m coverage run --branch -m pytest -m "not container"'
+      selectors: ["*test_consumer_*"]
+      result_files: ["repository-junit.xml"]
+    - kind: rule
+      subject: consumer.response.validated
+      command: 'python -m coverage run --branch -m pytest -m "not container"'
+      selectors: ["*test_consumer_payload*"]
+      result_files: ["repository-junit.xml"]
+    - kind: rule
+      subject: consumer.retry.reconciled
+      command: 'python -m coverage run --branch -m pytest -m "not container"'
+      selectors: ["*test_consumer_retry*"]
+      result_files: ["repository-junit.xml"]
+    - kind: rule
+      subject: consumer.pagination.bounded
+      command: 'python -m coverage run --branch -m pytest -m "not container"'
+      selectors: ["*test_decision_engine*"]
+      result_files: ["repository-junit.xml"]
+    - kind: rule
+      subject: consumer.workflow.compensated
+      command: 'python -m coverage run --branch -m pytest -m "not container"'
+      selectors: ["*test_decision_engine*"]
+      result_files: ["repository-junit.xml"]
+    - kind: rule
+      subject: consumer.compatibility.negotiated
+      command: 'python -m coverage run --branch -m pytest -m "not container"'
+      selectors: ["*test_consumer_*"]
+      result_files: ["repository-junit.xml"]
+    - kind: rule
+      subject: consumer.verification.adversarial
+      command: 'python -m coverage run --branch -m pytest -m "not container"'
+      selectors: ["*test_consumer_*"]
+      result_files: ["repository-junit.xml"]
+    - kind: artifact
+      subject: adoption-contract-schema
+      command: 'python -m coverage run --branch -m pytest -m "not container"'
+      selectors: ["*test_adoption_contract*"]
+      result_files: ["repository-junit.xml"]
+      content_path: contracts/adoption-assessment.schema.json
+      commands:
+        - python contracts/validate_adoption.py assessment.yaml
+  mcp-dotnet:
+    - kind: transport
+      subject: stdio:capability_listing
+      command: python -m pytest tests/test_mcp_dotnet_generator.py tests/test_mcp_dotnet_runtime_contracts.py
+      selectors: ["*test_mcp_dotnet*"]
+      result_files: ["dotnet-*.xml"]
+    - kind: transport
+      subject: stdio:representative_read
+      command: python -m pytest tests/test_mcp_dotnet_generator.py tests/test_mcp_dotnet_runtime_contracts.py
+      selectors: ["*test_mcp_dotnet*"]
+      result_files: ["dotnet-*.xml"]
+    - kind: transport
+      subject: stdio:failure_path
+      command: python -m pytest tests/test_mcp_dotnet_generator.py tests/test_mcp_dotnet_runtime_contracts.py
+      selectors: ["*test_mcp_dotnet*"]
+      result_files: ["dotnet-*.xml"]
+    - kind: transport
+      subject: stdio:write_boundary
+      command: python -m pytest tests/test_mcp_dotnet_generator.py tests/test_mcp_dotnet_runtime_contracts.py
+      selectors: ["*test_mcp_dotnet*"]
+      result_files: ["dotnet-*.xml"]
+    - kind: transport
+      subject: streamable_http:capability_listing
+      command: python -m pytest tests/test_mcp_dotnet_generator.py tests/test_mcp_dotnet_runtime_contracts.py
+      selectors: ["*test_mcp_dotnet*"]
+      result_files: ["dotnet-*.xml"]
+    - kind: transport
+      subject: streamable_http:representative_read
+      command: python -m pytest tests/test_mcp_dotnet_generator.py tests/test_mcp_dotnet_runtime_contracts.py
+      selectors: ["*test_mcp_dotnet*"]
+      result_files: ["dotnet-*.xml"]
+    - kind: transport
+      subject: streamable_http:failure_path
+      command: python -m pytest tests/test_mcp_dotnet_generator.py tests/test_mcp_dotnet_runtime_contracts.py
+      selectors: ["*test_mcp_dotnet*"]
+      result_files: ["dotnet-*.xml"]
+    - kind: transport
+      subject: streamable_http:write_boundary
+      command: python -m pytest tests/test_mcp_dotnet_generator.py tests/test_mcp_dotnet_runtime_contracts.py
+      selectors: ["*test_mcp_dotnet*"]
+      result_files: ["dotnet-*.xml"]
+  mcp-container:
+    - kind: transport
+      subject: stdio:capability_listing
+      command: python -m pytest tests/test_mcp_generator.py -m container
+      selectors: ["*test_mcp_generator*"]
+      result_files: ["python-container.xml"]
+    - kind: transport
+      subject: stdio:representative_read
+      command: python -m pytest tests/test_mcp_generator.py -m container
+      selectors: ["*test_mcp_generator*"]
+      result_files: ["python-container.xml"]
+    - kind: transport
+      subject: stdio:failure_path
+      command: python -m pytest tests/test_mcp_generator.py -m container
+      selectors: ["*test_mcp_generator*"]
+      result_files: ["python-container.xml"]
+    - kind: transport
+      subject: stdio:write_boundary
+      command: python -m pytest tests/test_mcp_generator.py -m container
+      selectors: ["*test_mcp_generator*"]
+      result_files: ["python-container.xml"]
+  filesystem:
+    - kind: rule
+      subject: mcp.artifact.exact
+      command: python -m pytest tests/test_generator_platform_contracts.py
+      selectors: ["*test_*"]
+      result_files: ["filesystem-*.xml"]

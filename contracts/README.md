@@ -36,24 +36,36 @@ The validator never treats a free-form URI, screenshot, aggregate badge, or self
 
 ## Evidence report production
 
-Each evidence job writes a JSON array of exact claims, then creates a canonical report:
+Every evidence-producing job checks out the assessed source HEAD explicitly and writes a schema-version 2 report. The writer resolves the canonical run, workflow, job, check-run, and producer identities from the GitHub Actions API. It rejects a tested checkout that differs from the assessed source SHA.
+
+Claims are not accepted from a free-form `passed` JSON value. Each claim must name the command, select one or more test cases, and bind to the SHA-256 digest of the uploaded JUnit file that contains those passed cases. The report records `source_head_sha`, `tested_checkout_sha`, optional `merge_sha`, provider `head_sha`, producer identity, result summaries, result digests, command digests, test-case identities, and exit status.
 
 ```bash
-python contracts/write_evidence_report.py \
+GITHUB_TOKEN=<read-token> python contracts/write_evidence_report.py \
   --repository "$GITHUB_REPOSITORY" \
-  --revision "$GITHUB_SHA" \
+  --source-head-sha "$SOURCE_HEAD_SHA" \
+  --tested-checkout-sha "$(git rev-parse HEAD)" \
+  --merge-sha "$GITHUB_SHA" \
   --run-id "$GITHUB_RUN_ID" \
-  --check-run-id "${{ job.check_run_id }}" \
   --workflow-path .github/workflows/ci.yml \
   --workflow-name CI \
   --event pull_request \
   --job-name "Python compatibility (ubuntu-24.04, 3.12)" \
   --lane python-compatibility \
-  --claims-file evidence/claims.json \
+  --dynamic-kind compatibility \
+  --dynamic-subject "linux|x64|python|3.12|python-compatibility" \
+  --dynamic-command "python -m pytest ..." \
+  --result-file compatibility-linux-x64-py312.xml \
   --output evidence/report.json
 ```
 
-The job uploads `evidence/report.json` with the JUnit, package, image metadata, or other immutable outputs it claims. The completed assessment records the resulting artifact and report digests.
+The job uploads the report and every referenced result file in one artifact. The provider verifier downloads those exact bytes, re-parses JUnit, checks that selected test cases passed, verifies the producer against the workflow actor, and rejects report, result, command, checkout, or provider identity drift.
+
+## Provider scope and evidence lifetime
+
+The `1.1.0-rc.1` provider-backed adapter supports public GitHub.com, GitHub Actions, and GitHub pull-request reviews only. GitHub Enterprise Server, GHE.com data-residency hosts, GitLab, Jenkins, and Azure DevOps remain structural-attestation-only until a separately reviewed adapter defines trusted API origins and equivalent provenance. The generic architecture rules remain domain-neutral; the current remote evidence implementation is intentionally not advertised as provider-neutral.
+
+Repository evidence artifacts are retained for 90 days and represent a point-in-time decision. Longer-lived releases must preserve a signed report, attestation, or release asset outside ephemeral Actions retention.
 
 ## Extension model
 

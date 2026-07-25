@@ -35,10 +35,10 @@ def test_dotnet_manifest_contains_every_normative_policy_axis() -> None:
     ):
         assert token in manifest
     assert "manifest.Retryable != manifest.RetryConditions.Retryable" in manifest
-    assert "RequireEvidence(manifest, \"idempotent\", manifest.Idempotent)" in manifest
-    assert "RequireEvidence(manifest, \"concurrent-safe\", manifest.ConcurrentSafe)" in manifest
-    assert "RequireEvidence(manifest, \"reversible\", manifest.Reversible)" in manifest
-    assert "RequireEvidence(manifest, \"retryable\", manifest.Retryable)" in manifest
+    assert 'RequireEvidence(manifest, "idempotent", manifest.Idempotent)' in manifest
+    assert 'RequireEvidence(manifest, "concurrent-safe", manifest.ConcurrentSafe)' in manifest
+    assert 'RequireEvidence(manifest, "reversible", manifest.Reversible)' in manifest
+    assert 'RequireEvidence(manifest, "retryable", manifest.Retryable)' in manifest
 
 
 def test_dotnet_manifest_serializes_canonical_wire_vocabulary() -> None:
@@ -69,7 +69,7 @@ def test_dotnet_write_defaults_remain_conservative() -> None:
         "SideEffectClass.Write",
         "false,\n                IdempotencyMechanism.None",
         "IdempotencyMechanism.None,\n                false,\n                RetryConditions.Never",
-        "false,\n                \"inventory:itemId\"",
+        'false,\n                "inventory:itemId"',
         "ImpactClass.Persistent",
         "CapabilityActiveState.Active",
         "true,\n                Array.Empty<CapabilityEvidence>()",
@@ -82,9 +82,7 @@ def test_dotnet_read_capabilities_do_not_claim_compensation() -> None:
     describe = manifest.split("[CapabilityNames.DescribeCapabilities] = new(", 1)[1].split(
         "[CapabilityNames.ListItems]", 1
     )[0]
-    listed = manifest.split("[CapabilityNames.ListItems] = new(", 1)[1].split(
-        "[CapabilityNames.PutItem]", 1
-    )[0]
+    listed = manifest.split("[CapabilityNames.ListItems] = new(", 1)[1].split("[CapabilityNames.PutItem]", 1)[0]
     for section in (describe, listed):
         assert "ImpactClass.None,\n                false," in section
         assert 'new("reversible"' not in section

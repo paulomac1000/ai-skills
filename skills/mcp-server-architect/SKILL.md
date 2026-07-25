@@ -41,6 +41,19 @@ The .NET seed additionally demonstrates generic tool registration, explicit stat
 
 Treat each result as a verified architecture seed. Replace the sample domain adapter, review every manifest, add production identity and per-resource authorization, and implement all applicable upstream, artifact, task, browser, and deployment tests before production use.
 
+## Adoption and migration evidence
+
+Before claiming that this skill has been adopted or a migration is complete:
+
+1. Read the repository-root `contracts/adoption-assessment.yaml.template`, `contracts/rule-catalog.yaml`, compatibility matrix, and the selected skill manifest.
+2. Create one assessment bound to the exact SHA and classify every stable rule as applicable, not applicable, or deferred with an owned waiver.
+3. Bind each passed claim to a machine result file and passed test-case identity; a green job, badge, screenshot, or hand-written `passed` value is not evidence.
+4. Use `verification_mode: provider-backed` only with the currently supported GitHub.com and GitHub Actions verifier. Other CI providers remain structural attestations until a reviewed adapter exists and cannot satisfy an approval gate.
+5. Run `python contracts/validate_adoption.py <assessment> --require-approval` with read-only provider credentials before approval.
+6. Require an independent review bound to the exact SHA. The reviewer must not be the PR author, a commit author or committer, or an actor that produced the referenced evidence.
+
+Generated templates and examples are architecture seeds, not production acceptance. Apply the relevant CI/CD profile, verify the exact deployment artifact, record rollback and residual risk, and retain provider evidence long enough for the stated decision lifetime.
+
 ## Constraints
 
 - Do not place business logic only inside decorated or attributed tool methods.

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import io
 import json
 import os
@@ -279,7 +280,7 @@ def test_report_and_artifact_mismatch_paths_fail_closed() -> None:
         lane="x",
     )
     bad_archive = make_zip(bad_report)
-    digest = "sha256:" + __import__("hashlib").sha256(bad_archive).hexdigest()
+    digest = "sha256:" + hashlib.sha256(bad_archive).hexdigest()
     reference2 = dict(
         reference,
         provider_digest=digest,
@@ -300,11 +301,11 @@ def test_report_and_artifact_mismatch_paths_fail_closed() -> None:
 def test_invalid_report_json_and_provider_reference_are_findings() -> None:
     reference, responses, _ = successful_fixture()
     archive = make_zip(b"not-json")
-    digest = "sha256:" + __import__("hashlib").sha256(archive).hexdigest()
+    digest = "sha256:" + hashlib.sha256(archive).hexdigest()
     reference = dict(
         reference,
         provider_digest=digest,
-        report_digest="sha256:" + __import__("hashlib").sha256(b"not-json").hexdigest(),
+        report_digest="sha256:" + hashlib.sha256(b"not-json").hexdigest(),
     )
     responses = dict(responses)
     responses["/repos/owner/repository/actions/artifacts/400"] = {
@@ -330,7 +331,7 @@ def test_review_rejects_missing_wrong_and_stale_identity() -> None:
     }
     _, responses, archive = successful_fixture()
     cases = [
-        ({"state": "APPROVED", "commit_id": SHA}, "no canonical"),
+        ({"state": "APPROVED", "commit_id": SHA}, "invalid numeric identity"),
         (
             {
                 "state": "CHANGES_REQUESTED",

@@ -63,23 +63,29 @@ def test_missing_and_non_markdown_inputs_are_errors(tmp_path: Path) -> None:
 
 def test_fenced_headings_and_links_do_not_affect_structure(tmp_path: Path) -> None:
     validator = load_validator()
-    document = governed_body() + """
+    document = (
+        governed_body()
+        + """
 ````markdown
 # Example heading
 [missing](not-a-real-file.md)
 `````
 """
+    )
     assert validator.validate(write(tmp_path / "doc.md", document)) == []
 
 
 def test_tab_indented_backticks_do_not_open_a_fence(tmp_path: Path) -> None:
     validator = load_validator()
-    document = governed_body() + """
+    document = (
+        governed_body()
+        + """
 \t```markdown
 # Hidden duplicate heading
 [Missing](missing.md)
 ```
 """
+    )
     result = messages(validator.validate(write(tmp_path / "doc.md", document)))
     assert "expected exactly one H1" in result
     assert "broken relative link: missing.md" in result
@@ -87,32 +93,37 @@ def test_tab_indented_backticks_do_not_open_a_fence(tmp_path: Path) -> None:
 
 def test_normative_document_requires_concrete_verification(tmp_path: Path) -> None:
     validator = load_validator()
-    document = governed_body(verification="").replace(
-        "## Verification\n\n", "## Notes\n\nTests are unavailable.\n"
-    )
-    assert "missing explicit verification method" in messages(
-        validator.validate(write(tmp_path / "doc.md", document))
-    )
+    document = governed_body(verification="").replace("## Verification\n\n", "## Notes\n\nTests are unavailable.\n")
+    assert "missing explicit verification method" in messages(validator.validate(write(tmp_path / "doc.md", document)))
 
 
 def test_frontmatter_verification_is_accepted(tmp_path: Path) -> None:
     validator = load_validator()
-    document = governed_body(verification="").replace(
-        "owners: [maintainers]\n",
-        "owners: [maintainers]\nverification: Run the contract test suite.\n",
-    ).replace("## Verification\n\n", "")
+    document = (
+        governed_body(verification="")
+        .replace(
+            "owners: [maintainers]\n",
+            "owners: [maintainers]\nverification: Run the contract test suite.\n",
+        )
+        .replace("## Verification\n\n", "")
+    )
     assert validator.validate(write(tmp_path / "doc.md", document)) == []
 
 
 def test_metadata_types_are_validated_without_crashing(tmp_path: Path) -> None:
     validator = load_validator()
-    document = governed_body().replace(
-        "description: Test document\n",
-        "description: [test]\n",
-    ).replace(
-        "type: reference\nstatus: active\nrigor: normative",
-        "type: [reference]\nstatus: [active]\nrigor: [normative]",
-    ).replace("owners: [maintainers]", "owners: [maintainers, 7]")
+    document = (
+        governed_body()
+        .replace(
+            "description: Test document\n",
+            "description: [test]\n",
+        )
+        .replace(
+            "type: reference\nstatus: active\nrigor: normative",
+            "type: [reference]\nstatus: [active]\nrigor: [normative]",
+        )
+        .replace("owners: [maintainers]", "owners: [maintainers, 7]")
+    )
     result = messages(validator.validate(write(tmp_path / "doc.md", document)))
     assert "description must be a non-empty string" in result
     assert "owners must be a non-empty list of role or team names" in result
@@ -136,7 +147,7 @@ def test_inline_link_variants_are_validated(tmp_path: Path) -> None:
 
 def test_reference_style_links_are_validated_once(tmp_path: Path) -> None:
     validator = load_validator()
-    broken = governed_body() + "\n[Guide][spec]\n\n[spec]: missing.md \"details\"\n"
+    broken = governed_body() + '\n[Guide][spec]\n\n[spec]: missing.md "details"\n'
     findings = validator.validate(write(tmp_path / "doc.md", broken))
     assert [finding.message for finding in findings].count("broken relative link: missing.md") == 1
 
@@ -153,10 +164,8 @@ def test_full_reference_images_are_ignored(tmp_path: Path) -> None:
 
 def test_shortcut_reference_links_are_validated(tmp_path: Path) -> None:
     validator = load_validator()
-    broken = governed_body() + "\n[Guide]\n\n[guide]: missing.md \"details\"\n"
-    assert "broken relative link: missing.md" in messages(
-        validator.validate(write(tmp_path / "doc.md", broken))
-    )
+    broken = governed_body() + '\n[Guide]\n\n[guide]: missing.md "details"\n'
+    assert "broken relative link: missing.md" in messages(validator.validate(write(tmp_path / "doc.md", broken)))
     write(tmp_path / "guide.md", "# Guide\n")
     valid = governed_body() + "\n[Guide]\n\n[guide]: guide.md\n"
     assert validator.validate(write(tmp_path / "doc.md", valid)) == []
@@ -170,21 +179,14 @@ def test_unused_reference_definition_is_not_treated_as_a_link(tmp_path: Path) ->
 
 def test_shortcut_images_code_and_escaped_labels_are_ignored(tmp_path: Path) -> None:
     validator = load_validator()
-    document = governed_body() + (
-        "\n![Guide]\n"
-        "\n`[Guide]`\n"
-        "\n\\[Guide]\n"
-        "\n[guide]: missing.md\n"
-    )
+    document = governed_body() + ("\n![Guide]\n\n`[Guide]`\n\n\\[Guide]\n\n[guide]: missing.md\n")
     assert validator.validate(write(tmp_path / "doc.md", document)) == []
 
 
 def test_images_code_and_escaped_pseudo_links_are_ignored(tmp_path: Path) -> None:
     validator = load_validator()
     document = governed_body() + (
-        "\n![Diagram](missing.png)\n"
-        "\n`[example](missing-inline.md)`\n"
-        "\n\\[example](missing-escaped.md)\n"
+        "\n![Diagram](missing.png)\n\n`[example](missing-inline.md)`\n\n\\[example](missing-escaped.md)\n"
     )
     assert validator.validate(write(tmp_path / "doc.md", document)) == []
 
@@ -199,6 +201,4 @@ def test_backslash_does_not_escape_code_span_closer(tmp_path: Path) -> None:
 def test_exclamation_at_end_of_link_label_is_not_an_image(tmp_path: Path) -> None:
     validator = load_validator()
     document = governed_body() + "\n[Important!](missing.md)\n"
-    assert "broken relative link: missing.md" in messages(
-        validator.validate(write(tmp_path / "doc.md", document))
-    )
+    assert "broken relative link: missing.md" in messages(validator.validate(write(tmp_path / "doc.md", document)))

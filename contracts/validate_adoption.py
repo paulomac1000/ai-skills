@@ -216,10 +216,8 @@ def _evidence_reference(
     evidence_revision = _text(evidence.get("revision"), f"{location}.revision", findings)
     if evidence_revision and revision and evidence_revision != revision:
         findings.append(Finding(f"{location}.revision", "must equal repository.revision"))
-    for field in ("run_id", "job_id", "check_run_id", "artifact_id"):
+    for field in ("run_id", "job_id", "check_run_id", "workflow_id", "artifact_id"):
         _positive_int(evidence.get(field), f"{location}.{field}", findings)
-    if evidence.get("workflow_id") is not None:
-        _positive_int(evidence.get("workflow_id"), f"{location}.workflow_id", findings)
     workflow_path = _text(evidence.get("workflow_path"), f"{location}.workflow_path", findings)
     if workflow_path and WORKFLOW_PATH.fullmatch(workflow_path) is None:
         findings.append(Finding(f"{location}.workflow_path", "must identify a .github/workflows YAML file"))

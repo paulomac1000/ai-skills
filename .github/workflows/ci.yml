@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -19,6 +20,8 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 1
           persist-credentials: false
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
@@ -28,11 +31,10 @@ jobs:
           cache-dependency-path: requirements-dev-linux-x64-py312.lock
       - name: Install complete hashed development graph
         run: python scripts/install_locked.py
-      - name: Verify merge-result revision
-        if: github.event_name == 'pull_request'
+      - name: Verify assessed source revision
         shell: bash
         env:
-          EXPECTED_SHA: ${{ github.sha }}
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
       - name: Lint production Python
         id: ruff_lint
@@ -68,6 +70,7 @@ jobs:
           set -o pipefail
           python -m mypy \
             contracts/semver.py contracts/evidence.py contracts/validate_adoption.py \
+            contracts/write_evidence_report.py \
             scripts/ci.py scripts/install_locked.py scripts/select_lock.py \
             skills/afds-doc-writer/validate.py \
             skills/mcp-server-consumer/tools/decision_engine.py \
@@ -106,7 +109,7 @@ jobs:
             bandit.txt
             pip-audit.txt
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 14
       - name: Enforce Python quality outcomes
         if: always()
         shell: bash
@@ -130,6 +133,8 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 1
           persist-credentials: false
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
@@ -177,6 +182,16 @@ jobs:
           python -m coverage report
           --include="scripts/*.py"
           --fail-under=75
+      - name: Write machine-bound repository evidence
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          SOURCE_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          MERGE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          python -m coverage xml -o coverage.xml
+          python contracts/write_evidence_report.py             --repository "$GITHUB_REPOSITORY"             --source-head-sha "$SOURCE_HEAD_SHA"             --tested-checkout-sha "$(git rev-parse HEAD)"             --merge-sha "$MERGE_SHA"             --run-id "$GITHUB_RUN_ID"             --workflow-path .github/workflows/ci.yml             --workflow-name CI             --event "$GITHUB_EVENT_NAME"             --job-name python             --lane repository-rules             --claims-profile repository-rules             --result-file python-generator-junit.xml             --result-file adoption-junit.xml             --result-file repository-junit.xml             --output evidence/report.json
       - name: Upload repository diagnostics
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -184,9 +199,11 @@ jobs:
           name: repository-diagnostics-${{ github.run_id }}
           path: |
             *-junit.xml
-            .coverage
-          if-no-files-found: warn
-          retention-days: 3
+            coverage.xml
+            evidence/
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 90
 
   exact-head:
     if: github.event_name == 'pull_request'
@@ -251,6 +268,8 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 1
           persist-credentials: false
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
@@ -265,14 +284,31 @@ jobs:
           --ignore=tests/test_mcp_dotnet_generator.py
           --ignore=tests/test_mcp_dotnet_runtime_contracts.py
           --junitxml=compatibility-${{ matrix.lock_id }}.xml
+      - name: Write machine-bound compatibility evidence
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          SOURCE_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          MERGE_SHA: ${{ github.sha }}
+          EVIDENCE_SUBJECT: ${{ matrix.operating_system }}|${{ matrix.architecture }}|python|${{ matrix.python }}|python-compatibility
+          EVIDENCE_COMMAND: >-
+            python -m pytest -m "not container"
+            --ignore=tests/test_mcp_dotnet_generator.py
+            --ignore=tests/test_mcp_dotnet_runtime_contracts.py
+            --junitxml=compatibility-${{ matrix.lock_id }}.xml
+        run: |
+          set -euo pipefail
+          python contracts/write_evidence_report.py             --repository "$GITHUB_REPOSITORY"             --source-head-sha "$SOURCE_HEAD_SHA"             --tested-checkout-sha "$(git rev-parse HEAD)"             --merge-sha "$MERGE_SHA"             --run-id "$GITHUB_RUN_ID"             --workflow-path .github/workflows/ci.yml             --workflow-name CI             --event "$GITHUB_EVENT_NAME"             --job-name "Python compatibility (${{ matrix.os }}, ${{ matrix.python }})"             --lane python-compatibility             --dynamic-kind compatibility             --dynamic-subject "$EVIDENCE_SUBJECT"             --dynamic-command "$EVIDENCE_COMMAND"             --dynamic-operating-system "${{ matrix.operating_system }}"             --dynamic-architecture "${{ matrix.architecture }}"             --dynamic-runtime python             --dynamic-version "${{ matrix.python }}"             --dynamic-lane python-compatibility             --result-file "compatibility-${{ matrix.lock_id }}.xml"             --output evidence/report.json
       - name: Upload compatibility evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: compatibility-${{ matrix.lock_id }}-${{ github.run_id }}
-          path: compatibility-${{ matrix.lock_id }}.xml
+          path: |
+            compatibility-${{ matrix.lock_id }}.xml
+            evidence/
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 90
 
   generator-filesystem-contracts:
     name: Generator filesystem contracts (${{ matrix.os }})
@@ -294,6 +330,8 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 1
           persist-credentials: false
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
@@ -310,14 +348,25 @@ jobs:
           tests/test_mcp_dotnet_generator.py::test_generator_preserves_competing_target_created_before_publish
           tests/test_mcp_dotnet_namespace.py
           --junitxml=filesystem-${{ matrix.lock_id }}.xml
+      - name: Write machine-bound filesystem evidence
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          SOURCE_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          MERGE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          python contracts/write_evidence_report.py             --repository "$GITHUB_REPOSITORY"             --source-head-sha "$SOURCE_HEAD_SHA"             --tested-checkout-sha "$(git rev-parse HEAD)"             --merge-sha "$MERGE_SHA"             --run-id "$GITHUB_RUN_ID"             --workflow-path .github/workflows/ci.yml             --workflow-name CI             --event "$GITHUB_EVENT_NAME"             --job-name "Generator filesystem contracts (${{ matrix.os }})"             --lane filesystem-contracts             --claims-profile filesystem             --result-file "filesystem-${{ matrix.lock_id }}.xml"             --output evidence/report.json
       - name: Upload filesystem-contract evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: filesystem-${{ matrix.lock_id }}-${{ github.run_id }}
-          path: filesystem-${{ matrix.lock_id }}.xml
+          path: |
+            filesystem-${{ matrix.lock_id }}.xml
+            evidence/
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 90
 
   dotnet-generator:
     name: .NET artifact (${{ matrix.os }})
@@ -345,6 +394,8 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 1
           persist-credentials: false
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
@@ -360,14 +411,30 @@ jobs:
         run: >-
           python -m pytest tests/test_mcp_dotnet_generator.py tests/test_mcp_dotnet_runtime_contracts.py
           --junitxml=dotnet-${{ matrix.operating_system }}-${{ matrix.architecture }}.xml
+      - name: Write machine-bound .NET evidence
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          SOURCE_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          MERGE_SHA: ${{ github.sha }}
+          EVIDENCE_SUBJECT: ${{ matrix.operating_system }}|${{ matrix.architecture }}|dotnet|${{ matrix.dotnet }}|dotnet-compatibility
+          EVIDENCE_COMMAND: >-
+            python -m pytest tests/test_mcp_dotnet_generator.py
+            tests/test_mcp_dotnet_runtime_contracts.py
+            --junitxml=dotnet-${{ matrix.operating_system }}-${{ matrix.architecture }}.xml
+        run: |
+          set -euo pipefail
+          python contracts/write_evidence_report.py             --repository "$GITHUB_REPOSITORY"             --source-head-sha "$SOURCE_HEAD_SHA"             --tested-checkout-sha "$(git rev-parse HEAD)"             --merge-sha "$MERGE_SHA"             --run-id "$GITHUB_RUN_ID"             --workflow-path .github/workflows/ci.yml             --workflow-name CI             --event "$GITHUB_EVENT_NAME"             --job-name ".NET artifact (${{ matrix.os }})"             --lane dotnet-compatibility             --claims-profile mcp-dotnet             --dynamic-kind compatibility             --dynamic-subject "$EVIDENCE_SUBJECT"             --dynamic-command "$EVIDENCE_COMMAND"             --dynamic-operating-system "${{ matrix.operating_system }}"             --dynamic-architecture "${{ matrix.architecture }}"             --dynamic-runtime dotnet             --dynamic-version "${{ matrix.dotnet }}"             --dynamic-lane dotnet-compatibility             --result-file "dotnet-${{ matrix.operating_system }}-${{ matrix.architecture }}.xml"             --output evidence/report.json
       - name: Upload .NET artifact evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: dotnet-${{ matrix.operating_system }}-${{ matrix.architecture }}-${{ github.run_id }}
-          path: dotnet-${{ matrix.operating_system }}-${{ matrix.architecture }}.xml
+          path: |
+            dotnet-${{ matrix.operating_system }}-${{ matrix.architecture }}.xml
+            evidence/
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 90
 
   python-container-artifact:
     runs-on: ubuntu-24.04
@@ -375,6 +442,8 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 1
           persist-credentials: false
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
@@ -385,11 +454,23 @@ jobs:
       - run: python scripts/install_locked.py
       - name: Build non-root generated image and invoke through official MCP client
         run: python -m pytest tests/test_mcp_generator.py -m container --junitxml=python-container.xml
+      - name: Write machine-bound container evidence
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          SOURCE_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          MERGE_SHA: ${{ github.sha }}
+          EVIDENCE_COMMAND: python -m pytest tests/test_mcp_generator.py -m container --junitxml=python-container.xml
+        run: |
+          set -euo pipefail
+          python contracts/write_evidence_report.py             --repository "$GITHUB_REPOSITORY"             --source-head-sha "$SOURCE_HEAD_SHA"             --tested-checkout-sha "$(git rev-parse HEAD)"             --merge-sha "$MERGE_SHA"             --run-id "$GITHUB_RUN_ID"             --workflow-path .github/workflows/ci.yml             --workflow-name CI             --event "$GITHUB_EVENT_NAME"             --job-name python-container-artifact             --lane docker-artifact             --claims-profile mcp-container             --dynamic-kind compatibility             --dynamic-subject "linux|x64|python|3.12|docker-artifact"             --dynamic-command "$EVIDENCE_COMMAND"             --dynamic-operating-system linux             --dynamic-architecture x64             --dynamic-runtime python             --dynamic-version 3.12             --dynamic-lane docker-artifact             --result-file python-container.xml             --output evidence/report.json
       - name: Upload container-artifact evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: python-container-${{ github.run_id }}
-          path: python-container.xml
+          path: |
+            python-container.xml
+            evidence/
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 90

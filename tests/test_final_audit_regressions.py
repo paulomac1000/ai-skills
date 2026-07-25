@@ -7,14 +7,8 @@ DOTNET_TEMPLATE = ROOT / "skills/mcp-server-architect/tools/dotnet-template"
 
 
 def test_dotnet_http_enforces_and_executes_loopback_origin_policy() -> None:
-    program = (
-        DOTNET_TEMPLATE
-        / "src/__NAMESPACE__.Mcp.Server/Program.cs.template"
-    ).read_text(encoding="utf-8")
-    smoke = (
-        DOTNET_TEMPLATE
-        / "tests/__NAMESPACE__.Mcp.Smoke/Program.cs.template"
-    ).read_text(encoding="utf-8")
+    program = (DOTNET_TEMPLATE / "src/__NAMESPACE__.Mcp.Server/Program.cs.template").read_text(encoding="utf-8")
+    smoke = (DOTNET_TEMPLATE / "tests/__NAMESPACE__.Mcp.Smoke/Program.cs.template").read_text(encoding="utf-8")
 
     for token in (
         'request.Headers.TryGetValue("Origin"',
@@ -31,18 +25,11 @@ def test_dotnet_http_enforces_and_executes_loopback_origin_policy() -> None:
 
 
 def test_dotnet_tool_attributes_and_manifests_share_canonical_names() -> None:
-    manifests = (
-        DOTNET_TEMPLATE
-        / "src/__NAMESPACE__.Mcp.Server/CapabilityManifest.cs.template"
-    ).read_text(encoding="utf-8")
-    tools = (
-        DOTNET_TEMPLATE
-        / "src/__NAMESPACE__.Mcp.Server/Tools.cs.template"
-    ).read_text(encoding="utf-8")
-    smoke = (
-        DOTNET_TEMPLATE
-        / "tests/__NAMESPACE__.Mcp.Smoke/Program.cs.template"
-    ).read_text(encoding="utf-8")
+    manifests = (DOTNET_TEMPLATE / "src/__NAMESPACE__.Mcp.Server/CapabilityManifest.cs.template").read_text(
+        encoding="utf-8"
+    )
+    tools = (DOTNET_TEMPLATE / "src/__NAMESPACE__.Mcp.Server/Tools.cs.template").read_text(encoding="utf-8")
+    smoke = (DOTNET_TEMPLATE / "tests/__NAMESPACE__.Mcp.Smoke/Program.cs.template").read_text(encoding="utf-8")
 
     for constant in ("DescribeCapabilities", "ListItems", "PutItem"):
         assert f"Name = CapabilityNames.{constant}" in tools

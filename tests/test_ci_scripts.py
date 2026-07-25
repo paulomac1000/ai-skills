@@ -26,9 +26,7 @@ def load(path: Path, name: str) -> ModuleType:
 
 
 def test_lock_selector_cli_and_normalization_fail_closed(capsys) -> None:
-    assert select_lock.main(
-        ["--platform", "linux", "--architecture", "AMD64", "--python-version", "03.013"]
-    ) == 0
+    assert select_lock.main(["--platform", "linux", "--architecture", "AMD64", "--python-version", "03.013"]) == 0
     assert capsys.readouterr().out.strip() == "requirements-dev-linux-x64-py313.lock"
     with pytest.raises(RuntimeError, match="architecture"):
         select_lock.normalize_architecture("sparc")

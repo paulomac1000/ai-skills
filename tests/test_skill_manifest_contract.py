@@ -140,11 +140,7 @@ def test_every_skill_manifest_is_versioned_and_declares_exact_evidenced_combinat
 
         providers = set(compatibility.get("providers") or [])
         if providers:
-            covered = {
-                provider
-                for lane_id in evidence_lanes
-                for provider in lanes[lane_id].get("providers", [])
-            }
+            covered = {provider for lane_id in evidence_lanes for provider in lanes[lane_id].get("providers", [])}
             assert providers <= covered, (path, providers - covered)
 
         adoption = manifest["adoption"]
