@@ -1,8 +1,8 @@
 name: Apply evidence audit
 
 on:
-  push:
-    branches: [refactor/skills-cleanup]
+  pull_request:
+    branches: [main]
     paths:
       - .github/workflows/_apply-evidence-audit.yml
 
@@ -11,17 +11,18 @@ permissions:
   actions: read
 
 concurrency:
-  group: apply-evidence-audit-${{ github.ref }}
+  group: apply-evidence-audit-${{ github.event.pull_request.head.ref }}
   cancel-in-progress: false
 
 jobs:
   apply-and-verify:
+    if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
           persist-credentials: false
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
@@ -38,10 +39,11 @@ jobs:
       - name: Verify immutable patch input
         shell: bash
         env:
-          EXPECTED_PARENT: b45023cbc4ab7c80a871c21d0ccf73a2bfaf224e
+          EXPECTED_PARENT: 07d863fa694cd5977373bc881f642c7f614b80ff
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD^)" = "$EXPECTED_PARENT"
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
           test -f .github/evidence-audit-patch.py
           for index in 00 01 02 03 04 05 06; do
             test -s ".github/evidence-patch.part${index}"
