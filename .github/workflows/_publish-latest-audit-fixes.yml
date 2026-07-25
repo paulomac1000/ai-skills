@@ -42,24 +42,70 @@ jobs:
           Path("/tmp/apply.sh").write_text(script, encoding="utf-8", newline="\n")
           PY
           bash /tmp/apply.sh
-      - name: Complete required workflow identity fixture
+      - name: Complete required workflow identity and response fixtures
         shell: python
         run: |
           from pathlib import Path
-          path = Path("tests/test_adoption_contract.py")
-          source = path.read_text(encoding="utf-8")
-          old = '''        "check_run_id": 10_000 + job_id,
+
+          adoption_path = Path("tests/test_adoption_contract.py")
+          adoption_source = adoption_path.read_text(encoding="utf-8")
+          adoption_old = '''        "check_run_id": 10_000 + job_id,
                   "revision": REVISION,
                   "workflow_path": ".github/workflows/ci.yml",
           '''
-          new = '''        "check_run_id": 10_000 + job_id,
+          adoption_new = '''        "check_run_id": 10_000 + job_id,
                   "revision": REVISION,
                   "workflow_id": 300,
                   "workflow_path": ".github/workflows/ci.yml",
           '''
-          if source.count(old) != 1:
+          if adoption_source.count(adoption_old) != 1:
               raise SystemExit("expected adoption evidence fixture was not found exactly once")
-          path.write_text(source.replace(old, new), encoding="utf-8", newline="\n")
+          adoption_path.write_text(
+              adoption_source.replace(adoption_old, adoption_new),
+              encoding="utf-8",
+              newline="\n",
+          )
+
+          edge_path = Path("tests/test_contract_edge_cases.py")
+          edge_source = edge_path.read_text(encoding="utf-8")
+          edge_old = '''class _Response:
+              def __init__(self, payload: bytes) -> None:
+                  self.payload = payload
+
+              def __enter__(self):
+                  return self
+
+              def __exit__(self, *args):
+                  return False
+
+              def read(self, limit: int | None = None) -> bytes:
+                  return self.payload if limit is None else self.payload[:limit]
+          '''
+          edge_new = '''class _Response:
+              def __init__(self, payload: bytes) -> None:
+                  self.payload = payload
+                  self.closed = False
+
+              def __enter__(self):
+                  return self
+
+              def __exit__(self, *args):
+                  self.close()
+                  return False
+
+              def read(self, limit: int | None = None) -> bytes:
+                  return self.payload if limit is None else self.payload[:limit]
+
+              def close(self) -> None:
+                  self.closed = True
+          '''
+          if edge_source.count(edge_old) != 1:
+              raise SystemExit("expected response test double was not found exactly once")
+          edge_path.write_text(
+              edge_source.replace(edge_old, edge_new),
+              encoding="utf-8",
+              newline="\n",
+          )
       - name: Apply pinned Ruff fixes and formatting
         run: |
           python -m ruff check --fix \
