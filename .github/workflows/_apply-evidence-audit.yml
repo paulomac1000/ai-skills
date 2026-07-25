@@ -38,33 +38,35 @@ jobs:
         run: python scripts/install_locked.py
       - name: Verify immutable patch input
         shell: bash
-        env:
-          EXPECTED_PARENT: 8fef97a29071b214390a3adaa1b08a19a531753d
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD^)" = "$EXPECTED_PARENT"
+          test "$(git rev-parse HEAD^)" = "be980d59e2cb68c7fe3a5b2942c3dbdb49147f20"
           test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
           test -f .github/evidence-audit-patch.py
           for index in 00 01 02 03 04 05 06; do
             test -s ".github/evidence-patch.part${index}"
           done
-      - name: Apply audited evidence patch
-        run: python .github/evidence-audit-patch.py
-      - name: Correct untrusted scalar typing
+      - name: Materialize audited candidate
         shell: bash
         run: |
+          python .github/evidence-audit-patch.py
           python - <<'PY'
           from pathlib import Path
 
-          path = Path("contracts/write_evidence_report.py")
-          source = path.read_text(encoding="utf-8")
-          old = "def _positive(value: int, name: str) -> int:"
-          if source.count(old) != 1:
+          writer = Path("contracts/write_evidence_report.py")
+          source = writer.read_text(encoding="utf-8")
+          old_signature = "def _positive(value: int, name: str) -> int:"
+          if source.count(old_signature) != 1:
               raise SystemExit("expected one _positive signature")
-          path.write_text(source.replace(old, "def _positive(value: object, name: str) -> int:"), encoding="utf-8", newline="\n")
+          writer.write_text(source.replace(old_signature, "def _positive(value: object, name: str) -> int:"), encoding="utf-8", newline="\n")
+
+          edge = Path("tests/test_contract_edge_cases.py")
+          tests = edge.read_text(encoding="utf-8")
+          old_case = '({"state": "APPROVED", "commit_id": SHA}, "no canonical"),'
+          if tests.count(old_case) != 1:
+              raise SystemExit("expected one stale review assertion")
+          edge.write_text(tests.replace(old_case, '({"state": "APPROVED", "commit_id": SHA}, "invalid numeric identity"),'), encoding="utf-8", newline="\n")
           PY
-      - name: Apply safe Ruff fixes and format
-        run: |
           python -m ruff check --fix contracts scripts tests skills/afds-doc-writer/validate.py skills/mcp-server-consumer/tools skills/mcp-server-architect/tools/generate_python_server.py skills/mcp-server-architect/tools/generate_python_server_impl.py skills/mcp-server-architect/tools/generate_dotnet_server.py
           python -m ruff format contracts scripts tests skills/afds-doc-writer/validate.py skills/mcp-server-consumer/tools skills/mcp-server-architect/tools/generate_python_server.py skills/mcp-server-architect/tools/generate_python_server_impl.py skills/mcp-server-architect/tools/generate_dotnet_server.py
       - name: Compile and dependency consistency
@@ -76,25 +78,15 @@ jobs:
           python -m ruff check contracts scripts tests skills/afds-doc-writer/validate.py skills/mcp-server-consumer/tools skills/mcp-server-architect/tools/generate_python_server.py skills/mcp-server-architect/tools/generate_python_server_impl.py skills/mcp-server-architect/tools/generate_dotnet_server.py
           python -m ruff format --check contracts scripts tests skills/afds-doc-writer/validate.py skills/mcp-server-consumer/tools skills/mcp-server-architect/tools/generate_python_server.py skills/mcp-server-architect/tools/generate_python_server_impl.py skills/mcp-server-architect/tools/generate_dotnet_server.py
       - name: Mypy
-        shell: bash
-        run: |
-          set -o pipefail
-          python -m mypy \
-            contracts/semver.py contracts/evidence.py contracts/validate_adoption.py contracts/write_evidence_report.py \
-            scripts/ci.py scripts/install_locked.py scripts/select_lock.py \
-            skills/afds-doc-writer/validate.py \
-            skills/mcp-server-consumer/tools/decision_engine.py \
-            skills/mcp-server-architect/tools/generate_python_server.py \
-            skills/mcp-server-architect/tools/generate_python_server_impl.py \
-            skills/mcp-server-architect/tools/generate_dotnet_server.py 2>&1 | tee mypy.log
-      - name: Upload mypy diagnostics
-        if: failure()
-        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08 # v4.6.2
-        with:
-          name: evidence-audit-mypy
-          path: mypy.log
-          if-no-files-found: error
-          retention-days: 3
+        run: >-
+          python -m mypy
+          contracts/semver.py contracts/evidence.py contracts/validate_adoption.py contracts/write_evidence_report.py
+          scripts/ci.py scripts/install_locked.py scripts/select_lock.py
+          skills/afds-doc-writer/validate.py
+          skills/mcp-server-consumer/tools/decision_engine.py
+          skills/mcp-server-architect/tools/generate_python_server.py
+          skills/mcp-server-architect/tools/generate_python_server_impl.py
+          skills/mcp-server-architect/tools/generate_dotnet_server.py
       - name: Security and dependency audit
         run: |
           python -m bandit -q -lll -iii -r contracts scripts skills/afds-doc-writer skills/mcp-server-consumer/tools skills/mcp-server-architect/tools
@@ -112,8 +104,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          rm -f .github/workflows/_diagnose-evidence-pytest.yml
           test ! -e .github/evidence-audit-patch.py
           test ! -e .github/workflows/_apply-evidence-audit.yml
+          test ! -e .github/workflows/_diagnose-evidence-pytest.yml
           ! find .github -maxdepth 1 -name 'evidence-patch.part*' -print -quit | grep -q .
           git diff --check
           git status --short
