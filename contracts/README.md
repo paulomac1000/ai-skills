@@ -30,7 +30,7 @@ The files in this directory make adoption evidence comparable across every skill
 
 `provider-backed` additionally requires a canonical report artifact. The verifier checks the workflow path and name, event, exact job name, evidence lane, run and job IDs, immutable revision, artifact ID and name, provider digest, report path and digest, and the exact rule, compatibility, transport, or artifact claim encoded in that report. An unrelated green job on the same revision is not valid evidence.
 
-The artifact download follows GitHub's signed redirect without forwarding the GitHub API token. ZIP paths, duplicate entries, symlinks, entry counts, and compressed and uncompressed sizes are validated before the report is read.
+The artifact download follows GitHub's signed redirect without forwarding the GitHub API token. Every HTTP response is closed deterministically. ZIP paths, duplicate entries, symlinks, entry counts, and declared sizes are validated before reading, and the report is decompressed incrementally under a limit based on the bytes actually consumed.
 
 The validator never treats a free-form URI, screenshot, aggregate badge, or self-declared `passed` value as verified remote evidence.
 
@@ -57,7 +57,7 @@ The job uploads `evidence/report.json` with the JUnit, package, image metadata, 
 
 ## Extension model
 
-The base assessment is domain-neutral. Skill-specific evidence belongs under `extensions.<extension-name>` and may only strengthen the generic acceptance rules. The MCP server extension records maturity level, implementation profiles, advertised transports, official-client commands, and transport-specific listing, read, failure, and write-boundary results.
+The base assessment is domain-neutral, but the extension namespace is a closed, versioned registry rather than an arbitrary object bag. In `1.1.0-rc.1`, `mcp` is the only registered key under `extensions`; unknown keys are rejected. Registering another extension requires a versioned schema definition, semantic validator support, templates, and regression tests. The MCP server extension records maturity level, implementation profiles, advertised transports, official-client commands, and transport-specific listing, read, failure, and write-boundary results.
 
 ## Validation
 

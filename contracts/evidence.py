@@ -22,6 +22,7 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener, urlopen
 MAX_ARCHIVE_BYTES = 25 * 1024 * 1024
 MAX_UNCOMPRESSED_BYTES = 50 * 1024 * 1024
 MAX_ARCHIVE_MEMBERS = 1_000
+READ_CHUNK_BYTES = 64 * 1024
 _ALLOWED_DOWNLOAD_HOST_SUFFIXES = (
     ".actions.githubusercontent.com",
     ".githubusercontent.com",
@@ -158,12 +159,16 @@ class GitHubEvidenceVerifier:
         path = f"/repos/{repository}/actions/artifacts/{artifact_id}/zip"
         opener = build_opener(_NoRedirect())
         try:
-            opener.open(self._api_request(path), timeout=self._timeout_seconds)  # noqa: S310
+            response = opener.open(self._api_request(path), timeout=self._timeout_seconds)  # noqa: S310
         except HTTPError as exc:
-            if exc.code not in {301, 302, 303, 307, 308}:
-                raise
-            location = exc.headers.get("Location", "")
+            try:
+                if exc.code not in {301, 302, 303, 307, 308}:
+                    raise
+                location = exc.headers.get("Location", "")
+            finally:
+                exc.close()
         else:
+            response.close()
             raise ValueError("GitHub artifact endpoint did not return a signed redirect")
 
         signed_url = self._validate_download_url(location)
@@ -188,7 +193,7 @@ class GitHubEvidenceVerifier:
             members = archive.infolist()
             if len(members) > MAX_ARCHIVE_MEMBERS:
                 raise ValueError("GitHub artifact contains too many entries")
-            total = 0
+            declared_total = 0
             seen: set[str] = set()
             report: bytes | None = None
             for member in members:
@@ -204,11 +209,26 @@ class GitHubEvidenceVerifier:
                 mode = member.external_attr >> 16
                 if stat.S_IFMT(mode) == stat.S_IFLNK:
                     raise ValueError("GitHub artifact contains a symlink")
-                total += member.file_size
-                if total > MAX_UNCOMPRESSED_BYTES:
-                    raise ValueError("GitHub artifact exceeds the uncompressed size limit")
+                declared_total += member.file_size
+                if declared_total > MAX_UNCOMPRESSED_BYTES:
+                    raise ValueError("GitHub artifact exceeds the declared uncompressed size limit")
                 if name == report_path:
-                    report = archive.read(member)
+                    report_buffer = bytearray()
+                    try:
+                        with archive.open(member, "r") as source:
+                            while True:
+                                remaining = MAX_UNCOMPRESSED_BYTES - len(report_buffer)
+                                chunk = source.read(min(READ_CHUNK_BYTES, remaining + 1))
+                                if not chunk:
+                                    break
+                                report_buffer.extend(chunk)
+                                if len(report_buffer) > MAX_UNCOMPRESSED_BYTES:
+                                    raise ValueError(
+                                        "GitHub artifact report exceeds the actual uncompressed size limit"
+                                    )
+                    except zipfile.BadZipFile as exc:
+                        raise ValueError("GitHub artifact contains an invalid ZIP entry") from exc
+                    report = bytes(report_buffer)
             if report is None:
                 raise ValueError("GitHub artifact does not contain evidence.report_path")
             return report
@@ -297,8 +317,8 @@ class GitHubEvidenceVerifier:
             repository = self._repository_path(reference)
             run_id = self._positive_int(reference, "run_id")
             job_id = self._positive_int(reference, "job_id")
-            raw_workflow_id = reference.get("workflow_id")
-            workflow_id = None if raw_workflow_id is None else self._positive_int(reference, "workflow_id")
+            check_run_id = self._positive_int(reference, "check_run_id")
+            workflow_id = self._positive_int(reference, "workflow_id")
             workflow_path = self._required_text(reference, "workflow_path")
             workflow_name = self._required_text(reference, "workflow_name")
             event = self._required_text(reference, "event")
@@ -337,7 +357,6 @@ class GitHubEvidenceVerifier:
             errors.append("workflow job is not completed successfully")
         if str(job.get("name") or "") != job_name:
             errors.append("workflow job name does not match evidence.job_name")
-        check_run_id = self._positive_int(reference, "check_run_id")
         check_run_url = str(job.get("check_run_url") or "")
         if not check_run_url.endswith(f"/check-runs/{check_run_id}"):
             errors.append("workflow job check run does not match evidence.check_run_id")

@@ -64,6 +64,7 @@ def evidence(
         "job_id": job_id,
         "check_run_id": 10_000 + job_id,
         "revision": REVISION,
+        "workflow_id": 300,
         "workflow_path": ".github/workflows/ci.yml",
         "workflow_name": "CI",
         "event": "pull_request",
@@ -286,9 +287,7 @@ def test_provider_failures_block_approval(tmp_path: Path) -> None:
 def test_structural_attestation_cannot_approve(tmp_path: Path) -> None:
     document, catalog, skills = assessment_for(tmp_path)
     document["verification_mode"] = "structural-attestation"
-    assert "approval requires provider-backed evidence" in "\n".join(
-        findings(document, catalog, skills, tmp_path)
-    )
+    assert "approval requires provider-backed evidence" in "\n".join(findings(document, catalog, skills, tmp_path))
 
 
 def test_not_applicable_transport_requires_null_evidence(tmp_path: Path) -> None:

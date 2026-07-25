@@ -42,6 +42,7 @@ ALLOWED_RESULTS = {"passed", "failed", "not-run"}
 MCP_TRANSPORTS = {"stdio", "streamable_http"}
 VERIFICATION_MODES = {"structural-attestation", "provider-backed"}
 ACTION_EVENTS = {"pull_request", "push", "workflow_dispatch", "workflow_run"}
+FILE_READ_CHUNK_BYTES = 1024 * 1024
 
 
 @dataclass(frozen=True, slots=True)
@@ -534,6 +535,26 @@ def _validate_applicability(
             findings.append(Finding(f"applicability.{rule_id}.waiver_id", "waiver is bound to another rule"))
 
 
+def _update_digest_from_regular_file(
+    digest: Any,
+    path: Path,
+    *,
+    include_size: bool,
+) -> None:
+    flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
+    descriptor = os.open(path, flags)
+    try:
+        metadata = os.fstat(descriptor)
+        if not stat.S_ISREG(metadata.st_mode):
+            raise ValueError("artifact path must be a regular file")
+        if include_size:
+            digest.update(metadata.st_size.to_bytes(8, "big"))
+        while chunk := os.read(descriptor, FILE_READ_CHUNK_BYTES):
+            digest.update(chunk)
+    finally:
+        os.close(descriptor)
+
+
 def _tree_digest(path: Path) -> str:
     root_mode = path.lstat().st_mode
     if stat.S_ISLNK(root_mode) or not stat.S_ISDIR(root_mode):
@@ -558,11 +579,9 @@ def _tree_digest(path: Path) -> str:
             if not stat.S_ISREG(mode):
                 raise ValueError(f"artifact tree contains a non-regular file: {relative}")
             relative_bytes = relative.encode("utf-8")
-            content = child.read_bytes()
             digest.update(len(relative_bytes).to_bytes(8, "big"))
             digest.update(relative_bytes)
-            digest.update(len(content).to_bytes(8, "big"))
-            digest.update(content)
+            _update_digest_from_regular_file(digest, child, include_size=True)
     return f"sha256:{digest.hexdigest()}"
 
 
@@ -574,7 +593,9 @@ def _path_digest(path: Path) -> str:
         return _tree_digest(path)
     if not stat.S_ISREG(mode):
         raise ValueError("artifact path must be a regular file or directory")
-    return f"sha256:{hashlib.sha256(path.read_bytes()).hexdigest()}"
+    digest = hashlib.sha256()
+    _update_digest_from_regular_file(digest, path, include_size=False)
+    return f"sha256:{digest.hexdigest()}"
 
 
 def _validate_artifacts(

@@ -95,15 +95,20 @@ def test_download_url_rejects_untrusted_targets(url: str) -> None:
 class _Response:
     def __init__(self, payload: bytes) -> None:
         self.payload = payload
+        self.closed = False
 
     def __enter__(self):
         return self
 
     def __exit__(self, *args):
+        self.close()
         return False
 
     def read(self, limit: int | None = None) -> bytes:
         return self.payload if limit is None else self.payload[:limit]
+
+    def close(self) -> None:
+        self.closed = True
 
 
 class _RedirectOpener:
@@ -411,22 +416,21 @@ def test_safe_repository_path_rejects_absolute_parent_and_symlink(tmp_path: Path
     assert _safe_repository_path(tmp_path, "/abs") is None
     assert _safe_repository_path(tmp_path, "../x") is None
     assert _safe_repository_path(tmp_path, "") is None
+    assert _safe_repository_path(tmp_path, "new/path") == tmp_path / "new/path"
     real = tmp_path / "real"
     real.mkdir()
     link = tmp_path / "link"
-    link.symlink_to(real, target_is_directory=True)
+    try:
+        link.symlink_to(real, target_is_directory=True)
+    except OSError as exc:
+        pytest.skip(f"symlink creation is unavailable: {exc}")
     assert _safe_repository_path(tmp_path, "link/x") is None
-    assert _safe_repository_path(tmp_path, "new/path") == tmp_path / "new/path"
 
 
 def test_directory_digest_rejects_wrong_root_and_special_entry(tmp_path: Path) -> None:
     file = tmp_path / "file"
     file.write_text("x", encoding="utf-8")
     assert _path_digest(file).startswith("sha256:")
-    link = tmp_path / "link"
-    link.symlink_to(file)
-    with pytest.raises(ValueError, match="symlink"):
-        _path_digest(link)
     if hasattr(os, "mkfifo"):
         tree = tmp_path / "tree"
         tree.mkdir()
@@ -434,6 +438,13 @@ def test_directory_digest_rejects_wrong_root_and_special_entry(tmp_path: Path) -
         os.mkfifo(fifo)
         with pytest.raises(ValueError, match="non-regular"):
             _path_digest(tree)
+    link = tmp_path / "link"
+    try:
+        link.symlink_to(file)
+    except OSError as exc:
+        pytest.skip(f"symlink creation is unavailable: {exc}")
+    with pytest.raises(ValueError, match="symlink"):
+        _path_digest(link)
 
 
 def test_semantic_mutations_cover_waivers_scope_risks_and_review(tmp_path: Path) -> None:

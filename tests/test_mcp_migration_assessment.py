@@ -13,9 +13,7 @@ CONTRACTS = ROOT / "contracts"
 
 def test_mcp_template_extends_the_generic_adoption_contract_without_false_defaults() -> None:
     generic = yaml.safe_load((CONTRACTS / "adoption-assessment.yaml.template").read_text(encoding="utf-8"))
-    template = yaml.safe_load(
-        (SKILL / "templates/migration-assessment.yaml.template").read_text(encoding="utf-8")
-    )
+    template = yaml.safe_load((SKILL / "templates/migration-assessment.yaml.template").read_text(encoding="utf-8"))
     manifest = yaml.safe_load((SKILL / "manifest.yaml").read_text(encoding="utf-8"))
 
     assert template["schema_version"] == generic["schema_version"] == 1
@@ -41,22 +39,28 @@ def test_mcp_template_extends_the_generic_adoption_contract_without_false_defaul
     assert mcp["profiles"] == ["REPLACE_WITH_IMPLEMENTED_PROFILE"]
     assert mcp["advertised_transports"] == ["REPLACE_WITH_ADVERTISED_TRANSPORT"]
     assert set(mcp["transport_results"]) == {"stdio", "streamable_http"}
+    required_checks = {
+        "capability_listing",
+        "representative_read",
+        "failure_path",
+        "write_boundary",
+    }
     for transport in mcp["transport_results"].values():
+        assert set(transport) == required_checks
         for check in transport.values():
             assert check == {"result": "not-applicable", "evidence": None}
     assert template["decision"]["status"] == "request-changes"
 
 
 def test_every_provider_reference_carries_execution_and_report_identity() -> None:
-    template = yaml.safe_load(
-        (SKILL / "templates/migration-assessment.yaml.template").read_text(encoding="utf-8")
-    )
+    template = yaml.safe_load((SKILL / "templates/migration-assessment.yaml.template").read_text(encoding="utf-8"))
     references = [
         template["applicability"][0]["verification"][0]["evidence"],
         template["artifact_verification"]["artifacts"][0]["evidence"],
         template["compatibility_results"][0]["evidence"],
     ]
     required = {
+        "workflow_id",
         "workflow_path",
         "workflow_name",
         "event",
