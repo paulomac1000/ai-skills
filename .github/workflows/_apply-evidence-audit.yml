@@ -39,7 +39,7 @@ jobs:
       - name: Verify immutable patch input
         shell: bash
         env:
-          EXPECTED_PARENT: d665726d1381fc96fa2338e9e64dc2e8637d2b20
+          EXPECTED_PARENT: 8fef97a29071b214390a3adaa1b08a19a531753d
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD^)" = "$EXPECTED_PARENT"
@@ -50,6 +50,19 @@ jobs:
           done
       - name: Apply audited evidence patch
         run: python .github/evidence-audit-patch.py
+      - name: Correct untrusted scalar typing
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("contracts/write_evidence_report.py")
+          source = path.read_text(encoding="utf-8")
+          old = "def _positive(value: int, name: str) -> int:"
+          if source.count(old) != 1:
+              raise SystemExit("expected one _positive signature")
+          path.write_text(source.replace(old, "def _positive(value: object, name: str) -> int:"), encoding="utf-8", newline="\n")
+          PY
       - name: Apply safe Ruff fixes and format
         run: |
           python -m ruff check --fix contracts scripts tests skills/afds-doc-writer/validate.py skills/mcp-server-consumer/tools skills/mcp-server-architect/tools/generate_python_server.py skills/mcp-server-architect/tools/generate_python_server_impl.py skills/mcp-server-architect/tools/generate_dotnet_server.py
