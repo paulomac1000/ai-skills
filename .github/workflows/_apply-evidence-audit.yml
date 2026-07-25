@@ -39,7 +39,7 @@ jobs:
       - name: Verify immutable patch input
         shell: bash
         env:
-          EXPECTED_PARENT: c5605529360b8928daba6dbad5e3b84b0f027515
+          EXPECTED_PARENT: f6dd3132d8e4287cf0c11f9a331e2a28fc793ea5
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD^)" = "$EXPECTED_PARENT"
@@ -50,15 +50,10 @@ jobs:
           done
       - name: Apply audited evidence patch
         run: python .github/evidence-audit-patch.py
-      - name: Format changed Python
-        run: >-
-          python -m ruff format
-          contracts tests scripts
-          skills/afds-doc-writer/validate.py
-          skills/mcp-server-consumer/tools
-          skills/mcp-server-architect/tools/generate_python_server.py
-          skills/mcp-server-architect/tools/generate_python_server_impl.py
-          skills/mcp-server-architect/tools/generate_dotnet_server.py
+      - name: Apply safe Ruff fixes and format
+        run: |
+          python -m ruff check --fix contracts scripts tests skills/afds-doc-writer/validate.py skills/mcp-server-consumer/tools skills/mcp-server-architect/tools/generate_python_server.py skills/mcp-server-architect/tools/generate_python_server_impl.py skills/mcp-server-architect/tools/generate_dotnet_server.py
+          python -m ruff format contracts scripts tests skills/afds-doc-writer/validate.py skills/mcp-server-consumer/tools skills/mcp-server-architect/tools/generate_python_server.py skills/mcp-server-architect/tools/generate_python_server_impl.py skills/mcp-server-architect/tools/generate_dotnet_server.py
       - name: Compile and dependency consistency
         run: |
           python -m compileall -q contracts scripts skills
