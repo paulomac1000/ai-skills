@@ -39,7 +39,7 @@ jobs:
       - name: Verify immutable patch input
         shell: bash
         env:
-          EXPECTED_PARENT: 07d863fa694cd5977373bc881f642c7f614b80ff
+          EXPECTED_PARENT: c5605529360b8928daba6dbad5e3b84b0f027515
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD^)" = "$EXPECTED_PARENT"
@@ -59,8 +59,37 @@ jobs:
           skills/mcp-server-architect/tools/generate_python_server.py
           skills/mcp-server-architect/tools/generate_python_server_impl.py
           skills/mcp-server-architect/tools/generate_dotnet_server.py
-      - name: Run complete local production gate
-        run: python scripts/ci.py
+      - name: Compile and dependency consistency
+        run: |
+          python -m compileall -q contracts scripts skills
+          python -m pip check
+      - name: Ruff lint and formatting
+        run: |
+          python -m ruff check contracts scripts tests skills/afds-doc-writer/validate.py skills/mcp-server-consumer/tools skills/mcp-server-architect/tools/generate_python_server.py skills/mcp-server-architect/tools/generate_python_server_impl.py skills/mcp-server-architect/tools/generate_dotnet_server.py
+          python -m ruff format --check contracts scripts tests skills/afds-doc-writer/validate.py skills/mcp-server-consumer/tools skills/mcp-server-architect/tools/generate_python_server.py skills/mcp-server-architect/tools/generate_python_server_impl.py skills/mcp-server-architect/tools/generate_dotnet_server.py
+      - name: Mypy
+        run: >-
+          python -m mypy
+          contracts/semver.py contracts/evidence.py contracts/validate_adoption.py contracts/write_evidence_report.py
+          scripts/ci.py scripts/install_locked.py scripts/select_lock.py
+          skills/afds-doc-writer/validate.py
+          skills/mcp-server-consumer/tools/decision_engine.py
+          skills/mcp-server-architect/tools/generate_python_server.py
+          skills/mcp-server-architect/tools/generate_python_server_impl.py
+          skills/mcp-server-architect/tools/generate_dotnet_server.py
+      - name: Security and dependency audit
+        run: |
+          python -m bandit -q -lll -iii -r contracts scripts skills/afds-doc-writer skills/mcp-server-consumer/tools skills/mcp-server-architect/tools
+          python -m pip_audit -r requirements-dev-linux-x64-py312.lock --progress-spinner off
+      - name: Governed documentation
+        run: python skills/afds-doc-writer/validate.py README.md RECOVERY_AUDIT.md contracts skills
+      - name: Repository tests with branch coverage
+        run: python -m coverage run --branch -m pytest -q -m "not container"
+      - name: Coverage thresholds
+        run: |
+          python -m coverage report --include='contracts/*.py,skills/afds-doc-writer/*.py,skills/mcp-server-consumer/tools/*.py' --fail-under=80
+          python -m coverage report --include='skills/mcp-server-architect/tools/generate_python_server.py,skills/mcp-server-architect/tools/generate_python_server_impl.py,skills/mcp-server-architect/tools/generate_dotnet_server.py' --fail-under=85
+          python -m coverage report --include='scripts/*.py' --fail-under=75
       - name: Verify helper cleanup and reviewed scope
         shell: bash
         run: |
