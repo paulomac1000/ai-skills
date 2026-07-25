@@ -66,7 +66,7 @@ jobs:
             contracts/evidence.py contracts/validate_adoption.py \
             tests/test_adoption_contract.py tests/test_contract_edge_cases.py \
             tests/test_evidence_hardening.py tests/test_mcp_migration_assessment.py >/dev/null
-          /tmp/diag/bin/pytest \
+          /tmp/diag/bin/python -m pytest \
             tests/test_evidence_verifier.py \
             tests/test_evidence_hardening.py \
             tests/test_contract_edge_cases.py \
