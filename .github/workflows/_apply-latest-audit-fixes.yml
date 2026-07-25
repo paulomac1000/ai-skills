@@ -1,0 +1,622 @@
+name: Apply latest audit fixes
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/_apply-latest-audit-fixes.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-verify:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.12"
+          architecture: x64
+          cache: pip
+          cache-dependency-path: requirements-dev-linux-x64-py312.lock
+      - run: python scripts/install_locked.py
+      - name: Apply exact audited patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from __future__ import annotations
+
+          import json
+          from pathlib import Path
+
+          def replace_once(path: str, old: str, new: str) -> None:
+              target = Path(path)
+              source = target.read_text(encoding="utf-8")
+              count = source.count(old)
+              if count != 1:
+                  raise SystemExit(f"{path}: expected one match, found {count}")
+              target.write_text(source.replace(old, new), encoding="utf-8", newline="\n")
+
+          replace_once(
+              "contracts/evidence.py",
+              """MAX_ARCHIVE_BYTES = 25 * 1024 * 1024
+          MAX_UNCOMPRESSED_BYTES = 50 * 1024 * 1024
+          MAX_ARCHIVE_MEMBERS = 1_000
+          """,
+              """MAX_ARCHIVE_BYTES = 25 * 1024 * 1024
+          MAX_UNCOMPRESSED_BYTES = 50 * 1024 * 1024
+          MAX_ARCHIVE_MEMBERS = 1_000
+          READ_CHUNK_BYTES = 64 * 1024
+          """,
+          )
+          replace_once(
+              "contracts/evidence.py",
+              """        try:
+                      opener.open(self._api_request(path), timeout=self._timeout_seconds)  # noqa: S310
+                  except HTTPError as exc:
+                      if exc.code not in {301, 302, 303, 307, 308}:
+                          raise
+                      location = exc.headers.get("Location", "")
+                  else:
+                      raise ValueError("GitHub artifact endpoint did not return a signed redirect")
+          """,
+              """        try:
+                      response = opener.open(
+                          self._api_request(path), timeout=self._timeout_seconds
+                      )  # noqa: S310
+                  except HTTPError as exc:
+                      try:
+                          if exc.code not in {301, 302, 303, 307, 308}:
+                              raise
+                          location = exc.headers.get("Location", "")
+                      finally:
+                          exc.close()
+                  else:
+                      response.close()
+                      raise ValueError("GitHub artifact endpoint did not return a signed redirect")
+          """,
+          )
+          replace_once(
+              "contracts/evidence.py",
+              """            total = 0
+                      seen: set[str] = set()
+                      report: bytes | None = None
+                      for member in members:
+                          name = member.filename
+                          if name in seen:
+                              raise ValueError("GitHub artifact contains duplicate paths")
+                          seen.add(name)
+                          if name.startswith(("/", "\\\\")) or "\\\\" in name:
+                              raise ValueError("GitHub artifact contains a non-POSIX path")
+                          parts = name.rstrip("/").split("/") if name.rstrip("/") else []
+                          if any(part in {"", ".", ".."} for part in parts):
+                              raise ValueError("GitHub artifact contains an unsafe path")
+                          mode = member.external_attr >> 16
+                          if stat.S_IFMT(mode) == stat.S_IFLNK:
+                              raise ValueError("GitHub artifact contains a symlink")
+                          total += member.file_size
+                          if total > MAX_UNCOMPRESSED_BYTES:
+                              raise ValueError("GitHub artifact exceeds the uncompressed size limit")
+                          if name == report_path:
+                              report = archive.read(member)
+                      if report is None:
+                          raise ValueError("GitHub artifact does not contain evidence.report_path")
+                      return report
+          """,
+              """            declared_total = 0
+                      seen: set[str] = set()
+                      report: bytes | None = None
+                      for member in members:
+                          name = member.filename
+                          if name in seen:
+                              raise ValueError("GitHub artifact contains duplicate paths")
+                          seen.add(name)
+                          if name.startswith(("/", "\\\\")) or "\\\\" in name:
+                              raise ValueError("GitHub artifact contains a non-POSIX path")
+                          parts = name.rstrip("/").split("/") if name.rstrip("/") else []
+                          if any(part in {"", ".", ".."} for part in parts):
+                              raise ValueError("GitHub artifact contains an unsafe path")
+                          mode = member.external_attr >> 16
+                          if stat.S_IFMT(mode) == stat.S_IFLNK:
+                              raise ValueError("GitHub artifact contains a symlink")
+                          declared_total += member.file_size
+                          if declared_total > MAX_UNCOMPRESSED_BYTES:
+                              raise ValueError("GitHub artifact exceeds the declared uncompressed size limit")
+                          if name == report_path:
+                              report_buffer = bytearray()
+                              try:
+                                  with archive.open(member, "r") as source:
+                                      while True:
+                                          remaining = MAX_UNCOMPRESSED_BYTES - len(report_buffer)
+                                          chunk = source.read(min(READ_CHUNK_BYTES, remaining + 1))
+                                          if not chunk:
+                                              break
+                                          report_buffer.extend(chunk)
+                                          if len(report_buffer) > MAX_UNCOMPRESSED_BYTES:
+                                              raise ValueError(
+                                                  "GitHub artifact report exceeds the actual uncompressed size limit"
+                                              )
+                              except zipfile.BadZipFile as exc:
+                                  raise ValueError("GitHub artifact contains an invalid ZIP entry") from exc
+                              report = bytes(report_buffer)
+                      if report is None:
+                          raise ValueError("GitHub artifact does not contain evidence.report_path")
+                      return report
+          """,
+          )
+          replace_once(
+              "contracts/evidence.py",
+              """            job_id = self._positive_int(reference, "job_id")
+                      raw_workflow_id = reference.get("workflow_id")
+                      workflow_id = None if raw_workflow_id is None else self._positive_int(reference, "workflow_id")
+                      workflow_path = self._required_text(reference, "workflow_path")
+          """,
+              """            job_id = self._positive_int(reference, "job_id")
+                      check_run_id = self._positive_int(reference, "check_run_id")
+                      workflow_id = self._positive_int(reference, "workflow_id")
+                      workflow_path = self._required_text(reference, "workflow_path")
+          """,
+          )
+          replace_once(
+              "contracts/evidence.py",
+              """        check_run_id = self._positive_int(reference, "check_run_id")
+                  check_run_url = str(job.get("check_run_url") or "")
+          """,
+              """        check_run_url = str(job.get("check_run_url") or "")
+          """,
+          )
+
+          replace_once(
+              "contracts/validate_adoption.py",
+              """ACTION_EVENTS = {"pull_request", "push", "workflow_dispatch", "workflow_run"}
+          """,
+              """ACTION_EVENTS = {"pull_request", "push", "workflow_dispatch", "workflow_run"}
+          FILE_READ_CHUNK_BYTES = 1024 * 1024
+          """,
+          )
+          replace_once(
+              "contracts/validate_adoption.py",
+              """def _tree_digest(path: Path) -> str:
+          """,
+              """def _update_digest_from_regular_file(
+              digest: Any,
+              path: Path,
+              *,
+              include_size: bool,
+          ) -> None:
+              flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
+              descriptor = os.open(path, flags)
+              try:
+                  metadata = os.fstat(descriptor)
+                  if not stat.S_ISREG(metadata.st_mode):
+                      raise ValueError("artifact path must be a regular file")
+                  if include_size:
+                      digest.update(metadata.st_size.to_bytes(8, "big"))
+                  while chunk := os.read(descriptor, FILE_READ_CHUNK_BYTES):
+                      digest.update(chunk)
+              finally:
+                  os.close(descriptor)
+
+
+          def _tree_digest(path: Path) -> str:
+          """,
+          )
+          replace_once(
+              "contracts/validate_adoption.py",
+              """            relative_bytes = relative.encode("utf-8")
+                      content = child.read_bytes()
+                      digest.update(len(relative_bytes).to_bytes(8, "big"))
+                      digest.update(relative_bytes)
+                      digest.update(len(content).to_bytes(8, "big"))
+                      digest.update(content)
+          """,
+              """            relative_bytes = relative.encode("utf-8")
+                      digest.update(len(relative_bytes).to_bytes(8, "big"))
+                      digest.update(relative_bytes)
+                      _update_digest_from_regular_file(digest, child, include_size=True)
+          """,
+          )
+          replace_once(
+              "contracts/validate_adoption.py",
+              """    if not stat.S_ISREG(mode):
+                  raise ValueError("artifact path must be a regular file or directory")
+              return f"sha256:{hashlib.sha256(path.read_bytes()).hexdigest()}"
+          """,
+              """    if not stat.S_ISREG(mode):
+                  raise ValueError("artifact path must be a regular file or directory")
+              digest = hashlib.sha256()
+              _update_digest_from_regular_file(digest, path, include_size=False)
+              return f"sha256:{digest.hexdigest()}"
+          """,
+          )
+
+          schema_path = Path("contracts/adoption-assessment.schema.json")
+          schema = json.loads(schema_path.read_text(encoding="utf-8"))
+          evidence_required = schema["$defs"]["evidence"]["required"]
+          if "workflow_id" in evidence_required:
+              raise SystemExit("workflow_id is already required unexpectedly")
+          revision_index = evidence_required.index("revision")
+          evidence_required.insert(revision_index + 1, "workflow_id")
+          schema_path.write_text(
+              json.dumps(schema, separators=(",", ":")) + "\n",
+              encoding="utf-8",
+              newline="\n",
+          )
+
+          replace_once(
+              "contracts/README.md",
+              """The artifact download follows GitHub's signed redirect without forwarding the GitHub API token. ZIP paths, duplicate entries, symlinks, entry counts, and compressed and uncompressed sizes are validated before the report is read.
+          """,
+              """The artifact download follows GitHub's signed redirect without forwarding the GitHub API token. Every HTTP response is closed deterministically. ZIP paths, duplicate entries, symlinks, entry counts, and declared sizes are validated before reading, and the report is decompressed incrementally under a limit based on the bytes actually consumed.
+          """,
+          )
+          replace_once(
+              "contracts/README.md",
+              """The base assessment is domain-neutral. Skill-specific evidence belongs under `extensions.<extension-name>` and may only strengthen the generic acceptance rules. The MCP server extension records maturity level, implementation profiles, advertised transports, official-client commands, and transport-specific listing, read, failure, and write-boundary results.
+          """,
+              """The base assessment is domain-neutral, but the extension namespace is a closed, versioned registry rather than an arbitrary object bag. In `1.1.0-rc.1`, `mcp` is the only registered key under `extensions`; unknown keys are rejected. Registering another extension requires a versioned schema definition, semantic validator support, templates, and regression tests. The MCP server extension records maturity level, implementation profiles, advertised transports, official-client commands, and transport-specific listing, read, failure, and write-boundary results.
+          """,
+          )
+
+          replace_once(
+              "tests/test_contract_edge_cases.py",
+              """def test_safe_repository_path_rejects_absolute_parent_and_symlink(tmp_path: Path) -> None:
+              assert _safe_repository_path(tmp_path, "/abs") is None
+              assert _safe_repository_path(tmp_path, "../x") is None
+              assert _safe_repository_path(tmp_path, "") is None
+              real = tmp_path / "real"
+              real.mkdir()
+              link = tmp_path / "link"
+              link.symlink_to(real, target_is_directory=True)
+              assert _safe_repository_path(tmp_path, "link/x") is None
+              assert _safe_repository_path(tmp_path, "new/path") == tmp_path / "new/path"
+          """,
+              """def test_safe_repository_path_rejects_absolute_parent_and_symlink(tmp_path: Path) -> None:
+              assert _safe_repository_path(tmp_path, "/abs") is None
+              assert _safe_repository_path(tmp_path, "../x") is None
+              assert _safe_repository_path(tmp_path, "") is None
+              assert _safe_repository_path(tmp_path, "new/path") == tmp_path / "new/path"
+              real = tmp_path / "real"
+              real.mkdir()
+              link = tmp_path / "link"
+              try:
+                  link.symlink_to(real, target_is_directory=True)
+              except OSError as exc:
+                  pytest.skip(f"symlink creation is unavailable: {exc}")
+              assert _safe_repository_path(tmp_path, "link/x") is None
+          """,
+          )
+          replace_once(
+              "tests/test_contract_edge_cases.py",
+              """def test_directory_digest_rejects_wrong_root_and_special_entry(tmp_path: Path) -> None:
+              file = tmp_path / "file"
+              file.write_text("x", encoding="utf-8")
+              assert _path_digest(file).startswith("sha256:")
+              link = tmp_path / "link"
+              link.symlink_to(file)
+              with pytest.raises(ValueError, match="symlink"):
+                  _path_digest(link)
+              if hasattr(os, "mkfifo"):
+                  tree = tmp_path / "tree"
+                  tree.mkdir()
+                  fifo = tree / "fifo"
+                  os.mkfifo(fifo)
+                  with pytest.raises(ValueError, match="non-regular"):
+                      _path_digest(tree)
+          """,
+              """def test_directory_digest_rejects_wrong_root_and_special_entry(tmp_path: Path) -> None:
+              file = tmp_path / "file"
+              file.write_text("x", encoding="utf-8")
+              assert _path_digest(file).startswith("sha256:")
+              if hasattr(os, "mkfifo"):
+                  tree = tmp_path / "tree"
+                  tree.mkdir()
+                  fifo = tree / "fifo"
+                  os.mkfifo(fifo)
+                  with pytest.raises(ValueError, match="non-regular"):
+                      _path_digest(tree)
+              link = tmp_path / "link"
+              try:
+                  link.symlink_to(file)
+              except OSError as exc:
+                  pytest.skip(f"symlink creation is unavailable: {exc}")
+              with pytest.raises(ValueError, match="symlink"):
+                  _path_digest(link)
+          """,
+          )
+
+          replace_once(
+              "tests/test_mcp_migration_assessment.py",
+              """    assert set(mcp["transport_results"]) == {"stdio", "streamable_http"}
+              for transport in mcp["transport_results"].values():
+                  for check in transport.values():
+                      assert check == {"result": "not-applicable", "evidence": None}
+          """,
+              """    assert set(mcp["transport_results"]) == {"stdio", "streamable_http"}
+              required_checks = {
+                  "capability_listing",
+                  "representative_read",
+                  "failure_path",
+                  "write_boundary",
+              }
+              for transport in mcp["transport_results"].values():
+                  assert set(transport) == required_checks
+                  for check in transport.values():
+                      assert check == {"result": "not-applicable", "evidence": None}
+          """,
+          )
+          replace_once(
+              "tests/test_mcp_migration_assessment.py",
+              """        "workflow_path",
+                  "workflow_name",
+          """,
+              """        "workflow_id",
+                  "workflow_path",
+                  "workflow_name",
+          """,
+          )
+
+          hardening_test = Path("tests/test_evidence_hardening.py")
+          if hardening_test.exists():
+              raise SystemExit("tests/test_evidence_hardening.py already exists")
+          hardening_test.write_text(
+              '''"""Regression tests for the latest provider-evidence security audit."""
+
+          from __future__ import annotations
+
+          import hashlib
+          import io
+          import json
+          import zipfile
+          from pathlib import Path
+          from urllib.error import HTTPError
+
+          import pytest
+
+          import contracts.evidence as evidence_module
+          from contracts.evidence import GitHubEvidenceVerifier
+          from contracts.validate_adoption import _path_digest
+          from test_evidence_verifier import REPORT_PATH, SHA, StubVerifier, successful_fixture
+
+          _MISSING = object()
+
+
+          class _ClosableResponse:
+              def __init__(self, payload: bytes = b"") -> None:
+                  self.payload = payload
+                  self.closed = False
+
+              def __enter__(self):
+                  return self
+
+              def __exit__(self, *args):
+                  self.close()
+                  return False
+
+              def read(self, limit: int | None = None) -> bytes:
+                  return self.payload if limit is None else self.payload[:limit]
+
+              def close(self) -> None:
+                  self.closed = True
+
+
+          class _StaticOpener:
+              def __init__(self, response: _ClosableResponse) -> None:
+                  self.response = response
+
+              def open(self, request, timeout):
+                  return self.response
+
+
+          class _RedirectOpener:
+              def __init__(self, location: str) -> None:
+                  self.response = _ClosableResponse()
+                  self.error = HTTPError(
+                      "https://api.github.com/artifact",
+                      302,
+                      "redirect",
+                      {"Location": location},
+                      self.response,
+                  )
+
+              def open(self, request, timeout):
+                  raise self.error
+
+
+          @pytest.mark.parametrize("value", [_MISSING, None, 0, -1, "1", True])
+          def test_invalid_check_run_id_returns_finding_without_traceback(value: object) -> None:
+              reference, responses, archive = successful_fixture()
+              reference = dict(reference)
+              if value is _MISSING:
+                  reference.pop("check_run_id")
+              else:
+                  reference["check_run_id"] = value
+              errors = StubVerifier(responses, archive).verify_action(reference, SHA)
+              assert errors == [
+                  "GitHub evidence verification failed: evidence check_run_id must be a positive integer"
+              ]
+
+
+          def test_artifact_redirect_and_unexpected_response_are_closed(monkeypatch) -> None:
+              verifier = GitHubEvidenceVerifier("secret")
+              unexpected = _ClosableResponse(b"unexpected")
+              monkeypatch.setattr(
+                  evidence_module,
+                  "build_opener",
+                  lambda *_: _StaticOpener(unexpected),
+              )
+              with pytest.raises(ValueError, match="did not return"):
+                  verifier._download_artifact_bytes("owner/repository", 1)
+              assert unexpected.closed
+
+              redirect = _RedirectOpener("https://x.blob.core.windows.net/a")
+              signed = _ClosableResponse(b"zip-bytes")
+              monkeypatch.setattr(evidence_module, "build_opener", lambda *_: redirect)
+              monkeypatch.setattr(evidence_module, "urlopen", lambda *args, **kwargs: signed)
+              assert verifier._download_artifact_bytes("owner/repository", 2) == b"zip-bytes"
+              assert redirect.response.closed
+              assert signed.closed
+
+
+          def test_high_compression_report_is_rejected_by_uncompressed_limit(monkeypatch) -> None:
+              payload = b"x" * 4096
+              output = io.BytesIO()
+              with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+                  archive.writestr(REPORT_PATH, payload)
+              archive_bytes = output.getvalue()
+              assert len(archive_bytes) < len(payload)
+              monkeypatch.setattr(evidence_module, "MAX_UNCOMPRESSED_BYTES", 1024)
+              with pytest.raises(ValueError, match="uncompressed size limit"):
+                  GitHubEvidenceVerifier._read_report(archive_bytes, REPORT_PATH)
+
+
+          def test_actual_decompressed_bytes_are_bounded_even_when_metadata_lies(monkeypatch) -> None:
+              class Member:
+                  filename = REPORT_PATH
+                  external_attr = 0
+                  file_size = 1
+
+              class Source:
+                  def __init__(self) -> None:
+                      self.remaining = 32
+                      self.max_request = 0
+
+                  def __enter__(self):
+                      return self
+
+                  def __exit__(self, *args):
+                      return False
+
+                  def read(self, size: int) -> bytes:
+                      self.max_request = max(self.max_request, size)
+                      if self.remaining == 0:
+                          return b""
+                      count = min(size, self.remaining)
+                      self.remaining -= count
+                      return b"x" * count
+
+              source = Source()
+
+              class Archive:
+                  def __init__(self, payload) -> None:
+                      pass
+
+                  def __enter__(self):
+                      return self
+
+                  def __exit__(self, *args):
+                      return False
+
+                  def infolist(self):
+                      return [Member()]
+
+                  def open(self, member, mode):
+                      return source
+
+              monkeypatch.setattr(evidence_module.zipfile, "ZipFile", Archive)
+              monkeypatch.setattr(evidence_module, "MAX_UNCOMPRESSED_BYTES", 10)
+              monkeypatch.setattr(evidence_module, "READ_CHUNK_BYTES", 4)
+              with pytest.raises(ValueError, match="actual uncompressed size limit"):
+                  GitHubEvidenceVerifier._read_report(b"archive", REPORT_PATH)
+              assert source.max_request <= 4
+
+
+          def test_local_artifact_digest_streams_instead_of_using_read_bytes(
+              tmp_path: Path,
+              monkeypatch,
+          ) -> None:
+              file = tmp_path / "artifact.bin"
+              file.write_bytes(b"abc" * 1024)
+              directory = tmp_path / "tree"
+              directory.mkdir()
+              (directory / "artifact.bin").write_bytes(b"def" * 1024)
+
+              def reject_read_bytes(self: Path) -> bytes:
+                  raise AssertionError(f"whole-file read attempted for {self}")
+
+              monkeypatch.setattr(Path, "read_bytes", reject_read_bytes)
+              assert _path_digest(file) == f"sha256:{hashlib.sha256(b'abc' * 1024).hexdigest()}"
+              assert _path_digest(directory).startswith("sha256:")
+
+
+          def test_extension_namespace_is_a_closed_versioned_registry() -> None:
+              root = Path(__file__).resolve().parents[1]
+              schema = json.loads(
+                  (root / "contracts/adoption-assessment.schema.json").read_text(encoding="utf-8")
+              )
+              extension_schema = schema["properties"]["extensions"]
+              assert set(extension_schema["properties"]) == {"mcp"}
+              assert extension_schema["additionalProperties"] is False
+              documentation = (root / "contracts/README.md").read_text(encoding="utf-8")
+              assert "closed, versioned registry" in documentation
+              assert "unknown keys are rejected" in documentation
+          ''',
+              encoding="utf-8",
+              newline="\n",
+          )
+          PY
+      - name: Format and verify patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m ruff format \
+            contracts/evidence.py \
+            contracts/validate_adoption.py \
+            tests/test_contract_edge_cases.py \
+            tests/test_evidence_hardening.py \
+            tests/test_mcp_migration_assessment.py
+          python -m ruff check \
+            contracts/evidence.py \
+            contracts/validate_adoption.py \
+            tests/test_contract_edge_cases.py \
+            tests/test_evidence_hardening.py \
+            tests/test_mcp_migration_assessment.py
+          python -m ruff format --check \
+            contracts/evidence.py \
+            contracts/validate_adoption.py \
+            tests/test_contract_edge_cases.py \
+            tests/test_evidence_hardening.py \
+            tests/test_mcp_migration_assessment.py
+          python -m mypy contracts/evidence.py contracts/validate_adoption.py
+          python -m pytest \
+            tests/test_evidence_verifier.py \
+            tests/test_evidence_hardening.py \
+            tests/test_contract_edge_cases.py \
+            tests/test_mcp_migration_assessment.py \
+            tests/test_adoption_contract.py -q
+          python -m json.tool contracts/adoption-assessment.schema.json >/dev/null
+          git diff --check
+      - name: Publish verified patch
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PARENT_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          git add \
+            contracts/evidence.py \
+            contracts/validate_adoption.py \
+            contracts/adoption-assessment.schema.json \
+            contracts/README.md \
+            tests/test_contract_edge_cases.py \
+            tests/test_evidence_hardening.py \
+            tests/test_mcp_migration_assessment.py
+          test "$(git diff --cached --name-only | wc -l)" -eq 7
+          git diff --cached --check
+          git config user.name ai-skills-audit-bot
+          git config user.email ai-skills-audit-bot@users.noreply.github.com
+          git commit -m "fix: harden provider evidence boundaries"
+          test "$(git rev-parse HEAD^)" = "$PARENT_SHA"
+          git config --local --unset-all http.https://github.com/.extraheader || true
+          git push \
+            --force-with-lease=refs/heads/refactor/skills-cleanup:${PARENT_SHA} \
+            "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
+            HEAD:refs/heads/refactor/skills-cleanup
