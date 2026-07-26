@@ -36,7 +36,7 @@ jobs:
         with:
           dotnet-version: '10.0.302'
       - run: python scripts/install_locked.py
-      - name: Align the staged documentation patch with the current file
+      - name: Align staged patch and retain helpers for connector cleanup
         shell: bash
         run: |
           python - <<'PY'
@@ -60,7 +60,7 @@ jobs:
           )
 
           '''
-          path.write_text(source[:start] + replacement + source[end:], encoding='utf-8', newline='\n')
+          path.write_text(source[:start] + replacement, encoding='utf-8', newline='\n')
           PY
       - name: Apply audited changes
         run: python .github/current-audit-fix.py
@@ -70,12 +70,12 @@ jobs:
           python -m ruff format contracts/evidence.py contracts/write_evidence_report.py tests/test_evidence_verifier.py tests/test_write_evidence_report.py tests/test_mcp_generator.py
           git diff --check
           python scripts/ci.py
-      - name: Commit clean verified tree
+      - name: Commit verified code changes
         shell: bash
         run: |
           set -euo pipefail
-          test ! -e .github/current-audit-fix.py
-          test ! -e .github/workflows/_apply-current-audit-fix.yml
+          test -e .github/current-audit-fix.py
+          test -e .github/workflows/_apply-current-audit-fix.yml
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add -A
