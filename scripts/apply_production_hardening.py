@@ -36,5 +36,20 @@ for old, new in (
     source = source.replace(old, new, 1)
 compiled = compile(source, "scripts/apply_production_hardening.py", "exec")
 exec(compiled, {"__name__": "__main__", "__file__": str(Path(__file__))})
+
+test_path = Path(__file__).resolve().parents[1] / "tests/test_evidence_verifier.py"
+test_source = test_path.read_text(encoding="utf-8")
+for old, new in (
+    ("    report: bytes,\n", "    report: bytes | None,\n"),
+    (
+        '    with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as archive:\n        archive.writestr(REPORT_PATH, report)\n        for path, payload in (results or {RESULT_PATH: JUNIT}).items():\n',
+        '    with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as archive:\n        if report is not None:\n            archive.writestr(REPORT_PATH, report)\n        for path, payload in (results or {RESULT_PATH: JUNIT}).items():\n',
+    ),
+):
+    if test_source.count(old) != 1:
+        raise SystemExit(f"test compatibility patch missing: {old}")
+    test_source = test_source.replace(old, new, 1)
+test_path.write_text(test_source, encoding="utf-8", newline="\n")
+
 for part in parts:
     part.unlink(missing_ok=True)
