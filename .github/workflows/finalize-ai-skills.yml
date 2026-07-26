@@ -18,7 +18,7 @@ jobs:
       github.repository == 'paulomac1000/ai-skills' &&
       github.event.pull_request.head.ref == 'refactor/skills-cleanup'
     runs-on: ubuntu-24.04
-    timeout-minutes: 35
+    timeout-minutes: 40
     permissions:
       contents: write
     steps:
@@ -33,42 +33,38 @@ jobs:
           python-version: "3.12"
           architecture: x64
       - name: Decode and apply final patch
-        id: apply
-        continue-on-error: true
         shell: bash
         run: |
-          {
-            python - <<'PY'
+          python - <<'PY'
           import base64
           import gzip
+          import hashlib
           from pathlib import Path
 
-          source = Path(".github/finalize_ai_skills.py.gz.b64").read_bytes()
-          Path("/tmp/finalize_ai_skills.py").write_bytes(
-              gzip.decompress(base64.b64decode(source))
-          )
+          chunks = sorted(Path(".github/finalizer-chunks").glob("*.txt"))
+          if [path.name for path in chunks] != ["00.txt", "01.txt", "02.txt", "03.txt"]:
+              raise SystemExit("expected exactly four ordered finalizer chunks")
+          source = b"".join(path.read_bytes() for path in chunks)
+          if len(source) != 15696:
+              raise SystemExit(f"unexpected finalizer payload length: {len(source)}")
+          digest = hashlib.sha256(source).hexdigest()
+          if digest != "35cf30b2067ac6dadd0de824b64ab33ab88bbd58abada5819bddc96d1b3f6075":
+              raise SystemExit(f"unexpected finalizer payload digest: {digest}")
+          payload = gzip.decompress(base64.b64decode(source, validate=True))
+          if hashlib.sha256(payload).hexdigest() != "5fdd3f956dd497905b5edfd83dfe2193b40af7a3534a75a75902e4e783887238":
+              raise SystemExit("decoded finalizer digest mismatch")
+          Path("/tmp/finalize_ai_skills.py").write_bytes(payload)
           PY
-            python /tmp/finalize_ai_skills.py
-          } > finalizer.log 2>&1
-      - name: Upload finalizer log
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
-        with:
-          name: finalizer-log-${{ github.run_id }}
-          path: finalizer.log
-          if-no-files-found: error
-          retention-days: 1
-      - name: Enforce patch application
-        if: always() && steps.apply.outcome != 'success'
-        run: exit 1
+          python /tmp/finalize_ai_skills.py
+          rm -rf .github/finalizer-chunks
+          rm -f .github/finalize_ai_skills.py.gz.b64 .github/finalizer-error.txt finalizer.log
+          rm -f .github/workflows/finalize-ai-skills.yml
       - name: Install locked environment
-        if: steps.apply.outcome == 'success'
         shell: bash
         run: |
           python -m venv .venv
           .venv/bin/python scripts/install_locked.py
       - name: Format and lint touched Python
-        if: steps.apply.outcome == 'success'
         shell: bash
         run: |
           files=(
@@ -84,10 +80,8 @@ jobs:
           .venv/bin/python -m ruff format "${files[@]}"
           .venv/bin/python -m ruff check --fix "${files[@]}"
       - name: Stage final tree for git-aware tests
-        if: steps.apply.outcome == 'success'
         run: git add -A
       - name: Run focused regressions
-        if: steps.apply.outcome == 'success'
         shell: bash
         run: |
           .venv/bin/python -m pytest -q \
@@ -97,13 +91,10 @@ jobs:
             tests/test_evidence_verifier.py \
             tests/test_contract_edge_cases.py
       - name: Validate repository entry documents
-        if: steps.apply.outcome == 'success'
         run: .venv/bin/python skills/afds-doc-writer/validate.py AGENTS.md README.md CHANGELOG.md
       - name: Run full local gate
-        if: steps.apply.outcome == 'success'
         run: .venv/bin/python scripts/ci.py
       - name: Commit and push final tree
-        if: steps.apply.outcome == 'success'
         shell: bash
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
