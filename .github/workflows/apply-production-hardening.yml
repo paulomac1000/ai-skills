@@ -36,7 +36,25 @@ jobs:
       - name: Install locked development environment
         run: python scripts/install_locked.py
       - name: Apply production hardening
-        run: python scripts/apply_production_hardening.py
+        id: hardening
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          python scripts/apply_production_hardening.py 2>&1 | tee hardening-diagnostics.txt
+      - name: Upload hardening diagnostics
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: hardening-diagnostics-${{ github.run_id }}
+          path: hardening-diagnostics.txt
+          if-no-files-found: error
+          retention-days: 7
+      - name: Enforce hardening result
+        if: always()
+        env:
+          HARDENING_OUTCOME: ${{ steps.hardening.outcome }}
+        run: test "$HARDENING_OUTCOME" = success
       - name: Format and lint changed Python
         run: |
           python -m ruff format contracts scripts tests skills/afds-doc-writer/validate.py skills/mcp-server-consumer/tools skills/mcp-server-architect/tools
