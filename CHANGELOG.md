@@ -11,6 +11,7 @@
 - Restored Python, MCP, container, .NET, NuGet, documentation, Semgrep, Dependabot, and local-gate templates.
 - Changed container publication to build once, smoke-test the exact local image, push the same image tags, and attest the resulting registry digest.
 - Added Renovate regex management and parsed-template tests for immutable action SHA maintenance.
+- Bound evidence claims to explicit execution records, rejected ambiguous JUnit identities and incomplete commit provenance, and verified provider-reported source-tree content.
 
 ## 1.1.0-rc.1 - 2026-07-24
 
@@ -30,7 +31,6 @@
 - Replaced the brittle migration-test function allowlist with execution of the complete migration contract file.
 - Clarified that the bundled MCP consumer engine is a conservative reference helper rather than complete organizational authorization or multi-axis policy.
 - Added strict shared SemVer 2.0 validation, exact-head and merge-result CI evidence, Python 3.12-3.14 plus Linux/macOS/Windows compatibility lanes, cross-platform .NET artifact lanes, and a built non-root container smoke through the official MCP client.
-
 
 ## 1.0.0 - 2026-07-17
 
