@@ -12,6 +12,7 @@
 - Changed container publication to build once, smoke-test the exact local image, push the same image tags, and attest the resulting registry digest.
 - Added Renovate regex management and parsed-template tests for immutable action SHA maintenance.
 - Bound evidence claims to explicit execution records, rejected ambiguous JUnit identities and incomplete commit provenance, and verified provider-reported source-tree content.
+- Removed generated coverage databases and one-off repair payloads from the tracked repository tree.
 
 ## 1.1.0-rc.1 - 2026-07-24
 
