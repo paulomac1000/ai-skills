@@ -1,5 +1,6 @@
 name: Finalize AI Skills
 
+# One-shot finalization workflow; removed from the final repository tree.
 on:
   push:
     branches: [refactor/skills-cleanup]
