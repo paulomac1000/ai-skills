@@ -48,12 +48,15 @@ jobs:
           )
           PY
           python /tmp/finalize_ai_skills.py > /tmp/finalizer.log 2>&1
+      - name: Prepare finalizer log
+        if: always()
+        run: cp /tmp/finalizer.log finalizer.log
       - name: Upload finalizer log
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: finalizer-log-${{ github.run_id }}
-          path: /tmp/finalizer.log
+          path: finalizer.log
           if-no-files-found: error
           retention-days: 1
       - name: Enforce patch application
