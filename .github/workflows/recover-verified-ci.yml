@@ -1,0 +1,44 @@
+name: Recover verified CI source
+
+on:
+  push:
+    branches: [refactor/skills-cleanup]
+    paths: [.github/workflows/recover-verified-ci.yml]
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  recover:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: refactor/skills-cleanup
+          fetch-depth: 1
+          persist-credentials: true
+      - name: Recover the verified workflow blob
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh run download 30202732475 --name verified-source-30202732475 --dir "$RUNNER_TEMP/verified"
+          mkdir -p "$RUNNER_TEMP/source" verified-source
+          tar -xzf "$RUNNER_TEMP/verified/files.tar.gz" -C "$RUNNER_TEMP/source"
+          cp "$RUNNER_TEMP/source/.github/workflows/ci.yml" verified-source/ci.yml
+          python - <<'PY'
+          from pathlib import Path
+          payload = Path('verified-source/ci.yml').read_bytes()
+          payload.decode('ascii')
+          for forbidden in (b'v2', b'v7', b'v8'):
+              if forbidden in payload:
+                  raise SystemExit(f'forbidden version marker: {forbidden.decode()}')
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add verified-source/ci.yml
+          git commit -m 'chore: stage verified CI source'
+          git push origin HEAD:refactor/skills-cleanup
