@@ -27,6 +27,7 @@ import contracts.evidence as evidence_module
 from contracts.evidence import GitHubEvidenceVerifier
 from contracts.validate_adoption import (
     Finding,
+    _acceptance_authority,
     _catalog_rules,
     _date,
     _evidence_reference,
@@ -64,6 +65,19 @@ def test_evidence_constructor_and_scalar_validators() -> None:
     assert "HTTP 404" in verifier._api_error(HTTPError("u", 404, "x", {}, None))
     assert "offline" in verifier._api_error(URLError("offline"))
     assert "boom" in verifier._api_error(RuntimeError("boom"))
+
+
+def test_empty_acceptance_authority_does_not_add_external_repository_error() -> None:
+    collected: list[Finding] = []
+    authority = _acceptance_authority(
+        {},
+        "acceptance_authority",
+        collected,
+        assessed_repository="",
+    )
+    assert authority["verifier_repository"] == ""
+    assert authority["claim_catalog_repository"] == ""
+    assert all("must be external" not in finding.message for finding in collected)
 
 
 @pytest.mark.parametrize(

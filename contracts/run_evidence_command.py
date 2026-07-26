@@ -61,18 +61,44 @@ def _junit_cases(path: Path) -> list[dict[str, str]]:
     return cases
 
 
-def _safe_relative(path: Path, root: Path, name: str) -> tuple[Path, str]:
+def _lexical_absolute(path: Path, root: Path) -> Path:
     candidate = path if path.is_absolute() else root / path
-    if os.path.lexists(candidate) and candidate.is_symlink():
-        raise ValueError(f"{name} must not be a symlink")
-    resolved = candidate.resolve(strict=True)
+    return Path(os.path.abspath(os.fspath(candidate)))
+
+
+def _relative_without_symlinks(candidate: Path, root: Path, name: str) -> Path:
     try:
-        relative = resolved.relative_to(root)
+        relative = candidate.relative_to(root)
     except ValueError as exc:
-        raise ValueError(f"{name} must stay inside the working directory") from exc
-    if any(part in {"", ".", ".."} for part in relative.parts):
-        raise ValueError(f"{name} must be a safe relative path")
+        raise ValueError(f"{name} must stay inside the repository boundary") from exc
+    current = root
+    for part in relative.parts:
+        current /= part
+        if os.path.lexists(current) and current.is_symlink():
+            raise ValueError(f"{name} must not contain symlink components")
+        if not os.path.lexists(current):
+            raise ValueError(f"{name} must exist")
+    return relative
+
+
+def _safe_relative(path: Path, root: Path, name: str) -> tuple[Path, str]:
+    candidate = _lexical_absolute(path, root)
+    relative = _relative_without_symlinks(candidate, root, name)
+    resolved = candidate.resolve(strict=True)
+    if not resolved.is_file():
+        raise ValueError(f"{name} must identify a regular file")
     return resolved, relative.as_posix()
+
+
+def _safe_working_directory(path: Path, repository_root: Path) -> tuple[Path, str]:
+    if any(part == ".." for part in path.parts):
+        raise ValueError("working_directory must not contain parent traversal")
+    candidate = _lexical_absolute(path, repository_root)
+    relative = _relative_without_symlinks(candidate, repository_root, "working_directory")
+    resolved = candidate.resolve(strict=True)
+    if not resolved.is_dir():
+        raise ValueError("working_directory must be a real directory")
+    return resolved, relative.as_posix() or "."
 
 
 def _command_digest(argv: list[str], working_directory: str) -> str:
@@ -105,14 +131,11 @@ def main(raw_args: list[str] | None = None) -> int:
         argv = argv[1:]
     if not argv or any(not isinstance(value, str) or not value for value in argv):
         raise ValueError("an exact non-empty argv is required after --")
-    working_directory = args.working_directory.resolve(strict=True)
-    if not working_directory.is_dir() or working_directory.is_symlink():
-        raise ValueError("working_directory must be a real directory")
     repository_root = Path.cwd().resolve(strict=True)
-    try:
-        working_directory_text = working_directory.relative_to(repository_root).as_posix() or "."
-    except ValueError as exc:
-        raise ValueError("working_directory must stay inside the repository") from exc
+    working_directory, working_directory_text = _safe_working_directory(
+        args.working_directory,
+        repository_root,
+    )
 
     completed = subprocess.run(argv, cwd=working_directory, check=False)  # noqa: S603
     results: list[dict[str, Any]] = []

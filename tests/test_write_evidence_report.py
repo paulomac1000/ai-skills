@@ -63,7 +63,12 @@ def _provider(path: Path) -> None:
     )
 
 
-def _record(path: Path, results: list[tuple[Path, str]], execution_id: str = "rules") -> None:
+def _record(
+    path: Path,
+    results: list[tuple[Path, str]],
+    execution_id: str = "rules",
+    working_directory: str = ".",
+) -> None:
     argv = ["python", "-m", "pytest", "tests/test_contract.py"]
     path.write_text(
         json.dumps(
@@ -71,8 +76,8 @@ def _record(path: Path, results: list[tuple[Path, str]], execution_id: str = "ru
                 "format": "ai-skills-execution-record",
                 "execution_id": execution_id,
                 "argv": argv,
-                "working_directory": ".",
-                "command_digest": _command_digest(argv),
+                "working_directory": working_directory,
+                "command_digest": _command_digest(argv, working_directory),
                 "exit_status": 0,
                 "results": [
                     {
@@ -91,17 +96,24 @@ def _record(path: Path, results: list[tuple[Path, str]], execution_id: str = "ru
     )
 
 
-def _plan(path: Path, *, selector: str = "*test_rule", result_file: str = "results.xml") -> None:
+def _plan(
+    path: Path,
+    *,
+    selector: str = "*test_rule",
+    result_file: str = "results.xml",
+    content_path: str | None = None,
+) -> None:
+    content_line = "" if content_path is None else f"      content_path: {json.dumps(content_path)}\n"
     path.write_text(
-        f"""format: ai-skills-claim-plan
-profiles:
-  rules:
-    - kind: rule
-      subject: mcp.authorization
-      execution_id: rules
-      selectors: ["{selector}"]
-      result_files: ["{result_file}"]
-""",
+        "format: ai-skills-claim-plan\n"
+        "profiles:\n"
+        "  rules:\n"
+        "    - kind: rule\n"
+        "      subject: mcp.authorization\n"
+        "      execution_id: rules\n"
+        f'      selectors: ["{selector}"]\n'
+        f'      result_files: ["{result_file}"]\n'
+        f"{content_line}",
         encoding="utf-8",
     )
 
@@ -186,9 +198,7 @@ def test_writer_scopes_claim_to_selected_result_file(tmp_path: Path, monkeypatch
     assert [binding["result_path"] for binding in claim["result_bindings"]] == ["results.xml"]
 
 
-def test_writer_rejects_false_recorded_testcase_and_failed_junit(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_writer_rejects_tampered_recorded_testcase(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.chdir(tmp_path)
     arguments = _arguments(tmp_path)
     record = Path(arguments[arguments.index("--execution-record") + 1])
@@ -198,10 +208,82 @@ def test_writer_rejects_false_recorded_testcase_and_failed_junit(
     with pytest.raises(ValueError, match="do not match JUnit bytes"):
         main(arguments)
 
+
+def test_writer_rejects_failed_junit_with_matching_record(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.chdir(tmp_path)
     arguments = _arguments(tmp_path)
     junit = tmp_path / "results.xml"
     _junit(junit, failed=True)
     record = Path(arguments[arguments.index("--execution-record") + 1])
     _record(record, [(junit, "tests.test_contract::test_rule")])
     with pytest.raises(ValueError, match="failed or errored"):
+        main(arguments)
+
+
+def test_writer_rejects_absolute_content_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    arguments = _arguments(tmp_path)
+    content = tmp_path / "content.txt"
+    content.write_text("content", encoding="utf-8")
+    plan = Path(arguments[arguments.index("--claims-plan") + 1])
+    _plan(plan, content_path=str(content.resolve()))
+    with pytest.raises(ValueError, match="relative POSIX"):
+        main(arguments)
+
+
+def test_writer_rejects_parent_traversal_content_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    arguments = _arguments(tmp_path)
+    plan = Path(arguments[arguments.index("--claims-plan") + 1])
+    _plan(plan, content_path="../outside.txt")
+    with pytest.raises(ValueError, match="safe relative POSIX"):
+        main(arguments)
+
+
+def test_writer_rejects_symlink_content_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    arguments = _arguments(tmp_path)
+    target = tmp_path / "content.txt"
+    target.write_text("content", encoding="utf-8")
+    link = tmp_path / "content-link.txt"
+    try:
+        link.symlink_to(target)
+    except (NotImplementedError, OSError) as exc:
+        pytest.skip(f"file symlinks are unavailable: {exc}")
+    plan = Path(arguments[arguments.index("--claims-plan") + 1])
+    _plan(plan, content_path=link.name)
+    with pytest.raises(ValueError, match="symlink components"):
+        main(arguments)
+
+
+def test_writer_rejects_result_path_collision_with_different_digests(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    arguments = _arguments(tmp_path)
+    first_directory = tmp_path / "first"
+    second_directory = tmp_path / "second"
+    first_directory.mkdir()
+    second_directory.mkdir()
+    first = first_directory / "results.xml"
+    second = second_directory / "results.xml"
+    _junit(first, "tests.test_contract::test_rule")
+    _junit(second, "tests.test_other::test_other")
+
+    first_record = Path(arguments[arguments.index("--execution-record") + 1])
+    second_record = tmp_path / "record-other.json"
+    _record(
+        first_record,
+        [(first, "tests.test_contract::test_rule")],
+        execution_id="rules",
+        working_directory="first",
+    )
+    _record(
+        second_record,
+        [(second, "tests.test_other::test_other")],
+        execution_id="other",
+        working_directory="second",
+    )
+    arguments.extend(["--execution-record", str(second_record)])
+    with pytest.raises(ValueError, match=r"result path collision.*rules.*other"):
         main(arguments)

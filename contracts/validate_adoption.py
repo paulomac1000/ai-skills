@@ -257,7 +257,7 @@ def _acceptance_authority(
     result: dict[str, str] = {}
     for field in ("verifier_repository", "claim_catalog_repository"):
         text = _text(authority.get(field), f"{location}.{field}", findings)
-        if text == assessed_repository:
+        if text and assessed_repository and text == assessed_repository:
             findings.append(Finding(f"{location}.{field}", "must be external to the assessed repository"))
         result[field] = text
     for field in ("verifier_revision", "claim_catalog_revision"):

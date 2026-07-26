@@ -192,13 +192,6 @@ def fixture(
     return reference, responses, archive
 
 
-def with_report(
-    report: bytes, results: Mapping[str, bytes] | None = None
-) -> tuple[dict[str, Any], dict[str, object], bytes]:
-    reference, responses, archive = fixture(report, results)
-    return reference, responses, archive
-
-
 def test_exact_report_execution_result_and_claim_pass() -> None:
     reference, responses, archive = fixture()
     assert StubVerifier(responses, archive).verify_action(reference, SHA) == []
@@ -225,7 +218,7 @@ def test_unrelated_passing_result_cannot_support_claim() -> None:
         binding(unrelated_path, unrelated_digest, "tests.test_other::test_other")
     ]
     report = (json.dumps(document, sort_keys=True, separators=(",", ":")) + "\n").encode()
-    reference, responses, archive = with_report(report, {RESULT_PATH: JUNIT, unrelated_path: unrelated})
+    reference, responses, archive = fixture(report, {RESULT_PATH: JUNIT, unrelated_path: unrelated})
     errors = StubVerifier(responses, archive).verify_action(reference, SHA)
     assert any("not bound to its execution result bytes" in error for error in errors)
 
@@ -234,7 +227,7 @@ def test_false_command_digest_with_real_junit_is_rejected() -> None:
     document = json.loads(make_report())
     document["claims"][0]["command_digest"] = "sha256:" + "b" * 64
     report = (json.dumps(document, sort_keys=True, separators=(",", ":")) + "\n").encode()
-    reference, responses, archive = with_report(report)
+    reference, responses, archive = fixture(report)
     errors = StubVerifier(responses, archive).verify_action(reference, SHA)
     assert any("command does not match its execution" in error for error in errors)
 
@@ -260,7 +253,7 @@ def test_duplicate_failure_then_passed_is_rejected() -> None:
     document["executions"][0]["result_digests"] = [digest]
     document["claims"][0]["result_bindings"] = [binding(digest=digest)]
     report = (json.dumps(document, sort_keys=True, separators=(",", ":")) + "\n").encode()
-    reference, responses, archive = with_report(report, {RESULT_PATH: duplicate})
+    reference, responses, archive = fixture(report, {RESULT_PATH: duplicate})
     errors = StubVerifier(responses, archive).verify_action(reference, SHA)
     assert any("duplicate testcase identity" in error for error in errors)
 
@@ -273,7 +266,7 @@ def test_duplicate_passed_then_failure_is_rejected() -> None:
     document["executions"][0]["result_digests"] = [digest]
     document["claims"][0]["result_bindings"] = [binding(digest=digest)]
     report = (json.dumps(document, sort_keys=True, separators=(",", ":")) + "\n").encode()
-    reference, responses, archive = with_report(report, {RESULT_PATH: duplicate})
+    reference, responses, archive = fixture(report, {RESULT_PATH: duplicate})
     errors = StubVerifier(responses, archive).verify_action(reference, SHA)
     assert any("duplicate testcase identity" in error for error in errors)
 
@@ -297,7 +290,7 @@ def test_failed_junit_with_matching_digest_is_rejected() -> None:
     document["executions"][0]["result_digests"] = [digest]
     document["claims"][0]["result_bindings"] = [binding(digest=digest)]
     report = (json.dumps(document, sort_keys=True, separators=(",", ":")) + "\n").encode()
-    reference, responses, archive = with_report(report, {RESULT_PATH: failed})
+    reference, responses, archive = fixture(report, {RESULT_PATH: failed})
     errors = StubVerifier(responses, archive).verify_action(reference, SHA)
     assert any("failures or errors" in error for error in errors)
 

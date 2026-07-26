@@ -2,19 +2,35 @@
 
 from __future__ import annotations
 
+import os
 import re
+import shutil
+import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 ITERATION_NAME = re.compile(r"(?:^|[-_.])v[0-9]+(?=[-_.]|$)", re.IGNORECASE)
-ACTION_VERSION_COMMENT = re.compile(r"(?m)^\s*uses:\s+[^#\n]+\s+#\s+v[0-9]+(?:[.][0-9]+)*\s*$", re.IGNORECASE)
-DOCUMENTED_FORMAT_VERSION = re.compile(r"\b(?:schema\s+v[0-9]+|schema-version\s+[0-9]+)\b", re.IGNORECASE)
+ACTION_VERSION_COMMENT = re.compile(
+    r"(?m)^\s*uses:\s+[^#\n]+\s+#\s+v[0-9]+(?:[.][0-9]+)*\s*$",
+    re.IGNORECASE,
+)
+DOCUMENTED_FORMAT_VERSION = re.compile(
+    r"\b(?:schema\s+v[0-9]+|schema-version\s+[0-9]+)\b",
+    re.IGNORECASE,
+)
 
 
 def tracked_files() -> list[Path]:
-    return [
-        path for path in ROOT.rglob("*") if path.is_file() and ".git" not in path.parts and ".venv" not in path.parts
-    ]
+    git = shutil.which("git")
+    if git is None:
+        raise RuntimeError("git is required for repository hygiene checks")
+    completed = subprocess.run(  # noqa: S603 - fixed trusted executable and arguments.
+        [git, "ls-files", "-z"],
+        cwd=ROOT,
+        check=True,
+        stdout=subprocess.PIPE,
+    )
+    return [ROOT / os.fsdecode(item) for item in completed.stdout.split(b"\0") if item]
 
 
 def test_no_numbered_iteration_filenames_remain() -> None:
@@ -50,8 +66,9 @@ def test_current_evidence_format_has_no_numbered_public_name() -> None:
     assert offenders == []
 
 
-def test_coverage_database_is_local_only() -> None:
-    assert not (ROOT / ".coverage").exists()
+def test_coverage_database_is_ignored_and_not_tracked() -> None:
+    tracked = {path.relative_to(ROOT).as_posix() for path in tracked_files()}
+    assert ".coverage" not in tracked
     ignore = (ROOT / ".gitignore").read_text(encoding="utf-8").splitlines()
     assert ".coverage" in ignore
     assert ".coverage.*" in ignore

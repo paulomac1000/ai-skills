@@ -106,6 +106,26 @@ def _safe_relative(value: object, name: str) -> str:
     return path
 
 
+def _safe_repository_file(value: object, name: str, repository_root: Path) -> Path:
+    relative = _safe_relative(value, name)
+    candidate = repository_root / relative
+    current = repository_root
+    for part in Path(relative).parts:
+        current /= part
+        if os.path.lexists(current) and current.is_symlink():
+            raise ValueError(f"{name} must not contain symlink components")
+        if not os.path.lexists(current):
+            raise ValueError(f"{name} must identify an existing file")
+    resolved = candidate.resolve(strict=True)
+    try:
+        resolved.relative_to(repository_root)
+    except ValueError as exc:
+        raise ValueError(f"{name} must stay inside the repository") from exc
+    if not resolved.is_file():
+        raise ValueError(f"{name} must identify an existing regular file")
+    return resolved
+
+
 def _load_plan(path: Path, profile: str | None) -> list[Mapping[str, Any]]:
     if profile is None:
         return []
@@ -204,11 +224,22 @@ def _load_execution(path: Path) -> dict[str, Any]:
 
 def _load_executions(paths: Sequence[Path]) -> dict[str, dict[str, Any]]:
     executions: dict[str, dict[str, Any]] = {}
+    result_paths: dict[str, tuple[str, str]] = {}
     for path in paths:
         execution = _load_execution(path)
         execution_id = str(execution["execution_id"])
         if execution_id in executions:
             raise ValueError(f"duplicate execution_id: {execution_id}")
+        for result in execution["results"]:
+            result_path = str(result["path"])
+            result_digest = str(result["digest"])
+            previous = result_paths.get(result_path)
+            if previous is not None and previous[1] != result_digest:
+                raise ValueError(
+                    f"result path collision for {result_path}: executions "
+                    f"{previous[0]} and {execution_id} use different digests"
+                )
+            result_paths.setdefault(result_path, (execution_id, result_digest))
         executions[execution_id] = execution
     if not executions:
         raise ValueError("at least one execution record is required")
@@ -219,6 +250,7 @@ def _claim(
     raw: Mapping[str, Any],
     *,
     executions: Mapping[str, Mapping[str, Any]],
+    repository_root: Path,
     location: str,
 ) -> dict[str, Any]:
     kind = _text(raw.get("kind"), f"{location}.kind")
@@ -279,9 +311,11 @@ def _claim(
         claim["combination"] = raw["combination"]
     content_path = raw.get("content_path")
     if content_path is not None:
-        path = Path(_text(content_path, f"{location}.content_path"))
-        if not path.is_file() or path.is_symlink():
-            raise ValueError(f"{location}.content_path must identify an existing non-symlink file")
+        path = _safe_repository_file(
+            content_path,
+            f"{location}.content_path",
+            repository_root,
+        )
         claim["content_digest"] = _canonical_digest(path)
     commands = raw.get("commands")
     if commands is not None:
@@ -367,6 +401,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    repository_root = Path.cwd().resolve(strict=True)
     repository = _text(args.repository, "repository")
     if repository.count("/") != 1:
         raise ValueError("repository must use owner/name")
@@ -444,7 +479,15 @@ def main(argv: list[str] | None = None) -> int:
         raw_claims.append(dynamic)
     if not raw_claims:
         raise ValueError("at least one evidence claim is required")
-    claims = [_claim(raw, executions=executions, location=f"claims[{index}]") for index, raw in enumerate(raw_claims)]
+    claims = [
+        _claim(
+            raw,
+            executions=executions,
+            repository_root=repository_root,
+            location=f"claims[{index}]",
+        )
+        for index, raw in enumerate(raw_claims)
+    ]
 
     results_by_key: dict[tuple[str, str], dict[str, Any]] = {}
     execution_summaries: list[dict[str, Any]] = []
