@@ -38,6 +38,8 @@ jobs:
           python-version: "3.12"
           architecture: x64
       - name: Decode and apply final patch
+        id: apply
+        continue-on-error: true
         shell: bash
         run: |
           python - <<'PY'
@@ -50,7 +52,20 @@ jobs:
               gzip.decompress(base64.b64decode(source))
           )
           PY
-          python /tmp/finalize_ai_skills.py
+          python /tmp/finalize_ai_skills.py > finalizer.log 2>&1
+      - name: Upload finalizer diagnostics
+        if: steps.apply.outcome != 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: finalizer-diagnostics-${{ github.run_id }}
+          path: finalizer.log
+          if-no-files-found: error
+          retention-days: 1
+      - name: Enforce patch application
+        if: steps.apply.outcome != 'success'
+        run: |
+          cat finalizer.log
+          exit 1
       - name: Install locked environment
         shell: bash
         run: |
