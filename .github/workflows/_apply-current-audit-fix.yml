@@ -64,18 +64,30 @@ jobs:
           PY
       - name: Apply audited changes
         run: python .github/current-audit-fix.py
-      - name: Format and verify repository
+      - name: Format and verify clean production tree
         shell: bash
         run: |
+          set -euo pipefail
           python -m ruff format contracts/evidence.py contracts/write_evidence_report.py tests/test_evidence_verifier.py tests/test_write_evidence_report.py tests/test_mcp_generator.py
+          mkdir -p /tmp/ai-skills-audit-helpers
+          mv .github/current-audit-fix.py /tmp/ai-skills-audit-helpers/current-audit-fix.py
+          mv .github/workflows/_apply-current-audit-fix.yml /tmp/ai-skills-audit-helpers/apply-current-audit-fix.yml
+          restore_helpers() {
+            mv /tmp/ai-skills-audit-helpers/current-audit-fix.py .github/current-audit-fix.py
+            mv /tmp/ai-skills-audit-helpers/apply-current-audit-fix.yml .github/workflows/_apply-current-audit-fix.yml
+          }
+          trap restore_helpers EXIT
           git diff --check
           python scripts/ci.py
+          restore_helpers
+          trap - EXIT
       - name: Commit verified code changes
         shell: bash
         run: |
           set -euo pipefail
           test -e .github/current-audit-fix.py
           test -e .github/workflows/_apply-current-audit-fix.yml
+          git diff --exit-code -- .github/current-audit-fix.py .github/workflows/_apply-current-audit-fix.yml
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add -A
