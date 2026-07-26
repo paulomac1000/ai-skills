@@ -40,9 +40,18 @@ def test_every_declared_evidence_lane_writes_a_machine_bound_report() -> None:
     for lane in matrix["lanes"].values():
         job = jobs[lane["workflow_job"]]
         rendered = yaml.safe_dump(job)
+        assert "contracts/run_evidence_command.py" in rendered
         assert "contracts/write_evidence_report.py" in rendered
         assert "evidence/report.json" in rendered
-        assert "retention-days: 90" in rendered
+        evidence_uploads = [
+            step
+            for step in job["steps"]
+            if isinstance(step, dict)
+            and str(step.get("uses") or "").startswith("actions/upload-artifact@")
+            and "evidence/" in str((step.get("with") or {}).get("path") or "")
+        ]
+        assert len(evidence_uploads) == 1
+        assert evidence_uploads[0]["with"]["retention-days"] == 90
         checkout_steps = [
             step
             for step in job["steps"]
@@ -62,6 +71,6 @@ def test_claim_plan_covers_every_stable_rule_with_test_selectors() -> None:
     expected = {rule["id"] for skill in catalog["skills"].values() for rule in skill["rules"]}
     assert set(by_subject) == expected
     for rule_id, claim in by_subject.items():
-        assert claim["command"].strip(), rule_id
+        assert claim["execution_id"].strip(), rule_id
         assert claim["selectors"], rule_id
         assert all(selector.strip() for selector in claim["selectors"])

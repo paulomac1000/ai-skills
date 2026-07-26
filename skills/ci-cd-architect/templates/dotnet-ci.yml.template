@@ -22,15 +22,15 @@ jobs:
       checks: write
       contents: read
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
         with:
           fetch-depth: 0
           persist-credentials: false
-      - uses: actions/setup-dotnet@9a946fdbd5fb07b82b2f5a4466058b876ab72bb2 # v5
+      - uses: actions/setup-dotnet@9a946fdbd5fb07b82b2f5a4466058b876ab72bb2
         with:
           dotnet-version: "<DOTNET_VERSION>"
       - name: Cache NuGet
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae
         with:
           path: ~/.nuget/packages
           key: nuget-${{ hashFiles('**/*.csproj', '**/Directory.Packages.props', '**/Directory.Build.props') }}
@@ -58,14 +58,14 @@ jobs:
         if: >-
           always() && hashFiles('TestResults/**/*.trx') != '' &&
           (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
-        uses: dorny/test-reporter@1cc81a5edf733718d4850df304aaa21c05cd7280 # v3
+        uses: dorny/test-reporter@1cc81a5edf733718d4850df304aaa21c05cd7280
         with:
           name: .NET tests
           path: TestResults/**/*.trx
           reporter: dotnet-trx
       - name: Upload test artifacts
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: dotnet-test-results-${{ github.run_id }}
           path: |

@@ -23,12 +23,26 @@ REPOSITORY = "example/repository"
 PROVIDER_DIGEST = "sha256:" + "c" * 64
 REPORT_DIGEST = "sha256:" + "d" * 64
 
+AUTHORITY = {
+    "verifier_repository": "trusted-owner/ai-skills-verifier",
+    "verifier_revision": "b" * 40,
+    "claim_catalog_repository": "trusted-owner/ai-skills-policy",
+    "claim_catalog_revision": "c" * 40,
+    "workflow_path": ".github/workflows/verify-adoption.yml",
+}
+
 
 class FakeVerifier:
     """Deterministic provider adapter used by semantic contract tests."""
 
-    def __init__(self, failures: Sequence[str] = ()) -> None:
+    def __init__(
+        self,
+        failures: Sequence[str] = (),
+        *,
+        acceptance_authority: Mapping[str, str] | None = AUTHORITY,
+    ) -> None:
         self.failures = list(failures)
+        self.acceptance_authority = acceptance_authority
         self.action_references: list[Mapping[str, Any]] = []
         self.artifact_references: list[Mapping[str, Any]] = []
         self.review_calls = 0
@@ -135,6 +149,7 @@ def assessment_for(
     document: dict[str, Any] = {
         "schema_version": 1,
         "verification_mode": "provider-backed",
+        "acceptance_authority": dict(AUTHORITY),
         "assessment_id": f"{skill_name}-pilot-001",
         "generated_at": "2026-07-24T12:00:00Z",
         "prepared_by": [{"provider": "github", "login": "migration-author", "id": 1001}],
@@ -328,3 +343,48 @@ def test_artifact_paths_reject_leaf_parent_dangling_and_nested_symlinks(tmp_path
     (tree / "nested-link").symlink_to(outside)
     with pytest.raises(ValueError, match="contains symlink"):
         _path_digest(tree)
+
+
+def test_candidate_local_verifier_cannot_approve(tmp_path: Path) -> None:
+    document, catalog, skills = assessment_for(tmp_path)
+    result = "\n".join(
+        findings(
+            document,
+            catalog,
+            skills,
+            tmp_path,
+            FakeVerifier(acceptance_authority=None),
+        )
+    )
+    assert "candidate-local verification is diagnostic only" in result
+
+
+def test_authority_mismatch_fails_closed(tmp_path: Path) -> None:
+    document, catalog, skills = assessment_for(tmp_path)
+    different = dict(AUTHORITY, verifier_revision="d" * 40)
+    result = "\n".join(
+        findings(
+            document,
+            catalog,
+            skills,
+            tmp_path,
+            FakeVerifier(acceptance_authority=different),
+        )
+    )
+    assert "does not match the authority used by the verifier" in result
+
+
+def test_assessed_repository_cannot_be_its_own_acceptance_authority(tmp_path: Path) -> None:
+    document, catalog, skills = assessment_for(tmp_path)
+    document["acceptance_authority"]["verifier_repository"] = REPOSITORY
+    result = "\n".join(findings(document, catalog, skills, tmp_path))
+    assert "must be external to the assessed repository" in result
+
+
+def test_empty_directory_changes_artifact_tree_digest(tmp_path: Path) -> None:
+    tree = tmp_path / "tree-digest"
+    tree.mkdir()
+    before = _path_digest(tree)
+    (tree / "empty").mkdir()
+    after = _path_digest(tree)
+    assert before != after

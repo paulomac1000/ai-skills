@@ -1,4 +1,4 @@
-"""Provider-backed evidence verification contract without live network access."""
+"""Provider-backed diagnostic evidence is fail-closed and byte-bound."""
 
 from __future__ import annotations
 
@@ -9,31 +9,50 @@ import zipfile
 from collections.abc import Mapping
 from typing import Any
 
-import pytest
-
 from contracts.evidence import GitHubEvidenceVerifier
 
 SHA = "a" * 40
 REPORT_PATH = "evidence/report.json"
 RESULT_PATH = "results.xml"
-COMMAND_DIGEST = "sha256:" + hashlib.sha256(b"python -m pytest").hexdigest()
-CLAIM = {
-    "kind": "rule",
-    "subject": "server.auth.before-io",
-    "result": "passed",
-    "command_digest": COMMAND_DIGEST,
-}
+ARGV = ["python", "-m", "pytest"]
+COMMAND_DIGEST = (
+    "sha256:"
+    + hashlib.sha256(
+        json.dumps(
+            {"argv": ARGV, "working_directory": "."},
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode()
+    ).hexdigest()
+)
+IDENTITY = "tests.test_policy::test_auth_before_io"
 JUNIT = (
     b'<testsuite tests="1" failures="0" errors="0" skipped="0">'
     b'<testcase classname="tests.test_policy" name="test_auth_before_io" />'
     b"</testsuite>"
 )
 RESULT_DIGEST = "sha256:" + hashlib.sha256(JUNIT).hexdigest()
+CLAIM = {
+    "kind": "rule",
+    "subject": "server.auth.before-io",
+    "result": "passed",
+    "execution_id": "tests",
+    "command_digest": COMMAND_DIGEST,
+}
+
+
+def binding(path: str = RESULT_PATH, digest: str = RESULT_DIGEST, identity: str = IDENTITY) -> dict[str, Any]:
+    return {
+        "result_path": path,
+        "result_digest": digest,
+        "test_cases": [{"identity": identity, "status": "passed"}],
+    }
 
 
 def make_report(**overrides: Any) -> bytes:
-    payload = {
-        "schema_version": 2,
+    payload: dict[str, Any] = {
+        "format": "ai-skills-evidence-report",
+        "evidence_role": "diagnostic",
         "repository": "owner/repository",
         "revision": SHA,
         "source_head_sha": SHA,
@@ -50,46 +69,41 @@ def make_report(**overrides: Any) -> bytes:
         "job_name": "python-quality",
         "lane": "repository-gate",
         "producer": {"provider": "github", "login": "producer", "id": 700},
+        "executions": [
+            {
+                "execution_id": "tests",
+                "argv": ARGV,
+                "working_directory": ".",
+                "command_digest": COMMAND_DIGEST,
+                "exit_status": 0,
+                "result_digests": [RESULT_DIGEST],
+            }
+        ],
         "results": [
             {
                 "path": RESULT_PATH,
                 "format": "junit",
                 "digest": RESULT_DIGEST,
-                "summary": {
-                    "tests": 1,
-                    "passed": 1,
-                    "skipped": 0,
-                    "failures": 0,
-                    "errors": 0,
-                },
+                "summary": {"tests": 1, "passed": 1, "skipped": 0, "failures": 0, "errors": 0},
             }
         ],
-        "claims": [
-            {
-                **CLAIM,
-                "result_digests": [RESULT_DIGEST],
-                "test_cases": ["tests.test_policy::test_auth_before_io"],
-                "exit_status": 0,
-            }
-        ],
+        "claims": [{**CLAIM, "result_bindings": [binding()], "exit_status": 0}],
     }
     payload.update(overrides)
     return (json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n").encode()
 
 
 def make_zip(
-    report: bytes | None = None,
+    report: bytes | None,
     *,
-    result: bytes = JUNIT,
-    unsafe_name: str | None = None,
+    results: Mapping[str, bytes] | None = None,
 ) -> bytes:
     output = io.BytesIO()
     with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as archive:
-        if unsafe_name is not None:
-            archive.writestr(unsafe_name, b"x")
         if report is not None:
             archive.writestr(REPORT_PATH, report)
-            archive.writestr(RESULT_PATH, result)
+        for path, payload in (results or {RESULT_PATH: JUNIT}).items():
+            archive.writestr(path, payload)
     return output.getvalue()
 
 
@@ -100,21 +114,20 @@ class StubVerifier(GitHubEvidenceVerifier):
         super().__init__("test-token")
         self.responses = dict(responses)
         self.archive = archive
-        self.requested: list[str] = []
 
     def _get_json(self, path: str) -> object:
-        self.requested.append(path)
         return self.responses[path]
 
     def _download_artifact_bytes(self, repository: str, artifact_id: int) -> bytes:
         return self.archive
 
 
-def successful_fixture() -> tuple[dict[str, Any], dict[str, object], bytes]:
-    report = make_report()
-    archive = make_zip(report)
+def fixture(
+    report: bytes | None = None, results: Mapping[str, bytes] | None = None
+) -> tuple[dict[str, Any], dict[str, object], bytes]:
+    report = report or make_report()
+    archive = make_zip(report, results=results)
     provider_digest = "sha256:" + hashlib.sha256(archive).hexdigest()
-    report_digest = "sha256:" + hashlib.sha256(report).hexdigest()
     reference = {
         "provider": "github-actions",
         "repository": "owner/repository",
@@ -132,7 +145,7 @@ def successful_fixture() -> tuple[dict[str, Any], dict[str, object], bytes]:
         "artifact_name": "evidence-python-quality",
         "provider_digest": provider_digest,
         "report_path": REPORT_PATH,
-        "report_digest": report_digest,
+        "report_digest": "sha256:" + hashlib.sha256(report).hexdigest(),
         "_expected_claim": CLAIM,
     }
     responses: dict[str, object] = {
@@ -179,140 +192,118 @@ def successful_fixture() -> tuple[dict[str, Any], dict[str, object], bytes]:
     return reference, responses, archive
 
 
-def test_action_requires_exact_workflow_job_machine_result_and_claim() -> None:
-    reference, responses, archive = successful_fixture()
+def with_report(
+    report: bytes, results: Mapping[str, bytes] | None = None
+) -> tuple[dict[str, Any], dict[str, object], bytes]:
+    reference, responses, archive = fixture(report, results)
+    return reference, responses, archive
+
+
+def test_exact_report_execution_result_and_claim_pass() -> None:
+    reference, responses, archive = fixture()
     assert StubVerifier(responses, archive).verify_action(reference, SHA) == []
 
-    wrong_report = make_report(tested_checkout_sha="b" * 40)
-    wrong_archive = make_zip(wrong_report)
-    digest = "sha256:" + hashlib.sha256(wrong_archive).hexdigest()
-    altered = dict(
-        reference, provider_digest=digest, report_digest="sha256:" + hashlib.sha256(wrong_report).hexdigest()
-    )
-    provider = dict(responses)
-    provider["/repos/owner/repository/actions/artifacts/400"] = {
-        **provider["/repos/owner/repository/actions/artifacts/400"],  # type: ignore[arg-type]
-        "digest": digest,
-    }
-    errors = StubVerifier(provider, wrong_archive).verify_action(altered, SHA)
-    assert "evidence report tested_checkout_sha does not match the referenced execution" in errors
 
-
-def test_green_self_described_claim_without_matching_junit_is_rejected() -> None:
-    reference, responses, _ = successful_fixture()
-    wrong_report = make_report(
-        claims=[
-            {
-                **CLAIM,
-                "result_digests": [RESULT_DIGEST],
-                "test_cases": ["tests.test_policy::not_executed"],
-                "exit_status": 0,
-            }
-        ]
-    )
-    archive = make_zip(wrong_report)
-    provider_digest = "sha256:" + hashlib.sha256(archive).hexdigest()
-    reference = dict(
-        reference,
-        provider_digest=provider_digest,
-        report_digest="sha256:" + hashlib.sha256(wrong_report).hexdigest(),
-    )
-    responses = dict(responses)
-    responses["/repos/owner/repository/actions/artifacts/400"] = {
-        **responses["/repos/owner/repository/actions/artifacts/400"],  # type: ignore[arg-type]
-        "digest": provider_digest,
-    }
-    errors = StubVerifier(responses, archive).verify_action(reference, SHA)
-    assert any("not bound to passed test cases" in error for error in errors)
-
-
-def test_claim_test_cases_must_come_from_the_claimed_result_digest() -> None:
-    reference, responses, _ = successful_fixture()
-    second_path = "second-results.xml"
-    second_junit = (
+def test_unrelated_passing_result_cannot_support_claim() -> None:
+    unrelated_path = "unrelated.xml"
+    unrelated = (
         b'<testsuite tests="1" failures="0" errors="0" skipped="0">'
         b'<testcase classname="tests.test_other" name="test_other" />'
         b"</testsuite>"
     )
-    second_digest = "sha256:" + hashlib.sha256(second_junit).hexdigest()
+    unrelated_digest = "sha256:" + hashlib.sha256(unrelated).hexdigest()
     document = json.loads(make_report())
     document["results"].append(
         {
-            "path": second_path,
+            "path": unrelated_path,
             "format": "junit",
-            "digest": second_digest,
+            "digest": unrelated_digest,
             "summary": {"tests": 1, "passed": 1, "skipped": 0, "failures": 0, "errors": 0},
         }
     )
-    document["claims"][0]["result_digests"] = [RESULT_DIGEST]
-    document["claims"][0]["test_cases"] = ["tests.test_other::test_other"]
+    document["claims"][0]["result_bindings"] = [
+        binding(unrelated_path, unrelated_digest, "tests.test_other::test_other")
+    ]
     report = (json.dumps(document, sort_keys=True, separators=(",", ":")) + "\n").encode()
-    output = io.BytesIO()
-    with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as archive:
-        archive.writestr(REPORT_PATH, report)
-        archive.writestr(RESULT_PATH, JUNIT)
-        archive.writestr(second_path, second_junit)
-    archive_bytes = output.getvalue()
-    provider_digest = "sha256:" + hashlib.sha256(archive_bytes).hexdigest()
-    reference = dict(
-        reference,
-        provider_digest=provider_digest,
-        report_digest="sha256:" + hashlib.sha256(report).hexdigest(),
-    )
-    responses = dict(responses)
-    responses["/repos/owner/repository/actions/artifacts/400"] = {
-        **responses["/repos/owner/repository/actions/artifacts/400"],  # type: ignore[arg-type]
-        "digest": provider_digest,
-    }
-    errors = StubVerifier(responses, archive_bytes).verify_action(reference, SHA)
-    assert any("not bound to passed test cases in its result bytes" in error for error in errors)
-
-
-def test_non_null_unverified_merge_sha_is_rejected() -> None:
-    reference, responses, _ = successful_fixture()
-    report = make_report(merge_sha="b" * 40)
-    archive = make_zip(report)
-    provider_digest = "sha256:" + hashlib.sha256(archive).hexdigest()
-    reference = dict(
-        reference,
-        provider_digest=provider_digest,
-        report_digest="sha256:" + hashlib.sha256(report).hexdigest(),
-    )
-    responses = dict(responses)
-    responses["/repos/owner/repository/actions/artifacts/400"] = {
-        **responses["/repos/owner/repository/actions/artifacts/400"],  # type: ignore[arg-type]
-        "digest": provider_digest,
-    }
+    reference, responses, archive = with_report(report, {RESULT_PATH: JUNIT, unrelated_path: unrelated})
     errors = StubVerifier(responses, archive).verify_action(reference, SHA)
-    assert "evidence report merge_sha does not match the referenced execution" in errors
+    assert any("not bound to its execution result bytes" in error for error in errors)
 
 
-def test_result_digest_and_failed_junit_are_rejected() -> None:
-    reference, responses, _ = successful_fixture()
+def test_false_command_digest_with_real_junit_is_rejected() -> None:
+    document = json.loads(make_report())
+    document["claims"][0]["command_digest"] = "sha256:" + "b" * 64
+    report = (json.dumps(document, sort_keys=True, separators=(",", ":")) + "\n").encode()
+    reference, responses, archive = with_report(report)
+    errors = StubVerifier(responses, archive).verify_action(reference, SHA)
+    assert any("command does not match its execution" in error for error in errors)
+
+
+def _duplicate_junit(first: str, second: str) -> bytes:
+    def outcome(status: str) -> bytes:
+        return b"<failure />" if status == "failure" else b""
+
+    return (
+        b'<testsuite tests="2" failures="1" errors="0" skipped="0">'
+        b'<testcase classname="tests.test_policy" name="test_auth_before_io">' + outcome(first) + b"</testcase>"
+        b'<testcase classname="tests.test_policy" name="test_auth_before_io">'
+        + outcome(second)
+        + b"</testcase></testsuite>"
+    )
+
+
+def test_duplicate_failure_then_passed_is_rejected() -> None:
+    duplicate = _duplicate_junit("failure", "passed")
+    digest = "sha256:" + hashlib.sha256(duplicate).hexdigest()
+    document = json.loads(make_report())
+    document["results"][0]["digest"] = digest
+    document["executions"][0]["result_digests"] = [digest]
+    document["claims"][0]["result_bindings"] = [binding(digest=digest)]
+    report = (json.dumps(document, sort_keys=True, separators=(",", ":")) + "\n").encode()
+    reference, responses, archive = with_report(report, {RESULT_PATH: duplicate})
+    errors = StubVerifier(responses, archive).verify_action(reference, SHA)
+    assert any("duplicate testcase identity" in error for error in errors)
+
+
+def test_duplicate_passed_then_failure_is_rejected() -> None:
+    duplicate = _duplicate_junit("passed", "failure")
+    digest = "sha256:" + hashlib.sha256(duplicate).hexdigest()
+    document = json.loads(make_report())
+    document["results"][0]["digest"] = digest
+    document["executions"][0]["result_digests"] = [digest]
+    document["claims"][0]["result_bindings"] = [binding(digest=digest)]
+    report = (json.dumps(document, sort_keys=True, separators=(",", ":")) + "\n").encode()
+    reference, responses, archive = with_report(report, {RESULT_PATH: duplicate})
+    errors = StubVerifier(responses, archive).verify_action(reference, SHA)
+    assert any("duplicate testcase identity" in error for error in errors)
+
+
+def test_digest_mismatch_is_rejected_before_junit_interpretation() -> None:
+    failed = JUNIT.replace(b" />", b"><failure /></testcase>")
+    reference, responses, archive = fixture(results={RESULT_PATH: failed})
+    errors = StubVerifier(responses, archive).verify_action(reference, SHA)
+    assert any("digest does not match" in error for error in errors)
+
+
+def test_failed_junit_with_matching_digest_is_rejected() -> None:
     failed = (
         b'<testsuite tests="1" failures="1" errors="0" skipped="0">'
         b'<testcase classname="tests.test_policy" name="test_auth_before_io"><failure /></testcase>'
         b"</testsuite>"
     )
-    archive = make_zip(make_report(), result=failed)
-    provider_digest = "sha256:" + hashlib.sha256(archive).hexdigest()
-    reference = dict(reference, provider_digest=provider_digest)
-    responses = dict(responses)
-    responses["/repos/owner/repository/actions/artifacts/400"] = {
-        **responses["/repos/owner/repository/actions/artifacts/400"],  # type: ignore[arg-type]
-        "digest": provider_digest,
-    }
+    digest = "sha256:" + hashlib.sha256(failed).hexdigest()
+    document = json.loads(make_report())
+    document["results"][0]["digest"] = digest
+    document["executions"][0]["result_digests"] = [digest]
+    document["claims"][0]["result_bindings"] = [binding(digest=digest)]
+    report = (json.dumps(document, sort_keys=True, separators=(",", ":")) + "\n").encode()
+    reference, responses, archive = with_report(report, {RESULT_PATH: failed})
     errors = StubVerifier(responses, archive).verify_action(reference, SHA)
-    assert any("digest does not match" in error for error in errors)
+    assert any("failures or errors" in error for error in errors)
 
 
-def test_review_independence_is_derived_from_pr_commits_and_evidence_actor() -> None:
-    reference, responses, archive = successful_fixture()
-    verifier = StubVerifier(responses, archive)
-    action_reference = dict(reference)
-    assert verifier.verify_action(action_reference, SHA) == []
-
-    review_reference = {
+def _review_reference() -> dict[str, Any]:
+    return {
         "provider": "github",
         "repository": "owner/repository",
         "pull_request": 12,
@@ -322,59 +313,37 @@ def test_review_independence_is_derived_from_pr_commits_and_evidence_actor() -> 
         "revision": SHA,
         "state": "APPROVED",
     }
-    assert verifier.verify_review(review_reference, SHA) == []
-
-    for identity in (
-        {"id": 800, "login": "author"},
-        {"id": 801, "login": "committer"},
-        {"id": 700, "login": "producer"},
-    ):
-        changed = dict(responses)
-        changed["/repos/owner/repository/pulls/12/reviews/500"] = {
-            "state": "APPROVED",
-            "commit_id": SHA,
-            "user": identity,
-        }
-        candidate = StubVerifier(changed, archive)
-        assert candidate.verify_action(action_reference, SHA) == []
-        ref = dict(review_reference, id=identity["id"], login=identity["login"])
-        errors = candidate.verify_review(ref, SHA)
-        assert "reviewer is not independent from PR, commit, or evidence provenance" in errors
 
 
-def test_review_fails_closed_when_provider_cannot_enumerate_every_pr_commit() -> None:
-    reference, responses, archive = successful_fixture()
-    responses = dict(responses)
-    responses["/repos/owner/repository/pulls/12"] = {
-        "head": {"sha": SHA},
-        "user": {"id": 800, "login": "author"},
-        "commits": 251,
-    }
-    review_reference = {
-        "provider": "github",
-        "repository": "owner/repository",
-        "pull_request": 12,
-        "review_id": 500,
-        "login": "reviewer",
-        "id": 600,
-        "revision": SHA,
+def test_unlinked_commit_author_fails_closed() -> None:
+    _, responses, archive = fixture()
+    commits = list(responses["/repos/owner/repository/pulls/12/commits?per_page=100&page=1"])  # type: ignore[arg-type]
+    commits[0] = {"author": None, "committer": {"id": 801, "login": "committer"}}
+    responses["/repos/owner/repository/pulls/12/commits?per_page=100&page=1"] = commits
+    errors = StubVerifier(responses, archive).verify_review(_review_reference(), SHA)
+    assert any("commit author has no canonical identity" in error for error in errors)
+
+
+def test_unlinked_commit_committer_fails_closed() -> None:
+    _, responses, archive = fixture()
+    commits = list(responses["/repos/owner/repository/pulls/12/commits?per_page=100&page=1"])  # type: ignore[arg-type]
+    commits[0] = {"author": {"id": 800, "login": "author"}, "committer": None}
+    responses["/repos/owner/repository/pulls/12/commits?per_page=100&page=1"] = commits
+    errors = StubVerifier(responses, archive).verify_review(_review_reference(), SHA)
+    assert any("commit committer has no canonical identity" in error for error in errors)
+
+
+def test_independent_review_is_bound_to_exact_revision() -> None:
+    _, responses, archive = fixture()
+    assert StubVerifier(responses, archive).verify_review(_review_reference(), SHA) == []
+    changed = dict(responses)
+    changed["/repos/owner/repository/pulls/12/reviews/500"] = {
         "state": "APPROVED",
+        "commit_id": "b" * 40,
+        "user": {"id": 600, "login": "reviewer"},
     }
-    errors = StubVerifier(responses, archive).verify_review(review_reference, SHA)
-    assert any("more than 250 commits" in error for error in errors)
+    errors = StubVerifier(changed, archive).verify_review(_review_reference(), SHA)
+    assert "review approval is not bound to the assessed revision" in errors
 
 
-def test_artifact_path_and_github_com_scope_fail_closed() -> None:
-    reference, responses, _ = successful_fixture()
-    archive = make_zip(make_report(), unsafe_name="../escape")
-    provider_digest = "sha256:" + hashlib.sha256(archive).hexdigest()
-    reference = dict(reference, provider_digest=provider_digest)
-    responses = dict(responses)
-    responses["/repos/owner/repository/actions/artifacts/400"] = {
-        **responses["/repos/owner/repository/actions/artifacts/400"],  # type: ignore[arg-type]
-        "digest": provider_digest,
-    }
-    errors = StubVerifier(responses, archive).verify_action(reference, SHA)
-    assert any("unsafe path" in error for error in errors)
-    with pytest.raises(ValueError, match="GitHub.com"):
-        GitHubEvidenceVerifier("token", api_base="https://github.example.com/api/v3")
+successful_fixture = fixture

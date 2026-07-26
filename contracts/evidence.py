@@ -28,6 +28,8 @@ _ALLOWED_DOWNLOAD_HOST_SUFFIXES = (
 class EvidenceVerifier(Protocol):
     """Verify provider records referenced by one assessment."""
 
+    acceptance_authority: Mapping[str, str] | None
+
     def verify_action(self, reference: Mapping[str, Any], expected_revision: str) -> Sequence[str]:
         """Return violations for one GitHub Actions claim report."""
 
@@ -55,7 +57,9 @@ def _tag(element: ET.Element) -> str:
 
 
 class GitHubEvidenceVerifier:
-    """Verify GitHub.com Actions, artifact reports, and review evidence."""
+    """Verify candidate-produced GitHub evidence for diagnostics only."""
+
+    acceptance_authority: Mapping[str, str] | None = None
 
     def __init__(
         self,
@@ -268,6 +272,7 @@ class GitHubEvidenceVerifier:
 
     @staticmethod
     def _junit_cases(payload: bytes) -> dict[str, str]:
+        """Return unique JUnit identities and reject every failed execution."""
         try:
             root = ET.fromstring(payload)
         except ET.ParseError as exc:
@@ -281,6 +286,8 @@ class GitHubEvidenceVerifier:
             if not name:
                 raise ValueError("JUnit testcase has no name")
             identity = f"{classname}::{name}" if classname else name
+            if identity in cases:
+                raise ValueError(f"evidence JUnit result contains duplicate testcase identity: {identity}")
             status = "passed"
             for child in element:
                 child_tag = _tag(child)
@@ -351,7 +358,8 @@ class GitHubEvidenceVerifier:
             raise ValueError("evidence report must contain a JSON object")
 
         expected_fields = {
-            "schema_version": 2,
+            "format": "ai-skills-evidence-report",
+            "evidence_role": "diagnostic",
             "repository": str(reference.get("repository") or ""),
             "revision": expected_revision,
             "source_head_sha": expected_revision,
@@ -385,7 +393,8 @@ class GitHubEvidenceVerifier:
                 self._observed_producers.add(producer)
 
         raw_results = report.get("results")
-        result_cases: dict[str, set[str]] = {}
+        result_cases: dict[str, dict[str, str]] = {}
+        result_paths: dict[str, str] = {}
         if not isinstance(raw_results, list) or not raw_results:
             errors.append("evidence report has no machine result files")
         else:
@@ -402,9 +411,38 @@ class GitHubEvidenceVerifier:
                 if raw.get("digest") != digest:
                     errors.append(f"evidence report results[{index}] digest does not match artifact bytes")
                     continue
-                result_cases[digest] = {
-                    identity for identity, status in self._junit_cases(payload).items() if status == "passed"
-                }
+                if digest in result_cases or path in result_paths:
+                    errors.append(f"evidence report results[{index}] duplicates a result path or digest")
+                    continue
+                result_cases[digest] = self._junit_cases(payload)
+                result_paths[path] = digest
+
+        raw_executions = report.get("executions")
+        executions: dict[str, Mapping[str, Any]] = {}
+        if not isinstance(raw_executions, list) or not raw_executions:
+            errors.append("evidence report has no execution records")
+        else:
+            for index, raw in enumerate(raw_executions):
+                if not isinstance(raw, Mapping):
+                    errors.append(f"evidence report executions[{index}] is not an object")
+                    continue
+                execution_id = str(raw.get("execution_id") or "")
+                digests = raw.get("result_digests")
+                if not execution_id or execution_id in executions:
+                    errors.append(f"evidence report executions[{index}] has a missing or duplicate execution_id")
+                    continue
+                if raw.get("exit_status") != 0:
+                    errors.append(f"evidence report executions[{index}] has a nonzero exit status")
+                if (
+                    not isinstance(digests, list)
+                    or not digests
+                    or any(not isinstance(digest, str) or digest not in result_cases for digest in digests)
+                ):
+                    errors.append(f"evidence report executions[{index}] is not bound to verified result bytes")
+                command_digest = str(raw.get("command_digest") or "")
+                if not command_digest.startswith("sha256:") or len(command_digest) != 71:
+                    errors.append(f"evidence report executions[{index}] has an invalid command digest")
+                executions[execution_id] = raw
 
         claims = report.get("claims")
         if not isinstance(claims, list) or not claims:
@@ -414,31 +452,59 @@ class GitHubEvidenceVerifier:
                 if not isinstance(raw, Mapping):
                     errors.append(f"evidence report claims[{index}] is not an object")
                     continue
-                digests = raw.get("result_digests")
-                tests = raw.get("test_cases")
-                command_digest = str(raw.get("command_digest") or "")
-                verified_claim_cases: set[str] = set()
-                if (
-                    not isinstance(digests, list)
-                    or not digests
-                    or any(not isinstance(digest, str) or digest not in result_cases for digest in digests)
-                ):
-                    errors.append(f"evidence report claims[{index}] is not bound to verified result bytes")
-                else:
-                    for digest in digests:
-                        verified_claim_cases.update(result_cases[digest])
-                if (
-                    not isinstance(tests, list)
-                    or not tests
-                    or any(not isinstance(test, str) or test not in verified_claim_cases for test in tests)
-                ):
-                    errors.append(
-                        f"evidence report claims[{index}] is not bound to passed test cases in its result bytes"
-                    )
-                if raw.get("exit_status") != 0:
+                execution_id = str(raw.get("execution_id") or "")
+                execution = executions.get(execution_id)
+                if execution is None:
+                    errors.append(f"evidence report claims[{index}] is not bound to a verified execution")
+                    continue
+                if raw.get("command_digest") != execution.get("command_digest"):
+                    errors.append(f"evidence report claims[{index}] command does not match its execution")
+                if raw.get("exit_status") != 0 or execution.get("exit_status") != 0:
                     errors.append(f"evidence report claims[{index}] has a nonzero exit status")
-                if not command_digest.startswith("sha256:") or len(command_digest) != 71:
-                    errors.append(f"evidence report claims[{index}] has an invalid command digest")
+                execution_digests = set(execution.get("result_digests") or [])
+                bindings = raw.get("result_bindings")
+                if not isinstance(bindings, list) or not bindings:
+                    errors.append(f"evidence report claims[{index}] has no result bindings")
+                    continue
+                observed_cases: set[tuple[str, str]] = set()
+                for binding_index, binding in enumerate(bindings):
+                    if not isinstance(binding, Mapping):
+                        errors.append(
+                            f"evidence report claims[{index}].result_bindings[{binding_index}] is not an object"
+                        )
+                        continue
+                    path = str(binding.get("result_path") or "")
+                    digest = str(binding.get("result_digest") or "")
+                    if result_paths.get(path) != digest or digest not in execution_digests:
+                        errors.append(
+                            f"evidence report claims[{index}].result_bindings[{binding_index}] "
+                            "is not bound to its execution result bytes"
+                        )
+                        continue
+                    tests = binding.get("test_cases")
+                    if not isinstance(tests, list) or not tests:
+                        errors.append(
+                            f"evidence report claims[{index}].result_bindings[{binding_index}] has no test cases"
+                        )
+                        continue
+                    for test_index, test in enumerate(tests):
+                        if not isinstance(test, Mapping):
+                            errors.append(
+                                f"evidence report claims[{index}].result_bindings[{binding_index}]."
+                                f"test_cases[{test_index}] is not an object"
+                            )
+                            continue
+                        identity = str(test.get("identity") or "")
+                        status = str(test.get("status") or "")
+                        key = (digest, identity)
+                        if key in observed_cases:
+                            errors.append(f"evidence report claims[{index}] duplicates a testcase binding")
+                            continue
+                        observed_cases.add(key)
+                        if status != "passed" or result_cases[digest].get(identity) != "passed":
+                            errors.append(
+                                f"evidence report claims[{index}] is not bound to a passed testcase in its result bytes"
+                            )
 
         if not self._claim_matches(report, reference.get("_expected_claim")):
             errors.append("evidence report does not contain the exact assessed claim")
@@ -553,8 +619,11 @@ class GitHubEvidenceVerifier:
         head_sha = str(head.get("sha") or "") if isinstance(head, Mapping) else ""
         identities: set[tuple[int, str]] = set()
         author = self._canonical_user(pull.get("user"))
-        if author is not None:
-            identities.add(author)
+        if author is None:
+            raise ValueError(
+                "cannot prove reviewer independence because the pull request author has no canonical identity"
+            )
+        identities.add(author)
         raw_commit_count = pull.get("commits")
         if type(raw_commit_count) is not int or raw_commit_count < 0:
             raise ValueError("pull request has no canonical commit count")
@@ -570,8 +639,11 @@ class GitHubEvidenceVerifier:
             for commit in commits:
                 for field in ("author", "committer"):
                     identity = self._canonical_user(commit.get(field))
-                    if identity is not None:
-                        identities.add(identity)
+                    if identity is None:
+                        raise ValueError(
+                            f"cannot prove reviewer independence because a commit {field} has no canonical identity"
+                        )
+                    identities.add(identity)
             page += 1
         if observed_commits != raw_commit_count:
             raise ValueError("cannot prove reviewer independence because provider commit enumeration is incomplete")

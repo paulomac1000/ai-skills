@@ -245,6 +245,33 @@ def _evidence_reference(
     return evidence
 
 
+def _acceptance_authority(
+    value: object,
+    location: str,
+    findings: list[Finding],
+    *,
+    assessed_repository: str,
+) -> dict[str, str]:
+    """Validate immutable external authority coordinates for final acceptance."""
+    authority = _mapping(value, location, findings)
+    result: dict[str, str] = {}
+    for field in ("verifier_repository", "claim_catalog_repository"):
+        text = _text(authority.get(field), f"{location}.{field}", findings)
+        if text == assessed_repository:
+            findings.append(Finding(f"{location}.{field}", "must be external to the assessed repository"))
+        result[field] = text
+    for field in ("verifier_revision", "claim_catalog_revision"):
+        text = _text(authority.get(field), f"{location}.{field}", findings)
+        if text and FULL_SHA.fullmatch(text) is None:
+            findings.append(Finding(f"{location}.{field}", "must be a full immutable commit SHA"))
+        result[field] = text
+    workflow_path = _text(authority.get("workflow_path"), f"{location}.workflow_path", findings)
+    if workflow_path and WORKFLOW_PATH.fullmatch(workflow_path) is None:
+        findings.append(Finding(f"{location}.workflow_path", "must identify a GitHub workflow YAML file"))
+    result["workflow_path"] = workflow_path
+    return result
+
+
 def _provider_findings(location: str, messages: Sequence[str], findings: list[Finding]) -> None:
     for message in messages:
         findings.append(Finding(location, f"provider verification failed: {message}"))
@@ -564,10 +591,15 @@ def _tree_digest(path: Path) -> str:
         for name in list(directory_names):
             child = current / name
             mode = child.lstat().st_mode
+            relative = child.relative_to(path).as_posix()
             if stat.S_ISLNK(mode):
-                raise ValueError(f"artifact tree contains symlink: {child.relative_to(path).as_posix()}")
+                raise ValueError(f"artifact tree contains symlink: {relative}")
             if not stat.S_ISDIR(mode):
-                raise ValueError(f"artifact tree contains a non-directory entry: {child.relative_to(path).as_posix()}")
+                raise ValueError(f"artifact tree contains a non-directory entry: {relative}")
+            relative_bytes = relative.encode("utf-8")
+            digest.update(b"D")
+            digest.update(len(relative_bytes).to_bytes(8, "big"))
+            digest.update(relative_bytes)
         for name in sorted(file_names):
             child = current / name
             mode = child.lstat().st_mode
@@ -577,6 +609,7 @@ def _tree_digest(path: Path) -> str:
             if not stat.S_ISREG(mode):
                 raise ValueError(f"artifact tree contains a non-regular file: {relative}")
             relative_bytes = relative.encode("utf-8")
+            digest.update(b"F")
             digest.update(len(relative_bytes).to_bytes(8, "big"))
             digest.update(relative_bytes)
             _update_digest_from_regular_file(digest, child, include_size=True)
@@ -784,6 +817,29 @@ def validate_document(
     if mode == "provider-backed" and evidence_verifier is None:
         findings.append(Finding("verification_mode", "provider-backed mode requires an evidence verifier"))
     verifier = evidence_verifier if mode == "provider-backed" else None
+    authority: dict[str, str] = {}
+    if assessment.get("acceptance_authority") is not None:
+        authority = _acceptance_authority(
+            assessment.get("acceptance_authority"),
+            "acceptance_authority",
+            findings,
+            assessed_repository=repository,
+        )
+    if approval_gate:
+        if not authority:
+            findings.append(
+                Finding("acceptance_authority", "approval requires an immutable external verifier and claim catalog")
+            )
+        observed_authority = getattr(verifier, "acceptance_authority", None) if verifier is not None else None
+        if not isinstance(observed_authority, Mapping):
+            findings.append(
+                Finding(
+                    "acceptance_authority",
+                    "candidate-local verification is diagnostic only; final approval requires a pinned external verifier",
+                )
+            )
+        elif authority and dict(observed_authority) != authority:
+            findings.append(Finding("acceptance_authority", "does not match the authority used by the verifier"))
 
     scope = _mapping(assessment.get("scope"), "scope", findings)
     _text_list(scope.get("included"), "scope.included", findings, nonempty=True)

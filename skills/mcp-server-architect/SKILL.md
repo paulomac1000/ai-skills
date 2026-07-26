@@ -73,3 +73,5 @@ Generated templates and examples are architecture seeds, not production acceptan
 - Do not claim a generated server works until a real MCP client lists and invokes the exact installed or published artifact.
 - Do not claim a migration is complete unless the completed assessment passes `contracts/validate_adoption.py --require-approval` against the full stable rule catalog and independently reviewed evidence.
 - Do not claim parity between SDKs without mapping the invariant to each platform's lifecycle, DI, and concurrency model.
+
+The assessed revision MUST NOT supply the authoritative verifier, claim catalog, or acceptance workflow used to approve itself; candidate-local validation is diagnostic and final acceptance requires immutable external authority coordinates.

@@ -43,3 +43,5 @@ Generated templates and examples are architecture seeds, not production acceptan
 - Do not convert arbitrary cursor objects to strings.
 - Do not treat empty success as failure.
 - Do not continue discovery or pagination after the requested outcome is satisfied.
+
+The assessed revision MUST NOT supply the authoritative verifier, claim catalog, or acceptance workflow used to approve itself; candidate-local validation is diagnostic and final acceptance requires immutable external authority coordinates.

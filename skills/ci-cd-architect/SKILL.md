@@ -43,3 +43,5 @@ Generated templates and examples are architecture seeds, not production acceptan
 - Do not assume `GITHUB_TOKEN`-generated events trigger downstream workflows.
 - Do not use a pip cache in a repository with no matching dependency file.
 - Do not hide required release jobs behind unreachable event conditions.
+
+The assessed revision MUST NOT supply the authoritative verifier, claim catalog, or acceptance workflow used to approve itself; candidate-local validation is diagnostic and final acceptance requires immutable external authority coordinates.

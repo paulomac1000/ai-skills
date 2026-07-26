@@ -98,6 +98,12 @@ rollback:
   procedure: []
   data_recovery: []
 residual_risks: []
+acceptance_authority:
+  verifier_repository: trusted-owner/ai-skills-verifier
+  verifier_revision: REPLACE_WITH_TRUSTED_VERIFIER_SHA
+  claim_catalog_repository: trusted-owner/ai-skills-policy
+  claim_catalog_revision: REPLACE_WITH_TRUSTED_CATALOG_SHA
+  workflow_path: .github/workflows/verify-adoption.yml
 decision:
   status: request-changes # approve | request-changes | rejected
   rationale: REPLACE_WITH_DECISION_RATIONALE

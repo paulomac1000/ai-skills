@@ -1,9 +1,21 @@
 # Changelog
 
+## Unreleased
+
+- Recovered operational knowledge removed by the cleanup refactor into focused AFDS, CI/CD, MCP server, and MCP consumer playbooks, examples, templates, tools, and regression tests.
+- Replaced the global file-count and exact-layout policy with per-skill manifests and extensible resource categories.
+- Merged local pre-commit guidance into the CI/CD architecture and removed the incomplete top-level skill.
+- Hardened AFDS validation for metadata types, reference-style links, CommonMark code spans, fenced blocks, and relative links.
+- Made MCP consumer risk provenance fail closed, rejected negative retry attempts and invalid cursor types, and preserved protocol-native errors.
+- Added Python/FastMCP and .NET MCP implementation profiles plus a cross-language incident map.
+- Restored Python, MCP, container, .NET, NuGet, documentation, Semgrep, Dependabot, and local-gate templates.
+- Changed container publication to build once, smoke-test the exact local image, push the same image tags, and attest the resulting registry digest.
+- Added Renovate regex management and parsed-template tests for immutable action SHA maintenance.
+
 ## 1.1.0-rc.1 - 2026-07-24
 
 - Bind provider-backed evidence to exact source checkouts, provider-derived job and producer identities, uploaded JUnit digests, and passed test-case selectors.
-- Generate schema-version 2 evidence reports in every compatibility, .NET, container, filesystem, and repository evidence lane with 90-day retention.
+- Generate canonical evidence reports in every compatibility, .NET, container, filesystem, and repository evidence lane with 90-day retention.
 - Derive reviewer independence from PR authors, commit authors/committers, and evidence-producing workflow actors.
 - Add the shared adoption and migration evidence gate to every skill and state the GitHub.com-only provider scope of `1.1.0-rc.1`.
 
@@ -19,17 +31,6 @@
 - Clarified that the bundled MCP consumer engine is a conservative reference helper rather than complete organizational authorization or multi-axis policy.
 - Added strict shared SemVer 2.0 validation, exact-head and merge-result CI evidence, Python 3.12-3.14 plus Linux/macOS/Windows compatibility lanes, cross-platform .NET artifact lanes, and a built non-root container smoke through the official MCP client.
 
-## Unreleased - 2026-07-18
-
-- Recovered operational knowledge removed by the cleanup refactor into focused AFDS, CI/CD, MCP server, and MCP consumer playbooks, examples, templates, tools, and regression tests.
-- Replaced the global file-count and exact-layout policy with per-skill manifests and extensible resource categories.
-- Merged local pre-commit guidance into the CI/CD architecture and removed the incomplete top-level skill.
-- Hardened AFDS validation for metadata types, reference-style links, CommonMark code spans, fenced blocks, and relative links.
-- Made MCP consumer risk provenance fail closed, rejected negative retry attempts and invalid cursor types, and preserved protocol-native errors.
-- Added Python/FastMCP and .NET MCP implementation profiles plus a cross-language incident map.
-- Restored Python, MCP, container, .NET, NuGet, documentation, Semgrep, Dependabot, and local-gate templates.
-- Changed container publication to build once, smoke-test the exact local image, push the same image tags, and attest the resulting registry digest.
-- Added Renovate regex management and parsed-template tests for immutable action SHA maintenance.
 
 ## 1.0.0 - 2026-07-17
 

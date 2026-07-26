@@ -34,11 +34,18 @@ The artifact download follows GitHub's signed redirect without forwarding the Gi
 
 The validator never treats a free-form URI, screenshot, aggregate badge, or self-declared `passed` value as verified remote evidence.
 
+
+## Acceptance root of trust
+
+Candidate-produced reports and `contracts/validate_adoption.py` are diagnostic. The assessed revision MUST NOT supply the authoritative verifier, claim catalog, or acceptance workflow used to approve itself. Final acceptance MUST run through a protected reusable workflow or separately published verifier pinned by full commit SHA, with a claim catalog pinned independently from the assessed repository. The external verifier executes exact argv, records the working directory and exit status, binds every selected testcase to one result path and digest, and emits the final provider-backed decision.
+
+A candidate-local verifier MUST fail closed for an approval decision when no matching external `acceptance_authority` is supplied. It may still validate structure and produce diagnostic evidence for development and red-team review.
+
 ## Evidence report production
 
-Every evidence-producing job checks out the assessed source HEAD explicitly and writes a schema-version 2 report. The writer resolves the canonical run, workflow, job, check-run, and producer identities from the GitHub Actions API. It rejects a tested checkout that differs from the assessed source SHA.
+Every evidence-producing job checks out the assessed source HEAD explicitly and writes the canonical current evidence report. The writer resolves the canonical run, workflow, job, check-run, and producer identities from the GitHub Actions API. It rejects a tested checkout that differs from the assessed source SHA.
 
-Claims are not accepted from a free-form `passed` JSON value. Each claim must name the command, select one or more test cases, and bind to the SHA-256 digest of the uploaded JUnit file that contains those passed cases. Test-case identities are verified only inside the result digests cited by that claim. The report records `source_head_sha`, `tested_checkout_sha`, provider `head_sha`, producer identity, result summaries, result digests, command digests, test-case identities, and exit status. Schema v2 reserves `merge_sha` as `null` until a provider adapter can independently prove the synthetic merge commit.
+Claims are not accepted from a free-form `passed` JSON value. Each claim must name an execution record, select one or more test cases, and bind to the SHA-256 digest of the uploaded JUnit file that contains those passed cases. Test-case identities are verified only inside the result digests cited by that claim. The report records `source_head_sha`, `tested_checkout_sha`, provider `head_sha`, producer identity, result summaries, result digests, exact argv digests, working directories, test-case identities, and exit status. The current report format reserves `merge_sha` as `null` until a provider adapter can independently prove the synthetic merge commit.
 
 ```bash
 GITHUB_TOKEN=<read-token> python contracts/write_evidence_report.py \
@@ -53,8 +60,8 @@ GITHUB_TOKEN=<read-token> python contracts/write_evidence_report.py \
   --lane python-compatibility \
   --dynamic-kind compatibility \
   --dynamic-subject "linux|x64|python|3.12|python-compatibility" \
-  --dynamic-command "python -m pytest ..." \
-  --result-file compatibility-linux-x64-py312.xml \
+  --dynamic-execution-id compatibility \
+  --execution-record evidence/executions/compatibility.json \
   --output evidence/report.json
 ```
 
@@ -62,13 +69,13 @@ The job uploads the report and every referenced result file in one artifact. The
 
 ## Provider scope and evidence lifetime
 
-The `1.1.0-rc.1` provider-backed adapter supports public GitHub.com, GitHub Actions, and GitHub pull-request reviews only. GitHub Enterprise Server, GHE.com data-residency hosts, GitLab, Jenkins, and Azure DevOps remain structural-attestation-only until a separately reviewed adapter defines trusted API origins and equivalent provenance. The generic architecture rules remain domain-neutral; the current remote evidence implementation is intentionally not advertised as provider-neutral.
+The current provider-backed adapter supports public GitHub.com, GitHub Actions, and GitHub pull-request reviews only. GitHub Enterprise Server, GHE.com data-residency hosts, GitLab, Jenkins, and Azure DevOps remain structural-attestation-only until a separately reviewed adapter defines trusted API origins and equivalent provenance. The generic architecture rules remain domain-neutral; the current remote evidence implementation is intentionally not advertised as provider-neutral.
 
 Repository evidence artifacts are retained for 90 days and represent a point-in-time decision. Longer-lived releases must preserve a signed report, attestation, or release asset outside ephemeral Actions retention.
 
 ## Extension model
 
-The base assessment is domain-neutral, but the extension namespace is a closed, versioned registry rather than an arbitrary object bag. In `1.1.0-rc.1`, `mcp` is the only registered key under `extensions`; unknown keys are rejected. Registering another extension requires a versioned schema definition, semantic validator support, templates, and regression tests. The MCP server extension records maturity level, implementation profiles, advertised transports, official-client commands, and transport-specific listing, read, failure, and write-boundary results.
+The base assessment is domain-neutral, but the extension namespace is a closed current registry rather than an arbitrary object bag. Currently, `mcp` is the only registered key under `extensions`; unknown keys are rejected. Registering another extension requires a versioned schema definition, semantic validator support, templates, and regression tests. The MCP server extension records maturity level, implementation profiles, advertised transports, official-client commands, and transport-specific listing, read, failure, and write-boundary results.
 
 ## Validation
 

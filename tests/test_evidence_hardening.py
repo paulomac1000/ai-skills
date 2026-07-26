@@ -175,12 +175,12 @@ def test_local_artifact_digest_streams_instead_of_using_read_bytes(
     assert _path_digest(directory).startswith("sha256:")
 
 
-def test_extension_namespace_is_a_closed_versioned_registry() -> None:
+def test_extension_namespace_is_closed_and_current_only() -> None:
     root = Path(__file__).resolve().parents[1]
     schema = json.loads((root / "contracts/adoption-assessment.schema.json").read_text(encoding="utf-8"))
     extension_schema = schema["properties"]["extensions"]
     assert set(extension_schema["properties"]) == {"mcp"}
     assert extension_schema["additionalProperties"] is False
     documentation = (root / "contracts/README.md").read_text(encoding="utf-8")
-    assert "closed, versioned registry" in documentation
+    assert "closed current registry" in documentation
     assert "unknown keys are rejected" in documentation

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Write one canonical, machine-bound GitHub Actions evidence report."""
+"""Write one canonical diagnostic GitHub Actions evidence report."""
 
 from __future__ import annotations
 
@@ -20,6 +20,7 @@ import yaml
 FULL_SHA = re.compile(r"[0-9a-f]{40}")
 CHECK_RUN = re.compile(r"/check-runs/([1-9][0-9]*)$")
 API_BASE = "https://api.github.com"
+EXECUTION_ID = re.compile(r"[a-z0-9][a-z0-9-]{0,63}")
 
 
 def _positive(value: object, name: str) -> int:
@@ -49,60 +50,68 @@ def _canonical_digest(path: Path) -> str:
     return f"sha256:{digest.hexdigest()}"
 
 
+def _canonical_command_digest(argv: Sequence[str], working_directory: str) -> str:
+    encoded = json.dumps(
+        {"argv": list(argv), "working_directory": working_directory},
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return f"sha256:{hashlib.sha256(encoded).hexdigest()}"
+
+
 def _tag(element: ET.Element) -> str:
     return element.tag.rsplit("}", 1)[-1]
 
 
-def _junit_cases(paths: Sequence[Path]) -> tuple[list[dict[str, str]], list[dict[str, Any]]]:
-    cases: list[dict[str, str]] = []
-    results: list[dict[str, Any]] = []
-    for path in paths:
+def _junit_cases(path: Path) -> list[dict[str, str]]:
+    try:
         root = ET.fromstring(path.read_bytes())
-        file_cases: list[dict[str, str]] = []
-        for element in root.iter():
-            if _tag(element) != "testcase":
-                continue
-            classname = str(element.attrib.get("classname") or "").strip()
-            name = str(element.attrib.get("name") or "").strip()
-            if not name:
-                raise ValueError(f"{path}: testcase without a name")
-            identity = f"{classname}::{name}" if classname else name
-            status = "passed"
-            for child in element:
-                child_tag = _tag(child)
-                if child_tag in {"failure", "error", "skipped"}:
-                    status = child_tag
-                    break
-            file_cases.append({"identity": identity, "status": status, "result_path": path.as_posix()})
-        if not file_cases:
-            raise ValueError(f"{path}: JUnit document contains no test cases")
-        failed = [case for case in file_cases if case["status"] in {"failure", "error"}]
-        if failed:
-            raise ValueError(f"{path}: JUnit document contains failed or errored tests")
-        cases.extend(file_cases)
-        results.append(
-            {
-                "path": path.as_posix(),
-                "format": "junit",
-                "digest": _canonical_digest(path),
-                "summary": {
-                    "tests": len(file_cases),
-                    "passed": sum(case["status"] == "passed" for case in file_cases),
-                    "skipped": sum(case["status"] == "skipped" for case in file_cases),
-                    "failures": sum(case["status"] == "failure" for case in file_cases),
-                    "errors": sum(case["status"] == "error" for case in file_cases),
-                },
-            }
-        )
-    return cases, results
+    except ET.ParseError as exc:
+        raise ValueError(f"{path}: result is not valid JUnit XML") from exc
+    cases: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for element in root.iter():
+        if _tag(element) != "testcase":
+            continue
+        classname = str(element.attrib.get("classname") or "").strip()
+        name = str(element.attrib.get("name") or "").strip()
+        if not name:
+            raise ValueError(f"{path}: testcase without a name")
+        identity = f"{classname}::{name}" if classname else name
+        if identity in seen:
+            raise ValueError(f"{path}: duplicate testcase identity: {identity}")
+        seen.add(identity)
+        status = "passed"
+        for child in element:
+            child_tag = _tag(child)
+            if child_tag in {"failure", "error", "skipped"}:
+                status = child_tag
+                break
+        cases.append({"identity": identity, "status": status})
+    if not cases:
+        raise ValueError(f"{path}: JUnit document contains no test cases")
+    if any(case["status"] in {"failure", "error"} for case in cases):
+        raise ValueError(f"{path}: JUnit document contains failed or errored tests")
+    return cases
+
+
+def _safe_relative(value: object, name: str) -> str:
+    path = _text(value, name)
+    if path.startswith(("/", "\\")) or "\\" in path:
+        raise ValueError(f"{name} must be a relative POSIX path")
+    parts = path.split("/")
+    if any(part in {"", ".", ".."} for part in parts):
+        raise ValueError(f"{name} must be a safe relative POSIX path")
+    return path
 
 
 def _load_plan(path: Path, profile: str | None) -> list[Mapping[str, Any]]:
     if profile is None:
         return []
     document = yaml.safe_load(path.read_text(encoding="utf-8"))
-    if not isinstance(document, Mapping) or document.get("schema_version") != 1:
-        raise ValueError("claim plan must be a schema_version 1 object")
+    if not isinstance(document, Mapping) or document.get("format") != "ai-skills-claim-plan":
+        raise ValueError("claim plan must use the canonical ai-skills-claim-plan format")
     profiles = document.get("profiles")
     if not isinstance(profiles, Mapping):
         raise ValueError("claim plan profiles must be an object")
@@ -112,64 +121,167 @@ def _load_plan(path: Path, profile: str | None) -> list[Mapping[str, Any]]:
     return [dict(item) for item in raw if isinstance(item, Mapping)]
 
 
-def _matching_cases(
-    cases: Sequence[Mapping[str, str]],
-    selectors: object,
-    result_files: object,
+def _load_execution(path: Path) -> dict[str, Any]:
+    document = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(document, Mapping) or document.get("format") != "ai-skills-execution-record":
+        raise ValueError(f"{path}: unsupported execution record format")
+    execution_id = _text(document.get("execution_id"), f"{path}.execution_id")
+    if EXECUTION_ID.fullmatch(execution_id) is None:
+        raise ValueError(f"{path}: invalid execution_id")
+    argv = document.get("argv")
+    if not isinstance(argv, list) or not argv or any(not isinstance(value, str) or not value for value in argv):
+        raise ValueError(f"{path}: argv must be a non-empty string array")
+    working_directory = str(document.get("working_directory") or "")
+    if working_directory == ".":
+        working_directory = "."
+    else:
+        working_directory = _safe_relative(working_directory, f"{path}.working_directory")
+    expected_command_digest = _canonical_command_digest(argv, working_directory)
+    if document.get("command_digest") != expected_command_digest:
+        raise ValueError(f"{path}: command digest does not match argv and working directory")
+    if document.get("exit_status") != 0:
+        raise ValueError(f"{path}: execution did not complete successfully")
+    if document.get("validation_error") is not None:
+        raise ValueError(f"{path}: execution record contains a validation error")
+    raw_results = document.get("results")
+    if not isinstance(raw_results, list) or not raw_results:
+        raise ValueError(f"{path}: execution record contains no result files")
+    results: list[dict[str, Any]] = []
+    seen_paths: set[str] = set()
+    for index, raw in enumerate(raw_results):
+        if not isinstance(raw, Mapping):
+            raise ValueError(f"{path}: results[{index}] must be an object")
+        result_path = _safe_relative(raw.get("path"), f"{path}.results[{index}].path")
+        if result_path in seen_paths:
+            raise ValueError(f"{path}: duplicate result path {result_path}")
+        seen_paths.add(result_path)
+        candidate = Path(result_path) if working_directory == "." else Path(working_directory) / result_path
+        if not candidate.is_file() or candidate.is_symlink():
+            raise ValueError(f"{path}: result file {result_path} is missing or unsafe")
+        digest = _canonical_digest(candidate)
+        if raw.get("digest") != digest:
+            raise ValueError(f"{path}: result digest does not match {result_path}")
+        cases = raw.get("test_cases")
+        if not isinstance(cases, list) or not cases:
+            raise ValueError(f"{path}: result {result_path} contains no test cases")
+        normalized_cases: list[dict[str, str]] = []
+        for case_index, case in enumerate(cases):
+            if not isinstance(case, Mapping):
+                raise ValueError(f"{path}: test_cases[{case_index}] must be an object")
+            normalized_cases.append(
+                {
+                    "identity": _text(case.get("identity"), f"{path}.test_cases[{case_index}].identity"),
+                    "status": _text(case.get("status"), f"{path}.test_cases[{case_index}].status"),
+                }
+            )
+        observed_cases = _junit_cases(candidate)
+        if normalized_cases != observed_cases:
+            raise ValueError(f"{path}: execution record test cases do not match JUnit bytes")
+        results.append(
+            {
+                "path": result_path,
+                "format": "junit",
+                "digest": digest,
+                "test_cases": normalized_cases,
+                "summary": {
+                    "tests": len(normalized_cases),
+                    "passed": sum(case["status"] == "passed" for case in normalized_cases),
+                    "skipped": sum(case["status"] == "skipped" for case in normalized_cases),
+                    "failures": 0,
+                    "errors": 0,
+                },
+            }
+        )
+    return {
+        "execution_id": execution_id,
+        "argv": list(argv),
+        "working_directory": working_directory,
+        "command_digest": expected_command_digest,
+        "exit_status": 0,
+        "results": results,
+    }
+
+
+def _load_executions(paths: Sequence[Path]) -> dict[str, dict[str, Any]]:
+    executions: dict[str, dict[str, Any]] = {}
+    for path in paths:
+        execution = _load_execution(path)
+        execution_id = str(execution["execution_id"])
+        if execution_id in executions:
+            raise ValueError(f"duplicate execution_id: {execution_id}")
+        executions[execution_id] = execution
+    if not executions:
+        raise ValueError("at least one execution record is required")
+    return executions
+
+
+def _claim(
+    raw: Mapping[str, Any],
+    *,
+    executions: Mapping[str, Mapping[str, Any]],
     location: str,
-) -> list[str]:
+) -> dict[str, Any]:
+    kind = _text(raw.get("kind"), f"{location}.kind")
+    subject = _text(raw.get("subject"), f"{location}.subject")
+    execution_id = _text(raw.get("execution_id"), f"{location}.execution_id")
+    execution = executions.get(execution_id)
+    if not isinstance(execution, Mapping):
+        raise ValueError(f"{location}.execution_id does not identify an execution record")
+    selectors = raw.get("selectors")
     if not isinstance(selectors, list) or not selectors:
         raise ValueError(f"{location}.selectors must be a non-empty array")
-    patterns = [_text(value, f"{location}.selectors") for value in selectors]
+    selector_patterns = [_text(value, f"{location}.selectors") for value in selectors]
+    result_files = raw.get("result_files")
     if result_files is None:
         result_patterns = ["*"]
     elif isinstance(result_files, list) and result_files:
         result_patterns = [_text(value, f"{location}.result_files") for value in result_files]
     else:
         raise ValueError(f"{location}.result_files must be a non-empty array")
-    selected = sorted(
-        {
-            str(case["identity"])
-            for case in cases
-            if case.get("status") == "passed"
-            and any(fnmatch.fnmatchcase(str(case.get("result_path") or ""), pattern) for pattern in result_patterns)
-            and any(fnmatch.fnmatchcase(str(case.get("identity") or ""), pattern) for pattern in patterns)
-        }
-    )
-    if not selected:
-        raise ValueError(f"{location} selectors matched no passed test case")
-    return selected
 
+    bindings: list[dict[str, Any]] = []
+    for result in execution.get("results", []):
+        if not isinstance(result, Mapping):
+            continue
+        result_path = str(result.get("path") or "")
+        if not any(fnmatch.fnmatchcase(result_path, pattern) for pattern in result_patterns):
+            continue
+        selected = sorted(
+            {
+                str(case.get("identity"))
+                for case in result.get("test_cases", [])
+                if isinstance(case, Mapping)
+                and case.get("status") == "passed"
+                and any(fnmatch.fnmatchcase(str(case.get("identity") or ""), pattern) for pattern in selector_patterns)
+            }
+        )
+        if selected:
+            bindings.append(
+                {
+                    "result_path": result_path,
+                    "result_digest": str(result["digest"]),
+                    "test_cases": [{"identity": identity, "status": "passed"} for identity in selected],
+                }
+            )
+    if not bindings:
+        raise ValueError(f"{location} selectors matched no passed test case in execution {execution_id}")
 
-def _claim(
-    raw: Mapping[str, Any],
-    *,
-    cases: Sequence[Mapping[str, str]],
-    results: Sequence[Mapping[str, Any]],
-    location: str,
-) -> dict[str, Any]:
-    kind = _text(raw.get("kind"), f"{location}.kind")
-    subject = _text(raw.get("subject"), f"{location}.subject")
-    command = _text(raw.get("command"), f"{location}.command")
-    selected = _matching_cases(cases, raw.get("selectors"), raw.get("result_files"), location)
-    result_digests = [str(result["digest"]) for result in results]
     claim: dict[str, Any] = {
         "kind": kind,
         "subject": subject,
         "result": "passed",
-        "command_digest": f"sha256:{hashlib.sha256(command.encode('utf-8')).hexdigest()}",
-        "result_digests": result_digests,
-        "test_cases": selected,
+        "execution_id": execution_id,
+        "command_digest": str(execution["command_digest"]),
+        "result_bindings": bindings,
         "exit_status": 0,
     }
-    for key in ("combination",):
-        if key in raw:
-            claim[key] = raw[key]
+    if "combination" in raw:
+        claim["combination"] = raw["combination"]
     content_path = raw.get("content_path")
     if content_path is not None:
         path = Path(_text(content_path, f"{location}.content_path"))
-        if not path.is_file():
-            raise ValueError(f"{location}.content_path must identify an existing file")
+        if not path.is_file() or path.is_symlink():
+            raise ValueError(f"{location}.content_path must identify an existing non-symlink file")
         claim["content_digest"] = _canonical_digest(path)
     commands = raw.get("commands")
     if commands is not None:
@@ -205,7 +317,6 @@ def _provider_metadata(args: argparse.Namespace) -> tuple[Mapping[str, Any], Map
         if not isinstance(run, Mapping) or not isinstance(job, Mapping):
             raise ValueError("provider metadata requires run and job objects")
         return run, job
-
     token = os.environ.get(args.github_token_env, "").strip()
     if not token:
         raise ValueError(f"{args.github_token_env} is required to resolve provider job identity")
@@ -232,18 +343,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--run-id", required=True, type=int)
     parser.add_argument("--workflow-path", required=True)
     parser.add_argument("--workflow-name", required=True)
-    parser.add_argument(
-        "--event",
-        required=True,
-        choices=("pull_request", "push", "workflow_dispatch", "workflow_run"),
-    )
+    parser.add_argument("--event", required=True, choices=("pull_request", "push", "workflow_dispatch", "workflow_run"))
     parser.add_argument("--job-name", required=True)
     parser.add_argument("--lane", required=True)
     parser.add_argument("--claims-plan", type=Path, default=Path("contracts/evidence-claim-plan.yaml"))
     parser.add_argument("--claims-profile")
     parser.add_argument("--dynamic-kind")
     parser.add_argument("--dynamic-subject")
-    parser.add_argument("--dynamic-command")
+    parser.add_argument("--dynamic-execution-id")
     parser.add_argument("--dynamic-combination-json")
     parser.add_argument("--dynamic-operating-system")
     parser.add_argument("--dynamic-architecture")
@@ -251,7 +358,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--dynamic-version")
     parser.add_argument("--dynamic-lane")
     parser.add_argument("--dynamic-selector", action="append")
-    parser.add_argument("--result-file", required=True, action="append", type=Path)
+    parser.add_argument("--execution-record", required=True, action="append", type=Path)
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--provider-metadata-file", type=Path)
     parser.add_argument("--github-token-env", default="GITHUB_TOKEN")
@@ -269,7 +376,6 @@ def main(argv: list[str] | None = None) -> int:
         raise ValueError("tested_checkout_sha must equal source_head_sha")
     if args.merge_sha not in {None, "", source_head_sha}:
         raise ValueError("merge_sha is unsupported until it can be verified independently")
-    merge_sha = None
     workflow_path = _text(args.workflow_path, "workflow_path")
     if not workflow_path.startswith(".github/workflows/") or not workflow_path.endswith((".yml", ".yaml")):
         raise ValueError("workflow_path must identify a .github/workflows YAML file")
@@ -278,8 +384,6 @@ def main(argv: list[str] | None = None) -> int:
     run_id = _positive(args.run_id, "run_id")
     if run.get("id") != run_id:
         raise ValueError("provider run id does not match --run-id")
-    if run.get("workflow_id") is None:
-        raise ValueError("provider run has no workflow_id")
     workflow_id = _positive(run.get("workflow_id"), "workflow_id")
     provider_run_head_sha = _sha(run.get("head_sha"), "provider_run_head_sha")
     if provider_run_head_sha != source_head_sha:
@@ -302,16 +406,15 @@ def main(argv: list[str] | None = None) -> int:
         "id": _positive(actor.get("id"), "producer.id"),
     }
 
-    result_paths = [Path(path) for path in args.result_file]
-    cases, results = _junit_cases(result_paths)
+    executions = _load_executions(args.execution_record)
     raw_claims = _load_plan(args.claims_plan, args.claims_profile)
-    if args.dynamic_kind or args.dynamic_subject or args.dynamic_command:
-        if not (args.dynamic_kind and args.dynamic_subject and args.dynamic_command):
-            raise ValueError("dynamic claim requires kind, subject, and command")
+    if args.dynamic_kind or args.dynamic_subject or args.dynamic_execution_id:
+        if not (args.dynamic_kind and args.dynamic_subject and args.dynamic_execution_id):
+            raise ValueError("dynamic claim requires kind, subject, and execution_id")
         dynamic: dict[str, Any] = {
             "kind": args.dynamic_kind,
             "subject": args.dynamic_subject,
-            "command": args.dynamic_command,
+            "execution_id": args.dynamic_execution_id,
             "selectors": args.dynamic_selector or ["*"],
         }
         combination_values = (
@@ -341,17 +444,36 @@ def main(argv: list[str] | None = None) -> int:
         raw_claims.append(dynamic)
     if not raw_claims:
         raise ValueError("at least one evidence claim is required")
-    claims = [
-        _claim(raw, cases=cases, results=results, location=f"claims[{index}]") for index, raw in enumerate(raw_claims)
-    ]
+    claims = [_claim(raw, executions=executions, location=f"claims[{index}]") for index, raw in enumerate(raw_claims)]
+
+    results_by_key: dict[tuple[str, str], dict[str, Any]] = {}
+    execution_summaries: list[dict[str, Any]] = []
+    for execution_id in sorted(executions):
+        execution = executions[execution_id]
+        result_digests: list[str] = []
+        for result in execution["results"]:
+            key = (str(result["path"]), str(result["digest"]))
+            results_by_key[key] = dict(result)
+            result_digests.append(str(result["digest"]))
+        execution_summaries.append(
+            {
+                "execution_id": execution_id,
+                "argv": execution["argv"],
+                "working_directory": execution["working_directory"],
+                "command_digest": execution["command_digest"],
+                "exit_status": execution["exit_status"],
+                "result_digests": sorted(result_digests),
+            }
+        )
 
     report = {
-        "schema_version": 2,
+        "format": "ai-skills-evidence-report",
+        "evidence_role": "diagnostic",
         "repository": repository,
         "revision": source_head_sha,
         "source_head_sha": source_head_sha,
         "tested_checkout_sha": tested_checkout_sha,
-        "merge_sha": merge_sha,
+        "merge_sha": None,
         "provider_run_head_sha": provider_run_head_sha,
         "run_id": run_id,
         "job_id": job_id,
@@ -363,12 +485,13 @@ def main(argv: list[str] | None = None) -> int:
         "job_name": _text(args.job_name, "job_name"),
         "lane": _text(args.lane, "lane"),
         "producer": producer,
-        "results": results,
+        "executions": execution_summaries,
+        "results": [results_by_key[key] for key in sorted(results_by_key)],
         "claims": claims,
     }
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(
-        json.dumps(report, sort_keys=True, separators=(",", ":")) + "\n",
+        json.dumps(report, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n",
         encoding="utf-8",
         newline="\n",
     )

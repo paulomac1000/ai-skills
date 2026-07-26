@@ -27,7 +27,7 @@ jobs:
       packages: write
     steps:
       - name: Fetch repository and tags from trusted workflow revision
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -52,7 +52,7 @@ jobs:
           echo "tag=$release_tag" >> "$GITHUB_OUTPUT"
           echo "sha=$release_sha" >> "$GITHUB_OUTPUT"
       - name: Check out validated release revision
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
         with:
           ref: ${{ steps.release_ref.outputs.sha }}
           fetch-depth: 0
@@ -62,7 +62,7 @@ jobs:
         env:
           EXPECTED_SHA: ${{ steps.release_ref.outputs.sha }}
         run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
-      - uses: actions/setup-dotnet@9a946fdbd5fb07b82b2f5a4466058b876ab72bb2 # v5
+      - uses: actions/setup-dotnet@9a946fdbd5fb07b82b2f5a4466058b876ab72bb2
         with:
           dotnet-version: "<DOTNET_VERSION>"
       - name: Validate selected tag and package version
@@ -189,7 +189,7 @@ jobs:
           EXPECTED_SHA: ${{ steps.release_ref.outputs.sha }}
         run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
       - name: Upload package artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: nuget-${{ steps.release.outputs.version }}
           path: nupkg/*.nupkg
@@ -211,7 +211,7 @@ jobs:
               --skip-duplicate
           done
       - name: Create GitHub release for validated tag
-        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3
+        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda
         with:
           tag_name: ${{ steps.release_ref.outputs.tag }}
           target_commitish: ${{ steps.release_ref.outputs.sha }}

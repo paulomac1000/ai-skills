@@ -41,3 +41,5 @@ Generated templates and examples are architecture seeds, not production acceptan
 - Do not create a second source of truth to avoid editing the canonical owner.
 - Do not force every document into an identical section list.
 - Do not treat a structurally valid document as factually verified.
+
+The assessed revision MUST NOT supply the authoritative verifier, claim catalog, or acceptance workflow used to approve itself; candidate-local validation is diagnostic and final acceptance requires immutable external authority coordinates.
