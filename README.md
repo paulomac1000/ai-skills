@@ -2,7 +2,7 @@
 
 A production-oriented collection of reusable standards, agent workflows, implementation playbooks, executable policy helpers, and tested templates for AI-assisted software engineering.
 
-The current repository release is `1.1.0-rc.1`. It is intended for controlled production pilots and independent review. Each skill declares its own compatibility and maturity in `manifest.yaml`.
+This pull request introduces one coherent repository release, `1.1.0-rc.1`; branch iterations are not separate releases. It is intended for controlled production pilots and independent review. Each skill declares its own compatibility and maturity in `manifest.yaml`.
 
 ## Included skills
 
