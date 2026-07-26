@@ -22,6 +22,10 @@ for old, new in (
         "workflow = replace_one(workflow, '--dynamic-command \"$EVIDENCE_COMMAND\"', '--dynamic-execution-id container', \"container dynamic record\")",
         "workflow = workflow.replace('--dynamic-command \"$EVIDENCE_COMMAND\"', '--dynamic-execution-id container', 1)",
     ),
+    (
+        "workflow = replace_one(workflow, '--result-file python-container.xml', '--execution-record evidence/executions/container.json', \"container record\")",
+        "workflow = replace_one(workflow, '--dynamic-lane docker-artifact             --result-file python-container.xml             --output', '--dynamic-lane docker-artifact             --execution-record evidence/executions/container.json             --output', \"container record\")",
+    ),
 ):
     if source.count(old) != 1:
         raise SystemExit(f"payload migration patch missing: {old}")
