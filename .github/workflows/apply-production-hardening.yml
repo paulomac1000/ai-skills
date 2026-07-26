@@ -87,7 +87,26 @@ jobs:
           test ! -e scripts/apply_production_hardening.py
           test ! -e .github/workflows/apply-production-hardening.yml
           test -z "$(find scripts -maxdepth 1 -name 'apply_payload.part-*' -print -quit)"
+      - name: Preserve verified patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f hardening-diagnostics.txt local-gate-diagnostics.txt
+          git diff --binary HEAD > "${RUNNER_TEMP}/verified-hardening.patch"
+          git diff --name-status HEAD > "${RUNNER_TEMP}/verified-name-status.txt"
+          test -s "${RUNNER_TEMP}/verified-hardening.patch"
+      - name: Upload verified patch
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: verified-hardening-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/verified-hardening.patch
+            ${{ runner.temp }}/verified-name-status.txt
+          if-no-files-found: error
+          retention-days: 7
       - name: Commit verified implementation
+        id: commit_push
+        continue-on-error: true
         shell: bash
         env:
           TARGET_BRANCH: ${{ github.head_ref }}
@@ -97,4 +116,21 @@ jobs:
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add -A
           git commit -m 'fix: harden evidence acceptance contracts'
-          git push origin "HEAD:${TARGET_BRANCH}"
+          set +e
+          git push origin "HEAD:${TARGET_BRANCH}" > "${RUNNER_TEMP}/push-diagnostics.txt" 2>&1
+          status=$?
+          cat "${RUNNER_TEMP}/push-diagnostics.txt"
+          exit "$status"
+      - name: Upload push diagnostics
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: push-diagnostics-${{ github.run_id }}
+          path: ${{ runner.temp }}/push-diagnostics.txt
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Enforce branch update
+        if: always()
+        env:
+          PUSH_OUTCOME: ${{ steps.commit_push.outcome }}
+        run: test "$PUSH_OUTCOME" = success
