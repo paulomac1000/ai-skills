@@ -26,6 +26,10 @@ for old, new in (
         "workflow = replace_one(workflow, '--result-file python-container.xml', '--execution-record evidence/executions/container.json', \"container record\")",
         "workflow = replace_one(workflow, '--dynamic-lane docker-artifact             --result-file python-container.xml             --output', '--dynamic-lane docker-artifact             --execution-record evidence/executions/container.json             --output', \"container record\")",
     ),
+    (
+        'write("tests/test_evidence_verifier.py", decoded(TEST_VERIFIER_B64))',
+        'write("tests/test_evidence_verifier.py", decoded(TEST_VERIFIER_B64) + "\\nsuccessful_fixture = fixture\\n")',
+    ),
 ):
     if source.count(old) != 1:
         raise SystemExit(f"payload migration patch missing: {old}")
