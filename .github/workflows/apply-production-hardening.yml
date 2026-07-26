@@ -5,7 +5,7 @@ on:
     types: [synchronize]
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: apply-production-hardening-${{ github.event.pull_request.number }}
@@ -23,7 +23,7 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 1
-          persist-credentials: true
+          persist-credentials: false
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
           python-version: '3.12'
@@ -79,58 +79,64 @@ jobs:
         env:
           LOCAL_GATE_OUTCOME: ${{ steps.local_gate.outcome }}
         run: test "$LOCAL_GATE_OUTCOME" = success
-      - name: Verify clean implementation tree
+      - name: Clean transient files and verify implementation tree
         shell: bash
         run: |
           set -euo pipefail
+          rm -f .coverage hardening-diagnostics.txt local-gate-diagnostics.txt
           git diff --check
+          test ! -e .coverage
           test ! -e scripts/apply_production_hardening.py
           test ! -e .github/workflows/apply-production-hardening.yml
           test -z "$(find scripts -maxdepth 1 -name 'apply_payload.part-*' -print -quit)"
-      - name: Preserve verified patch
+      - name: Package verified source changes
         shell: bash
         run: |
           set -euo pipefail
-          rm -f hardening-diagnostics.txt local-gate-diagnostics.txt
-          git diff --binary HEAD > "${RUNNER_TEMP}/verified-hardening.patch"
-          git diff --name-status HEAD > "${RUNNER_TEMP}/verified-name-status.txt"
-          test -s "${RUNNER_TEMP}/verified-hardening.patch"
-      - name: Upload verified patch
+          python - <<'PY'
+          import json
+          import subprocess
+          import tarfile
+          from pathlib import Path
+
+          root = Path.cwd()
+          changed = [
+              item.decode('utf-8')
+              for item in subprocess.check_output(
+                  ['git', 'diff', '--name-only', '--diff-filter=ACMRT', '-z', 'HEAD']
+              ).split(b'\0')
+              if item
+          ]
+          deleted = [
+              item.decode('utf-8')
+              for item in subprocess.check_output(
+                  ['git', 'diff', '--name-only', '--diff-filter=D', '-z', 'HEAD']
+              ).split(b'\0')
+              if item
+          ]
+          if not changed and not deleted:
+              raise SystemExit('verified change set is empty')
+          temp = Path.home() / 'verified-output'
+          temp.mkdir(parents=True, exist_ok=True)
+          manifest = {'base_revision': subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip(), 'changed': changed, 'deleted': deleted}
+          (temp / 'manifest.json').write_text(json.dumps(manifest, indent=2, sort_keys=True) + '\n', encoding='utf-8')
+          with tarfile.open(temp / 'files.tar.gz', 'w:gz') as archive:
+              for relative in changed:
+                  candidate = root / relative
+                  if not candidate.is_file() or candidate.is_symlink():
+                      raise SystemExit(f'changed path is not a regular file: {relative}')
+                  archive.add(candidate, arcname=relative, recursive=False)
+          subprocess.run(['git', 'diff', '--binary', 'HEAD'], check=True, stdout=(temp / 'verified.patch').open('wb'))
+          subprocess.run(['git', 'diff', '--name-status', 'HEAD'], check=True, stdout=(temp / 'name-status.txt').open('wb'))
+          PY
+      - name: Upload verified source changes
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: verified-hardening-${{ github.run_id }}
+          name: verified-source-${{ github.run_id }}
           path: |
-            ${{ runner.temp }}/verified-hardening.patch
-            ${{ runner.temp }}/verified-name-status.txt
+            ~/verified-output/manifest.json
+            ~/verified-output/files.tar.gz
+            ~/verified-output/verified.patch
+            ~/verified-output/name-status.txt
           if-no-files-found: error
           retention-days: 7
-      - name: Commit verified implementation
-        id: commit_push
-        continue-on-error: true
-        shell: bash
-        env:
-          TARGET_BRANCH: ${{ github.head_ref }}
-        run: |
-          set -euo pipefail
-          git config user.name 'ai-skills implementation agent'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -A
-          git commit -m 'fix: harden evidence acceptance contracts'
-          set +e
-          git push origin "HEAD:${TARGET_BRANCH}" > "${RUNNER_TEMP}/push-diagnostics.txt" 2>&1
-          status=$?
-          cat "${RUNNER_TEMP}/push-diagnostics.txt"
-          exit "$status"
-      - name: Upload push diagnostics
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
-        with:
-          name: push-diagnostics-${{ github.run_id }}
-          path: ${{ runner.temp }}/push-diagnostics.txt
-          if-no-files-found: warn
-          retention-days: 7
-      - name: Enforce branch update
-        if: always()
-        env:
-          PUSH_OUTCOME: ${{ steps.commit_push.outcome }}
-        run: test "$PUSH_OUTCOME" = success
