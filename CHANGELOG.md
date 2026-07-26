@@ -20,7 +20,7 @@
 - Generated canonical evidence reports in every compatibility, .NET, container, filesystem, and repository evidence lane with 90-day retention.
 - Derived reviewer independence from PR authors, commit authors/committers, and evidence-producing workflow actors.
 - Added the shared adoption and migration evidence gate to every skill and documented the GitHub.com-only provider scope.
-- Added versioned, machine-readable skill contracts with compatibility, maturity, dependency, deprecation, and normative-entrypoint metadata.
+- Added machine-readable skill contracts with compatibility, maturity, dependency, deprecation, and normative-entrypoint metadata.
 - Added one repository-wide adoption assessment, JSON Schema, semantic validator, stable per-skill rule catalog, compatibility evidence contract, and MCP-specific extension with adversarial approval tests.
 - Defined normative precedence so standards and active decisions cannot be weakened by profiles, workflows, generators, examples, or simulations.
 - Changed generated Python acceptance to build a wheel, install the exact wheel into an isolated environment, and execute the official MCP client suite without editable installs or `PYTHONPATH`.
@@ -30,7 +30,7 @@
 - Added pinned Ruff, formatting, mypy, Bandit, dependency-audit, branch-coverage, and retained-diagnostics gates to repository CI and local validation, including the complete Python generator implementation.
 - Replaced the brittle migration-test function allowlist with execution of the complete migration contract file.
 - Clarified that the bundled MCP consumer engine is a conservative reference helper rather than complete organizational authorization or multi-axis policy.
-- Added strict shared SemVer 2.0 validation, exact-head CI evidence, Python 3.12-3.14 plus Linux/macOS/Windows compatibility lanes, cross-platform .NET artifact lanes, and a built non-root container smoke through the official MCP client.
+- Added strict shared SemVer validation, exact-head CI evidence, Python 3.12-3.14 plus Linux/macOS/Windows compatibility lanes, cross-platform .NET artifact lanes, and a built non-root container smoke through the official MCP client.
 
 ## 1.0.0 - 2026-07-17
 
