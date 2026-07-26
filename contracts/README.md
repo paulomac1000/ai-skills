@@ -38,14 +38,13 @@ The validator never treats a free-form URI, screenshot, aggregate badge, or self
 
 Every evidence-producing job checks out the assessed source HEAD explicitly and writes a schema-version 2 report. The writer resolves the canonical run, workflow, job, check-run, and producer identities from the GitHub Actions API. It rejects a tested checkout that differs from the assessed source SHA.
 
-Claims are not accepted from a free-form `passed` JSON value. Each claim must name the command, select one or more test cases, and bind to the SHA-256 digest of the uploaded JUnit file that contains those passed cases. The report records `source_head_sha`, `tested_checkout_sha`, optional `merge_sha`, provider `head_sha`, producer identity, result summaries, result digests, command digests, test-case identities, and exit status.
+Claims are not accepted from a free-form `passed` JSON value. Each claim must name the command, select one or more test cases, and bind to the SHA-256 digest of the uploaded JUnit file that contains those passed cases. Test-case identities are verified only inside the result digests cited by that claim. The report records `source_head_sha`, `tested_checkout_sha`, provider `head_sha`, producer identity, result summaries, result digests, command digests, test-case identities, and exit status. Schema v2 reserves `merge_sha` as `null` until a provider adapter can independently prove the synthetic merge commit.
 
 ```bash
 GITHUB_TOKEN=<read-token> python contracts/write_evidence_report.py \
   --repository "$GITHUB_REPOSITORY" \
   --source-head-sha "$SOURCE_HEAD_SHA" \
   --tested-checkout-sha "$(git rev-parse HEAD)" \
-  --merge-sha "$GITHUB_SHA" \
   --run-id "$GITHUB_RUN_ID" \
   --workflow-path .github/workflows/ci.yml \
   --workflow-name CI \

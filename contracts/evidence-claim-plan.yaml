@@ -249,6 +249,15 @@ profiles:
   filesystem:
     - kind: rule
       subject: mcp.artifact.exact
-      command: python -m pytest tests/test_generator_platform_contracts.py
-      selectors: ["*test_*"]
-      result_files: ["filesystem-*.xml"]
+      command: >-
+        python -m pytest
+        tests/test_mcp_generator.py::test_generator_concurrent_create_has_one_winner_and_never_replaces
+        tests/test_mcp_dotnet_generator.py::test_generator_concurrent_create_has_one_winner_and_never_replaces
+        tests/test_mcp_dotnet_generator.py::test_generator_preserves_competing_target_created_before_publish
+        tests/test_mcp_dotnet_namespace.py
+        --junitxml=filesystem-junit.xml
+      selectors:
+        - "*test_generator_concurrent_create_has_one_winner_and_never_replaces*"
+        - "*test_generator_preserves_competing_target_created_before_publish*"
+        - "*test_mcp_dotnet_namespace*"
+      result_files: ["filesystem-junit.xml"]

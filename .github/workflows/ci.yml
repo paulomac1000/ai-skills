@@ -187,11 +187,10 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
           SOURCE_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-          MERGE_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
           python -m coverage xml -o coverage.xml
-          python contracts/write_evidence_report.py             --repository "$GITHUB_REPOSITORY"             --source-head-sha "$SOURCE_HEAD_SHA"             --tested-checkout-sha "$(git rev-parse HEAD)"             --merge-sha "$MERGE_SHA"             --run-id "$GITHUB_RUN_ID"             --workflow-path .github/workflows/ci.yml             --workflow-name CI             --event "$GITHUB_EVENT_NAME"             --job-name python             --lane repository-rules             --claims-profile repository-rules             --result-file python-generator-junit.xml             --result-file adoption-junit.xml             --result-file repository-junit.xml             --output evidence/report.json
+          python contracts/write_evidence_report.py             --repository "$GITHUB_REPOSITORY"             --source-head-sha "$SOURCE_HEAD_SHA"             --tested-checkout-sha "$(git rev-parse HEAD)"             --run-id "$GITHUB_RUN_ID"             --workflow-path .github/workflows/ci.yml             --workflow-name CI             --event "$GITHUB_EVENT_NAME"             --job-name python             --lane repository-rules             --claims-profile repository-rules             --result-file python-generator-junit.xml             --result-file adoption-junit.xml             --result-file repository-junit.xml             --output evidence/report.json
       - name: Upload repository diagnostics
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -289,7 +288,6 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
           SOURCE_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-          MERGE_SHA: ${{ github.sha }}
           EVIDENCE_SUBJECT: ${{ matrix.operating_system }}|${{ matrix.architecture }}|python|${{ matrix.python }}|python-compatibility
           EVIDENCE_COMMAND: >-
             python -m pytest -m "not container"
@@ -298,7 +296,7 @@ jobs:
             --junitxml=compatibility-${{ matrix.lock_id }}.xml
         run: |
           set -euo pipefail
-          python contracts/write_evidence_report.py             --repository "$GITHUB_REPOSITORY"             --source-head-sha "$SOURCE_HEAD_SHA"             --tested-checkout-sha "$(git rev-parse HEAD)"             --merge-sha "$MERGE_SHA"             --run-id "$GITHUB_RUN_ID"             --workflow-path .github/workflows/ci.yml             --workflow-name CI             --event "$GITHUB_EVENT_NAME"             --job-name "Python compatibility (${{ matrix.os }}, ${{ matrix.python }})"             --lane python-compatibility             --dynamic-kind compatibility             --dynamic-subject "$EVIDENCE_SUBJECT"             --dynamic-command "$EVIDENCE_COMMAND"             --dynamic-operating-system "${{ matrix.operating_system }}"             --dynamic-architecture "${{ matrix.architecture }}"             --dynamic-runtime python             --dynamic-version "${{ matrix.python }}"             --dynamic-lane python-compatibility             --result-file "compatibility-${{ matrix.lock_id }}.xml"             --output evidence/report.json
+          python contracts/write_evidence_report.py             --repository "$GITHUB_REPOSITORY"             --source-head-sha "$SOURCE_HEAD_SHA"             --tested-checkout-sha "$(git rev-parse HEAD)"             --run-id "$GITHUB_RUN_ID"             --workflow-path .github/workflows/ci.yml             --workflow-name CI             --event "$GITHUB_EVENT_NAME"             --job-name "Python compatibility (${{ matrix.os }}, ${{ matrix.python }})"             --lane python-compatibility             --dynamic-kind compatibility             --dynamic-subject "$EVIDENCE_SUBJECT"             --dynamic-command "$EVIDENCE_COMMAND"             --dynamic-operating-system "${{ matrix.operating_system }}"             --dynamic-architecture "${{ matrix.architecture }}"             --dynamic-runtime python             --dynamic-version "${{ matrix.python }}"             --dynamic-lane python-compatibility             --result-file "compatibility-${{ matrix.lock_id }}.xml"             --output evidence/report.json
       - name: Upload compatibility evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -347,23 +345,22 @@ jobs:
           tests/test_mcp_dotnet_generator.py::test_generator_concurrent_create_has_one_winner_and_never_replaces
           tests/test_mcp_dotnet_generator.py::test_generator_preserves_competing_target_created_before_publish
           tests/test_mcp_dotnet_namespace.py
-          --junitxml=filesystem-${{ matrix.lock_id }}.xml
+          --junitxml=filesystem-junit.xml
       - name: Write machine-bound filesystem evidence
         shell: bash
         env:
           GITHUB_TOKEN: ${{ github.token }}
           SOURCE_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-          MERGE_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
-          python contracts/write_evidence_report.py             --repository "$GITHUB_REPOSITORY"             --source-head-sha "$SOURCE_HEAD_SHA"             --tested-checkout-sha "$(git rev-parse HEAD)"             --merge-sha "$MERGE_SHA"             --run-id "$GITHUB_RUN_ID"             --workflow-path .github/workflows/ci.yml             --workflow-name CI             --event "$GITHUB_EVENT_NAME"             --job-name "Generator filesystem contracts (${{ matrix.os }})"             --lane filesystem-contracts             --claims-profile filesystem             --result-file "filesystem-${{ matrix.lock_id }}.xml"             --output evidence/report.json
+          python contracts/write_evidence_report.py             --repository "$GITHUB_REPOSITORY"             --source-head-sha "$SOURCE_HEAD_SHA"             --tested-checkout-sha "$(git rev-parse HEAD)"             --run-id "$GITHUB_RUN_ID"             --workflow-path .github/workflows/ci.yml             --workflow-name CI             --event "$GITHUB_EVENT_NAME"             --job-name "Generator filesystem contracts (${{ matrix.os }})"             --lane filesystem-contracts             --claims-profile filesystem             --result-file "filesystem-junit.xml"             --output evidence/report.json
       - name: Upload filesystem-contract evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: filesystem-${{ matrix.lock_id }}-${{ github.run_id }}
           path: |
-            filesystem-${{ matrix.lock_id }}.xml
+            filesystem-junit.xml
             evidence/
           if-no-files-found: error
           retention-days: 90
@@ -416,7 +413,6 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
           SOURCE_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-          MERGE_SHA: ${{ github.sha }}
           EVIDENCE_SUBJECT: ${{ matrix.operating_system }}|${{ matrix.architecture }}|dotnet|${{ matrix.dotnet }}|dotnet-compatibility
           EVIDENCE_COMMAND: >-
             python -m pytest tests/test_mcp_dotnet_generator.py
@@ -424,7 +420,7 @@ jobs:
             --junitxml=dotnet-${{ matrix.operating_system }}-${{ matrix.architecture }}.xml
         run: |
           set -euo pipefail
-          python contracts/write_evidence_report.py             --repository "$GITHUB_REPOSITORY"             --source-head-sha "$SOURCE_HEAD_SHA"             --tested-checkout-sha "$(git rev-parse HEAD)"             --merge-sha "$MERGE_SHA"             --run-id "$GITHUB_RUN_ID"             --workflow-path .github/workflows/ci.yml             --workflow-name CI             --event "$GITHUB_EVENT_NAME"             --job-name ".NET artifact (${{ matrix.os }})"             --lane dotnet-compatibility             --claims-profile mcp-dotnet             --dynamic-kind compatibility             --dynamic-subject "$EVIDENCE_SUBJECT"             --dynamic-command "$EVIDENCE_COMMAND"             --dynamic-operating-system "${{ matrix.operating_system }}"             --dynamic-architecture "${{ matrix.architecture }}"             --dynamic-runtime dotnet             --dynamic-version "${{ matrix.dotnet }}"             --dynamic-lane dotnet-compatibility             --result-file "dotnet-${{ matrix.operating_system }}-${{ matrix.architecture }}.xml"             --output evidence/report.json
+          python contracts/write_evidence_report.py             --repository "$GITHUB_REPOSITORY"             --source-head-sha "$SOURCE_HEAD_SHA"             --tested-checkout-sha "$(git rev-parse HEAD)"             --run-id "$GITHUB_RUN_ID"             --workflow-path .github/workflows/ci.yml             --workflow-name CI             --event "$GITHUB_EVENT_NAME"             --job-name ".NET artifact (${{ matrix.os }})"             --lane dotnet-compatibility             --claims-profile mcp-dotnet             --dynamic-kind compatibility             --dynamic-subject "$EVIDENCE_SUBJECT"             --dynamic-command "$EVIDENCE_COMMAND"             --dynamic-operating-system "${{ matrix.operating_system }}"             --dynamic-architecture "${{ matrix.architecture }}"             --dynamic-runtime dotnet             --dynamic-version "${{ matrix.dotnet }}"             --dynamic-lane dotnet-compatibility             --result-file "dotnet-${{ matrix.operating_system }}-${{ matrix.architecture }}.xml"             --output evidence/report.json
       - name: Upload .NET artifact evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -459,11 +455,10 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
           SOURCE_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-          MERGE_SHA: ${{ github.sha }}
           EVIDENCE_COMMAND: python -m pytest tests/test_mcp_generator.py -m container --junitxml=python-container.xml
         run: |
           set -euo pipefail
-          python contracts/write_evidence_report.py             --repository "$GITHUB_REPOSITORY"             --source-head-sha "$SOURCE_HEAD_SHA"             --tested-checkout-sha "$(git rev-parse HEAD)"             --merge-sha "$MERGE_SHA"             --run-id "$GITHUB_RUN_ID"             --workflow-path .github/workflows/ci.yml             --workflow-name CI             --event "$GITHUB_EVENT_NAME"             --job-name python-container-artifact             --lane docker-artifact             --claims-profile mcp-container             --dynamic-kind compatibility             --dynamic-subject "linux|x64|python|3.12|docker-artifact"             --dynamic-command "$EVIDENCE_COMMAND"             --dynamic-operating-system linux             --dynamic-architecture x64             --dynamic-runtime python             --dynamic-version 3.12             --dynamic-lane docker-artifact             --result-file python-container.xml             --output evidence/report.json
+          python contracts/write_evidence_report.py             --repository "$GITHUB_REPOSITORY"             --source-head-sha "$SOURCE_HEAD_SHA"             --tested-checkout-sha "$(git rev-parse HEAD)"             --run-id "$GITHUB_RUN_ID"             --workflow-path .github/workflows/ci.yml             --workflow-name CI             --event "$GITHUB_EVENT_NAME"             --job-name python-container-artifact             --lane docker-artifact             --claims-profile mcp-container             --dynamic-kind compatibility             --dynamic-subject "linux|x64|python|3.12|docker-artifact"             --dynamic-command "$EVIDENCE_COMMAND"             --dynamic-operating-system linux             --dynamic-architecture x64             --dynamic-runtime python             --dynamic-version 3.12             --dynamic-lane docker-artifact             --result-file python-container.xml             --output evidence/report.json
       - name: Upload container-artifact evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7

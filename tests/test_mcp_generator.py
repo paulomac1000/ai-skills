@@ -328,5 +328,11 @@ async def test_generated_container_is_non_root_and_passes_official_stdio_smoke(t
                 assert "list_items" in {tool.name for tool in tools.tools}
                 result = await session.call_tool("list_items", {"limit": 1})
                 assert result.isError is not True
+                denied = await session.call_tool(
+                    "put_item",
+                    {"item_id": "blocked", "name": "Blocked", "expected_version": 0},
+                )
+                assert denied.isError is True
+                assert any("AUTHORIZATION_FAILED" in str(getattr(content, "text", "")) for content in denied.content)
     finally:
         subprocess.run(["docker", "image", "rm", "--force", image], check=False, capture_output=True, text=True)

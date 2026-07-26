@@ -356,6 +356,7 @@ class GitHubEvidenceVerifier:
             "revision": expected_revision,
             "source_head_sha": expected_revision,
             "tested_checkout_sha": expected_revision,
+            "merge_sha": None,
             "provider_run_head_sha": str(run.get("head_sha") or ""),
             "run_id": run_id,
             "job_id": self._positive_int(reference, "job_id"),
@@ -384,13 +385,10 @@ class GitHubEvidenceVerifier:
                 self._observed_producers.add(producer)
 
         raw_results = report.get("results")
+        result_cases: dict[str, set[str]] = {}
         if not isinstance(raw_results, list) or not raw_results:
             errors.append("evidence report has no machine result files")
-            result_digests: set[str] = set()
-            passed_cases: set[str] = set()
         else:
-            result_digests = set()
-            passed_cases = set()
             for index, raw in enumerate(raw_results):
                 if not isinstance(raw, Mapping):
                     errors.append(f"evidence report results[{index}] is not an object")
@@ -404,10 +402,9 @@ class GitHubEvidenceVerifier:
                 if raw.get("digest") != digest:
                     errors.append(f"evidence report results[{index}] digest does not match artifact bytes")
                     continue
-                result_digests.add(digest)
-                passed_cases.update(
+                result_cases[digest] = {
                     identity for identity, status in self._junit_cases(payload).items() if status == "passed"
-                )
+                }
 
         claims = report.get("claims")
         if not isinstance(claims, list) or not claims:
@@ -420,18 +417,24 @@ class GitHubEvidenceVerifier:
                 digests = raw.get("result_digests")
                 tests = raw.get("test_cases")
                 command_digest = str(raw.get("command_digest") or "")
+                verified_claim_cases: set[str] = set()
                 if (
                     not isinstance(digests, list)
                     or not digests
-                    or any(digest not in result_digests for digest in digests)
+                    or any(not isinstance(digest, str) or digest not in result_cases for digest in digests)
                 ):
                     errors.append(f"evidence report claims[{index}] is not bound to verified result bytes")
+                else:
+                    for digest in digests:
+                        verified_claim_cases.update(result_cases[digest])
                 if (
                     not isinstance(tests, list)
                     or not tests
-                    or any(not isinstance(test, str) or test not in passed_cases for test in tests)
+                    or any(not isinstance(test, str) or test not in verified_claim_cases for test in tests)
                 ):
-                    errors.append(f"evidence report claims[{index}] is not bound to passed test cases")
+                    errors.append(
+                        f"evidence report claims[{index}] is not bound to passed test cases in its result bytes"
+                    )
                 if raw.get("exit_status") != 0:
                     errors.append(f"evidence report claims[{index}] has a nonzero exit status")
                 if not command_digest.startswith("sha256:") or len(command_digest) != 71:
@@ -552,17 +555,26 @@ class GitHubEvidenceVerifier:
         author = self._canonical_user(pull.get("user"))
         if author is not None:
             identities.add(author)
+        raw_commit_count = pull.get("commits")
+        if type(raw_commit_count) is not int or raw_commit_count < 0:
+            raise ValueError("pull request has no canonical commit count")
+        if raw_commit_count > 250:
+            raise ValueError("cannot prove reviewer independence for a pull request with more than 250 commits")
         page = 1
-        while True:
+        observed_commits = 0
+        while observed_commits < raw_commit_count:
             commits = self._get_list(f"/repos/{repository}/pulls/{pull_request}/commits?per_page=100&page={page}")
+            if not commits:
+                break
+            observed_commits += len(commits)
             for commit in commits:
                 for field in ("author", "committer"):
                     identity = self._canonical_user(commit.get(field))
                     if identity is not None:
                         identities.add(identity)
-            if len(commits) < 100:
-                break
             page += 1
+        if observed_commits != raw_commit_count:
+            raise ValueError("cannot prove reviewer independence because provider commit enumeration is incomplete")
         identities.update(self._observed_producers)
         return head_sha, identities
 

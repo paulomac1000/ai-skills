@@ -77,8 +77,6 @@ def _arguments(tmp_path: Path) -> list[str]:
         SHA,
         "--tested-checkout-sha",
         SHA,
-        "--merge-sha",
-        "b" * 40,
         "--run-id",
         "10",
         "--workflow-path",
@@ -115,6 +113,7 @@ def test_writer_emits_canonical_machine_bound_report(tmp_path: Path) -> None:
     assert document["schema_version"] == 2
     assert document["source_head_sha"] == SHA
     assert document["tested_checkout_sha"] == SHA
+    assert document["merge_sha"] is None
     assert document["producer"] == {"provider": "github", "login": "author", "id": 40}
     claim = document["claims"][0]
     assert claim["result"] == "passed"
@@ -130,6 +129,11 @@ def test_writer_emits_canonical_machine_bound_report(tmp_path: Path) -> None:
 
 
 def test_writer_rejects_merge_checkout_and_failed_or_unmapped_results(tmp_path: Path) -> None:
+    arguments = _arguments(tmp_path)
+    arguments[arguments.index("--run-id") : arguments.index("--run-id")] = ["--merge-sha", "b" * 40]
+    with pytest.raises(ValueError, match="unsupported until it can be verified independently"):
+        main(arguments)
+
     arguments = _arguments(tmp_path)
     tested_index = arguments.index("--tested-checkout-sha") + 1
     arguments[tested_index] = "b" * 40

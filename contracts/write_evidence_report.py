@@ -267,7 +267,9 @@ def main(argv: list[str] | None = None) -> int:
     tested_checkout_sha = _sha(args.tested_checkout_sha, "tested_checkout_sha")
     if tested_checkout_sha != source_head_sha:
         raise ValueError("tested_checkout_sha must equal source_head_sha")
-    merge_sha = None if args.merge_sha in {None, "", source_head_sha} else _sha(args.merge_sha, "merge_sha")
+    if args.merge_sha not in {None, "", source_head_sha}:
+        raise ValueError("merge_sha is unsupported until it can be verified independently")
+    merge_sha = None
     workflow_path = _text(args.workflow_path, "workflow_path")
     if not workflow_path.startswith(".github/workflows/") or not workflow_path.endswith((".yml", ".yaml")):
         raise ValueError("workflow_path must identify a .github/workflows YAML file")
