@@ -103,6 +103,32 @@ jobs:
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add -A
           git commit -m 'fix: bind evidence to exact executed results'
+          git rev-parse HEAD > verified-commit-sha.txt
       - name: Push verified code commit
+        id: publish
+        continue-on-error: true
         shell: bash
-        run: git push origin HEAD:${{ github.head_ref }}
+        run: |
+          set +e
+          git push origin HEAD:${{ github.head_ref }} > push.log 2>&1
+          status=$?
+          echo "$status" > push-status.txt
+          cat push.log
+          exit "$status"
+      - name: Upload publication diagnostics
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: verified-publication-${{ github.run_id }}
+          path: |
+            verified-commit-sha.txt
+            push.log
+            push-status.txt
+          if-no-files-found: error
+          retention-days: 1
+      - name: Enforce publication outcome
+        if: always()
+        shell: bash
+        env:
+          PUBLISH_OUTCOME: ${{ steps.publish.outcome }}
+        run: test "$PUBLISH_OUTCOME" = success
