@@ -79,3 +79,5 @@ jobs:
           git add -A
           git commit -m 'fix: bind evidence to exact executed results'
           git push origin HEAD:refactor/skills-cleanup
+
+# Existing workflow retriggered after creation.
