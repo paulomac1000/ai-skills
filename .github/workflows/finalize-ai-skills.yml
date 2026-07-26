@@ -33,6 +33,8 @@ jobs:
           python-version: "3.12"
           architecture: x64
       - name: Decode and apply final patch
+        id: apply
+        continue-on-error: true
         shell: bash
         run: |
           python - <<'PY'
@@ -45,13 +47,26 @@ jobs:
               gzip.decompress(base64.b64decode(source))
           )
           PY
-          python /tmp/finalize_ai_skills.py
+          python /tmp/finalize_ai_skills.py > /tmp/finalizer.log 2>&1
+      - name: Upload finalizer log
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: finalizer-log-${{ github.run_id }}
+          path: /tmp/finalizer.log
+          if-no-files-found: error
+          retention-days: 1
+      - name: Enforce patch application
+        if: always() && steps.apply.outcome != 'success'
+        run: exit 1
       - name: Install locked environment
+        if: steps.apply.outcome == 'success'
         shell: bash
         run: |
           python -m venv .venv
           .venv/bin/python scripts/install_locked.py
       - name: Format and lint touched Python
+        if: steps.apply.outcome == 'success'
         shell: bash
         run: |
           files=(
@@ -67,8 +82,10 @@ jobs:
           .venv/bin/python -m ruff format "${files[@]}"
           .venv/bin/python -m ruff check --fix "${files[@]}"
       - name: Stage final tree for git-aware tests
+        if: steps.apply.outcome == 'success'
         run: git add -A
       - name: Run focused regressions
+        if: steps.apply.outcome == 'success'
         shell: bash
         run: |
           .venv/bin/python -m pytest -q \
@@ -78,10 +95,13 @@ jobs:
             tests/test_evidence_verifier.py \
             tests/test_contract_edge_cases.py
       - name: Validate repository entry documents
+        if: steps.apply.outcome == 'success'
         run: .venv/bin/python skills/afds-doc-writer/validate.py AGENTS.md README.md CHANGELOG.md
       - name: Run full local gate
+        if: steps.apply.outcome == 'success'
         run: .venv/bin/python scripts/ci.py
       - name: Commit and push final tree
+        if: steps.apply.outcome == 'success'
         shell: bash
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
