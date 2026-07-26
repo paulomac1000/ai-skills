@@ -39,6 +39,9 @@ jobs:
       - name: Align staged patch and retain helpers for connector cleanup
         shell: bash
         run: |
+          set -euo pipefail
+          mkdir -p /tmp/ai-skills-audit-originals
+          cp .github/current-audit-fix.py /tmp/ai-skills-audit-originals/current-audit-fix.py
           python - <<'PY'
           from pathlib import Path
 
@@ -63,7 +66,11 @@ jobs:
           path.write_text(source[:start] + replacement, encoding='utf-8', newline='\n')
           PY
       - name: Apply audited changes
-        run: python .github/current-audit-fix.py
+        shell: bash
+        run: |
+          set -euo pipefail
+          python .github/current-audit-fix.py
+          cp /tmp/ai-skills-audit-originals/current-audit-fix.py .github/current-audit-fix.py
       - name: Format and verify clean production tree
         shell: bash
         run: |
