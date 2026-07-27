@@ -13,7 +13,7 @@ from contracts.semver import is_semver, parse_semver
         "0.0.0",
         "0.1.0",
         "1.0.0",
-        "1.1.0-rc.1",
+        "2.0.0-rc.1",
         "10.20.30-alpha.beta-1+build.7",
         "1.0.0-0.3.7",
         "1.0.0-x.7.z.92",
