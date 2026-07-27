@@ -197,10 +197,13 @@ def test_release_documentation_matches_manifest_version_and_maturity() -> None:
     assert "controlled production pilot" not in readme.casefold()
 
 
-def test_current_release_prerelease_identity_is_absent_from_repository_text() -> None:
+def test_current_release_prerelease_identity_is_absent_from_published_content() -> None:
     stale_identity = f"{RELEASE_VERSION}-rc."
     for path in ROOT.rglob("*"):
         if not path.is_file() or path.suffix.casefold() not in RELEASE_TEXT_SUFFIXES:
+            continue
+        relative_parts = path.relative_to(ROOT).parts
+        if ".git" in relative_parts or "tests" in relative_parts:
             continue
         assert stale_identity not in path.read_text(encoding="utf-8"), path
 
