@@ -12,8 +12,8 @@ repository:
   source_branch: REPLACE_WITH_SOURCE_BRANCH
 skill:
   name: REPLACE_WITH_SKILL_NAME
-  version: 1.1.0-rc.1
-  maturity: release-candidate
+  version: 1.1.0
+  maturity: stable
 scope:
   included: []
   excluded: []
