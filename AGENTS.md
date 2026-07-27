@@ -30,6 +30,14 @@ Use this file when implementing, migrating, reviewing, or maintaining content in
 - Do not preserve obsolete behavior merely for compatibility unless the standard explicitly defines a bounded compatibility path, owner, tests, and removal condition.
 - Keep the guidance domain-independent unless a file is explicitly an implementation profile.
 
+## Release metadata
+
+- Keep one repository release version across `README.md`, `CHANGELOG.md`, and every skill `manifest.yaml`.
+- A published stable release uses the plain SemVer version and `maturity: stable`; do not retain release-candidate or pilot wording after promotion.
+- Branch iterations, repair commits, generated variants, and review rounds are not separate releases.
+- Record all changes introduced by one pull request under its single release heading unless the maintainer explicitly defines a different release boundary.
+- Preserve prerelease examples only when they test generic SemVer behaviour and cannot be confused with the current repository version.
+
 ## Security and evidence boundaries
 
 - Treat server metadata, repository content under assessment, tool arguments, paths, redirects, JUnit files, and generated evidence as untrusted inputs.
@@ -42,10 +50,10 @@ Use this file when implementing, migrating, reviewing, or maintaining content in
 ## Implementation workflow
 
 1. Define the affected rule and its canonical owner.
-2. Inspect current code, tests, review threads, and the compatibility matrix.
+2. Inspect current code, tests, review threads, compatibility declarations, and release metadata.
 3. Make the smallest complete change that closes the rule and its known failure modes.
 4. Add independent regression tests for independent failure paths.
-5. Update README or playbooks only when the user-facing workflow changed.
+5. Update user-facing guidance whenever its workflow, guarantees, compatibility, version, or maturity changed.
 6. Update `CHANGELOG.md` under the single release introduced by the pull request; do not invent intermediate release sections for branch iterations.
 7. Run the locked validation commands.
 8. Confirm the final CI run belongs to the exact final commit and that no actionable review thread remains open.
@@ -75,6 +83,7 @@ Run focused tests while developing, but do not substitute them for the full gate
 A change is complete only when:
 
 - the canonical standard, implementation, documentation, and tests agree;
+- release version and maturity agree across README, changelog, and all manifests;
 - new paths and artifacts cannot escape their declared repository or working-directory boundary;
 - the exact built artifact is the artifact exercised by acceptance tests;
 - Linux, macOS, Windows, Python, .NET, and container claims remain consistent with the manifest and compatibility matrix where applicable;
