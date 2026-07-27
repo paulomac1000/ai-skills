@@ -1,6 +1,8 @@
 # Changelog
 
-## 1.1.0-rc.1 - 2026-07-26
+## 1.1.0 - 2026-07-27
+
+This release consolidates the complete implementation history of the branch into one production version.
 
 ### Added
 
@@ -12,6 +14,7 @@
 
 ### Changed
 
+- Published all bundled skills as version `1.1.0` with `maturity: stable` after the complete cross-platform production gate passed.
 - Recovered valuable knowledge from the historical repository into one canonical set of standards, profiles, references, templates, tools, and tests.
 - Merged local pre-commit and pre-push guidance into `ci-cd-architect` instead of maintaining a separate incomplete skill.
 - Replaced brittle fixed-layout and file-count assumptions with per-skill manifests and extensible reviewed resource categories.
@@ -32,7 +35,7 @@
 - Removed obsolete duplicate standards, numbered implementation aliases, temporary repair workflows, payload fragments, generated coverage databases, and migration leftovers.
 - Removed unsafe legacy defaults, including new use of deprecated two-endpoint HTTP plus SSE transport and self-asserted production approval.
 
-## Earlier repository history
+## Historical notes before 1.1.0
 
 - 2026-06-06: Expanded MCP server guidance for transport, middleware, discovery, security, reliability, and production operation.
 - 2026-06-05: Standardized skill metadata and strengthened documentation and CI template validation.
