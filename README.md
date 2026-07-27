@@ -1,100 +1,103 @@
 # AI Skills
 
-A collection of AI skills, standards, and tooling for building reliable agentic systems. Each skill is a persona-driven system prompt that you load into AI agents — Claude, Cursor, or any LLM tool — to enforce proven patterns and conventions during coding sessions. The standards behind them are project-agnostic, machine-parseable, and designed for AI-assisted workflows.
+A production-oriented collection of reusable standards, agent workflows, implementation playbooks, executable policy helpers, and tested templates for AI-assisted software engineering.
 
-## What's Included
+The current repository release is `1.1.0`. All bundled skills are published with `maturity: stable` and are intended for production adoption. Each skill declares its compatibility, dependencies, evidence lanes, and required entry points in `manifest.yaml`.
 
-### Skills
+## Included skills
 
-Skills are persona-driven system prompts. Load them into AI agents to enforce standards during coding sessions.
+| Skill | Purpose | Reusable resources |
+| --- | --- | --- |
+| `afds-doc-writer` | Create, validate, and maintain evidence-based technical documentation. | Validator, lifecycle and impact playbooks, governed-document template |
+| `ci-cd-architect` | Design secure and reproducible local and hosted quality gates. | Python, .NET, MCP, documentation, security, packaging, dependency, and container workflows |
+| `mcp-server-architect` | Design secure, observable, and agent-friendly MCP servers. | Language-neutral core, Python/FastMCP and .NET profiles, testing, security, operations, examples |
+| `mcp-server-consumer` | Select and invoke MCP capabilities safely and efficiently. | Deterministic decision engine and workflow, retry, pagination, and trust playbooks |
 
-| Skill | File | What it does |
-|-------|------|--------------|
-| AFDS Technical Writer | [`SKILL.md`](skills/afds-doc-writer/SKILL.md) | System prompt — AI agent writes documentation matching AFDS schema. Includes taxonomy router, document templates, and language rules. |
-| MCP Server Architect | [`SKILL.md`](skills/mcp-server-architect/SKILL.md) | System prompt — AI agent builds MCP servers per standard. Includes design directives, strict constraints, canonical template selection, consumer ergonomics, and semantic rule anchors. |
-| MCP Server Consumer | [`SKILL.md`](skills/mcp-server-consumer/SKILL.md) | System prompt — AI agent discovers, reasons about, and safely invokes MCP tools. Interprets manifests (or risk prefix fallback), applies decision policies, prefers batch/composite calls, starts with minimal detail, handles errors with defined recovery strategies. |
-| CI/CD Architect | [`SKILL.md`](skills/ci-cd-architect/SKILL.md) | System prompt — AI agent designs, audits, and generates GitHub Actions workflows per standard. v2.0.0: commit-SHA action pinning, auto-tag→publish chain, .NET 10 support, Semgrep migration. |
+Local pre-commit and pre-push design belongs to `ci-cd-architect`; it is not a separate architectural domain.
 
-### Standards
+## Start here
 
-Core reference documents — authoritative rules for their domains.
+For a human reader:
 
-| Document | Domain | Covers |
-|----------|--------|--------|
-| [`docs_standards.md`](skills/afds-doc-writer/docs_standards.md) | AFDS | Document taxonomy, frontmatter schema, body structure, controlled language, CI validation, AI protocol |
-| [`mcp-server-standards.md`](skills/mcp-server-architect/mcp-server-standards.md) | MCP Servers | Tool design, response contracts, testing hierarchy, security, canonical templates, consumer ergonomics |
-| [`mcp-consumer-standards.md`](skills/mcp-server-consumer/mcp-consumer-standards.md) | MCP Consumption | Capability reasoning, decision policies, token-aware invocation, error recovery, workflow orchestration, version compatibility |
-| [`ci-cd-standard.md`](skills/ci-cd-architect/ci-cd-standard.md) | CI/CD | GitHub Actions workflow structure, Docker publish, auto-tag, Semgrep, Dependabot, .NET variant |
-| [`action-version-matrix.md`](skills/ci-cd-architect/references/action-version-matrix.md) | CI/CD | Pinned action versions, upgrade policy, migration checklists |
+1. Select the relevant skill from the table above.
+2. Read its `manifest.yaml` to confirm maturity, compatibility, dependencies, and required entry points.
+3. Read `SKILL.md` for the operating workflow.
+4. Treat `STANDARD.md` as the normative source of acceptance criteria.
+5. Use references, templates, examples, and generators only within those constraints.
 
-### Templates
+For an implementation or migration agent, read [`AGENTS.md`](AGENTS.md) before changing the repository.
 
-Templates are structural documents to copy and fill. They are not persona prompts — they provide the correct frontmatter YAML and body section headers.
+## Repository model
 
-| File | Purpose |
-|------|---------|
-| [`docs-template.md`](skills/afds-doc-writer/docs-template.md) | Fill-in-the-blank template for all 6 AFDS document types |
-| [`ci.yml.j2`](skills/ci-cd-architect/templates/ci.yml.j2) | Python CI pipeline (MCP/non-MCP/dockerless variants) |
-| [`publish.yml.j2`](skills/ci-cd-architect/templates/publish.yml.j2) | Docker publish + GitHub Release |
-| [`auto-tag.yml.j2`](skills/ci-cd-architect/templates/auto-tag.yml.j2) | Automatic version tagging (Python + .NET) |
-| [`semgrep.yml.j2`](skills/ci-cd-architect/templates/semgrep.yml.j2) | Security scanning (PR + push) |
-| [`dependabot.yml.j2`](skills/ci-cd-architect/templates/dependabot.yml.j2) | Multi-ecosystem dependency management |
-| [`dotnet-ci.yml.j2`](skills/ci-cd-architect/templates/dotnet-ci.yml.j2) | .NET CI pipeline variant |
-| [`docs-validation.yml.j2`](skills/ci-cd-architect/templates/docs-validation.yml.j2) | Documentation validation workflow |
+Every skill contains:
 
-## Project Layout
+- `SKILL.md` — concise routing and operating instructions;
+- `STANDARD.md` — stable cross-project invariants and acceptance criteria;
+- `manifest.yaml` — version, maturity, compatibility, dependency, deprecation, resource-category, and required-entry-point contract.
 
-```
-skills/
-├── afds-doc-writer/              ← AFDS documentation skill
-│   ├── docs_standards.md         Standard
-│   ├── SKILL.md                  System prompt for AI agents
-│   ├── docs_validate.py          CI validation script
-│   ├── docs-template.md          Document template
-│   └── afds_config.yaml          Validator configuration
-├── mcp-server-architect/         ← MCP server skill
-│   ├── mcp-server-standards.md   Standard
-│   └── SKILL.md                  System prompt for AI agents
-├── mcp-server-consumer/          ← MCP consumer skill
-│   ├── mcp-consumer-standards.md Standard
-│   ├── SKILL.md                  System prompt for AI agents
-│   └── tools/                    Reference implementation (decision engine)
-└── ci-cd-architect/              ← CI/CD skill
-    ├── ci-cd-standard.md         Standard
-    ├── SKILL.md                  System prompt for AI agents
-    ├── templates/                Jinja2 workflow templates
-    └── references/               Action version matrix
+A skill may also contain `references/`, `templates/`, `examples/`, `tools/`, or reviewed dependency `locks/`. These directories contain reusable operational knowledge, not temporary analysis artifacts.
 
-tests/                            Pytest tests covering all standards
-decisions/                        Architecture Decision Records
-```
+## Authority and precedence
 
-## Quick Start
+Consumers pin both the repository revision and the skill version recorded in `manifest.yaml`. When resources disagree, use this order:
+
+1. `STANDARD.md` and active normative decisions;
+2. the applicable implementation profile;
+3. `SKILL.md` workflow instructions;
+4. generators and templates;
+5. examples;
+6. migration simulations.
+
+A lower-ranked resource cannot weaken a higher-ranked requirement. Generators are verified baselines rather than policy owners, and examples do not create exceptions. Stop and request a standard decision when a conflict remains unresolved.
+
+## Local validation
+
+POSIX:
 
 ```bash
-pip install pyyaml pytest
-
-# Validate all standards and decisions
-python3 skills/afds-doc-writer/docs_validate.py \
-  --config skills/afds-doc-writer/afds_config.yaml \
-  skills/afds-doc-writer/docs_standards.md \
-  skills/mcp-server-architect/mcp-server-standards.md \
-  skills/mcp-server-consumer/mcp-consumer-standards.md \
-  skills/ci-cd-architect/ci-cd-standard.md \
-  decisions/
-
-# Run tests
-python3 -m pytest tests/ -v
+python3 -m venv .venv
+.venv/bin/python scripts/install_locked.py
+.venv/bin/python scripts/ci.py
 ```
 
-## Philosophy
+Windows PowerShell:
 
-- **Single Source of Truth** — every rule in one location, referenced, never duplicated
-- **AI-first documentation** — deterministic structure for agents, readable for humans
-- **Operationally relevant** — document boundary conditions that affect production behavior
-- **Self-validating** — the standard validates itself against its own rules
-- **Project-agnostic** — no hardcoded project names, configurable per domain
+```powershell
+py -3.12 -m venv .venv
+.venv\Scripts\python.exe scripts\install_locked.py
+.venv\Scripts\python.exe scripts\ci.py
+```
+
+The installer selects the committed platform lock, installs the complete transitive graph with hashes, and runs `pip check`. The validation command compiles sources, runs linting, formatting, typing, security and dependency checks, validates documentation and contracts, executes generator and exact-artifact tests, enforces critical-module branch coverage, and runs the complete non-container suite.
+
+## Adoption and evidence
+
+Repository-wide adoption contracts live in [`contracts/`](contracts/README.md). A completed assessment is accepted only when:
+
+- every catalog rule appears exactly once;
+- immutable repository and artifact revisions agree;
+- every declared OS, architecture, runtime, version, and lane result passed;
+- approving assessments use provider-backed run, job, artifact, digest, and review evidence on the same SHA;
+- deferred rules have live, owned waivers;
+- rollback and residual risks are explicit;
+- a canonical independent reviewer approves the immutable revision.
+
+Run `python contracts/validate_adoption.py <assessment.yaml> --require-approval` in each adopting repository. Local evidence generation and validation are diagnostic; final adoption approval depends on the external provider-backed authority declared by the adoption contract.
+
+## Design principles
+
+- Keep one canonical owner for each rule.
+- Separate language-neutral invariants from SDK-specific patterns.
+- Prefer executable templates and regression tests over aspirational prose.
+- Treat remote tool metadata as untrusted unless a trust boundary is explicit.
+- Build and test the artifact that is actually published.
+- Record reusable lessons from real failures in the canonical standard or playbook.
+- Preserve valuable history by integrating it into current guidance, not by shipping duplicate or numbered variants.
+
+## Recovery and change history
+
+[`RECOVERY_AUDIT.md`](RECOVERY_AUDIT.md) maps recovered knowledge to its canonical location and records unsafe legacy defaults that were intentionally rejected. [`CHANGELOG.md`](CHANGELOG.md) records the repository's published releases.
 
 ## License
 
-See individual skill directories for license information.
+MIT. See [LICENSE](LICENSE).

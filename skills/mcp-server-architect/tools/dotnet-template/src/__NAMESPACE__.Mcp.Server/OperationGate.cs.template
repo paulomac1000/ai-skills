@@ -1,0 +1,78 @@
+namespace __NAMESPACE__.Mcp.Server;
+
+public sealed class KeyedOperationGate(int maximumKeys = 1_024)
+{
+    private sealed class Entry
+    {
+        public SemaphoreSlim Semaphore { get; } = new(1, 1);
+        public int References { get; set; }
+    }
+
+    private readonly object _sync = new();
+    private readonly Dictionary<string, Entry> _entries = new(StringComparer.Ordinal);
+
+    public async ValueTask<IAsyncDisposable> EnterAsync(string key, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(key))
+            throw new ArgumentException("A non-empty concurrency key is required.", nameof(key));
+
+        Entry entry;
+        lock (_sync)
+        {
+            if (!_entries.TryGetValue(key, out entry!))
+            {
+                if (_entries.Count >= maximumKeys)
+                    throw new McpOperationException("CONCURRENCY_CAPACITY", "The keyed operation gate is at capacity.");
+                entry = new Entry();
+                _entries.Add(key, entry);
+            }
+            entry.References++;
+        }
+
+        try
+        {
+            await entry.Semaphore.WaitAsync(cancellationToken);
+            return new Lease(this, key, entry);
+        }
+        catch
+        {
+            ReleaseReference(key, entry, releaseSemaphore: false);
+            throw;
+        }
+    }
+
+    private void Exit(string key, Entry entry) => ReleaseReference(key, entry, releaseSemaphore: true);
+
+    private void ReleaseReference(string key, Entry entry, bool releaseSemaphore)
+    {
+        if (releaseSemaphore) entry.Semaphore.Release();
+        var dispose = false;
+        lock (_sync)
+        {
+            entry.References--;
+            if (entry.References == 0 && _entries.TryGetValue(key, out var current) && ReferenceEquals(current, entry))
+            {
+                _entries.Remove(key);
+                dispose = true;
+            }
+        }
+        if (dispose) entry.Semaphore.Dispose();
+    }
+
+    private sealed class Lease(KeyedOperationGate owner, string key, Entry entry) : IAsyncDisposable
+    {
+        private KeyedOperationGate? _owner = owner;
+
+        public ValueTask DisposeAsync()
+        {
+            var current = Interlocked.Exchange(ref _owner, null);
+            current?.Exit(key, entry);
+            return ValueTask.CompletedTask;
+        }
+    }
+}
+
+public sealed class McpOperationException(string code, string message) : Exception(message)
+{
+    public string Code { get; } = code;
+}

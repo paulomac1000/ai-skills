@@ -1,0 +1,35 @@
+name: Python MCP contract
+
+on:
+  pull_request:
+  push:
+    branches: [<DEFAULT_BRANCH>]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: python-mcp-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  mcp-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: <TIMEOUT_MINUTES>
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: "<PYTHON_VERSION>"
+          cache: pip
+          cache-dependency-path: <DEPENDENCY_FILE>
+      - run: <INSTALL_COMMAND>
+      - name: Registration and schema contract
+        run: <MCP_REGISTRATION_TEST_COMMAND>
+      - name: Representative real-client workflow
+        run: <MCP_CLIENT_TEST_COMMAND>
+      - name: Cancellation and error contract
+        run: <MCP_FAILURE_TEST_COMMAND>

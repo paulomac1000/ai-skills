@@ -1,0 +1,36 @@
+name: Documentation validation
+
+on:
+  pull_request:
+    paths:
+      - "**/*.md"
+      - "<VALIDATOR_PATH>"
+      - ".github/workflows/documentation.yml"
+  push:
+    branches: [<DEFAULT_BRANCH>]
+    paths:
+      - "**/*.md"
+      - "<VALIDATOR_PATH>"
+      - ".github/workflows/documentation.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: documentation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  documentation:
+    runs-on: ubuntu-latest
+    timeout-minutes: <TIMEOUT_MINUTES>
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: "<PYTHON_VERSION>"
+      - run: <DOC_INSTALL_COMMAND>
+      - run: <VALIDATION_COMMAND>

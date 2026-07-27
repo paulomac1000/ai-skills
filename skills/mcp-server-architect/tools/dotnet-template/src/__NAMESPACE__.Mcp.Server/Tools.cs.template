@@ -1,0 +1,70 @@
+using Microsoft.AspNetCore.Authorization;
+using ModelContextProtocol.Server;
+using System.ComponentModel;
+using System.Security.Claims;
+using __NAMESPACE__.Mcp.Domain;
+
+namespace __NAMESPACE__.Mcp.Server;
+
+public sealed record CapabilityListResult(IReadOnlyList<CapabilityManifest> Capabilities, int Count);
+
+[McpServerToolType]
+public sealed class CapabilityTools(InvocationKernel kernel)
+{
+    [Authorize(Policy = "inventory.read")]
+    [McpServerTool(
+        Name = CapabilityNames.DescribeCapabilities,
+        ReadOnly = true,
+        Destructive = false,
+        Idempotent = true,
+        OpenWorld = false,
+        UseStructuredContent = true,
+        OutputSchemaType = typeof(CapabilityListResult))]
+    [Description("Returns zero-I/O governed capabilities visible to the caller.")]
+    public async Task<CapabilityListResult> DescribeCapabilitiesAsync(
+        ClaimsPrincipal? principal,
+        CancellationToken cancellationToken = default)
+    {
+        var manifests = await kernel.DescribeAsync(principal, cancellationToken);
+        return new(manifests, manifests.Count);
+    }
+}
+
+[McpServerToolType]
+public sealed class InventoryTools(InvocationKernel kernel)
+{
+    [Authorize(Policy = "inventory.read")]
+    [McpServerTool(
+        Name = CapabilityNames.ListItems,
+        ReadOnly = true,
+        Destructive = false,
+        Idempotent = true,
+        OpenWorld = false,
+        UseStructuredContent = true,
+        OutputSchemaType = typeof(ListItemsResult))]
+    [Description("Lists bounded inventory summaries.")]
+    public Task<ListItemsResult> ListItemsAsync(
+        ClaimsPrincipal? principal,
+        [Description("Maximum number of items, from 1 to 100.")] int limit = 25,
+        CancellationToken cancellationToken = default) =>
+        kernel.ListAsync(principal, limit, cancellationToken).AsTask();
+
+    [Authorize(Policy = "inventory.write")]
+    [McpServerTool(
+        Name = CapabilityNames.PutItem,
+        ReadOnly = false,
+        Destructive = false,
+        Idempotent = false,
+        OpenWorld = false,
+        UseStructuredContent = true,
+        OutputSchemaType = typeof(InventoryItem))]
+    [Description("Creates or updates one item with mandatory optimistic concurrency and trusted approval.")]
+    public Task<InventoryItem> PutItemAsync(
+        ClaimsPrincipal? principal,
+        [Description("Stable item identifier.")] string itemId,
+        [Description("Display name.")] string name,
+        [Description("Current version; use 0 only for creation.")] int expectedVersion,
+        [Description("Opaque single-use token issued by a trusted host, not by the model.")] string approvalToken,
+        CancellationToken cancellationToken = default) =>
+        kernel.PutAsync(principal, itemId, name, expectedVersion, approvalToken, cancellationToken).AsTask();
+}

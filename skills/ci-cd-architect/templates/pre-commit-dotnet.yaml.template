@@ -1,0 +1,20 @@
+repos:
+  - repo: local
+    hooks:
+      - id: dotnet-restore
+        name: .NET dependency restore
+        entry: dotnet restore <SOLUTION_PATH>
+        language: system
+        pass_filenames: false
+        stages: [pre-commit, pre-push]
+      - id: dotnet-format
+        name: .NET format verification
+        entry: dotnet format <SOLUTION_PATH> --verify-no-changes --no-restore
+        language: system
+        pass_filenames: false
+      - id: dotnet-tests
+        name: .NET bounded test gate
+        entry: <DOTNET_BOUNDED_TEST_COMMAND>
+        language: system
+        pass_filenames: false
+        stages: [pre-push]

@@ -1,0 +1,166 @@
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
+using Microsoft.Extensions.Logging;
+using ModelContextProtocol.Server;
+using System.Net;
+using System.Security.Claims;
+using System.Security.Cryptography;
+using System.Text;
+using System.Threading.RateLimiting;
+using __NAMESPACE__.Mcp.Domain;
+using __NAMESPACE__.Mcp.Server;
+
+var settings = ServerSettings.Load(args);
+if (settings.Http)
+    await RunHttpAsync(settings, args);
+else
+    await RunStdioAsync(settings, args);
+
+static void AddApplication(IServiceCollection services, ServerSettings settings)
+{
+    services.AddSingleton(settings);
+    services.AddSingleton(TimeProvider.System);
+    services.AddSingleton<CapabilityRegistry>();
+    services.AddSingleton<ApprovalRegistry>();
+    services.AddSingleton<KeyedOperationGate>();
+    services.AddSingleton<IInventoryService, InMemoryInventoryService>();
+    services.AddSingleton<InvocationKernel>();
+    services.AddAuthorization(options =>
+    {
+        options.AddPolicy("inventory.read", policy => policy.RequireAssertion(context => HasScope(context.User, "inventory.read")));
+        options.AddPolicy("inventory.write", policy => policy.RequireAssertion(context => HasScope(context.User, "inventory.write")));
+        options.AddPolicy("mcp", policy => policy.RequireAuthenticatedUser());
+    });
+}
+
+static bool HasScope(ClaimsPrincipal principal, string scope) =>
+    principal.FindAll("scope")
+        .SelectMany(claim => claim.Value.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+        .Contains(scope, StringComparer.Ordinal);
+
+static ClaimsPrincipal LocalPrincipal() => new(new ClaimsIdentity(
+    [
+        new Claim(ClaimTypes.NameIdentifier, "stdio-local"),
+        new Claim(ClaimTypes.Name, "stdio-local"),
+        new Claim("scope", "inventory.read"),
+        new Claim("scope", "inventory.write"),
+    ],
+    "StdioProcess"));
+
+static bool IsAllowedOrigin(HttpRequest request, int expectedPort)
+{
+    if (!request.Headers.TryGetValue("Origin", out var values)) return true;
+    if (values.Count != 1 || !Uri.TryCreate(values[0], UriKind.Absolute, out var origin)) return false;
+    if (!string.Equals(origin.Scheme, Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase)) return false;
+    if (origin.Port != expectedPort) return false;
+
+    var host = origin.Host.Trim('[', ']');
+    if (string.Equals(host, "localhost", StringComparison.OrdinalIgnoreCase)) return true;
+    return IPAddress.TryParse(host, out var address) && IPAddress.IsLoopback(address);
+}
+
+static async Task RunStdioAsync(ServerSettings settings, string[] args)
+{
+    var builder = Host.CreateApplicationBuilder(args);
+    builder.Logging.ClearProviders();
+    builder.Logging.AddConsole(options => options.LogToStandardErrorThreshold = LogLevel.Trace);
+    AddApplication(builder.Services, settings);
+    builder.Services.AddMcpServer()
+        .WithStdioServerTransport()
+        .WithMessageFilters(filters => filters.AddIncomingFilter(next => async (context, cancellationToken) =>
+        {
+            context.User = LocalPrincipal();
+            await next(context, cancellationToken);
+        }))
+        .AddAuthorizationFilters()
+        .WithTools<CapabilityTools>()
+        .WithTools<InventoryTools>();
+    await builder.Build().RunAsync();
+}
+
+static async Task RunHttpAsync(ServerSettings settings, string[] args)
+{
+    var bearerToken = Environment.GetEnvironmentVariable("MCP_HTTP_BEARER_TOKEN");
+    if (bearerToken is null || bearerToken.Length < 32)
+        throw new InvalidOperationException("HTTP mode requires MCP_HTTP_BEARER_TOKEN with at least 32 characters.");
+
+    var builder = WebApplication.CreateBuilder(args);
+    builder.Configuration["AllowedHosts"] = "localhost;127.0.0.1;[::1]";
+    builder.WebHost.ConfigureKestrel(options =>
+    {
+        options.ListenLocalhost(settings.HttpPort);
+        options.Limits.MaxRequestBodySize = settings.MaxRequestBodyBytes;
+        options.Limits.MaxConcurrentConnections = 128;
+        options.Limits.RequestHeadersTimeout = TimeSpan.FromSeconds(10);
+        options.Limits.KeepAliveTimeout = TimeSpan.FromSeconds(30);
+    });
+    AddApplication(builder.Services, settings);
+    builder.Services.AddRateLimiter(options =>
+    {
+        options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+        options.AddPolicy("mcp", context => RateLimitPartition.GetFixedWindowLimiter(
+            context.User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "anonymous",
+            _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 60,
+                QueueLimit = 0,
+                Window = TimeSpan.FromMinutes(1),
+                AutoReplenishment = true,
+            }));
+    });
+    builder.Services.AddHealthChecks()
+        .AddCheck("self", () => HealthCheckResult.Healthy(), tags: ["live"])
+        .AddCheck("inventory", () => HealthCheckResult.Healthy(), tags: ["ready"]);
+    builder.Services.AddMcpServer()
+        .WithHttpTransport(options => options.Stateless = true)
+        .AddAuthorizationFilters()
+        .WithTools<CapabilityTools>()
+        .WithTools<InventoryTools>();
+
+    var app = builder.Build();
+    app.Use(async (context, next) =>
+    {
+        if (context.Request.Path.StartsWithSegments("/mcp") && !IsAllowedOrigin(context.Request, settings.HttpPort))
+        {
+            context.Response.StatusCode = StatusCodes.Status403Forbidden;
+            return;
+        }
+        await next(context);
+    });
+    app.Use(async (context, next) =>
+    {
+        if (!context.Request.Path.StartsWithSegments("/mcp"))
+        {
+            await next(context);
+            return;
+        }
+        var authorization = context.Request.Headers.Authorization.ToString();
+        const string prefix = "Bearer ";
+        var candidate = authorization.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+            ? authorization[prefix.Length..]
+            : string.Empty;
+        var expected = SHA256.HashData(Encoding.UTF8.GetBytes(bearerToken));
+        var actual = SHA256.HashData(Encoding.UTF8.GetBytes(candidate));
+        if (!CryptographicOperations.FixedTimeEquals(actual, expected))
+        {
+            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+            return;
+        }
+        context.User = new ClaimsPrincipal(new ClaimsIdentity(
+            [
+                new Claim(ClaimTypes.NameIdentifier, "loopback-operator"),
+                new Claim(ClaimTypes.Name, "loopback-operator"),
+                new Claim("scope", "inventory.read"),
+                new Claim("scope", "inventory.write"),
+            ],
+            "LoopbackBearer"));
+        await next(context);
+    });
+    app.UseAuthorization();
+    app.UseRateLimiter();
+    app.MapHealthChecks("/health/live", new HealthCheckOptions { Predicate = check => check.Tags.Contains("live") });
+    app.MapHealthChecks("/health/ready", new HealthCheckOptions { Predicate = check => check.Tags.Contains("ready") });
+    app.MapMcp("/mcp").RequireAuthorization("mcp").RequireRateLimiting("mcp");
+    await app.RunAsync();
+}

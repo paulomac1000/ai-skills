@@ -1,0 +1,354 @@
+profiles:
+  repository-rules:
+  - kind: rule
+    subject: afds.metadata.required
+    selectors:
+    - '*test_afds*'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: afds.structure.links
+    selectors:
+    - '*test_afds*'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: afds.evidence.uncertainty
+    selectors:
+    - '*test_afds*'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: afds.ownership.lifecycle
+    selectors:
+    - '*test_afds*'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: afds.quality.executable
+    selectors:
+    - '*test_afds*'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: afds.verification.recorded
+    selectors:
+    - '*test_afds*'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: cicd.layers.separated
+    selectors:
+    - '*test_templates*'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: cicd.workflow.least-privilege
+    selectors:
+    - '*test_templates*'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: cicd.quality.language
+    selectors:
+    - '*test_ci_scripts*'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: cicd.security.documentation
+    selectors:
+    - '*test_templates*'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: cicd.release.identity
+    selectors:
+    - '*test_templates*'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: cicd.local.bounded
+    selectors:
+    - '*test_ci_scripts*'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: cicd.verification.recorded
+    selectors:
+    - '*test_write_evidence_report*'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: mcp.architecture.boundaries
+    selectors:
+    - '*test_mcp_*'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: mcp.identity.target-binding
+    selectors:
+    - '*test_mcp_*'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: mcp.manifest.complete
+    selectors:
+    - '*test_mcp_*'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: mcp.retry.fail-closed
+    selectors:
+    - '*test_mcp_*'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: mcp.transport.supported
+    selectors:
+    - '*test_mcp_*'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: mcp.deadline.concurrency
+    selectors:
+    - '*test_mcp_*'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: mcp.response.structured
+    selectors:
+    - '*test_mcp_*'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: mcp.authorization.server-side
+    selectors:
+    - '*test_mcp_*'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: mcp.operations.observable
+    selectors:
+    - '*test_mcp_*'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: mcp.artifact.exact
+    selectors:
+    - '*test_mcp_generator*'
+    result_files:
+    - python-generator-junit.xml
+    execution_id: python-generator
+  - kind: rule
+    subject: mcp.migration.accounted
+    selectors:
+    - '*test_mcp_migration*'
+    result_files:
+    - adoption-junit.xml
+    execution_id: adoption
+  - kind: rule
+    subject: mcp.verification.layered
+    selectors:
+    - '*test_mcp_*'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: consumer.outcome.first
+    selectors:
+    - '*test_decision_engine*'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: consumer.trust.provenance
+    selectors:
+    - '*test_consumer_*'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: consumer.policy.fail-closed
+    selectors:
+    - '*test_decision_engine*'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: consumer.selection.efficient
+    selectors:
+    - '*test_consumer_*'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: consumer.response.validated
+    selectors:
+    - '*test_consumer_payload*'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: consumer.retry.reconciled
+    selectors:
+    - '*test_consumer_retry*'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: consumer.pagination.bounded
+    selectors:
+    - '*test_decision_engine*'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: consumer.workflow.compensated
+    selectors:
+    - '*test_decision_engine*'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: consumer.compatibility.negotiated
+    selectors:
+    - '*test_consumer_*'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: consumer.verification.adversarial
+    selectors:
+    - '*test_consumer_*'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: artifact
+    subject: adoption-contract-schema
+    selectors:
+    - '*test_adoption_contract*'
+    result_files:
+    - repository-junit.xml
+    content_path: contracts/adoption-assessment.schema.json
+    commands:
+    - python contracts/validate_adoption.py assessment.yaml
+    execution_id: repository
+  mcp-dotnet:
+  - kind: transport
+    subject: stdio:capability_listing
+    selectors:
+    - '*test_mcp_dotnet*'
+    result_files:
+    - dotnet-*.xml
+    execution_id: dotnet
+  - kind: transport
+    subject: stdio:representative_read
+    selectors:
+    - '*test_mcp_dotnet*'
+    result_files:
+    - dotnet-*.xml
+    execution_id: dotnet
+  - kind: transport
+    subject: stdio:failure_path
+    selectors:
+    - '*test_mcp_dotnet*'
+    result_files:
+    - dotnet-*.xml
+    execution_id: dotnet
+  - kind: transport
+    subject: stdio:write_boundary
+    selectors:
+    - '*test_mcp_dotnet*'
+    result_files:
+    - dotnet-*.xml
+    execution_id: dotnet
+  - kind: transport
+    subject: streamable_http:capability_listing
+    selectors:
+    - '*test_mcp_dotnet*'
+    result_files:
+    - dotnet-*.xml
+    execution_id: dotnet
+  - kind: transport
+    subject: streamable_http:representative_read
+    selectors:
+    - '*test_mcp_dotnet*'
+    result_files:
+    - dotnet-*.xml
+    execution_id: dotnet
+  - kind: transport
+    subject: streamable_http:failure_path
+    selectors:
+    - '*test_mcp_dotnet*'
+    result_files:
+    - dotnet-*.xml
+    execution_id: dotnet
+  - kind: transport
+    subject: streamable_http:write_boundary
+    selectors:
+    - '*test_mcp_dotnet*'
+    result_files:
+    - dotnet-*.xml
+    execution_id: dotnet
+  mcp-container:
+  - kind: transport
+    subject: stdio:capability_listing
+    selectors:
+    - '*test_mcp_generator*'
+    result_files:
+    - python-container.xml
+    execution_id: container
+  - kind: transport
+    subject: stdio:representative_read
+    selectors:
+    - '*test_mcp_generator*'
+    result_files:
+    - python-container.xml
+    execution_id: container
+  - kind: transport
+    subject: stdio:failure_path
+    selectors:
+    - '*test_mcp_generator*'
+    result_files:
+    - python-container.xml
+    execution_id: container
+  - kind: transport
+    subject: stdio:write_boundary
+    selectors:
+    - '*test_mcp_generator*'
+    result_files:
+    - python-container.xml
+    execution_id: container
+  filesystem:
+  - kind: rule
+    subject: mcp.artifact.exact
+    selectors:
+    - '*test_generator_concurrent_create_has_one_winner_and_never_replaces*'
+    - '*test_generator_preserves_competing_target_created_before_publish*'
+    - '*test_mcp_dotnet_namespace*'
+    result_files:
+    - filesystem-junit.xml
+    execution_id: filesystem
+format: ai-skills-claim-plan

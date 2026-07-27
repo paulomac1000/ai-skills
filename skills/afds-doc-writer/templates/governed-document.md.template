@@ -1,0 +1,31 @@
+---
+description: <ONE_SENTENCE_QUESTION_AND_OUTCOME>
+doc_id: <TYPE>.<STABLE_SLUG>
+type: <TYPE>
+status: draft
+rigor: <RIGOR>
+owners: [<OWNER_ROLE>]
+verification: <CONCRETE_VERIFICATION_METHOD>
+---
+
+# <Document title>
+
+## Answer
+
+<State the decision, contract, procedure, system behavior, reference answer, or learning outcome first.>
+
+## Scope
+
+<State boundaries and non-goals.>
+
+## Evidence
+
+<Link implementation, configuration, tests, runtime observations, specifications, or accepted decisions. Mark assumptions explicitly.>
+
+## Failure and recovery
+
+<Describe relevant failure behavior, safe stop, rollback, degradation, or escalation. Remove this section only when it is genuinely not applicable.>
+
+## Verification
+
+<State the observable acceptance criteria and commands.>

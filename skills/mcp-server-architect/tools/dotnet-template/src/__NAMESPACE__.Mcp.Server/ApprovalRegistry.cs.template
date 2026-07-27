@@ -1,0 +1,68 @@
+using System.Collections.Concurrent;
+using System.Security.Cryptography;
+
+namespace __NAMESPACE__.Mcp.Server;
+
+public sealed record ApprovalRecord(
+    string Token,
+    string Principal,
+    string Capability,
+    string Target,
+    string Resource,
+    DateTimeOffset ExpiresAt);
+
+public sealed class ApprovalRegistry(TimeProvider clock)
+{
+    private const int MaximumRecords = 1_024;
+    private readonly ConcurrentDictionary<string, ApprovalRecord> _records = new(StringComparer.Ordinal);
+    private readonly object _issueGate = new();
+
+    public string Issue(
+        string principal,
+        string capability,
+        string target,
+        string resource,
+        TimeSpan? lifetime = null)
+    {
+        var effectiveLifetime = lifetime ?? TimeSpan.FromMinutes(5);
+        if (effectiveLifetime <= TimeSpan.Zero || effectiveLifetime > TimeSpan.FromMinutes(5))
+            throw new ArgumentOutOfRangeException(nameof(lifetime));
+        if (new[] { principal, capability, target, resource }.Any(string.IsNullOrWhiteSpace))
+            throw new ArgumentException("approval bindings must be non-empty");
+
+        lock (_issueGate)
+        {
+            SweepExpired();
+            if (_records.Count >= MaximumRecords)
+                throw new InvalidOperationException("approval registry capacity reached");
+
+            while (true)
+            {
+                var token = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
+                var record = new ApprovalRecord(
+                    token, principal, capability, target, resource,
+                    clock.GetUtcNow().Add(effectiveLifetime));
+                if (_records.TryAdd(token, record)) return token;
+            }
+        }
+    }
+
+    public bool Consume(string token, string principal, string capability, string target, string resource)
+    {
+        if (!_records.TryRemove(token, out var record)) return false;
+        return record.ExpiresAt > clock.GetUtcNow()
+            && CryptographicOperations.FixedTimeEquals(
+                System.Text.Encoding.UTF8.GetBytes(record.Principal),
+                System.Text.Encoding.UTF8.GetBytes(principal))
+            && record.Capability == capability
+            && record.Target == target
+            && record.Resource == resource;
+    }
+
+    private void SweepExpired()
+    {
+        var now = clock.GetUtcNow();
+        foreach (var pair in _records)
+            if (pair.Value.ExpiresAt <= now) _records.TryRemove(pair.Key, out _);
+    }
+}

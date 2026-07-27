@@ -1,0 +1,52 @@
+using ModelContextProtocol;
+using ModelContextProtocol.Server;
+using System.ComponentModel;
+using System.Security.Claims;
+
+public sealed record ItemSummary(string ItemId, string Name);
+public sealed record ListItemsResult(IReadOnlyList<ItemSummary> Items, int Count);
+
+public interface IInventoryService
+{
+    Task<IReadOnlyList<ItemSummary>> ListAsync(int limit, CancellationToken cancellationToken);
+}
+
+public sealed class InventoryInvocationKernel(IInventoryService inventory)
+{
+    public async Task<ListItemsResult> ListAsync(
+        ClaimsPrincipal? principal,
+        int limit,
+        CancellationToken cancellationToken)
+    {
+        if (principal?.Identity?.IsAuthenticated is not true)
+        {
+            throw new McpException("AUTHENTICATION_FAILED: an authenticated principal is required.");
+        }
+        if (limit is < 1 or > 100)
+        {
+            throw new McpException("VALIDATION_FAILED: limit must be from 1 to 100.");
+        }
+
+        var items = await inventory.ListAsync(limit, cancellationToken);
+        return new(items, items.Count);
+    }
+}
+
+[McpServerToolType]
+public sealed class InventoryTools(InventoryInvocationKernel kernel)
+{
+    [McpServerTool(
+        Name = "list_items",
+        ReadOnly = true,
+        Destructive = false,
+        Idempotent = true,
+        OpenWorld = false,
+        UseStructuredContent = true,
+        OutputSchemaType = typeof(ListItemsResult))]
+    [Description("Lists bounded inventory summaries.")]
+    public Task<ListItemsResult> ListItemsAsync(
+        ClaimsPrincipal? principal,
+        [Description("Maximum number of summaries, from 1 to 100.")] int limit = 25,
+        CancellationToken cancellationToken = default) =>
+        kernel.ListAsync(principal, limit, cancellationToken);
+}

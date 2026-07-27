@@ -1,0 +1,75 @@
+name: .NET quality
+
+on:
+  pull_request:
+  push:
+    branches: [<DEFAULT_BRANCH>]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dotnet-quality-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: <TIMEOUT_MINUTES>
+    permissions:
+      actions: read
+      checks: write
+      contents: read
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-dotnet@9a946fdbd5fb07b82b2f5a4466058b876ab72bb2
+        with:
+          dotnet-version: "<DOTNET_VERSION>"
+      - name: Cache NuGet
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ hashFiles('**/*.csproj', '**/Directory.Packages.props', '**/Directory.Build.props') }}
+          restore-keys: nuget-
+      - run: dotnet restore <SOLUTION_PATH>
+      - run: dotnet format <SOLUTION_PATH> --no-restore --verify-no-changes
+      - run: dotnet build <SOLUTION_PATH> --no-restore --configuration Release
+      - name: Tests with TRX and coverage
+        run: >-
+          dotnet test <SOLUTION_PATH> --no-build --configuration Release
+          --collect:"XPlat Code Coverage" --results-directory TestResults --logger trx
+      - name: Install pinned ReportGenerator
+        if: always()
+        run: >-
+          dotnet tool install --global dotnet-reportgenerator-globaltool
+          --version "<REPORTGENERATOR_VERSION>"
+      - name: Generate coverage report
+        if: always() && hashFiles('TestResults/**/coverage.cobertura.xml') != ''
+        run: >-
+          reportgenerator
+          -reports:"TestResults/**/coverage.cobertura.xml"
+          -targetdir:"coverage-report"
+          -reporttypes:"Html;Cobertura"
+      - name: Publish test report
+        if: >-
+          always() && hashFiles('TestResults/**/*.trx') != '' &&
+          (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        uses: dorny/test-reporter@1cc81a5edf733718d4850df304aaa21c05cd7280
+        with:
+          name: .NET tests
+          path: TestResults/**/*.trx
+          reporter: dotnet-trx
+      - name: Upload test artifacts
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: dotnet-test-results-${{ github.run_id }}
+          path: |
+            TestResults/
+            coverage-report/
+          if-no-files-found: ignore
+          retention-days: 14

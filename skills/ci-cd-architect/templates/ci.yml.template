@@ -1,0 +1,46 @@
+name: Python quality
+
+on:
+  pull_request:
+  push:
+    branches: [<DEFAULT_BRANCH>]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: python-quality-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: <TIMEOUT_MINUTES>
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: "<PYTHON_VERSION>"
+          cache: pip
+          cache-dependency-path: <DEPENDENCY_FILE>
+      - name: Install dependencies
+        run: <INSTALL_COMMAND>
+      - name: Ruff
+        run: ruff check . && ruff format --check .
+      - name: Type check
+        run: <TYPECHECK_COMMAND>
+      - name: Security check
+        run: <SECURITY_COMMAND>
+      - name: Tests and coverage
+        run: <TEST_COMMAND>
+      - name: Upload test artifacts
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: python-test-results-${{ github.run_id }}
+          path: <TEST_ARTIFACT_PATH>
+          if-no-files-found: ignore
+          retention-days: 14

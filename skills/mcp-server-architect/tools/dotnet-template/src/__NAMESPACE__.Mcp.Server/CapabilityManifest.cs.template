@@ -1,0 +1,345 @@
+using System.Text.Json.Serialization;
+
+namespace __NAMESPACE__.Mcp.Server;
+
+public static class CapabilityNames
+{
+    public const string DescribeCapabilities = "describe_capabilities";
+    public const string ListItems = "list_items";
+    public const string PutItem = "put_item";
+
+    public static IReadOnlySet<string> Registered { get; } = new HashSet<string>(StringComparer.Ordinal)
+    {
+        DescribeCapabilities,
+        ListItems,
+        PutItem,
+    };
+}
+
+[JsonConverter(typeof(JsonStringEnumConverter))]
+public enum CapabilityRisk
+{
+    [JsonStringEnumMemberName("READ")]
+    Read,
+    [JsonStringEnumMemberName("WRITE")]
+    Write,
+    [JsonStringEnumMemberName("DESTRUCTIVE")]
+    Destructive,
+    [JsonStringEnumMemberName("DANGEROUS")]
+    Dangerous,
+    [JsonStringEnumMemberName("SENSITIVE")]
+    Sensitive,
+}
+
+[JsonConverter(typeof(JsonStringEnumConverter))]
+public enum SideEffectClass
+{
+    [JsonStringEnumMemberName("none")]
+    None,
+    [JsonStringEnumMemberName("read")]
+    Read,
+    [JsonStringEnumMemberName("write")]
+    Write,
+    [JsonStringEnumMemberName("destructive")]
+    Destructive,
+}
+
+[JsonConverter(typeof(JsonStringEnumConverter))]
+public enum ConfidentialityClass
+{
+    [JsonStringEnumMemberName("public")]
+    Public,
+    [JsonStringEnumMemberName("internal")]
+    Internal,
+    [JsonStringEnumMemberName("personal")]
+    Personal,
+    [JsonStringEnumMemberName("sensitive")]
+    Sensitive,
+    [JsonStringEnumMemberName("credential")]
+    Credential,
+    [JsonStringEnumMemberName("financial")]
+    Financial,
+}
+
+[JsonConverter(typeof(JsonStringEnumConverter))]
+public enum IdempotencyMechanism
+{
+    [JsonStringEnumMemberName("none")]
+    None,
+    [JsonStringEnumMemberName("natural")]
+    Natural,
+    [JsonStringEnumMemberName("idempotency_key")]
+    IdempotencyKey,
+    [JsonStringEnumMemberName("precondition")]
+    Precondition,
+    [JsonStringEnumMemberName("deduplication")]
+    Deduplication,
+}
+
+[JsonConverter(typeof(JsonStringEnumConverter))]
+public enum DeterminismClass
+{
+    [JsonStringEnumMemberName("deterministic")]
+    Deterministic,
+    [JsonStringEnumMemberName("probabilistic")]
+    Probabilistic,
+    [JsonStringEnumMemberName("env-dependent")]
+    EnvironmentDependent,
+    [JsonStringEnumMemberName("eventually-consistent")]
+    EventuallyConsistent,
+}
+
+[JsonConverter(typeof(JsonStringEnumConverter))]
+public enum LatencyClass
+{
+    [JsonStringEnumMemberName("low")]
+    Low,
+    [JsonStringEnumMemberName("medium")]
+    Medium,
+    [JsonStringEnumMemberName("high")]
+    High,
+    [JsonStringEnumMemberName("long-running")]
+    LongRunning,
+}
+
+[JsonConverter(typeof(JsonStringEnumConverter))]
+public enum CostClass
+{
+    [JsonStringEnumMemberName("low")]
+    Low,
+    [JsonStringEnumMemberName("medium")]
+    Medium,
+    [JsonStringEnumMemberName("high")]
+    High,
+    [JsonStringEnumMemberName("abuse-sensitive")]
+    AbuseSensitive,
+}
+
+[JsonConverter(typeof(JsonStringEnumConverter))]
+public enum ImpactClass
+{
+    [JsonStringEnumMemberName("none")]
+    None,
+    [JsonStringEnumMemberName("transient")]
+    Transient,
+    [JsonStringEnumMemberName("persistent")]
+    Persistent,
+    [JsonStringEnumMemberName("service_outage")]
+    ServiceOutage,
+    [JsonStringEnumMemberName("financial")]
+    Financial,
+    [JsonStringEnumMemberName("physical")]
+    Physical,
+}
+
+[JsonConverter(typeof(JsonStringEnumConverter))]
+public enum CapabilityActiveState
+{
+    [JsonStringEnumMemberName("active")]
+    Active,
+    [JsonStringEnumMemberName("disabled")]
+    Disabled,
+    [JsonStringEnumMemberName("degraded")]
+    Degraded,
+    [JsonStringEnumMemberName("unavailable")]
+    Unavailable,
+    [JsonStringEnumMemberName("deprecated")]
+    Deprecated,
+}
+
+public sealed record CapabilityEvidence(
+    string Claim,
+    string ReviewReference,
+    string TestCase);
+
+public sealed record RetryConditions(
+    bool Retryable,
+    IReadOnlyList<string> EligibleErrors,
+    int MaxAttempts,
+    int BackoffMilliseconds,
+    bool RequiresReconciliation)
+{
+    public static RetryConditions Never { get; } = new(
+        false,
+        Array.Empty<string>(),
+        1,
+        0,
+        true);
+}
+
+public sealed record CapabilityManifest(
+    string Name,
+    string Version,
+    CapabilityRisk Risk,
+    SideEffectClass SideEffects,
+    ConfidentialityClass Confidentiality,
+    bool Idempotent,
+    IdempotencyMechanism IdempotencyMechanism,
+    bool Retryable,
+    RetryConditions RetryConditions,
+    bool ConcurrentSafe,
+    string ConcurrencyScope,
+    int TimeoutMilliseconds,
+    bool RequiresConfirmation,
+    DeterminismClass Determinism,
+    LatencyClass Latency,
+    CostClass Cost,
+    ImpactClass Impact,
+    bool Reversible,
+    string TargetBinding,
+    CapabilityActiveState ActiveState,
+    string RequiredScope,
+    bool RequiresApproval,
+    IReadOnlyList<CapabilityEvidence> Evidence);
+
+public sealed class CapabilityRegistry
+{
+    private static readonly IReadOnlyDictionary<string, CapabilityManifest> Manifests =
+        new Dictionary<string, CapabilityManifest>(StringComparer.Ordinal)
+        {
+            [CapabilityNames.DescribeCapabilities] = new(
+                CapabilityNames.DescribeCapabilities,
+                "1.0.0",
+                CapabilityRisk.Read,
+                SideEffectClass.None,
+                ConfidentialityClass.Internal,
+                true,
+                IdempotencyMechanism.Natural,
+                false,
+                RetryConditions.Never,
+                true,
+                "none",
+                2_000,
+                false,
+                DeterminismClass.Deterministic,
+                LatencyClass.Low,
+                CostClass.Low,
+                ImpactClass.None,
+                false,
+                "process",
+                CapabilityActiveState.Active,
+                "inventory.read",
+                false,
+                [
+                    new("idempotent", "generated-baseline", "CapabilityDiscoveryRepeated"),
+                    new("concurrent-safe", "generated-baseline", "CapabilityDiscoveryConcurrent"),
+                ]),
+            [CapabilityNames.ListItems] = new(
+                CapabilityNames.ListItems,
+                "1.0.0",
+                CapabilityRisk.Read,
+                SideEffectClass.Read,
+                ConfidentialityClass.Internal,
+                true,
+                IdempotencyMechanism.Natural,
+                false,
+                RetryConditions.Never,
+                true,
+                "none",
+                5_000,
+                false,
+                DeterminismClass.EnvironmentDependent,
+                LatencyClass.Low,
+                CostClass.Low,
+                ImpactClass.None,
+                false,
+                "inventory",
+                CapabilityActiveState.Active,
+                "inventory.read",
+                false,
+                [
+                    new("idempotent", "generated-baseline", "ListItemsRepeatedRead"),
+                    new("concurrent-safe", "generated-baseline", "ListItemsConcurrentRead"),
+                ]),
+            [CapabilityNames.PutItem] = new(
+                CapabilityNames.PutItem,
+                "1.0.0",
+                CapabilityRisk.Write,
+                SideEffectClass.Write,
+                ConfidentialityClass.Internal,
+                false,
+                IdempotencyMechanism.None,
+                false,
+                RetryConditions.Never,
+                false,
+                "inventory:itemId",
+                10_000,
+                true,
+                DeterminismClass.EventuallyConsistent,
+                LatencyClass.Low,
+                CostClass.Low,
+                ImpactClass.Persistent,
+                false,
+                "inventory:itemId",
+                CapabilityActiveState.Active,
+                "inventory.write",
+                true,
+                Array.Empty<CapabilityEvidence>()),
+        };
+
+    static CapabilityRegistry()
+    {
+        foreach (var manifest in Manifests.Values)
+            Validate(manifest);
+        if (!Manifests.Keys.ToHashSet(StringComparer.Ordinal).SetEquals(CapabilityNames.Registered))
+            throw new InvalidOperationException("Capability manifests do not cover the declared registered tool catalog.");
+    }
+
+    public CapabilityManifest Require(string name)
+    {
+        if (!Manifests.TryGetValue(name, out var manifest))
+            throw new InvalidOperationException($"Capability {name} is not governed by a manifest.");
+        return manifest;
+    }
+
+    public IReadOnlyList<CapabilityManifest> ForScopes(IReadOnlySet<string> scopes) =>
+        Manifests.Values
+            .Where(manifest => manifest.ActiveState is CapabilityActiveState.Active)
+            .Where(manifest => scopes.Contains(manifest.RequiredScope))
+            .OrderBy(manifest => manifest.Name, StringComparer.Ordinal)
+            .ToArray();
+
+    private static void Validate(CapabilityManifest manifest)
+    {
+        if (string.IsNullOrWhiteSpace(manifest.Name) || string.IsNullOrWhiteSpace(manifest.Version))
+            throw new InvalidOperationException("Capability manifest name and version are required.");
+        if (manifest.TimeoutMilliseconds is < 1 or > 600_000)
+            throw new InvalidOperationException($"{manifest.Name}: timeout must be from 1 to 600000 milliseconds.");
+        if (!manifest.ConcurrentSafe && string.IsNullOrWhiteSpace(manifest.ConcurrencyScope))
+            throw new InvalidOperationException($"{manifest.Name}: non-concurrent operations require a runtime lock scope.");
+        if (manifest.Idempotent && manifest.IdempotencyMechanism is IdempotencyMechanism.None)
+            throw new InvalidOperationException($"{manifest.Name}: positive idempotency requires a mechanism.");
+        if (!manifest.Idempotent && manifest.IdempotencyMechanism is not IdempotencyMechanism.None)
+            throw new InvalidOperationException($"{manifest.Name}: an idempotency mechanism cannot accompany a negative claim.");
+        if (manifest.Retryable != manifest.RetryConditions.Retryable)
+            throw new InvalidOperationException($"{manifest.Name}: top-level retryable must match retry_conditions.retryable.");
+        if (manifest.Retryable)
+        {
+            if (!manifest.Idempotent || manifest.RetryConditions.MaxAttempts is < 2 or > 5 ||
+                manifest.RetryConditions.BackoffMilliseconds <= 0 || manifest.RetryConditions.EligibleErrors.Count == 0)
+                throw new InvalidOperationException($"{manifest.Name}: retry requires proven idempotency and bounded named conditions.");
+        }
+        else if (manifest.RetryConditions.MaxAttempts != 1)
+        {
+            throw new InvalidOperationException($"{manifest.Name}: a non-retryable capability permits one attempt.");
+        }
+        if ((manifest.SideEffects is SideEffectClass.Write or SideEffectClass.Destructive) && !manifest.RequiresApproval)
+            throw new InvalidOperationException($"{manifest.Name}: mutations require an independent trusted approval gate.");
+        if (manifest.RequiresConfirmation && !manifest.RequiresApproval)
+            throw new InvalidOperationException($"{manifest.Name}: this generated baseline implements confirmation through a trusted approval record.");
+        RequireEvidence(manifest, "idempotent", manifest.Idempotent);
+        RequireEvidence(manifest, "concurrent-safe", manifest.ConcurrentSafe);
+        RequireEvidence(manifest, "reversible", manifest.Reversible);
+        RequireEvidence(manifest, "retryable", manifest.Retryable);
+    }
+
+    private static void RequireEvidence(CapabilityManifest manifest, string claim, bool required)
+    {
+        if (!required) return;
+        if (!manifest.Evidence.Any(item =>
+                string.Equals(item.Claim, claim, StringComparison.Ordinal) &&
+                !string.IsNullOrWhiteSpace(item.ReviewReference) &&
+                !string.IsNullOrWhiteSpace(item.TestCase)))
+            throw new InvalidOperationException($"{manifest.Name}: positive {claim} claim lacks reviewed executable evidence.");
+    }
+}

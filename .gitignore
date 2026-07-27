@@ -1,7 +1,11 @@
 __pycache__/
-*.pyc
-.env
-.afds-baseline.json
-.mypy_cache/
+.pytest_cache/
+.venv/
 .ruff_cache/
-.omo/
+*.pyc
+build/
+dist/
+.env
+
+.coverage
+.coverage.*

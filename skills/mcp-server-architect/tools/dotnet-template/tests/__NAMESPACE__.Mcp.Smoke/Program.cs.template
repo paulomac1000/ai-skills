@@ -1,0 +1,287 @@
+using ModelContextProtocol;
+using ModelContextProtocol.Client;
+using System.Security.Claims;
+using __NAMESPACE__.Mcp.Domain;
+using __NAMESPACE__.Mcp.Server;
+using System.Diagnostics;
+using System.Net;
+using System.Net.Http.Headers;
+using System.Net.Sockets;
+using System.Text.Json;
+
+if (args.Length is < 1 or > 2 ||
+    (args.Length == 2 && !string.Equals(args[1], "--http", StringComparison.Ordinal)))
+    throw new InvalidOperationException("Expected server DLL and optional --http.");
+var dll = Path.GetFullPath(args[0]);
+if (!File.Exists(dll)) throw new FileNotFoundException("Server DLL not found.", dll);
+
+await VerifyApprovalContractAsync();
+
+if (args.Length == 2)
+    await RunHttpAsync(dll);
+else
+    await RunStdioAsync(dll);
+
+static async Task RunStdioAsync(string dll)
+{
+    await RunStdioCaseAsync(dll, writesEnabled: false, expectedWriteError: "WRITE_DISABLED");
+    await RunStdioCaseAsync(dll, writesEnabled: true, expectedWriteError: "APPROVAL_INVALID");
+}
+
+static async Task RunStdioCaseAsync(string dll, bool writesEnabled, string expectedWriteError)
+{
+    var environment = StdioClientTransportOptions.GetDefaultEnvironmentVariables();
+    environment["MCP_WRITES_ENABLED"] = writesEnabled ? "true" : "false";
+    var transport = new StdioClientTransport(new StdioClientTransportOptions
+    {
+        Name = $"__SERVER_NAME__ stdio smoke writes={writesEnabled}",
+        Command = "dotnet",
+        Arguments = [dll],
+        InheritEnvironmentVariables = false,
+        EnvironmentVariables = environment,
+        ShutdownTimeout = TimeSpan.FromSeconds(10),
+    });
+    await using var client = await McpClient.CreateAsync(transport);
+    await VerifyContractAsync(client, expectedWriteError);
+}
+
+static async Task RunHttpAsync(string dll)
+{
+    await RunHttpCaseAsync(dll, writesEnabled: false, expectedWriteError: "WRITE_DISABLED");
+    await RunHttpCaseAsync(dll, writesEnabled: true, expectedWriteError: "APPROVAL_INVALID");
+}
+
+static async Task RunHttpCaseAsync(string dll, bool writesEnabled, string expectedWriteError)
+{
+    var listener = new TcpListener(IPAddress.Loopback, 0);
+    listener.Start();
+    var port = ((IPEndPoint)listener.LocalEndpoint).Port;
+    listener.Stop();
+    var token = Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32));
+
+    using var process = Process.Start(new ProcessStartInfo
+    {
+        FileName = "dotnet",
+        UseShellExecute = false,
+        Arguments = $"\"{dll}\" --http",
+        Environment =
+        {
+            ["MCP_HTTP_PORT"] = port.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            ["MCP_HTTP_BEARER_TOKEN"] = token,
+            ["MCP_WRITES_ENABLED"] = writesEnabled ? "true" : "false",
+        },
+    }) ?? throw new InvalidOperationException("HTTP server process did not start.");
+
+    try
+    {
+        using var probe = new HttpClient { Timeout = TimeSpan.FromSeconds(1) };
+        var ready = false;
+        for (var attempt = 0; attempt < 40; attempt++)
+        {
+            try
+            {
+                ready = (await probe.GetAsync($"http://127.0.0.1:{port}/health/ready")).IsSuccessStatusCode;
+                if (ready) break;
+            }
+            catch (HttpRequestException)
+            {
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            await Task.Delay(250);
+        }
+        if (!ready) throw new InvalidOperationException("HTTP server did not become ready.");
+
+        await VerifyUnauthorizedAsync(probe, $"http://127.0.0.1:{port}/mcp", authorization: null);
+        await VerifyUnauthorizedAsync(probe, $"http://127.0.0.1:{port}/mcp", $"Bearer invalid-{token}");
+
+        using var foreignOriginRequest = new HttpRequestMessage(HttpMethod.Get, $"http://127.0.0.1:{port}/mcp");
+        foreignOriginRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        foreignOriginRequest.Headers.TryAddWithoutValidation("Origin", "https://attacker.invalid");
+        using var foreignOriginResponse = await probe.SendAsync(foreignOriginRequest);
+        if (foreignOriginResponse.StatusCode != HttpStatusCode.Forbidden)
+            throw new InvalidOperationException(
+                $"Foreign Origin was not rejected: {(int)foreignOriginResponse.StatusCode} {foreignOriginResponse.StatusCode}");
+
+        var transport = new HttpClientTransport(new HttpClientTransportOptions
+        {
+            Name = $"__SERVER_NAME__ HTTP smoke writes={writesEnabled}",
+            Endpoint = new Uri($"http://127.0.0.1:{port}/mcp"),
+            TransportMode = HttpTransportMode.StreamableHttp,
+            AdditionalHeaders = new Dictionary<string, string>
+            {
+                ["Authorization"] = $"bearer {token}",
+            },
+        });
+        await using var client = await McpClient.CreateAsync(transport);
+        await VerifyContractAsync(client, expectedWriteError);
+    }
+    finally
+    {
+        if (!process.HasExited) process.Kill(entireProcessTree: true);
+        await process.WaitForExitAsync();
+    }
+}
+
+
+static async Task VerifyUnauthorizedAsync(HttpClient client, string endpoint, string? authorization)
+{
+    using var request = new HttpRequestMessage(HttpMethod.Get, endpoint);
+    if (authorization is not null)
+        request.Headers.TryAddWithoutValidation("Authorization", authorization);
+    using var response = await client.SendAsync(request);
+    if (response.StatusCode != HttpStatusCode.Unauthorized)
+        throw new InvalidOperationException(
+            $"Unauthenticated or invalid-token MCP request was not rejected: {(int)response.StatusCode} {response.StatusCode}");
+}
+
+static async Task VerifyContractAsync(McpClient client, string expectedWriteError)
+{
+    var tools = await client.ListToolsAsync();
+    var names = tools.Select(tool => tool.Name).ToHashSet(StringComparer.Ordinal);
+    var expected = new HashSet<string>(StringComparer.Ordinal)
+    {
+        "describe_capabilities",
+        "list_items",
+        "put_item",
+    };
+    if (!names.SetEquals(expected))
+        throw new InvalidOperationException($"Tool catalog mismatch: {string.Join(',', names)}");
+
+    var discovery = await client.CallToolAsync("describe_capabilities", new Dictionary<string, object?>(), cancellationToken: CancellationToken.None);
+    if (discovery.IsError == true || discovery.StructuredContent is null)
+        throw new InvalidOperationException("Capability discovery was not structured success.");
+    VerifyManifestWireContract(JsonSerializer.SerializeToElement(discovery.StructuredContent));
+
+    var listed = await client.CallToolAsync("list_items", new Dictionary<string, object?> { ["limit"] = 2 }, cancellationToken: CancellationToken.None);
+    if (listed.IsError == true || listed.StructuredContent is null)
+        throw new InvalidOperationException("Representative read was not structured success.");
+
+    var rejected = await client.CallToolAsync(
+        "put_item",
+        new Dictionary<string, object?>
+        {
+            ["itemId"] = "gamma",
+            ["name"] = "Gamma",
+            ["expectedVersion"] = 0,
+            ["approvalToken"] = "model-controlled-token",
+        },
+        cancellationToken: CancellationToken.None);
+    if (rejected.IsError != true)
+        throw new InvalidOperationException("Fail-closed write did not set protocol isError.");
+
+    var serializedError = JsonSerializer.Serialize(rejected.Content);
+    if (!serializedError.Contains(expectedWriteError, StringComparison.Ordinal))
+        throw new InvalidOperationException(
+            $"Expected write rejection {expectedWriteError}, received: {serializedError}");
+
+    Console.WriteLine(
+        $"PASS: official client verified canonical manifest wire values, structured reads, and {expectedWriteError} over the selected transport.");
+}
+
+static void VerifyManifestWireContract(JsonElement root)
+{
+    var listManifest = FindManifest(root, "list_items")
+        ?? throw new InvalidOperationException($"list_items manifest missing from discovery: {root}");
+    AssertString(listManifest, "risk", "READ");
+    AssertString(listManifest, "sideEffects", "read");
+    AssertString(listManifest, "confidentiality", "internal");
+    AssertString(listManifest, "determinism", "env-dependent");
+    AssertString(listManifest, "impact", "none");
+    AssertString(listManifest, "activeState", "active");
+    if (!listManifest.TryGetProperty("retryable", out var retryable) || retryable.ValueKind is not JsonValueKind.False)
+        throw new InvalidOperationException("Manifest must expose top-level retryable=false.");
+    if (!listManifest.TryGetProperty("retryConditions", out var conditions) ||
+        !conditions.TryGetProperty("retryable", out var nestedRetryable) ||
+        nestedRetryable.ValueKind is not JsonValueKind.False)
+        throw new InvalidOperationException("Nested retryConditions.retryable must agree with the top-level field.");
+}
+
+static JsonElement? FindManifest(JsonElement element, string name)
+{
+    if (element.ValueKind is JsonValueKind.Object)
+    {
+        if (element.TryGetProperty("name", out var property) &&
+            property.ValueKind is JsonValueKind.String &&
+            string.Equals(property.GetString(), name, StringComparison.Ordinal))
+            return element;
+        foreach (var child in element.EnumerateObject())
+        {
+            var found = FindManifest(child.Value, name);
+            if (found is not null) return found;
+        }
+    }
+    else if (element.ValueKind is JsonValueKind.Array)
+    {
+        foreach (var child in element.EnumerateArray())
+        {
+            var found = FindManifest(child, name);
+            if (found is not null) return found;
+        }
+    }
+    return null;
+}
+
+static void AssertString(JsonElement manifest, string propertyName, string expected)
+{
+    if (!manifest.TryGetProperty(propertyName, out var value) ||
+        value.ValueKind is not JsonValueKind.String ||
+        !string.Equals(value.GetString(), expected, StringComparison.Ordinal))
+        throw new InvalidOperationException(
+            $"Manifest property {propertyName} must equal {expected}; received {manifest}.");
+}
+
+
+static async Task VerifyApprovalContractAsync()
+{
+    var approvals = new ApprovalRegistry(TimeProvider.System);
+    var kernel = new InvocationKernel(
+        new InMemoryInventoryService(),
+        new CapabilityRegistry(),
+        approvals,
+        new KeyedOperationGate(),
+        new ServerSettings(false, 8000, 1_048_576, true));
+    var approved = Principal("approved-principal");
+
+    var token = approvals.Issue(
+        "approved-principal", CapabilityNames.PutItem, "inventory", "gamma");
+    var item = await kernel.PutAsync(
+        approved, "gamma", "Gamma", 0, token, CancellationToken.None);
+    if (item.Version != 1 || item.ItemId != "gamma")
+        throw new InvalidOperationException("Trusted approval did not execute the intended write.");
+
+    await ExpectApprovalFailureAsync(() => kernel.PutAsync(
+        approved, "gamma", "Gamma replay", 1, token, CancellationToken.None).AsTask());
+
+    var principalBound = approvals.Issue(
+        "approved-principal", CapabilityNames.PutItem, "inventory", "delta");
+    await ExpectApprovalFailureAsync(() => kernel.PutAsync(
+        Principal("other-principal"), "delta", "Delta", 0, principalBound, CancellationToken.None).AsTask());
+
+    var resourceBound = approvals.Issue(
+        "approved-principal", CapabilityNames.PutItem, "inventory", "epsilon");
+    await ExpectApprovalFailureAsync(() => kernel.PutAsync(
+        approved, "zeta", "Zeta", 0, resourceBound, CancellationToken.None).AsTask());
+}
+
+static ClaimsPrincipal Principal(string id) => new(new ClaimsIdentity(
+    [
+        new Claim(ClaimTypes.NameIdentifier, id),
+        new Claim(ClaimTypes.Name, id),
+        new Claim("scope", "inventory.write"),
+    ],
+    "SmokeApproval"));
+
+static async Task ExpectApprovalFailureAsync(Func<Task> operation)
+{
+    try
+    {
+        await operation();
+    }
+    catch (McpException exception) when (exception.Message.Contains("APPROVAL_INVALID", StringComparison.Ordinal))
+    {
+        return;
+    }
+    throw new InvalidOperationException("Approval binding or one-time replay was not rejected.");
+}

@@ -1,0 +1,219 @@
+name: .NET package release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      release_ref:
+        description: Existing tag to validate and publish, for example v1.2.3
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dotnet-package-${{ github.event_name == 'workflow_dispatch' && inputs.release_ref || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    timeout-minutes: <TIMEOUT_MINUTES>
+    environment: <RELEASE_ENVIRONMENT>
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      - name: Fetch repository and tags from trusted workflow revision
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Resolve and validate selected release tag
+        id: release_ref
+        shell: bash
+        env:
+          REQUESTED_REF: ${{ github.event_name == 'workflow_dispatch' && inputs.release_ref || github.ref }}
+        run: |
+          set -euo pipefail
+          case "$REQUESTED_REF" in
+            refs/tags/*) release_tag="${REQUESTED_REF#refs/tags/}" ;;
+            v*) release_tag="$REQUESTED_REF" ;;
+            *) echo "release_ref must name an existing v* tag" >&2; exit 1 ;;
+          esac
+          git show-ref --verify --quiet "refs/tags/$release_tag" || {
+            echo "Tag not found: $release_tag" >&2
+            exit 1
+          }
+          release_sha="$(git rev-list -n 1 "refs/tags/$release_tag")"
+          test -n "$release_sha"
+          echo "tag=$release_tag" >> "$GITHUB_OUTPUT"
+          echo "sha=$release_sha" >> "$GITHUB_OUTPUT"
+      - name: Check out validated release revision
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          ref: ${{ steps.release_ref.outputs.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify exact release revision
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ steps.release_ref.outputs.sha }}
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+      - uses: actions/setup-dotnet@9a946fdbd5fb07b82b2f5a4466058b876ab72bb2
+        with:
+          dotnet-version: "<DOTNET_VERSION>"
+      - name: Validate selected tag and package version
+        id: release
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ steps.release_ref.outputs.tag }}
+          RELEASE_SHA: ${{ steps.release_ref.outputs.sha }}
+        run: |
+          set -euo pipefail
+          normalized_version="${RELEASE_TAG#v}"
+          if [[ -z "$normalized_version" || "$normalized_version" == "$RELEASE_TAG" ]]; then
+            echo "validated release tag must start with v and contain a package version" >&2
+            exit 1
+          fi
+          # Canonical SemVer 2.0 grammar. Core and numeric prerelease
+          # identifiers reject leading zeroes; build identifiers may contain them.
+          core_identifier='(0|[1-9][0-9]*)'
+          prerelease_identifier='(0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)'
+          build_identifier='[0-9A-Za-z-]+'
+          semver_regex="^${core_identifier}[.]${core_identifier}[.]${core_identifier}(-${prerelease_identifier}([.]${prerelease_identifier})*)?([+]${build_identifier}([.]${build_identifier})*)?$"
+          if [[ ! "$normalized_version" =~ $semver_regex ]]; then
+            echo "release tag version must be a canonical SemVer 2.0 value" >&2
+            exit 1
+          fi
+          export NORMALIZED_VERSION="$normalized_version"
+          <DOTNET_RELEASE_IDENTITY_COMMAND>
+          echo "version=$normalized_version" >> "$GITHUB_OUTPUT"
+      - run: dotnet restore <SOLUTION_PATH>
+      - run: dotnet build <SOLUTION_PATH> --no-restore --configuration Release
+      - run: dotnet test <SOLUTION_PATH> --no-build --configuration Release
+      - name: Pack
+        env:
+          PACKAGE_VERSION: ${{ steps.release.outputs.version }}
+        run: dotnet pack <SOLUTION_PATH> --no-build --configuration Release --output nupkg -p:PackageVersion="$PACKAGE_VERSION"
+      - name: Inspect package
+        run: <DOTNET_PACKAGE_VERIFY_COMMAND>
+      - name: Validate exact package identity allowlist
+        shell: bash
+        env:
+          EXPECTED_PACKAGE_IDS: "<DOTNET_PACKAGE_IDS>"
+          EXPECTED_VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from __future__ import annotations
+
+          import os
+          import pathlib
+          import xml.etree.ElementTree as ET
+          import zipfile
+
+          expected_values = [value.strip() for value in os.environ["EXPECTED_PACKAGE_IDS"].split(",")]
+          if not expected_values or any(not value for value in expected_values):
+              raise SystemExit("DOTNET_PACKAGE_IDS must be a non-empty comma-separated allowlist")
+          expected = set(expected_values)
+          if len(expected) != len(expected_values):
+              raise SystemExit("DOTNET_PACKAGE_IDS contains duplicate PackageId values")
+
+          expected_version = os.environ["EXPECTED_VERSION"].strip()
+          if not expected_version:
+              raise SystemExit("expected package version is empty")
+
+          package_paths = sorted(pathlib.Path("nupkg").glob("*.nupkg"))
+          if not package_paths:
+              raise SystemExit("No .nupkg files found")
+
+          def local_name(tag: str) -> str:
+              return tag.rsplit("}", 1)[-1]
+
+          def direct_child(parent: ET.Element, name: str) -> ET.Element | None:
+              matches = [child for child in list(parent) if local_name(child.tag) == name]
+              if len(matches) != 1:
+                  return None
+              return matches[0]
+
+          def direct_child_text(parent: ET.Element, name: str) -> str:
+              child = direct_child(parent, name)
+              return child.text.strip() if child is not None and child.text else ""
+
+          verified: dict[str, pathlib.Path] = {}
+          for package_path in package_paths:
+              with zipfile.ZipFile(package_path) as archive:
+                  nuspecs = [name for name in archive.namelist() if name.lower().endswith(".nuspec")]
+                  if len(nuspecs) != 1:
+                      raise SystemExit(f"{package_path}: expected exactly one .nuspec, found {len(nuspecs)}")
+                  root = ET.fromstring(archive.read(nuspecs[0]))
+
+              if local_name(root.tag) != "package":
+                  raise SystemExit(f"{package_path}: nuspec root must be package")
+              metadata = direct_child(root, "metadata")
+              if metadata is None:
+                  raise SystemExit(f"{package_path}: expected exactly one direct package/metadata element")
+              package_id = direct_child_text(metadata, "id")
+              version = direct_child_text(metadata, "version")
+              if not package_id or not version:
+                  raise SystemExit(f"{package_path}: missing direct package/metadata PackageId or version")
+              if package_id not in expected:
+                  raise SystemExit(f"Unexpected PackageId {package_id!r} in {package_path}")
+              if package_id in verified:
+                  raise SystemExit(f"Duplicate package artifact for PackageId {package_id!r}")
+              if version != expected_version:
+                  raise SystemExit(
+                      f"{package_path}: version {version!r} does not match validated tag version {expected_version!r}"
+                  )
+              verified[package_id] = package_path
+
+          missing = expected - set(verified)
+          if missing:
+              raise SystemExit(f"Missing allowlisted PackageId artifacts: {sorted(missing)}")
+
+          manifest = pathlib.Path("nupkg/publish-files.txt")
+          manifest.write_text(
+              "".join(
+                  f"{verified[package_id].as_posix()}\n" for package_id in sorted(verified)
+              ),
+              encoding="utf-8",
+          )
+          print(f"Validated {len(verified)} exact package identities")
+          PY
+      - name: Verify revision remained unchanged
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ steps.release_ref.outputs.sha }}
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+      - name: Upload package artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: nuget-${{ steps.release.outputs.version }}
+          path: nupkg/*.nupkg
+          retention-days: 7
+      - name: Publish package files
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t packages < nupkg/publish-files.txt
+          if (( ${#packages[@]} == 0 )); then
+            echo "Validated package manifest is empty" >&2
+            exit 1
+          fi
+          for package in "${packages[@]}"; do
+            test -f "$package"
+            dotnet nuget push "$package" \
+              --api-key "${{ secrets.GITHUB_TOKEN }}" \
+              --source "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json" \
+              --skip-duplicate
+          done
+      - name: Create GitHub release for validated tag
+        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda
+        with:
+          tag_name: ${{ steps.release_ref.outputs.tag }}
+          target_commitish: ${{ steps.release_ref.outputs.sha }}
+          files: nupkg/*.nupkg
+          generate_release_notes: true

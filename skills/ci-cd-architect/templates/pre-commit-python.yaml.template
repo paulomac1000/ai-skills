@@ -1,0 +1,14 @@
+repos:
+  - repo: local
+    hooks:
+      - id: python-fast-gate
+        name: Python fast gate
+        entry: bash -lc 'ruff check . && ruff format --check . && python -m compileall -q <PYTHON_COMPILE_PATHS>'
+        language: system
+        pass_filenames: false
+      - id: repository-parity
+        name: Bounded repository parity gate
+        entry: python scripts/ci.py
+        language: system
+        pass_filenames: false
+        stages: [pre-push]

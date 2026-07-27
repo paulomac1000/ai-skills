@@ -1,0 +1,37 @@
+name: Python container smoke
+
+on:
+  pull_request:
+  push:
+    branches: [<DEFAULT_BRANCH>]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: python-container-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  container-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: <TIMEOUT_MINUTES>
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5
+      - name: Build local image
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf
+        with:
+          context: .
+          load: true
+          push: false
+          tags: <LOCAL_IMAGE_REF>
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Smoke-test built image
+        env:
+          IMAGE_REF: <LOCAL_IMAGE_REF>
+        run: <CONTAINER_SMOKE_COMMAND>

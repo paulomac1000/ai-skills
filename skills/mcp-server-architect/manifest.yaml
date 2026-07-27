@@ -1,0 +1,95 @@
+schema_version: 1
+name: mcp-server-architect
+version: 1.1.0
+maturity: stable
+skill_format: ai-skills/v1
+normative_entrypoint: STANDARD.md
+compatibility:
+  agent_contract: tool-capable-instruction-agent
+  operating_systems:
+  - linux
+  - macos
+  - windows
+  runtimes:
+    python: '>=3.12,<3.15'
+    dotnet: 10.0.x
+  evidence_lanes:
+  - python-compatibility
+  - dotnet-compatibility
+  - docker-artifact
+  tested_combinations:
+  - operating_system: linux
+    architecture: x64
+    runtime: python
+    version: '3.12'
+    lane: python-compatibility
+  - operating_system: linux
+    architecture: x64
+    runtime: python
+    version: '3.13'
+    lane: python-compatibility
+  - operating_system: linux
+    architecture: x64
+    runtime: python
+    version: '3.14'
+    lane: python-compatibility
+  - operating_system: macos
+    architecture: arm64
+    runtime: python
+    version: '3.12'
+    lane: python-compatibility
+  - operating_system: windows
+    architecture: x64
+    runtime: python
+    version: '3.12'
+    lane: python-compatibility
+  - operating_system: linux
+    architecture: x64
+    runtime: dotnet
+    version: 10.0.302
+    lane: dotnet-compatibility
+  - operating_system: macos
+    architecture: arm64
+    runtime: dotnet
+    version: 10.0.302
+    lane: dotnet-compatibility
+  - operating_system: windows
+    architecture: x64
+    runtime: dotnet
+    version: 10.0.302
+    lane: dotnet-compatibility
+  - operating_system: linux
+    architecture: x64
+    runtime: python
+    version: '3.12'
+    lane: docker-artifact
+dependencies:
+  skills: []
+  tools:
+  - python
+  - dotnet-sdk
+deprecation:
+  policy: semantic-versioning
+  minimum_notice: one-minor-release
+required:
+- SKILL.md
+- STANDARD.md
+- references/migration-assessment.md
+- templates/migration-assessment.yaml.template
+- tools/generate_python_server.py
+- tools/generate_dotnet_server.py
+- locks/python-runtime.in
+- locks/python-dev.in
+categories:
+- core
+- references
+- examples
+- templates
+- tools
+- locks
+adoption:
+  template: contracts/adoption-assessment.yaml.template
+  validator: contracts/validate_adoption.py
+  rule_catalog: contracts/rule-catalog.yaml
+  extension: mcp
+  rule_map: contracts/standard-rule-map.yaml

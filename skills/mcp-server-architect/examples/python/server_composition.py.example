@@ -1,0 +1,45 @@
+"""Minimal official-SDK composition example; use the generator for a complete project."""
+
+from __future__ import annotations
+
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+from dataclasses import dataclass
+
+from mcp.server.fastmcp import Context, FastMCP
+from mcp.server.session import ServerSession
+
+
+@dataclass(frozen=True, slots=True)
+class AppContext:
+    service: "InventoryService"
+
+
+class InventoryService:
+    async def list_items(self) -> list[dict[str, str]]:
+        return [{"item_id": "example", "name": "Example item"}]
+
+
+@asynccontextmanager
+async def lifespan(_server: FastMCP) -> AsyncIterator[AppContext]:
+    yield AppContext(service=InventoryService())
+
+
+mcp = FastMCP(
+    "inventory-mcp",
+    instructions="List items before using their stable item_id in follow-up tools.",
+    lifespan=lifespan,
+    stateless_http=True,
+    json_response=True,
+)
+
+
+@mcp.tool()
+async def list_items(ctx: Context[ServerSession, AppContext]) -> dict[str, object]:
+    """List bounded inventory summaries in stable identifier order."""
+    items = await ctx.request_context.lifespan_context.service.list_items()
+    return {"success": True, "data": items}
+
+
+if __name__ == "__main__":
+    mcp.run()
