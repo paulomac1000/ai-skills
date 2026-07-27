@@ -10,6 +10,8 @@ import yaml
 from contracts.semver import is_semver
 
 ROOT = Path(__file__).resolve().parents[1]
+RELEASE_VERSION = "1.1.0"
+RELEASE_MATURITY = "stable"
 SUPPORTED_MATURITY = {"experimental", "release-candidate", "stable", "deprecated"}
 ALLOWED_OPERATING_SYSTEMS = {"linux", "macos", "windows"}
 RUNNER_OPERATING_SYSTEM = {"ubuntu": "linux", "macos": "macos", "windows": "windows"}
@@ -110,7 +112,9 @@ def test_every_skill_manifest_is_versioned_and_declares_exact_evidenced_combinat
         assert manifest["schema_version"] == 1, path
         assert manifest["name"] == directory.name, path
         assert is_semver(manifest["version"]), path
+        assert manifest["version"] == RELEASE_VERSION, path
         assert manifest["maturity"] in SUPPORTED_MATURITY, path
+        assert manifest["maturity"] == RELEASE_MATURITY, path
         assert manifest["skill_format"] == "ai-skills/v1", path
         assert manifest["normative_entrypoint"] == "STANDARD.md", path
         assert (directory / manifest["normative_entrypoint"]).is_file(), path
@@ -159,6 +163,19 @@ def test_every_skill_manifest_is_versioned_and_declares_exact_evidenced_combinat
         assert deprecation["minimum_notice"], path
 
 
+def test_release_documentation_matches_manifest_version_and_maturity() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+
+    assert f"`{RELEASE_VERSION}`" in readme
+    assert f"## {RELEASE_VERSION} - " in changelog
+    assert f"maturity: {RELEASE_MATURITY}" in readme
+    assert f"{RELEASE_VERSION}-" not in readme
+    assert f"## {RELEASE_VERSION}-" not in changelog
+    assert "production release candidate" not in readme.casefold()
+    assert "controlled production pilot" not in readme.casefold()
+
+
 def test_required_manifest_resources_exist_and_are_relative() -> None:
     for path in sorted((ROOT / "skills").glob("*/manifest.yaml")):
         manifest = yaml.safe_load(path.read_text(encoding="utf-8"))
@@ -166,4 +183,4 @@ def test_required_manifest_resources_exist_and_are_relative() -> None:
             resource = Path(relative)
             assert not resource.is_absolute(), (path, relative)
             assert ".." not in resource.parts, (path, relative)
-            assert (path.parent / resource).is_file(), (path, relative)
+            assert (path.parent / relative).is_file(), (path, relative)
