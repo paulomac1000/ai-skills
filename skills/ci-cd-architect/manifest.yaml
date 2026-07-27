@@ -1,7 +1,7 @@
 schema_version: 1
 name: ci-cd-architect
-version: 1.1.0-rc.1
-maturity: release-candidate
+version: 1.1.0
+maturity: stable
 skill_format: ai-skills/v1
 normative_entrypoint: STANDARD.md
 compatibility:
