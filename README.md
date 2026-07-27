@@ -2,7 +2,7 @@
 
 A production-oriented collection of reusable standards, agent workflows, implementation playbooks, executable policy helpers, and tested templates for AI-assisted software engineering.
 
-This pull request introduces one coherent repository release, `1.1.0-rc.1`; branch iterations are not separate releases. It is intended for controlled production pilots and independent review. Each skill declares its own compatibility and maturity in `manifest.yaml`.
+The current repository release is `1.1.0`. All bundled skills are published with `maturity: stable` and are intended for production adoption. Each skill declares its compatibility, dependencies, evidence lanes, and required entry points in `manifest.yaml`.
 
 ## Included skills
 
@@ -33,7 +33,7 @@ Every skill contains:
 
 - `SKILL.md` — concise routing and operating instructions;
 - `STANDARD.md` — stable cross-project invariants and acceptance criteria;
-- `manifest.yaml` — compatibility, maturity, dependency, deprecation, resource-category, and required-entry-point contract.
+- `manifest.yaml` — version, maturity, compatibility, dependency, deprecation, resource-category, and required-entry-point contract.
 
 A skill may also contain `references/`, `templates/`, `examples/`, `tools/`, or reviewed dependency `locks/`. These directories contain reusable operational knowledge, not temporary analysis artifacts.
 
@@ -82,7 +82,7 @@ Repository-wide adoption contracts live in [`contracts/`](contracts/README.md). 
 - rollback and residual risks are explicit;
 - a canonical independent reviewer approves the immutable revision.
 
-Run `python contracts/validate_adoption.py <assessment.yaml> --require-approval` in each adopting repository. Local evidence generation and validation are diagnostic; final approval depends on the external provider-backed authority declared by the adoption contract.
+Run `python contracts/validate_adoption.py <assessment.yaml> --require-approval` in each adopting repository. Local evidence generation and validation are diagnostic; final adoption approval depends on the external provider-backed authority declared by the adoption contract.
 
 ## Design principles
 
@@ -96,7 +96,7 @@ Run `python contracts/validate_adoption.py <assessment.yaml> --require-approval`
 
 ## Recovery and change history
 
-[`RECOVERY_AUDIT.md`](RECOVERY_AUDIT.md) maps recovered knowledge to its canonical location and records unsafe legacy defaults that were intentionally rejected. [`CHANGELOG.md`](CHANGELOG.md) describes this repository release as one coherent version.
+[`RECOVERY_AUDIT.md`](RECOVERY_AUDIT.md) maps recovered knowledge to its canonical location and records unsafe legacy defaults that were intentionally rejected. [`CHANGELOG.md`](CHANGELOG.md) records the repository's published releases.
 
 ## License
 
