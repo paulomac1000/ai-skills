@@ -15,6 +15,22 @@ RELEASE_MATURITY = "stable"
 SUPPORTED_MATURITY = {"experimental", "release-candidate", "stable", "deprecated"}
 ALLOWED_OPERATING_SYSTEMS = {"linux", "macos", "windows"}
 RUNNER_OPERATING_SYSTEM = {"ubuntu": "linux", "macos": "macos", "windows": "windows"}
+RELEASE_TEXT_SUFFIXES = {
+    ".cs",
+    ".csproj",
+    ".example",
+    ".in",
+    ".j2",
+    ".json",
+    ".lock",
+    ".md",
+    ".py",
+    ".template",
+    ".toml",
+    ".txt",
+    ".yaml",
+    ".yml",
+}
 
 
 def load_matrix() -> dict[str, Any]:
@@ -166,14 +182,27 @@ def test_every_skill_manifest_is_versioned_and_declares_exact_evidenced_combinat
 def test_release_documentation_matches_manifest_version_and_maturity() -> None:
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    migration_template = yaml.safe_load(
+        (ROOT / "skills/mcp-server-architect/templates/migration-assessment.yaml.template").read_text(encoding="utf-8")
+    )
 
     assert f"`{RELEASE_VERSION}`" in readme
     assert f"## {RELEASE_VERSION} - " in changelog
     assert f"maturity: {RELEASE_MATURITY}" in readme
+    assert migration_template["skill"]["version"] == RELEASE_VERSION
+    assert migration_template["skill"]["maturity"] == RELEASE_MATURITY
     assert f"{RELEASE_VERSION}-" not in readme
     assert f"## {RELEASE_VERSION}-" not in changelog
     assert "production release candidate" not in readme.casefold()
     assert "controlled production pilot" not in readme.casefold()
+
+
+def test_current_release_prerelease_identity_is_absent_from_repository_text() -> None:
+    stale_identity = f"{RELEASE_VERSION}-rc."
+    for path in ROOT.rglob("*"):
+        if not path.is_file() or path.suffix.casefold() not in RELEASE_TEXT_SUFFIXES:
+            continue
+        assert stale_identity not in path.read_text(encoding="utf-8"), path
 
 
 def test_required_manifest_resources_exist_and_are_relative() -> None:
