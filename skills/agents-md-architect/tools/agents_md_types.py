@@ -7,7 +7,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-
 Severity = Literal["error", "warning"]
 ProfileName = Literal["router", "application", "monorepo", "mcp-server", "safety-critical"]
 
@@ -35,9 +34,7 @@ POSITIVE_CI_GUARANTEE = re.compile(
     r"CI.{0,25}(?:will pass|passes|is guaranteed|guaranteed to pass)"
 )
 CHANGELOG_HEADING = re.compile(r"(?i)^#{1,6}\s+(?:change\s*log|changelog|history)\s*$")
-CONTEXT_WAIVER = re.compile(
-    r'<!--\s*agents-md:\s*waive\s+context-budget\s+reason="(?P<reason>[^"]+)"\s*-->', re.I
-)
+CONTEXT_WAIVER = re.compile(r'<!--\s*agents-md:\s*waive\s+context-budget\s+reason="(?P<reason>[^"]+)"\s*-->', re.I)
 COMMAND_LINE = re.compile(r"^\s*[-*]\s*(?P<label>[^:]{2,80}):\s*`(?P<command>[^`]+)`\s*[.;]?\s*$")
 NEGATIVE_DIRECTIVE = re.compile(r"\b(?:must not|do not|don't|never|forbidden|prohibited|may not|cannot)\b", re.I)
 POSITIVE_DIRECTIVE = re.compile(r"\b(?:must|always|required|shall|may|allowed|permit(?:ted)?|edit directly)\b", re.I)
