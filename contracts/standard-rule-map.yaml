@@ -11,6 +11,20 @@ skills:
       canonical-ownership-and-lifecycle: {rule_id: afds.ownership.lifecycle, primary: true}
       quality-gate: {rule_id: afds.quality.executable, primary: true}
       verification: {rule_id: afds.verification.recorded, primary: true}
+  agents-md-architect:
+    headings:
+      purpose: {excluded: true, rationale: Informational scope heading, not an independently assessable invariant.}
+      scope-and-precedence: {rule_id: agents.scope.precedence, primary: true}
+      repository-discovery: {rule_id: agents.discovery.evidence, primary: true}
+      operating-modes-and-profiles: {rule_id: agents.modes.profiled, primary: true}
+      canonical-ownership-and-architecture-boundaries: {rule_id: agents.ownership.boundaries, primary: true}
+      safety-and-data-boundaries: {rule_id: agents.safety.fail-closed, primary: true}
+      commands-and-verification: {rule_id: agents.commands.executable, primary: true}
+      context-economy-and-routing: {rule_id: agents.context.routed, primary: true}
+      nested-instructions: {rule_id: agents.nested.locality, primary: true}
+      anti-patterns-and-drift: {rule_id: agents.drift.prevented, primary: true}
+      definition-of-done: {rule_id: agents.completion.evidenced, primary: true}
+      verification: {rule_id: agents.completion.evidenced}
   ci-cd-architect:
     headings:
       purpose: {excluded: true, rationale: Informational scope heading, not an independently assessable invariant.}
