@@ -56,6 +56,8 @@ required:
 - references/lifecycle-and-evidence.md
 - templates/AGENTS.md.template
 - templates/nested-AGENTS.md.template
+- tools/discover_repository.py
+- tools/audit_agents_md.py
 - tools/validate_agents_md.py
 categories:
 - core
