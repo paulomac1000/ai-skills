@@ -16,70 +16,37 @@ TOOLS = Path(__file__).resolve().parent
 if str(TOOLS) not in sys.path:
     sys.path.insert(0, str(TOOLS))
 
-try:
-    from .agents_md_parse import (
-        _has_concept,
-        _is_negated_ci_rule,
-        _is_negated_keyword_rule,
-        _iter_references,
-        _parse_document,
-        _resolve_reference,
-        _trusted_input,
-        _trusted_root,
-    )
-    from .agents_md_types import (
-        ABSOLUTE_HOST_PATH,
-        BARE_REFERENCE,
-        CHANGELOG_HEADING,
-        CONTEXT_WAIVER,
-        GENERIC_ADVICE,
-        HEADING,
-        KEYWORD_APPROVAL,
-        NESTED_MONOREPO_REQUIREMENTS,
-        PLACEHOLDER,
-        POSITIVE_CI_GUARANTEE,
-        PROFILE_BUDGETS,
-        PROFILE_REQUIREMENTS,
-        VERSIONED_NAME,
-        VOLATILE_COUNT,
-        Finding,
-        ParsedDocument,
-        ProfileName,
-        Severity,
-        _normalize_heading,
-    )
-except ImportError:  # pragma: no cover - direct script execution
-    from agents_md_parse import (
-        _has_concept,
-        _is_negated_ci_rule,
-        _is_negated_keyword_rule,
-        _iter_references,
-        _parse_document,
-        _resolve_reference,
-        _trusted_input,
-        _trusted_root,
-    )
-    from agents_md_types import (
-        ABSOLUTE_HOST_PATH,
-        BARE_REFERENCE,
-        CHANGELOG_HEADING,
-        CONTEXT_WAIVER,
-        GENERIC_ADVICE,
-        HEADING,
-        KEYWORD_APPROVAL,
-        NESTED_MONOREPO_REQUIREMENTS,
-        PLACEHOLDER,
-        POSITIVE_CI_GUARANTEE,
-        PROFILE_BUDGETS,
-        PROFILE_REQUIREMENTS,
-        VERSIONED_NAME,
-        VOLATILE_COUNT,
-        Finding,
-        ParsedDocument,
-        ProfileName,
-        Severity,
-        _normalize_heading,
-    )
+from agents_md_parse import (  # noqa: E402
+    _has_concept,
+    _is_negated_ci_rule,
+    _is_negated_keyword_rule,
+    _iter_references,
+    _parse_document,
+    _resolve_reference,
+    _trusted_input,
+    _trusted_root,
+)
+from agents_md_types import (  # noqa: E402
+    ABSOLUTE_HOST_PATH,
+    BARE_REFERENCE,
+    CHANGELOG_HEADING,
+    CONTEXT_WAIVER,
+    GENERIC_ADVICE,
+    HEADING,
+    KEYWORD_APPROVAL,
+    NESTED_MONOREPO_REQUIREMENTS,
+    PLACEHOLDER,
+    POSITIVE_CI_GUARANTEE,
+    PROFILE_BUDGETS,
+    PROFILE_REQUIREMENTS,
+    VERSIONED_NAME,
+    VOLATILE_COUNT,
+    Finding,
+    ParsedDocument,
+    ProfileName,
+    Severity,
+    _normalize_heading,
+)
 
 
 def _validate_document(
@@ -310,8 +277,8 @@ def _validate_tree(documents: Sequence[ParsedDocument], root: Path) -> list[Find
 
         parent_directives = {item.category: item for item in parent.directives}
         for directive in child.directives:
-            inherited = parent_directives.get(directive.category)
-            if inherited is None or inherited.polarity == directive.polarity:
+            inherited_directive = parent_directives.get(directive.category)
+            if inherited_directive is None or inherited_directive.polarity == directive.polarity:
                 continue
             if directive.explicit_override:
                 findings.append(
@@ -335,36 +302,36 @@ def _validate_tree(documents: Sequence[ParsedDocument], root: Path) -> list[Find
                         directive.line,
                         (
                             f"Rule conflicts with inherited {directive.category} directive "
-                            f"at {parent.relative_path}:{inherited.line}."
+                            f"at {parent.relative_path}:{inherited_directive.line}."
                         ),
                     )
                 )
 
         parent_commands = {item.key: item for item in parent.commands}
         for command in child.commands:
-            inherited = parent_commands.get(command.key)
-            if inherited and inherited.command != command.command and not command.explicit_local:
+            inherited_command = parent_commands.get(command.key)
+            if inherited_command and inherited_command.command != command.command and not command.explicit_local:
                 findings.append(
                     Finding(
                         str(child.path),
                         "error",
                         "tree.conflicting-command",
                         command.line,
-                        f"Command conflicts with inherited command at {parent.relative_path}:{inherited.line}.",
+                        f"Command conflicts with inherited command at {parent.relative_path}:{inherited_command.line}.",
                     )
                 )
 
         parent_ownership = {item.key: item for item in parent.ownership}
         for owner in child.ownership:
-            inherited = parent_ownership.get(owner.key)
-            if inherited and inherited.target != owner.target and not owner.explicit_local:
+            inherited_owner = parent_ownership.get(owner.key)
+            if inherited_owner and inherited_owner.target != owner.target and not owner.explicit_local:
                 findings.append(
                     Finding(
                         str(child.path),
                         "error",
                         "tree.conflicting-owner",
                         owner.line,
-                        f"Canonical owner conflicts with {parent.relative_path}:{inherited.line}.",
+                        f"Canonical owner conflicts with {parent.relative_path}:{inherited_owner.line}.",
                     )
                 )
 
