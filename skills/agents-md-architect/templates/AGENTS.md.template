@@ -1,0 +1,48 @@
+# AGENTS.md
+
+These instructions apply to the repository. More specific `AGENTS.md` files may define local differences for their subtrees.
+
+## Mission and non-goals
+
+- Maintain: REPLACE_WITH_PRIMARY_SYSTEM_OUTCOME.
+- Do not: REPLACE_WITH_SCOPE_BOUNDARY.
+
+## Operating modes
+
+- Read-only audit: inspect and report without modifying repository or external state.
+- Implementation: reproduce the issue, add regression evidence, change the canonical owner, and validate.
+- REPLACE_OR_REMOVE_WITH_OTHER_REAL_MODE.
+
+## Read before editing
+
+1. Read `REPLACE_WITH_CANONICAL_ENTRYPOINT` for REPLACE_WITH_PURPOSE.
+2. When changing REPLACE_WITH_AREA, read `REPLACE_WITH_REFERENCE` for REPLACE_WITH_DECISION_OWNED.
+
+## Sources of truth
+
+1. `REPLACE_WITH_NORMATIVE_OWNER` — contract and accepted behavior.
+2. `REPLACE_WITH_IMPLEMENTATION_OWNER` — production implementation.
+3. `REPLACE_WITH_TEST_OWNER` — executable invariants and regressions.
+
+Stop when these disagree. Reconcile the canonical owner instead of selecting the easiest version.
+
+## Architecture and safety boundaries
+
+- REPLACE_WITH_NON_OBVIOUS_DEPENDENCY_OR_GENERATED_FILE_RULE.
+- REPLACE_WITH_PROTECTED_ASSET_AND_ALLOWED_COMPONENT.
+- REPLACE_WITH_FORBIDDEN_FLOW_OR_DESTRUCTIVE_ACTION.
+
+## Commands
+
+- Setup: `REPLACE_WITH_SETUP_COMMAND`
+- Focused check: `REPLACE_WITH_FOCUSED_COMMAND`
+- Full gate: `REPLACE_WITH_FULL_GATE`
+
+State external-service, credential, cost, or destructive preconditions next to the command that needs them.
+
+## Definition of done
+
+- The changed behavior has focused regression evidence.
+- Relevant links, generated-file ownership, and documentation agree.
+- The full gate passes on the exact revision, or skipped checks are reported explicitly.
+- The final diff contains no secrets, private data, unrelated files, or temporary variants.
