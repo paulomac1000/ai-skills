@@ -43,6 +43,76 @@ profiles:
     - repository-junit.xml
     execution_id: repository
   - kind: rule
+    subject: agents.scope.precedence
+    selectors:
+    - '*test_agents_md*'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: agents.discovery.evidence
+    selectors:
+    - '*test_agents_md*'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: agents.modes.profiled
+    selectors:
+    - '*test_agents_md*'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: agents.ownership.boundaries
+    selectors:
+    - '*test_agents_md*'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: agents.safety.fail-closed
+    selectors:
+    - '*test_agents_md*'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: agents.commands.executable
+    selectors:
+    - '*test_agents_md*'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: agents.context.routed
+    selectors:
+    - '*test_agents_md*'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: agents.nested.locality
+    selectors:
+    - '*test_agents_md*'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: agents.drift.prevented
+    selectors:
+    - '*test_agents_md*'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: agents.completion.evidenced
+    selectors:
+    - '*test_agents_md*'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
     subject: cicd.layers.separated
     selectors:
     - '*test_templates*'
@@ -60,6 +130,7 @@ profiles:
     subject: cicd.quality.language
     selectors:
     - '*test_ci_scripts*'
+    - '*test_ci_quality_scope*'
     result_files:
     - repository-junit.xml
     execution_id: repository
@@ -81,6 +152,7 @@ profiles:
     subject: cicd.local.bounded
     selectors:
     - '*test_ci_scripts*'
+    - '*test_ci_quality_scope*'
     result_files:
     - repository-junit.xml
     execution_id: repository
