@@ -64,6 +64,8 @@ required:
 - templates/nested-AGENTS.md.template
 - tools/discover_repository.py
 - tools/audit_agents_md.py
+- tools/agents_md_types.py
+- tools/agents_md_parse.py
 - tools/validate_agents_md.py
 categories:
 - core
