@@ -105,10 +105,7 @@ def _relative(root: Path, value: Path) -> str:
 
 def _is_dotnet_project_directory(directory: Path) -> bool:
     try:
-        return any(
-            path.is_file() and path.suffix.casefold() in DOTNET_PROJECT_SUFFIXES
-            for path in directory.iterdir()
-        )
+        return any(path.is_file() and path.suffix.casefold() in DOTNET_PROJECT_SUFFIXES for path in directory.iterdir())
     except OSError:
         return False
 

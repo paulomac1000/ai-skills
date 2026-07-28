@@ -158,8 +158,7 @@ def audit(
 
     paths = [safe_root / relative for relative in discovery.agent_files]
     findings.extend(
-        _convert(item)
-        for item in validate_many(paths, domain_profile, safe_root, selected_layout, language)
+        _convert(item) for item in validate_many(paths, domain_profile, safe_root, selected_layout, language)
     )
 
     texts: dict[str, str] = {}

@@ -346,9 +346,7 @@ def _directive_category(line: str, language: LanguageName) -> str | None:
     return None
 
 
-def _extract_directives(
-    visible_lines: Sequence[tuple[int, str]], language: LanguageName
-) -> tuple[Directive, ...]:
+def _extract_directives(visible_lines: Sequence[tuple[int, str]], language: LanguageName) -> tuple[Directive, ...]:
     directives: list[Directive] = []
     negative_pattern = LANGUAGE_NEGATIVE_DIRECTIVE[language]
     positive_pattern = LANGUAGE_POSITIVE_DIRECTIVE[language]

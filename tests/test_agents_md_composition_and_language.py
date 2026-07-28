@@ -177,14 +177,29 @@ def test_other_language_requires_markers_in_strict_mode(tmp_path: Path) -> None:
     path = write(tmp_path, "AGENTS.md", "# AGENTS.md\n\nArbitrary language text.\n")
     result = validator.validate_path(path, "application", tmp_path, "single", "other")
     assert "language.semantic-unverified" in codes(result)
-    assert validator.main([
-        "--profile", "application", "--language", "other", "--strict", "--repository-root", str(tmp_path), str(path)
-    ]) == 1
+    assert (
+        validator.main(
+            [
+                "--profile",
+                "application",
+                "--language",
+                "other",
+                "--strict",
+                "--repository-root",
+                str(tmp_path),
+                str(path),
+            ]
+        )
+        == 1
+    )
 
 
 def test_directory_reference_is_rejected(tmp_path: Path) -> None:
     (tmp_path / "docs").mkdir()
-    path = write(tmp_path, "AGENTS.md", """# AGENTS.md
+    path = write(
+        tmp_path,
+        "AGENTS.md",
+        """# AGENTS.md
 
 <!-- agents-md: contract scope -->
 <!-- agents-md: contract commands -->
@@ -195,7 +210,8 @@ These instructions apply.
 - Full gate: `python scripts/ci.py`
 ## Definition of done
 Read `docs/` for architecture.
-""")
+""",
+    )
     assert "links.not-file" in codes(validator.validate_path(path, "application", tmp_path))
 
 
@@ -212,13 +228,14 @@ def test_instruction_tree_limits_fail_closed(tmp_path: Path) -> None:
     payload = "# AGENTS.md\n" + ("x" * 240_000)
     for index in range(9):
         paths.append(write(tmp_path, f"packages/p{index}/AGENTS.md", payload))
-    assert "input.tree-too-large" in codes(
-        validator.validate_many(paths, "application", tmp_path, "monorepo", "en")
-    )
+    assert "input.tree-too-large" in codes(validator.validate_many(paths, "application", tmp_path, "monorepo", "en"))
 
 
 def test_all_replace_tokens_are_placeholders(tmp_path: Path) -> None:
-    path = write(tmp_path, "AGENTS.md", """# AGENTS.md
+    path = write(
+        tmp_path,
+        "AGENTS.md",
+        """# AGENTS.md
 
 <!-- agents-md: contract scope -->
 <!-- agents-md: contract commands -->
@@ -229,18 +246,22 @@ These instructions apply.
 - Full gate: `python scripts/ci.py`
 ## Definition of done
 REPLACE_OR_REMOVE_WITH_OTHER_REAL_MODE
-""")
+""",
+    )
     assert "content.placeholder" in codes(validator.validate_path(path, "application", tmp_path))
 
 
 def test_audit_and_validator_share_blockquote_fence_visibility(tmp_path: Path) -> None:
     prepare(tmp_path)
-    text = root_text() + """
+    text = (
+        root_text()
+        + """
 > ```markdown
 > CONSENT_KEYWORDS = ["approve"]
 > - Full gate: `python missing.py`
 > ```
 """
+    )
     path = write(tmp_path, "AGENTS.md", text)
     validation = validator.validate_path(path, "application", tmp_path, "monorepo", "en")
     _, audited = audit_module.audit(tmp_path, "application", "monorepo", "en")

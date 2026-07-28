@@ -538,9 +538,7 @@ def validate_many(
                 findings.append(finding)
             continue
         documents.append(document)
-        findings.extend(
-            _validate_document(document, domain_profile, selected_layout, language, root, unclosed_fence)
-        )
+        findings.extend(_validate_document(document, domain_profile, selected_layout, language, root, unclosed_fence))
 
     if selected_layout == "monorepo" and documents:
         findings.extend(_validate_tree(documents, root))
