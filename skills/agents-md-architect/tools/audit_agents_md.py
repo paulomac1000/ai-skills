@@ -264,9 +264,7 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def _render_text(findings: Iterable[AuditFinding]) -> str:
-    return "\n".join(
-        f"{item.path}:{item.line}: {item.severity}: {item.code}: {item.message}" for item in findings
-    )
+    return "\n".join(f"{item.path}:{item.line}: {item.severity}: {item.code}: {item.message}" for item in findings)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
