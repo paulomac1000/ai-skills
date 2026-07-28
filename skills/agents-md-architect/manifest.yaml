@@ -44,6 +44,11 @@ dependencies:
   skills: []
   tools:
   - python
+conditional_dependencies:
+  profiles:
+    mcp-server:
+      skills:
+      - mcp-server-architect
 deprecation:
   policy: semantic-versioning
   minimum_notice: one-minor-release
@@ -54,6 +59,7 @@ required:
 - references/profiles-and-routing.md
 - references/anti-patterns-and-drift.md
 - references/lifecycle-and-evidence.md
+- references/instruction-precedence-and-platforms.md
 - templates/AGENTS.md.template
 - templates/nested-AGENTS.md.template
 - tools/discover_repository.py
