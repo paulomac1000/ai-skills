@@ -10,7 +10,7 @@ from types import ModuleType
 
 import pytest
 
-from scripts import select_lock
+from scripts import quality_targets, select_lock
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -19,6 +19,7 @@ def load(path: Path, name: str) -> ModuleType:
     spec = importlib.util.spec_from_file_location(name, path)
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
+    sys.modules.setdefault("quality_targets", quality_targets)
     sys.modules.setdefault("select_lock", select_lock)
     sys.modules[name] = module
     spec.loader.exec_module(module)
