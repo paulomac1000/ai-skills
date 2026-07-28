@@ -6,9 +6,10 @@ from __future__ import annotations
 import argparse
 import json
 import os
+from collections.abc import Sequence
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Literal, Sequence
+from typing import Literal
 
 OutputFormat = Literal["json", "text"]
 
@@ -111,9 +112,18 @@ def _classify_ecosystems(files: set[str]) -> set[str]:
     ecosystems: set[str] = set()
     if {"pyproject.toml", "requirements.txt", "setup.py", "setup.cfg", "uv.lock"} & names or ".py" in suffixes:
         ecosystems.add("python")
-    if {"global.json", "Directory.Build.props", "Directory.Packages.props"} & names or {".sln", ".csproj", ".cs"} & suffixes:
+    if {"global.json", "Directory.Build.props", "Directory.Packages.props"} & names or {
+        ".sln",
+        ".csproj",
+        ".cs",
+    } & suffixes:
         ecosystems.add("dotnet")
-    if {"package.json", "pnpm-workspace.yaml", "yarn.lock"} & names or {".js", ".jsx", ".ts", ".tsx"} & suffixes:
+    if {"package.json", "pnpm-workspace.yaml", "yarn.lock"} & names or {
+        ".js",
+        ".jsx",
+        ".ts",
+        ".tsx",
+    } & suffixes:
         ecosystems.add("node")
     if "go.mod" in names or ".go" in suffixes:
         ecosystems.add("go")
@@ -161,18 +171,24 @@ def discover(root: Path) -> Discovery:
     ci_files = {
         value
         for value in files
-        if value in CI_NAMES or value.startswith(".github/workflows/") and Path(value).suffix.casefold() in {".yml", ".yaml"}
+        if value in CI_NAMES
+        or value.startswith(".github/workflows/")
+        and Path(value).suffix.casefold() in {".yml", ".yaml"}
     }
     task_runners = {
         value
         for value in files
-        if Path(value).name in TASK_RUNNER_NAMES or value.startswith("scripts/") and Path(value).suffix.casefold() in {".py", ".ps1", ".sh"}
+        if Path(value).name in TASK_RUNNER_NAMES
+        or value.startswith("scripts/")
+        and Path(value).suffix.casefold() in {".py", ".ps1", ".sh"}
     }
     agent_files = {value for value in files if Path(value).name == "AGENTS.md"}
     documentation = {
         value
         for value in files
-        if Path(value).name in DOC_MARKERS or value.startswith("docs/") and Path(value).suffix.casefold() in {".md", ".rst", ".adoc"}
+        if Path(value).name in DOC_MARKERS
+        or value.startswith("docs/")
+        and Path(value).suffix.casefold() in {".md", ".rst", ".adoc"}
     }
 
     monorepo_signals: set[str] = set()
