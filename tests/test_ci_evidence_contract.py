@@ -9,6 +9,7 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 SKILLS = (
     "afds-doc-writer",
+    "agents-md-architect",
     "ci-cd-architect",
     "mcp-server-architect",
     "mcp-server-consumer",
