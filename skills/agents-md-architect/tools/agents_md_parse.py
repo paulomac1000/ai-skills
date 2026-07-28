@@ -279,10 +279,7 @@ def _build_sections(visible_lines: Sequence[tuple[int, str]]) -> dict[str, str]:
             continue
         if current is not None and HEADING.fullmatch(line) is None:
             sections[current].append(line)
-    return {
-        key: "\n".join(" ".join(part.split()) for part in value).strip()
-        for key, value in sections.items()
-    }
+    return {key: "\n".join(" ".join(part.split()) for part in value).strip() for key, value in sections.items()}
 
 
 def _directive_category(line: str) -> str | None:
@@ -290,8 +287,7 @@ def _directive_category(line: str) -> str | None:
     if "generated" in lowered and any(token in lowered for token in ("edit", "modify", "change")):
         return "generated-edit"
     if "test" in lowered and any(
-        token in lowered
-        for token in ("skip", "disable", "weaken", "remove", "must run", "required", "pass")
+        token in lowered for token in ("skip", "disable", "weaken", "remove", "must run", "required", "pass")
     ):
         return "test-integrity"
     if any(token in lowered for token in ("secret", "private data", "sensitive data")) and any(
@@ -390,8 +386,7 @@ def _extract_ownership(
             continue
 
         linked = [
-            (match.group("label"), _strip_destination(match.group("target")))
-            for match in INLINE_LINK.finditer(line)
+            (match.group("label"), _strip_destination(match.group("target"))) for match in INLINE_LINK.finditer(line)
         ]
         code_targets = [span for span in _iter_code_spans(line) if _is_path_candidate(span, line)]
         candidates = linked + [(line.split("`", 1)[0], target) for target in code_targets]
