@@ -10,7 +10,13 @@ from pathlib import Path
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
-EXPECTED_SKILLS = {"afds-doc-writer", "ci-cd-architect", "mcp-server-architect", "mcp-server-consumer"}
+EXPECTED_SKILLS = {
+    "afds-doc-writer",
+    "agents-md-architect",
+    "ci-cd-architect",
+    "mcp-server-architect",
+    "mcp-server-consumer",
+}
 ALLOWED_CATEGORIES = {"core", "references", "templates", "examples", "tools", "locks"}
 IGNORED_PARTS = {".git", ".venv", ".pytest_cache", "__pycache__", ".ruff_cache"}
 POLISH_MARKERS = re.compile(
