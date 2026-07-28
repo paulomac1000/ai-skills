@@ -24,9 +24,17 @@ def test_agents_tools_are_in_every_policy_critical_target_set() -> None:
     targets = load_targets()
     tools = "skills/agents-md-architect/tools"
     assert tools in targets.QUALITY_PATHS
-    assert tools in targets.TYPE_PATHS
     assert tools in targets.BANDIT_PATHS
     assert f"{tools}/*.py" in targets.POLICY_COVERAGE_PATHS
+
+    entrypoints = {
+        f"{tools}/audit_agents_md.py",
+        f"{tools}/discover_repository.py",
+        f"{tools}/validate_agents_md.py",
+    }
+    assert entrypoints <= set(targets.TYPE_PATHS)
+    assert tools not in targets.TYPE_PATHS
+
     for name in (
         "agents_md_parse.py",
         "agents_md_types.py",
@@ -35,6 +43,9 @@ def test_agents_tools_are_in_every_policy_critical_target_set() -> None:
         "validate_agents_md.py",
     ):
         assert (ROOT / tools / name).is_file()
+
+    mypy = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    assert 'mypy_path = "skills/agents-md-architect/tools"' in mypy
 
 
 def test_hosted_workflow_consumes_canonical_target_inventory() -> None:
