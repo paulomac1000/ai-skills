@@ -43,6 +43,7 @@ def test_agents_tools_are_in_every_policy_critical_target_set() -> None:
         "validate_agents_md.py",
     ):
         assert (ROOT / tools / name).is_file()
+    assert not (ROOT / tools / "__init__.py").exists()
 
     mypy = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
     assert 'mypy_path = "skills/agents-md-architect/tools"' in mypy
