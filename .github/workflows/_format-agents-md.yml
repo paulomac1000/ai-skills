@@ -8,7 +8,7 @@ on:
       - 'tests/test_agents_md_composition_and_language.py'
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   format:
@@ -17,7 +17,8 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
-          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.ref }}
+          persist-credentials: true
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
           python-version: '3.12'
@@ -25,7 +26,7 @@ jobs:
           cache-dependency-path: requirements-dev-linux-x64-py312.lock
       - name: Install locked development graph
         run: python scripts/install_locked.py
-      - name: Format changed AGENTS.md Python
+      - name: Apply canonical formatting
         run: >-
           python -m ruff format
           skills/agents-md-architect/tools/agents_md_parse.py
@@ -33,17 +34,14 @@ jobs:
           skills/agents-md-architect/tools/discover_repository.py
           skills/agents-md-architect/tools/validate_agents_md.py
           tests/test_agents_md_composition_and_language.py
-      - name: Package formatted files
-        run: >-
-          tar -czf /tmp/formatted-agents-md.tgz
-          skills/agents-md-architect/tools/agents_md_parse.py
-          skills/agents-md-architect/tools/audit_agents_md.py
-          skills/agents-md-architect/tools/discover_repository.py
-          skills/agents-md-architect/tools/validate_agents_md.py
-          tests/test_agents_md_composition_and_language.py
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
-        with:
-          name: formatted-agents-md
-          path: /tmp/formatted-agents-md.tgz
-          if-no-files-found: error
-          retention-days: 1
+      - name: Commit formatting result
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add skills/agents-md-architect/tools tests/test_agents_md_composition_and_language.py
+          if git diff --cached --quiet; then
+            echo 'No formatting changes required.'
+            exit 0
+          fi
+          git commit -m 'style(agents-md): apply canonical formatting'
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}
