@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.2.0 - 2026-07-28
+
+This release adds a governed standard for designing and maintaining repository instruction systems for coding agents.
+
+### Added
+
+- Added `agents-md-architect` with a concise operating workflow, normative standard, repository-discovery playbook, profile and routing guidance, drift and anti-pattern guidance, and lifecycle evidence requirements.
+- Added root and nested `AGENTS.md` templates that preserve canonical ownership, operating modes, architecture and safety boundaries, exact commands, and evidence-based completion.
+- Added an executable validator for profile requirements, instruction length, relative links, repository-boundary escapes, blind references, placeholders, versioned current names, volatile counts, host-specific paths, generic advice, keyword-based approval, and false CI guarantees.
+- Added regression tests and stable adoption rules covering scope, discovery, profiles, ownership, safety, verification, routing, nested locality, drift, and completion evidence.
+
+### Changed
+
+- Published all bundled skills as version `1.2.0` with `maturity: stable` and added the new skill to the cross-platform Python compatibility lane.
+- Extended repository quality, documentation, release, and adoption contracts to treat `agents-md-architect` as a first-class governed skill.
+
 ## 1.1.0 - 2026-07-27
 
 This release consolidates the complete implementation history of the branch into one production version.
