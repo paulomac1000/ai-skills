@@ -13,7 +13,7 @@ from typing import Literal
 
 OutputFormat = Literal["json", "text"]
 
-IGNORED_DIRECTORIES = {
+CACHE_DIRECTORIES = {
     ".git",
     ".hg",
     ".svn",
@@ -23,13 +23,10 @@ IGNORED_DIRECTORIES = {
     ".tox",
     ".venv",
     "__pycache__",
-    "bin",
-    "coverage",
-    "dist",
     "node_modules",
-    "obj",
-    "target",
 }
+GENERIC_BUILD_DIRECTORIES = {"coverage", "dist"}
+DOTNET_PROJECT_SUFFIXES = {".csproj", ".fsproj", ".vbproj"}
 MANIFEST_NAMES = {
     "Cargo.toml",
     "Directory.Build.props",
@@ -106,6 +103,44 @@ def _relative(root: Path, value: Path) -> str:
     return value.relative_to(root).as_posix()
 
 
+def _is_dotnet_project_directory(directory: Path) -> bool:
+    try:
+        return any(
+            path.is_file() and path.suffix.casefold() in DOTNET_PROJECT_SUFFIXES
+            for path in directory.iterdir()
+        )
+    except OSError:
+        return False
+
+
+def _is_dotnet_bin_output(project_directory: Path, candidate: Path) -> bool:
+    if not _is_dotnet_project_directory(project_directory):
+        return False
+    try:
+        entries = list(candidate.iterdir())
+    except OSError:
+        return False
+    if not entries:
+        return True
+    script_suffixes = {"", ".py", ".rb", ".ps1", ".sh"}
+    if any(entry.is_file() and entry.suffix.casefold() in script_suffixes for entry in entries):
+        return False
+    compiled_suffixes = {".dll", ".exe", ".json", ".pdb", ".so", ".dylib"}
+    return all(entry.is_dir() or entry.suffix.casefold() in compiled_suffixes for entry in entries)
+
+
+def _is_ignored_directory(root: Path, current: Path, name: str) -> bool:
+    if name in CACHE_DIRECTORIES or name in GENERIC_BUILD_DIRECTORIES:
+        return True
+    if name == "obj":
+        return _is_dotnet_project_directory(current)
+    if name == "bin":
+        return _is_dotnet_bin_output(current, current / name)
+    if name == "target":
+        return (current / "Cargo.toml").is_file()
+    return False
+
+
 def _classify_ecosystems(files: set[str]) -> set[str]:
     names = {Path(value).name for value in files}
     suffixes = {Path(value).suffix.casefold() for value in files}
@@ -150,7 +185,7 @@ def discover(root: Path) -> Discovery:
             relative = _relative(safe_root, candidate)
             if candidate.is_symlink():
                 symlinks.add(relative)
-            elif name not in IGNORED_DIRECTORIES:
+            elif not _is_ignored_directory(safe_root, current, name):
                 retained_directories.append(name)
         directory_names[:] = retained_directories
 
@@ -181,6 +216,8 @@ def discover(root: Path) -> Discovery:
         if Path(value).name in TASK_RUNNER_NAMES
         or value.startswith("scripts/")
         and Path(value).suffix.casefold() in {".py", ".ps1", ".sh"}
+        or value.startswith("bin/")
+        and Path(value).suffix.casefold() in {"", ".py", ".rb", ".ps1", ".sh"}
     }
     agent_files = {value for value in files if Path(value).name == "AGENTS.md"}
     documentation = {

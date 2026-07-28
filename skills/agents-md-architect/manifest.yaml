@@ -57,6 +57,7 @@ required:
 - STANDARD.md
 - references/repository-discovery.md
 - references/profiles-and-routing.md
+- references/language-and-contract-markers.md
 - references/anti-patterns-and-drift.md
 - references/lifecycle-and-evidence.md
 - references/instruction-precedence-and-platforms.md

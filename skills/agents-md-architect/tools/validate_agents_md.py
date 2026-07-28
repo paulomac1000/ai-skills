@@ -17,41 +17,81 @@ if str(TOOLS) not in sys.path:
     sys.path.insert(0, str(TOOLS))
 
 from agents_md_parse import (  # noqa: E402
-    _has_concept,
-    _is_negated_ci_rule,
-    _is_negated_keyword_rule,
-    _iter_references,
-    _parse_document,
-    _resolve_reference,
-    _trusted_input,
-    _trusted_root,
+    document_has_concept,
+    is_negated_ci_rule,
+    is_negated_keyword_rule,
+    iter_references,
+    parse_document,
+    read_utf8_bounded,
+    resolve_reference,
+    trusted_input,
+    trusted_root,
 )
 from agents_md_types import (  # noqa: E402
     ABSOLUTE_HOST_PATH,
     BARE_REFERENCE,
     CHANGELOG_HEADING,
     CONTEXT_WAIVER,
+    DOMAIN_NESTED_REQUIREMENTS,
     GENERIC_ADVICE,
     HEADING,
     KEYWORD_APPROVAL,
-    NESTED_MONOREPO_REQUIREMENTS,
+    LAYOUT_ROOT_REQUIREMENTS,
+    MAX_INSTRUCTION_FILES,
+    MAX_INSTRUCTION_TREE_BYTES,
+    NESTED_LAYOUT_REQUIREMENTS,
     PLACEHOLDER,
     POSITIVE_CI_GUARANTEE,
-    PROFILE_BUDGETS,
     PROFILE_REQUIREMENTS,
     VERSIONED_NAME,
     VOLATILE_COUNT,
+    DomainProfileName,
     Finding,
+    LanguageName,
+    LayoutName,
     ParsedDocument,
-    ProfileName,
     Severity,
     _normalize_heading,
+    effective_budget,
 )
+
+LEGACY_PROFILE_CHOICES = ("router", "application", "monorepo", "mcp-server", "safety-critical")
+DOMAIN_PROFILE_CHOICES = ("router", "application", "mcp-server", "safety-critical")
+LAYOUT_CHOICES = ("single", "monorepo")
+LANGUAGE_CHOICES = ("en", "pl", "other")
+
+
+def normalize_selection(
+    profile: str,
+    layout: LayoutName | None = None,
+) -> tuple[DomainProfileName, LayoutName]:
+    """Normalize the legacy monorepo profile into independent domain/layout axes."""
+    if profile == "monorepo":
+        if layout not in (None, "monorepo"):
+            raise ValueError("The legacy monorepo profile cannot be combined with --layout single.")
+        return "application", "monorepo"
+    if profile not in DOMAIN_PROFILE_CHOICES:
+        raise ValueError(f"Unsupported domain profile: {profile}")
+    return cast(DomainProfileName, profile), layout or "single"
+
+
+def _ordered_requirements(
+    profile: DomainProfileName,
+    layout: LayoutName,
+    nested: bool,
+) -> tuple[str, ...]:
+    if nested and layout == "monorepo":
+        values = (*NESTED_LAYOUT_REQUIREMENTS, *DOMAIN_NESTED_REQUIREMENTS[profile])
+    else:
+        values = (*PROFILE_REQUIREMENTS[profile], *LAYOUT_ROOT_REQUIREMENTS[layout])
+    return tuple(dict.fromkeys(values))
 
 
 def _validate_document(
     document: ParsedDocument,
-    profile: ProfileName,
+    profile: DomainProfileName,
+    layout: LayoutName,
+    language: LanguageName,
     root: Path,
     unclosed_fence: int | None,
 ) -> list[Finding]:
@@ -107,7 +147,7 @@ def _validate_document(
             )
         )
     if waiver is None:
-        line_budget, byte_budget = PROFILE_BUDGETS[profile]
+        line_budget, byte_budget = effective_budget(profile, layout)
         line_count = len(text.splitlines())
         byte_count = len(text.encode("utf-8"))
         if line_count > line_budget or byte_count > byte_budget:
@@ -117,25 +157,37 @@ def _validate_document(
                     "warning",
                     "context.review-budget",
                     1,
-                    f"{profile} profile has {line_count} lines and {byte_count} UTF-8 bytes; "
+                    f"{layout}/{profile} contract has {line_count} lines and {byte_count} UTF-8 bytes; "
                     f"review the {line_budget}-line/{byte_budget}-byte budget or add a reasoned waiver.",
                 )
             )
 
-    visible_text = "\n".join(line for _, line in document.visible_lines)
-    is_nested_monorepo = profile == "monorepo" and path.parent != root
-    requirements = NESTED_MONOREPO_REQUIREMENTS if is_nested_monorepo else PROFILE_REQUIREMENTS[profile]
-    for concept in requirements:
-        if not _has_concept(visible_text, concept):
+    nested = layout == "monorepo" and path.parent != root
+    for concept in _ordered_requirements(profile, layout, nested):
+        present = document_has_concept(document, concept, language)
+        if present is True:
+            continue
+        if present is None:
             findings.append(
                 Finding(
                     str(path),
-                    "error",
-                    f"profile.missing-{concept}",
+                    "warning",
+                    "language.semantic-unverified",
                     1,
-                    f"The {profile} profile requires an explicit {concept.replace('-', ' ')} contract.",
+                    f"Cannot verify the '{concept}' contract for language 'other'; add "
+                    f"<!-- agents-md: contract {concept} -->.",
                 )
             )
+            continue
+        findings.append(
+            Finding(
+                str(path),
+                "error",
+                f"profile.missing-{concept}",
+                1,
+                f"The {layout}/{profile} contract requires an explicit {concept.replace('-', ' ')} contract.",
+            )
+        )
 
     for line_number, line in document.visible_lines:
         checks: tuple[tuple[re.Pattern[str], Severity, str, str], ...] = (
@@ -173,23 +225,25 @@ def _validate_document(
                 GENERIC_ADVICE,
                 "warning",
                 "content.generic-advice",
-                "Replace generic advice with a repository-specific command, invariant, or boundary.",
+                "Replace generic advice with a project-specific boundary or remove it.",
             ),
         )
         for pattern, severity, code, message in checks:
-            if pattern.search(line):
+            match = pattern.search(line)
+            if match:
                 findings.append(Finding(str(path), severity, code, line_number, message))
-        if KEYWORD_APPROVAL.search(line) and not _is_negated_keyword_rule(line):
+
+        if KEYWORD_APPROVAL.search(line) and not is_negated_keyword_rule(line):
             findings.append(
                 Finding(
                     str(path),
                     "error",
                     "safety.keyword-approval",
                     line_number,
-                    "Keyword matching is not a trusted human-approval mechanism.",
+                    "Human approval must not be determined by keyword matching.",
                 )
             )
-        if POSITIVE_CI_GUARANTEE.search(line) and not _is_negated_ci_rule(line):
+        if POSITIVE_CI_GUARANTEE.search(line) and not is_negated_ci_rule(line):
             findings.append(
                 Finding(
                     str(path),
@@ -200,8 +254,8 @@ def _validate_document(
                 )
             )
 
-    for line_number, target in _iter_references(document.visible_lines):
-        resolved, issue = _resolve_reference(path, root, target)
+    for line_number, target in iter_references(document.visible_lines):
+        resolved, issue = resolve_reference(path, root, target)
         if resolved is None:
             continue
         if issue == "outside":
@@ -232,6 +286,16 @@ def _validate_document(
                     "links.missing",
                     line_number,
                     f"Referenced path does not exist: {target}",
+                )
+            )
+        elif not resolved.is_file():
+            findings.append(
+                Finding(
+                    str(path),
+                    "error",
+                    "links.not-file",
+                    line_number,
+                    f"Reference must resolve to a regular file: {target}",
                 )
             )
 
@@ -268,16 +332,11 @@ def _validate_tree(documents: Sequence[ParsedDocument], root: Path) -> list[Find
     for child in documents:
         if child.path == root_document.path:
             continue
-        parent = _nearest_parent(child, documents, root)
-        if parent is None:
-            findings.append(
-                Finding(str(child.path), "error", "tree.orphan", 1, "Nested AGENTS.md has no instruction ancestor.")
-            )
-            continue
+        parent = _nearest_parent(child, documents, root) or root_document
 
-        parent_directives = {item.category: item for item in parent.directives}
+        inherited = {item.category: item for item in parent.directives}
         for directive in child.directives:
-            inherited_directive = parent_directives.get(directive.category)
+            inherited_directive = inherited.get(directive.category)
             if inherited_directive is None or inherited_directive.polarity == directive.polarity:
                 continue
             if directive.explicit_override:
@@ -300,10 +359,8 @@ def _validate_tree(documents: Sequence[ParsedDocument], root: Path) -> list[Find
                         "error",
                         "tree.conflicting-rule",
                         directive.line,
-                        (
-                            f"Rule conflicts with inherited {directive.category} directive "
-                            f"at {parent.relative_path}:{inherited_directive.line}."
-                        ),
+                        f"Rule conflicts with inherited {directive.category} directive "
+                        f"at {parent.relative_path}:{inherited_directive.line}.",
                     )
                 )
 
@@ -362,40 +419,130 @@ def _validate_tree(documents: Sequence[ParsedDocument], root: Path) -> list[Find
     return findings
 
 
-def validate_path(path: Path, profile: ProfileName, repository_root: Path | None = None) -> list[Finding]:
+def _read_document(
+    path: Path,
+    root: Path,
+    language: LanguageName,
+) -> tuple[ParsedDocument | None, int | None, Finding | None, int]:
+    trusted, code, message = trusted_input(path, root)
+    if code is not None or trusted is None:
+        return None, None, Finding(str(path), "error", code or "input.invalid", 1, message or "Invalid input."), 0
+    result = read_utf8_bounded(trusted)
+    if result.code is not None or result.text is None:
+        return (
+            None,
+            None,
+            Finding(str(trusted), "error", result.code or "input.read-error", 1, result.message or "Read failed."),
+            result.byte_count,
+        )
+    document, unclosed_fence = parse_document(trusted, root, result.text, language)
+    return document, unclosed_fence, None, result.byte_count
+
+
+def validate_path(
+    path: Path,
+    profile: str = "application",
+    repository_root: Path | None = None,
+    layout: LayoutName | None = None,
+    language: LanguageName = "en",
+) -> list[Finding]:
     """Validate one AGENTS.md file inside a trusted repository boundary."""
-    root, root_finding = _trusted_root(repository_root)
-    if root_finding is not None or root is None:
-        return [root_finding] if root_finding is not None else []
-    trusted, input_finding = _trusted_input(path, root)
-    if input_finding is not None or trusted is None:
-        return [input_finding] if input_finding is not None else []
-    text = trusted.read_text(encoding="utf-8")
-    document, unclosed_fence = _parse_document(trusted, root, text)
-    findings = _validate_document(document, profile, root, unclosed_fence)
+    try:
+        domain_profile, selected_layout = normalize_selection(profile, layout)
+    except ValueError as error:
+        return [Finding(str(path), "error", "input.invalid-selection", 1, str(error))]
+    root, code, message = trusted_root(repository_root)
+    if code is not None or root is None:
+        return [
+            Finding(
+                str(repository_root or Path.cwd()),
+                "error",
+                code or "input.invalid-root",
+                1,
+                message or "Invalid root.",
+            )
+        ]
+    document, unclosed_fence, finding, _ = _read_document(path, root, language)
+    if finding is not None or document is None:
+        return [finding] if finding is not None else []
+    findings = _validate_document(document, domain_profile, selected_layout, language, root, unclosed_fence)
     return sorted(findings, key=lambda item: (item.path, item.line, item.severity, item.code, item.message))
 
 
-def validate_many(paths: Iterable[Path], profile: ProfileName, repository_root: Path | None = None) -> list[Finding]:
-    """Validate files together and, for monorepos, evaluate inheritance and duplication."""
-    root, root_finding = _trusted_root(repository_root)
-    if root_finding is not None or root is None:
-        return [root_finding] if root_finding is not None else []
+def validate_many(
+    paths: Iterable[Path],
+    profile: str = "application",
+    repository_root: Path | None = None,
+    layout: LayoutName | None = None,
+    language: LanguageName = "en",
+) -> list[Finding]:
+    """Validate files together and evaluate inheritance when the layout is monorepo."""
+    try:
+        domain_profile, selected_layout = normalize_selection(profile, layout)
+    except ValueError as error:
+        return [
+            Finding(
+                str(repository_root or Path.cwd()),
+                "error",
+                "input.invalid-selection",
+                1,
+                str(error),
+            )
+        ]
+    root, code, message = trusted_root(repository_root)
+    if code is not None or root is None:
+        return [
+            Finding(
+                str(repository_root or Path.cwd()),
+                "error",
+                code or "input.invalid-root",
+                1,
+                message or "Invalid root.",
+            )
+        ]
+
+    unique_paths = sorted(set(paths), key=lambda item: item.as_posix())
+    if len(unique_paths) > MAX_INSTRUCTION_FILES:
+        return [
+            Finding(
+                str(root),
+                "error",
+                "input.too-many-files",
+                1,
+                (
+                    f"Instruction tree contains {len(unique_paths)} files; "
+                    f"maximum supported count is {MAX_INSTRUCTION_FILES}."
+                ),
+            )
+        ]
 
     findings: list[Finding] = []
     documents: list[ParsedDocument] = []
-    for path in sorted(paths):
-        trusted, input_finding = _trusted_input(path, root)
-        if input_finding is not None or trusted is None:
-            if input_finding is not None:
-                findings.append(input_finding)
+    total_bytes = 0
+    for path in unique_paths:
+        document, unclosed_fence, finding, byte_count = _read_document(path, root, language)
+        total_bytes += byte_count
+        if total_bytes > MAX_INSTRUCTION_TREE_BYTES:
+            findings.append(
+                Finding(
+                    str(root),
+                    "error",
+                    "input.tree-too-large",
+                    1,
+                    f"Instruction tree exceeds {MAX_INSTRUCTION_TREE_BYTES} bytes.",
+                )
+            )
+            break
+        if finding is not None or document is None:
+            if finding is not None:
+                findings.append(finding)
             continue
-        text = trusted.read_text(encoding="utf-8")
-        document, unclosed_fence = _parse_document(trusted, root, text)
         documents.append(document)
-        findings.extend(_validate_document(document, profile, root, unclosed_fence))
+        findings.extend(
+            _validate_document(document, domain_profile, selected_layout, language, root, unclosed_fence)
+        )
 
-    if profile == "monorepo" and documents:
+    if selected_layout == "monorepo" and documents:
         findings.extend(_validate_tree(documents, root))
     return sorted(findings, key=lambda item: (item.path, item.line, item.severity, item.code, item.message))
 
@@ -405,9 +552,21 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("paths", nargs="+", type=Path, help="AGENTS.md files to validate")
     parser.add_argument(
         "--profile",
-        choices=tuple(PROFILE_REQUIREMENTS),
+        choices=LEGACY_PROFILE_CHOICES,
         default="application",
-        help="instruction profile applied to all selected files",
+        help="domain profile; legacy 'monorepo' maps to --layout monorepo --profile application",
+    )
+    parser.add_argument(
+        "--layout",
+        choices=LAYOUT_CHOICES,
+        default=None,
+        help="instruction layout, independent from the domain profile",
+    )
+    parser.add_argument(
+        "--language",
+        choices=LANGUAGE_CHOICES,
+        default="en",
+        help="natural-language contract used for lexical checks; use 'other' with explicit contract markers",
     )
     parser.add_argument(
         "--repository-root",
@@ -427,8 +586,7 @@ def _render_text(findings: Sequence[Finding]) -> str:
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the command-line validator and return a process exit code."""
     args = _parser().parse_args(argv)
-    profile = cast(ProfileName, args.profile)
-    findings = validate_many(args.paths, profile, args.repository_root)
+    findings = validate_many(args.paths, args.profile, args.repository_root, args.layout, args.language)
     if args.output_format == "json":
         print(json.dumps([asdict(item) for item in findings], indent=2, sort_keys=True))
     elif findings:

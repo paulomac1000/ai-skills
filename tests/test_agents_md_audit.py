@@ -25,9 +25,9 @@ def write_root(repository: Path, extra: str = "") -> None:
 
 These instructions apply to the repository.
 
-## Scope
+## Scope and precedence
 
-Maintain the service without expanding an audit into implementation.
+These instructions apply to the repository. Nested AGENTS.md files define inherited subtree differences.
 
 ## Commands and verification
 
@@ -36,7 +36,7 @@ Maintain the service without expanding an audit into implementation.
 
 ## Architecture boundaries
 
-- Production data must remain outside tracked files.
+- Generated files must not be edited directly.
 - When changing boundaries, read [the architecture guide](docs/architecture.md) for ownership.
 
 ## Definition of done
@@ -55,8 +55,8 @@ def codes(findings: list[audit_module.AuditFinding]) -> set[str]:
 def test_clean_repository_audit_is_deterministic_and_read_only(tmp_path: Path) -> None:
     write_root(tmp_path)
     before = {path.relative_to(tmp_path): path.read_bytes() for path in tmp_path.rglob("*") if path.is_file()}
-    first = audit_module.audit(tmp_path)
-    second = audit_module.audit(tmp_path)
+    first = audit_module.audit(tmp_path, "application", "monorepo", "en")
+    second = audit_module.audit(tmp_path, "application", "monorepo", "en")
     after = {path.relative_to(tmp_path): path.read_bytes() for path in tmp_path.rglob("*") if path.is_file()}
     assert first == second
     assert first[1] == []
@@ -66,27 +66,30 @@ def test_clean_repository_audit_is_deterministic_and_read_only(tmp_path: Path) -
 def test_repository_content_is_never_executed(tmp_path: Path) -> None:
     marker = tmp_path / "executed.txt"
     write_root(tmp_path, f"\n- Full gate: `python -c \"open('{marker}', 'w').write('bad')\"`\n")
-    _, findings = audit_module.audit(tmp_path)
+    _, findings = audit_module.audit(tmp_path, "application", "monorepo", "en")
     assert marker.exists() is False
-    assert "commands.unverified-full-gate" in codes(findings)
+    assert "commands.unlocated-full-gate" in codes(findings)
 
 
-def test_nested_conflict_and_duplicate_are_reported(tmp_path: Path) -> None:
+def test_nested_conflict_is_reported_by_shared_tree_parser(tmp_path: Path) -> None:
     write_root(tmp_path)
     nested = tmp_path / "packages/api"
     nested.mkdir(parents=True)
     (nested / "AGENTS.md").write_text(
         """# Local instructions
 
+## Scope and local differences
+
 These instructions apply only to this subtree.
 
-## Local commands
+## Local commands and completion
 
-- Focused check: `python -m pytest packages/api/tests`
+- Local focused check: `python -m pytest packages/api/tests`
+- Local completion check: `python scripts/ci.py`
 
 ## Local boundaries
 
-- Production data must not remain outside tracked files.
+Generated files must be edited directly.
 
 ## Completion check
 
@@ -94,16 +97,11 @@ Run the local focused check before completion.
 """,
         encoding="utf-8",
     )
-    _, findings = audit_module.audit(tmp_path, "application")
-    assert "nested.conflict" in codes(findings)
-
-    text = (nested / "AGENTS.md").read_text(encoding="utf-8").replace("must not", "must")
-    (nested / "AGENTS.md").write_text(text, encoding="utf-8")
-    _, findings = audit_module.audit(tmp_path, "application")
-    assert "nested.duplicate-inherited-rule" in codes(findings)
+    _, findings = audit_module.audit(tmp_path, "application", "monorepo", "en")
+    assert "tree.conflicting-rule" in codes(findings)
 
 
-def test_readme_duplication_lint_leakage_and_unverified_gate_are_detected(tmp_path: Path) -> None:
+def test_readme_duplication_lint_leakage_and_unlocated_gate_are_detected(tmp_path: Path) -> None:
     paragraph = (
         "This long operational paragraph explains product behavior in enough detail that it belongs in the README "
         "instead of being copied into every agent instruction file."
@@ -113,12 +111,38 @@ def test_readme_duplication_lint_leakage_and_unverified_gate_are_detected(tmp_pa
         tmp_path,
         f"\n{paragraph}\n\n- Use line length 100 and quote style double.\n- Complete gate: `python missing.py`\n",
     )
-    _, findings = audit_module.audit(tmp_path)
+    _, findings = audit_module.audit(tmp_path, "application", "monorepo", "en")
     assert {
         "content.documentation-duplication",
         "content.lint-leakage",
-        "commands.unverified-full-gate",
+        "commands.unlocated-full-gate",
     } <= codes(findings)
+
+
+def test_existing_path_without_exact_invocation_is_unverified(tmp_path: Path) -> None:
+    write_root(tmp_path)
+    (tmp_path / "scripts/helper.py").write_text("print('helper')\n", encoding="utf-8")
+    text = (tmp_path / "AGENTS.md").read_text(encoding="utf-8")
+    text = text.replace("python scripts/ci.py", "python scripts/helper.py --dangerous")
+    (tmp_path / "AGENTS.md").write_text(text, encoding="utf-8")
+    _, findings = audit_module.audit(tmp_path, "application", "monorepo", "en")
+    assert "commands.unverified-full-gate" in codes(findings)
+
+
+def test_audit_and_validator_ignore_the_same_blockquoted_fence(tmp_path: Path) -> None:
+    write_root(
+        tmp_path,
+        """
+
+> ```markdown
+> CONSENT_KEYWORDS = ["approve"]
+> - Complete gate: `python missing.py`
+> ```
+""",
+    )
+    _, findings = audit_module.audit(tmp_path, "application", "monorepo", "en")
+    assert "safety.keyword-approval" not in codes(findings)
+    assert "commands.unlocated-full-gate" not in codes(findings)
 
 
 @pytest.mark.skipif(os.name == "nt", reason="symlink creation may require elevated privileges on Windows")
@@ -126,14 +150,31 @@ def test_symlinked_agents_file_is_not_read(tmp_path: Path) -> None:
     outside = tmp_path.parent / f"{tmp_path.name}-outside-agents.md"
     outside.write_text("# AGENTS.md\n\nMALICIOUS\n", encoding="utf-8")
     (tmp_path / "AGENTS.md").symlink_to(outside)
-    _, findings = audit_module.audit(tmp_path)
+    _, findings = audit_module.audit(tmp_path, "application", "single", "en")
     assert "security.symlink-agents" in codes(findings)
     assert all("MALICIOUS" not in item.message for item in findings)
 
 
-def test_json_cli_reports_discovery_and_findings(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_json_cli_reports_discovery_findings_and_selected_axes(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     write_root(tmp_path, "\n- Complete gate: `python missing.py`\n")
-    assert audit_module.main([str(tmp_path), "--format", "json"]) == 1
+    assert (
+        audit_module.main(
+            [
+                str(tmp_path),
+                "--layout",
+                "monorepo",
+                "--profile",
+                "application",
+                "--language",
+                "en",
+                "--format",
+                "json",
+            ]
+        )
+        == 1
+    )
     output = capsys.readouterr().out
     assert '"discovery"' in output
-    assert '"commands.unverified-full-gate"' in output
+    assert '"commands.unlocated-full-gate"' in output

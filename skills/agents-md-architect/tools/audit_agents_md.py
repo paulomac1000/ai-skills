@@ -16,8 +16,10 @@ TOOLS = Path(__file__).resolve().parent
 if str(TOOLS) not in sys.path:
     sys.path.insert(0, str(TOOLS))
 
+from agents_md_parse import parse_visible_lines, read_utf8_bounded  # noqa: E402
+from agents_md_types import LanguageName, LayoutName  # noqa: E402
 from discover_repository import Discovery, discover  # noqa: E402
-from validate_agents_md import Finding, ProfileName, validate_path  # noqa: E402
+from validate_agents_md import Finding, normalize_selection, validate_many  # noqa: E402
 
 Severity = Literal["error", "warning"]
 CODE_SPAN = re.compile(r"`([^`\n]+)`")
@@ -25,10 +27,9 @@ LINT_LEAKAGE = re.compile(
     r"(?i)\b(?:line length|quote style|indent(?:ation)? width|ruff rule|eslint rule|prettier config|"
     r"formatter config|stylecop rule)\b"
 )
-POSITIVE_RULE = re.compile(r"(?i)\b(?:must|required|always|shall)\b")
-NEGATIVE_RULE = re.compile(r"(?i)\b(?:must not|do not|never|forbidden|shall not)\b")
-MODAL_WORDS = re.compile(r"(?i)\b(?:must not|do not|shall not|must|required|always|never|forbidden|shall)\b")
-FULL_GATE_LINE = re.compile(r"(?i)\b(?:full gate|complete gate|completion check|hosted ci|ci gate)\b")
+FULL_GATE_LINE = re.compile(
+    r"(?i)\b(?:full gate|complete gate|completion check|hosted ci|ci gate|pełna bramka|pełny gate)\b"
+)
 
 
 @dataclass(frozen=True)
@@ -53,32 +54,20 @@ def _confined_file(root: Path, relative: str) -> Path:
     return resolved
 
 
-def _read_text(root: Path, relative: str) -> str:
-    return _confined_file(root, relative).read_text(encoding="utf-8")
-
-
-def _visible_lines(text: str) -> list[tuple[int, str]]:
-    lines: list[tuple[int, str]] = []
-    fence: str | None = None
-    for number, line in enumerate(text.splitlines(), start=1):
-        stripped = line.lstrip()
-        marker = "```" if stripped.startswith("```") else "~~~" if stripped.startswith("~~~") else None
-        if marker:
-            if fence is None:
-                fence = marker
-            elif fence == marker:
-                fence = None
-            continue
-        if fence is None:
-            lines.append((number, line))
-    return lines
+def _read_text(root: Path, relative: str, max_bytes: int = 2 * 1024 * 1024) -> str:
+    path = _confined_file(root, relative)
+    result = read_utf8_bounded(path, max_bytes=max_bytes)
+    if result.code is not None or result.text is None:
+        raise ValueError(result.message or result.code or "unreadable file")
+    return result.text
 
 
 def _paragraphs(text: str) -> dict[str, int]:
     result: dict[str, int] = {}
     block: list[str] = []
     start = 1
-    for number, line in _visible_lines(text) + [(len(text.splitlines()) + 1, "")]:
+    visible, _ = parse_visible_lines(text)
+    for number, line in visible + [(len(text.splitlines()) + 1, "")]:
         stripped = line.strip()
         if stripped and not stripped.startswith("#"):
             if not block:
@@ -86,22 +75,11 @@ def _paragraphs(text: str) -> dict[str, int]:
             block.append(stripped)
             continue
         if block:
-            normalized = re.sub(r"[^a-z0-9]+", " ", " ".join(block).casefold()).strip()
+            normalized = re.sub(r"[^\w]+", " ", " ".join(block).casefold(), flags=re.UNICODE).strip()
             if len(normalized.split()) >= 12:
                 result.setdefault(normalized, start)
             block = []
     return result
-
-
-def _rule_signature(line: str) -> tuple[str, bool] | None:
-    stripped = re.sub(r"^\s*[-*]\s+", "", line).strip()
-    negative = bool(NEGATIVE_RULE.search(stripped))
-    positive = bool(POSITIVE_RULE.search(stripped))
-    if not negative and not positive:
-        return None
-    key = MODAL_WORDS.sub("", stripped.casefold())
-    key = re.sub(r"[^a-z0-9]+", " ", key).strip()
-    return (key, negative) if len(key.split()) >= 3 else None
 
 
 def _known_gate_text(root: Path, discovery: Discovery) -> str:
@@ -109,30 +87,59 @@ def _known_gate_text(root: Path, discovery: Discovery) -> str:
     for relative in (*discovery.ci_files, *discovery.task_runners):
         try:
             parts.append(_read_text(root, relative))
-        except (UnicodeDecodeError, ValueError):
+        except ValueError:
             continue
     return "\n".join(parts)
 
 
-def _command_has_existing_path(root: Path, command: str) -> bool:
+def _command_path_tokens(command: str) -> tuple[str, ...]:
+    paths: list[str] = []
     for token in command.split():
         cleaned = token.strip("'\"()[]{};,:")
         if "/" not in cleaned and "\\" not in cleaned:
             continue
         candidate = Path(cleaned)
         if candidate.is_absolute() or ".." in candidate.parts:
-            return False
-        if (root / candidate).exists():
-            return True
-    return False
+            continue
+        paths.append(candidate.as_posix())
+    return tuple(paths)
+
+
+def _command_reference_status(root: Path, command: str, discovery: Discovery, gate_text: str) -> str:
+    """Classify static command evidence without claiming execution."""
+    normalized = " ".join(command.split())
+    normalized_gate = " ".join(gate_text.split())
+    if normalized and normalized in normalized_gate:
+        return "located"
+    known_entrypoints = set(discovery.task_runners) | set(discovery.ci_files)
+    path_tokens = _command_path_tokens(command)
+    command_tokens = command.split()
+    for token in path_tokens:
+        if token not in known_entrypoints:
+            continue
+        try:
+            position = next(index for index, value in enumerate(command_tokens) if token in value)
+        except StopIteration:
+            continue
+        if position == len(command_tokens) - 1:
+            return "located"
+    if any((root / token).is_file() for token in path_tokens):
+        return "unverified"
+    return "unlocated"
 
 
 def _convert(finding: Finding) -> AuditFinding:
     return AuditFinding(finding.path, finding.severity, finding.code, finding.line, finding.message)
 
 
-def audit(root: Path, profile: ProfileName = "application") -> tuple[Discovery, list[AuditFinding]]:
+def audit(
+    root: Path,
+    profile: str = "application",
+    layout: LayoutName | None = None,
+    language: LanguageName = "en",
+) -> tuple[Discovery, list[AuditFinding]]:
     """Audit root and nested instructions using only static, repository-confined reads."""
+    domain_profile, selected_layout = normalize_selection(profile, layout)
     discovery = discover(root)
     safe_root = Path(discovery.root)
     findings: list[AuditFinding] = []
@@ -149,17 +156,19 @@ def audit(root: Path, profile: ProfileName = "application") -> tuple[Discovery, 
                 )
             )
 
+    paths = [safe_root / relative for relative in discovery.agent_files]
+    findings.extend(
+        _convert(item)
+        for item in validate_many(paths, domain_profile, safe_root, selected_layout, language)
+    )
+
     texts: dict[str, str] = {}
     for relative in discovery.agent_files:
         try:
-            text = _read_text(safe_root, relative)
-        except (UnicodeDecodeError, ValueError) as error:
+            texts[relative] = _read_text(safe_root, relative)
+        except ValueError as error:
             findings.append(AuditFinding(relative, "error", "security.unreadable", 1, str(error)))
-            continue
-        texts[relative] = text
-        findings.extend(_convert(item) for item in validate_path(safe_root / relative, profile, safe_root))
 
-    root_text = texts.get("AGENTS.md")
     reference_paragraphs: dict[str, tuple[str, int]] = {}
     for reference in ("README.md", "CHANGELOG.md"):
         if reference not in discovery.files:
@@ -167,17 +176,10 @@ def audit(root: Path, profile: ProfileName = "application") -> tuple[Discovery, 
         try:
             for paragraph, paragraph_line in _paragraphs(_read_text(safe_root, reference)).items():
                 reference_paragraphs.setdefault(paragraph, (reference, paragraph_line))
-        except (UnicodeDecodeError, ValueError):
+        except ValueError:
             continue
 
     gate_text = _known_gate_text(safe_root, discovery)
-    root_rules: dict[str, tuple[bool, int]] = {}
-    if root_text:
-        for line_number, line in _visible_lines(root_text):
-            signature = _rule_signature(line)
-            if signature:
-                root_rules.setdefault(signature[0], (signature[1], line_number))
-
     for relative, text in texts.items():
         for paragraph, line_number in _paragraphs(text).items():
             source = reference_paragraphs.get(paragraph)
@@ -192,7 +194,8 @@ def audit(root: Path, profile: ProfileName = "application") -> tuple[Discovery, 
                     )
                 )
 
-        for line_number, line in _visible_lines(text):
+        visible, _ = parse_visible_lines(text)
+        for line_number, line in visible:
             if LINT_LEAKAGE.search(line):
                 findings.append(
                     AuditFinding(
@@ -201,50 +204,38 @@ def audit(root: Path, profile: ProfileName = "application") -> tuple[Discovery, 
                         "content.lint-leakage",
                         line_number,
                         (
-                            "Keep formatter and linter configuration executable; document only a non-obvious "
-                            "repository exception."
+                            "Keep formatter and linter configuration executable; "
+                            "document only a non-obvious repository exception."
                         ),
                     )
                 )
-            if FULL_GATE_LINE.search(line):
-                for command in CODE_SPAN.findall(line):
-                    if command not in gate_text and not _command_has_existing_path(safe_root, command):
-                        findings.append(
-                            AuditFinding(
-                                relative,
-                                "error",
-                                "commands.unverified-full-gate",
-                                line_number,
-                                f"Claimed completion command is not backed by discovered CI or a repository path: {command}",
-                            )
+            if not FULL_GATE_LINE.search(line):
+                continue
+            for command in CODE_SPAN.findall(line):
+                status = _command_reference_status(safe_root, command, discovery, gate_text)
+                if status == "unlocated":
+                    findings.append(
+                        AuditFinding(
+                            relative,
+                            "error",
+                            "commands.unlocated-full-gate",
+                            line_number,
+                            (
+                                "Completion command could not be located in discovered CI "
+                                f"or repository task runners: {command}"
+                            ),
                         )
-
-            if relative == "AGENTS.md":
-                continue
-            signature = _rule_signature(line)
-            if not signature:
-                continue
-            inherited = root_rules.get(signature[0])
-            if inherited and inherited[0] != signature[1]:
-                findings.append(
-                    AuditFinding(
-                        relative,
-                        "error",
-                        "nested.conflict",
-                        line_number,
-                        f"Local rule conflicts with root AGENTS.md line {inherited[1]}.",
                     )
-                )
-            elif inherited:
-                findings.append(
-                    AuditFinding(
-                        relative,
-                        "warning",
-                        "nested.duplicate-inherited-rule",
-                        line_number,
-                        f"Local rule duplicates root AGENTS.md line {inherited[1]}; keep only the local difference.",
+                elif status == "unverified":
+                    findings.append(
+                        AuditFinding(
+                            relative,
+                            "warning",
+                            "commands.unverified-full-gate",
+                            line_number,
+                            f"A referenced path exists, but the exact completion invocation was not located: {command}",
+                        )
                     )
-                )
 
     ordered = sorted(findings, key=lambda item: (item.path, item.line, item.severity, item.code, item.message))
     return discovery, ordered
@@ -257,7 +248,10 @@ def _parser() -> argparse.ArgumentParser:
         "--profile",
         choices=("router", "application", "monorepo", "mcp-server", "safety-critical"),
         default="application",
+        help="domain profile; legacy monorepo maps to application plus monorepo layout",
     )
+    parser.add_argument("--layout", choices=("single", "monorepo"), default=None)
+    parser.add_argument("--language", choices=("en", "pl", "other"), default="en")
     parser.add_argument("--strict", action="store_true", help="treat warnings as failures")
     parser.add_argument("--format", choices=("json", "text"), default="text", dest="output_format")
     return parser
@@ -270,7 +264,7 @@ def _render_text(findings: Iterable[AuditFinding]) -> str:
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
-        discovery, findings = audit(args.root, args.profile)
+        discovery, findings = audit(args.root, args.profile, args.layout, args.language)
     except ValueError as error:
         print(str(error))
         return 2

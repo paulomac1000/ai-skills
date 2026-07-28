@@ -8,7 +8,11 @@ from pathlib import Path
 from typing import Literal
 
 Severity = Literal["error", "warning"]
-ProfileName = Literal["router", "application", "monorepo", "mcp-server", "safety-critical"]
+DomainProfileName = Literal["router", "application", "mcp-server", "safety-critical"]
+LayoutName = Literal["single", "monorepo"]
+LanguageName = Literal["en", "pl", "other"]
+ProfileName = DomainProfileName
+LegacyProfileName = Literal["monorepo"]
 
 HEADING = re.compile(r"^(?P<level>#{1,6})\s+(?P<title>.+?)\s*$")
 FENCE_OPENER = re.compile(r"^(?P<indent>[ \t]{0,3})(?P<marker>`{3,}|~{3,})(?P<info>[^\r\n]*)$")
@@ -22,7 +26,7 @@ VERSIONED_NAME = re.compile(
 )
 VOLATILE_COUNT = re.compile(r"(?i)\b\d+\s+(?:tests?|tools?|modules?|files?|services?|workflows?|agents?)\b")
 ABSOLUTE_HOST_PATH = re.compile(r"(?:/var/apps/|/home/[A-Za-z0-9_.-]+/|[A-Za-z]:\\Users\\)")
-PLACEHOLDER = re.compile(r"REPLACE_WITH|<command>|<path>|<owner>|TODO(?:\([^)]*\))?:", re.I)
+PLACEHOLDER = re.compile(r"\bREPLACE_[A-Z0-9_]+\b|<command>|<path>|<owner>|TODO(?:\([^)]*\))?:", re.I)
 GENERIC_ADVICE = re.compile(
     r"(?i)\b(?:write clean code|follow best practices|use meaningful names|be careful|keep it simple)\b"
 )
@@ -35,19 +39,38 @@ POSITIVE_CI_GUARANTEE = re.compile(
 )
 CHANGELOG_HEADING = re.compile(r"(?i)^#{1,6}\s+(?:change\s*log|changelog|history)\s*$")
 CONTEXT_WAIVER = re.compile(r'<!--\s*agents-md:\s*waive\s+context-budget\s+reason="(?P<reason>[^"]+)"\s*-->', re.I)
+CONTRACT_MARKER = re.compile(r"<!--\s*agents-md:\s*contract\s+(?P<name>[a-z][a-z0-9-]*)\s*-->", re.I)
 COMMAND_LINE = re.compile(r"^\s*[-*]\s*(?P<label>[^:]{2,80}):\s*`(?P<command>[^`]+)`\s*[.;]?\s*$")
-NEGATIVE_DIRECTIVE = re.compile(r"\b(?:must not|do not|don't|never|forbidden|prohibited|may not|cannot)\b", re.I)
-POSITIVE_DIRECTIVE = re.compile(r"\b(?:must|always|required|shall|may|allowed|permit(?:ted)?|edit directly)\b", re.I)
 
-PROFILE_BUDGETS: dict[ProfileName, tuple[int, int]] = {
+LANGUAGE_NEGATIVE_DIRECTIVE: dict[LanguageName, re.Pattern[str] | None] = {
+    "en": re.compile(r"\b(?:must not|do not|don't|never|forbidden|prohibited|may not|cannot)\b", re.I),
+    "pl": re.compile(
+        r"\b(?:nie wolno|nie należy|nie można|nie edytuj|nie modyfikuj|nie zmieniaj|zakazane|zabronione|nigdy nie)\b",
+        re.I,
+    ),
+    "other": None,
+}
+LANGUAGE_POSITIVE_DIRECTIVE: dict[LanguageName, re.Pattern[str] | None] = {
+    "en": re.compile(r"\b(?:must|always|required|shall|may|allowed|permit(?:ted)?|edit directly)\b", re.I),
+    "pl": re.compile(
+        r"\b(?:musi|muszą|należy|zawsze|wymagane|wymagany|dozwolone|dozwolony|można|edytuj bezpośrednio)\b",
+        re.I,
+    ),
+    "other": None,
+}
+
+PROFILE_BUDGETS: dict[DomainProfileName, tuple[int, int]] = {
     "router": (60, 6_000),
     "application": (120, 12_000),
-    "monorepo": (150, 16_000),
     "mcp-server": (150, 16_000),
     "safety-critical": (180, 20_000),
 }
+LAYOUT_BUDGETS: dict[LayoutName, tuple[int, int]] = {
+    "single": (0, 0),
+    "monorepo": (150, 16_000),
+}
 
-CONCEPT_PATTERNS: dict[str, tuple[re.Pattern[str], ...]] = {
+ENGLISH_CONCEPT_PATTERNS: dict[str, tuple[re.Pattern[str], ...]] = {
     "scope": (re.compile(r"\bscope\b", re.I), re.compile(r"\bappl(?:y|ies|icable)\b", re.I)),
     "precedence": (
         re.compile(r"\bprecedence\b", re.I),
@@ -101,14 +124,80 @@ CONCEPT_PATTERNS: dict[str, tuple[re.Pattern[str], ...]] = {
     ),
 }
 
-PROFILE_REQUIREMENTS: dict[ProfileName, tuple[str, ...]] = {
+POLISH_CONCEPT_PATTERNS: dict[str, tuple[re.Pattern[str], ...]] = {
+    "scope": (re.compile(r"\bzakres\b", re.I), re.compile(r"\b(?:dotyczy|obowiązuje)\b", re.I)),
+    "precedence": (
+        re.compile(r"\bprecedencj", re.I),
+        re.compile(r"\bdziedzicz", re.I),
+        re.compile(r"\bzagnieżdżon", re.I),
+    ),
+    "routing": (
+        re.compile(r"\brouting|trasowan|kierowan", re.I),
+        re.compile(r"\bgdy\s+(?:zmieniasz|edytujesz|pracujesz|dodajesz|aktualizujesz)\b", re.I),
+        re.compile(r"\bprzepływ pracy\b", re.I),
+    ),
+    "commands": (
+        re.compile(r"\bkomend", re.I),
+        re.compile(r"\bbudow", re.I),
+        re.compile(r"\btest", re.I),
+        re.compile(r"\bweryfikac", re.I),
+    ),
+    "completion": (
+        re.compile(r"\bdefinicja ukończenia\b", re.I),
+        re.compile(r"\bzakończen|ukończen|gotowe\b", re.I),
+        re.compile(r"\bprzed\s+(?:raportowaniem|zakończeniem)\b", re.I),
+    ),
+    "safety": (
+        re.compile(r"\bbezpieczeństw", re.I),
+        re.compile(r"\bzabronion|zakazan", re.I),
+        re.compile(r"\bdestrukcyjn", re.I),
+    ),
+    "data": (
+        re.compile(r"\bgranice danych\b", re.I),
+        re.compile(r"\bdane (?:wrażliwe|prywatne|osobowe)\b", re.I),
+        re.compile(r"\bsekret|tajemnic", re.I),
+    ),
+    "nested": (
+        re.compile(r"\bzagnieżdżon", re.I),
+        re.compile(r"\bpoddrzew", re.I),
+        re.compile(r"\blokalne różnice\b", re.I),
+    ),
+    "risk": (
+        re.compile(r"\bryzyk", re.I),
+        re.compile(r"\btylko do odczytu\b", re.I),
+        re.compile(r"\bzapis\b", re.I),
+        re.compile(r"\bskutk(?:i|ów) uboczn", re.I),
+    ),
+    "local": (
+        re.compile(r"\blokalne różnice\b", re.I),
+        re.compile(r"\bdla tego poddrzewa\b", re.I),
+        re.compile(r"\blokalne komendy\b", re.I),
+    ),
+}
+
+CONCEPT_PATTERNS_BY_LANGUAGE: dict[LanguageName, dict[str, tuple[re.Pattern[str], ...]] | None] = {
+    "en": ENGLISH_CONCEPT_PATTERNS,
+    "pl": POLISH_CONCEPT_PATTERNS,
+    "other": None,
+}
+
+PROFILE_REQUIREMENTS: dict[DomainProfileName, tuple[str, ...]] = {
     "router": ("scope", "routing", "completion"),
     "application": ("scope", "commands", "completion"),
-    "monorepo": ("scope", "precedence", "nested", "commands", "completion"),
     "mcp-server": ("scope", "commands", "safety", "risk", "completion"),
     "safety-critical": ("scope", "commands", "safety", "data", "completion"),
 }
-NESTED_MONOREPO_REQUIREMENTS = ("scope", "local", "commands", "completion")
+LAYOUT_ROOT_REQUIREMENTS: dict[LayoutName, tuple[str, ...]] = {
+    "single": (),
+    "monorepo": ("precedence", "nested"),
+}
+NESTED_LAYOUT_REQUIREMENTS = ("scope", "local", "commands", "completion")
+DOMAIN_NESTED_REQUIREMENTS: dict[DomainProfileName, tuple[str, ...]] = {
+    "router": ("routing",),
+    "application": (),
+    "mcp-server": ("safety", "risk"),
+    "safety-critical": ("safety", "data"),
+}
 
 PATH_SUFFIXES = {
     ".cs",
@@ -116,6 +205,8 @@ PATH_SUFFIXES = {
     ".json",
     ".md",
     ".py",
+    ".rb",
+    ".rs",
     ".sh",
     ".toml",
     ".yaml",
@@ -124,8 +215,12 @@ PATH_SUFFIXES = {
 PATH_NAMES = {"AGENTS.md", "CHANGELOG.md", "CLAUDE.md", "GEMINI.md", "README.md"}
 PATH_CUE = re.compile(
     r"(?i)\b(?:read|owner|source of truth|canonical|generated|file|path|entrypoint|script|workflow|"
-    r"reference|configuration|config|schema|manifest|test)\b"
+    r"reference|configuration|config|schema|manifest|test|przeczytaj|właściciel|plik|ścieżka|skrypt|test)\b"
 )
+
+MAX_INSTRUCTION_FILE_BYTES = 256 * 1024
+MAX_INSTRUCTION_TREE_BYTES = 2 * 1024 * 1024
+MAX_INSTRUCTION_FILES = 128
 
 
 @dataclass(frozen=True)
@@ -137,6 +232,14 @@ class Finding:
     code: str
     line: int
     message: str
+
+
+@dataclass(frozen=True)
+class ReadResult:
+    text: str | None
+    byte_count: int
+    code: str | None
+    message: str | None
 
 
 @dataclass(frozen=True)
@@ -171,21 +274,33 @@ class ParsedDocument:
     text: str
     visible_lines: tuple[tuple[int, str], ...]
     sections: dict[str, str]
+    contracts: frozenset[str]
     directives: tuple[Directive, ...]
     commands: tuple[CommandRule, ...]
     ownership: tuple[OwnershipRule, ...]
     meaningful_lines: frozenset[str]
 
 
+def effective_budget(profile: DomainProfileName, layout: LayoutName) -> tuple[int, int]:
+    profile_lines, profile_bytes = PROFILE_BUDGETS[profile]
+    layout_lines, layout_bytes = LAYOUT_BUDGETS[layout]
+    return max(profile_lines, layout_lines), max(profile_bytes, layout_bytes)
+
+
 def _normalize_heading(value: str) -> str:
     normalized = re.sub(r"[`*_~]", "", value.casefold())
-    return re.sub(r"[^a-z0-9]+", "-", normalized).strip("-")
+    return re.sub(r"[^\w]+", "-", normalized, flags=re.UNICODE).strip("-")
 
 
 def _normalize_rule(value: str) -> str:
     value = re.sub(r"`[^`]+`", "<path>", value.casefold())
-    value = re.sub(r"\b(?:local|subtree|inherited|repository-root|root)\b", " ", value)
-    return " ".join(re.sub(r"[^a-z0-9]+", " ", value).split())
+    value = re.sub(
+        r"\b(?:local|subtree|inherited|repository-root|root|lokaln\w*|poddrzew\w*|dziedziczon\w*|główn\w*)\b",
+        " ",
+        value,
+        flags=re.UNICODE,
+    )
+    return " ".join(re.sub(r"[^\w]+", " ", value, flags=re.UNICODE).split())
 
 
 def _strip_destination(raw: str) -> str:

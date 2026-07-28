@@ -2,6 +2,9 @@
 
 ## Scope and local differences
 
+<!-- agents-md: contract scope -->
+<!-- agents-md: contract local -->
+
 These instructions apply only to REPLACE_WITH_SUBTREE. Repository-root instructions remain applicable according to the selected platform, except for the explicit local differences below.
 
 - Technology or ownership: REPLACE_WITH_LOCAL_DIFFERENCE.
@@ -10,8 +13,19 @@ These instructions apply only to REPLACE_WITH_SUBTREE. Repository-root instructi
 
 ## Local commands and completion
 
+<!-- agents-md: contract commands -->
+<!-- agents-md: contract completion -->
+
 - Local focused check: `REPLACE_WITH_LOCAL_FOCUSED_COMMAND`
 - Local completion check: `REPLACE_WITH_LOCAL_COMPLETION_COMMAND`
+
+## Local safety and risk
+
+<!-- agents-md: contract safety -->
+<!-- agents-md: contract data -->
+<!-- agents-md: contract risk -->
+
+State only the local safety or data difference. If none exists, say that repository-root boundaries remain inherited.
 
 ## Local references
 

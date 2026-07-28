@@ -1,4 +1,4 @@
-"""Safe Markdown, path, and instruction extraction for AGENTS.md validation."""
+"""Safe Markdown, path, language, and instruction extraction for AGENTS.md validation."""
 
 from __future__ import annotations
 
@@ -9,22 +9,25 @@ from urllib.parse import unquote
 
 from agents_md_types import (
     COMMAND_LINE,
-    CONCEPT_PATTERNS,
+    CONCEPT_PATTERNS_BY_LANGUAGE,
+    CONTRACT_MARKER,
     FENCE_OPENER,
     HEADING,
     INLINE_LINK,
-    NEGATIVE_DIRECTIVE,
+    LANGUAGE_NEGATIVE_DIRECTIVE,
+    LANGUAGE_POSITIVE_DIRECTIVE,
+    MAX_INSTRUCTION_FILE_BYTES,
     PATH_CUE,
     PATH_NAMES,
     PATH_SUFFIXES,
-    POSITIVE_DIRECTIVE,
     REFERENCE_DEFINITION,
     REFERENCE_USAGE,
     CommandRule,
     Directive,
-    Finding,
+    LanguageName,
     OwnershipRule,
     ParsedDocument,
+    ReadResult,
     _is_external,
     _normalize_heading,
     _normalize_rule,
@@ -32,7 +35,8 @@ from agents_md_types import (
 )
 
 
-def _strip_blockquote_prefix(line: str) -> str:
+def strip_blockquote_prefix(line: str) -> str:
+    """Remove one or more CommonMark blockquote prefixes for fence parsing."""
     value = line
     while True:
         match = re.match(r"^[ \t]{0,3}>[ \t]?", value)
@@ -41,13 +45,14 @@ def _strip_blockquote_prefix(line: str) -> str:
         value = value[match.end() :]
 
 
-def _parse_visible_lines(text: str) -> tuple[list[tuple[int, str]], int | None]:
+def parse_visible_lines(text: str) -> tuple[list[tuple[int, str]], int | None]:
+    """Return active lines outside fenced code blocks and an unclosed-fence line."""
     visible: list[tuple[int, str]] = []
     fence_character: str | None = None
     minimum_length = 0
     fence_start: int | None = None
     for line_number, source_line in enumerate(text.splitlines(), start=1):
-        line = _strip_blockquote_prefix(source_line)
+        line = strip_blockquote_prefix(source_line)
         if fence_character is None:
             opener = FENCE_OPENER.fullmatch(line)
             if opener is not None:
@@ -68,6 +73,42 @@ def _parse_visible_lines(text: str) -> tuple[list[tuple[int, str]], int | None]:
             minimum_length = 0
             fence_start = None
     return visible, fence_start
+
+
+def read_utf8_bounded(path: Path, max_bytes: int = MAX_INSTRUCTION_FILE_BYTES) -> ReadResult:
+    """Read a regular file with a stable size and UTF-8 failure contract."""
+    try:
+        size = path.stat().st_size
+    except OSError as error:
+        return ReadResult(None, 0, "input.read-error", f"Could not stat input file: {error}")
+    if size > max_bytes:
+        return ReadResult(
+            None,
+            size,
+            "input.too-large",
+            f"Input file is {size} bytes; maximum supported size is {max_bytes} bytes.",
+        )
+    try:
+        payload = path.read_bytes()
+    except OSError as error:
+        return ReadResult(None, 0, "input.read-error", f"Could not read input file: {error}")
+    if len(payload) > max_bytes:
+        return ReadResult(
+            None,
+            len(payload),
+            "input.too-large",
+            f"Input file is {len(payload)} bytes; maximum supported size is {max_bytes} bytes.",
+        )
+    try:
+        text = payload.decode("utf-8")
+    except UnicodeDecodeError as error:
+        return ReadResult(
+            None,
+            len(payload),
+            "input.invalid-utf8",
+            f"Input file is not valid UTF-8 at byte {error.start}.",
+        )
+    return ReadResult(text, len(payload), None, None)
 
 
 def _iter_code_spans(line: str) -> Iterator[str]:
@@ -103,7 +144,8 @@ def _is_path_candidate(value: str, source_line: str) -> bool:
     )
 
 
-def _iter_references(visible_lines: Sequence[tuple[int, str]]) -> Iterator[tuple[int, str]]:
+def iter_references(visible_lines: Sequence[tuple[int, str]]) -> Iterator[tuple[int, str]]:
+    """Yield active Markdown and code-span repository references."""
     definitions: dict[str, str] = {}
     for _, line in visible_lines:
         match = REFERENCE_DEFINITION.fullmatch(line)
@@ -123,8 +165,15 @@ def _iter_references(visible_lines: Sequence[tuple[int, str]]) -> Iterator[tuple
                 yield line_number, span
 
 
-def _has_concept(text: str, concept: str) -> bool:
-    return any(pattern.search(text) for pattern in CONCEPT_PATTERNS[concept])
+def document_has_concept(document: ParsedDocument, concept: str, language: LanguageName) -> bool | None:
+    """Return True/False for supported languages and None when semantics are unknown."""
+    if concept in document.contracts:
+        return True
+    patterns = CONCEPT_PATTERNS_BY_LANGUAGE[language]
+    if patterns is None:
+        return None
+    visible_text = "\n".join(line for _, line in document.visible_lines)
+    return any(pattern.search(visible_text) for pattern in patterns[concept])
 
 
 def _absolute_path_has_symlink(path: Path) -> bool:
@@ -149,74 +198,44 @@ def _path_has_symlink(base: Path, candidate: Path) -> bool:
     return False
 
 
-def _trusted_root(repository_root: Path | None) -> tuple[Path | None, Finding | None]:
+def trusted_root(repository_root: Path | None) -> tuple[Path | None, str | None, str | None]:
     lexical = (repository_root or Path.cwd()).absolute()
     if _absolute_path_has_symlink(lexical):
-        return None, Finding(
-            str(lexical),
-            "error",
-            "input.repository-root-symlink",
-            1,
-            "Repository root must not be a symlink.",
-        )
+        return None, "input.repository-root-symlink", "Repository root must not contain symlinks."
     try:
         resolved = lexical.resolve(strict=True)
     except FileNotFoundError:
-        return None, Finding(
-            str(lexical),
-            "error",
-            "input.repository-root-missing",
-            1,
-            "Repository root does not exist.",
-        )
+        return None, "input.repository-root-missing", "Repository root does not exist."
     if not resolved.is_dir():
-        return None, Finding(
-            str(lexical),
-            "error",
-            "input.repository-root-not-directory",
-            1,
-            "Repository root is not a directory.",
-        )
-    return resolved, None
+        return None, "input.repository-root-not-directory", "Repository root is not a directory."
+    return resolved, None, None
 
 
-def _trusted_input(path: Path, root: Path) -> tuple[Path | None, Finding | None]:
+def trusted_input(path: Path, root: Path) -> tuple[Path | None, str | None, str | None]:
     lexical = path if path.is_absolute() else root / path
     lexical = lexical.absolute()
     if not lexical.exists() and not lexical.is_symlink():
-        return None, Finding(str(path), "error", "input.missing", 1, "Input file does not exist.")
+        return None, "input.missing", "Input file does not exist."
     try:
         lexical.relative_to(root)
     except ValueError:
-        return None, Finding(
-            str(path),
-            "error",
-            "input.outside-repository",
-            1,
-            "Input file is outside the repository root.",
-        )
+        return None, "input.outside-repository", "Input file is outside the repository root."
     if _path_has_symlink(root, lexical):
-        return None, Finding(str(path), "error", "input.symlink", 1, "Input path must not contain symlinks.")
+        return None, "input.symlink", "Input path must not contain symlinks."
     try:
         resolved = lexical.resolve(strict=True)
     except FileNotFoundError:
-        return None, Finding(str(path), "error", "input.missing", 1, "Input file does not exist.")
+        return None, "input.missing", "Input file does not exist."
     try:
         resolved.relative_to(root)
     except ValueError:
-        return None, Finding(
-            str(path),
-            "error",
-            "input.outside-repository",
-            1,
-            "Input file resolves outside the repository root.",
-        )
+        return None, "input.outside-repository", "Input file resolves outside the repository root."
     if not resolved.is_file():
-        return None, Finding(str(path), "error", "input.not-file", 1, "Input is not a regular file.")
-    return resolved, None
+        return None, "input.not-file", "Input is not a regular file."
+    return resolved, None, None
 
 
-def _resolve_reference(path: Path, root: Path, target: str) -> tuple[Path | None, str | None]:
+def resolve_reference(path: Path, root: Path, target: str) -> tuple[Path | None, str | None]:
     clean = unquote(target.split("#", 1)[0]).strip()
     if not clean or clean.startswith("#") or _is_external(clean):
         return None, None
@@ -237,7 +256,7 @@ def _resolve_reference(path: Path, root: Path, target: str) -> tuple[Path | None
     return resolved, None
 
 
-def _is_negated_keyword_rule(line: str) -> bool:
+def is_negated_keyword_rule(line: str) -> bool:
     lowered = line.casefold()
     return any(
         phrase in lowered
@@ -250,11 +269,14 @@ def _is_negated_keyword_rule(line: str) -> bool:
             "reject keyword",
             "forbid keyword",
             "not proof of human approval",
+            "nie używaj słów kluczowych",
+            "dopasowanie słów kluczowych nie jest",
+            "nie jest dowodem zatwierdzenia",
         )
     )
 
 
-def _is_negated_ci_rule(line: str) -> bool:
+def is_negated_ci_rule(line: str) -> bool:
     lowered = line.casefold()
     return any(
         phrase in lowered
@@ -264,6 +286,9 @@ def _is_negated_ci_rule(line: str) -> bool:
             "cannot guarantee",
             "must not be described as a guarantee",
             "is not proof",
+            "nie gwarantuje",
+            "nie jest gwarancją",
+            "nie stanowi dowodu",
         )
     )
 
@@ -282,8 +307,30 @@ def _build_sections(visible_lines: Sequence[tuple[int, str]]) -> dict[str, str]:
     return {key: "\n".join(" ".join(part.split()) for part in value).strip() for key, value in sections.items()}
 
 
-def _directive_category(line: str) -> str | None:
+def _extract_contracts(visible_lines: Sequence[tuple[int, str]]) -> frozenset[str]:
+    return frozenset(
+        match.group("name").casefold()
+        for _, line in visible_lines
+        if (match := CONTRACT_MARKER.fullmatch(line.strip())) is not None
+    )
+
+
+def _directive_category(line: str, language: LanguageName) -> str | None:
     lowered = line.casefold()
+    if language == "pl":
+        if re.search(r"wygenerowan", lowered) and re.search(r"edyt|modyfik|zmien", lowered):
+            return "generated-edit"
+        if "test" in lowered and re.search(r"pomij|wyłącz|osłab|usuń|uruch|wymag|przej", lowered):
+            return "test-integrity"
+        if re.search(r"sekret|tajemnic|dane (?:prywatne|wrażliwe|osobowe)", lowered) and re.search(
+            r"commit|śled|przechow|ujawn|zapis", lowered
+        ):
+            return "protected-data"
+        if "bezpośrednio" in lowered and re.search(r"edyt|modyfik|zmien", lowered):
+            return "direct-edit"
+        return None
+    if language == "other":
+        return None
     if "generated" in lowered and any(token in lowered for token in ("edit", "modify", "change")):
         return "generated-edit"
     if "test" in lowered and any(
@@ -299,14 +346,20 @@ def _directive_category(line: str) -> str | None:
     return None
 
 
-def _extract_directives(visible_lines: Sequence[tuple[int, str]]) -> tuple[Directive, ...]:
+def _extract_directives(
+    visible_lines: Sequence[tuple[int, str]], language: LanguageName
+) -> tuple[Directive, ...]:
     directives: list[Directive] = []
+    negative_pattern = LANGUAGE_NEGATIVE_DIRECTIVE[language]
+    positive_pattern = LANGUAGE_POSITIVE_DIRECTIVE[language]
+    if negative_pattern is None or positive_pattern is None:
+        return ()
     for line_number, line in visible_lines:
-        category = _directive_category(line)
+        category = _directive_category(line, language)
         if category is None:
             continue
-        negative = NEGATIVE_DIRECTIVE.search(line) is not None
-        positive = not negative and POSITIVE_DIRECTIVE.search(line) is not None
+        negative = negative_pattern.search(line) is not None
+        positive = not negative and positive_pattern.search(line) is not None
         if not negative and not positive:
             continue
         directives.append(
@@ -315,7 +368,16 @@ def _extract_directives(visible_lines: Sequence[tuple[int, str]]) -> tuple[Direc
                 polarity="deny" if negative else "allow",
                 line=line_number,
                 text=line.strip(),
-                explicit_override=bool(re.search(r"\b(?:override|replaces? inherited|for this subtree)\b", line, re.I)),
+                explicit_override=bool(
+                    re.search(
+                        (
+                            r"\b(?:override|replaces? inherited|for this subtree|wyjątek|nadpisuje|"
+                            r"zastępuje odziedziczone|dla tego poddrzewa)\b"
+                        ),
+                        line,
+                        re.I,
+                    )
+                ),
             )
         )
     return tuple(directives)
@@ -337,7 +399,12 @@ def _extract_commands(visible_lines: Sequence[tuple[int, str]]) -> tuple[Command
         match = COMMAND_LINE.fullmatch(line)
         if match is None:
             continue
-        label = re.sub(r"\b(?:local|subtree)\b", " ", match.group("label"), flags=re.I)
+        label = re.sub(
+            r"\b(?:local|subtree|lokaln\w*|poddrzew\w*)\b",
+            " ",
+            match.group("label"),
+            flags=re.I,
+        )
         commands.append(
             CommandRule(
                 key=_normalize_rule(label),
@@ -345,7 +412,7 @@ def _extract_commands(visible_lines: Sequence[tuple[int, str]]) -> tuple[Command
                 line=line_number,
                 explicit_local=bool(
                     re.search(
-                        r"\b(?:local|subtree|override)\b",
+                        r"\b(?:local|subtree|override|lokaln\w*|poddrzew\w*|wyjątek)\b",
                         current_heading + " " + _instruction_context(line),
                         re.I,
                     )
@@ -356,7 +423,7 @@ def _extract_commands(visible_lines: Sequence[tuple[int, str]]) -> tuple[Command
 
 
 def _normalized_ownership_target(path: Path, root: Path, target: str) -> str:
-    resolved, issue = _resolve_reference(path, root, target)
+    resolved, issue = resolve_reference(path, root, target)
     if resolved is None or issue is not None:
         return target
     try:
@@ -378,7 +445,10 @@ def _extract_ownership(
             current_heading = heading.group("title")
             continue
         owns_contract = re.search(
-            r"\b(?:sources? of truth|canonical owner|normative owner)\b",
+            (
+                r"\b(?:sources? of truth|canonical owner|normative owner|źródła? prawdy|"
+                r"kanoniczny właściciel|właściciel normatywny)\b"
+            ),
             current_heading + " " + line,
             re.I,
         )
@@ -400,7 +470,7 @@ def _extract_ownership(
                 line=line_number,
                 explicit_local=bool(
                     re.search(
-                        r"\b(?:local|subtree|override)\b",
+                        r"\b(?:local|subtree|override|lokaln\w*|poddrzew\w*|wyjątek)\b",
                         current_heading + " " + _instruction_context(line),
                         re.I,
                     )
@@ -412,7 +482,8 @@ def _extract_ownership(
 
 def _meaningful_lines(visible_lines: Sequence[tuple[int, str]]) -> frozenset[str]:
     ignored = re.compile(
-        r"(?i)^(?:these instructions apply|repository-root instructions remain|more specific AGENTS\.md|#)"
+        r"(?i)^(?:these instructions apply|repository-root instructions remain|more specific AGENTS\.md|"
+        r"te instrukcje dotyczą|instrukcje główne pozostają|#|<!--\s*agents-md:)"
     )
     values = {
         normalized
@@ -422,8 +493,14 @@ def _meaningful_lines(visible_lines: Sequence[tuple[int, str]]) -> frozenset[str
     return frozenset(values)
 
 
-def _parse_document(path: Path, root: Path, text: str) -> tuple[ParsedDocument, int | None]:
-    visible_lines, unclosed_fence = _parse_visible_lines(text)
+def parse_document(
+    path: Path,
+    root: Path,
+    text: str,
+    language: LanguageName = "en",
+) -> tuple[ParsedDocument, int | None]:
+    """Parse one already-confined instruction file using the shared Markdown contract."""
+    visible_lines, unclosed_fence = parse_visible_lines(text)
     return (
         ParsedDocument(
             path=path,
@@ -431,7 +508,8 @@ def _parse_document(path: Path, root: Path, text: str) -> tuple[ParsedDocument, 
             text=text,
             visible_lines=tuple(visible_lines),
             sections=_build_sections(visible_lines),
-            directives=_extract_directives(visible_lines),
+            contracts=_extract_contracts(visible_lines),
+            directives=_extract_directives(visible_lines, language),
             commands=_extract_commands(visible_lines),
             ownership=_extract_ownership(visible_lines, path, root),
             meaningful_lines=_meaningful_lines(visible_lines),
