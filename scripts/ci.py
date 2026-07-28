@@ -18,6 +18,7 @@ QUALITY_PATHS = (
     "scripts/install_locked.py",
     "scripts/select_lock.py",
     "skills/afds-doc-writer/validate.py",
+    "skills/agents-md-architect/tools/validate_agents_md.py",
     "skills/mcp-server-consumer/tools",
     "skills/mcp-server-architect/tools/generate_python_server.py",
     "skills/mcp-server-architect/tools/generate_python_server_impl.py",
@@ -33,6 +34,7 @@ TYPE_PATHS = (
     "scripts/install_locked.py",
     "scripts/select_lock.py",
     "skills/afds-doc-writer/validate.py",
+    "skills/agents-md-architect/tools/validate_agents_md.py",
     "skills/mcp-server-consumer/tools/decision_engine.py",
     "skills/mcp-server-architect/tools/generate_python_server.py",
     "skills/mcp-server-architect/tools/generate_python_server_impl.py",
@@ -67,6 +69,7 @@ def main() -> int:
         "contracts",
         "scripts",
         "skills/afds-doc-writer",
+        "skills/agents-md-architect/tools",
         "skills/mcp-server-consumer/tools",
         "skills/mcp-server-architect/tools",
     )
@@ -96,7 +99,7 @@ def main() -> int:
         "-m",
         "coverage",
         "report",
-        "--include=contracts/*.py,skills/afds-doc-writer/*.py,skills/mcp-server-consumer/tools/*.py",
+        "--include=contracts/*.py,skills/afds-doc-writer/*.py,skills/agents-md-architect/tools/*.py,skills/mcp-server-consumer/tools/*.py",
         "--fail-under=80",
     )
     run(
