@@ -6,22 +6,24 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import sys
 from collections.abc import Iterable, Sequence
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Literal
 
-try:
-    from .discover_repository import Discovery, discover
-    from .validate_agents_md import Finding, ProfileName, validate_path
-except ImportError:  # pragma: no cover - direct script execution
-    from discover_repository import Discovery, discover
-    from validate_agents_md import Finding, ProfileName, validate_path
+TOOLS = Path(__file__).resolve().parent
+if str(TOOLS) not in sys.path:
+    sys.path.insert(0, str(TOOLS))
+
+from discover_repository import Discovery, discover  # noqa: E402
+from validate_agents_md import Finding, ProfileName, validate_path  # noqa: E402
 
 Severity = Literal["error", "warning"]
 CODE_SPAN = re.compile(r"`([^`\n]+)`")
 LINT_LEAKAGE = re.compile(
-    r"(?i)\b(?:line length|quote style|indent(?:ation)? width|ruff rule|eslint rule|prettier config|formatter config|stylecop rule)\b"
+    r"(?i)\b(?:line length|quote style|indent(?:ation)? width|ruff rule|eslint rule|prettier config|"
+    r"formatter config|stylecop rule)\b"
 )
 POSITIVE_RULE = re.compile(r"(?i)\b(?:must|required|always|shall)\b")
 NEGATIVE_RULE = re.compile(r"(?i)\b(?:must not|do not|never|forbidden|shall not)\b")
@@ -138,7 +140,13 @@ def audit(root: Path, profile: ProfileName = "application") -> tuple[Discovery, 
     for relative in discovery.symlinks:
         if Path(relative).name == "AGENTS.md":
             findings.append(
-                AuditFinding(relative, "error", "security.symlink-agents", 1, "AGENTS.md must be a regular in-repository file.")
+                AuditFinding(
+                    relative,
+                    "error",
+                    "security.symlink-agents",
+                    1,
+                    "AGENTS.md must be a regular in-repository file.",
+                )
             )
 
     texts: dict[str, str] = {}
@@ -157,8 +165,8 @@ def audit(root: Path, profile: ProfileName = "application") -> tuple[Discovery, 
         if reference not in discovery.files:
             continue
         try:
-            for paragraph, line in _paragraphs(_read_text(safe_root, reference)).items():
-                reference_paragraphs.setdefault(paragraph, (reference, line))
+            for paragraph, paragraph_line in _paragraphs(_read_text(safe_root, reference)).items():
+                reference_paragraphs.setdefault(paragraph, (reference, paragraph_line))
         except (UnicodeDecodeError, ValueError):
             continue
 
@@ -192,7 +200,10 @@ def audit(root: Path, profile: ProfileName = "application") -> tuple[Discovery, 
                         "warning",
                         "content.lint-leakage",
                         line_number,
-                        "Keep formatter and linter configuration executable; document only a non-obvious repository exception.",
+                        (
+                            "Keep formatter and linter configuration executable; document only a non-obvious "
+                            "repository exception."
+                        ),
                     )
                 )
             if FULL_GATE_LINE.search(line):
@@ -266,7 +277,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(str(error))
         return 2
     if args.output_format == "json":
-        print(json.dumps({"discovery": asdict(discovery), "findings": [asdict(item) for item in findings]}, indent=2, sort_keys=True))
+        print(
+            json.dumps(
+                {"discovery": asdict(discovery), "findings": [asdict(item) for item in findings]},
+                indent=2,
+                sort_keys=True,
+            )
+        )
     elif findings:
         print(_render_text(findings))
     else:
