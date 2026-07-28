@@ -1,0 +1,18 @@
+# Local agent instructions
+
+These instructions apply only to `REPLACE_WITH_SUBTREE`. Repository-root instructions remain inherited except where this file states a local difference.
+
+## Local differences
+
+- Technology or ownership: REPLACE_WITH_LOCAL_DIFFERENCE.
+- Generated files: REPLACE_WITH_LOCAL_GENERATOR_OR_NONE.
+- Safety boundary: REPLACE_WITH_LOCAL_BOUNDARY_OR_INHERITED.
+
+## Local commands
+
+- Focused check: `REPLACE_WITH_LOCAL_FOCUSED_COMMAND`
+- Completion check: `REPLACE_WITH_LOCAL_COMPLETION_COMMAND`
+
+## Local references
+
+- When changing REPLACE_WITH_AREA, read `REPLACE_WITH_REFERENCE` for REPLACE_WITH_PURPOSE.
