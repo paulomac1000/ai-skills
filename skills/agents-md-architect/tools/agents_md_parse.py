@@ -7,54 +7,29 @@ from collections.abc import Iterator, Sequence
 from pathlib import Path
 from urllib.parse import unquote
 
-try:
-    from .agents_md_types import (
-        COMMAND_LINE,
-        CONCEPT_PATTERNS,
-        FENCE_OPENER,
-        HEADING,
-        INLINE_LINK,
-        NEGATIVE_DIRECTIVE,
-        PATH_CUE,
-        PATH_NAMES,
-        PATH_SUFFIXES,
-        POSITIVE_DIRECTIVE,
-        REFERENCE_DEFINITION,
-        REFERENCE_USAGE,
-        CommandRule,
-        Directive,
-        Finding,
-        OwnershipRule,
-        ParsedDocument,
-        _is_external,
-        _normalize_heading,
-        _normalize_rule,
-        _strip_destination,
-    )
-except ImportError:  # pragma: no cover - direct script execution
-    from agents_md_types import (
-        COMMAND_LINE,
-        CONCEPT_PATTERNS,
-        FENCE_OPENER,
-        HEADING,
-        INLINE_LINK,
-        NEGATIVE_DIRECTIVE,
-        PATH_CUE,
-        PATH_NAMES,
-        PATH_SUFFIXES,
-        POSITIVE_DIRECTIVE,
-        REFERENCE_DEFINITION,
-        REFERENCE_USAGE,
-        CommandRule,
-        Directive,
-        Finding,
-        OwnershipRule,
-        ParsedDocument,
-        _is_external,
-        _normalize_heading,
-        _normalize_rule,
-        _strip_destination,
-    )
+from agents_md_types import (
+    COMMAND_LINE,
+    CONCEPT_PATTERNS,
+    FENCE_OPENER,
+    HEADING,
+    INLINE_LINK,
+    NEGATIVE_DIRECTIVE,
+    PATH_CUE,
+    PATH_NAMES,
+    PATH_SUFFIXES,
+    POSITIVE_DIRECTIVE,
+    REFERENCE_DEFINITION,
+    REFERENCE_USAGE,
+    CommandRule,
+    Directive,
+    Finding,
+    OwnershipRule,
+    ParsedDocument,
+    _is_external,
+    _normalize_heading,
+    _normalize_rule,
+    _strip_destination,
+)
 
 
 def _strip_blockquote_prefix(line: str) -> str:
