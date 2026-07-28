@@ -1,5 +1,5 @@
 schema_version: 1
-catalog_version: 1.0.0
+catalog_version: 1.1.0
 skills:
   afds-doc-writer:
     rules:
@@ -21,6 +21,38 @@ skills:
       - id: afds.verification.recorded
         source: STANDARD.md#verification
         description: Verification commands and observed results are recorded.
+  agents-md-architect:
+    rules:
+      - id: agents.scope.precedence
+        source: STANDARD.md#scope-and-precedence
+        description: Root, nested, user, and platform instructions have explicit scope and precedence.
+      - id: agents.discovery.evidence
+        source: STANDARD.md#repository-discovery
+        description: Instructions are derived from current repository evidence and verified commands.
+      - id: agents.modes.profiled
+        source: STANDARD.md#operating-modes-and-profiles
+        description: Work modes and the smallest applicable instruction profile bound agent behavior.
+      - id: agents.ownership.boundaries
+        source: STANDARD.md#canonical-ownership-and-architecture-boundaries
+        description: Canonical owners and non-obvious architecture boundaries prevent duplicate current policy.
+      - id: agents.safety.fail-closed
+        source: STANDARD.md#safety-and-data-boundaries
+        description: High-impact operations and protected data use explicit fail-closed boundaries and trusted approval.
+      - id: agents.commands.executable
+        source: STANDARD.md#commands-and-verification
+        description: Focused, full, local, hosted, and artifact verification claims remain executable and distinct.
+      - id: agents.context.routed
+        source: STANDARD.md#context-economy-and-routing
+        description: Common rules stay concise while specialized procedures load through explicit task routes.
+      - id: agents.nested.locality
+        source: STANDARD.md#nested-instructions
+        description: Nested files contain only material subtree differences and local completion checks.
+      - id: agents.drift.prevented
+        source: STANDARD.md#anti-patterns-and-drift
+        description: Instruction smells, volatile facts, conflicts, and stale policy are detected and removed.
+      - id: agents.completion.evidenced
+        source: STANDARD.md#definition-of-done
+        description: Completion binds scope, links, commands, boundaries, tests, and residual risk to the exact revision.
   ci-cd-architect:
     rules:
       - id: cicd.layers.separated
