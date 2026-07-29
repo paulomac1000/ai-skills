@@ -17,6 +17,7 @@ This release adds a governed standard for designing and maintaining repository i
 - Published all bundled skills as version `1.2.0` with `maturity: stable` and added the new skill to the cross-platform Python compatibility lane.
 - Extended repository quality, documentation, release, and adoption contracts to treat `agents-md-architect` as a first-class governed skill.
 - Hardened instruction discovery and validation for repository `bin/` entry points, ecosystem-specific build output, shared Markdown parsing, regular-file references, invalid UTF-8, bounded input trees, complete placeholder detection, and non-executing command evidence.
+- Made audit and validation share one bounded instruction-tree read, enforced root topology for single and monorepo layouts, required safety contracts for router and application profiles, normalized filesystem failures, and bounded fail-closed repository and gate-source discovery.
 
 ## 1.1.0 - 2026-07-27
 
