@@ -28,6 +28,7 @@ jobs:
         run: |
           cat .tmp/agents-md-fix/part0{0..6} | base64 --decode > /tmp/apply_agents_md_review_fixes.py
           base64 --decode .tmp/agents-md-fix/part07 > /tmp/supplement.py
+          cat .tmp/agents-md-fix/part08a .tmp/agents-md-fix/part08b | base64 --decode > tests/test_agents_md_review_regressions.py
           python /tmp/apply_agents_md_review_fixes.py
           python /tmp/supplement.py
       - name: Apply canonical formatting
