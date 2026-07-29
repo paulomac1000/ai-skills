@@ -11,6 +11,8 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Literal
 
+from agents_md_types import MAX_DISCOVERY_DEPTH, MAX_DISCOVERY_ENTRIES
+
 OutputFormat = Literal["json", "text"]
 
 CACHE_DIRECTORIES = {
@@ -79,24 +81,30 @@ class Discovery:
     agent_files: tuple[str, ...]
     documentation: tuple[str, ...]
     symlinks: tuple[str, ...]
+    issues: tuple[str, ...]
     empty: bool
     monorepo_signals: tuple[str, ...]
 
 
 def _safe_root(path: Path) -> Path:
-    candidate = Path(os.path.abspath(path.expanduser()))
-    current = Path(candidate.anchor)
-    for part in candidate.parts[1:]:
-        current /= part
-        if current.is_symlink():
-            raise ValueError(f"repository root contains a symlink component: {current}")
-        if not current.exists():
-            break
-    if not candidate.exists():
-        raise ValueError(f"repository root does not exist: {candidate}")
-    if not candidate.is_dir():
-        raise ValueError(f"repository root is not a directory: {candidate}")
-    return candidate.resolve(strict=True)
+    try:
+        candidate = Path(os.path.abspath(path.expanduser()))
+        current = Path(candidate.anchor)
+        for part in candidate.parts[1:]:
+            current /= part
+            if current.is_symlink():
+                raise ValueError(f"repository root contains a symlink component: {current}")
+            if not current.exists():
+                break
+        if not candidate.exists():
+            raise ValueError(f"repository root does not exist: {candidate}")
+        if not candidate.is_dir():
+            raise ValueError(f"repository root is not a directory: {candidate}")
+        return candidate.resolve(strict=True)
+    except ValueError:
+        raise
+    except (OSError, RuntimeError) as error:
+        raise ValueError(f"repository root could not be inspected safely: {error}") from error
 
 
 def _relative(root: Path, value: Path) -> str:
@@ -169,31 +177,69 @@ def _classify_ecosystems(files: set[str]) -> set[str]:
 
 
 def discover(root: Path) -> Discovery:
-    """Return a static repository inventory without following symlinks or reading executable content."""
+    """Return a bounded static inventory without following symlinks."""
     safe_root = _safe_root(root)
     files: set[str] = set()
     symlinks: set[str] = set()
+    issues: set[str] = set()
+    entries_seen = 0
+    stop = False
 
-    for directory, directory_names, file_names in os.walk(safe_root, followlinks=False):
+    def onerror(error: OSError) -> None:
+        location = error.filename or safe_root.as_posix()
+        issues.add(f"unreadable path {location}: {error}")
+
+    for directory, directory_names, file_names in os.walk(safe_root, followlinks=False, onerror=onerror):
         current = Path(directory)
+        try:
+            depth = len(current.relative_to(safe_root).parts)
+        except ValueError:
+            issues.add(f"walk escaped repository root: {current}")
+            directory_names[:] = []
+            continue
+        if depth > MAX_DISCOVERY_DEPTH:
+            issues.add(f"discovery depth exceeds {MAX_DISCOVERY_DEPTH}: {_relative(safe_root, current)}")
+            directory_names[:] = []
+            continue
+
         retained_directories: list[str] = []
         for name in sorted(directory_names):
+            entries_seen += 1
+            if entries_seen > MAX_DISCOVERY_ENTRIES:
+                issues.add(f"discovery entries exceed {MAX_DISCOVERY_ENTRIES}")
+                stop = True
+                break
             candidate = current / name
             relative = _relative(safe_root, candidate)
-            if candidate.is_symlink():
-                symlinks.add(relative)
-            elif not _is_ignored_directory(safe_root, current, name):
-                retained_directories.append(name)
-        directory_names[:] = retained_directories
+            try:
+                if candidate.is_symlink():
+                    symlinks.add(relative)
+                elif not _is_ignored_directory(safe_root, current, name):
+                    retained_directories.append(name)
+            except (OSError, RuntimeError) as error:
+                issues.add(f"unreadable path {relative}: {error}")
+        directory_names[:] = [] if stop else retained_directories
+        if stop:
+            break
 
         for name in sorted(file_names):
+            entries_seen += 1
+            if entries_seen > MAX_DISCOVERY_ENTRIES:
+                issues.add(f"discovery entries exceed {MAX_DISCOVERY_ENTRIES}")
+                stop = True
+                break
             candidate = current / name
             relative = _relative(safe_root, candidate)
-            if candidate.is_symlink():
-                symlinks.add(relative)
-                continue
-            if candidate.is_file():
-                files.add(relative)
+            try:
+                if candidate.is_symlink():
+                    symlinks.add(relative)
+                    continue
+                if candidate.is_file():
+                    files.add(relative)
+            except (OSError, RuntimeError) as error:
+                issues.add(f"unreadable path {relative}: {error}")
+        if stop:
+            break
 
     manifests = {
         value
@@ -244,6 +290,7 @@ def discover(root: Path) -> Discovery:
         agent_files=tuple(sorted(agent_files)),
         documentation=tuple(sorted(documentation)),
         symlinks=tuple(sorted(symlinks)),
+        issues=tuple(sorted(issues)),
         empty=not ordered_files,
         monorepo_signals=tuple(sorted(monorepo_signals)),
     )
@@ -259,6 +306,7 @@ def _render_text(result: Discovery) -> str:
         f"task_runners: {len(result.task_runners)}",
         f"agent_files: {len(result.agent_files)}",
         f"symlinks_not_followed: {len(result.symlinks)}",
+        f"discovery_issues: {len(result.issues)}",
     ]
     return "\n".join(rows)
 
@@ -281,7 +329,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(json.dumps(asdict(result), indent=2, sort_keys=True))
     else:
         print(_render_text(result))
-    return 0
+    return 1 if result.issues else 0
 
 
 if __name__ == "__main__":

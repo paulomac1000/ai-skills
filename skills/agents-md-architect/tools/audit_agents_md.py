@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import shlex
 import sys
 from collections.abc import Iterable, Sequence
 from dataclasses import asdict, dataclass
@@ -17,9 +18,15 @@ if str(TOOLS) not in sys.path:
     sys.path.insert(0, str(TOOLS))
 
 from agents_md_parse import parse_visible_lines, read_utf8_bounded  # noqa: E402
-from agents_md_types import LanguageName, LayoutName  # noqa: E402
+from agents_md_types import (  # noqa: E402
+    MAX_GATE_FILE_BYTES,
+    MAX_GATE_FILES,
+    MAX_GATE_TOTAL_BYTES,
+    LanguageName,
+    LayoutName,
+)
 from discover_repository import Discovery, discover  # noqa: E402
-from validate_agents_md import Finding, normalize_selection, validate_many  # noqa: E402
+from validate_agents_md import Finding, normalize_selection, validate_many_with_documents  # noqa: E402
 
 Severity = Literal["error", "warning"]
 CODE_SPAN = re.compile(r"`([^`\n]+)`")
@@ -44,13 +51,18 @@ class AuditFinding:
 
 
 def _confined_file(root: Path, relative: str) -> Path:
-    path = root / relative
-    if path.is_symlink():
-        raise ValueError(f"refusing to read symlink: {relative}")
-    resolved = path.resolve(strict=True)
-    resolved.relative_to(root)
-    if not resolved.is_file():
-        raise ValueError(f"not a regular file: {relative}")
+    try:
+        path = root / relative
+        if path.is_symlink():
+            raise ValueError(f"refusing to read symlink: {relative}")
+        resolved = path.resolve(strict=True)
+        resolved.relative_to(root)
+        if not resolved.is_file():
+            raise ValueError(f"not a regular file: {relative}")
+    except ValueError:
+        raise
+    except (OSError, RuntimeError) as error:
+        raise ValueError(f"unreadable file {relative}: {error}") from error
     return resolved
 
 
@@ -82,19 +94,104 @@ def _paragraphs(text: str) -> dict[str, int]:
     return result
 
 
-def _known_gate_text(root: Path, discovery: Discovery) -> str:
-    parts: list[str] = []
-    for relative in (*discovery.ci_files, *discovery.task_runners):
+def _normalize_invocation(command: str) -> str | None:
+    try:
+        tokens = shlex.split(command, posix=True)
+    except ValueError:
+        return None
+    return " ".join(tokens) if tokens else None
+
+
+def _extract_gate_invocations(text: str) -> set[str]:
+    invocations: set[str] = set()
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        for prefix in ("- run:", "run:"):
+            if line.casefold().startswith(prefix):
+                line = line[len(prefix) :].strip()
+                break
+        line = line.removeprefix("@")
+        for segment in re.split(r"\s*(?:&&|\|\||;)\s*", line):
+            normalized = _normalize_invocation(segment)
+            if normalized is not None:
+                invocations.add(normalized)
+    return invocations
+
+
+def _entrypoint_invocations(discovery: Discovery) -> set[str]:
+    invocations: set[str] = set()
+    for relative in discovery.task_runners:
+        path = Path(relative)
+        suffix = path.suffix.casefold()
+        if suffix == ".py":
+            invocations.update({f"python {relative}", f"python3 {relative}"})
+        elif suffix == ".sh":
+            invocations.update({f"bash {relative}", f"sh {relative}", f"./{relative}"})
+        elif suffix == ".ps1":
+            invocations.update({f"pwsh {relative}", f"powershell {relative}"})
+        elif not suffix and relative.startswith("bin/"):
+            invocations.update({relative, f"./{relative}"})
+    return invocations
+
+
+def _known_gate_commands(root: Path, discovery: Discovery) -> tuple[set[str], list[AuditFinding]]:
+    sources = tuple(sorted(set((*discovery.ci_files, *discovery.task_runners))))
+    findings: list[AuditFinding] = []
+    commands = _entrypoint_invocations(discovery)
+    if len(sources) > MAX_GATE_FILES:
+        findings.append(
+            AuditFinding(
+                root.as_posix(),
+                "error",
+                "evidence.too-many-gate-sources",
+                1,
+                f"Found {len(sources)} CI/task sources; maximum supported count is {MAX_GATE_FILES}.",
+            )
+        )
+        return commands, findings
+
+    total_bytes = 0
+    for relative in sources:
         try:
-            parts.append(_read_text(root, relative))
-        except ValueError:
+            path = _confined_file(root, relative)
+        except ValueError as error:
+            findings.append(AuditFinding(relative, "error", "evidence.gate-source-unreadable", 1, str(error)))
             continue
-    return "\n".join(parts)
+        result = read_utf8_bounded(path, max_bytes=MAX_GATE_FILE_BYTES)
+        if result.code is not None or result.text is None:
+            findings.append(
+                AuditFinding(
+                    relative,
+                    "error",
+                    "evidence.gate-source-unreadable",
+                    1,
+                    result.message or result.code or "unreadable gate source",
+                )
+            )
+            continue
+        total_bytes += result.byte_count
+        if total_bytes > MAX_GATE_TOTAL_BYTES:
+            findings.append(
+                AuditFinding(
+                    root.as_posix(),
+                    "error",
+                    "evidence.gate-sources-too-large",
+                    1,
+                    f"CI/task source aggregate exceeds {MAX_GATE_TOTAL_BYTES} bytes.",
+                )
+            )
+            break
+        commands.update(_extract_gate_invocations(result.text))
+    return commands, findings
 
 
 def _command_path_tokens(command: str) -> tuple[str, ...]:
     paths: list[str] = []
-    for token in command.split():
+    try:
+        tokens = shlex.split(command, posix=True)
+    except ValueError:
+        return ()
+    for token in tokens:
         cleaned = token.strip("'\"()[]{};,:")
         if "/" not in cleaned and "\\" not in cleaned:
             continue
@@ -105,25 +202,16 @@ def _command_path_tokens(command: str) -> tuple[str, ...]:
     return tuple(paths)
 
 
-def _command_reference_status(root: Path, command: str, discovery: Discovery, gate_text: str) -> str:
+def _command_reference_status(root: Path, command: str, known_commands: set[str]) -> str:
     """Classify static command evidence without claiming execution."""
-    normalized = " ".join(command.split())
-    normalized_gate = " ".join(gate_text.split())
-    if normalized and normalized in normalized_gate:
+    normalized = _normalize_invocation(command)
+    if normalized is not None and normalized in known_commands:
         return "located"
-    known_entrypoints = set(discovery.task_runners) | set(discovery.ci_files)
-    path_tokens = _command_path_tokens(command)
-    command_tokens = command.split()
-    for token in path_tokens:
-        if token not in known_entrypoints:
-            continue
+    for token in _command_path_tokens(command):
         try:
-            position = next(index for index, value in enumerate(command_tokens) if token in value)
-        except StopIteration:
+            _confined_file(root, token)
+        except ValueError:
             continue
-        if position == len(command_tokens) - 1:
-            return "located"
-    if any((root / token).is_file() for token in path_tokens):
         return "unverified"
     return "unlocated"
 
@@ -142,7 +230,9 @@ def audit(
     domain_profile, selected_layout = normalize_selection(profile, layout)
     discovery = discover(root)
     safe_root = Path(discovery.root)
-    findings: list[AuditFinding] = []
+    findings: list[AuditFinding] = [
+        AuditFinding(safe_root.as_posix(), "error", "discovery.incomplete", 1, issue) for issue in discovery.issues
+    ]
 
     for relative in discovery.symlinks:
         if Path(relative).name == "AGENTS.md":
@@ -157,16 +247,11 @@ def audit(
             )
 
     paths = [safe_root / relative for relative in discovery.agent_files]
-    findings.extend(
-        _convert(item) for item in validate_many(paths, domain_profile, safe_root, selected_layout, language)
+    validation_findings, documents = validate_many_with_documents(
+        paths, domain_profile, safe_root, selected_layout, language
     )
-
-    texts: dict[str, str] = {}
-    for relative in discovery.agent_files:
-        try:
-            texts[relative] = _read_text(safe_root, relative)
-        except ValueError as error:
-            findings.append(AuditFinding(relative, "error", "security.unreadable", 1, str(error)))
+    findings.extend(_convert(item) for item in validation_findings)
+    texts = {document.relative_path: document.text for document in documents}
 
     reference_paragraphs: dict[str, tuple[str, int]] = {}
     for reference in ("README.md", "CHANGELOG.md"):
@@ -178,7 +263,8 @@ def audit(
         except ValueError:
             continue
 
-    gate_text = _known_gate_text(safe_root, discovery)
+    known_commands, gate_findings = _known_gate_commands(safe_root, discovery)
+    findings.extend(gate_findings)
     for relative, text in texts.items():
         for paragraph, line_number in _paragraphs(text).items():
             source = reference_paragraphs.get(paragraph)
@@ -211,7 +297,7 @@ def audit(
             if not FULL_GATE_LINE.search(line):
                 continue
             for command in CODE_SPAN.findall(line):
-                status = _command_reference_status(safe_root, command, discovery, gate_text)
+                status = _command_reference_status(safe_root, command, known_commands)
                 if status == "unlocated":
                     findings.append(
                         AuditFinding(

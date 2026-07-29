@@ -10,9 +10,9 @@ import yaml
 TOOLS = Path(__file__).resolve().parents[1] / "skills/agents-md-architect/tools"
 sys.path.insert(0, str(TOOLS))
 
-import audit_agents_md as audit_module
-import discover_repository as discovery
-import validate_agents_md as validator
+import audit_agents_md as audit_module  # noqa: E402
+import discover_repository as discovery  # noqa: E402
+import validate_agents_md as validator  # noqa: E402
 
 
 def codes(items: list[Any]) -> set[str]:
@@ -26,7 +26,7 @@ def write(root: Path, relative: str, text: str) -> Path:
     return path
 
 
-def root_text(*, safety: bool = False, polish: bool = False) -> str:
+def root_text(*, safety: bool = True, polish: bool = False) -> str:
     if polish:
         return """# AGENTS.md
 
@@ -77,7 +77,7 @@ Report the exact revision and residual risk.
 """
 
 
-def nested_text(*, safety: bool = False, polish: bool = False, conflict: bool = False) -> str:
+def nested_text(*, safety: bool = True, polish: bool = False, conflict: bool = False) -> str:
     if polish:
         conflict_line = (
             "Wygenerowane pliki należy edytować bezpośrednio."
@@ -145,7 +145,7 @@ def test_language_contract_and_compositional_cli_are_published() -> None:
     assert "--layout <layout> --profile <profile> --language <language>" in skill
 
 
-@pytest.mark.parametrize("profile,safety", [("application", False), ("mcp-server", True), ("safety-critical", True)])
+@pytest.mark.parametrize("profile,safety", [("application", True), ("mcp-server", True), ("safety-critical", True)])
 def test_monorepo_composes_layout_and_domain(tmp_path: Path, profile: str, safety: bool):
     prepare(tmp_path)
     root = write(tmp_path, "AGENTS.md", root_text(safety=safety))

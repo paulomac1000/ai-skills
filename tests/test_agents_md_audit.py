@@ -39,6 +39,10 @@ These instructions apply to the repository. Nested AGENTS.md files define inheri
 - Generated files must not be edited directly.
 - When changing boundaries, read [the architecture guide](docs/architecture.md) for ownership.
 
+## Safety boundaries
+
+Secrets must not be committed. Destructive writes require explicit authorization and rollback.
+
 ## Definition of done
 
 Report focused and full checks, the exact revision, skipped checks, and residual risk.
@@ -90,6 +94,10 @@ These instructions apply only to this subtree.
 ## Local boundaries
 
 Generated files must be edited directly.
+
+## Local safety boundaries
+
+Secrets must not be committed. Destructive writes require explicit authorization and rollback.
 
 ## Completion check
 

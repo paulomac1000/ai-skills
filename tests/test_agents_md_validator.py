@@ -56,6 +56,10 @@ These instructions apply to the repository. A read-only audit does not permit im
 
 When changing service boundaries, read [the architecture guide](docs/architecture.md) for dependency ownership.
 
+## Safety boundaries
+
+Secrets must not be committed. Destructive writes require explicit authorization and rollback.
+
 ## Definition of done
 
 Report focused and full checks, the exact revision, skipped checks, and residual risk.
@@ -72,6 +76,10 @@ These instructions apply to the repository.
 ## Task routing
 
 When changing architecture, read [the architecture guide](docs/architecture.md) for dependency ownership.
+
+## Safety boundaries
+
+Secrets must not be committed. Destructive writes require explicit authorization and rollback.
 
 ## Definition of done
 
@@ -139,6 +147,10 @@ These instructions apply to the repository. Nested AGENTS.md files define inheri
 
 Generated files must not be edited directly.
 
+## Safety boundaries
+
+Secrets must not be committed. Destructive writes require explicit authorization and rollback.
+
 ## Definition of done
 
 Report root and nested completion checks, the exact revision, and residual risk.
@@ -160,6 +172,10 @@ These instructions apply only to this subtree. Use the package-specific build gr
 ## Local references
 
 When changing package architecture, read [the local guide](docs/local.md) for package ownership.
+
+## Local safety boundaries
+
+Secrets must not be committed. Destructive writes require explicit authorization and rollback.
 """
 
 
@@ -216,16 +232,16 @@ def test_missing_profile_contracts_fail(tmp_path: Path, validator: Any) -> None:
 
 def test_template_style_code_span_path_is_validated(tmp_path: Path, validator: Any) -> None:
     prepare_refs(tmp_path)
-    text = application_text().replace(
-        "[the architecture guide](docs/architecture.md)", "`docs/does-not-exist.md`"
-    )
+    text = application_text().replace("[the architecture guide](docs/architecture.md)", "`docs/does-not-exist.md`")
     path = write(tmp_path, "AGENTS.md", text)
     assert "links.missing" in codes(validator.validate_path(path, "application", tmp_path))
 
 
 def test_reference_definition_inside_fence_is_ignored(tmp_path: Path, validator: Any) -> None:
     prepare_refs(tmp_path)
-    text = application_text() + """
+    text = (
+        application_text()
+        + """
 
 ```markdown
 [ghost]: docs/ghost.md
@@ -233,6 +249,7 @@ def test_reference_definition_inside_fence_is_ignored(tmp_path: Path, validator:
 
 This explanatory sentence mentions [ghost][ghost] but does not create an active definition.
 """
+    )
     path = write(tmp_path, "AGENTS.md", text)
     assert "links.missing" not in codes(validator.validate_path(path, "application", tmp_path))
 
@@ -245,13 +262,16 @@ def test_unclosed_fence_is_rejected(tmp_path: Path, validator: Any) -> None:
 
 def test_blockquoted_fence_content_is_ignored(tmp_path: Path, validator: Any) -> None:
     prepare_refs(tmp_path)
-    text = application_text() + """
+    text = (
+        application_text()
+        + """
 
 > ```markdown
 > CONSENT_KEYWORDS = ["approve"]
 > [Missing](docs/missing.md)
 > ```
 """
+    )
     path = write(tmp_path, "AGENTS.md", text)
     result = validator.validate_path(path, "application", tmp_path)
     assert "safety.keyword-approval" not in codes(result)
@@ -260,11 +280,14 @@ def test_blockquoted_fence_content_is_ignored(tmp_path: Path, validator: Any) ->
 
 def test_negated_bad_practices_are_not_flagged(tmp_path: Path, validator: Any) -> None:
     prepare_refs(tmp_path)
-    text = application_text() + """
+    text = (
+        application_text()
+        + """
 
 Do not use keyword-based approval; it is not proof of human approval.
 If the local hook passes, CI is not guaranteed to pass.
 """
+    )
     path = write(tmp_path, "AGENTS.md", text)
     result = validator.validate_path(path, "application", tmp_path)
     assert "safety.keyword-approval" not in codes(result)
@@ -273,11 +296,14 @@ If the local hook passes, CI is not guaranteed to pass.
 
 def test_positive_bad_practices_are_rejected(tmp_path: Path, validator: Any) -> None:
     prepare_refs(tmp_path)
-    text = application_text() + """
+    text = (
+        application_text()
+        + """
 
 CONSENT_KEYWORDS decide whether a change is approved.
 If the local pre-commit hook passes, CI is guaranteed to pass.
 """
+    )
     path = write(tmp_path, "AGENTS.md", text)
     result = validator.validate_path(path, "application", tmp_path)
     assert {"safety.keyword-approval", "evidence.false-ci-guarantee"} <= codes(result)
@@ -327,7 +353,7 @@ def test_context_budget_warns_and_reasoned_waiver_suppresses(tmp_path: Path, val
     path = write(tmp_path, "AGENTS.md", application_text() + "\n".join("Extra guidance." for _ in range(130)))
     assert "context.review-budget" in codes(validator.validate_path(path, "application", tmp_path))
     waived = (
-        '<!-- agents-md: waive context-budget '
+        "<!-- agents-md: waive context-budget "
         'reason="Safety boundary must remain visible during emergency response." -->\n'
     )
     path.write_text(waived + path.read_text(encoding="utf-8"), encoding="utf-8")
@@ -372,18 +398,24 @@ def test_monorepo_detects_conflicting_owner(tmp_path: Path, validator: Any) -> N
     prepare_refs(tmp_path)
     write(tmp_path, "docs/root-standard.md", "# Root\n")
     write(tmp_path, "packages/example/docs/local-standard.md", "# Local\n")
-    root_text = monorepo_root_text() + """
+    root_text = (
+        monorepo_root_text()
+        + """
 
 ## Sources of truth
 
 - [Normative contract](docs/root-standard.md) — accepted behavior.
 """
-    nested_text = monorepo_nested_text() + """
+    )
+    nested_text = (
+        monorepo_nested_text()
+        + """
 
 ## Sources of truth
 
 - [Normative contract](docs/local-standard.md) — accepted behavior.
 """
+    )
     root = write(tmp_path, "AGENTS.md", root_text)
     nested = write(tmp_path, "packages/example/AGENTS.md", nested_text)
     write(tmp_path, "packages/example/docs/local.md", "# Local\n")

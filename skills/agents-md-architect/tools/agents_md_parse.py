@@ -35,24 +35,49 @@ from agents_md_types import (
 )
 
 
-def strip_blockquote_prefix(line: str) -> str:
-    """Remove one or more CommonMark blockquote prefixes for fence parsing."""
+def _blockquote_depth_and_content(line: str) -> tuple[int, str]:
+    """Return CommonMark blockquote depth and content after container prefixes."""
+    depth = 0
     value = line
     while True:
         match = re.match(r"^[ \t]{0,3}>[ \t]?", value)
         if match is None:
-            return value
+            return depth, value
+        depth += 1
         value = value[match.end() :]
 
 
+def strip_blockquote_prefix(line: str) -> str:
+    """Remove CommonMark blockquote prefixes for active-line parsing."""
+    return _blockquote_depth_and_content(line)[1]
+
+
+def _is_fence_closer(line: str, character: str, minimum_length: int) -> bool:
+    match = re.fullmatch(r"(?P<indent>[ \t]{0,3})(?P<marker>`{3,}|~{3,})[ \t]*", line)
+    if match is None:
+        return False
+    marker = match.group("marker")
+    return marker[0] == character and len(marker) >= minimum_length
+
+
 def parse_visible_lines(text: str) -> tuple[list[tuple[int, str]], int | None]:
-    """Return active lines outside fenced code blocks and an unclosed-fence line."""
+    """Return active lines outside fenced blocks and a stable unclosed-fence line."""
     visible: list[tuple[int, str]] = []
     fence_character: str | None = None
     minimum_length = 0
     fence_start: int | None = None
+    fence_quote_depth = 0
+    abandoned_fence_start: int | None = None
+
     for line_number, source_line in enumerate(text.splitlines(), start=1):
-        line = strip_blockquote_prefix(source_line)
+        quote_depth, line = _blockquote_depth_and_content(source_line)
+        if fence_character is not None and quote_depth != fence_quote_depth:
+            abandoned_fence_start = abandoned_fence_start or fence_start
+            fence_character = None
+            minimum_length = 0
+            fence_start = None
+            fence_quote_depth = 0
+
         if fence_character is None:
             opener = FENCE_OPENER.fullmatch(line)
             if opener is not None:
@@ -62,17 +87,18 @@ def parse_visible_lines(text: str) -> tuple[list[tuple[int, str]], int | None]:
                     fence_character = marker[0]
                     minimum_length = len(marker)
                     fence_start = line_number
+                    fence_quote_depth = quote_depth
                     continue
             visible.append((line_number, source_line))
             continue
 
-        stripped = line.lstrip(" \t")
-        closing = re.fullmatch(rf"{re.escape(fence_character)}{{{minimum_length},}}[ \t]*", stripped)
-        if closing is not None:
+        if _is_fence_closer(line, fence_character, minimum_length):
             fence_character = None
             minimum_length = 0
             fence_start = None
-    return visible, fence_start
+            fence_quote_depth = 0
+
+    return visible, fence_start or abandoned_fence_start
 
 
 def read_utf8_bounded(path: Path, max_bytes: int = MAX_INSTRUCTION_FILE_BYTES) -> ReadResult:
@@ -199,39 +225,43 @@ def _path_has_symlink(base: Path, candidate: Path) -> bool:
 
 
 def trusted_root(repository_root: Path | None) -> tuple[Path | None, str | None, str | None]:
-    lexical = (repository_root or Path.cwd()).absolute()
-    if _absolute_path_has_symlink(lexical):
-        return None, "input.repository-root-symlink", "Repository root must not contain symlinks."
     try:
+        lexical = (repository_root or Path.cwd()).absolute()
+        if _absolute_path_has_symlink(lexical):
+            return None, "input.repository-root-symlink", "Repository root must not contain symlinks."
         resolved = lexical.resolve(strict=True)
+        if not resolved.is_dir():
+            return None, "input.repository-root-not-directory", "Repository root is not a directory."
     except FileNotFoundError:
         return None, "input.repository-root-missing", "Repository root does not exist."
-    if not resolved.is_dir():
-        return None, "input.repository-root-not-directory", "Repository root is not a directory."
+    except (OSError, RuntimeError) as error:
+        return None, "input.repository-root-unreadable", f"Could not inspect repository root: {error}"
     return resolved, None, None
 
 
 def trusted_input(path: Path, root: Path) -> tuple[Path | None, str | None, str | None]:
-    lexical = path if path.is_absolute() else root / path
-    lexical = lexical.absolute()
-    if not lexical.exists() and not lexical.is_symlink():
-        return None, "input.missing", "Input file does not exist."
     try:
-        lexical.relative_to(root)
-    except ValueError:
-        return None, "input.outside-repository", "Input file is outside the repository root."
-    if _path_has_symlink(root, lexical):
-        return None, "input.symlink", "Input path must not contain symlinks."
-    try:
+        lexical = path if path.is_absolute() else root / path
+        lexical = lexical.absolute()
+        if not lexical.exists() and not lexical.is_symlink():
+            return None, "input.missing", "Input file does not exist."
+        try:
+            lexical.relative_to(root)
+        except ValueError:
+            return None, "input.outside-repository", "Input file is outside the repository root."
+        if _path_has_symlink(root, lexical):
+            return None, "input.symlink", "Input path must not contain symlinks."
         resolved = lexical.resolve(strict=True)
+        try:
+            resolved.relative_to(root)
+        except ValueError:
+            return None, "input.outside-repository", "Input file resolves outside the repository root."
+        if not resolved.is_file():
+            return None, "input.not-file", "Input is not a regular file."
     except FileNotFoundError:
         return None, "input.missing", "Input file does not exist."
-    try:
-        resolved.relative_to(root)
-    except ValueError:
-        return None, "input.outside-repository", "Input file resolves outside the repository root."
-    if not resolved.is_file():
-        return None, "input.not-file", "Input is not a regular file."
+    except (OSError, RuntimeError) as error:
+        return None, "input.unreadable", f"Could not inspect input file: {error}"
     return resolved, None, None
 
 
@@ -243,16 +273,19 @@ def resolve_reference(path: Path, root: Path, target: str) -> tuple[Path | None,
     lexical = candidate_path if candidate_path.is_absolute() else path.parent / candidate_path
     lexical = lexical.absolute()
     try:
-        lexical.relative_to(root)
-    except ValueError:
-        return lexical, "outside"
-    if _path_has_symlink(root, lexical):
-        return lexical, "symlink"
-    resolved = lexical.resolve(strict=False)
-    try:
-        resolved.relative_to(root)
-    except ValueError:
-        return resolved, "outside"
+        try:
+            lexical.relative_to(root)
+        except ValueError:
+            return lexical, "outside"
+        if _path_has_symlink(root, lexical):
+            return lexical, "symlink"
+        resolved = lexical.resolve(strict=False)
+        try:
+            resolved.relative_to(root)
+        except ValueError:
+            return resolved, "outside"
+    except (OSError, RuntimeError):
+        return lexical, "unreadable"
     return resolved, None
 
 
@@ -318,30 +351,37 @@ def _extract_contracts(visible_lines: Sequence[tuple[int, str]]) -> frozenset[st
 def _directive_category(line: str, language: LanguageName) -> str | None:
     lowered = line.casefold()
     if language == "pl":
-        if re.search(r"wygenerowan", lowered) and re.search(r"edyt|modyfik|zmien", lowered):
+        if re.search(r"\bwygenerowan\w*\b", lowered) and re.search(r"\b(?:edyt\w*|modyfik\w*|zmien\w*)\b", lowered):
             return "generated-edit"
-        if "test" in lowered and re.search(r"pomij|wyłącz|osłab|usuń|uruch|wymag|przej", lowered):
-            return "test-integrity"
-        if re.search(r"sekret|tajemnic|dane (?:prywatne|wrażliwe|osobowe)", lowered) and re.search(
-            r"commit|śled|przechow|ujawn|zapis", lowered
+        if re.search(r"\btest(?:y|ów|om|ami|ach|ować|owania|owanie|owy|owe|owych)?\b", lowered) and re.search(
+            r"\b(?:pomij\w*|wyłącz\w*|osłab\w*|usuń\w*|uruch\w*|wymag\w*|przej\w*)\b", lowered
         ):
+            return "test-integrity"
+        if re.search(
+            r"\b(?:sekret(?:y|ów|om|ami|ach)?|tajemnic(?:a|e|y|ę|ą|om|ami|ach)|dane (?:prywatne|wrażliwe|osobowe))\b",
+            lowered,
+        ) and re.search(r"\b(?:commit\w*|śled\w*|przechow\w*|ujawn\w*|zapis\w*)\b", lowered):
             return "protected-data"
-        if "bezpośrednio" in lowered and re.search(r"edyt|modyfik|zmien", lowered):
+        if re.search(r"\bbezpośrednio\b", lowered) and re.search(r"\b(?:edyt\w*|modyfik\w*|zmien\w*)\b", lowered):
             return "direct-edit"
         return None
     if language == "other":
         return None
-    if "generated" in lowered and any(token in lowered for token in ("edit", "modify", "change")):
+    if re.search(r"\bgenerated\b", lowered) and re.search(
+        r"\b(?:edit(?:ed|ing|s)?|modif(?:y|ied|ies|ying)|chang(?:e|ed|es|ing))\b", lowered
+    ):
         return "generated-edit"
-    if "test" in lowered and any(
-        token in lowered for token in ("skip", "disable", "weaken", "remove", "must run", "required", "pass")
+    if re.search(r"\btests?\b", lowered) and re.search(
+        r"\b(?:skip|disable|weaken|remove|required|pass)\b|\bmust\s+run\b", lowered
     ):
         return "test-integrity"
-    if any(token in lowered for token in ("secret", "private data", "sensitive data")) and any(
-        token in lowered for token in ("commit", "track", "store", "expose", "write")
+    if re.search(r"\b(?:secrets?|private data|sensitive data)\b", lowered) and re.search(
+        r"\b(?:commit|track|store|expose|write)\b", lowered
     ):
         return "protected-data"
-    if "directly" in lowered and any(token in lowered for token in ("edit", "modify", "change")):
+    if re.search(r"\bdirectly\b", lowered) and re.search(
+        r"\b(?:edit(?:ed|ing|s)?|modif(?:y|ied|ies|ying)|chang(?:e|ed|es|ing))\b", lowered
+    ):
         return "direct-edit"
     return None
 

@@ -278,26 +278,51 @@ def _validate_document(
                     f"Reference contains a symlink: {target}",
                 )
             )
-        elif not resolved.exists():
+        elif issue == "unreadable":
             findings.append(
                 Finding(
                     str(path),
                     "error",
-                    "links.missing",
+                    "links.unreadable",
                     line_number,
-                    f"Referenced path does not exist: {target}",
+                    f"Reference could not be inspected safely: {target}",
                 )
             )
-        elif not resolved.is_file():
-            findings.append(
-                Finding(
-                    str(path),
-                    "error",
-                    "links.not-file",
-                    line_number,
-                    f"Reference must resolve to a regular file: {target}",
+        else:
+            try:
+                exists = resolved.exists()
+                regular = resolved.is_file() if exists else False
+            except (OSError, RuntimeError):
+                findings.append(
+                    Finding(
+                        str(path),
+                        "error",
+                        "links.unreadable",
+                        line_number,
+                        f"Reference could not be inspected safely: {target}",
+                    )
                 )
-            )
+                continue
+            if not exists:
+                findings.append(
+                    Finding(
+                        str(path),
+                        "error",
+                        "links.missing",
+                        line_number,
+                        f"Referenced path does not exist: {target}",
+                    )
+                )
+            elif not regular:
+                findings.append(
+                    Finding(
+                        str(path),
+                        "error",
+                        "links.not-file",
+                        line_number,
+                        f"Reference must resolve to a regular file: {target}",
+                    )
+                )
 
     return findings
 
@@ -419,6 +444,37 @@ def _validate_tree(documents: Sequence[ParsedDocument], root: Path) -> list[Find
     return findings
 
 
+def _validate_topology(
+    documents: Sequence[ParsedDocument],
+    root: Path,
+    layout: LayoutName,
+) -> list[Finding]:
+    root_document = next((document for document in documents if document.path == root / "AGENTS.md"), None)
+    if root_document is None:
+        return [
+            Finding(
+                str(root),
+                "error",
+                "tree.missing-root",
+                1,
+                f"The {layout} layout requires a root AGENTS.md.",
+            )
+        ]
+    if layout == "single":
+        return [
+            Finding(
+                str(document.path),
+                "error",
+                "tree.unexpected-nested",
+                1,
+                "The single layout permits only the root AGENTS.md.",
+            )
+            for document in documents
+            if document.path != root_document.path
+        ]
+    return _validate_tree(documents, root)
+
+
 def _read_document(
     path: Path,
     root: Path,
@@ -469,52 +525,61 @@ def validate_path(
     return sorted(findings, key=lambda item: (item.path, item.line, item.severity, item.code, item.message))
 
 
-def validate_many(
+def validate_many_with_documents(
     paths: Iterable[Path],
     profile: str = "application",
     repository_root: Path | None = None,
     layout: LayoutName | None = None,
     language: LanguageName = "en",
-) -> list[Finding]:
-    """Validate files together and evaluate inheritance when the layout is monorepo."""
+) -> tuple[list[Finding], list[ParsedDocument]]:
+    """Load and validate one bounded instruction tree exactly once."""
     try:
         domain_profile, selected_layout = normalize_selection(profile, layout)
     except ValueError as error:
-        return [
-            Finding(
-                str(repository_root or Path.cwd()),
-                "error",
-                "input.invalid-selection",
-                1,
-                str(error),
-            )
-        ]
+        return (
+            [
+                Finding(
+                    str(repository_root or Path.cwd()),
+                    "error",
+                    "input.invalid-selection",
+                    1,
+                    str(error),
+                )
+            ],
+            [],
+        )
     root, code, message = trusted_root(repository_root)
     if code is not None or root is None:
-        return [
-            Finding(
-                str(repository_root or Path.cwd()),
-                "error",
-                code or "input.invalid-root",
-                1,
-                message or "Invalid root.",
-            )
-        ]
+        return (
+            [
+                Finding(
+                    str(repository_root or Path.cwd()),
+                    "error",
+                    code or "input.invalid-root",
+                    1,
+                    message or "Invalid root.",
+                )
+            ],
+            [],
+        )
 
     unique_paths = sorted(set(paths), key=lambda item: item.as_posix())
     if len(unique_paths) > MAX_INSTRUCTION_FILES:
-        return [
-            Finding(
-                str(root),
-                "error",
-                "input.too-many-files",
-                1,
-                (
-                    f"Instruction tree contains {len(unique_paths)} files; "
-                    f"maximum supported count is {MAX_INSTRUCTION_FILES}."
-                ),
-            )
-        ]
+        return (
+            [
+                Finding(
+                    str(root),
+                    "error",
+                    "input.too-many-files",
+                    1,
+                    (
+                        f"Instruction tree contains {len(unique_paths)} files; "
+                        f"maximum supported count is {MAX_INSTRUCTION_FILES}."
+                    ),
+                )
+            ],
+            [],
+        )
 
     findings: list[Finding] = []
     documents: list[ParsedDocument] = []
@@ -540,9 +605,21 @@ def validate_many(
         documents.append(document)
         findings.extend(_validate_document(document, domain_profile, selected_layout, language, root, unclosed_fence))
 
-    if selected_layout == "monorepo" and documents:
-        findings.extend(_validate_tree(documents, root))
-    return sorted(findings, key=lambda item: (item.path, item.line, item.severity, item.code, item.message))
+    findings.extend(_validate_topology(documents, root, selected_layout))
+    ordered = sorted(findings, key=lambda item: (item.path, item.line, item.severity, item.code, item.message))
+    return ordered, documents
+
+
+def validate_many(
+    paths: Iterable[Path],
+    profile: str = "application",
+    repository_root: Path | None = None,
+    layout: LayoutName | None = None,
+    language: LanguageName = "en",
+) -> list[Finding]:
+    """Validate files together using the shared bounded instruction-tree load."""
+    findings, _ = validate_many_with_documents(paths, profile, repository_root, layout, language)
+    return findings
 
 
 def _parser() -> argparse.ArgumentParser:

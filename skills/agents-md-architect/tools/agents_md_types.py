@@ -25,7 +25,7 @@ VERSIONED_NAME = re.compile(
     r"[-_ ]?v\d+\b|\b(?:final|new)[-_ ]?v?\d+\b"
 )
 VOLATILE_COUNT = re.compile(r"(?i)\b\d+\s+(?:tests?|tools?|modules?|files?|services?|workflows?|agents?)\b")
-ABSOLUTE_HOST_PATH = re.compile(r"(?:/var/apps/|/home/[A-Za-z0-9_.-]+/|[A-Za-z]:\\Users\\)")
+ABSOLUTE_HOST_PATH = re.compile(r"(?:/var/apps/|/home/[A-Za-z0-9_.-]+/|/Users/[A-Za-z0-9_.-]+/|[A-Za-z]:\\Users\\)")
 PLACEHOLDER = re.compile(r"\bREPLACE_[A-Z0-9_]+\b|<command>|<path>|<owner>|TODO(?:\([^)]*\))?:", re.I)
 GENERIC_ADVICE = re.compile(
     r"(?i)\b(?:write clean code|follow best practices|use meaningful names|be careful|keep it simple)\b"
@@ -182,8 +182,8 @@ CONCEPT_PATTERNS_BY_LANGUAGE: dict[LanguageName, dict[str, tuple[re.Pattern[str]
 }
 
 PROFILE_REQUIREMENTS: dict[DomainProfileName, tuple[str, ...]] = {
-    "router": ("scope", "routing", "completion"),
-    "application": ("scope", "commands", "completion"),
+    "router": ("scope", "routing", "safety", "completion"),
+    "application": ("scope", "commands", "safety", "completion"),
     "mcp-server": ("scope", "commands", "safety", "risk", "completion"),
     "safety-critical": ("scope", "commands", "safety", "data", "completion"),
 }
@@ -193,8 +193,8 @@ LAYOUT_ROOT_REQUIREMENTS: dict[LayoutName, tuple[str, ...]] = {
 }
 NESTED_LAYOUT_REQUIREMENTS = ("scope", "local", "commands", "completion")
 DOMAIN_NESTED_REQUIREMENTS: dict[DomainProfileName, tuple[str, ...]] = {
-    "router": ("routing",),
-    "application": (),
+    "router": ("routing", "safety"),
+    "application": ("safety",),
     "mcp-server": ("safety", "risk"),
     "safety-critical": ("safety", "data"),
 }
@@ -221,6 +221,11 @@ PATH_CUE = re.compile(
 MAX_INSTRUCTION_FILE_BYTES = 256 * 1024
 MAX_INSTRUCTION_TREE_BYTES = 2 * 1024 * 1024
 MAX_INSTRUCTION_FILES = 128
+MAX_DISCOVERY_ENTRIES = 100_000
+MAX_DISCOVERY_DEPTH = 64
+MAX_GATE_FILES = 64
+MAX_GATE_FILE_BYTES = 256 * 1024
+MAX_GATE_TOTAL_BYTES = 2 * 1024 * 1024
 
 
 @dataclass(frozen=True)
