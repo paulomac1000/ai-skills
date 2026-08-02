@@ -159,14 +159,16 @@ def parse_visible_lines(text: str) -> tuple[list[tuple[int, str]], int | None]:
 
 
 def read_utf8_bounded(path: Path, max_bytes: int = MAX_INSTRUCTION_FILE_BYTES) -> ReadResult:
-    """Read at most max_bytes plus one from a regular file without following symlinks."""
+    """Read at most max_bytes plus one from a stable regular-file identity."""
     flags = os.O_RDONLY | getattr(os, "O_BINARY", 0)
     nofollow = getattr(os, "O_NOFOLLOW", 0)
+    expected_identity: os.stat_result | None = None
     if nofollow:
         flags |= nofollow
     else:
         try:
-            if path.is_symlink():
+            expected_identity = os.lstat(path)
+            if stat.S_ISLNK(expected_identity.st_mode):
                 return ReadResult(None, 0, "input.read-error", "Refusing to read a symlink.")
         except OSError as error:
             return ReadResult(None, 0, "input.read-error", f"Could not inspect input file: {error}")
@@ -178,6 +180,13 @@ def read_utf8_bounded(path: Path, max_bytes: int = MAX_INSTRUCTION_FILE_BYTES) -
 
     try:
         metadata = os.fstat(descriptor)
+        if expected_identity is not None and not os.path.samestat(expected_identity, metadata):
+            return ReadResult(
+                None,
+                0,
+                "input.read-error",
+                "Input file identity changed while opening; refusing to follow a replacement.",
+            )
         if not stat.S_ISREG(metadata.st_mode):
             return ReadResult(None, 0, "input.read-error", "Input is not a regular file.")
         if metadata.st_size > max_bytes:

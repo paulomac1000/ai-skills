@@ -111,23 +111,53 @@ def _relative(root: Path, value: Path) -> str:
     return value.relative_to(root).as_posix()
 
 
-def _is_dotnet_project_directory(directory: Path) -> bool:
+@dataclass
+class _DiscoveryBudget:
+    limit: int
+    seen: int = 0
+    exhausted: bool = False
+
+    def consume(self) -> bool:
+        self.seen += 1
+        if self.seen > self.limit:
+            self.exhausted = True
+            return False
+        return True
+
+
+def _is_dotnet_project_directory(directory: Path, budget: _DiscoveryBudget) -> bool | None:
     try:
-        return any(path.is_file() and path.suffix.casefold() in DOTNET_PROJECT_SUFFIXES for path in directory.iterdir())
+        with os.scandir(directory) as entries:
+            for entry in entries:
+                if not budget.consume():
+                    return None
+                if entry.is_symlink():
+                    continue
+                if (
+                    entry.is_file(follow_symlinks=False)
+                    and Path(entry.name).suffix.casefold() in DOTNET_PROJECT_SUFFIXES
+                ):
+                    return True
     except OSError:
         return False
+    return False
 
 
-def _is_dotnet_bin_output(project_directory: Path, candidate: Path) -> bool:
-    if not _is_dotnet_project_directory(project_directory):
-        return False
+def _is_dotnet_bin_output(
+    project_directory: Path,
+    candidate: Path,
+    budget: _DiscoveryBudget,
+) -> bool | None:
+    project = _is_dotnet_project_directory(project_directory, budget)
+    if project is None or not project:
+        return project
     script_suffixes = {"", ".py", ".rb", ".ps1", ".sh"}
     compiled_suffixes = {".dll", ".exe", ".json", ".pdb", ".so", ".dylib"}
     try:
         with os.scandir(candidate) as entries:
-            for index, entry in enumerate(entries, start=1):
-                if index > MAX_DISCOVERY_ENTRIES:
-                    return False
+            for entry in entries:
+                if not budget.consume():
+                    return None
                 if entry.is_symlink():
                     return False
                 if entry.is_file(follow_symlinks=False):
@@ -141,13 +171,18 @@ def _is_dotnet_bin_output(project_directory: Path, candidate: Path) -> bool:
     return True
 
 
-def _is_ignored_directory(root: Path, current: Path, name: str) -> bool:
+def _is_ignored_directory(
+    root: Path,
+    current: Path,
+    name: str,
+    budget: _DiscoveryBudget,
+) -> bool | None:
     if name in CACHE_DIRECTORIES or name in GENERIC_BUILD_DIRECTORIES:
         return True
     if name == "obj":
-        return _is_dotnet_project_directory(current)
+        return _is_dotnet_project_directory(current, budget)
     if name == "bin":
-        return _is_dotnet_bin_output(current, current / name)
+        return _is_dotnet_bin_output(current, current / name, budget)
     if name == "target":
         return (current / "Cargo.toml").is_file()
     return False
@@ -189,7 +224,7 @@ def discover(root: Path) -> Discovery:
     files: set[str] = set()
     symlinks: set[str] = set()
     issues: set[str] = set()
-    entries_seen = 0
+    budget = _DiscoveryBudget(MAX_DISCOVERY_ENTRIES)
     stop = False
     pending: list[tuple[Path, int]] = [(safe_root, 0)]
 
@@ -203,8 +238,7 @@ def discover(root: Path) -> Discovery:
         try:
             with os.scandir(current) as entries:
                 for entry in entries:
-                    entries_seen += 1
-                    if entries_seen > MAX_DISCOVERY_ENTRIES:
+                    if not budget.consume():
                         issues.add(f"discovery entries exceed {MAX_DISCOVERY_ENTRIES}")
                         stop = True
                         break
@@ -214,7 +248,12 @@ def discover(root: Path) -> Discovery:
                         if entry.is_symlink():
                             symlinks.add(relative)
                         elif entry.is_dir(follow_symlinks=False):
-                            if _is_ignored_directory(safe_root, current, entry.name):
+                            ignored = _is_ignored_directory(safe_root, current, entry.name, budget)
+                            if ignored is None:
+                                issues.add(f"discovery entries exceed {MAX_DISCOVERY_ENTRIES}")
+                                stop = True
+                                break
+                            if ignored:
                                 continue
                             if depth + 1 > MAX_DISCOVERY_DEPTH:
                                 issues.add(f"discovery depth exceeds {MAX_DISCOVERY_DEPTH}: {relative}")

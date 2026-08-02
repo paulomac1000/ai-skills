@@ -112,10 +112,16 @@ def test_bounded_reader_requests_only_limit_plus_one(
             return b"x" * size
 
     monkeypatch.setattr(parser.os, "open", lambda *_args, **_kwargs: 42)
+    if not getattr(parser.os, "O_NOFOLLOW", 0):
+        monkeypatch.setattr(
+            parser.os,
+            "lstat",
+            lambda _path: SimpleNamespace(st_mode=stat.S_IFREG, st_size=1, st_dev=1, st_ino=1),
+        )
     monkeypatch.setattr(
         parser.os,
         "fstat",
-        lambda _descriptor: SimpleNamespace(st_mode=stat.S_IFREG, st_size=1),
+        lambda _descriptor: SimpleNamespace(st_mode=stat.S_IFREG, st_size=1, st_dev=1, st_ino=1),
     )
     monkeypatch.setattr(parser.os, "fdopen", lambda *_args, **_kwargs: FakeStream())
     monkeypatch.setattr(parser.os, "close", lambda _descriptor: None)
@@ -195,3 +201,133 @@ def test_discovery_stops_scandir_at_global_entry_budget(
     result = discovery.discover(tmp_path)
     assert consumed == 2
     assert any("discovery entries exceed" in issue for issue in result.issues)
+
+
+def test_github_env_command_does_not_establish_gate_evidence(tmp_path: Path) -> None:
+    write(
+        tmp_path / ".github/workflows/ci.yml",
+        """name: CI
+
+env:
+  command: python scripts/ghost.py
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo real gate
+""",
+    )
+    write(
+        tmp_path / "AGENTS.md",
+        valid_application().replace("python scripts/ci.py", "python scripts/ghost.py"),
+    )
+    _, findings = audit_module.audit(tmp_path, "application", "single", "en")
+    assert "commands.unlocated-full-gate" in codes(findings)
+
+
+def test_github_folded_run_reconstructs_executable_command(tmp_path: Path) -> None:
+    write(
+        tmp_path / ".github/workflows/ci.yml",
+        """name: CI
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - run: >
+          python -m
+          pytest
+""",
+    )
+    write(
+        tmp_path / "AGENTS.md",
+        valid_application().replace("python scripts/ci.py", "python -m pytest"),
+    )
+    _, findings = audit_module.audit(tmp_path, "application", "single", "en")
+    assert "commands.unlocated-full-gate" not in codes(findings)
+
+
+def test_dotnet_probe_consumes_shared_discovery_budget(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    probe_entries = 0
+    scandir_calls = 0
+
+    class FakeEntry:
+        def __init__(self, name: str, *, directory: bool = False) -> None:
+            self.name = name
+            self.path = str(tmp_path / name)
+            self.directory = directory
+
+        def is_symlink(self) -> bool:
+            return False
+
+        def is_dir(self, *, follow_symlinks: bool) -> bool:
+            assert follow_symlinks is False
+            return self.directory
+
+        def is_file(self, *, follow_symlinks: bool) -> bool:
+            assert follow_symlinks is False
+            return not self.directory
+
+    class FakeScandir:
+        def __init__(self, entries: list[FakeEntry], *, probe: bool = False) -> None:
+            self.entries = iter(entries)
+            self.probe = probe
+
+        def __enter__(self) -> FakeScandir:
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def __iter__(self) -> FakeScandir:
+            return self
+
+        def __next__(self) -> FakeEntry:
+            nonlocal probe_entries
+            if self.probe:
+                probe_entries += 1
+                if probe_entries > 3:
+                    raise AssertionError(".NET probe consumed past the shared budget")
+                return FakeEntry(f"sibling-{probe_entries}.txt")
+            return next(self.entries)
+
+    def fake_scandir(_path: object) -> FakeScandir:
+        nonlocal scandir_calls
+        scandir_calls += 1
+        if scandir_calls == 1:
+            return FakeScandir([FakeEntry("obj", directory=True)])
+        return FakeScandir([], probe=True)
+
+    monkeypatch.setattr(discovery, "MAX_DISCOVERY_ENTRIES", 2)
+    monkeypatch.setattr(discovery.os, "scandir", fake_scandir)
+    result = discovery.discover(tmp_path)
+    assert probe_entries == 2
+    assert any("discovery entries exceed" in issue for issue in result.issues)
+
+
+def test_no_nofollow_fallback_rejects_changed_file_identity(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    before = SimpleNamespace(st_mode=stat.S_IFREG, st_size=1, st_dev=1, st_ino=10)
+    after = SimpleNamespace(st_mode=stat.S_IFREG, st_size=1, st_dev=1, st_ino=11)
+    closed: list[int] = []
+
+    monkeypatch.setattr(parser.os, "O_NOFOLLOW", 0, raising=False)
+    monkeypatch.setattr(parser.os, "lstat", lambda _path: before)
+    monkeypatch.setattr(parser.os, "open", lambda *_args, **_kwargs: 42)
+    monkeypatch.setattr(parser.os, "fstat", lambda _descriptor: after)
+    monkeypatch.setattr(parser.os, "close", closed.append)
+    monkeypatch.setattr(
+        parser.os,
+        "fdopen",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("changed identity must not be read")),
+    )
+
+    result = parser.read_utf8_bounded(Path("ignored"), max_bytes=8)
+    assert result.code == "input.read-error"
+    assert "identity changed" in (result.message or "")
+    assert closed == [42]

@@ -110,52 +110,172 @@ def _add_command_segments(invocations: set[str], command: str) -> None:
             invocations.add(normalized)
 
 
-YAML_COMMAND = re.compile(
-    r"^(?P<indent>[ \t]*)(?:-\s*)?"
-    r"(?P<key>run|script|command|bash|pwsh|powershell|sh|cmds):\s*(?P<value>.*)$",
-    re.I,
-)
+YAML_MAPPING = re.compile(r"^(?P<indent> *)(?P<list>-\s*)?(?P<key>[A-Za-z_][A-Za-z0-9_-]*):(?:\s*(?P<value>.*))?$")
+YAML_BLOCK_STYLES = {"|", ">", "|-", "|+", ">-", ">+"}
+
+
+def _yaml_indent(line: str) -> int | None:
+    prefix = line[: len(line) - len(line.lstrip(" \t"))]
+    return None if "\t" in prefix else len(prefix)
+
+
+def _strip_yaml_comment(value: str) -> str:
+    quote: str | None = None
+    escaped = False
+    for index, character in enumerate(value):
+        if escaped:
+            escaped = False
+            continue
+        if character == "\\" and quote == '"':
+            escaped = True
+            continue
+        if character in "'\"":
+            if quote is None:
+                quote = character
+            elif quote == character:
+                quote = None
+            continue
+        if character == "#" and quote is None and (index == 0 or value[index - 1].isspace()):
+            return value[:index].rstrip()
+    return value.rstrip()
 
 
 def _unquote_scalar(value: str) -> str:
-    stripped = value.strip()
+    stripped = _strip_yaml_comment(value).strip()
     if len(stripped) >= 2 and stripped[0] == stripped[-1] and stripped[0] in "'\"":
         return stripped[1:-1]
     return stripped
 
 
-def _extract_yaml_invocations(text: str) -> set[str]:
-    invocations: set[str] = set()
+def _fold_yaml_lines(lines: list[str]) -> str:
+    paragraphs: list[str] = []
+    current: list[str] = []
+    for line in lines:
+        if line:
+            current.append(line.strip())
+            continue
+        if current:
+            paragraphs.append(" ".join(current))
+            current = []
+        paragraphs.append("")
+    if current:
+        paragraphs.append(" ".join(current))
+    return "\n".join(paragraphs).strip()
+
+
+def _read_yaml_scalar(
+    lines: list[str],
+    index: int,
+    parent_indent: int,
+    raw_value: str,
+) -> tuple[str, str | None, int]:
+    value = _strip_yaml_comment(raw_value).strip()
+    if value not in YAML_BLOCK_STYLES:
+        return _unquote_scalar(value), None, index + 1
+
+    body: list[str] = []
+    cursor = index + 1
+    while cursor < len(lines):
+        candidate = lines[cursor]
+        candidate_indent = _yaml_indent(candidate)
+        if candidate.strip() and (candidate_indent is None or candidate_indent <= parent_indent):
+            break
+        body.append(candidate)
+        cursor += 1
+
+    nonblank_indents = [indent for line in body if line.strip() and (indent := _yaml_indent(line)) is not None]
+    content_indent = min(nonblank_indents, default=parent_indent + 1)
+    content = [line[content_indent:].rstrip() if line.strip() else "" for line in body]
+    style = value[0]
+    if style == "|":
+        return "\n".join(content).strip("\n"), style, cursor
+    return _fold_yaml_lines(content), style, cursor
+
+
+def _yaml_scalar_nodes(text: str) -> list[tuple[tuple[str, ...], str, str | None]]:
     lines = text.splitlines()
+    stack: list[tuple[int, str]] = []
+    nodes: list[tuple[tuple[str, ...], str, str | None]] = []
     index = 0
     while index < len(lines):
         raw_line = lines[index]
         stripped = raw_line.strip()
-        if not stripped or stripped.startswith("#"):
-            index += 1
-            continue
-        match = YAML_COMMAND.match(raw_line)
-        if match is None:
-            index += 1
-            continue
-        indentation = len(match.group("indent").replace("\t", "    "))
-        value = match.group("value").strip()
-        if value and value not in {"|", ">", "|-", "|+", ">-", ">+"}:
-            _add_command_segments(invocations, _unquote_scalar(value))
+        indent = _yaml_indent(raw_line)
+        if indent is None or not stripped or stripped.startswith("#"):
             index += 1
             continue
 
-        index += 1
-        while index < len(lines):
-            nested = lines[index]
-            nested_stripped = nested.strip()
-            nested_indent = len(nested) - len(nested.lstrip(" "))
-            if nested_stripped and nested_indent <= indentation:
-                break
-            if nested_stripped and not nested_stripped.startswith("#"):
-                command = nested_stripped.removeprefix("- ").strip()
-                _add_command_segments(invocations, _unquote_scalar(command))
+        while stack and stack[-1][0] >= indent:
+            stack.pop()
+        match = YAML_MAPPING.fullmatch(raw_line)
+        if match is None:
+            if stripped.startswith("- "):
+                stack.append((indent, "[]"))
+                value = _unquote_scalar(stripped[2:])
+                if value:
+                    nodes.append((tuple(item[1] for item in stack), value, None))
             index += 1
+            continue
+
+        is_list_item = match.group("list") is not None
+        if is_list_item:
+            stack.append((indent, "[]"))
+        key = match.group("key")
+        raw_value = match.group("value") or ""
+        path = tuple(item[1] for item in stack) + (key,)
+        cleaned = _strip_yaml_comment(raw_value).strip()
+        if not cleaned:
+            stack.append((indent + (1 if is_list_item else 0), key))
+            index += 1
+            continue
+
+        value, style, next_index = _read_yaml_scalar(lines, index, indent, raw_value)
+        if value:
+            nodes.append((path, value, style))
+        index = next_index
+    return nodes
+
+
+def _yaml_node_is_executable(relative: str, path: tuple[str, ...]) -> bool:
+    name = Path(relative).name.casefold()
+    if relative.startswith(".github/workflows/"):
+        return len(path) == 5 and path[0] == "jobs" and path[2:] == ("steps", "[]", "run")
+    if relative == ".circleci/config.yml":
+        return (len(path) == 5 and path[0] == "jobs" and path[2:] == ("steps", "[]", "run")) or (
+            len(path) == 6 and path[0] == "jobs" and path[2:] == ("steps", "[]", "run", "command")
+        )
+    if name in {"azure-pipelines.yml", "azure-pipelines.yaml"}:
+        return (
+            len(path) >= 3
+            and path[-3] == "steps"
+            and path[-2] == "[]"
+            and path[-1]
+            in {
+                "script",
+                "bash",
+                "pwsh",
+                "powershell",
+            }
+        )
+    if name in {"taskfile.yml", "taskfile.yaml"}:
+        return (len(path) == 4 and path[0] == "tasks" and path[2:] == ("cmds", "[]")) or (
+            len(path) == 5 and path[0] == "tasks" and path[2:] == ("cmds", "[]", "cmd")
+        )
+    if relative == ".gitlab-ci.yml":
+        executable_keys = {"script", "before_script", "after_script"}
+        return (len(path) >= 2 and path[-2] in executable_keys and path[-1] == "[]") or path[-1] in executable_keys
+    return False
+
+
+def _extract_yaml_invocations(relative: str, text: str) -> set[str]:
+    invocations: set[str] = set()
+    for path, value, style in _yaml_scalar_nodes(text):
+        if not _yaml_node_is_executable(relative, path):
+            continue
+        if style == "|":
+            invocations.update(_extract_shell_invocations(value))
+        else:
+            _add_command_segments(invocations, value)
     return invocations
 
 
@@ -316,7 +436,7 @@ def _extract_gate_invocations(relative: str, text: str) -> set[str]:
     name = path.name
     suffix = path.suffix.casefold()
     if suffix in {".yml", ".yaml"}:
-        return _extract_yaml_invocations(text)
+        return _extract_yaml_invocations(relative, text)
     if name == "Jenkinsfile":
         return _extract_jenkins_invocations(text)
     if name.casefold() == "makefile":
