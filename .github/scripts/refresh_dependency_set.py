@@ -34,6 +34,9 @@ PACKAGE_UPDATES = {
 }
 
 VERSION_COMMENT = re.compile(r"#\s*v?\d+(?:\.\d+){0,2}\s*$")
+ACTION_REFERENCE = re.compile(
+    r"(?P<action>actions/(?:checkout|setup-python|setup-dotnet))@(?P<revision>[^\s#\"']+)"
+)
 TEXT_SUFFIXES = {".in", ".j2", ".json", ".md", ".py", ".template", ".toml", ".yaml", ".yml"}
 
 
@@ -63,8 +66,8 @@ def update_line(line: str) -> str:
     return updated
 
 
-def update_tracked_text() -> list[str]:
-    changed: list[str] = []
+def readable_tracked_text() -> list[tuple[str, str]]:
+    documents: list[tuple[str, str]] = []
     for relative in tracked_files():
         if relative == SELF or relative.endswith(".lock"):
             continue
@@ -72,9 +75,16 @@ def update_tracked_text() -> list[str]:
         if path.suffix.casefold() not in TEXT_SUFFIXES:
             continue
         try:
-            original = path.read_text(encoding="utf-8")
+            documents.append((relative, path.read_text(encoding="utf-8")))
         except (OSError, UnicodeDecodeError):
             continue
+    return documents
+
+
+def update_tracked_text() -> list[str]:
+    changed: list[str] = []
+    for relative, original in readable_tracked_text():
+        path = ROOT / relative
         updated = "".join(update_line(line) for line in original.splitlines(keepends=True))
         if updated == original:
             continue
@@ -91,22 +101,19 @@ def verify_expected_inputs() -> None:
             assert expected in requirements, expected
     assert "mcp==2.0.0" in requirements
     assert "mcp==2.0.0" in runtime
-    for action, (_, new_sha, _) in ACTION_UPDATES.items():
-        occurrences = []
-        for relative in tracked_files():
-            if relative == SELF or relative.endswith(".lock"):
-                continue
-            path = ROOT / relative
-            if path.suffix.casefold() not in TEXT_SUFFIXES:
-                continue
-            try:
-                text = path.read_text(encoding="utf-8")
-            except (OSError, UnicodeDecodeError):
-                continue
-            if action in text:
-                occurrences.append((relative, text))
-        assert occurrences, action
-        assert all(new_sha in text or f"{action}@" not in text for _, text in occurrences), action
+
+    references: dict[str, list[tuple[str, int, str]]] = {action: [] for action in ACTION_UPDATES}
+    for relative, text in readable_tracked_text():
+        for line_number, line in enumerate(text.splitlines(), start=1):
+            for match in ACTION_REFERENCE.finditer(line):
+                action = match.group("action")
+                references[action].append((relative, line_number, match.group("revision")))
+
+    for action, (_, expected_sha, _) in ACTION_UPDATES.items():
+        observed = references[action]
+        assert observed, f"No pinned references found for {action}"
+        offenders = [item for item in observed if item[2] != expected_sha]
+        assert not offenders, f"Unexpected {action} revisions: {offenders}"
 
 
 def main() -> int:
