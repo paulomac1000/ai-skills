@@ -29,6 +29,8 @@ ACTION_UPDATES = {
 
 PACKAGE_UPDATES = {
     "mcp==1.28.1": "mcp==2.0.0",
+    "mcp>=1.27.2,<2": "mcp>=2.0.0,<3",
+    "mcp>=1.28.1,<2": "mcp>=2.0.0,<3",
     "ruff==0.15.22": "ruff==0.16.0",
     "types-PyYAML==6.0.12.20260518": "types-PyYAML==6.0.12.20260724",
 }
@@ -101,11 +103,17 @@ def update_tracked_text() -> list[str]:
 def verify_expected_inputs() -> None:
     requirements = (ROOT / "requirements-dev.in").read_text(encoding="utf-8")
     runtime = (ROOT / "skills/mcp-server-architect/locks/python-runtime.in").read_text(encoding="utf-8")
+    generator = (ROOT / "skills/mcp-server-architect/tools/generate_python_server.py").read_text(encoding="utf-8")
+    generator_test = (ROOT / "tests/test_mcp_generator.py").read_text(encoding="utf-8")
     for expected in PACKAGE_UPDATES.values():
         if expected.startswith("ruff") or expected.startswith("types-"):
             assert expected in requirements, expected
     assert "mcp==2.0.0" in requirements
     assert "mcp==2.0.0" in runtime
+    assert "mcp>=2.0.0,<3" in generator
+    assert "mcp>=2.0.0,<3" in generator_test
+    assert "mcp>=1.27.2,<2" not in generator
+    assert "mcp>=1.28.1,<2" not in generator
 
     references: dict[str, list[tuple[str, int, str]]] = {action: [] for action in ACTION_UPDATES}
     for relative, text in readable_tracked_text():
