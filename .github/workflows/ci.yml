@@ -1,4 +1,4 @@
-name: Refresh consolidated dependencies retry 2
+name: Refresh consolidated dependencies retry 3
 
 on:
   pull_request:
@@ -14,7 +14,7 @@ env:
 
 concurrency:
   group: refresh-consolidated-dependencies
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   locks:
@@ -47,12 +47,12 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 25
     steps:
-      - name: Check out current writable branch
+      - name: Check out current branch without persisted credentials
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ github.event.pull_request.head.ref }}
           fetch-depth: 0
-          persist-credentials: true
+          persist-credentials: false
       - name: Set up target Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
@@ -91,11 +91,12 @@ jobs:
       - name: Validate lock structure
         shell: bash
         run: python -m pytest -q tests/test_lock_contract.py
-      - name: Commit target locks
+      - name: Commit and push target locks
         shell: bash
         env:
           LOCK_ID: ${{ matrix.lock_id }}
           BRANCH: ${{ github.event.pull_request.head.ref }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
@@ -106,7 +107,7 @@ jobs:
             "skills/mcp-server-architect/locks/dev-${LOCK_ID}.lock"
           git diff --cached --quiet && { echo "No lock changes for ${LOCK_ID}"; exit 1; }
           git commit -m "build(deps): refresh ${LOCK_ID} locks"
-          git push origin "HEAD:${BRANCH}"
+          git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:${BRANCH}"
 
   aggregate:
     name: Validate and publish dependency refresh
@@ -114,12 +115,12 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     steps:
-      - name: Check out latest writable branch
+      - name: Check out latest branch without persisted credentials
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ github.event.pull_request.head.ref }}
           fetch-depth: 0
-          persist-credentials: true
+          persist-credentials: false
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
@@ -150,9 +151,10 @@ jobs:
           grep -q 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1' .ci-final/ci.yml
           grep -q 'actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97' .ci-final/ci.yml
           grep -q 'actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68' .ci-final/ci.yml
-      - name: Commit verified non-workflow changes
+      - name: Commit and push verified non-workflow changes
         env:
           BRANCH: ${{ github.event.pull_request.head.ref }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
@@ -162,4 +164,4 @@ jobs:
           git reset .github/workflows/ci.yml
           git diff --cached --quiet && { echo "No dependency changes to commit"; exit 1; }
           git commit -m "build(deps): adopt current supported toolchain"
-          git push origin "HEAD:${BRANCH}"
+          git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:${BRANCH}"
