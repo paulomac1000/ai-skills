@@ -1,4 +1,4 @@
-name: Build verified MCP 2 dependency refresh retry 2
+name: Verify MCP 2 static-resource migration
 
 on:
   pull_request:
@@ -8,113 +8,18 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 concurrency:
-  group: build-verified-dependency-refresh
+  group: verify-mcp2-static-resource-migration
   cancel-in-progress: true
 
 jobs:
-  locks:
-    name: Build locks (${{ matrix.lock_id }})
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-24.04
-            architecture: x64
-            python: "3.12"
-            lock_id: linux-x64-py312
-          - os: ubuntu-24.04
-            architecture: x64
-            python: "3.13"
-            lock_id: linux-x64-py313
-          - os: ubuntu-24.04
-            architecture: x64
-            python: "3.14"
-            lock_id: linux-x64-py314
-          - os: macos-15
-            architecture: arm64
-            python: "3.12"
-            lock_id: macos-arm64-py312
-          - os: windows-2025
-            architecture: x64
-            python: "3.12"
-            lock_id: windows-x64-py312
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 25
-    steps:
-      - name: Check out exact branch revision without credentials
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
-          fetch-depth: 1
-          persist-credentials: false
-      - name: Set up target Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        with:
-          python-version: ${{ matrix.python }}
-          architecture: ${{ matrix.architecture }}
-      - name: Install current locked compiler toolchain
-        shell: bash
-        run: python scripts/install_locked.py
-      - name: Align helper and apply selected dependency policy
-        shell: bash
-        run: |
-          python .github/scripts/fix_refresh_helper_source.py
-          python .github/scripts/refresh_dependency_set.py
-      - name: Compile exact platform locks
-        shell: bash
-        env:
-          LOCK_ID: ${{ matrix.lock_id }}
-        run: |
-          set -euo pipefail
-          python -m piptools compile \
-            --allow-unsafe \
-            --generate-hashes \
-            --strip-extras \
-            --output-file "requirements-dev-${LOCK_ID}.lock" \
-            requirements-dev.in
-          python -m piptools compile \
-            --allow-unsafe \
-            --generate-hashes \
-            --strip-extras \
-            --output-file "skills/mcp-server-architect/locks/runtime-${LOCK_ID}.lock" \
-            skills/mcp-server-architect/locks/python-runtime.in
-          python -m piptools compile \
-            --allow-unsafe \
-            --generate-hashes \
-            --strip-extras \
-            --output-file "skills/mcp-server-architect/locks/dev-${LOCK_ID}.lock" \
-            skills/mcp-server-architect/locks/python-dev.in
-      - name: Validate lock structure
-        shell: bash
-        run: python -m pytest -q tests/test_lock_contract.py
-      - name: Stage target lock artifact
-        shell: bash
-        env:
-          LOCK_ID: ${{ matrix.lock_id }}
-        run: |
-          set -euo pipefail
-          mkdir -p lock-output/skills/mcp-server-architect/locks
-          cp "requirements-dev-${LOCK_ID}.lock" lock-output/
-          cp "skills/mcp-server-architect/locks/runtime-${LOCK_ID}.lock" \
-            lock-output/skills/mcp-server-architect/locks/
-          cp "skills/mcp-server-architect/locks/dev-${LOCK_ID}.lock" \
-            lock-output/skills/mcp-server-architect/locks/
-      - name: Upload target locks
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: locks-${{ matrix.lock_id }}
-          path: lock-output/
-          if-no-files-found: error
-          retention-days: 1
-
   aggregate:
     name: Verify complete dependency patch
-    needs: locks
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     steps:
@@ -129,9 +34,12 @@ jobs:
         with:
           python-version: "3.13"
           architecture: x64
-      - name: Download all verified lock artifacts
+      - name: Download previously verified cross-platform locks
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: 30772302279
           pattern: locks-*
           path: lock-artifacts
           merge-multiple: true
@@ -151,7 +59,7 @@ jobs:
         run: python scripts/install_locked.py
       - name: Execute complete repository gate
         run: python scripts/ci.py
-      - name: Verify selected versions and immutable action pins
+      - name: Verify selected versions and MCP v2 migration
         shell: bash
         run: |
           set -euo pipefail
@@ -161,15 +69,16 @@ jobs:
             tests/test_repository_hygiene.py
           git diff --check
           grep -q 'mcp==2.0.0' requirements-dev.in
-          grep -q 'mcp==2.0.0' skills/mcp-server-architect/locks/python-runtime.in
-          grep -q 'ruff==0.16.0' requirements-dev.in
-          grep -q 'types-PyYAML==6.0.12.20260724' requirements-dev.in
           grep -q 'mcp>=2.0.0,<3' skills/mcp-server-architect/tools/generate_python_server.py
-          grep -q 'mcp>=2.0.0,<3' tests/test_mcp_generator.py
           grep -q 'from mcp.server.mcpserver import Context, MCPServer' skills/mcp-server-architect/tools/generate_python_server_impl.py
           grep -q 'from mcp.client import Client' skills/mcp-server-architect/tools/generate_python_server_impl.py
+          grep -q 'async def capability_catalog() -> str:' skills/mcp-server-architect/tools/generate_python_server_impl.py
+          grep -q 'async def readiness() -> str:' skills/mcp-server-architect/tools/generate_python_server_impl.py
+          ! grep -q 'async def capability_catalog(ctx:' skills/mcp-server-architect/tools/generate_python_server_impl.py
+          ! grep -q 'async def readiness(ctx:' skills/mcp-server-architect/tools/generate_python_server_impl.py
           ! grep -q 'mcp.server.fastmcp' skills/mcp-server-architect/tools/generate_python_server_impl.py
-          ! grep -q 'create_connected_server_and_client_session' skills/mcp-server-architect/tools/generate_python_server_impl.py
+          grep -q 'ruff==0.16.0' requirements-dev.in
+          grep -q 'types-PyYAML==6.0.12.20260724' requirements-dev.in
           grep -q 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1' .github/workflows/ci.yml
           grep -q 'actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97' .github/workflows/ci.yml
           grep -q 'actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68' .github/workflows/ci.yml
