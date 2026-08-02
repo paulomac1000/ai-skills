@@ -66,6 +66,7 @@ jobs:
           git show HEAD^:.github/workflows/ci.yml > .github/workflows/ci.yml
           rm -f .github/workflows/apply-pr18-bot-fixes.yml
           rm -f .github/scripts/pr18_apply_bot_fixes.py
+          git add -A
 
       - name: Execute complete repository gate
         run: python scripts/ci.py
