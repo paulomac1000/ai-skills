@@ -1,4 +1,4 @@
-name: Build verified dependency refresh
+name: Build verified dependency refresh after MCP 2 migration
 
 on:
   pull_request:
@@ -160,6 +160,8 @@ jobs:
           grep -q 'mcp==2.0.0' skills/mcp-server-architect/locks/python-runtime.in
           grep -q 'ruff==0.16.0' requirements-dev.in
           grep -q 'types-PyYAML==6.0.12.20260724' requirements-dev.in
+          grep -q 'mcp>=2.0.0,<3' skills/mcp-server-architect/tools/generate_python_server.py
+          grep -q 'mcp>=2.0.0,<3' tests/test_mcp_generator.py
           grep -q 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1' .github/workflows/ci.yml
           grep -q 'actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97' .github/workflows/ci.yml
           grep -q 'actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68' .github/workflows/ci.yml
