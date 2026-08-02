@@ -68,7 +68,7 @@ def test_python_profile_covers_real_migration_failure_modes() -> None:
             "skills/mcp-server-architect/tools/generate_python_server.py",
             "official MCP Python SDK",
             "separately distributed FastMCP package",
-            "mcp>=1.27.2,<2",
+            "mcp>=2.0.0,<3",
             "real-client suite",
             "one invocation kernel",
             "threading.local",

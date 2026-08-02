@@ -116,8 +116,8 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
     )
     files["pyproject.toml"] = _replace_required(
         files["pyproject.toml"],
-        'dependencies = ["mcp>=1.27.2,<2", "uvicorn>=0.30,<1"]',
-        'dependencies = ["mcp>=1.28.1,<2", "uvicorn>=0.51,<1"]',
+        'dependencies = ["mcp>=2.0.0,<3", "uvicorn>=0.30,<1"]',
+        'dependencies = ["mcp>=2.0.0,<3", "uvicorn>=0.51,<1"]',
         file_name="pyproject.toml",
     )
     files["pyproject.toml"] = _replace_required(

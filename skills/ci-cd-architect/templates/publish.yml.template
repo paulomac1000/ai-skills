@@ -27,7 +27,7 @@ jobs:
       release_short_sha: ${{ steps.revision.outputs.short_sha }}
       release_tag: ${{ steps.revision.outputs.tag }}
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.release_ref || github.sha }}
           fetch-depth: 0
@@ -56,7 +56,7 @@ jobs:
           echo "sha=$release_sha" >> "$GITHUB_OUTPUT"
           echo "short_sha=$release_short_sha" >> "$GITHUB_OUTPUT"
           echo "tag=$release_tag" >> "$GITHUB_OUTPUT"
-      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
           python-version: "<PYTHON_VERSION>"
           cache: pip
@@ -80,7 +80,7 @@ jobs:
       id-token: write
       attestations: write
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ needs.validate.outputs.release_sha }}
           persist-credentials: false
