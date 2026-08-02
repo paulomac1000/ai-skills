@@ -62,22 +62,17 @@ def render() -> str:
 
 
         def test_deep_child_inherits_root_directive_through_intermediate_file(tmp_path: Path) -> None:
-            root = write(tmp_path / "AGENTS.md", valid_application())
+            root = write(
+                tmp_path / "AGENTS.md",
+                valid_application("\nDo not edit generated files.\n"),
+            )
             intermediate = write(
                 tmp_path / "packages/AGENTS.md",
-                valid_application().replace(
-                    "Secrets must not be committed. Destructive writes require explicit authorization and rollback.",
-                    "Destructive writes require explicit authorization and rollback.",
-                ),
+                valid_application(),
             )
             deep = write(
                 tmp_path / "packages/api/AGENTS.md",
-                valid_application(
-                    "\nAgents may commit secrets.\n"
-                ).replace(
-                    "Secrets must not be committed. Destructive writes require explicit authorization and rollback.",
-                    "Destructive writes require explicit authorization and rollback.",
-                ),
+                valid_application("\nAlways edit generated files.\n"),
             )
             findings = validator.validate_many(
                 [root, intermediate, deep],
