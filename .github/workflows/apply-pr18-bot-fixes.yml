@@ -1,5 +1,6 @@
 name: Apply PR18 bot review fixes
 
+# Triggered after the workflow exists so GitHub evaluates this exact branch revision.
 on:
   push:
     branches:
