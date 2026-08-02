@@ -3,6 +3,8 @@ name: Apply final PR18 review fixes
 on:
   pull_request:
     types: [synchronize]
+    paths:
+      - .github/workflows/ci.yml
 
 permissions:
   contents: write
@@ -79,11 +81,16 @@ jobs:
           grep -q '^name: CI$' .github/workflows/ci.yml
           git status --short
 
-      - name: Commit verified production fixes
+      - name: Commit verified source and test fixes
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
-          git diff --cached --quiet && { echo "No changes to commit"; exit 1; }
+          git reset
+          git add \
+            skills/agents-md-architect/tools/audit_agents_md.py \
+            skills/agents-md-architect/tools/agents_md_parse.py \
+            skills/agents-md-architect/tools/discover_repository.py \
+            tests/test_agents_md_codex_followup.py
+          git diff --cached --quiet && { echo "No source changes to commit"; exit 1; }
           git commit -m "fix(agents-md): address latest bot review"
           git push origin HEAD:${{ github.event.pull_request.head.ref }}
