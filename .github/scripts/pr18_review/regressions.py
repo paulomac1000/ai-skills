@@ -116,7 +116,7 @@ def render() -> str:
             read_sizes: list[int] = []
 
             class FakeStream:
-                def __enter__(self) -> "FakeStream":
+                def __enter__(self) -> FakeStream:
                     return self
 
                 def __exit__(self, *_args: object) -> None:
@@ -189,13 +189,13 @@ def render() -> str:
                     return True
 
             class FakeScandir:
-                def __enter__(self) -> "FakeScandir":
+                def __enter__(self) -> FakeScandir:
                     return self
 
                 def __exit__(self, *_args: object) -> None:
                     return None
 
-                def __iter__(self) -> "FakeScandir":
+                def __iter__(self) -> FakeScandir:
                     return self
 
                 def __next__(self) -> FakeEntry:
