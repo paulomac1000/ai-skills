@@ -116,8 +116,8 @@ def stage_existing_tests() -> str:
     text = read(path)
     text = replace_between(
         text,
-        "def test_discovery_reports_walk_errors_and_entry_limits(\n",
-        "def test_audit_reports_incomplete_discovery(\n",
+        "def test_discovery_reports_walk_errors_and_entry_limits(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:\n",
+        "def test_audit_reports_incomplete_discovery(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:\n",
         dedent(
             '''\
             def test_discovery_reports_scandir_errors_and_entry_limits(
