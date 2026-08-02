@@ -71,6 +71,7 @@ jobs:
         run: |
           rm -rf .github/scripts/pr18_review
           rm -f .github/workflows/apply-pr18-final-review.yml
+          git add -A
 
       - name: Execute complete repository gate
         run: python scripts/ci.py
