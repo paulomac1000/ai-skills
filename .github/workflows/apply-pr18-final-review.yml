@@ -1,9 +1,8 @@
 name: Apply PR18 final review fixes
 
 on:
-  push:
-    branches:
-      - agent/agents-md-architect
+  pull_request:
+    types: [synchronize]
     paths:
       - .github/scripts/pr18_review/**
       - .github/workflows/apply-pr18-final-review.yml
@@ -18,11 +17,13 @@ concurrency:
 # This workflow is intentionally self-removing after the production gate passes.
 jobs:
   apply:
+    if: github.event.pull_request.head.ref == 'agent/agents-md-architect'
     runs-on: ubuntu-24.04
     steps:
       - name: Check out exact branch head
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
+          ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
 
       - name: Set up Python
