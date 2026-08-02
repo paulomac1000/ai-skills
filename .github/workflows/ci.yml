@@ -1,4 +1,4 @@
-name: Build verified dependency refresh after MCP 2 migration
+name: Build verified MCP 2 dependency refresh
 
 on:
   pull_request:
@@ -162,27 +162,40 @@ jobs:
           grep -q 'types-PyYAML==6.0.12.20260724' requirements-dev.in
           grep -q 'mcp>=2.0.0,<3' skills/mcp-server-architect/tools/generate_python_server.py
           grep -q 'mcp>=2.0.0,<3' tests/test_mcp_generator.py
+          grep -q 'from mcp.server.mcpserver import Context, MCPServer' skills/mcp-server-architect/tools/generate_python_server_impl.py
+          grep -q 'from mcp.client import Client' skills/mcp-server-architect/tools/generate_python_server_impl.py
+          ! grep -q 'mcp.server.fastmcp' skills/mcp-server-architect/tools/generate_python_server_impl.py
+          ! grep -q 'create_connected_server_and_client_session' skills/mcp-server-architect/tools/generate_python_server_impl.py
           grep -q 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1' .github/workflows/ci.yml
           grep -q 'actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97' .github/workflows/ci.yml
           grep -q 'actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68' .github/workflows/ci.yml
           test ! -e .github/scripts/refresh_dependency_set.py
-      - name: Build auditable binary patch
+      - name: Build auditable final tree and binary patch
         shell: bash
         run: |
           set -euo pipefail
           git diff --cached --binary > dependency-refresh.patch
           test -s dependency-refresh.patch
           git diff --cached --name-status > dependency-refresh-files.txt
+          git diff --cached --name-only --diff-filter=D > deleted-files.txt
           git rev-parse HEAD > dependency-refresh-base.txt
           sha256sum dependency-refresh.patch > dependency-refresh.sha256
-      - name: Upload verified dependency patch
+          mkdir -p final-tree
+          while IFS= read -r -d '' path; do
+            mkdir -p "final-tree/$(dirname "$path")"
+            cp "$path" "final-tree/$path"
+          done < <(git diff --cached --name-only --diff-filter=ACMRT -z)
+      - name: Upload verified dependency tree
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: verified-dependency-refresh-${{ github.run_id }}
           path: |
+            final-tree/
+            deleted-files.txt
             dependency-refresh.patch
             dependency-refresh-files.txt
             dependency-refresh-base.txt
             dependency-refresh.sha256
           if-no-files-found: error
+          include-hidden-files: true
           retention-days: 2
