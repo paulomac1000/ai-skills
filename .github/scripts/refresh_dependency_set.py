@@ -55,10 +55,15 @@ def restore_production_ci() -> None:
     (ROOT / ".github/workflows/ci.yml").write_bytes(content)
 
 
+def replace_action_reference(match: re.Match[str]) -> str:
+    action = match.group("action")
+    new_sha = ACTION_UPDATES[action][1]
+    return f"{action}@{new_sha}"
+
+
 def update_line(line: str) -> str:
-    updated = line
-    for action, (old_sha, new_sha, version) in ACTION_UPDATES.items():
-        updated = updated.replace(old_sha, new_sha)
+    updated = ACTION_REFERENCE.sub(replace_action_reference, line)
+    for action, (_, _, version) in ACTION_UPDATES.items():
         if action in updated and "#" in updated:
             updated = VERSION_COMMENT.sub(f"# {version}", updated)
     for old, new in PACKAGE_UPDATES.items():
