@@ -1,4 +1,4 @@
-name: Build verified MCP 2 dependency refresh retry
+name: Build verified MCP 2 dependency refresh retry 2
 
 on:
   pull_request:
