@@ -1,4 +1,4 @@
-name: Refresh consolidated dependencies retry 3
+name: Build verified dependency refresh
 
 on:
   pull_request:
@@ -7,21 +7,20 @@ on:
       - .github/workflows/ci.yml
 
 permissions:
-  contents: write
+  contents: read
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 concurrency:
-  group: refresh-consolidated-dependencies
+  group: build-verified-dependency-refresh
   cancel-in-progress: true
 
 jobs:
   locks:
-    name: Refresh locks (${{ matrix.lock_id }})
+    name: Build locks (${{ matrix.lock_id }})
     strategy:
-      fail-fast: true
-      max-parallel: 1
+      fail-fast: false
       matrix:
         include:
           - os: ubuntu-24.04
@@ -47,21 +46,21 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 25
     steps:
-      - name: Check out current branch without persisted credentials
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Check out exact branch revision without credentials
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event.pull_request.head.ref }}
-          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 1
           persist-credentials: false
       - name: Set up target Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: ${{ matrix.python }}
           architecture: ${{ matrix.architecture }}
-      - name: Install current locked toolchain
+      - name: Install current locked compiler toolchain
         shell: bash
         run: python scripts/install_locked.py
-      - name: Apply selected dependency versions
+      - name: Apply selected dependency policy
         shell: bash
         run: python .github/scripts/refresh_dependency_set.py
       - name: Compile exact platform locks
@@ -91,77 +90,97 @@ jobs:
       - name: Validate lock structure
         shell: bash
         run: python -m pytest -q tests/test_lock_contract.py
-      - name: Commit and push target locks
+      - name: Stage target lock artifact
         shell: bash
         env:
           LOCK_ID: ${{ matrix.lock_id }}
-          BRANCH: ${{ github.event.pull_request.head.ref }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add \
-            "requirements-dev-${LOCK_ID}.lock" \
-            "skills/mcp-server-architect/locks/runtime-${LOCK_ID}.lock" \
-            "skills/mcp-server-architect/locks/dev-${LOCK_ID}.lock"
-          git diff --cached --quiet && { echo "No lock changes for ${LOCK_ID}"; exit 1; }
-          git commit -m "build(deps): refresh ${LOCK_ID} locks"
-          git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:${BRANCH}"
+          mkdir -p lock-output/skills/mcp-server-architect/locks
+          cp "requirements-dev-${LOCK_ID}.lock" lock-output/
+          cp "skills/mcp-server-architect/locks/runtime-${LOCK_ID}.lock" \
+            lock-output/skills/mcp-server-architect/locks/
+          cp "skills/mcp-server-architect/locks/dev-${LOCK_ID}.lock" \
+            lock-output/skills/mcp-server-architect/locks/
+      - name: Upload target locks
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: locks-${{ matrix.lock_id }}
+          path: lock-output/
+          if-no-files-found: error
+          retention-days: 1
 
   aggregate:
-    name: Validate and publish dependency refresh
+    name: Verify complete dependency patch
     needs: locks
     runs-on: ubuntu-24.04
-    timeout-minutes: 35
+    timeout-minutes: 40
     steps:
-      - name: Check out latest branch without persisted credentials
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Check out exact branch revision without credentials
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event.pull_request.head.ref }}
+          ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
           persist-credentials: false
-      - name: Set up Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+      - name: Set up verification Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.13"
           architecture: x64
-      - name: Install refreshed locked toolchain
-        run: python scripts/install_locked.py
-      - name: Apply versions and restore production CI
+      - name: Download all verified lock artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: locks-*
+          path: lock-artifacts
+          merge-multiple: true
+      - name: Assemble final production tree
+        shell: bash
         env:
           RESTORE_PRODUCTION_CI: "1"
-        run: python .github/scripts/refresh_dependency_set.py
-      - name: Preserve verified production workflow blob
         run: |
-          mkdir -p .ci-final
-          cp .github/workflows/ci.yml .ci-final/ci.yml
+          set -euo pipefail
+          cp -R lock-artifacts/. .
+          python .github/scripts/refresh_dependency_set.py
           rm .github/scripts/refresh_dependency_set.py
           git add -A
-      - name: Run complete repository gate
+      - name: Install refreshed locked development graph
+        run: python scripts/install_locked.py
+      - name: Execute complete repository gate
         run: python scripts/ci.py
-      - name: Verify dependency policy and clean diff
+      - name: Verify selected versions and immutable action pins
+        shell: bash
         run: |
-          python -m pytest -q tests/test_lock_contract.py tests/test_ci_quality_scope.py tests/test_repository_hygiene.py
+          set -euo pipefail
+          python -m pytest -q \
+            tests/test_lock_contract.py \
+            tests/test_ci_quality_scope.py \
+            tests/test_repository_hygiene.py
           git diff --check
           grep -q 'mcp==2.0.0' requirements-dev.in
           grep -q 'mcp==2.0.0' skills/mcp-server-architect/locks/python-runtime.in
           grep -q 'ruff==0.16.0' requirements-dev.in
           grep -q 'types-PyYAML==6.0.12.20260724' requirements-dev.in
-          grep -q 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1' .ci-final/ci.yml
-          grep -q 'actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97' .ci-final/ci.yml
-          grep -q 'actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68' .ci-final/ci.yml
-      - name: Commit and push verified non-workflow changes
-        env:
-          BRANCH: ${{ github.event.pull_request.head.ref }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          grep -q 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1' .github/workflows/ci.yml
+          grep -q 'actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97' .github/workflows/ci.yml
+          grep -q 'actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68' .github/workflows/ci.yml
+          test ! -e .github/scripts/refresh_dependency_set.py
+      - name: Build auditable binary patch
+        shell: bash
         run: |
           set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git reset
-          git add -A
-          git reset .github/workflows/ci.yml
-          git diff --cached --quiet && { echo "No dependency changes to commit"; exit 1; }
-          git commit -m "build(deps): adopt current supported toolchain"
-          git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:${BRANCH}"
+          git diff --cached --binary > dependency-refresh.patch
+          test -s dependency-refresh.patch
+          git diff --cached --name-status > dependency-refresh-files.txt
+          git rev-parse HEAD > dependency-refresh-base.txt
+          sha256sum dependency-refresh.patch > dependency-refresh.sha256
+      - name: Upload verified dependency patch
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: verified-dependency-refresh-${{ github.run_id }}
+          path: |
+            dependency-refresh.patch
+            dependency-refresh-files.txt
+            dependency-refresh-base.txt
+            dependency-refresh.sha256
+          if-no-files-found: error
+          retention-days: 2
