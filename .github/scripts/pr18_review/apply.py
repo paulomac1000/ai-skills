@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import ast
 
-from . import audit_patch, discovery_patch, parser_patch, regressions, validator_patch
+from . import audit_patch, discovery_patch, parser_patch, regressions, type_patch, validator_patch
 from .common import ROOT, write_atomically
 
 
@@ -16,7 +16,7 @@ def main() -> None:
     outputs = {
         "skills/agents-md-architect/tools/agents_md_parse.py": parser_patch.stage(),
         "skills/agents-md-architect/tools/validate_agents_md.py": validator_patch.stage(),
-        "skills/agents-md-architect/tools/audit_agents_md.py": audit_patch.stage(),
+        "skills/agents-md-architect/tools/audit_agents_md.py": type_patch.stage(audit_patch.stage()),
         "skills/agents-md-architect/tools/discover_repository.py": discovery_patch.stage_discovery(),
         "tests/test_agents_md_review_regressions.py": discovery_patch.stage_existing_tests(),
         new_test_path: regressions.render(),
