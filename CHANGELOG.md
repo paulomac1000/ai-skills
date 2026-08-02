@@ -18,6 +18,7 @@ This release adds a governed standard for designing and maintaining repository i
 - Extended repository quality, documentation, release, and adoption contracts to treat `agents-md-architect` as a first-class governed skill.
 - Hardened instruction discovery and validation for repository `bin/` entry points, ecosystem-specific build output, shared Markdown parsing, regular-file references, invalid UTF-8, bounded input trees, complete placeholder detection, and non-executing command evidence.
 - Made audit and validation share one bounded instruction-tree read, enforced root topology for single and monorepo layouts, required safety contracts for router and application profiles, normalized filesystem failures, and bounded fail-closed repository and gate-source discovery.
+- Hardened full ancestor directive inheritance, fenced examples inside Markdown list containers, descriptor-bounded file reads, executable-only command evidence extraction, and incremental repository enumeration.
 
 ## 1.1.0 - 2026-07-27
 
