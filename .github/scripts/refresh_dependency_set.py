@@ -8,6 +8,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 PRODUCTION_CI_REVISION = "46568f9b87e6431eb1add23514046616dfa74fbb"
 SELF = ".github/scripts/refresh_dependency_set.py"
+GENERATOR_IMPL = "skills/mcp-server-architect/tools/generate_python_server_impl.py"
+GENERATOR_TEST = "tests/test_mcp_generator.py"
+PYTHON_PROFILE = "skills/mcp-server-architect/references/python-fastmcp.md"
 
 ACTION_UPDATES = {
     "actions/checkout": (
@@ -63,13 +66,136 @@ def replace_action_reference(match: re.Match[str]) -> str:
     return f"{action}@{new_sha}"
 
 
-def update_line(line: str) -> str:
-    updated = ACTION_REFERENCE.sub(replace_action_reference, line)
-    for action, (_, _, version) in ACTION_UPDATES.items():
-        if action in updated and "#" in updated:
-            updated = VERSION_COMMENT.sub(f"# {version}", updated)
+def replace_required(text: str, old: str, new: str, *, path: str) -> str:
+    if old not in text:
+        raise RuntimeError(f"expected migration source not found in {path}: {old!r}")
+    return text.replace(old, new)
+
+
+def migrate_generator_impl(text: str) -> str:
+    path = GENERATOR_IMPL
+    replacements = (
+        (
+            "from mcp.server.fastmcp import Context, FastMCP",
+            "from mcp.server.mcpserver import Context, MCPServer",
+        ),
+        (
+            "from mcp.server.fastmcp.exceptions import ToolError",
+            "from mcp.server.mcpserver.exceptions import ToolError",
+        ),
+        ("            from mcp.server.session import ServerSession\n", ""),
+        (
+            "def build_server(settings: Settings | None = None, approvals: ApprovalRegistry | None = None) -> FastMCP:",
+            "def build_server(settings: Settings | None = None, approvals: ApprovalRegistry | None = None) -> MCPServer[AppContext]:",
+        ),
+        (
+            "async def lifespan(_server: FastMCP) -> AsyncIterator[AppContext]:",
+            "async def lifespan(_server: MCPServer[AppContext]) -> AsyncIterator[AppContext]:",
+        ),
+        ("                mcp = FastMCP(\n", "                mcp = MCPServer(\n"),
+        (
+            "                    lifespan=lifespan,\n                    host=settings.host,\n                    port=settings.port,\n                    stateless_http=True,\n                    json_response=True,\n",
+            "                    version=\"0.1.0\",\n                    lifespan=lifespan,\n",
+        ),
+        ("Context[ServerSession, AppContext]", "Context[AppContext]"),
+        (
+            "async def capability_catalog(ctx: Context[AppContext]) -> str:",
+            "async def capability_catalog(ctx: Context) -> str:",
+        ),
+        (
+            "async def readiness(ctx: Context[AppContext]) -> str:",
+            "async def readiness(ctx: Context) -> str:",
+        ),
+        (
+            "def build_http_app(server: FastMCP, settings: Settings) -> RequestBodyLimitMiddleware:",
+            "def build_http_app(server: MCPServer[AppContext], settings: Settings) -> RequestBodyLimitMiddleware:",
+        ),
+        (
+            "return RequestBodyLimitMiddleware(server.streamable_http_app(), settings.max_request_body_bytes)",
+            "return RequestBodyLimitMiddleware(\n"
+            "                    server.streamable_http_app(\n"
+            "                        host=settings.host,\n"
+            "                        json_response=True,\n"
+            "                        stateless_http=True,\n"
+            "                        max_request_body_size=settings.max_request_body_bytes,\n"
+            "                    ),\n"
+            "                    settings.max_request_body_bytes,\n"
+            "                )",
+        ),
+        (
+            "from mcp.shared.memory import create_connected_server_and_client_session",
+            "from mcp.client import Client",
+        ),
+        (
+            "async with create_connected_server_and_client_session(server, raise_exceptions=True) as session:",
+            "async with Client(server, raise_exceptions=True) as client:",
+        ),
+        ("listed = await session.list_tools()", "listed = await client.list_tools()"),
+        ("tool.inputSchema", "tool.input_schema"),
+        ("result = await session.call_tool", "result = await client.call_tool"),
+        ("result.isError", "result.is_error"),
+        ("result.structuredContent", "result.structured_content"),
+    )
+    for old, new in replacements:
+        text = replace_required(text, old, new, path=path)
+    return text
+
+
+def migrate_generator_test(text: str) -> str:
+    path = GENERATOR_TEST
+    replacements = (
+        (
+            '"from mcp.server.fastmcp import Context, FastMCP",',
+            '"from mcp.server.mcpserver import Context, MCPServer",',
+        ),
+        (
+            '"server.streamable_http_app()",',
+            '"server.streamable_http_app(",\n        "max_request_body_size=settings.max_request_body_bytes",',
+        ),
+        ('        "max_request_body_size=",\n', ""),
+    )
+    for old, new in replacements:
+        text = replace_required(text, old, new, path=path)
+    return text
+
+
+def migrate_python_profile(text: str) -> str:
+    path = PYTHON_PROFILE
+    replacements = (
+        (
+            "description: Python MCP implementation profile with generation, configuration, lifecycle, invocation-kernel, transport, manifest, concurrency, artifact, browser, and SDK-upgrade controls.",
+            "description: Python MCP SDK v2 implementation profile with generation, configuration, lifecycle, invocation-kernel, transport, manifest, concurrency, artifact, browser, and SDK-upgrade controls.",
+        ),
+        ("# Python and FastMCP profile", "# Python official MCP SDK profile"),
+        (
+            "The repository CI installs the pinned stable SDK, generates a fresh project, compiles it, and runs its own suite through `mcp.shared.memory.create_connected_server_and_client_session`.",
+            "The repository CI installs the pinned stable SDK, generates a fresh project, compiles it, and runs its own suite through the official in-process `mcp.client.Client`.",
+        ),
+        (
+            "For production, use the stable official SDK line with an upper bound that excludes the next major until migration is complete. The generated baseline uses `mcp>=1.27.2,<2`, while repository verification uses an exact stable pin. While official SDK v2 is pre-release, it belongs to a separate experimental CI lane with an exact pin and cannot define the production artifact. A candidate major becomes production-supported only after registration, lifecycle, transport, policy parity, content, cancellation, and artifact matrices pass.",
+            "For production, use the stable official SDK v2 line with an upper bound that excludes the next major until a reviewed migration is complete. The generated baseline uses `mcp>=2.0.0,<3`, while repository verification uses the exact `mcp==2.0.0` pin. The v1 maintenance line is not the generated production baseline. Any later major becomes production-supported only after registration, lifecycle, transport, policy parity, content, cancellation, and artifact matrices pass.",
+        ),
+    )
+    for old, new in replacements:
+        text = replace_required(text, old, new, path=path)
+    return text
+
+
+def transform_text(relative: str, original: str) -> str:
+    updated = "".join(
+        VERSION_COMMENT.sub(f"# {ACTION_UPDATES[action][2]}", ACTION_REFERENCE.sub(replace_action_reference, line))
+        if (match := ACTION_REFERENCE.search(line)) and (action := match.group("action")) and "#" in line
+        else ACTION_REFERENCE.sub(replace_action_reference, line)
+        for line in original.splitlines(keepends=True)
+    )
     for old, new in PACKAGE_UPDATES.items():
         updated = updated.replace(old, new)
+    if relative == GENERATOR_IMPL:
+        updated = migrate_generator_impl(updated)
+    elif relative == GENERATOR_TEST:
+        updated = migrate_generator_test(updated)
+    elif relative == PYTHON_PROFILE:
+        updated = migrate_python_profile(updated)
     return updated
 
 
@@ -92,7 +218,7 @@ def update_tracked_text() -> list[str]:
     changed: list[str] = []
     for relative, original in readable_tracked_text():
         path = ROOT / relative
-        updated = "".join(update_line(line) for line in original.splitlines(keepends=True))
+        updated = transform_text(relative, original)
         if updated == original:
             continue
         path.write_text(updated, encoding="utf-8", newline="")
@@ -104,16 +230,37 @@ def verify_expected_inputs() -> None:
     requirements = (ROOT / "requirements-dev.in").read_text(encoding="utf-8")
     runtime = (ROOT / "skills/mcp-server-architect/locks/python-runtime.in").read_text(encoding="utf-8")
     generator = (ROOT / "skills/mcp-server-architect/tools/generate_python_server.py").read_text(encoding="utf-8")
-    generator_test = (ROOT / "tests/test_mcp_generator.py").read_text(encoding="utf-8")
-    for expected in PACKAGE_UPDATES.values():
-        if expected.startswith("ruff") or expected.startswith("types-"):
-            assert expected in requirements, expected
+    implementation = (ROOT / GENERATOR_IMPL).read_text(encoding="utf-8")
+    generator_test = (ROOT / GENERATOR_TEST).read_text(encoding="utf-8")
+    profile = (ROOT / PYTHON_PROFILE).read_text(encoding="utf-8")
+
     assert "mcp==2.0.0" in requirements
+    assert "ruff==0.16.0" in requirements
+    assert "types-PyYAML==6.0.12.20260724" in requirements
     assert "mcp==2.0.0" in runtime
     assert "mcp>=2.0.0,<3" in generator
     assert "mcp>=2.0.0,<3" in generator_test
-    assert "mcp>=1.27.2,<2" not in generator
-    assert "mcp>=1.28.1,<2" not in generator
+    assert "from mcp.server.mcpserver import Context, MCPServer" in implementation
+    assert "from mcp.server.mcpserver.exceptions import ToolError" in implementation
+    assert "from mcp.client import Client" in implementation
+    assert "Context[AppContext]" in implementation
+    assert "max_request_body_size=settings.max_request_body_bytes" in implementation
+    assert "mcp.client.Client" in profile
+    assert "mcp>=2.0.0,<3" in profile
+
+    forbidden = (
+        "mcp.server.fastmcp",
+        "create_connected_server_and_client_session",
+        "Context[ServerSession, AppContext]",
+        "mcp>=1.27.2,<2",
+        "mcp>=1.28.1,<2",
+        "result.isError",
+        "result.structuredContent",
+        "tool.inputSchema",
+    )
+    combined = "\n".join((implementation, generator_test, profile))
+    for token in forbidden:
+        assert token not in combined, token
 
     references: dict[str, list[tuple[str, int, str]]] = {action: [] for action in ACTION_UPDATES}
     for relative, text in readable_tracked_text():
