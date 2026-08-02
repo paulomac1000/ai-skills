@@ -1,4 +1,4 @@
-name: Build verified MCP 2 dependency refresh
+name: Build verified MCP 2 dependency refresh retry
 
 on:
   pull_request:
@@ -60,9 +60,11 @@ jobs:
       - name: Install current locked compiler toolchain
         shell: bash
         run: python scripts/install_locked.py
-      - name: Apply selected dependency policy
+      - name: Align helper and apply selected dependency policy
         shell: bash
-        run: python .github/scripts/refresh_dependency_set.py
+        run: |
+          python .github/scripts/fix_refresh_helper_source.py
+          python .github/scripts/refresh_dependency_set.py
       - name: Compile exact platform locks
         shell: bash
         env:
@@ -140,7 +142,9 @@ jobs:
         run: |
           set -euo pipefail
           cp -R lock-artifacts/. .
+          python .github/scripts/fix_refresh_helper_source.py
           python .github/scripts/refresh_dependency_set.py
+          rm .github/scripts/fix_refresh_helper_source.py
           rm .github/scripts/refresh_dependency_set.py
           git add -A
       - name: Install refreshed locked development graph
@@ -169,6 +173,7 @@ jobs:
           grep -q 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1' .github/workflows/ci.yml
           grep -q 'actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97' .github/workflows/ci.yml
           grep -q 'actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68' .github/workflows/ci.yml
+          test ! -e .github/scripts/fix_refresh_helper_source.py
           test ! -e .github/scripts/refresh_dependency_set.py
       - name: Build auditable final tree and binary patch
         shell: bash
