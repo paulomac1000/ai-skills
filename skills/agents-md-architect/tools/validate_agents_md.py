@@ -45,6 +45,7 @@ from agents_md_types import (  # noqa: E402
     PROFILE_REQUIREMENTS,
     VERSIONED_NAME,
     VOLATILE_COUNT,
+    Directive,
     DomainProfileName,
     Finding,
     LanguageName,
@@ -327,22 +328,33 @@ def _validate_document(
     return findings
 
 
+def _ancestor_chain(
+    document: ParsedDocument,
+    documents: Sequence[ParsedDocument],
+) -> tuple[ParsedDocument, ...]:
+    """Return inherited instruction documents from root to nearest parent."""
+    return tuple(
+        sorted(
+            (
+                other
+                for other in documents
+                if other.path != document.path and other.path.parent in document.path.parents
+            ),
+            key=lambda item: len(item.path.parent.parts),
+        )
+    )
+
+
 def _nearest_parent(
     document: ParsedDocument,
     documents: Sequence[ParsedDocument],
     root: Path,
 ) -> ParsedDocument | None:
-    candidates = [
-        other
-        for other in documents
-        if other.path != document.path
-        and other.path.parent in document.path.parents
-        and other.path.parent != document.path.parent
-    ]
-    if not candidates:
-        root_document = next((other for other in documents if other.path == root / "AGENTS.md"), None)
-        return root_document if root_document and root_document.path != document.path else None
-    return max(candidates, key=lambda item: len(item.path.parent.parts))
+    ancestors = _ancestor_chain(document, documents)
+    if ancestors:
+        return ancestors[-1]
+    root_document = next((other for other in documents if other.path == root / "AGENTS.md"), None)
+    return root_document if root_document and root_document.path != document.path else None
 
 
 def _validate_tree(documents: Sequence[ParsedDocument], root: Path) -> list[Finding]:
@@ -357,12 +369,19 @@ def _validate_tree(documents: Sequence[ParsedDocument], root: Path) -> list[Find
     for child in documents:
         if child.path == root_document.path:
             continue
-        parent = _nearest_parent(child, documents, root) or root_document
+        ancestors = _ancestor_chain(child, documents)
+        parent = ancestors[-1] if ancestors else root_document
 
-        inherited = {item.category: item for item in parent.directives}
+        inherited: dict[str, tuple[ParsedDocument, Directive]] = {}
+        for ancestor in ancestors:
+            for item in ancestor.directives:
+                inherited[item.category] = (ancestor, item)
         for directive in child.directives:
-            inherited_directive = inherited.get(directive.category)
-            if inherited_directive is None or inherited_directive.polarity == directive.polarity:
+            inherited_entry = inherited.get(directive.category)
+            if inherited_entry is None:
+                continue
+            inherited_source, inherited_directive = inherited_entry
+            if inherited_directive.polarity == directive.polarity:
                 continue
             if directive.explicit_override:
                 findings.append(
@@ -385,7 +404,7 @@ def _validate_tree(documents: Sequence[ParsedDocument], root: Path) -> list[Find
                         "tree.conflicting-rule",
                         directive.line,
                         f"Rule conflicts with inherited {directive.category} directive "
-                        f"at {parent.relative_path}:{inherited_directive.line}.",
+                        f"at {inherited_source.relative_path}:{inherited_directive.line}.",
                     )
                 )
 

@@ -146,13 +146,14 @@ def test_polish_directive_substrings_are_not_classified(line: str) -> None:
     assert parser._directive_category(line, "pl") is None
 
 
-def test_discovery_reports_walk_errors_and_entry_limits(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    def broken_walk(root: Path, *, followlinks: bool, onerror: Any):
-        assert followlinks is False
-        onerror(PermissionError(13, "denied", str(Path(root) / "private")))
-        yield str(root), [], []
+def test_discovery_reports_scandir_errors_and_entry_limits(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def broken_scandir(path: Path) -> Any:
+        raise PermissionError(13, "denied", str(Path(path) / "private"))
 
-    monkeypatch.setattr(discovery.os, "walk", broken_walk)
+    monkeypatch.setattr(discovery.os, "scandir", broken_scandir)
     result = discovery.discover(tmp_path)
     assert result.issues and "unreadable path" in result.issues[0]
 

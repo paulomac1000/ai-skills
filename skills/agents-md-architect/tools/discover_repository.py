@@ -121,17 +121,24 @@ def _is_dotnet_project_directory(directory: Path) -> bool:
 def _is_dotnet_bin_output(project_directory: Path, candidate: Path) -> bool:
     if not _is_dotnet_project_directory(project_directory):
         return False
+    script_suffixes = {"", ".py", ".rb", ".ps1", ".sh"}
+    compiled_suffixes = {".dll", ".exe", ".json", ".pdb", ".so", ".dylib"}
     try:
-        entries = list(candidate.iterdir())
+        with os.scandir(candidate) as entries:
+            for index, entry in enumerate(entries, start=1):
+                if index > MAX_DISCOVERY_ENTRIES:
+                    return False
+                if entry.is_symlink():
+                    return False
+                if entry.is_file(follow_symlinks=False):
+                    suffix = Path(entry.name).suffix.casefold()
+                    if suffix in script_suffixes or suffix not in compiled_suffixes:
+                        return False
+                elif not entry.is_dir(follow_symlinks=False):
+                    return False
     except OSError:
         return False
-    if not entries:
-        return True
-    script_suffixes = {"", ".py", ".rb", ".ps1", ".sh"}
-    if any(entry.is_file() and entry.suffix.casefold() in script_suffixes for entry in entries):
-        return False
-    compiled_suffixes = {".dll", ".exe", ".json", ".pdb", ".so", ".dylib"}
-    return all(entry.is_dir() or entry.suffix.casefold() in compiled_suffixes for entry in entries)
+    return True
 
 
 def _is_ignored_directory(root: Path, current: Path, name: str) -> bool:
@@ -184,62 +191,50 @@ def discover(root: Path) -> Discovery:
     issues: set[str] = set()
     entries_seen = 0
     stop = False
+    pending: list[tuple[Path, int]] = [(safe_root, 0)]
 
-    def onerror(error: OSError) -> None:
-        location = error.filename or safe_root.as_posix()
-        issues.add(f"unreadable path {location}: {error}")
-
-    for directory, directory_names, file_names in os.walk(safe_root, followlinks=False, onerror=onerror):
-        current = Path(directory)
-        try:
-            depth = len(current.relative_to(safe_root).parts)
-        except ValueError:
-            issues.add(f"walk escaped repository root: {current}")
-            directory_names[:] = []
-            continue
+    while pending and not stop:
+        current, depth = pending.pop()
         if depth > MAX_DISCOVERY_DEPTH:
             issues.add(f"discovery depth exceeds {MAX_DISCOVERY_DEPTH}: {_relative(safe_root, current)}")
-            directory_names[:] = []
             continue
 
-        retained_directories: list[str] = []
-        for name in sorted(directory_names):
-            entries_seen += 1
-            if entries_seen > MAX_DISCOVERY_ENTRIES:
-                issues.add(f"discovery entries exceed {MAX_DISCOVERY_ENTRIES}")
-                stop = True
-                break
-            candidate = current / name
-            relative = _relative(safe_root, candidate)
-            try:
-                if candidate.is_symlink():
-                    symlinks.add(relative)
-                elif not _is_ignored_directory(safe_root, current, name):
-                    retained_directories.append(name)
-            except (OSError, RuntimeError) as error:
-                issues.add(f"unreadable path {relative}: {error}")
-        directory_names[:] = [] if stop else retained_directories
-        if stop:
-            break
+        retained_directories: list[Path] = []
+        try:
+            with os.scandir(current) as entries:
+                for entry in entries:
+                    entries_seen += 1
+                    if entries_seen > MAX_DISCOVERY_ENTRIES:
+                        issues.add(f"discovery entries exceed {MAX_DISCOVERY_ENTRIES}")
+                        stop = True
+                        break
+                    candidate = Path(entry.path)
+                    relative = _relative(safe_root, candidate)
+                    try:
+                        if entry.is_symlink():
+                            symlinks.add(relative)
+                        elif entry.is_dir(follow_symlinks=False):
+                            if _is_ignored_directory(safe_root, current, entry.name):
+                                continue
+                            if depth + 1 > MAX_DISCOVERY_DEPTH:
+                                issues.add(f"discovery depth exceeds {MAX_DISCOVERY_DEPTH}: {relative}")
+                                continue
+                            retained_directories.append(candidate)
+                        elif entry.is_file(follow_symlinks=False):
+                            files.add(relative)
+                    except (OSError, RuntimeError) as error:
+                        issues.add(f"unreadable path {relative}: {error}")
+        except OSError as error:
+            location = error.filename or current.as_posix()
+            issues.add(f"unreadable path {location}: {error}")
+            continue
 
-        for name in sorted(file_names):
-            entries_seen += 1
-            if entries_seen > MAX_DISCOVERY_ENTRIES:
-                issues.add(f"discovery entries exceed {MAX_DISCOVERY_ENTRIES}")
-                stop = True
-                break
-            candidate = current / name
-            relative = _relative(safe_root, candidate)
-            try:
-                if candidate.is_symlink():
-                    symlinks.add(relative)
-                    continue
-                if candidate.is_file():
-                    files.add(relative)
-            except (OSError, RuntimeError) as error:
-                issues.add(f"unreadable path {relative}: {error}")
         if stop:
             break
+        pending.extend(
+            (candidate, depth + 1)
+            for candidate in sorted(retained_directories, key=lambda item: item.name, reverse=True)
+        )
 
     manifests = {
         value
