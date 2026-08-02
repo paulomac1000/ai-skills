@@ -21,7 +21,7 @@ jobs:
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
           ref: ${{ github.event.pull_request.head.ref }}
-          fetch-depth: 2
+          fetch-depth: 0
           persist-credentials: true
 
       - name: Verify exact triggering revision
@@ -63,7 +63,7 @@ jobs:
 
       - name: Restore production CI and remove temporary machinery
         run: |
-          git show HEAD^:.github/workflows/ci.yml > .github/workflows/ci.yml
+          git show e0b48aa90776eedae669eb64eabb1945b8a268dd:.github/workflows/ci.yml > .github/workflows/ci.yml
           rm -f .github/workflows/apply-pr18-bot-fixes.yml
           rm -f .github/scripts/pr18_apply_bot_fixes.py
           git add -A
