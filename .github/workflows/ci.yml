@@ -1,4 +1,4 @@
-name: Refresh consolidated dependencies
+name: Refresh consolidated dependencies retry
 
 on:
   pull_request:
