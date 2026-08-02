@@ -1,4 +1,4 @@
-name: Publish verified dependency refresh
+name: Stage verified production workflow blob
 
 on:
   pull_request:
@@ -14,31 +14,21 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 concurrency:
-  group: publish-verified-dependency-refresh
+  group: stage-verified-production-workflow
   cancel-in-progress: false
 
 jobs:
-  publish:
+  stage:
     if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 10
     steps:
-      - name: Check out writable PR branch for publication only
+      - name: Check out writable PR branch for blob staging only
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.pull_request.head.ref }}
-          fetch-depth: 2
+          fetch-depth: 1
           persist-credentials: true
-      - name: Verify publisher commit only changed the temporary workflow
-        shell: bash
-        env:
-          EXPECTED_ARTIFACT_BASE: 8533e6f4885ab694e34cb70533576d5eb15e73cb
-          EXPECTED_TRIGGER_SHA: ${{ github.event.pull_request.head.sha }}
-        run: |
-          set -euo pipefail
-          test "$(git rev-parse HEAD)" = "$EXPECTED_TRIGGER_SHA"
-          test "$(git rev-parse HEAD^)" = "$EXPECTED_ARTIFACT_BASE"
-          test "$(git diff --name-only HEAD^ HEAD)" = ".github/workflows/ci.yml"
       - name: Download verified final tree
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -47,39 +37,19 @@ jobs:
           run-id: 30772531446
           name: verified-dependency-refresh-30772531446
           path: verified-refresh
-      - name: Verify artifact provenance and patch digest
+      - name: Verify and stage exact workflow bytes
         shell: bash
         run: |
           set -euo pipefail
           cd verified-refresh
           test "$(cat dependency-refresh-base.txt)" = "8533e6f4885ab694e34cb70533576d5eb15e73cb"
           sha256sum -c dependency-refresh.sha256
-          test -s dependency-refresh.patch
-      - name: Apply only verified production paths
-        shell: bash
-        run: |
-          set -euo pipefail
-          while IFS= read -r -d '' source; do
-            relative="${source#verified-refresh/final-tree/}"
-            case "$relative" in
-              .github/workflows/ci.yml|lock-artifacts/*) continue ;;
-            esac
-            case "$relative" in
-              /*|../*|*/../*|*/..) echo "unsafe artifact path: $relative" >&2; exit 1 ;;
-            esac
-            mkdir -p "$(dirname "$relative")"
-            cp "$source" "$relative"
-          done < <(find verified-refresh/final-tree -type f -print0)
-          while IFS= read -r relative; do
-            test -n "$relative" || continue
-            case "$relative" in
-              .github/workflows/ci.yml|lock-artifacts/*) continue ;;
-              /*|../*|*/../*|*/..) echo "unsafe deletion path: $relative" >&2; exit 1 ;;
-            esac
-            rm -f -- "$relative"
-          done < verified-refresh/deleted-files.txt
+          cd ..
+          mkdir -p .ci-final
+          cp verified-refresh/final-tree/.github/workflows/ci.yml .ci-final/ci.yml
+          test "$(head -n 1 .ci-final/ci.yml)" = "name: CI"
           rm -rf verified-refresh
-      - name: Commit exact verified non-workflow changes
+      - name: Commit neutral-path workflow blob
         shell: bash
         env:
           BRANCH: ${{ github.event.pull_request.head.ref }}
@@ -87,12 +57,7 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
-          ! git diff --cached --name-only | grep -q '^lock-artifacts/'
-          ! git diff --cached --name-only | grep -q '^\.github/workflows/'
-          test ! -e .github/scripts/fix_refresh_helper_source.py
-          test ! -e .github/scripts/refresh_dependency_set.py
-          git diff --cached --quiet && { echo "No verified changes to publish"; exit 1; }
-          git diff --cached --check
-          git commit -m "build(deps): adopt current supported toolchain"
+          git add .ci-final/ci.yml
+          test "$(git diff --cached --name-only)" = ".ci-final/ci.yml"
+          git commit -m "chore(ci): stage verified production workflow blob"
           git push origin "HEAD:${BRANCH}"
