@@ -78,6 +78,23 @@ real_job:
     assert "commands.unlocated-full-gate" not in _codes(findings)
 
 
+def test_gitlab_pages_job_script_establishes_gate_evidence(tmp_path: Path) -> None:
+    _write(
+        tmp_path / ".gitlab-ci.yml",
+        """pages:
+  script:
+    - python scripts/publish_pages.py
+  artifacts:
+    paths: [public]
+""",
+    )
+    _write(tmp_path / "AGENTS.md", _agents("python scripts/publish_pages.py"))
+
+    _, findings = audit_module.audit(tmp_path, "application", "single", "en")
+
+    assert "commands.unlocated-full-gate" not in _codes(findings)
+
+
 def test_class_body_import_is_not_visible_inside_method(tmp_path: Path) -> None:
     _write(
         tmp_path / "scripts/ci.py",
