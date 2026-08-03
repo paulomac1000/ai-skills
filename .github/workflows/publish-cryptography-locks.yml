@@ -46,7 +46,7 @@ jobs:
           branch = os.environ["BRANCH"]
           event_head = os.environ["EVENT_HEAD_SHA"]
           api = f"https://api.github.com/repos/{repository}"
-          expected_commit_message = "ci: publish secure lock artifacts isolated"
+          expected_commit_message = "ci: strip credentials from artifact redirects"
           artifacts = (
               (8873719116, "8e9c062b0592df861d6daa9325c1b899567f910e889fd8b4a22d1012c11b06b9"),
               (8873713681, "9cc749a0218cbe0937d525b6b55954440301131d527a1e9aaa3209acc5e1d6cc"),
@@ -54,6 +54,15 @@ jobs:
               (8873709009, "d84efb5ea7bb26404991600d318c2e96bb6648f17fce3c491ac2f9bc86a435ea"),
               (8873707248, "284f1f9ff6bb14c79aeb6cacaf6c212f9e8f20cc841c7f9a3e971c0da30c0409"),
           )
+
+          class StripAuthorizationRedirect(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self, req, fp, code, msg, headers, newurl):
+                  redirected = super().redirect_request(req, fp, code, msg, headers, newurl)
+                  if redirected is not None:
+                      redirected.remove_header("Authorization")
+                  return redirected
+
+          artifact_opener = urllib.request.build_opener(StripAuthorizationRedirect())
 
           def request(method: str, url: str, payload: object | None = None) -> object:
               data = None if payload is None else json.dumps(payload).encode()
@@ -95,7 +104,7 @@ jobs:
                       "User-Agent": "ai-skills-lock-publisher",
                   },
               )
-              with urllib.request.urlopen(download, timeout=120) as response:
+              with artifact_opener.open(download, timeout=120) as response:
                   archive = response.read()
               actual_digest = hashlib.sha256(archive).hexdigest()
               if actual_digest != expected_digest:
