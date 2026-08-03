@@ -39,10 +39,13 @@ jobs:
         run: python scripts/install_locked.py
       - name: Apply deterministic review fixes from an untracked helper copy
         run: |
+          set -euo pipefail
+          HELPER=.github/scripts/.apply_final_review_fixes.py
           python .github/scripts/fix_final_review_helper_escape.py \
             .github/scripts/apply_final_review_fixes.py \
-            /tmp/apply_final_review_fixes.py
-          python /tmp/apply_final_review_fixes.py
+            "$HELPER"
+          python "$HELPER"
+          rm "$HELPER"
       - name: Format and lint changed Python
         run: |
           python -m ruff format \
