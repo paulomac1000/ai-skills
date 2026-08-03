@@ -6,7 +6,6 @@ from __future__ import annotations
 import argparse
 import json
 import re
-import shlex
 import sys
 from collections.abc import Iterable, Sequence
 from dataclasses import asdict, dataclass
@@ -17,16 +16,20 @@ TOOLS = Path(__file__).resolve().parent
 if str(TOOLS) not in sys.path:
     sys.path.insert(0, str(TOOLS))
 
+from agents_md_parse import parse_visible_lines, read_utf8_bounded  # noqa: E402
 from agents_md_python_evidence import _extract_python_invocations  # noqa: E402
 from agents_md_shell_evidence import (  # noqa: E402
     _command_path_tokens,
     _extract_gate_invocations,
-    _extract_shell_invocations,
-    _extract_yaml_invocations,
     _normalize_invocation,
     _yaml_syntax_error,
 )
-from agents_md_parse import parse_visible_lines, read_utf8_bounded  # noqa: E402
+from agents_md_shell_evidence import (  # noqa: E402
+    _extract_shell_invocations as _extract_shell_invocations,
+)
+from agents_md_shell_evidence import (  # noqa: E402
+    _extract_yaml_invocations as _extract_yaml_invocations,
+)
 from agents_md_types import (  # noqa: E402
     MAX_GATE_FILE_BYTES,
     MAX_GATE_FILES,
