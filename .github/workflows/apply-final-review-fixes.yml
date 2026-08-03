@@ -1,4 +1,4 @@
-name: Apply final bot review fixes retry
+name: Apply final bot review fixes
 
 on:
   pull_request:
@@ -37,10 +37,12 @@ jobs:
           cache-dependency-path: requirements-dev-linux-x64-py312.lock
       - name: Install exact locked development graph
         run: python scripts/install_locked.py
-      - name: Apply deterministic review fixes
+      - name: Apply deterministic review fixes from an untracked helper copy
         run: |
-          python .github/scripts/fix_final_review_helper_escape.py
-          python .github/scripts/apply_final_review_fixes.py
+          python .github/scripts/fix_final_review_helper_escape.py \
+            .github/scripts/apply_final_review_fixes.py \
+            /tmp/apply_final_review_fixes.py
+          python /tmp/apply_final_review_fixes.py
       - name: Format and lint changed Python
         run: |
           python -m ruff format \
@@ -65,8 +67,9 @@ jobs:
         run: python scripts/ci.py
       - name: Verify exact production diff
         run: |
+          set -euo pipefail
           git diff --check
-          test "$(git diff --name-only | sort)" = "$(printf '%s\n' \
+          test "$(git status --porcelain --untracked-files=all | sed -E 's/^.. //' | sort)" = "$(printf '%s\n' \
             skills/agents-md-architect/tools/agents_md_parse.py \
             skills/agents-md-architect/tools/audit_agents_md.py \
             skills/mcp-server-architect/examples/python/server_composition.py.example \
