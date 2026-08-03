@@ -45,11 +45,13 @@ from agents_md_types import (  # noqa: E402
     PROFILE_REQUIREMENTS,
     VERSIONED_NAME,
     VOLATILE_COUNT,
+    CommandRule,
     Directive,
     DomainProfileName,
     Finding,
     LanguageName,
     LayoutName,
+    OwnershipRule,
     ParsedDocument,
     Severity,
     _normalize_heading,
@@ -408,31 +410,46 @@ def _validate_tree(documents: Sequence[ParsedDocument], root: Path) -> list[Find
                     )
                 )
 
-        parent_commands = {item.key: item for item in parent.commands}
+        inherited_commands: dict[str, tuple[ParsedDocument, CommandRule]] = {}
+        for ancestor in ancestors:
+            for command_rule in ancestor.commands:
+                inherited_commands[command_rule.key] = (ancestor, command_rule)
         for command in child.commands:
-            inherited_command = parent_commands.get(command.key)
-            if inherited_command and inherited_command.command != command.command and not command.explicit_local:
+            inherited_command_entry = inherited_commands.get(command.key)
+            if inherited_command_entry is None:
+                continue
+            inherited_source, inherited_command = inherited_command_entry
+            if inherited_command.command != command.command and not command.explicit_local:
                 findings.append(
                     Finding(
                         str(child.path),
                         "error",
                         "tree.conflicting-command",
                         command.line,
-                        f"Command conflicts with inherited command at {parent.relative_path}:{inherited_command.line}.",
+                        (
+                            "Command conflicts with inherited command at "
+                            f"{inherited_source.relative_path}:{inherited_command.line}."
+                        ),
                     )
                 )
 
-        parent_ownership = {item.key: item for item in parent.ownership}
+        inherited_ownership: dict[str, tuple[ParsedDocument, OwnershipRule]] = {}
+        for ancestor in ancestors:
+            for ownership_rule in ancestor.ownership:
+                inherited_ownership[ownership_rule.key] = (ancestor, ownership_rule)
         for owner in child.ownership:
-            inherited_owner = parent_ownership.get(owner.key)
-            if inherited_owner and inherited_owner.target != owner.target and not owner.explicit_local:
+            inherited_owner_entry = inherited_ownership.get(owner.key)
+            if inherited_owner_entry is None:
+                continue
+            inherited_source, inherited_owner = inherited_owner_entry
+            if inherited_owner.target != owner.target and not owner.explicit_local:
                 findings.append(
                     Finding(
                         str(child.path),
                         "error",
                         "tree.conflicting-owner",
                         owner.line,
-                        f"Canonical owner conflicts with {parent.relative_path}:{inherited_owner.line}.",
+                        (f"Canonical owner conflicts with {inherited_source.relative_path}:{inherited_owner.line}."),
                     )
                 )
 

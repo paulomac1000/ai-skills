@@ -14,6 +14,8 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Literal, cast
 
+import yaml
+
 TOOLS = Path(__file__).resolve().parent
 if str(TOOLS) not in sys.path:
     sys.path.insert(0, str(TOOLS))
@@ -267,6 +269,16 @@ def _yaml_node_is_executable(relative: str, path: tuple[str, ...]) -> bool:
     return False
 
 
+def _yaml_syntax_error(text: str) -> str | None:
+    """Return a stable syntax error without constructing repository-controlled values."""
+    try:
+        for _event in yaml.parse(text, Loader=yaml.SafeLoader):
+            pass
+    except (yaml.YAMLError, RecursionError) as error:
+        return str(error)
+    return None
+
+
 def _extract_yaml_invocations(relative: str, text: str) -> set[str]:
     invocations: set[str] = set()
     for path, value, style in _yaml_scalar_nodes(text):
@@ -299,8 +311,8 @@ def _extract_python_invocations(text: str) -> set[str]:
         return set()
     invocations: set[str] = set()
     subprocess_calls = {"run", "call", "check_call", "check_output", "Popen"}
-    subprocess_modules = {"subprocess"}
-    os_modules = {"os"}
+    subprocess_modules: set[str] = set()
+    os_modules: set[str] = set()
     subprocess_functions: set[str] = set()
     system_functions: set[str] = set()
 
@@ -540,6 +552,19 @@ def _known_gate_commands(root: Path, discovery: Discovery) -> tuple[set[str], li
                 )
             )
             continue
+        if Path(relative).suffix.casefold() in {".yml", ".yaml"}:
+            syntax_error = _yaml_syntax_error(result.text)
+            if syntax_error is not None:
+                findings.append(
+                    AuditFinding(
+                        relative,
+                        "error",
+                        "evidence.invalid-yaml",
+                        1,
+                        f"YAML gate source is invalid and cannot establish command evidence: {syntax_error}",
+                    )
+                )
+                continue
         total_bytes += result.byte_count
         if total_bytes > MAX_GATE_TOTAL_BYTES:
             findings.append(

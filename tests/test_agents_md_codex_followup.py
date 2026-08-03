@@ -365,3 +365,89 @@ def test_component_safe_reader_rejects_intermediate_symlink(tmp_path: Path) -> N
     result = parser.read_utf8_bounded(tmp_path / "redirect/secret.txt")
     assert result.code == "input.read-error"
     assert result.text is None
+
+
+def test_invalid_github_yaml_cannot_establish_gate_evidence(tmp_path: Path) -> None:
+    write(
+        tmp_path / ".github/workflows/ci.yml",
+        """name: Invalid CI
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - run: python scripts/ghost.py
+     invalid_sibling: true
+""",
+    )
+    write(
+        tmp_path / "AGENTS.md",
+        valid_application().replace("python scripts/ci.py", "python scripts/ghost.py"),
+    )
+    _, findings = audit_module.audit(tmp_path, "application", "single", "en")
+    assert "evidence.invalid-yaml" in codes(findings)
+    assert "commands.unlocated-full-gate" in codes(findings)
+
+
+def test_local_subprocess_name_does_not_establish_gate_evidence(tmp_path: Path) -> None:
+    write(
+        tmp_path / "scripts/ci.py",
+        """class subprocess:
+    @staticmethod
+    def run(_args: object, **_kwargs: object) -> None:
+        return None
+
+subprocess.run(["python", "scripts/ghost.py"], check=True)
+""",
+    )
+    write(
+        tmp_path / "AGENTS.md",
+        valid_application().replace("python scripts/ci.py", "python scripts/ghost.py"),
+    )
+    _, findings = audit_module.audit(tmp_path, "application", "single", "en")
+    assert "commands.unlocated-full-gate" in codes(findings)
+
+
+def test_deep_child_inherits_root_command_through_intermediate_file(tmp_path: Path) -> None:
+    root = write(tmp_path / "AGENTS.md", valid_application())
+    intermediate = write(
+        tmp_path / "packages/AGENTS.md",
+        valid_application().replace(
+            "- Full gate: `python scripts/ci.py`",
+            "- Focused check: `python -m pytest packages`",
+        ),
+    )
+    deep = write(
+        tmp_path / "packages/api/AGENTS.md",
+        valid_application().replace("python scripts/ci.py", "python scripts/other.py"),
+    )
+    findings = validator.validate_many(
+        [root, intermediate, deep],
+        "application",
+        tmp_path,
+        "monorepo",
+        "en",
+    )
+    assert "tree.conflicting-command" in codes(findings)
+
+
+def test_deep_child_inherits_root_owner_through_intermediate_file(tmp_path: Path) -> None:
+    write(tmp_path / "docs/root.md", "# Root owner\n")
+    write(tmp_path / "docs/deep.md", "# Deep owner\n")
+    root = write(
+        tmp_path / "AGENTS.md",
+        valid_application("\n## Sources of truth\n\n- [Normative contract](docs/root.md) — accepted behavior.\n"),
+    )
+    intermediate = write(tmp_path / "packages/AGENTS.md", valid_application())
+    deep = write(
+        tmp_path / "packages/api/AGENTS.md",
+        valid_application("\n## Sources of truth\n\n- [Normative contract](../../docs/deep.md) — accepted behavior.\n"),
+    )
+    findings = validator.validate_many(
+        [root, intermediate, deep],
+        "application",
+        tmp_path,
+        "monorepo",
+        "en",
+    )
+    assert "tree.conflicting-owner" in codes(findings)
