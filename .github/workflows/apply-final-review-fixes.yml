@@ -1,4 +1,4 @@
-name: Apply final bot review fixes
+name: Apply final bot review fixes retry
 
 on:
   pull_request:
@@ -38,7 +38,9 @@ jobs:
       - name: Install exact locked development graph
         run: python scripts/install_locked.py
       - name: Apply deterministic review fixes
-        run: python .github/scripts/apply_final_review_fixes.py
+        run: |
+          python .github/scripts/fix_final_review_helper_escape.py
+          python .github/scripts/apply_final_review_fixes.py
       - name: Format and lint changed Python
         run: |
           python -m ruff format \
