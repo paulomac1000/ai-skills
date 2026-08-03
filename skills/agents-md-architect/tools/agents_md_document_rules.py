@@ -117,12 +117,12 @@ def _validate_document(
     waivers = _active_context_waivers(document)
     valid_waiver = len(waivers) == 1 and len(waivers[0][1]) >= 20
     if waivers and not valid_waiver:
-        line = waivers[0][0]
+        waiver_line = waivers[0][0]
         if len(waivers) > 1:
             message = "Exactly one active context-budget waiver is permitted per instruction file."
         else:
             message = "Context-budget waiver reason must contain at least 20 characters."
-        findings.append(Finding(str(path), "error", "context.invalid-waiver", line, message))
+        findings.append(Finding(str(path), "error", "context.invalid-waiver", waiver_line, message))
     if not valid_waiver:
         line_budget, byte_budget = effective_budget(profile, layout)
         line_count = len(text.splitlines())
