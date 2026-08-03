@@ -127,23 +127,15 @@ def _gitlab_node_is_executable(path: tuple[str, ...]) -> bool:
         return len(path) == 1 or (len(path) == 2 and path[1] == "[]")
 
     if path[0] == "default":
-        return (
-            len(path) == 2 and path[1] in {"before_script", "after_script"}
-        ) or (
-            len(path) == 3
-            and path[1] in {"before_script", "after_script"}
-            and path[2] == "[]"
+        return (len(path) == 2 and path[1] in {"before_script", "after_script"}) or (
+            len(path) == 3 and path[1] in {"before_script", "after_script"} and path[2] == "[]"
         )
 
     if path[0] in _GITLAB_RESERVED_TOP_LEVEL:
         return False
 
-    return (
-        len(path) == 2 and path[1] in _GITLAB_EXECUTABLE_KEYS
-    ) or (
-        len(path) == 3
-        and path[1] in _GITLAB_EXECUTABLE_KEYS
-        and path[2] == "[]"
+    return (len(path) == 2 and path[1] in _GITLAB_EXECUTABLE_KEYS) or (
+        len(path) == 3 and path[1] in _GITLAB_EXECUTABLE_KEYS and path[2] == "[]"
     )
 
 
