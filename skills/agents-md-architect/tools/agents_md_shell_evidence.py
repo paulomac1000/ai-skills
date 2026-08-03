@@ -10,6 +10,24 @@ import yaml
 from yaml.nodes import MappingNode, Node, ScalarNode, SequenceNode
 
 INVALID_YAML_MESSAGE = "YAML source is syntactically invalid and cannot establish command evidence."
+_GITLAB_EXECUTABLE_KEYS = frozenset({"script", "before_script", "after_script"})
+_GITLAB_RESERVED_TOP_LEVEL = frozenset(
+    {
+        "after_script",
+        "before_script",
+        "cache",
+        "default",
+        "image",
+        "include",
+        "pages",
+        "services",
+        "spec",
+        "stages",
+        "types",
+        "variables",
+        "workflow",
+    }
+)
 
 
 def _normalize_invocation(command: str) -> str | None:
@@ -100,6 +118,35 @@ def _yaml_scalar_nodes(node: Node | None) -> list[tuple[tuple[str, ...], str, st
     return nodes
 
 
+def _gitlab_node_is_executable(path: tuple[str, ...]) -> bool:
+    """Accept GitLab commands only from global defaults or top-level job scopes."""
+    if not path:
+        return False
+
+    if path[0] in {"before_script", "after_script"}:
+        return len(path) == 1 or (len(path) == 2 and path[1] == "[]")
+
+    if path[0] == "default":
+        return (
+            len(path) == 2 and path[1] in {"before_script", "after_script"}
+        ) or (
+            len(path) == 3
+            and path[1] in {"before_script", "after_script"}
+            and path[2] == "[]"
+        )
+
+    if path[0] in _GITLAB_RESERVED_TOP_LEVEL:
+        return False
+
+    return (
+        len(path) == 2 and path[1] in _GITLAB_EXECUTABLE_KEYS
+    ) or (
+        len(path) == 3
+        and path[1] in _GITLAB_EXECUTABLE_KEYS
+        and path[2] == "[]"
+    )
+
+
 def _yaml_node_is_executable(relative: str, path: tuple[str, ...]) -> bool:
     name = Path(relative).name.casefold()
     if relative.startswith(".github/workflows/"):
@@ -120,8 +167,7 @@ def _yaml_node_is_executable(relative: str, path: tuple[str, ...]) -> bool:
             len(path) == 5 and path[0] == "tasks" and path[2:] == ("cmds", "[]", "cmd")
         )
     if relative == ".gitlab-ci.yml":
-        executable_keys = {"script", "before_script", "after_script"}
-        return (len(path) >= 2 and path[-2] in executable_keys and path[-1] == "[]") or path[-1] in executable_keys
+        return _gitlab_node_is_executable(path)
     return False
 
 
