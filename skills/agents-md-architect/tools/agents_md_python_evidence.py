@@ -20,14 +20,19 @@ class _PythonScope:
 
     parent: _PythonScope | None = None
     bindings: dict[str, BindingKind] = field(default_factory=dict)
+    function_parent: _PythonScope | None = None
 
     def clone(self) -> _PythonScope:
-        return _PythonScope(self.parent, dict(self.bindings))
+        return _PythonScope(self.parent, dict(self.bindings), self.function_parent)
 
     def resolve(self, name: str) -> BindingKind | None:
         if name in self.bindings:
             return self.bindings[name]
         return self.parent.resolve(name) if self.parent is not None else None
+
+    def lexical_parent_for_callable(self) -> _PythonScope:
+        """Return the scope inherited by a function or lambda defined here."""
+        return self.function_parent or self
 
 
 def _literal_python_command(node: ast.AST) -> str | None:
@@ -139,7 +144,7 @@ class _PythonInvocationVisitor:
                 if default is not None:
                     self.process_expression(default, scope)
             scope.bindings[node.name] = "other"
-            child = _PythonScope(scope)
+            child = _PythonScope(scope.lexical_parent_for_callable())
             child.bindings.update({name: "other" for name in _function_local_names(node)})
             self.process_statements(node.body, child)
             return
@@ -148,7 +153,9 @@ class _PythonInvocationVisitor:
                 expression = item.value if isinstance(item, ast.keyword) else item
                 self.process_expression(expression, scope)
             scope.bindings[node.name] = "other"
-            self.process_statements(node.body, _PythonScope(scope))
+            lexical_parent = scope.lexical_parent_for_callable()
+            class_scope = _PythonScope(lexical_parent, function_parent=lexical_parent)
+            self.process_statements(node.body, class_scope)
             return
         if isinstance(node, (ast.Assign, ast.AnnAssign, ast.AugAssign, ast.NamedExpr)):
             value = getattr(node, "value", None)
@@ -238,7 +245,7 @@ class _PythonInvocationVisitor:
         if isinstance(node, ast.Call):
             self._process_call(node, scope)
         elif isinstance(node, ast.Lambda):
-            child = _PythonScope(scope)
+            child = _PythonScope(scope.lexical_parent_for_callable())
             child.bindings.update({name: "other" for name in _function_local_names(node)})
             self.process_expression(node.body, child)
             return
