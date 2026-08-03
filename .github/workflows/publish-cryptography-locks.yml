@@ -1,0 +1,172 @@
+name: Publish verified cryptography locks
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  actions: read
+  contents: write
+
+concurrency:
+  group: publish-cryptography-locks-pr18
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: >-
+      github.actor == 'paulomac1000' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'agent/agents-md-architect'
+    runs-on: ubuntu-24.04
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      REPOSITORY: ${{ github.repository }}
+      BRANCH: ${{ github.event.pull_request.head.ref }}
+      EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+    steps:
+      - name: Publish exact verified artifacts as one Git commit
+        shell: bash
+        run: |
+          python - <<'PY'
+          from __future__ import annotations
+
+          import base64
+          import hashlib
+          import io
+          import json
+          import os
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+          import zipfile
+
+          token = os.environ["GH_TOKEN"]
+          repository = os.environ["REPOSITORY"]
+          branch = os.environ["BRANCH"]
+          event_head = os.environ["EVENT_HEAD_SHA"]
+          api = f"https://api.github.com/repos/{repository}"
+          expected_commit_message = "ci: publish secure lock artifacts isolated"
+          artifacts = (
+              (8873719116, "8e9c062b0592df861d6daa9325c1b899567f910e889fd8b4a22d1012c11b06b9"),
+              (8873713681, "9cc749a0218cbe0937d525b6b55954440301131d527a1e9aaa3209acc5e1d6cc"),
+              (8873713057, "63a1626e7520b4443b3d2640f85e17323118e2cf4ff7b163752658fd137eb717"),
+              (8873709009, "d84efb5ea7bb26404991600d318c2e96bb6648f17fce3c491ac2f9bc86a435ea"),
+              (8873707248, "284f1f9ff6bb14c79aeb6cacaf6c212f9e8f20cc841c7f9a3e971c0da30c0409"),
+          )
+
+          def request(method: str, url: str, payload: object | None = None) -> object:
+              data = None if payload is None else json.dumps(payload).encode()
+              req = urllib.request.Request(
+                  url,
+                  data=data,
+                  method=method,
+                  headers={
+                      "Authorization": f"Bearer {token}",
+                      "Accept": "application/vnd.github+json",
+                      "X-GitHub-Api-Version": "2022-11-28",
+                      "User-Agent": "ai-skills-lock-publisher",
+                  },
+              )
+              try:
+                  with urllib.request.urlopen(req, timeout=120) as response:
+                      body = response.read()
+              except urllib.error.HTTPError as error:
+                  raise RuntimeError(f"GitHub API {method} {url} failed: {error.code} {error.read()!r}") from error
+              return json.loads(body) if body else {}
+
+          ref_url = f"{api}/git/ref/heads/{urllib.parse.quote(branch, safe='')}"
+          ref = request("GET", ref_url)
+          current_head = ref["object"]["sha"]
+          if current_head != event_head:
+              raise RuntimeError(f"branch moved before publication: event={event_head}, current={current_head}")
+          current_commit = request("GET", f"{api}/git/commits/{current_head}")
+          if current_commit["message"] != expected_commit_message:
+              raise RuntimeError(f"unexpected publisher head message: {current_commit['message']!r}")
+
+          files: dict[str, bytes] = {}
+          for artifact_id, expected_digest in artifacts:
+              download = urllib.request.Request(
+                  f"{api}/actions/artifacts/{artifact_id}/zip",
+                  headers={
+                      "Authorization": f"Bearer {token}",
+                      "Accept": "application/vnd.github+json",
+                      "X-GitHub-Api-Version": "2022-11-28",
+                      "User-Agent": "ai-skills-lock-publisher",
+                  },
+              )
+              with urllib.request.urlopen(download, timeout=120) as response:
+                  archive = response.read()
+              actual_digest = hashlib.sha256(archive).hexdigest()
+              if actual_digest != expected_digest:
+                  raise RuntimeError(
+                      f"artifact {artifact_id} digest mismatch: expected {expected_digest}, got {actual_digest}"
+                  )
+              with zipfile.ZipFile(io.BytesIO(archive)) as bundle:
+                  for info in bundle.infolist():
+                      path = info.filename.replace("\\", "/")
+                      parts = tuple(part for part in path.split("/") if part)
+                      if info.is_dir():
+                          continue
+                      if not parts or path.startswith("/") or ".." in parts:
+                          raise RuntimeError(f"unsafe artifact member: {info.filename!r}")
+                      if not path.endswith(".lock"):
+                          raise RuntimeError(f"unexpected artifact member: {path}")
+                      if path in files:
+                          raise RuntimeError(f"duplicate artifact member: {path}")
+                      payload = bundle.read(info)
+                      text = payload.decode("utf-8")
+                      if "cryptography==50.0.0 \\" not in text or "cryptography==49.0.0" in text:
+                          raise RuntimeError(f"artifact member has unexpected cryptography selection: {path}")
+                      files[path] = payload
+
+          expected_paths = {
+              "requirements-dev-linux-x64-py312.lock",
+              "requirements-dev-linux-x64-py313.lock",
+              "requirements-dev-linux-x64-py314.lock",
+              "requirements-dev-macos-arm64-py312.lock",
+              "requirements-dev-windows-x64-py312.lock",
+              "skills/mcp-server-architect/locks/dev-linux-x64-py312.lock",
+              "skills/mcp-server-architect/locks/dev-linux-x64-py313.lock",
+              "skills/mcp-server-architect/locks/dev-linux-x64-py314.lock",
+              "skills/mcp-server-architect/locks/dev-macos-arm64-py312.lock",
+              "skills/mcp-server-architect/locks/dev-windows-x64-py312.lock",
+              "skills/mcp-server-architect/locks/runtime-linux-x64-py312.lock",
+              "skills/mcp-server-architect/locks/runtime-linux-x64-py313.lock",
+              "skills/mcp-server-architect/locks/runtime-linux-x64-py314.lock",
+              "skills/mcp-server-architect/locks/runtime-macos-arm64-py312.lock",
+              "skills/mcp-server-architect/locks/runtime-windows-x64-py312.lock",
+          }
+          if set(files) != expected_paths:
+              raise RuntimeError(f"artifact path mismatch: {sorted(set(files) ^ expected_paths)}")
+
+          entries = []
+          for path in sorted(files):
+              blob = request(
+                  "POST",
+                  f"{api}/git/blobs",
+                  {"content": base64.b64encode(files[path]).decode(), "encoding": "base64"},
+              )
+              entries.append({"path": path, "mode": "100644", "type": "blob", "sha": blob["sha"]})
+
+          tree = request(
+              "POST",
+              f"{api}/git/trees",
+              {"base_tree": current_commit["tree"]["sha"], "tree": entries},
+          )
+          commit = request(
+              "POST",
+              f"{api}/git/commits",
+              {
+                  "message": "fix(deps): update cryptography to 50.0.0",
+                  "tree": tree["sha"],
+                  "parents": [current_head],
+              },
+          )
+          request(
+              "PATCH",
+              f"{api}/git/refs/heads/{urllib.parse.quote(branch, safe='')}",
+              {"sha": commit["sha"], "force": False},
+          )
+          print(f"published {len(files)} verified lock files in {commit['sha']}")
+          PY
