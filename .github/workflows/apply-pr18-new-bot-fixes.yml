@@ -7,12 +7,19 @@ on:
     paths:
       - .github/scripts/apply-pr18-new-bot-fixes.py
       - .github/workflows/apply-pr18-new-bot-fixes.yml
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/scripts/apply-pr18-new-bot-fixes.py
+      - .github/workflows/apply-pr18-new-bot-fixes.yml
 
 permissions:
   contents: write
 
 jobs:
   apply:
+    if: github.event_name == 'push' || github.event.pull_request.number == 18
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -75,5 +82,3 @@ jobs:
           git diff --cached --quiet && { echo "No changes to commit"; exit 1; }
           git commit -m "fix(agents-md): address latest bot review"
           git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:agent/agents-md-architect
-
-# Triggered after workflow registration so the push event can execute this workflow.
