@@ -12,7 +12,11 @@ def _ancestor_chain(document: ParsedDocument, documents: Sequence[ParsedDocument
     """Return inherited instruction documents from root to nearest parent."""
     return tuple(
         sorted(
-            (other for other in documents if other.path != document.path and other.path.parent in document.path.parents),
+            (
+                other
+                for other in documents
+                if other.path != document.path and other.path.parent in document.path.parents
+            ),
             key=lambda item: len(item.path.parent.parts),
         )
     )
