@@ -1,0 +1,297 @@
+"""Document-level validation for AGENTS.md."""
+
+from __future__ import annotations
+
+import re
+from pathlib import Path
+
+from agents_md_parse import (
+    document_has_concept,
+    is_negated_ci_rule,
+    is_negated_keyword_rule,
+    iter_references,
+    resolve_reference,
+)
+from agents_md_types import (
+    ABSOLUTE_HOST_PATH,
+    BARE_REFERENCE,
+    CHANGELOG_HEADING,
+    CONTEXT_WAIVER,
+    DOMAIN_NESTED_REQUIREMENTS,
+    GENERIC_ADVICE,
+    HEADING,
+    KEYWORD_APPROVAL,
+    LAYOUT_ROOT_REQUIREMENTS,
+    NESTED_LAYOUT_REQUIREMENTS,
+    PLACEHOLDER,
+    POSITIVE_CI_GUARANTEE,
+    PROFILE_REQUIREMENTS,
+    VERSIONED_NAME,
+    VOLATILE_COUNT,
+    DomainProfileName,
+    Finding,
+    LanguageName,
+    LayoutName,
+    ParsedDocument,
+    Severity,
+    _normalize_heading,
+    effective_budget,
+)
+
+
+def _ordered_requirements(
+    profile: DomainProfileName,
+    layout: LayoutName,
+    nested: bool,
+) -> tuple[str, ...]:
+    if nested and layout == "monorepo":
+        values = (*NESTED_LAYOUT_REQUIREMENTS, *DOMAIN_NESTED_REQUIREMENTS[profile])
+    else:
+        values = (*PROFILE_REQUIREMENTS[profile], *LAYOUT_ROOT_REQUIREMENTS[layout])
+    return tuple(dict.fromkeys(values))
+
+
+def _active_context_waivers(document: ParsedDocument) -> tuple[tuple[int, str], ...]:
+    """Return context waivers only from active Markdown lines outside fenced examples."""
+    waivers: list[tuple[int, str]] = []
+    for line_number, line in document.visible_lines:
+        for match in CONTEXT_WAIVER.finditer(line):
+            waivers.append((line_number, match.group("reason").strip()))
+    return tuple(waivers)
+
+
+def _validate_document(
+    document: ParsedDocument,
+    profile: DomainProfileName,
+    layout: LayoutName,
+    language: LanguageName,
+    root: Path,
+    unclosed_fence: int | None,
+) -> list[Finding]:
+    path = document.path
+    text = document.text
+    findings: list[Finding] = []
+    if unclosed_fence is not None:
+        findings.append(
+            Finding(
+                str(path),
+                "error",
+                "structure.unclosed-fence",
+                unclosed_fence,
+                "Fenced code block is not closed.",
+            )
+        )
+
+    headings: list[tuple[int, int, str]] = []
+    for line_number, line in document.visible_lines:
+        match = HEADING.fullmatch(line)
+        if match:
+            headings.append((line_number, len(match.group("level")), match.group("title")))
+
+    h1 = [(line, title) for line, level, title in headings if level == 1]
+    if len(h1) != 1:
+        findings.append(
+            Finding(str(path), "error", "structure.h1", 1, f"Expected exactly one H1 heading, found {len(h1)}.")
+        )
+
+    seen: dict[tuple[int, str], int] = {}
+    for line_number, level, title in headings:
+        key = (level, _normalize_heading(title))
+        if key in seen:
+            findings.append(
+                Finding(
+                    str(path),
+                    "error",
+                    "structure.duplicate-heading",
+                    line_number,
+                    f"Heading duplicates line {seen[key]} after normalization: {title}",
+                )
+            )
+        else:
+            seen[key] = line_number
+        if CHANGELOG_HEADING.fullmatch("#" * level + " " + title):
+            findings.append(
+                Finding(str(path), "error", "content.changelog", line_number, "Move change history to CHANGELOG.md.")
+            )
+
+    waivers = _active_context_waivers(document)
+    valid_waiver = len(waivers) == 1 and len(waivers[0][1]) >= 20
+    if waivers and not valid_waiver:
+        line = waivers[0][0]
+        if len(waivers) > 1:
+            message = "Exactly one active context-budget waiver is permitted per instruction file."
+        else:
+            message = "Context-budget waiver reason must contain at least 20 characters."
+        findings.append(Finding(str(path), "error", "context.invalid-waiver", line, message))
+    if not valid_waiver:
+        line_budget, byte_budget = effective_budget(profile, layout)
+        line_count = len(text.splitlines())
+        byte_count = len(text.encode("utf-8"))
+        if line_count > line_budget or byte_count > byte_budget:
+            findings.append(
+                Finding(
+                    str(path),
+                    "warning",
+                    "context.review-budget",
+                    1,
+                    f"{layout}/{profile} contract has {line_count} lines and {byte_count} UTF-8 bytes; "
+                    f"review the {line_budget}-line/{byte_budget}-byte budget or add a reasoned waiver.",
+                )
+            )
+
+    nested = layout == "monorepo" and path.parent != root
+    for concept in _ordered_requirements(profile, layout, nested):
+        present = document_has_concept(document, concept, language)
+        if present is True:
+            continue
+        if present is None:
+            findings.append(
+                Finding(
+                    str(path),
+                    "warning",
+                    "language.semantic-unverified",
+                    1,
+                    f"Cannot verify the '{concept}' contract for language 'other'; add "
+                    f"<!-- agents-md: contract {concept} -->.",
+                )
+            )
+            continue
+        findings.append(
+            Finding(
+                str(path),
+                "error",
+                f"profile.missing-{concept}",
+                1,
+                f"The {layout}/{profile} contract requires an explicit {concept.replace('-', ' ')} contract.",
+            )
+        )
+
+    for line_number, line in document.visible_lines:
+        checks: tuple[tuple[re.Pattern[str], Severity, str, str], ...] = (
+            (
+                BARE_REFERENCE,
+                "warning",
+                "routing.blind-reference",
+                "Explain when this reference is used and what decision it owns.",
+            ),
+            (
+                VERSIONED_NAME,
+                "warning",
+                "ownership.versioned-current-name",
+                "Review whether this versioned current name is a bounded compatibility contract or migration residue.",
+            ),
+            (
+                VOLATILE_COUNT,
+                "warning",
+                "content.volatile-count",
+                "Move volatile counts to generated output or release evidence.",
+            ),
+            (
+                ABSOLUTE_HOST_PATH,
+                "warning",
+                "portability.absolute-host-path",
+                "Replace host-specific absolute paths with repository-relative or parameterized paths.",
+            ),
+            (
+                PLACEHOLDER,
+                "error",
+                "content.placeholder",
+                "Replace template placeholders before publishing AGENTS.md.",
+            ),
+            (
+                GENERIC_ADVICE,
+                "warning",
+                "content.generic-advice",
+                "Replace generic advice with a project-specific boundary or remove it.",
+            ),
+        )
+        for pattern, severity, code, message in checks:
+            if pattern.search(line):
+                findings.append(Finding(str(path), severity, code, line_number, message))
+
+        if KEYWORD_APPROVAL.search(line) and not is_negated_keyword_rule(line):
+            findings.append(
+                Finding(
+                    str(path),
+                    "error",
+                    "safety.keyword-approval",
+                    line_number,
+                    "Human approval must not be determined by keyword matching.",
+                )
+            )
+        if POSITIVE_CI_GUARANTEE.search(line) and not is_negated_ci_rule(line):
+            findings.append(
+                Finding(
+                    str(path),
+                    "error",
+                    "evidence.false-ci-guarantee",
+                    line_number,
+                    "Local validation must not be described as a guarantee of hosted CI.",
+                )
+            )
+
+    for line_number, target in iter_references(document.visible_lines):
+        resolved, issue = resolve_reference(path, root, target)
+        if resolved is None:
+            continue
+        if issue == "outside":
+            findings.append(
+                Finding(
+                    str(path),
+                    "error",
+                    "links.outside-repository",
+                    line_number,
+                    f"Reference escapes the repository boundary: {target}",
+                )
+            )
+        elif issue == "symlink":
+            findings.append(
+                Finding(str(path), "error", "links.symlink", line_number, f"Reference contains a symlink: {target}")
+            )
+        elif issue == "unreadable":
+            findings.append(
+                Finding(
+                    str(path),
+                    "error",
+                    "links.unreadable",
+                    line_number,
+                    f"Reference could not be inspected safely: {target}",
+                )
+            )
+        else:
+            try:
+                exists = resolved.exists()
+                regular = resolved.is_file() if exists else False
+            except (OSError, RuntimeError):
+                findings.append(
+                    Finding(
+                        str(path),
+                        "error",
+                        "links.unreadable",
+                        line_number,
+                        f"Reference could not be inspected safely: {target}",
+                    )
+                )
+                continue
+            if not exists:
+                findings.append(
+                    Finding(
+                        str(path),
+                        "error",
+                        "links.missing",
+                        line_number,
+                        f"Referenced path does not exist: {target}",
+                    )
+                )
+            elif not regular:
+                findings.append(
+                    Finding(
+                        str(path),
+                        "error",
+                        "links.not-file",
+                        line_number,
+                        f"Reference must resolve to a regular file: {target}",
+                    )
+                )
+
+    return findings
