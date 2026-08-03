@@ -3,6 +3,13 @@ from pathlib import Path
 path = Path("skills/agents-md-architect/tools/validate_agents_md.py")
 text = path.read_text(encoding="utf-8")
 replacements = {
+    """        for ancestor in ancestors:
+            for item in ancestor.commands:
+                inherited_commands[item.key] = (ancestor, item)
+""": """        for ancestor in ancestors:
+            for command_rule in ancestor.commands:
+                inherited_commands[command_rule.key] = (ancestor, command_rule)
+""",
     """            inherited_entry = inherited_commands.get(command.key)
             if inherited_entry is None:
                 continue
@@ -11,6 +18,13 @@ replacements = {
             if inherited_command_entry is None:
                 continue
             inherited_source, inherited_command = inherited_command_entry
+""",
+    """        for ancestor in ancestors:
+            for item in ancestor.ownership:
+                inherited_ownership[item.key] = (ancestor, item)
+""": """        for ancestor in ancestors:
+            for ownership_rule in ancestor.ownership:
+                inherited_ownership[ownership_rule.key] = (ancestor, ownership_rule)
 """,
     """            inherited_entry = inherited_ownership.get(owner.key)
             if inherited_entry is None:
