@@ -6,12 +6,14 @@ on:
       - agent/agents-md-architect
     paths:
       - .github/scripts/apply-pr18-new-bot-fixes.py
+      - .github/scripts/fix-pr18-mypy.py
       - .github/workflows/apply-pr18-new-bot-fixes.yml
   pull_request:
     branches:
       - main
     paths:
       - .github/scripts/apply-pr18-new-bot-fixes.py
+      - .github/scripts/fix-pr18-mypy.py
       - .github/workflows/apply-pr18-new-bot-fixes.yml
 
 permissions:
@@ -39,7 +41,9 @@ jobs:
       - name: Install locked development graph
         run: python scripts/install_locked.py
       - name: Apply reviewed fixes
-        run: python .github/scripts/apply-pr18-new-bot-fixes.py
+        run: |
+          python .github/scripts/apply-pr18-new-bot-fixes.py
+          python .github/scripts/fix-pr18-mypy.py
       - name: Format and lint changed Python
         run: |
           python -m ruff check --fix \
@@ -64,6 +68,7 @@ jobs:
       - name: Remove temporary review machinery
         run: |
           git rm .github/scripts/apply-pr18-new-bot-fixes.py
+          git rm .github/scripts/fix-pr18-mypy.py
           git rm .github/workflows/apply-pr18-new-bot-fixes.yml
       - name: Verify exact production diff
         run: |
@@ -71,6 +76,7 @@ jobs:
           git diff --check
           test "$(git status --porcelain --untracked-files=all | awk '{print $NF}' | sort)" = "$(printf '%s\n' \
             .github/scripts/apply-pr18-new-bot-fixes.py \
+            .github/scripts/fix-pr18-mypy.py \
             .github/workflows/apply-pr18-new-bot-fixes.yml \
             skills/agents-md-architect/tools/audit_agents_md.py \
             skills/agents-md-architect/tools/validate_agents_md.py \
