@@ -42,6 +42,10 @@ jobs:
         run: python .github/scripts/apply-pr18-new-bot-fixes.py
       - name: Format and lint changed Python
         run: |
+          python -m ruff check --fix \
+            skills/agents-md-architect/tools/audit_agents_md.py \
+            skills/agents-md-architect/tools/validate_agents_md.py \
+            tests/test_agents_md_codex_followup.py
           python -m ruff format \
             skills/agents-md-architect/tools/audit_agents_md.py \
             skills/agents-md-architect/tools/validate_agents_md.py \
