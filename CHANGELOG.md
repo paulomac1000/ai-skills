@@ -18,7 +18,7 @@ This release adds a governed standard for designing and maintaining repository i
 - Extended repository quality, documentation, release, and adoption contracts to treat `agents-md-architect` as a first-class governed skill.
 - Hardened instruction discovery and validation for repository `bin/` entry points, ecosystem-specific build output, shared Markdown parsing, regular-file references, invalid UTF-8, bounded input trees, complete placeholder detection, and non-executing command evidence.
 - Made audit and validation share one bounded instruction-tree read, enforced root topology for single and monorepo layouts, required safety contracts for router and application profiles, normalized filesystem failures, and bounded fail-closed repository and gate-source discovery.
-- Hardened full ancestor directive, command, and canonical-owner inheritance; rejected invalid YAML as command evidence; required real Python imports before trusting subprocess or operating-system calls; and declared the PyYAML runtime dependency used by the audit tool.
+- Hardened full ancestor directive, command, and canonical-owner inheritance; rejected invalid YAML as command evidence while charging every read to the aggregate budget; recognized subprocess and operating-system calls only after real imports at any AST depth; and declared the PyYAML runtime dependency used by the audit tool.
 - Hardened fenced examples inside Markdown list containers, descriptor-bounded file reads, executable-only command evidence extraction, and incremental repository enumeration.
 
 ## 1.1.0 - 2026-07-27
