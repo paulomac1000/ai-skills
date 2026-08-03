@@ -29,6 +29,20 @@ def main() -> int:
         "",
         "unused os import injection",
     )
+    test_anchor = '    codex_text = codex_tests.read_text(encoding="utf-8")\n'
+    test_patch = test_anchor + '''    codex_text = replace_once(
+        codex_text,
+        '    if not getattr(parser.os, "O_NOFOLLOW", 0):\\n',
+        "    if not parser._supports_component_nofollow():\\n",
+        codex_tests,
+    )
+'''
+    text = replace_once(
+        text,
+        test_anchor,
+        test_patch,
+        "bounded-reader capability test update",
+    )
     target.write_text(text, encoding="utf-8", newline="")
     return 0
 
