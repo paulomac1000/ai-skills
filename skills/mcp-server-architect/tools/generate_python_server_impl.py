@@ -93,7 +93,7 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
 
             The HTTP path is `/mcp`. Only literal IPv4 or IPv6 loopback addresses are
             accepted. The ASGI boundary buffers at most the configured request limit and
-            rejects oversized or excessively fragmented bodies before entering FastMCP.
+            rejects oversized or excessively fragmented bodies before entering the MCP SDK application.
 
             Writes are disabled by default. A write requires a mandatory current version
             and a one-time approval token issued earlier by a trusted host. Approval records

@@ -349,10 +349,47 @@ def _extract_python_invocations(text: str) -> set[str]:
     return invocations
 
 
+def _shell_line_continues(line: str) -> bool:
+    """Return whether the physical shell line ends in an active backslash-newline."""
+    quote: str | None = None
+    escaped = False
+    for character in line.rstrip():
+        if quote == "'":
+            if character == "'":
+                quote = None
+            continue
+        if escaped:
+            escaped = False
+            continue
+        if character == "\\":
+            escaped = True
+            continue
+        if character in "'\"":
+            quote = character if quote is None else None if quote == character else quote
+    return escaped
+
+
+def _logical_shell_lines(text: str) -> list[str]:
+    """Join backslash-continued physical lines before shell normalization."""
+    logical: list[str] = []
+    pending = ""
+    for raw_line in text.splitlines():
+        candidate = raw_line.rstrip()
+        combined = f"{pending}{candidate.lstrip()}" if pending else candidate
+        if _shell_line_continues(combined):
+            pending = f"{combined.rstrip()[:-1]} "
+            continue
+        logical.append(combined)
+        pending = ""
+    if pending:
+        logical.append(pending.rstrip())
+    return logical
+
+
 def _extract_shell_invocations(text: str) -> set[str]:
     invocations: set[str] = set()
     heredoc_end: str | None = None
-    for raw_line in text.splitlines():
+    for raw_line in _logical_shell_lines(text):
         line = raw_line.strip()
         if heredoc_end is not None:
             if line == heredoc_end:

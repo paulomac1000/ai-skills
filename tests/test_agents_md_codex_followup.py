@@ -112,7 +112,7 @@ def test_bounded_reader_requests_only_limit_plus_one(
             return b"x" * size
 
     monkeypatch.setattr(parser.os, "open", lambda *_args, **_kwargs: 42)
-    if not getattr(parser.os, "O_NOFOLLOW", 0):
+    if not parser._supports_component_nofollow():
         monkeypatch.setattr(
             parser.os,
             "lstat",
@@ -331,3 +331,37 @@ def test_no_nofollow_fallback_rejects_changed_file_identity(
     assert result.code == "input.read-error"
     assert "identity changed" in (result.message or "")
     assert closed == [42]
+
+
+def test_github_literal_run_joins_shell_continuations(tmp_path: Path) -> None:
+    write(
+        tmp_path / ".github/workflows/ci.yml",
+        """name: CI
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          python scripts/ci.py \
+            --strict
+""",
+    )
+    write(
+        tmp_path / "AGENTS.md",
+        valid_application().replace("python scripts/ci.py", "python scripts/ci.py --strict"),
+    )
+    _, findings = audit_module.audit(tmp_path, "application", "single", "en")
+    assert "commands.unlocated-full-gate" not in codes(findings)
+
+
+def test_component_safe_reader_rejects_intermediate_symlink(tmp_path: Path) -> None:
+    if not parser._supports_component_nofollow():
+        pytest.skip("component-wise no-follow open is not available")
+    outside = tmp_path.parent / f"{tmp_path.name}-outside"
+    outside.mkdir()
+    write(outside / "secret.txt", "outside")
+    (tmp_path / "redirect").symlink_to(outside, target_is_directory=True)
+    result = parser.read_utf8_bounded(tmp_path / "redirect/secret.txt")
+    assert result.code == "input.read-error"
+    assert result.text is None
