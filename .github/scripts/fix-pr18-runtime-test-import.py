@@ -7,3 +7,5 @@ new = "import pytest\nimport yaml\n"
 if text.count(old) != 1:
     raise RuntimeError(f"expected one pytest import, found {text.count(old)}")
 path.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+# This update triggers the registered review workflow after its creation commit.
