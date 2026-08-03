@@ -10,11 +10,12 @@ import re
 import shlex
 import sys
 from collections.abc import Iterable, Sequence
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Literal
 
 import yaml
+from yaml.nodes import MappingNode, Node, ScalarNode, SequenceNode
 
 TOOLS = Path(__file__).resolve().parent
 if str(TOOLS) not in sys.path:
@@ -32,6 +33,7 @@ from discover_repository import Discovery, discover  # noqa: E402
 from validate_agents_md import Finding, normalize_selection, validate_many_with_documents  # noqa: E402
 
 Severity = Literal["error", "warning"]
+BindingKind = Literal["subprocess-module", "os-module", "subprocess-function", "os-system", "other"]
 CODE_SPAN = re.compile(r"`([^`\n]+)`")
 LINT_LEAKAGE = re.compile(
     r"(?i)\b(?:line length|quote style|indent(?:ation)? width|ruff rule|eslint rule|prettier config|"
@@ -40,6 +42,8 @@ LINT_LEAKAGE = re.compile(
 FULL_GATE_LINE = re.compile(
     r"(?i)\b(?:full gate|complete gate|completion check|hosted ci|ci gate|pełna bramka|pełny gate)\b"
 )
+INVALID_YAML_MESSAGE = "YAML source is syntactically invalid and cannot establish command evidence."
+SUBPROCESS_CALLS = frozenset({"run", "call", "check_call", "check_output", "Popen"})
 
 
 @dataclass(frozen=True)
@@ -51,6 +55,22 @@ class AuditFinding:
     code: str
     line: int
     message: str
+
+
+@dataclass
+class _PythonScope:
+    """Lexical Python bindings used to prove process execution conservatively."""
+
+    parent: _PythonScope | None = None
+    bindings: dict[str, BindingKind] = field(default_factory=dict)
+
+    def clone(self) -> _PythonScope:
+        return _PythonScope(self.parent, dict(self.bindings))
+
+    def resolve(self, name: str) -> BindingKind | None:
+        if name in self.bindings:
+            return self.bindings[name]
+        return self.parent.resolve(name) if self.parent is not None else None
 
 
 def _confined_file(root: Path, relative: str) -> Path:
@@ -105,136 +125,83 @@ def _normalize_invocation(command: str) -> str | None:
     return " ".join(tokens) if tokens else None
 
 
+def _command_segments(command: str) -> tuple[str, ...]:
+    """Split shell command lists only at unquoted, unescaped separators."""
+    segments: list[str] = []
+    current: list[str] = []
+    quote: str | None = None
+    escaped = False
+    index = 0
+    while index < len(command):
+        character = command[index]
+        if escaped:
+            current.append(character)
+            escaped = False
+            index += 1
+            continue
+        if character == "\\" and quote != "'":
+            current.append(character)
+            escaped = True
+            index += 1
+            continue
+        if quote is not None:
+            current.append(character)
+            if character == quote:
+                quote = None
+            index += 1
+            continue
+        if character in "'\"":
+            quote = character
+            current.append(character)
+            index += 1
+            continue
+        separator_length = 0
+        if character == ";":
+            separator_length = 1
+        elif command.startswith("&&", index) or command.startswith("||", index):
+            separator_length = 2
+        if separator_length:
+            segment = "".join(current).strip()
+            if segment:
+                segments.append(segment)
+            current = []
+            index += separator_length
+            continue
+        current.append(character)
+        index += 1
+    segment = "".join(current).strip()
+    if segment:
+        segments.append(segment)
+    return tuple(segments)
+
+
 def _add_command_segments(invocations: set[str], command: str) -> None:
-    for segment in re.split(r"\s*(?:&&|\|\||;)\s*", command):
-        normalized = _normalize_invocation(segment.strip())
+    for segment in _command_segments(command):
+        normalized = _normalize_invocation(segment)
         if normalized is not None:
             invocations.add(normalized)
 
 
-YAML_MAPPING = re.compile(r"^(?P<indent> *)(?P<list>-\s*)?(?P<key>[A-Za-z_][A-Za-z0-9_-]*):(?:\s*(?P<value>.*))?$")
-YAML_BLOCK_STYLES = {"|", ">", "|-", "|+", ">-", ">+"}
-
-
-def _yaml_indent(line: str) -> int | None:
-    prefix = line[: len(line) - len(line.lstrip(" \t"))]
-    return None if "\t" in prefix else len(prefix)
-
-
-def _strip_yaml_comment(value: str) -> str:
-    quote: str | None = None
-    escaped = False
-    for index, character in enumerate(value):
-        if escaped:
-            escaped = False
-            continue
-        if character == "\\" and quote == '"':
-            escaped = True
-            continue
-        if character in "'\"":
-            if quote is None:
-                quote = character
-            elif quote == character:
-                quote = None
-            continue
-        if character == "#" and quote is None and (index == 0 or value[index - 1].isspace()):
-            return value[:index].rstrip()
-    return value.rstrip()
-
-
-def _unquote_scalar(value: str) -> str:
-    stripped = _strip_yaml_comment(value).strip()
-    if len(stripped) >= 2 and stripped[0] == stripped[-1] and stripped[0] in "'\"":
-        return stripped[1:-1]
-    return stripped
-
-
-def _fold_yaml_lines(lines: list[str]) -> str:
-    paragraphs: list[str] = []
-    current: list[str] = []
-    for line in lines:
-        if line:
-            current.append(line.strip())
-            continue
-        if current:
-            paragraphs.append(" ".join(current))
-            current = []
-        paragraphs.append("")
-    if current:
-        paragraphs.append(" ".join(current))
-    return "\n".join(paragraphs).strip()
-
-
-def _read_yaml_scalar(
-    lines: list[str],
-    index: int,
-    parent_indent: int,
-    raw_value: str,
-) -> tuple[str, str | None, int]:
-    value = _strip_yaml_comment(raw_value).strip()
-    if value not in YAML_BLOCK_STYLES:
-        return _unquote_scalar(value), None, index + 1
-
-    body: list[str] = []
-    cursor = index + 1
-    while cursor < len(lines):
-        candidate = lines[cursor]
-        candidate_indent = _yaml_indent(candidate)
-        if candidate.strip() and (candidate_indent is None or candidate_indent <= parent_indent):
-            break
-        body.append(candidate)
-        cursor += 1
-
-    nonblank_indents = [indent for line in body if line.strip() and (indent := _yaml_indent(line)) is not None]
-    content_indent = min(nonblank_indents, default=parent_indent + 1)
-    content = [line[content_indent:].rstrip() if line.strip() else "" for line in body]
-    style = value[0]
-    if style == "|":
-        return "\n".join(content).strip("\n"), style, cursor
-    return _fold_yaml_lines(content), style, cursor
-
-
-def _yaml_scalar_nodes(text: str) -> list[tuple[tuple[str, ...], str, str | None]]:
-    lines = text.splitlines()
-    stack: list[tuple[int, str]] = []
+def _yaml_scalar_nodes(node: Node | None) -> list[tuple[tuple[str, ...], str, str | None]]:
+    """Return scalar paths from a validated YAML syntax tree."""
     nodes: list[tuple[tuple[str, ...], str, str | None]] = []
-    index = 0
-    while index < len(lines):
-        raw_line = lines[index]
-        stripped = raw_line.strip()
-        indent = _yaml_indent(raw_line)
-        if indent is None or not stripped or stripped.startswith("#"):
-            index += 1
-            continue
 
-        while stack and stack[-1][0] >= indent:
-            stack.pop()
-        match = YAML_MAPPING.fullmatch(raw_line)
-        if match is None:
-            if stripped.startswith("- "):
-                stack.append((indent, "[]"))
-                value = _unquote_scalar(stripped[2:])
-                if value:
-                    nodes.append((tuple(item[1] for item in stack), value, None))
-            index += 1
-            continue
+    def visit(current: Node, path: tuple[str, ...]) -> None:
+        if isinstance(current, ScalarNode):
+            nodes.append((path, current.value, current.style))
+            return
+        if isinstance(current, SequenceNode):
+            for item in current.value:
+                visit(item, (*path, "[]"))
+            return
+        if isinstance(current, MappingNode):
+            for key_node, value_node in current.value:
+                if not isinstance(key_node, ScalarNode):
+                    continue
+                visit(value_node, (*path, key_node.value))
 
-        is_list_item = match.group("list") is not None
-        if is_list_item:
-            stack.append((indent, "[]"))
-        key = match.group("key")
-        raw_value = match.group("value") or ""
-        path = tuple(item[1] for item in stack) + (key,)
-        cleaned = _strip_yaml_comment(raw_value).strip()
-        if not cleaned:
-            stack.append((indent + (1 if is_list_item else 0), key))
-            index += 1
-            continue
-
-        value, style, next_index = _read_yaml_scalar(lines, index, indent, raw_value)
-        if value:
-            nodes.append((path, value, style))
-        index = next_index
+    if node is not None:
+        visit(node, ())
     return nodes
 
 
@@ -251,13 +218,7 @@ def _yaml_node_is_executable(relative: str, path: tuple[str, ...]) -> bool:
             len(path) >= 3
             and path[-3] == "steps"
             and path[-2] == "[]"
-            and path[-1]
-            in {
-                "script",
-                "bash",
-                "pwsh",
-                "powershell",
-            }
+            and path[-1] in {"script", "bash", "pwsh", "powershell"}
         )
     if name in {"taskfile.yml", "taskfile.yaml"}:
         return (len(path) == 4 and path[0] == "tasks" and path[2:] == ("cmds", "[]")) or (
@@ -269,19 +230,28 @@ def _yaml_node_is_executable(relative: str, path: tuple[str, ...]) -> bool:
     return False
 
 
-def _yaml_syntax_error(text: str) -> str | None:
-    """Return a stable syntax error without constructing repository-controlled values."""
+def _compose_yaml(text: str) -> Node | None:
     try:
-        for _event in yaml.parse(text, Loader=yaml.SafeLoader):
-            pass
-    except (yaml.YAMLError, RecursionError) as error:
-        return str(error)
+        return yaml.compose(text, Loader=yaml.SafeLoader)
+    except (yaml.YAMLError, RecursionError):
+        return None
+
+
+def _yaml_syntax_error(text: str) -> str | None:
+    """Return a stable error that never includes repository-controlled excerpts."""
+    try:
+        yaml.compose(text, Loader=yaml.SafeLoader)
+    except (yaml.YAMLError, RecursionError):
+        return INVALID_YAML_MESSAGE
     return None
 
 
 def _extract_yaml_invocations(relative: str, text: str) -> set[str]:
+    root = _compose_yaml(text)
+    if root is None:
+        return set()
     invocations: set[str] = set()
-    for path, value, style in _yaml_scalar_nodes(text):
+    for path, value, style in _yaml_scalar_nodes(root):
         if not _yaml_node_is_executable(relative, path):
             continue
         if style == "|":
@@ -304,61 +274,238 @@ def _literal_python_command(node: ast.AST) -> str | None:
     return None
 
 
+def _bound_names(target: ast.AST) -> set[str]:
+    names: set[str] = set()
+    if isinstance(target, ast.Name):
+        names.add(target.id)
+    elif isinstance(target, (ast.Tuple, ast.List)):
+        for item in target.elts:
+            names.update(_bound_names(item))
+    elif isinstance(target, ast.Starred):
+        names.update(_bound_names(target.value))
+    return names
+
+
+def _function_local_names(node: ast.FunctionDef | ast.AsyncFunctionDef | ast.Lambda) -> set[str]:
+    names = {argument.arg for argument in (*node.args.posonlyargs, *node.args.args, *node.args.kwonlyargs)}
+    if node.args.vararg is not None:
+        names.add(node.args.vararg.arg)
+    if node.args.kwarg is not None:
+        names.add(node.args.kwarg.arg)
+    body: list[ast.stmt] = list(node.body) if not isinstance(node, ast.Lambda) else []
+
+    class Collector(ast.NodeVisitor):
+        def visit_FunctionDef(self, child: ast.FunctionDef) -> None:
+            names.add(child.name)
+
+        def visit_AsyncFunctionDef(self, child: ast.AsyncFunctionDef) -> None:
+            names.add(child.name)
+
+        def visit_ClassDef(self, child: ast.ClassDef) -> None:
+            names.add(child.name)
+
+        def visit_Lambda(self, child: ast.Lambda) -> None:
+            return
+
+        def visit_Name(self, child: ast.Name) -> None:
+            if isinstance(child.ctx, (ast.Store, ast.Del)):
+                names.add(child.id)
+
+        def visit_Import(self, child: ast.Import) -> None:
+            for alias in child.names:
+                names.add(alias.asname or alias.name.split(".", 1)[0])
+
+        def visit_ImportFrom(self, child: ast.ImportFrom) -> None:
+            for alias in child.names:
+                if alias.name != "*":
+                    names.add(alias.asname or alias.name)
+
+        def visit_Global(self, child: ast.Global) -> None:
+            names.difference_update(child.names)
+
+        def visit_Nonlocal(self, child: ast.Nonlocal) -> None:
+            names.difference_update(child.names)
+
+    collector = Collector()
+    for statement in body:
+        collector.visit(statement)
+    return names
+
+
+class _PythonInvocationVisitor:
+    def __init__(self) -> None:
+        self.invocations: set[str] = set()
+
+    def process_statements(self, statements: Sequence[ast.stmt], scope: _PythonScope) -> None:
+        for statement in statements:
+            self.process_statement(statement, scope)
+
+    def process_statement(self, node: ast.stmt, scope: _PythonScope) -> None:
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                local = alias.asname or alias.name.split(".", 1)[0]
+                kind: BindingKind = "other"
+                if alias.name == "subprocess":
+                    kind = "subprocess-module"
+                elif alias.name == "os":
+                    kind = "os-module"
+                scope.bindings[local] = kind
+            return
+        if isinstance(node, ast.ImportFrom):
+            for alias in node.names:
+                if alias.name == "*":
+                    continue
+                local = alias.asname or alias.name
+                kind: BindingKind = "other"
+                if node.module == "subprocess" and alias.name in SUBPROCESS_CALLS:
+                    kind = "subprocess-function"
+                elif node.module == "os" and alias.name == "system":
+                    kind = "os-system"
+                scope.bindings[local] = kind
+            return
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            for decorator in node.decorator_list:
+                self.process_expression(decorator, scope)
+            for default in (*node.args.defaults, *node.args.kw_defaults):
+                if default is not None:
+                    self.process_expression(default, scope)
+            scope.bindings[node.name] = "other"
+            child = _PythonScope(scope)
+            child.bindings.update({name: "other" for name in _function_local_names(node)})
+            self.process_statements(node.body, child)
+            return
+        if isinstance(node, ast.ClassDef):
+            for item in (*node.decorator_list, *node.bases, *node.keywords):
+                expression = item.value if isinstance(item, ast.keyword) else item
+                self.process_expression(expression, scope)
+            scope.bindings[node.name] = "other"
+            self.process_statements(node.body, _PythonScope(scope))
+            return
+        if isinstance(node, (ast.Assign, ast.AnnAssign, ast.AugAssign, ast.NamedExpr)):
+            value = getattr(node, "value", None)
+            if isinstance(value, ast.AST):
+                self.process_expression(value, scope)
+            targets: list[ast.AST] = []
+            if isinstance(node, ast.Assign):
+                targets.extend(node.targets)
+            else:
+                target = getattr(node, "target", None)
+                if isinstance(target, ast.AST):
+                    targets.append(target)
+            for target in targets:
+                for name in _bound_names(target):
+                    scope.bindings[name] = "other"
+            return
+        if isinstance(node, (ast.For, ast.AsyncFor)):
+            self.process_expression(node.iter, scope)
+            branch = scope.clone()
+            for name in _bound_names(node.target):
+                branch.bindings[name] = "other"
+            self.process_statements(node.body, branch)
+            self.process_statements(node.orelse, scope.clone())
+            return
+        if isinstance(node, (ast.With, ast.AsyncWith)):
+            branch = scope.clone()
+            for item in node.items:
+                self.process_expression(item.context_expr, scope)
+                if item.optional_vars is not None:
+                    for name in _bound_names(item.optional_vars):
+                        branch.bindings[name] = "other"
+            self.process_statements(node.body, branch)
+            return
+        if isinstance(node, ast.If):
+            self.process_expression(node.test, scope)
+            self.process_statements(node.body, scope.clone())
+            self.process_statements(node.orelse, scope.clone())
+            return
+        if isinstance(node, (ast.Try, ast.TryStar)):
+            self.process_statements(node.body, scope.clone())
+            for handler in node.handlers:
+                branch = scope.clone()
+                if handler.name:
+                    branch.bindings[handler.name] = "other"
+                if handler.type is not None:
+                    self.process_expression(handler.type, scope)
+                self.process_statements(handler.body, branch)
+            self.process_statements(node.orelse, scope.clone())
+            self.process_statements(node.finalbody, scope.clone())
+            return
+        if isinstance(node, ast.While):
+            self.process_expression(node.test, scope)
+            self.process_statements(node.body, scope.clone())
+            self.process_statements(node.orelse, scope.clone())
+            return
+        if isinstance(node, ast.Match):
+            self.process_expression(node.subject, scope)
+            for case in node.cases:
+                branch = scope.clone()
+                if case.guard is not None:
+                    self.process_expression(case.guard, branch)
+                self.process_statements(case.body, branch)
+            return
+        if isinstance(node, ast.Expr):
+            self.process_expression(node.value, scope)
+            return
+        if isinstance(node, ast.Return) and node.value is not None:
+            self.process_expression(node.value, scope)
+            return
+        if isinstance(node, ast.Raise):
+            if node.exc is not None:
+                self.process_expression(node.exc, scope)
+            if node.cause is not None:
+                self.process_expression(node.cause, scope)
+            return
+        if isinstance(node, ast.Assert):
+            self.process_expression(node.test, scope)
+            if node.msg is not None:
+                self.process_expression(node.msg, scope)
+            return
+        if isinstance(node, ast.Delete):
+            for target in node.targets:
+                for name in _bound_names(target):
+                    scope.bindings[name] = "other"
+
+    def process_expression(self, node: ast.AST, scope: _PythonScope) -> None:
+        if isinstance(node, ast.Call):
+            self._process_call(node, scope)
+        elif isinstance(node, ast.Lambda):
+            child = _PythonScope(scope)
+            child.bindings.update({name: "other" for name in _function_local_names(node)})
+            self.process_expression(node.body, child)
+            return
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, ast.expr) and not isinstance(node, ast.Lambda):
+                self.process_expression(child, scope)
+
+    def _process_call(self, node: ast.Call, scope: _PythonScope) -> None:
+        accepted = False
+        if isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Name):
+            owner = scope.resolve(node.func.value.id)
+            accepted = (owner == "subprocess-module" and node.func.attr in SUBPROCESS_CALLS) or (
+                owner == "os-module" and node.func.attr == "system"
+            )
+        elif isinstance(node.func, ast.Name):
+            accepted = scope.resolve(node.func.id) in {"subprocess-function", "os-system"}
+        if not accepted:
+            return
+        argument = node.args[0] if node.args else next(
+            (keyword.value for keyword in node.keywords if keyword.arg in {"args", "command"}), None
+        )
+        if argument is None:
+            return
+        command = _literal_python_command(argument)
+        if command is not None:
+            _add_command_segments(self.invocations, command)
+
+
 def _extract_python_invocations(text: str) -> set[str]:
     try:
         tree = ast.parse(text)
     except SyntaxError:
         return set()
-    invocations: set[str] = set()
-    subprocess_calls = {"run", "call", "check_call", "check_output", "Popen"}
-    subprocess_modules: set[str] = set()
-    os_modules: set[str] = set()
-    subprocess_functions: set[str] = set()
-    system_functions: set[str] = set()
-
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            for alias in node.names:
-                local_name = alias.asname or alias.name
-                if alias.name == "subprocess":
-                    subprocess_modules.add(local_name)
-                elif alias.name == "os":
-                    os_modules.add(local_name)
-        elif isinstance(node, ast.ImportFrom):
-            if node.module == "subprocess":
-                for alias in node.names:
-                    if alias.name in subprocess_calls:
-                        subprocess_functions.add(alias.asname or alias.name)
-            elif node.module == "os":
-                for alias in node.names:
-                    if alias.name == "system":
-                        system_functions.add(alias.asname or alias.name)
-
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Call):
-            continue
-        accepted = False
-        if isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Name):
-            owner = node.func.value.id
-            accepted = (owner in subprocess_modules and node.func.attr in subprocess_calls) or (
-                owner in os_modules and node.func.attr == "system"
-            )
-        elif isinstance(node.func, ast.Name):
-            accepted = node.func.id in subprocess_functions or node.func.id in system_functions
-        if not accepted:
-            continue
-        argument = node.args[0] if node.args else None
-        if argument is None:
-            argument = next(
-                (keyword.value for keyword in node.keywords if keyword.arg in {"args", "command"}),
-                None,
-            )
-        if argument is None:
-            continue
-        command = _literal_python_command(argument)
-        if command is not None:
-            _add_command_segments(invocations, command)
-    return invocations
+    visitor = _PythonInvocationVisitor()
+    visitor.process_statements(tree.body, _PythonScope())
+    return visitor.invocations
 
 
 def _shell_line_continues(line: str) -> bool:
@@ -567,15 +714,7 @@ def _known_gate_commands(root: Path, discovery: Discovery) -> tuple[set[str], li
         if Path(relative).suffix.casefold() in {".yml", ".yaml"}:
             syntax_error = _yaml_syntax_error(result.text)
             if syntax_error is not None:
-                findings.append(
-                    AuditFinding(
-                        relative,
-                        "error",
-                        "evidence.invalid-yaml",
-                        1,
-                        f"YAML gate source is invalid and cannot establish command evidence: {syntax_error}",
-                    )
-                )
+                findings.append(AuditFinding(relative, "error", "evidence.invalid-yaml", 1, syntax_error))
                 continue
         commands.update(_extract_gate_invocations(relative, result.text))
     return commands, findings
@@ -633,13 +772,7 @@ def audit(
     for relative in discovery.symlinks:
         if Path(relative).name == "AGENTS.md":
             findings.append(
-                AuditFinding(
-                    relative,
-                    "error",
-                    "security.symlink-agents",
-                    1,
-                    "AGENTS.md must be a regular in-repository file.",
-                )
+                AuditFinding(relative, "error", "security.symlink-agents", 1, "AGENTS.md must be a regular in-repository file.")
             )
 
     paths = [safe_root / relative for relative in discovery.agent_files]
@@ -684,10 +817,7 @@ def audit(
                         "warning",
                         "content.lint-leakage",
                         line_number,
-                        (
-                            "Keep formatter and linter configuration executable; "
-                            "document only a non-obvious repository exception."
-                        ),
+                        "Keep formatter and linter configuration executable; document only a non-obvious repository exception.",
                     )
                 )
             if not FULL_GATE_LINE.search(line):
@@ -701,10 +831,7 @@ def audit(
                             "error",
                             "commands.unlocated-full-gate",
                             line_number,
-                            (
-                                "Completion command could not be located in discovered CI "
-                                f"or repository task runners: {command}"
-                            ),
+                            "Completion command could not be located in discovered CI or repository task runners: " + command,
                         )
                     )
                 elif status == "unverified":
@@ -750,13 +877,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(str(error))
         return 2
     if args.output_format == "json":
-        print(
-            json.dumps(
-                {"discovery": asdict(discovery), "findings": [asdict(item) for item in findings]},
-                indent=2,
-                sort_keys=True,
-            )
-        )
+        print(json.dumps({"discovery": asdict(discovery), "findings": [asdict(item) for item in findings]}, indent=2, sort_keys=True))
     elif findings:
         print(_render_text(findings))
     else:
