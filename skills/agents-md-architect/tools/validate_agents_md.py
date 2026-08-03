@@ -17,20 +17,26 @@ if str(TOOLS) not in sys.path:
 
 from agents_md_codex_platform import (  # noqa: E402
     CODEX_DEFAULT_PROJECT_DOC_MAX_BYTES,
-    _normalize_fallback_filenames as _normalize_fallback_filenames,
     _validate_codex_context,
+)
+from agents_md_codex_platform import (  # noqa: E402
+    _normalize_fallback_filenames as _normalize_fallback_filenames,
 )
 from agents_md_document_rules import (  # noqa: E402
     _active_context_waivers as _active_context_waivers,
-    _ordered_requirements as _ordered_requirements,
-    _validate_document,
 )
+from agents_md_document_rules import (  # noqa: E402
+    _ordered_requirements as _ordered_requirements,
+)
+from agents_md_document_rules import _validate_document  # noqa: E402
+from agents_md_parse import parse_document, read_utf8_bounded, trusted_input, trusted_root  # noqa: E402
 from agents_md_tree_validation import (  # noqa: E402
     _ancestor_chain as _ancestor_chain,
-    _validate_topology,
+)
+from agents_md_tree_validation import _validate_topology  # noqa: E402
+from agents_md_tree_validation import (  # noqa: E402
     _validate_tree as _validate_tree,
 )
-from agents_md_parse import parse_document, read_utf8_bounded, trusted_input, trusted_root  # noqa: E402
 from agents_md_types import (  # noqa: E402
     MAX_INSTRUCTION_FILES,
     MAX_INSTRUCTION_TREE_BYTES,
