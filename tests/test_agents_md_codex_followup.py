@@ -9,6 +9,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 TOOLS = ROOT / "skills/agents-md-architect/tools"
@@ -451,3 +452,61 @@ def test_deep_child_inherits_root_owner_through_intermediate_file(tmp_path: Path
         "en",
     )
     assert "tree.conflicting-owner" in codes(findings)
+
+
+def test_nested_python_imports_establish_real_gate_evidence(tmp_path: Path) -> None:
+    write(
+        tmp_path / "scripts/ci.py",
+        """def run_gate() -> None:
+    import subprocess
+
+    subprocess.run(["python", "scripts/ghost.py"], check=True)
+""",
+    )
+    write(
+        tmp_path / "AGENTS.md",
+        valid_application().replace("python scripts/ci.py", "python scripts/ghost.py"),
+    )
+    _, findings = audit_module.audit(tmp_path, "application", "single", "en")
+    assert "commands.unlocated-full-gate" not in codes(findings)
+
+
+def test_nested_os_import_establishes_real_gate_evidence(tmp_path: Path) -> None:
+    write(
+        tmp_path / "scripts/ci.py",
+        """def run_gate() -> None:
+    from os import system as execute
+
+    execute("python scripts/ghost.py")
+""",
+    )
+    write(
+        tmp_path / "AGENTS.md",
+        valid_application().replace("python scripts/ci.py", "python scripts/ghost.py"),
+    )
+    _, findings = audit_module.audit(tmp_path, "application", "single", "en")
+    assert "commands.unlocated-full-gate" not in codes(findings)
+
+
+def test_invalid_yaml_still_consumes_gate_byte_budget(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    write(
+        tmp_path / ".github/workflows/ci.yml",
+        """name: Invalid CI
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - run: python scripts/ghost.py
+     invalid_sibling: true
+""",
+    )
+    write(tmp_path / "AGENTS.md", valid_application())
+    monkeypatch.setattr(audit_module, "MAX_GATE_TOTAL_BYTES", 32)
+    _, findings = audit_module.audit(tmp_path, "application", "single", "en")
+    assert "evidence.gate-sources-too-large" in codes(findings)
+
+
+def test_agents_skill_declares_yaml_runtime_dependency() -> None:
+    manifest = yaml.safe_load((ROOT / "skills/agents-md-architect/manifest.yaml").read_text(encoding="utf-8"))
+    assert manifest["dependencies"]["packages"]["python"] == ["PyYAML>=6.0.3,<7"]

@@ -44,6 +44,9 @@ dependencies:
   skills: []
   tools:
   - python
+  packages:
+    python:
+    - PyYAML>=6.0.3,<7
 conditional_dependencies:
   profiles:
     mcp-server:

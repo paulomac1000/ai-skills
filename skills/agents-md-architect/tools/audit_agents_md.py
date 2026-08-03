@@ -12,7 +12,7 @@ import sys
 from collections.abc import Iterable, Sequence
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Literal, cast
+from typing import Literal
 
 import yaml
 
@@ -316,7 +316,7 @@ def _extract_python_invocations(text: str) -> set[str]:
     subprocess_functions: set[str] = set()
     system_functions: set[str] = set()
 
-    for node in cast(list[ast.AST], tree.body):
+    for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
                 local_name = alias.asname or alias.name
@@ -552,6 +552,18 @@ def _known_gate_commands(root: Path, discovery: Discovery) -> tuple[set[str], li
                 )
             )
             continue
+        total_bytes += result.byte_count
+        if total_bytes > MAX_GATE_TOTAL_BYTES:
+            findings.append(
+                AuditFinding(
+                    root.as_posix(),
+                    "error",
+                    "evidence.gate-sources-too-large",
+                    1,
+                    f"CI/task source aggregate exceeds {MAX_GATE_TOTAL_BYTES} bytes.",
+                )
+            )
+            break
         if Path(relative).suffix.casefold() in {".yml", ".yaml"}:
             syntax_error = _yaml_syntax_error(result.text)
             if syntax_error is not None:
@@ -565,18 +577,6 @@ def _known_gate_commands(root: Path, discovery: Discovery) -> tuple[set[str], li
                     )
                 )
                 continue
-        total_bytes += result.byte_count
-        if total_bytes > MAX_GATE_TOTAL_BYTES:
-            findings.append(
-                AuditFinding(
-                    root.as_posix(),
-                    "error",
-                    "evidence.gate-sources-too-large",
-                    1,
-                    f"CI/task source aggregate exceeds {MAX_GATE_TOTAL_BYTES} bytes.",
-                )
-            )
-            break
         commands.update(_extract_gate_invocations(relative, result.text))
     return commands, findings
 
