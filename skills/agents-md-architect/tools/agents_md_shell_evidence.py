@@ -19,7 +19,6 @@ _GITLAB_RESERVED_TOP_LEVEL = frozenset(
         "default",
         "image",
         "include",
-        "pages",
         "services",
         "spec",
         "stages",
