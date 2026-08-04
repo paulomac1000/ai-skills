@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import sys
 from pathlib import Path
 from typing import Any
@@ -114,7 +115,7 @@ def test_other_language_markers_require_nonempty_h2_binding(tmp_path: Path) -> N
         "| Full completion gate | `make quality` |",
         "## Completion gate\n\n```bash\nmake quality\n```",
         "- Completion check: `make quality`",
-        "- Pełna bramka: `make quality`",
+        "- Pe\u0142na bramka: `make quality`",
     ),
 )
 def test_completion_gate_markdown_forms_are_audited(tmp_path: Path, gate_markdown: str) -> None:
@@ -204,8 +205,15 @@ def test_leaf_duplication_is_checked_against_full_ancestor_chain(tmp_path: Path)
 
 
 def test_agents_and_workflow_auditors_share_confined_reader() -> None:
-    assert validator.read_utf8_bounded is confined_io.read_utf8_bounded
-    assert workflow_policy.read_utf8_bounded is confined_io.read_utf8_bounded
+    validator_source = inspect.getsourcefile(validator.read_utf8_bounded)
+    workflow_source = inspect.getsourcefile(workflow_policy.read_utf8_bounded)
+    shared_source = inspect.getsourcefile(confined_io.read_utf8_bounded)
+
+    assert validator_source is not None
+    assert workflow_source is not None
+    assert shared_source is not None
+    assert Path(validator_source).resolve() == Path(shared_source).resolve()
+    assert Path(workflow_source).resolve() == Path(shared_source).resolve()
 
 
 def test_shared_reader_rejects_intermediate_symlink(tmp_path: Path) -> None:
