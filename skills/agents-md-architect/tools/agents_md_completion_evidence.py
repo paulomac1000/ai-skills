@@ -28,9 +28,7 @@ _LABEL_LINE = re.compile(r"^\s*(?:[-+*]\s+)?(?P<label>[^:|]{2,120})\s*:\s*(?P<ta
 _FENCE = re.compile(r"^[ \t]{0,3}(?P<marker>`{3,}|~{3,})(?P<info>[^\r\n]*)$")
 _LOCAL_CUE = re.compile(r"\b(?:local|subtree|override|lokaln\w*|poddrzew\w*|wyjątek)\b", re.I)
 _MAKE_TARGET = re.compile(r"^(?P<targets>[A-Za-z0-9_.-]+(?:\s+[A-Za-z0-9_.-]+)*)\s*:(?!=)")
-_JUST_RECIPE = re.compile(
-    r"^@?(?P<name>[A-Za-z_][A-Za-z0-9_-]*)(?:\s+[^:=#][^:#]*)?:\s*(?:#.*)?$"
-)
+_JUST_RECIPE = re.compile(r"^@?(?P<name>[A-Za-z_][A-Za-z0-9_-]*)(?:\s+[^:=#][^:#]*)?:\s*(?:#.*)?$")
 
 
 def _deduplicated_rules(values: Iterable[CommandRule]) -> tuple[CommandRule, ...]:
