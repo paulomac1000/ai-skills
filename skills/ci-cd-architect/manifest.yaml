@@ -10,6 +10,8 @@ compatibility:
   - linux
   - macos
   - windows
+  runtimes:
+    python: '>=3.12,<3.15'
   providers:
   - github-actions
   evidence_lanes:
@@ -45,16 +47,22 @@ dependencies:
   tools:
   - git
   - github-actions
+  - python
+  packages:
+    python:
+    - PyYAML>=6.0.3,<7
 deprecation:
   policy: semantic-versioning
   minimum_notice: one-minor-release
 required:
 - SKILL.md
 - STANDARD.md
+- tools/check_github_actions_policy.py
 categories:
 - core
 - references
 - templates
+- tools
 adoption:
   template: contracts/adoption-assessment.yaml.template
   validator: contracts/validate_adoption.py
