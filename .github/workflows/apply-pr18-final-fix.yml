@@ -28,7 +28,7 @@ jobs:
         run: |
           set -euo pipefail
           cat .tmp/pr18-final-fix/part-*.patch > "$RUNNER_TEMP/fix.patch"
-          echo "c4358faf9d2f83a83b68a88f53d8361c98da437127bcb28078ed8fc29b65ddc3  $RUNNER_TEMP/fix.patch" | sha256sum --check --strict
+          echo "a465e805caab5f1bd5c2f580fe85afff1fc6bbbbb2dc86639f52a21e3adb861a  $RUNNER_TEMP/fix.patch" | sha256sum --check --strict
           git apply --check "$RUNNER_TEMP/fix.patch"
           git apply "$RUNNER_TEMP/fix.patch"
           rm -rf .tmp/pr18-final-fix .github/workflows/apply-pr18-final-fix.yml
@@ -73,6 +73,7 @@ jobs:
             .tmp/pr18-final-fix/part-01.patch \
             .tmp/pr18-final-fix/part-02.patch \
             .tmp/pr18-final-fix/part-03.patch \
+            .tmp/pr18-final-fix/part-04.patch \
             CHANGELOG.md \
             skills/agents-md-architect/STANDARD.md \
             skills/agents-md-architect/tools/agents_md_completion_evidence.py \
@@ -101,7 +102,7 @@ jobs:
         run: |
           set -euo pipefail
           cat .tmp/pr18-final-fix/part-*.patch > "$RUNNER_TEMP/fix.patch"
-          echo "c4358faf9d2f83a83b68a88f53d8361c98da437127bcb28078ed8fc29b65ddc3  $RUNNER_TEMP/fix.patch" | sha256sum --check --strict
+          echo "a465e805caab5f1bd5c2f580fe85afff1fc6bbbbb2dc86639f52a21e3adb861a  $RUNNER_TEMP/fix.patch" | sha256sum --check --strict
           git apply --check "$RUNNER_TEMP/fix.patch"
           git apply "$RUNNER_TEMP/fix.patch"
           rm -rf .tmp/pr18-final-fix .github/workflows/apply-pr18-final-fix.yml
