@@ -70,6 +70,7 @@ required:
 - tools/audit_agents_md.py
 - tools/agents_md_types.py
 - tools/agents_md_parse.py
+- tools/agents_md_completion_evidence.py
 - tools/validate_agents_md.py
 categories:
 - core
