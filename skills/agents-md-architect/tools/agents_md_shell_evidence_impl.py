@@ -162,14 +162,6 @@ def _yaml_node_is_executable(relative: str, path: tuple[str, ...]) -> bool:
     return False
 
 
-def _yaml_node_uses_powershell(relative: str, path: tuple[str, ...]) -> bool:
-    name = Path(relative).name.casefold()
-    return name in {"azure-pipelines.yml", "azure-pipelines.yaml"} and bool(path) and path[-1] in {
-        "pwsh",
-        "powershell",
-    }
-
-
 def _compose_yaml(text: str) -> Node | None:
     try:
         return yaml.compose(text, Loader=yaml.SafeLoader)
@@ -191,13 +183,13 @@ def _extract_yaml_invocations(relative: str, text: str) -> set[str]:
     if root is None:
         return set()
     invocations: set[str] = set()
-    for path, value, _style in _yaml_scalar_nodes(root):
+    for path, value, style in _yaml_scalar_nodes(root):
         if not _yaml_node_is_executable(relative, path):
             continue
-        if _yaml_node_uses_powershell(relative, path):
-            invocations.update(_extract_powershell_invocations(value))
-        else:
+        if style == "|":
             invocations.update(_extract_shell_invocations(value))
+        else:
+            _add_command_segments(invocations, value)
     return invocations
 
 
@@ -238,29 +230,6 @@ def _logical_shell_lines(text: str) -> list[str]:
     return logical
 
 
-def _strip_shell_comment(line: str) -> str:
-    """Remove an active POSIX-shell comment without touching quoted or escaped hashes."""
-    quote: str | None = None
-    escaped = False
-    for index, character in enumerate(line):
-        if escaped:
-            escaped = False
-            continue
-        if character == "\\" and quote != "'":
-            escaped = True
-            continue
-        if quote is not None:
-            if character == quote:
-                quote = None
-            continue
-        if character in "'\"":
-            quote = character
-            continue
-        if character == "#" and (index == 0 or line[index - 1].isspace() or line[index - 1] in ";|&()<>"):
-            return line[:index].rstrip()
-    return line.rstrip()
-
-
 def _extract_shell_invocations(text: str) -> set[str]:
     invocations: set[str] = set()
     heredoc_end: str | None = None
@@ -270,8 +239,7 @@ def _extract_shell_invocations(text: str) -> set[str]:
             if line == heredoc_end:
                 heredoc_end = None
             continue
-        line = _strip_shell_comment(line).strip()
-        if not line:
+        if not line or line.startswith("#"):
             continue
         heredoc = re.search(r"<<-?\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1", line)
         if heredoc is not None:
@@ -288,68 +256,24 @@ def _extract_shell_invocations(text: str) -> set[str]:
     return invocations
 
 
-def _strip_powershell_comments(line: str, in_block_comment: bool) -> tuple[str, bool]:
-    """Remove PowerShell comments while preserving quoted strings and backtick escapes."""
-    output: list[str] = []
-    quote: str | None = None
-    index = 0
-    while index < len(line):
-        if in_block_comment:
-            end = line.find("#>", index)
-            if end < 0:
-                return "".join(output).rstrip(), True
-            in_block_comment = False
-            index = end + 2
-            continue
-
-        character = line[index]
-        if quote == '"' and character == "`":
-            output.append(character)
-            if index + 1 < len(line):
-                output.append(line[index + 1])
-                index += 2
-            else:
-                index += 1
-            continue
-        if quote == "'" and character == "'" and index + 1 < len(line) and line[index + 1] == "'":
-            output.extend(("'", "'"))
-            index += 2
-            continue
-        if quote is not None:
-            output.append(character)
-            if character == quote:
-                quote = None
-            index += 1
-            continue
-        if character in "'\"":
-            quote = character
-            output.append(character)
-            index += 1
-            continue
-        if line.startswith("<#", index):
-            in_block_comment = True
-            index += 2
-            continue
-        if character == "#":
-            break
-        output.append(character)
-        index += 1
-    return "".join(output).rstrip(), in_block_comment
-
-
 def _extract_powershell_invocations(text: str) -> set[str]:
     invocations: set[str] = set()
     in_block_comment = False
     here_string_end: str | None = None
     for raw_line in text.splitlines():
         line = raw_line.strip()
+        if in_block_comment:
+            if "#>" in line:
+                in_block_comment = False
+            continue
         if here_string_end is not None:
             if line == here_string_end:
                 here_string_end = None
             continue
-        line, in_block_comment = _strip_powershell_comments(line, in_block_comment)
-        line = line.strip()
-        if not line:
+        if line.startswith("<#"):
+            in_block_comment = "#>" not in line
+            continue
+        if not line or line.startswith("#"):
             continue
         if line.endswith('@"') or line.endswith("@'"):
             here_string_end = '"@' if line.endswith('@"') else "'@"
@@ -364,7 +288,7 @@ def _extract_recipe_invocations(text: str, *, makefile: bool) -> set[str]:
     for raw_line in text.splitlines():
         if makefile:
             if raw_line.startswith("\t"):
-                invocations.update(_extract_shell_invocations(raw_line.lstrip().lstrip("@-+")))
+                _add_command_segments(invocations, raw_line.lstrip().lstrip("@-+"))
             continue
         stripped = raw_line.strip()
         if not stripped or stripped.startswith("#"):
@@ -373,72 +297,18 @@ def _extract_recipe_invocations(text: str, *, makefile: bool) -> set[str]:
             in_recipe = stripped.endswith(":")
             continue
         if in_recipe:
-            invocations.update(_extract_shell_invocations(stripped))
+            _add_command_segments(invocations, stripped)
     return invocations
-
-
-def _strip_groovy_comments(text: str) -> str:
-    """Strip Groovy line and block comments without treating markers inside strings as comments."""
-    output: list[str] = []
-    quote: str | None = None
-    escaped = False
-    in_block_comment = False
-    index = 0
-    while index < len(text):
-        if in_block_comment:
-            if text.startswith("*/", index):
-                in_block_comment = False
-                index += 2
-            else:
-                if text[index] == "\n":
-                    output.append("\n")
-                index += 1
-            continue
-        character = text[index]
-        if escaped:
-            output.append(character)
-            escaped = False
-            index += 1
-            continue
-        if quote is not None:
-            output.append(character)
-            if character == "\\":
-                escaped = True
-            elif character == quote:
-                quote = None
-            index += 1
-            continue
-        if character in "'\"":
-            quote = character
-            output.append(character)
-            index += 1
-            continue
-        if text.startswith("//", index):
-            newline = text.find("\n", index + 2)
-            if newline < 0:
-                break
-            output.append("\n")
-            index = newline + 1
-            continue
-        if text.startswith("/*", index):
-            in_block_comment = True
-            index += 2
-            continue
-        output.append(character)
-        index += 1
-    return "".join(output)
 
 
 def _extract_jenkins_invocations(text: str) -> set[str]:
     invocations: set[str] = set()
     pattern = re.compile(
-        r"^\s*(?:sh|bat|powershell|pwsh)\s*(?:\(\s*)?(?:script\s*:\s*)?"
-        r"(?P<quote>['\"])(?P<command>(?:\\.|(?!\1).)*?)(?P=quote)\s*\)?\s*;?\s*$"
+        r"\b(?:sh|bat|powershell|pwsh)\s*(?:\(\s*)?(?:script\s*:\s*)?"
+        r"(?P<quote>['\"])(?P<command>.*?)(?P=quote)"
     )
-    for line in _strip_groovy_comments(text).splitlines():
-        match = pattern.fullmatch(line)
-        if match is not None:
-            _add_command_segments(invocations, match.group("command"))
+    for match in pattern.finditer(text):
+        _add_command_segments(invocations, match.group("command"))
     return invocations
 
 
