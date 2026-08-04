@@ -128,9 +128,7 @@ def _permission_findings(
     findings: list[Finding] = []
     for name, access in permissions.items():
         if not isinstance(name, str) or not isinstance(access, str):
-            findings.append(
-                Finding(path, f"{scope} permission names and access values must be strings")
-            )
+            findings.append(Finding(path, f"{scope} permission names and access values must be strings"))
             continue
         normalized_name = name.casefold()
         normalized_access = access.casefold()
@@ -142,9 +140,7 @@ def _permission_findings(
                 )
             )
         elif normalized_access not in {"read", "none"}:
-            findings.append(
-                Finding(path, f"{scope} has unsupported permission {name}: {access}")
-            )
+            findings.append(Finding(path, f"{scope} has unsupported permission {name}: {access}"))
         elif (
             normalized_access == "read"
             and allowed_read_scopes is not None
@@ -181,13 +177,9 @@ def _external_action_findings(path: Path, label: str, uses: Any) -> list[Finding
     action, revision = uses.rsplit("@", 1)
     findings: list[Finding] = []
     if not _ACTION_NAME.fullmatch(action):
-        findings.append(
-            Finding(path, f"{label} action {action!r} has invalid owner/repository syntax")
-        )
+        findings.append(Finding(path, f"{label} action {action!r} has invalid owner/repository syntax"))
     if not _FULL_SHA.fullmatch(revision):
-        findings.append(
-            Finding(path, f"{label} action {action!r} must use a full 40-character SHA")
-        )
+        findings.append(Finding(path, f"{label} action {action!r} must use a full 40-character SHA"))
     return findings
 
 
@@ -209,21 +201,16 @@ def _action_findings(
     action = uses.rsplit("@", 1)[0]
     with_block = step.get("with")
     if action == "actions/checkout" and (
-        not isinstance(with_block, dict)
-        or with_block.get("persist-credentials") is not False
+        not isinstance(with_block, dict) or with_block.get("persist-credentials") is not False
     ):
-        findings.append(
-            Finding(path, f"{label} actions/checkout must set persist-credentials: false")
-        )
+        findings.append(Finding(path, f"{label} actions/checkout must set persist-credentials: false"))
 
     if action == "actions/upload-artifact":
         if not isinstance(with_block, dict):
             findings.append(Finding(path, f"{label} upload-artifact requires a with mapping"))
         else:
             if not _positive_int(with_block.get("retention-days")):
-                findings.append(
-                    Finding(path, f"{label} upload-artifact needs positive retention-days")
-                )
+                findings.append(Finding(path, f"{label} upload-artifact needs positive retention-days"))
             if with_block.get("if-no-files-found") not in {"error", "warn", "ignore"}:
                 findings.append(
                     Finding(
@@ -348,9 +335,7 @@ def audit_workflow(path: Path, repository_root: Path | None = None) -> list[Find
         if not isinstance(group, str) or not group.strip():
             findings.append(Finding(path, "workflow must declare a non-empty concurrency group"))
         if not isinstance(concurrency.get("cancel-in-progress"), bool):
-            findings.append(
-                Finding(path, "concurrency cancel-in-progress must be a boolean")
-            )
+            findings.append(Finding(path, "concurrency cancel-in-progress must be a boolean"))
 
     jobs = document.get("jobs")
     if not isinstance(jobs, dict) or not jobs:
@@ -361,12 +346,8 @@ def audit_workflow(path: Path, repository_root: Path | None = None) -> list[Find
             findings.append(Finding(path, f"job {job_name!r} must be a mapping"))
             continue
         if "uses" in job:
-            findings.append(
-                Finding(path, f"job {job_name!r} reusable workflow calls are not supported")
-            )
-            findings.extend(
-                _external_action_findings(path, f"job {job_name!r}", job.get("uses"))
-            )
+            findings.append(Finding(path, f"job {job_name!r} reusable workflow calls are not supported"))
+            findings.extend(_external_action_findings(path, f"job {job_name!r}", job.get("uses")))
             continue
 
         if not _positive_int(job.get("timeout-minutes")):
@@ -389,12 +370,8 @@ def audit_workflow(path: Path, repository_root: Path | None = None) -> list[Find
         for index, step in enumerate(steps, start=1):
             findings.extend(_action_findings(path, str(job_name), index, step))
 
-    if pull_request_workflow and any(
-        _SECRET_CONTEXT_REFERENCE.search(value) for value in _scalar_strings(document)
-    ):
-        findings.append(
-            Finding(path, "pull-request workflows must not reference repository secrets")
-        )
+    if pull_request_workflow and any(_SECRET_CONTEXT_REFERENCE.search(value) for value in _scalar_strings(document)):
+        findings.append(Finding(path, "pull-request workflows must not reference repository secrets"))
 
     return findings
 
@@ -414,9 +391,7 @@ def workflow_paths(repository_root: Path) -> tuple[list[Path], list[Finding]]:
             if entry.suffix.casefold() not in _WORKFLOW_SUFFIXES:
                 continue
             if len(paths) >= MAX_WORKFLOW_FILES:
-                findings.append(
-                    Finding(workflow_dir, f"workflow count exceeds {MAX_WORKFLOW_FILES}")
-                )
+                findings.append(Finding(workflow_dir, f"workflow count exceeds {MAX_WORKFLOW_FILES}"))
                 break
             try:
                 item_stat = entry.lstat()
@@ -424,15 +399,11 @@ def workflow_paths(repository_root: Path) -> tuple[list[Path], list[Finding]]:
                 findings.append(Finding(entry, f"cannot inspect workflow: {exc}"))
                 continue
             if stat.S_ISLNK(item_stat.st_mode) or not stat.S_ISREG(item_stat.st_mode):
-                findings.append(
-                    Finding(entry, "workflow path must be a regular non-symlink file")
-                )
+                findings.append(Finding(entry, "workflow path must be a regular non-symlink file"))
                 continue
             total_bytes += item_stat.st_size
             if total_bytes > MAX_TOTAL_BYTES:
-                findings.append(
-                    Finding(workflow_dir, f"workflow bytes exceed {MAX_TOTAL_BYTES} total limit")
-                )
+                findings.append(Finding(workflow_dir, f"workflow bytes exceed {MAX_TOTAL_BYTES} total limit"))
                 break
             paths.append(entry)
         return paths, findings
