@@ -15,14 +15,13 @@ CONTRACTS = REPOSITORY_ROOT / "contracts"
 if str(CONTRACTS) not in sys.path:
     sys.path.insert(0, str(CONTRACTS))
 
-import check_github_actions_policy_impl as _impl
+import check_github_actions_policy_impl as _impl  # noqa: E402
+from confined_io import ConfinedReadError, read_utf8_bounded  # noqa: E402
+from confined_io import component_snapshot as _component_snapshot  # noqa: E402
+from confined_io import is_link_or_reparse as _is_link_or_reparse  # noqa: E402
+from confined_io import open_stable as _open_stable  # noqa: E402
+from confined_io import snapshot_is_current as _snapshot_is_current  # noqa: E402
 from confined_io import (  # noqa: E402
-    ConfinedReadError,
-    component_snapshot as _component_snapshot,
-    is_link_or_reparse as _is_link_or_reparse,
-    open_stable as _open_stable,
-    read_utf8_bounded,
-    snapshot_is_current as _snapshot_is_current,
     supports_component_nofollow as _supports_component_nofollow,
 )
 
