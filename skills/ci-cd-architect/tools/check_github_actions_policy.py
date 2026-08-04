@@ -11,17 +11,16 @@ from pathlib import Path
 
 TOOLS = Path(__file__).resolve().parent
 REPOSITORY_ROOT = TOOLS.parents[2]
-CONTRACTS = REPOSITORY_ROOT / "contracts"
-if str(CONTRACTS) not in sys.path:
-    sys.path.insert(0, str(CONTRACTS))
+if str(REPOSITORY_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPOSITORY_ROOT))
 
 import check_github_actions_policy_impl as _impl  # noqa: E402
-from confined_io import ConfinedReadError, read_utf8_bounded  # noqa: E402
-from confined_io import component_snapshot as _component_snapshot  # noqa: E402
-from confined_io import is_link_or_reparse as _is_link_or_reparse  # noqa: E402
-from confined_io import open_stable as _open_stable  # noqa: E402
-from confined_io import snapshot_is_current as _snapshot_is_current  # noqa: E402
-from confined_io import (  # noqa: E402
+from contracts.confined_io import ConfinedReadError, read_utf8_bounded  # noqa: E402
+from contracts.confined_io import component_snapshot as _component_snapshot  # noqa: E402
+from contracts.confined_io import is_link_or_reparse as _is_link_or_reparse  # noqa: E402
+from contracts.confined_io import open_stable as _confined_open_stable  # noqa: E402
+from contracts.confined_io import snapshot_is_current as _snapshot_is_current  # noqa: E402
+from contracts.confined_io import (  # noqa: E402
     supports_component_nofollow as _supports_component_nofollow,
 )
 
@@ -32,12 +31,23 @@ MAX_TOTAL_BYTES = _impl.MAX_TOTAL_BYTES
 Finding = _impl.Finding
 
 
+def _open_stable(path: Path, flags: int) -> tuple[int, tuple[tuple[Path, os.stat_result], ...] | None]:
+    """Delegate stable opens while preserving the tested capability seam."""
+    return _confined_open_stable(
+        path,
+        flags,
+        component_nofollow=_supports_component_nofollow(),
+    )
+
+
 def _read_workflow(path: Path, repository_root: Path) -> tuple[str | None, str | None]:
     """Read a bounded workflow through the shared stable confinement layer."""
     try:
         text, _count = read_utf8_bounded(path, repository_root, MAX_WORKFLOW_BYTES)
         return text, None
     except ConfinedReadError as error:
+        if error.code == "input.too-large":
+            return None, f"workflow exceeds {MAX_WORKFLOW_BYTES} byte limit"
         return None, f"cannot read workflow safely: {error.message}"
 
 
