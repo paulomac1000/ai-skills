@@ -139,7 +139,10 @@ def test_exact_docker_digest_is_accepted(tmp_path: Path) -> None:
     assert _messages(workflow) == []
 
 
-@pytest.mark.parametrize("runs_on", ("ubuntu-latest", "${{ matrix.os }}", "[ubuntu-24.04]"))
+@pytest.mark.parametrize(
+    "runs_on",
+    ("ubuntu-latest", " Ubuntu-Latest ", "${{ matrix.os }}", "[ubuntu-24.04]"),
+)
 def test_runner_must_be_concrete_literal(tmp_path: Path, runs_on: str) -> None:
     workflow = tmp_path / "runner.yml"
     workflow.write_text(
@@ -177,3 +180,16 @@ def test_repository_discovery_rejects_symlink_workflow(tmp_path: Path) -> None:
     (workflow_dir / "ci.yml").symlink_to(target)
 
     assert any("non-symlink" in finding.message for finding in audit_repository(tmp_path))
+
+
+def test_audit_rejects_dotdot_escape_outside_repository(tmp_path: Path) -> None:
+    repository = tmp_path / "repository"
+    workflow_dir = repository / ".github" / "workflows"
+    workflow_dir.mkdir(parents=True)
+    outside = tmp_path / "outside.yml"
+    outside.write_text(_workflow(""), encoding="utf-8")
+    escaped = workflow_dir / ".." / ".." / ".." / outside.name
+
+    messages = [finding.message for finding in audit_workflow(escaped, repository)]
+
+    assert any("cannot read workflow safely" in message for message in messages)
