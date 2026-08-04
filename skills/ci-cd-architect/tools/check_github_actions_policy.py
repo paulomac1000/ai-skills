@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import os
 import stat
+from collections.abc import Iterator
 from pathlib import Path
 
 import check_github_actions_policy_impl as _impl
@@ -134,7 +135,7 @@ def _read_workflow(path: Path, repository_root: Path) -> tuple[str | None, str |
 
 
 def _collect_workflow_entries(
-    entries: os.ScandirIterator[str],
+    entries: Iterator[os.DirEntry[str]],
     workflow_dir: Path,
 ) -> tuple[list[Path], list[Finding]]:
     paths: list[Path] = []
