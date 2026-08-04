@@ -6,6 +6,7 @@ import os
 import re
 import stat
 from collections.abc import Iterator, Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import unquote
 
@@ -98,12 +99,27 @@ def _is_fence_closer(line: str, character: str, minimum_length: int) -> bool:
     return marker[0] == character and len(marker) >= minimum_length
 
 
-def parse_visible_lines(text: str) -> tuple[list[tuple[int, str]], int | None]:
-    """Return active lines outside fenced blocks and a stable unclosed-fence line."""
+@dataclass(frozen=True)
+class FencedBlock:
+    """One CommonMark fenced block parsed relative to its active containers."""
+
+    start_line: int
+    end_line: int | None
+    info: str
+    body: tuple[tuple[int, str], ...]
+
+
+def parse_markdown_structure(
+    text: str,
+) -> tuple[list[tuple[int, str]], list[FencedBlock], int | None]:
+    """Return active lines, container-aware fenced blocks, and an unclosed-fence line."""
     visible: list[tuple[int, str]] = []
+    blocks: list[FencedBlock] = []
     fence_character: str | None = None
     minimum_length = 0
     fence_start: int | None = None
+    fence_info = ""
+    fence_body: list[tuple[int, str]] = []
     fence_container: tuple[int, tuple[int, ...]] | None = None
     abandoned_fence_start: int | None = None
     list_indents: tuple[int, ...] = ()
@@ -123,9 +139,13 @@ def parse_visible_lines(text: str) -> tuple[list[tuple[int, str]], int | None]:
         current_container = (quote_depth, candidate_indents)
         if fence_character is not None and current_container != fence_container:
             abandoned_fence_start = abandoned_fence_start or fence_start
+            if fence_start is not None:
+                blocks.append(FencedBlock(fence_start, None, fence_info, tuple(fence_body)))
             fence_character = None
             minimum_length = 0
             fence_start = None
+            fence_info = ""
+            fence_body = []
             fence_container = None
             line, candidate_indents = _list_container_content(
                 container_line,
@@ -144,18 +164,34 @@ def parse_visible_lines(text: str) -> tuple[list[tuple[int, str]], int | None]:
                     fence_character = marker[0]
                     minimum_length = len(marker)
                     fence_start = line_number
+                    fence_info = info.strip()
+                    fence_body = []
                     fence_container = current_container
                     continue
             visible.append((line_number, source_line))
             continue
 
         if _is_fence_closer(line, fence_character, minimum_length):
+            if fence_start is not None:
+                blocks.append(FencedBlock(fence_start, line_number, fence_info, tuple(fence_body)))
             fence_character = None
             minimum_length = 0
             fence_start = None
+            fence_info = ""
+            fence_body = []
             fence_container = None
+        else:
+            fence_body.append((line_number, source_line))
 
-    return visible, fence_start or abandoned_fence_start
+    if fence_character is not None and fence_start is not None:
+        blocks.append(FencedBlock(fence_start, None, fence_info, tuple(fence_body)))
+    return visible, blocks, fence_start or abandoned_fence_start
+
+
+def parse_visible_lines(text: str) -> tuple[list[tuple[int, str]], int | None]:
+    """Return active lines outside fenced blocks and a stable unclosed-fence line."""
+    visible, _blocks, unclosed = parse_markdown_structure(text)
+    return visible, unclosed
 
 
 def _supports_component_nofollow() -> bool:
@@ -253,7 +289,7 @@ def read_utf8_bounded(path: Path, max_bytes: int = MAX_INSTRUCTION_FILE_BYTES) -
     return ReadResult(text, len(payload), None, None)
 
 
-def _iter_code_spans(line: str) -> Iterator[str]:
+def _iter_code_span_matches(line: str) -> Iterator[tuple[str, int, int]]:
     index = 0
     while index < len(line):
         if line[index] != "`":
@@ -266,23 +302,46 @@ def _iter_code_spans(line: str) -> Iterator[str]:
         closing = line.find("`" * width, end)
         if closing < 0:
             return
-        yield line[end:closing].strip()
+        yield line[end:closing].strip(), index, closing + width
         index = closing + width
 
 
-def _is_path_candidate(value: str, source_line: str) -> bool:
+def _iter_code_spans(line: str) -> Iterator[str]:
+    for value, _start, _end in _iter_code_span_matches(line):
+        yield value
+
+
+_GENERIC_REFERENCE_OWNER = re.compile(
+    r"(?ix)(?:"
+    r"\bits(?:\s+\w+){0,3}|"
+    r"\btheir(?:\s+\w+){0,3}|"
+    r"\b(?:each|every|affected|selected)\s+"
+    r"(?:\w+\s+){0,2}(?:skill|package|component|module|service)(?:['’]s)?"
+    r"(?:\s+\w+){0,2}|"
+    r"\b(?:a|an|the)\s+(?:\w+\s+){0,2}skill(?:['’]s)?(?:\s+\w+){0,2}"
+    r")\s*$"
+)
+
+
+def _is_path_candidate(value: str, source_line: str, span_start: int | None = None) -> bool:
     if not value or any(character.isspace() for character in value):
         return False
     if value.startswith(("$", "-", "http://", "https://")):
         return False
     if any(character in value for character in "{}|*<>="):
         return False
-    candidate = unquote(value.split("#", 1)[0]).removeprefix("./")
+    raw_candidate = unquote(value.split("#", 1)[0])
+    candidate = raw_candidate.removeprefix("./")
     path = Path(candidate)
+    has_directory = "/" in candidate or "\\" in candidate or raw_candidate.startswith(("./", "../"))
+    if not has_directory and span_start is not None:
+        prefix = source_line[:span_start].rstrip()
+        if _GENERIC_REFERENCE_OWNER.search(prefix):
+            return False
     return (
         path.name in PATH_NAMES
         or path.suffix.casefold() in PATH_SUFFIXES
-        or ("/" in candidate and PATH_CUE.search(source_line) is not None)
+        or (has_directory and PATH_CUE.search(source_line) is not None)
     )
 
 
@@ -302,8 +361,8 @@ def iter_references(visible_lines: Sequence[tuple[int, str]]) -> Iterator[tuple[
             target = definitions.get(key)
             if target:
                 yield line_number, target
-        for span in _iter_code_spans(line):
-            if _is_path_candidate(span, line):
+        for span, start, _end in _iter_code_span_matches(line):
+            if _is_path_candidate(span, line, start):
                 yield line_number, span
 
 

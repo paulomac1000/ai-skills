@@ -10,7 +10,7 @@ from pathlib import Path
 
 import yaml
 from agents_md_command import canonical_invocation, parse_invocation
-from agents_md_parse import parse_visible_lines
+from agents_md_parse import parse_markdown_structure, parse_visible_lines
 from agents_md_types import HEADING, CommandRule, _normalize_rule
 
 _CODE_SPAN = re.compile(r"`([^`\n]+)`")
@@ -143,31 +143,26 @@ def _logical_block_commands(lines: list[tuple[int, str]]) -> list[tuple[int, str
 
 def _fenced_completion_rules(text: str) -> list[CommandRule]:
     rules: list[CommandRule] = []
+    visible, blocks, _unclosed = parse_markdown_structure(text)
+    block_by_line = {block.start_line: block for block in blocks if block.end_line is not None}
+    visible_by_line = dict(visible)
     in_completion_section = False
     section_label = "full gate"
     pending_label: tuple[str, int] | None = None
-    fence_marker: str | None = None
-    fence_label = "full gate"
-    capture = False
-    body: list[tuple[int, str]] = []
 
-    for line_number, line in enumerate(text.splitlines(), start=1):
-        if fence_marker is not None:
-            stripped = line.lstrip(" \t")
-            if re.fullmatch(rf"{re.escape(fence_marker[0])}{{{len(fence_marker)},}}[ \t]*", stripped):
-                if capture:
-                    rules.extend(
-                        _rule(fence_label, command, command_line, fence_label)
-                        for command_line, command in _logical_block_commands(body)
-                    )
-                fence_marker = None
-                capture = False
-                body = []
-                pending_label = None
-            elif capture:
-                body.append((line_number, line))
+    for line_number in sorted((*visible_by_line, *block_by_line)):
+        block = block_by_line.get(line_number)
+        if block is not None:
+            if in_completion_section or pending_label is not None:
+                fence_label = pending_label[0] if pending_label is not None else section_label
+                rules.extend(
+                    _rule(fence_label, command, command_line, fence_label)
+                    for command_line, command in _logical_block_commands(list(block.body))
+                )
+            pending_label = None
             continue
 
+        line = visible_by_line[line_number]
         heading = HEADING.fullmatch(line)
         if heading is not None:
             title = heading.group("title")
@@ -180,14 +175,6 @@ def _fenced_completion_rules(text: str) -> list[CommandRule]:
         if label_match is not None and _COMPLETION_LABEL.search(label_match.group("label")):
             if not _CODE_SPAN.findall(label_match.group("tail")):
                 pending_label = (label_match.group("label"), line_number)
-            continue
-
-        opener = _FENCE.fullmatch(line)
-        if opener is not None:
-            fence_marker = opener.group("marker")
-            capture = in_completion_section or pending_label is not None
-            fence_label = pending_label[0] if pending_label is not None else section_label
-            body = []
             continue
 
         if pending_label is not None and line.strip() and not _CODE_SPAN.findall(line):

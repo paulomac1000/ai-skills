@@ -30,7 +30,7 @@ Treat the repository root, input instruction files, referenced paths, and symlin
 
 Discovery must not treat every directory name as universal build output. In particular, root `bin/` scripts and language entry points remain discoverable; ecosystem-specific output such as `.NET` project `bin/` and `obj/` directories may be ignored only with project evidence.
 
-Commands must exist on the assessed revision. Run representative commands when the environment permits; otherwise label them located-but-unexecuted or unverified and name the missing evidence. Static path discovery is not proof that an exact command ran or that it matches hosted CI. Incident-derived guards belong here only when the failure can recur and is not already eliminated by code or automation.
+Commands must exist on the assessed revision. Unless a command explicitly selects or changes directories, interpret it from the directory containing the applicable `AGENTS.md`. Evidence derived from directory-scoped task definitions must remain bound to the directory containing that definition, and discovered entry points must preserve exact `argv` boundaries. Run representative commands when the environment permits; otherwise label them located-but-unexecuted or unverified and name the missing evidence. Static path discovery is not proof that an exact command ran or that it matches hosted CI. Incident-derived guards belong here only when the failure can recur and is not already eliminated by code or automation.
 
 ## Operating modes and profiles
 

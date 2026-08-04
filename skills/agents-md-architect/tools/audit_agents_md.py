@@ -19,7 +19,7 @@ for candidate in (TOOLS, CONTRACTS):
     if str(candidate) not in sys.path:
         sys.path.insert(0, str(candidate))
 
-from agents_md_command import CommandInvocation, parse_invocation  # noqa: E402
+from agents_md_command import CommandInvocation, invocation_from_argv, parse_invocation  # noqa: E402
 from agents_md_completion_evidence import (  # noqa: E402
     completion_command_rules,
     public_task_invocations,
@@ -76,11 +76,19 @@ class AuditFinding:
 
 
 @dataclass(frozen=True)
+class CommandEvidence:
+    """One exact invocation bound to the directory from which it is executable."""
+
+    working_directory: str
+    invocation: CommandInvocation
+
+
+@dataclass(frozen=True)
 class KnownCommands:
     """Static command evidence separated by public and internal execution surfaces."""
 
-    public_entrypoints: frozenset[CommandInvocation]
-    executed_commands: frozenset[CommandInvocation]
+    public_entrypoints: frozenset[CommandEvidence]
+    executed_commands: frozenset[CommandEvidence]
 
 
 def _extract_source_invocations(relative: str, text: str) -> set[str]:
@@ -134,19 +142,51 @@ def _paragraphs(text: str) -> dict[str, int]:
     return result
 
 
-def _entrypoint_invocations(discovery: Discovery) -> set[str]:
-    invocations: set[str] = set()
+def _normalized_working_directory(path: Path) -> str:
+    value = path.as_posix()
+    return "." if value in {"", "."} else value
+
+
+def _source_working_directory(relative: str, *, executed: bool = False) -> str:
+    path = Path(relative)
+    if relative.startswith((".github/workflows/", "scripts/", "bin/")) or relative in {
+        ".circleci/config.yml",
+        ".gitlab-ci.yml",
+        "Jenkinsfile",
+        "azure-pipelines.yml",
+        "azure-pipelines.yaml",
+    }:
+        return "."
+    if executed and path.suffix.casefold() in {".py", ".ps1", ".sh"}:
+        return "."
+    return _normalized_working_directory(path.parent)
+
+
+def _evidence_from_argv(working_directory: str, argv: Iterable[str]) -> CommandEvidence | None:
+    invocation = invocation_from_argv(argv)
+    if invocation is None:
+        return None
+    return CommandEvidence(working_directory, invocation)
+
+
+def _entrypoint_invocations(discovery: Discovery) -> set[CommandEvidence]:
+    invocations: set[CommandEvidence] = set()
     for relative in discovery.task_runners:
         path = Path(relative)
         suffix = path.suffix.casefold()
+        argument_sets: tuple[tuple[str, ...], ...] = ()
         if suffix == ".py":
-            invocations.update({f"python {relative}", f"python3 {relative}"})
+            argument_sets = (("python", relative), ("python3", relative))
         elif suffix == ".sh":
-            invocations.update({f"bash {relative}", f"sh {relative}", f"./{relative}"})
+            argument_sets = (("bash", relative), ("sh", relative), (f"./{relative}",))
         elif suffix == ".ps1":
-            invocations.update({f"pwsh {relative}", f"powershell {relative}"})
+            argument_sets = (("pwsh", relative), ("powershell", relative))
         elif not suffix and relative.startswith("bin/"):
-            invocations.update({relative, f"./{relative}"})
+            argument_sets = ((relative,), (f"./{relative}",))
+        for argv in argument_sets:
+            evidence = _evidence_from_argv(".", argv)
+            if evidence is not None:
+                invocations.add(evidence)
     return invocations
 
 
@@ -160,9 +200,13 @@ def _public_source_files(discovery: Discovery) -> tuple[str, ...]:
     return tuple(sorted(set((*discovery.task_runners, *manifests))))
 
 
-def _parse_many(commands: Iterable[str]) -> set[CommandInvocation]:
-    """Parse commands without collapsing distinct argument boundaries."""
-    return {invocation for command in commands if (invocation := parse_invocation(command)) is not None}
+def _parse_many(commands: Iterable[str], working_directory: str) -> set[CommandEvidence]:
+    """Parse commands without collapsing argument or working-directory boundaries."""
+    return {
+        CommandEvidence(working_directory, invocation)
+        for command in commands
+        if (invocation := parse_invocation(command)) is not None
+    }
 
 
 def _known_gate_commands(root: Path, discovery: Discovery) -> tuple[KnownCommands, list[AuditFinding]]:
@@ -170,8 +214,8 @@ def _known_gate_commands(root: Path, discovery: Discovery) -> tuple[KnownCommand
     public_sources = _public_source_files(discovery)
     sources = tuple(sorted(set((*gate_sources, *public_sources))))
     findings: list[AuditFinding] = []
-    public_commands = _parse_many(_entrypoint_invocations(discovery))
-    executed_commands: set[CommandInvocation] = set()
+    public_commands = set(_entrypoint_invocations(discovery))
+    executed_commands: set[CommandEvidence] = set()
     if len(sources) > MAX_GATE_FILES:
         findings.append(
             AuditFinding(
@@ -209,22 +253,36 @@ def _known_gate_commands(root: Path, discovery: Discovery) -> tuple[KnownCommand
             if syntax_error is not None:
                 findings.append(AuditFinding(relative, "error", "evidence.invalid-yaml", 1, syntax_error))
                 continue
-        public_commands.update(_parse_many(public_task_invocations(relative, text)))
+        public_commands.update(
+            _parse_many(public_task_invocations(relative, text), _source_working_directory(relative))
+        )
         if relative in gate_sources:
-            executed_commands.update(_parse_many(_extract_source_invocations(relative, text)))
+            executed_commands.update(
+                _parse_many(
+                    _extract_source_invocations(relative, text),
+                    _source_working_directory(relative, executed=True),
+                )
+            )
     return KnownCommands(frozenset(public_commands), frozenset(executed_commands)), findings
 
 
-def _command_reference_status(root: Path, command: str, known_commands: KnownCommands) -> str:
-    """Classify static command evidence without claiming execution."""
+def _command_reference_status(
+    root: Path,
+    command: str,
+    known_commands: KnownCommands,
+    working_directory: str = ".",
+) -> str:
+    """Classify static command evidence without discarding its execution directory."""
     invocation = parse_invocation(command)
-    if invocation is not None and invocation in known_commands.public_entrypoints:
+    evidence = CommandEvidence(working_directory, invocation) if invocation is not None else None
+    if evidence is not None and evidence in known_commands.public_entrypoints:
         return "located-public"
-    if invocation is not None and invocation in known_commands.executed_commands:
+    if evidence is not None and evidence in known_commands.executed_commands:
         return "located-executed"
     for token in _command_path_tokens(command):
+        candidate = (Path(working_directory) / token).as_posix()
         try:
-            _confined_file(root, token)
+            _confined_file(root, candidate)
         except ValueError:
             continue
         return "unverified"
@@ -317,7 +375,13 @@ def audit(
                 )
 
         for command_rule in completion_command_rules(document.text):
-            status = _command_reference_status(safe_root, command_rule.command, known_commands)
+            command_directory = _normalized_working_directory(Path(relative).parent)
+            status = _command_reference_status(
+                safe_root,
+                command_rule.command,
+                known_commands,
+                command_directory,
+            )
             if status == "unlocated":
                 findings.append(
                     AuditFinding(

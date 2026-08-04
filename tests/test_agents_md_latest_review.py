@@ -247,9 +247,7 @@ def test_shell_inline_comment_cannot_fabricate_command() -> None:
 
 
 def test_shell_hashes_inside_quotes_or_escaping_remain_data() -> None:
-    commands = shell_evidence._extract_shell_invocations(
-        "echo '# ; not a comment' && echo \\# && python scripts/ci.py"
-    )
+    commands = shell_evidence._extract_shell_invocations("echo '# ; not a comment' && echo \\# && python scripts/ci.py")
 
     assert "python scripts/ci.py" in commands
     assert all("not a comment" not in command or command.startswith("echo") for command in commands)
@@ -324,3 +322,35 @@ sh 'python scripts/ci.py'
     assert "python scripts/line_ghost.py" not in commands
     assert "python scripts/block_ghost.py" not in commands
     assert "python scripts/ci.py" in commands
+
+
+def test_completion_fence_nested_in_list_is_audited(tmp_path: Path) -> None:
+    _write(
+        tmp_path / "AGENTS.md",
+        """# AGENTS.md
+
+## Scope
+
+These instructions apply to the repository.
+
+## Commands and verification
+
+- Full gate:
+
+    ```bash
+    python scripts/missing_gate.py
+    ```
+
+## Safety boundaries
+
+Secrets must not be committed. Destructive writes require explicit authorization and rollback.
+
+## Definition of done
+
+Report the exact revision, skipped checks, and residual risk.
+""",
+    )
+
+    _, findings = audit_module.audit(tmp_path, "application", "single", "en")
+
+    assert "commands.unlocated-full-gate" in _codes(findings)

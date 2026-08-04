@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import subprocess
+import sys
 from pathlib import Path
 
 import yaml
@@ -33,3 +35,48 @@ def test_conditional_skill_dependencies_are_known_and_installed() -> None:
                     profile,
                     skill_name,
                 )
+
+
+def test_repository_agents_md_passes_published_strict_tools() -> None:
+    tools = ROOT / "skills/agents-md-architect/tools"
+    validator = subprocess.run(
+        [
+            sys.executable,
+            str(tools / "validate_agents_md.py"),
+            "--strict",
+            "--repository-root",
+            str(ROOT),
+            "--layout",
+            "single",
+            "--profile",
+            "application",
+            "--language",
+            "en",
+            str(ROOT / "AGENTS.md"),
+        ],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert validator.returncode == 0, validator.stdout + validator.stderr
+
+    audit = subprocess.run(
+        [
+            sys.executable,
+            str(tools / "audit_agents_md.py"),
+            "--strict",
+            "--layout",
+            "single",
+            "--profile",
+            "application",
+            "--language",
+            "en",
+            str(ROOT),
+        ],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert audit.returncode == 0, audit.stdout + audit.stderr

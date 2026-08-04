@@ -102,14 +102,36 @@ def test_taskfile_task_name_with_space_requires_one_quoted_argument(tmp_path: Pa
 
 def test_package_manager_shorthand_does_not_fabricate_script_evidence(tmp_path: Path) -> None:
     commands = public_task_invocations("package.json", json.dumps({"scripts": {"quality": "pytest"}}))
-    argv = {
-        invocation.argv
-        for command in commands
-        if (invocation := parse_invocation(command)) is not None
-    }
+    argv = {invocation.argv for command in commands if (invocation := parse_invocation(command)) is not None}
     assert ("pnpm", "run", "quality") in argv
     assert ("yarn", "run", "quality") in argv
     assert ("pnpm", "quality") not in argv
     assert ("yarn", "quality") not in argv
 
     assert "commands.unlocated-full-gate" in _audit_package(tmp_path, {"quality": "pytest"}, "pnpm quality")
+
+
+def test_nested_package_script_does_not_validate_root_command(tmp_path: Path) -> None:
+    _write(tmp_path / "apps/web/package.json", json.dumps({"scripts": {"test": "pytest"}}))
+    _write(tmp_path / "AGENTS.md", _agents("npm run test"))
+
+    discovery, findings = audit_module.audit(tmp_path, "application", "single", "en")
+    known, evidence_findings = audit_module._known_gate_commands(tmp_path, discovery)
+
+    assert evidence_findings == []
+    assert audit_module._command_reference_status(tmp_path, "npm run test", known, ".") == "unlocated"
+    assert audit_module._command_reference_status(tmp_path, "npm run test", known, "apps/web") == "located-public"
+    assert "commands.unlocated-full-gate" in {finding.code for finding in findings}
+
+
+def test_discovered_script_path_with_spaces_preserves_one_argv_argument(tmp_path: Path) -> None:
+    _write(tmp_path / "scripts/full gate.py", "print('ok')\n")
+    quoted = canonical_invocation(("python", "scripts/full gate.py"))
+    _write(tmp_path / "AGENTS.md", _agents(quoted))
+
+    _, quoted_findings = audit_module.audit(tmp_path, "application", "single", "en")
+    assert "commands.unlocated-full-gate" not in {finding.code for finding in quoted_findings}
+
+    _write(tmp_path / "AGENTS.md", _agents("python scripts/full gate.py"))
+    _, unquoted_findings = audit_module.audit(tmp_path, "application", "single", "en")
+    assert "commands.unlocated-full-gate" in {finding.code for finding in unquoted_findings}

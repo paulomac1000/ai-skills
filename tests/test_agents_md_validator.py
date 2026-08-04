@@ -444,3 +444,29 @@ def test_strict_cli_fails_on_warning_and_json_is_machine_readable(
     assert validator.main(["--format", "json", "--repository-root", str(tmp_path), str(path)]) == 0
     payload = json.loads(capsys.readouterr().out)
     assert any(item["code"] == "routing.blind-reference" for item in payload)
+
+
+def test_generic_per_skill_filenames_are_not_root_references(tmp_path: Path, validator: Any) -> None:
+    prepare_refs(tmp_path)
+    text = (
+        application_text()
+        + """
+
+For each affected skill, inspect its `manifest.yaml`, read the skill's `SKILL.md`,
+and then read its normative `STANDARD.md` before changing implementation details.
+"""
+    )
+    path = write(tmp_path, "AGENTS.md", text)
+
+    assert "links.missing" not in codes(validator.validate_path(path, "application", tmp_path))
+
+
+def test_concrete_bare_filename_reference_is_still_validated(tmp_path: Path, validator: Any) -> None:
+    prepare_refs(tmp_path)
+    path = write(
+        tmp_path,
+        "AGENTS.md",
+        application_text() + "\nBefore release, read `RELEASE.md` for the exact publication procedure.\n",
+    )
+
+    assert "links.missing" in codes(validator.validate_path(path, "application", tmp_path))
