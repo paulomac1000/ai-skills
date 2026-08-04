@@ -1,0 +1,123 @@
+name: Apply PR18 audit fixes
+
+on:
+  pull_request:
+    types: [synchronize]
+
+permissions: {}
+
+jobs:
+  verify:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'agent/agents-md-architect'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - name: Check out exact pull request head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+
+      - name: Verify and apply reviewed patch
+        run: |
+          set -euo pipefail
+          cat .github/scripts/pr18-audit-fixes.part* > /tmp/pr18-audit-fixes.patch
+          echo '1cfcb47ecf60763464a2565cd98af7b9183ecd1a083db5d59c7b89dc2789d0bd  /tmp/pr18-audit-fixes.patch' | sha256sum --check
+          git apply --check /tmp/pr18-audit-fixes.patch
+          git apply /tmp/pr18-audit-fixes.patch
+          git diff --check
+          test "$(git diff --name-only | sort)" = "$(printf '%s\n' \
+            skills/agents-md-architect/tools/agents_md_parse.py \
+            skills/agents-md-architect/tools/agents_md_shell_evidence.py \
+            skills/agents-md-architect/tools/agents_md_shell_evidence_impl.py \
+            skills/agents-md-architect/tools/audit_agents_md.py \
+            tests/test_agents_md_latest_review.py \
+            tests/test_agents_md_validator.py | sort)"
+
+      - name: Install locked development dependencies
+        run: python scripts/install_locked.py
+
+      - name: Run focused quality and regressions
+        run: |
+          set -euo pipefail
+          python -m compileall -q contracts scripts skills
+          python -m ruff check \
+            skills/agents-md-architect/tools/agents_md_parse.py \
+            skills/agents-md-architect/tools/agents_md_shell_evidence.py \
+            skills/agents-md-architect/tools/audit_agents_md.py \
+            tests/test_agents_md_latest_review.py \
+            tests/test_agents_md_validator.py
+          python -m ruff format --check \
+            skills/agents-md-architect/tools/agents_md_parse.py \
+            skills/agents-md-architect/tools/agents_md_shell_evidence.py \
+            skills/agents-md-architect/tools/audit_agents_md.py \
+            tests/test_agents_md_latest_review.py \
+            tests/test_agents_md_validator.py
+          python -m pytest -q \
+            tests/test_agents_md_latest_review.py \
+            tests/test_agents_md_validator.py \
+            tests/test_agents_md_command_argv.py \
+            tests/test_agents_md_release_contract.py
+          python skills/agents-md-architect/tools/validate_agents_md.py \
+            --strict --repository-root . --layout single --profile application --language en AGENTS.md
+          python skills/agents-md-architect/tools/audit_agents_md.py \
+            --strict --layout single --profile application --language en .
+
+  publish:
+    needs: verify
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Check out exact verified head without stored credentials
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Commit verified production files and remove transport files
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          cat .github/scripts/pr18-audit-fixes.part* > /tmp/pr18-audit-fixes.patch
+          echo '1cfcb47ecf60763464a2565cd98af7b9183ecd1a083db5d59c7b89dc2789d0bd  /tmp/pr18-audit-fixes.patch' | sha256sum --check
+          git apply --check /tmp/pr18-audit-fixes.patch
+          git apply /tmp/pr18-audit-fixes.patch
+          rm .github/scripts/pr18-audit-fixes.part*
+          rm .github/workflows/apply-pr18-audit-fixes.yml
+          git diff --check
+          test "$(git status --porcelain --untracked-files=all | awk '{print $NF}' | sort)" = "$(printf '%s\n' \
+            .github/scripts/pr18-audit-fixes.part00 \
+            .github/scripts/pr18-audit-fixes.part01 \
+            .github/scripts/pr18-audit-fixes.part02 \
+            .github/scripts/pr18-audit-fixes.part03 \
+            .github/scripts/pr18-audit-fixes.part04 \
+            .github/scripts/pr18-audit-fixes.part05 \
+            .github/scripts/pr18-audit-fixes.part06 \
+            .github/scripts/pr18-audit-fixes.part07 \
+            .github/workflows/apply-pr18-audit-fixes.yml \
+            skills/agents-md-architect/tools/agents_md_parse.py \
+            skills/agents-md-architect/tools/agents_md_shell_evidence.py \
+            skills/agents-md-architect/tools/agents_md_shell_evidence_impl.py \
+            skills/agents-md-architect/tools/audit_agents_md.py \
+            tests/test_agents_md_latest_review.py \
+            tests/test_agents_md_validator.py | sort)"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'fix(agents-md): preserve workflow command context'
+          git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:${PR_HEAD_REF}"

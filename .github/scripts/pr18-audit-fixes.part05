@@ -1,0 +1,102 @@
+
++    defaults:
++      run:
++        working-directory: apps/web
++    steps:
++      - run: npm run test
++""",
++        """defaults:
++  run:
++    working-directory: apps/web
++jobs:
++  test:
++    steps:
++      - run: npm run test
++""",
++        """jobs:
++  test:
++    steps:
++      - run: npm run test
++        working-directory: apps/web
++""",
++    ),
++)
++def test_github_working_directory_cannot_validate_root_gate(tmp_path: Path, workflow: str) -> None:
++    _write(tmp_path / ".github/workflows/ci.yml", workflow)
++    _write(tmp_path / "AGENTS.md", _agents("npm run test"))
++
++    _, findings = audit_module.audit(tmp_path, "application", "single", "en")
++
++    assert "commands.unlocated-full-gate" in _codes(findings)
++
++
++def test_github_working_directory_validates_matching_nested_gate(tmp_path: Path) -> None:
++    _write(
++        tmp_path / ".github/workflows/ci.yml",
++        """jobs:
++  test:
++    defaults:
++      run:
++        working-directory: apps/web
++    steps:
++      - run: npm run test
++""",
++    )
++    _write(tmp_path / "AGENTS.md", _agents("python scripts/root.py"))
++    _write(tmp_path / "scripts/root.py", "print('ok')\n")
++    _write(tmp_path / "apps/web/AGENTS.md", _agents("npm run test"))
++
++    _, findings = audit_module.audit(tmp_path, "application", "monorepo", "en")
++
++    nested_gate_findings = {
++        item.code for item in findings if item.path == "apps/web/AGENTS.md" and item.code.startswith("commands.")
++    }
++    assert "commands.unlocated-full-gate" not in nested_gate_findings
++
++
++def test_github_step_working_directory_overrides_job_default(tmp_path: Path) -> None:
++    _write(
++        tmp_path / ".github/workflows/ci.yml",
++        """jobs:
++  test:
++    defaults:
++      run:
++        working-directory: apps/api
++    steps:
++      - run: npm run test
++        working-directory: apps/web
++""",
++    )
++    _write(tmp_path / "AGENTS.md", _agents("npm run test"))
++    _write(tmp_path / "apps/web/AGENTS.md", _agents("npm run test"))
++
++    _, findings = audit_module.audit(tmp_path, "application", "monorepo", "en")
++
++    assert any(item.path == "AGENTS.md" and item.code == "commands.unlocated-full-gate" for item in findings)
++    assert not any(
++        item.path == "apps/web/AGENTS.md" and item.code == "commands.unlocated-full-gate" for item in findings
++    )
++
++
++@pytest.mark.parametrize("working_directory", ("${{ matrix.directory }}", "../outside", "/tmp/project", "C:/outside"))
++def test_dynamic_or_external_github_working_directory_cannot_establish_evidence(
++    tmp_path: Path,
++    working_directory: str,
++) -> None:
++    _write(
++        tmp_path / ".github/workflows/ci.yml",
++        f"""jobs:
++  test:
++    steps:
++      - run: npm run test
++        working-directory: {working_directory}
++""",
++    )
++    _write(tmp_path / "AGENTS.md", _agents("npm run test"))
++
++    _, findings = audit_module.audit(tmp_path, "application", "single", "en")
++
++    assert "commands.unlocated-full-gate" in _codes(findings)
++
++
++de

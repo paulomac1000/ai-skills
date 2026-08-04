@@ -1,0 +1,77 @@
+ode | None, inherited: str | None) -> str | None:
++    if node is None:
++        return inherited
++    value = _scalar_value(node)
++    if value is None or "${{" in value:
++        return None
++    return value.strip().casefold()
++
++
++def _github_run_defaults(node: Node | None) -> tuple[Node | None, Node | None]:
++    run = _mapping_value(_mapping_value(node, "defaults"), "run")
++    return _mapping_value(run, "working-directory"), _mapping_value(run, "shell")
++
++
++def _github_runner_default_shell(job: Node) -> str | None:
++    runs_on = _mapping_value(job, "runs-on")
++    if runs_on is None:
++        return ""
++    values: list[str] = []
++    if isinstance(runs_on, ScalarNode):
++        values.append(runs_on.value)
++    elif isinstance(runs_on, SequenceNode):
++        for item in runs_on.value:
++            if not isinstance(item, ScalarNode):
++                return None
++            values.append(item.value)
++    else:
++        return None
++    if any("${{" in value for value in values):
++        return None
++    return "pwsh" if any("windows" in value.casefold() for value in values) else ""
++
++
++def _github_shell_kind(shell: str) -> str | None:
++    executable = shell.split(maxsplit=1)[0] if shell else ""
++    if executable in {"pwsh", "powershell"}:
++        return "powershell"
++    if executable in {"", "bash", "sh"}:
++        return "shell"
++    return None
++
++
++def _extract_github_yaml_command_evidence(
++    root: Node,
++    default_working_directory: str,
++) -> set[tuple[str, str]]:
++    evidence: set[tuple[str, str]] = set()
++    workflow_cwd_node, workflow_shell_node = _github_run_defaults(root)
++    workflow_cwd = _working_directory_override(workflow_cwd_node, default_working_directory)
++    jobs = _mapping_value(root, "jobs")
++    if not isinstance(jobs, MappingNode):
++        return evidence
++
++    for _job_key, job in jobs.value:
++        if not isinstance(job, MappingNode):
++            continue
++        job_cwd_node, job_shell_node = _github_run_defaults(job)
++        job_cwd = _working_directory_override(job_cwd_node, workflow_cwd)
++        workflow_shell = _shell_override(workflow_shell_node, _github_runner_default_shell(job))
++        job_shell = _shell_override(job_shell_node, workflow_shell)
++        steps = _mapping_value(job, "steps")
++        if not isinstance(steps, SequenceNode):
++            continue
++        for step in steps.value:
++            if not isinstance(step, MappingNode):
++                continue
++            run = _scalar_value(_mapping_value(step, "run"))
++            if run is None:
++                continue
++            working_directory = _working_directory_override(_mapping_value(step, "working-directory"), job_cwd)
++            shell = _shell_override(_mapping_value(step, "shell"), job_shell)
++            if working_directory is None or shell is None:
++                continue
++            shell_kind = _github_shell_kind(shell)
++            if shell_kind is None:
++                continue
++         

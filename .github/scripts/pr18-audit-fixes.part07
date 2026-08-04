@@ -1,0 +1,21 @@
+ it.\n",
++    )
++
++    assert "links.missing" not in codes(validator.validate_path(path, "application", tmp_path))
++
++
++def test_concrete_bare_filename_with_non_owner_suffix_is_still_validated(
++    tmp_path: Path, validator: Any
++) -> None:
++    prepare_refs(tmp_path)
++    path = write(
++        tmp_path,
++        "AGENTS.md",
++        application_text() + "\nRead `manifest.yaml` for release metadata before publishing.\n",
++    )
++*+    assert "links.missing" in codes(validator.validate_path(path, "application", tmp_path))
++
++
+ def test_concrete_bare_filename_reference_is_still_validated(tmp_path: Path, validator: Any) -> None:
+     prepare_refs(tmp_path)
+     path = write(

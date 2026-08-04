@@ -1,0 +1,63 @@
+rgets = [span for span in _iter_code_spans(line) if _is_path_candidate(span, line)]
++        code_targets = [
++            span
++            for span, start, end in _iter_code_span_matches(line)
++            if _is_path_candidate(span, line, start, end)
++        ]
+         candidates = linked + [(line.split("`", 1)[0], target) for target in code_targets]
+         if not candidates:
+             continue
+diff --git a/skills/agents-md-architect/tools/agents_md_shell_evidence.py b/skills/agents-md-architect/tools/agents_md_shell_evidence.py
+index e8718a3d79293426c94c4d5dc868b751a790fde9..d3465ce00e5ece4c5c2acb8e9bd44583700157e0 100644
+--- a/skills/agents-md-architect/tools/agents_md_shell_evidence.py
++++ b/skills/agents-md-architect/tools/agents_md_shell_evidence.py
+@@ -23,6 +23,7 @@ _add_command_segments = _impl._add_command_segments
+ _command_path_tokens = _impl._command_path_tokens
+ _yaml_syntax_error = _impl._yaml_syntax_error
+ _extract_shell_invocations = _impl._extract_shell_invocations
++_extract_yaml_command_evidence = _impl._extract_yaml_command_evidence
+ _extract_yaml_invocations = _impl._extract_yaml_invocations
+ _extract_powershell_invocations = _impl._extract_powershell_invocations
+ _extract_jenkins_invocations = _impl._extract_jenkins_invocations
+diff --git a/skills/agents-md-architect/tools/agents_md_shell_evidence_impl.py b/skills/agents-md-architect/tools/agents_md_shell_evidence_impl.py
+index f25adbe2d48f320cab38fbac736b52ccb86aa20e..63ce70c3dc4143783a2bfbcfcb51fad82143362c 100644
+--- a/skills/agents-md-architect/tools/agents_md_shell_evidence_impl.py
++++ b/skills/agents-md-architect/tools/agents_md_shell_evidence_impl.py
+@@ -170,35 +170,188 @@ def _yaml_node_uses_powershell(relative: str, path: tuple[str, ...]) -> bool:
+     }
+ 
+ 
++def _mapping_value(node: Node | None, key: str) -> Node | None:
++    if not isinstance(node, MappingNode):
++        return None
++    for key_node, value_node in node.value:
++        if isinstance(key_node, ScalarNode) and key_node.value == key:
++            return value_node
++    return None
++
++
++def _scalar_value(node: Node | None) -> str | None:
++    return node.value if isinstance(node, ScalarNode) else None
++
++
++def _normalize_working_directory(value: str) -> str | None:
++    candidate = value.strip().replace("\\", "/")
++    if not candidate or "${{" in candidate or "$((" in candidate or "$(" in candidate:
++        return None
++    if candidate.startswith(("/", "~", "//")) or re.match(r"^[A-Za-z]:", candidate):
++        return None
++    parts = tuple(part for part in candidate.split("/") if part not in {"", "."})
++    if ".." in parts:
++        return None
++    normalized = "/".join(parts)
++    return normalized or "."
++
++
++def _working_directory_override(node: Node | None, inherited: str | None) -> str | None:
++    if node is None:
++        return inherited
++    value = _scalar_value(node)
++    return _normalize_working_directory(value) if value is not None else None
++
++
++def _shell_override(node: N

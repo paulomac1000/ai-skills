@@ -1,0 +1,66 @@
+diff --git a/skills/agents-md-architect/tools/agents_md_parse.py b/skills/agents-md-architect/tools/agents_md_parse.py
+index 9f2ef5e465916083c56e27f73783a50e03a81241..84ae717b0ded10164fc2c4c9fda766b478b88be9 100644
+--- a/skills/agents-md-architect/tools/agents_md_parse.py
++++ b/skills/agents-md-architect/tools/agents_md_parse.py
+@@ -321,9 +321,29 @@ _GENERIC_REFERENCE_OWNER = re.compile(
+     r"\b(?:a|an|the)\s+(?:\w+\s+){0,2}skill(?:['’]s)?(?:\s+\w+){0,2}"
+     r")\s*$"
+ )
++_GENERIC_REFERENCE_SUFFIX = re.compile(
++    r"(?ix)^\s*(?:[,—:-]\s*)?(?:for|in|from|of|belonging\s+to)\s+"
++    r"(?:(?:each|every|all|the|a|an)\s+)?"
++    r"(?:(?:affected|selected|relevant|corresponding)\s+)?"
++    r"(?:\w+\s+){0,2}(?:skills?|packages?|components?|modules?|services?)\b"
++)
++
++
++def _has_generic_reference_owner(source_line: str, span_start: int, span_end: int | None) -> bool:
++    if _GENERIC_REFERENCE_OWNER.search(source_line[:span_start].rstrip()):
++        return True
++    if span_end is None:
++        return False
++    suffix = re.split(r"[.!?]", source_line[span_end:], maxsplit=1)[0]
++    return _GENERIC_REFERENCE_SUFFIX.search(suffix) is not None
+ 
+ 
+-def _is_path_candidate(value: str, source_line: str, span_start: int | None = None) -> bool:
++def _is_path_candidate(
++    value: str,
++    source_line: str,
++    span_start: int | None = None,
++    span_end: int | None = None,
++) -> bool:
+     if not value or any(character.isspace() for character in value):
+         return False
+     if value.startswith(("$", "-", "http://", "https://")):
+@@ -334,10 +354,10 @@ def _is_path_candidate(value: str, source_line: str, span_start: int | None = No
+     candidate = raw_candidate.removeprefix("./")
+     path = Path(candidate)
+     has_directory = "/" in candidate or "\\" in candidate or raw_candidate.startswith(("./", "../"))
+-    if not has_directory and span_start is not None:
+-        prefix = source_line[:span_start].rstrip()
+-        if _GENERIC_REFERENCE_OWNER.search(prefix):
+-            return False
++    if not has_directory and span_start is not None and _has_generic_reference_owner(
++        source_line, span_start, span_end
++    ):
++        return False
+     return (
+         path.name in PATH_NAMES
+         or path.suffix.casefold() in PATH_SUFFIXES
+@@ -361,8 +381,8 @@ def iter_references(visible_lines: Sequence[tuple[int, str]]) -> Iterator[tuple[
+             target = definitions.get(key)
+             if target:
+                 yield line_number, target
+-        for span, start, _end in _iter_code_span_matches(line):
+-            if _is_path_candidate(span, line, start):
++        for span, start, end in _iter_code_span_matches(line):
++            if _is_path_candidate(span, line, start, end):
+                 yield line_number, span
+ 
+ 
+@@ -671,7 +691,11 @@ def _extract_ownership(
+         linked = [
+             (match.group("label"), _strip_destination(match.group("target"))) for match in INLINE_LINK.finditer(line)
+         ]
+-        code_ta

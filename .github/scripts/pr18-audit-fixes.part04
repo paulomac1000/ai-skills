@@ -1,0 +1,61 @@
+    return {command for _working_directory, command in _extract_yaml_command_evidence(relative, text)}
+ 
+ 
+ def _shell_line_continues(line: str) -> bool:
+diff --git a/skills/agents-md-architect/tools/audit_agents_md.py b/skills/agents-md-architect/tools/audit_agents_md.py
+index 21173f1f57484f1d3cc5bbf081a4f356c0561e58..7c046569da0f9e55ef59418b0f2270b7a5f7c8df 100644
+--- a/skills/agents-md-architect/tools/audit_agents_md.py
++++ b/skills/agents-md-architect/tools/audit_agents_md.py
+@@ -29,6 +29,7 @@ from agents_md_python_evidence import _extract_python_invocations  # noqa: E402
+ from agents_md_shell_evidence import (  # noqa: E402
+     _command_path_tokens,
+     _extract_gate_invocations,
++    _extract_yaml_command_evidence,
+     _yaml_syntax_error,
+ )
+ from agents_md_shell_evidence import (  # noqa: E402
+@@ -209,6 +210,16 @@ def _parse_many(commands: Iterable[str], working_directory: str) -> set[CommandE
+     }
+ 
+ 
++def _executed_source_evidence(relative: str, text: str) -> set[CommandEvidence]:
++    working_directory = _source_working_directory(relative, executed=True)
++    if Path(relative).suffix.casefold() in {".yml", ".yaml"}:
++        evidence: set[CommandEvidence] = set()
++        for command_directory, command in _extract_yaml_command_evidence(relative, text, working_directory):
++            evidence.update(_parse_many((command,), command_directory))
++        return evidence
++    return _parse_many(_extract_source_invocations(relative, text), working_directory)
++
++
+ def _known_gate_commands(root: Path, discovery: Discovery) -> tuple[KnownCommands, list[AuditFinding]]:
+     gate_sources = tuple(sorted(set((*discovery.ci_files, *discovery.task_runners))))
+     public_sources = _public_source_files(discovery)
+@@ -257,12 +268,7 @@ def _known_gate_commands(root: Path, discovery: Discovery) -> tuple[KnownCommand
+             _parse_many(public_task_invocations(relative, text), _source_working_directory(relative))
+         )
+         if relative in gate_sources:
+-            executed_commands.update(
+-                _parse_many(
+-                    _extract_source_invocations(relative, text),
+-                    _source_working_directory(relative, executed=True),
+-                )
+-            )
++            executed_commands.update(_executed_source_evidence(relative, text))
+     return KnownCommands(frozenset(public_commands), frozenset(executed_commands)), findings
+ 
+ 
+diff --git a/tests/test_agents_md_latest_review.py b/tests/test_agents_md_latest_review.py
+index a06ab15685e4edcf14252d334fc9a726a02c9655..baf0699eb40a18c2ec3573e4823a1acd8644f445 100644
+--- a/tests/test_agents_md_latest_review.py
++++ b/tests/test_agents_md_latest_review.py
+@@ -354,3 +354,185 @@ Report the exact revision, skipped checks, and residual risk.
+     _, findings = audit_module.audit(tmp_path, "application", "single", "en")
+ 
+     assert "commands.unlocated-full-gate" in _codes(findings)
++
++@pytest.mark.parametrize(
++    "workflow",
++    (
++        """jobs:
++  test:

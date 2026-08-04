@@ -1,0 +1,82 @@
+   commands = (
++                _extract_powershell_invocations(run)
++                if shell_kind == "powershell"
++                else _extract_shell_invocations(run)
++            )
++            evidence.update((working_directory, command) for command in commands)
++    return evidence
++
++
++def _has_duplicate_yaml_mapping_key(node: Node) -> bool:
++    if isinstance(node, SequenceNode):
++        return any(_has_duplicate_yaml_mapping_key(item) for item in node.value)
++    if not isinstance(node, MappingNode):
++        return False
++    keys: set[tuple[str, str]] = set()
++    for key_node, value_node in node.value:
++        if isinstance(key_node, ScalarNode):
++            identity = (key_node.tag, key_node.value)
++            if identity in keys:
++                return True
++            keys.add(identity)
++        if _has_duplicate_yaml_mapping_key(value_node):
++            return True
++    return False
++
++
+ def _compose_yaml(text: str) -> Node | None:
+     try:
+-        return yaml.compose(text, Loader=yaml.SafeLoader)
++        root = yaml.compose(text, Loader=yaml.SafeLoader)
+     except (yaml.YAMLError, RecursionError):
+         return None
++    if root is not None and _has_duplicate_yaml_mapping_key(root):
++        return None
++    return root
+ 
+ 
+ def _yaml_syntax_error(text: str) -> str | None:
+     """Return a stable error that never includes repository-controlled excerpts."""
+     try:
+-        yaml.compose(text, Loader=yaml.SafeLoader)
++        root = yaml.compose(text, Loader=yaml.SafeLoader)
+     except (yaml.YAMLError, RecursionError):
+         return INVALID_YAML_MESSAGE
++    if root is not None and _has_duplicate_yaml_mapping_key(root):
++        return INVALID_YAML_MESSAGE
+     return None
+ 
+ 
+-def _extract_yaml_invocations(relative: str, text: str) -> set[str]:
++def _extract_yaml_command_evidence(
++    relative: str,
++    text: str,
++    default_working_directory: str = ".",
++) -> set[tuple[str, str]]:
+     root = _compose_yaml(text)
+     if root is None:
+         return set()
+-    invocations: set[str] = set()
++    if relative.startswith(".github/workflows/"):
++        return _extract_github_yaml_command_evidence(root, default_working_directory)
++
++    evidence: set[tuple[str, str]] = set()
+     for path, value, _style in _yaml_scalar_nodes(root):
+         if not _yaml_node_is_executable(relative, path):
+             continue
+-        if _yaml_node_uses_powershell(relative, path):
+-            invocations.update(_extract_powershell_invocations(value))
+-        else:
+-            invocations.update(_extract_shell_invocations(value))
+-    return invocations
++        commands = (
++            _extract_powershell_invocations(value)
++            if _yaml_node_uses_powershell(relative, path)
++            else _extract_shell_invocations(value)
++        )
++        evidence.update((default_working_directory, command) for command in commands)
++    return evidence
++
++
++def _extract_yaml_invocations(relative: str, text: str) -> set[str]:
++
