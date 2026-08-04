@@ -34,6 +34,7 @@ jobs:
           git apply --check /tmp/pr18-audit-fixes.patch
           git apply /tmp/pr18-audit-fixes.patch
           python .github/scripts/pr18-audit-followup.py
+          python .github/scripts/pr18-audit-followup-fixture.py
           git diff --check
           test "$(git diff --name-only | sort)" = "$(printf '%s\n' \
             skills/agents-md-architect/tools/agents_md_parse.py \
