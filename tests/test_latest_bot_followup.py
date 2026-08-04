@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -58,6 +59,10 @@ else:
     assert "python scripts/ghost.py" not in commands
 
 
+def test_invalid_python_never_establishes_evidence() -> None:
+    assert python_evidence._extract_python_invocations("if:") == set()
+
+
 def test_make_recipe_continuation_establishes_complete_gate() -> None:
     commands = shell_evidence._extract_gate_invocations(
         "Makefile",
@@ -93,6 +98,92 @@ def test_workflow_reader_rejects_intermediate_symlink(tmp_path: Path) -> None:
     assert text is None
     assert error is not None
     assert "cannot read workflow safely" in error
+
+
+def test_component_snapshot_rejects_symlink(tmp_path: Path) -> None:
+    target = tmp_path / "target"
+    target.mkdir()
+    link = tmp_path / "link"
+    try:
+        link.symlink_to(target, target_is_directory=True)
+    except OSError as exc:
+        pytest.skip(f"symlinks are unavailable: {exc}")
+
+    with pytest.raises(OSError, match="reparse or symlink"):
+        workflow_policy._component_snapshot(link / "workflow.yml")
+
+
+def test_component_snapshot_detects_replacement(tmp_path: Path) -> None:
+    workflow = tmp_path / "workflow.yml"
+    workflow.write_text("name: first\n", encoding="utf-8")
+    snapshot = workflow_policy._component_snapshot(workflow)
+    workflow.unlink()
+    workflow.write_text("name: second\n", encoding="utf-8")
+
+    assert not workflow_policy._snapshot_is_current(snapshot)
+
+
+def test_fallback_open_binds_every_component(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workflow = tmp_path / "workflow.yml"
+    workflow.write_text("name: stable\n", encoding="utf-8")
+    monkeypatch.setattr(workflow_policy, "_supports_component_nofollow", lambda: False)
+
+    descriptor, snapshot = workflow_policy._open_stable(workflow, os.O_RDONLY)
+    try:
+        assert snapshot is not None
+        assert os.read(descriptor, 4) == b"name"
+    finally:
+        os.close(descriptor)
+
+
+def test_workflow_reader_rejects_invalid_utf8(tmp_path: Path) -> None:
+    repository = tmp_path / "repository"
+    workflow = repository / ".github" / "workflows" / "ci.yml"
+    workflow.parent.mkdir(parents=True)
+    workflow.write_bytes(b"\xff")
+
+    text, error = workflow_policy._read_workflow(workflow, repository)
+
+    assert text is None
+    assert error is not None
+    assert "cannot read workflow safely" in error
+
+
+def test_workflow_reader_enforces_size_while_reading(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = tmp_path / "repository"
+    workflow = repository / ".github" / "workflows" / "ci.yml"
+    workflow.parent.mkdir(parents=True)
+    workflow.write_text("name: oversized\n", encoding="utf-8")
+    monkeypatch.setattr(workflow_policy, "MAX_WORKFLOW_BYTES", 4)
+
+    text, error = workflow_policy._read_workflow(workflow, repository)
+
+    assert text is None
+    assert error == "workflow exceeds 4 byte limit"
+
+
+def test_missing_workflow_directory_reports_stable_finding(tmp_path: Path) -> None:
+    paths, findings = workflow_policy.workflow_paths(tmp_path)
+
+    assert paths == []
+    assert any("no GitHub Actions workflows found" in finding.message for finding in findings)
+
+
+def test_workflow_directory_must_be_directory(tmp_path: Path) -> None:
+    workflow_path = tmp_path / ".github" / "workflows"
+    workflow_path.parent.mkdir(parents=True)
+    workflow_path.write_text("not a directory", encoding="utf-8")
+
+    paths, findings = workflow_policy.workflow_paths(tmp_path)
+
+    assert paths == []
+    assert any("must be a regular directory" in finding.message for finding in findings)
 
 
 def test_workflow_enumeration_charges_non_yaml_entries_to_budget(
