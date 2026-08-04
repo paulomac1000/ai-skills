@@ -35,7 +35,13 @@ jobs:
       - name: Verify and apply reviewed patch
         run: |
           set -euo pipefail
-          cat .github/scripts/pr18-bot-fixes.part* > /tmp/pr18-bot-fixes.patch
+          cat \
+            .github/scripts/pr18-bot-fixes.part00 \
+            .github/scripts/pr18-bot-fixes.part01a \
+            .github/scripts/pr18-bot-fixes.part01b \
+            .github/scripts/pr18-bot-fixes.part02 \
+            .github/scripts/pr18-bot-fixes.part03 \
+            > /tmp/pr18-bot-fixes.patch
           echo '58da195b016357d35802a981faea0ad20b5f1e711955f90348e55a01393c3eb6  /tmp/pr18-bot-fixes.patch' | sha256sum --check
           git apply --check /tmp/pr18-bot-fixes.patch
           git apply /tmp/pr18-bot-fixes.patch
@@ -93,7 +99,13 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
-          cat .github/scripts/pr18-bot-fixes.part* > /tmp/pr18-bot-fixes.patch
+          cat \
+            .github/scripts/pr18-bot-fixes.part00 \
+            .github/scripts/pr18-bot-fixes.part01a \
+            .github/scripts/pr18-bot-fixes.part01b \
+            .github/scripts/pr18-bot-fixes.part02 \
+            .github/scripts/pr18-bot-fixes.part03 \
+            > /tmp/pr18-bot-fixes.patch
           echo '58da195b016357d35802a981faea0ad20b5f1e711955f90348e55a01393c3eb6  /tmp/pr18-bot-fixes.patch' | sha256sum --check
           git apply --check /tmp/pr18-bot-fixes.patch
           git apply /tmp/pr18-bot-fixes.patch
@@ -103,6 +115,8 @@ jobs:
           test "$(git status --porcelain --untracked-files=all | awk '{print $NF}' | sort)" = "$(printf '%s\n' \
             .github/scripts/pr18-bot-fixes.part00 \
             .github/scripts/pr18-bot-fixes.part01 \
+            .github/scripts/pr18-bot-fixes.part01a \
+            .github/scripts/pr18-bot-fixes.part01b \
             .github/scripts/pr18-bot-fixes.part02 \
             .github/scripts/pr18-bot-fixes.part03 \
             .github/workflows/apply-pr18-latest-bot-fixes.yml \
