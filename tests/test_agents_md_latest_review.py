@@ -662,3 +662,87 @@ def test_dynamic_github_condition_remains_potentially_executable(tmp_path: Path)
     _, findings = audit_module.audit(tmp_path, "application", "single", "en")
 
     assert "commands.unlocated-full-gate" not in _codes(findings)
+
+
+def test_dead_python_suite_does_not_discard_later_real_command() -> None:
+    commands = audit_module._extract_python_invocations(
+        """def dead() -> None:
+    if False:
+        print('never')
+
+def real() -> None:
+    import subprocess
+    subprocess.run(['python', 'scripts/ci.py'], check=True)
+"""
+    )
+
+    assert "python scripts/ci.py" in commands
+
+
+def test_just_recipe_with_dependencies_establishes_command_evidence() -> None:
+    commands = audit_module._extract_gate_invocations(
+        "justfile",
+        """build:
+    python scripts/build.py
+
+test: build
+    pytest -q
+""",
+    )
+
+    assert "pytest -q" in commands
+
+
+def test_just_assignment_does_not_start_recipe() -> None:
+    commands = audit_module._extract_gate_invocations(
+        "justfile",
+        """value := 'test'
+    python scripts/ghost.py
+""",
+    )
+
+    assert "python scripts/ghost.py" not in commands
+
+
+def test_jenkins_triple_quoted_commands_are_extracted() -> None:
+    commands = audit_module._extract_gate_invocations(
+        "Jenkinsfile",
+        """pipeline {
+  stages {
+    stage('test') {
+      steps {
+        sh '''
+          python -m pytest
+          python scripts/ci.py
+        '''
+        sh \"\"\"
+          python scripts/other.py
+        \"\"\"
+      }
+    }
+  }
+}
+""",
+    )
+
+    assert "python -m pytest" in commands
+    assert "python scripts/ci.py" in commands
+    assert "python scripts/other.py" in commands
+
+
+def test_just_quiet_recipe_with_dependencies_establishes_command_evidence(tmp_path: Path) -> None:
+    _write(tmp_path / "justfile", "@test: build\n    pytest -q\n")
+    _write(tmp_path / "AGENTS.md", _agents("pytest -q"))
+
+    _, findings = audit_module.audit(tmp_path, "application", "single", "en")
+
+    assert "commands.unlocated-full-gate" not in _codes(findings)
+
+
+def test_jenkins_single_line_powershell_uses_powershell_parser() -> None:
+    commands = shell_evidence._extract_gate_invocations(
+        "Jenkinsfile",
+        "powershell 'Write-Host ok # ; python scripts/ghost.py'\n",
+    )
+
+    assert "python scripts/ghost.py" not in commands

@@ -33,18 +33,35 @@ class _ReachableOnly(ast.NodeTransformer):
                 transformed.append(result)
         return transformed
 
+    def _suite(self, statements: list[ast.stmt]) -> list[ast.stmt]:
+        """Return a syntactically valid suite after recursive pruning."""
+        transformed = self._statements(statements)
+        return transformed or [ast.Pass()]
+
     def visit_If(self, node: ast.If) -> ast.AST | list[ast.stmt] | None:
         truthiness = self._truthiness(node.test)
         if truthiness is True:
-            return self._statements(node.body)
+            return self._suite(node.body)
         if truthiness is False:
-            return self._statements(node.orelse)
-        return self.generic_visit(node)
+            return self._suite(node.orelse)
+        had_orelse = bool(node.orelse)
+        transformed = self.generic_visit(node)
+        assert isinstance(transformed, ast.If)
+        transformed.body = transformed.body or [ast.Pass()]
+        if had_orelse and not transformed.orelse:
+            transformed.orelse = [ast.Pass()]
+        return transformed
 
     def visit_While(self, node: ast.While) -> ast.AST | list[ast.stmt] | None:
         if self._truthiness(node.test) is False:
-            return self._statements(node.orelse)
-        return self.generic_visit(node)
+            return self._suite(node.orelse)
+        had_orelse = bool(node.orelse)
+        transformed = self.generic_visit(node)
+        assert isinstance(transformed, ast.While)
+        transformed.body = transformed.body or [ast.Pass()]
+        if had_orelse and not transformed.orelse:
+            transformed.orelse = [ast.Pass()]
+        return transformed
 
     def visit_IfExp(self, node: ast.IfExp) -> ast.AST:
         truthiness = self._truthiness(node.test)

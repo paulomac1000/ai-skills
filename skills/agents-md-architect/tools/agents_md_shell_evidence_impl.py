@@ -532,6 +532,9 @@ def _extract_powershell_invocations(text: str) -> set[str]:
     return invocations
 
 
+_JUST_RECIPE_HEADER = re.compile(r"^@?[A-Za-z_][\w-]*(?:\s+[^\s:]+)*\s*:(?!=)")
+
+
 def _extract_recipe_invocations(text: str, *, makefile: bool) -> set[str]:
     invocations: set[str] = set()
     in_recipe = False
@@ -544,7 +547,7 @@ def _extract_recipe_invocations(text: str, *, makefile: bool) -> set[str]:
         if not stripped or stripped.startswith("#"):
             continue
         if not raw_line[:1].isspace():
-            in_recipe = stripped.endswith(":")
+            in_recipe = _JUST_RECIPE_HEADER.match(stripped) is not None
             continue
         if in_recipe:
             invocations.update(_extract_shell_invocations(stripped))
@@ -605,14 +608,37 @@ def _strip_groovy_comments(text: str) -> str:
 
 def _extract_jenkins_invocations(text: str) -> set[str]:
     invocations: set[str] = set()
-    pattern = re.compile(
-        r"^\s*(?:sh|bat|powershell|pwsh)\s*(?:\(\s*)?(?:script\s*:\s*)?"
-        r"(?P<quote>['\"])(?P<command>(?:\\.|(?!\1).)*?)(?P=quote)\s*\)?\s*;?\s*$"
+    cleaned = _strip_groovy_comments(text)
+    multiline = re.compile(
+        r"(?ms)^[ \t]*(?P<step>sh|bat|powershell|pwsh)\s*(?:\(\s*)?(?:script\s*:\s*)?"
+        r"(?P<quote>'''|\"\"\")(?P<command>.*?)(?P=quote)\s*\)?\s*;?[ \t]*$"
     )
-    for line in _strip_groovy_comments(text).splitlines():
-        match = pattern.fullmatch(line)
-        if match is not None:
-            _add_command_segments(invocations, match.group("command"))
+    masked = list(cleaned)
+    for match in multiline.finditer(cleaned):
+        extractor = (
+            _extract_powershell_invocations
+            if match.group("step") in {"powershell", "pwsh"}
+            else _extract_shell_invocations
+        )
+        invocations.update(extractor(match.group("command")))
+        for index in range(match.start(), match.end()):
+            if masked[index] != "\n":
+                masked[index] = " "
+
+    single_line = re.compile(
+        r"^\s*(?P<step>sh|bat|powershell|pwsh)\s*(?:\(\s*)?(?:script\s*:\s*)?"
+        r"(?P<quote>['\"])(?P<command>(?:\\.|(?!\2).)*?)(?P=quote)\s*\)?\s*;?\s*$"
+    )
+    for line in "".join(masked).splitlines():
+        match = single_line.fullmatch(line)
+        if match is None:
+            continue
+        extractor = (
+            _extract_powershell_invocations
+            if match.group("step") in {"powershell", "pwsh"}
+            else _extract_shell_invocations
+        )
+        invocations.update(extractor(match.group("command")))
     return invocations
 
 

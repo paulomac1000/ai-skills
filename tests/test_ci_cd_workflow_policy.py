@@ -1,3 +1,4 @@
+import inspect
 import sys
 from pathlib import Path
 
@@ -7,6 +8,7 @@ ROOT = Path(__file__).resolve().parents[1]
 TOOLS = ROOT / "skills/ci-cd-architect/tools"
 sys.path.insert(0, str(TOOLS))
 
+import check_github_actions_policy_impl as policy_impl  # noqa: E402
 from check_github_actions_policy import audit_repository, audit_workflow  # noqa: E402
 
 
@@ -92,9 +94,7 @@ def test_pr_secret_context_is_rejected(tmp_path: Path, reference: str) -> None:
         ),
         encoding="utf-8",
     )
-    assert any(
-        "must not reference repository secrets" in message for message in _messages(workflow)
-    )
+    assert any("must not reference repository secrets" in message for message in _messages(workflow))
 
 
 @pytest.mark.parametrize(
@@ -177,7 +177,10 @@ def test_repository_discovery_rejects_symlink_workflow(tmp_path: Path) -> None:
     workflow_dir.mkdir(parents=True)
     target = tmp_path / "outside.yml"
     target.write_text(_workflow(""), encoding="utf-8")
-    (workflow_dir / "ci.yml").symlink_to(target)
+    try:
+        (workflow_dir / "ci.yml").symlink_to(target)
+    except OSError as error:
+        pytest.skip(f"symlink creation is unavailable: {error}")
 
     assert any("non-symlink" in finding.message for finding in audit_repository(tmp_path))
 
@@ -193,3 +196,13 @@ def test_audit_rejects_dotdot_escape_outside_repository(tmp_path: Path) -> None:
     messages = [finding.message for finding in audit_workflow(escaped, repository)]
 
     assert any("cannot read workflow safely" in message for message in messages)
+
+
+def test_impl_requires_explicit_hardened_dependencies() -> None:
+    workflow_parameters = inspect.signature(policy_impl.audit_workflow).parameters
+    repository_parameters = inspect.signature(policy_impl.audit_repository).parameters
+
+    assert workflow_parameters["reader"].default is inspect.Parameter.empty
+    assert repository_parameters["reader"].default is inspect.Parameter.empty
+    assert repository_parameters["enumerator"].default is inspect.Parameter.empty
+    assert not hasattr(policy_impl, "main")

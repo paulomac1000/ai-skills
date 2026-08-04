@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import argparse
 import os
 import stat
 import sys
@@ -130,13 +131,41 @@ def workflow_paths(repository_root: Path) -> tuple[list[Path], list[Finding]]:
         return [], [Finding(workflow_dir, f"cannot enumerate workflows: {exc}")]
 
 
-_impl._read_workflow = _read_workflow
-_impl.workflow_paths = workflow_paths
+def audit_workflow(path: Path, repository_root: Path | None = None) -> list[Finding]:
+    """Audit one workflow with the hardened confined reader."""
+    root = (repository_root or path.parent).resolve()
+    return _impl.audit_workflow(path, root, reader=_read_workflow)
 
-audit_workflow = _impl.audit_workflow
-audit_repository = _impl.audit_repository
+
+def audit_repository(repository_root: Path) -> list[Finding]:
+    """Audit a repository with hardened reading and bounded enumeration."""
+    return _impl.audit_repository(
+        repository_root,
+        reader=_read_workflow,
+        enumerator=workflow_paths,
+    )
+
+
 _event_names = _impl._event_names
-main = _impl.main
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "repository_root",
+        nargs="?",
+        type=Path,
+        default=Path.cwd(),
+        help="Untrusted repository root to assess (default: current directory)",
+    )
+    args = parser.parse_args()
+    findings = audit_repository(args.repository_root)
+    if findings:
+        for finding in findings:
+            print(f"ERROR: {finding.render()}")
+        return 1
+    print("GitHub Actions policy: PASS")
+    return 0
 
 
 if __name__ == "__main__":
