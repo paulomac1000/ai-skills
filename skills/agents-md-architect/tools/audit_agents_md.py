@@ -28,10 +28,14 @@ from agents_md_python_evidence import _extract_python_invocations  # noqa: E402
 from agents_md_shell_evidence import (  # noqa: E402
     _command_path_tokens,
     _extract_gate_invocations,
-    _extract_shell_invocations,
-    _extract_yaml_invocations,
     _normalize_invocation,
     _yaml_syntax_error,
+)
+from agents_md_shell_evidence import (  # noqa: E402
+    _extract_shell_invocations as _shell_invocations,
+)
+from agents_md_shell_evidence import (  # noqa: E402
+    _extract_yaml_invocations as _yaml_invocations,
 )
 from agents_md_types import (  # noqa: E402
     MAX_GATE_FILE_BYTES,
@@ -49,6 +53,9 @@ from validate_agents_md import (  # noqa: E402
     normalize_selection,
     validate_many_with_documents,
 )
+
+_extract_shell_invocations = _shell_invocations
+_extract_yaml_invocations = _yaml_invocations
 
 Severity = Literal["error", "warning"]
 LINT_LEAKAGE = re.compile(
