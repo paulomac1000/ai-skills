@@ -99,6 +99,7 @@ jobs:
           git apply /tmp/pr18-audit-fixes.patch
           rm .github/scripts/pr18-audit-fixes.part*
           rm .github/workflows/apply-pr18-audit-fixes.yml
+          rm -f .tmp-placeholder .tmp-placeholder-2
           git diff --check
           test "$(git status --porcelain --untracked-files=all | awk '{print $NF}' | sort)" = "$(printf '%s\n' \
             .github/scripts/pr18-audit-fixes.part00 \
@@ -109,7 +110,11 @@ jobs:
             .github/scripts/pr18-audit-fixes.part05 \
             .github/scripts/pr18-audit-fixes.part06 \
             .github/scripts/pr18-audit-fixes.part07 \
+            .github/scripts/pr18-audit-fixes.part08 \
+            .github/scripts/pr18-audit-fixes.part09 \
             .github/workflows/apply-pr18-audit-fixes.yml \
+            .tmp-placeholder \
+            .tmp-placeholder-2 \
             skills/agents-md-architect/tools/agents_md_parse.py \
             skills/agents-md-architect/tools/agents_md_shell_evidence.py \
             skills/agents-md-architect/tools/agents_md_shell_evidence_impl.py \

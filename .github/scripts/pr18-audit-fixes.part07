@@ -1,21 +1,35 @@
- it.\n",
+n scripts/ghost.py" not in commands
++    assert "python scripts/ci.py" in commands
++
++
++@pytest.mark.parametrize("shell", ("python", "cmd", "${{ matrix.shell }}"))
++def test_unsupported_or_dynamic_github_shell_cannot_establish_evidence(tmp_path: Path, shell: str) -> None:
++    _write(
++        tmp_path / ".github/workflows/ci.yml",
++        f"""jobs:
++  test:
++    runs-on: ubuntu-latest
++    steps:
++      - run: npm run test
++        shell: {shell}
++""",
 +    )
++    _write(tmp_path / "AGENTS.md", _agents("npm run test"))
 +
-+    assert "links.missing" not in codes(validator.validate_path(path, "application", tmp_path))
++    _, findings = audit_module.audit(tmp_path, "application", "single", "en")
++
++    assert "commands.unlocated-full-gate" in _codes(findings)
 +
 +
-+def test_concrete_bare_filename_with_non_owner_suffix_is_still_validated(
-+    tmp_path: Path, validator: Any
-+) -> None:
-+    prepare_refs(tmp_path)
-+    path = write(
-+        tmp_path,
-+        "AGENTS.md",
-+        application_text() + "\nRead `manifest.yaml` for release metadata before publishing.\n",
++def test_duplicate_yaml_keys_are_invalid_and_cannot_establish_evidence(tmp_path: Path) -> None:
++    _write(
++        tmp_path / ".github/workflows/ci.yml",
++        """jobs:
++  test:
++    runs-on: ubuntu-latest
++    steps:
++      - run: npm run test
++        run: echo shadowed
++""",
 +    )
-+*+    assert "links.missing" in codes(validator.validate_path(path, "application", tmp_path))
-+
-+
- def test_concrete_bare_filename_reference_is_still_validated(tmp_path: Path, validator: Any) -> None:
-     prepare_refs(tmp_path)
-     path = write(
++    _write(tmp_path / "AGENTS
