@@ -6,7 +6,6 @@ import re
 from pathlib import Path
 
 from agents_md_parse import (
-    document_has_concept,
     is_negated_ci_rule,
     is_negated_keyword_rule,
     iter_references,
@@ -16,7 +15,9 @@ from agents_md_types import (
     ABSOLUTE_HOST_PATH,
     BARE_REFERENCE,
     CHANGELOG_HEADING,
+    CONCEPT_PATTERNS_BY_LANGUAGE,
     CONTEXT_WAIVER,
+    CONTRACT_MARKER,
     DOMAIN_NESTED_REQUIREMENTS,
     GENERIC_ADVICE,
     HEADING,
@@ -58,6 +59,64 @@ def _active_context_waivers(document: ParsedDocument) -> tuple[tuple[int, str], 
         for match in CONTEXT_WAIVER.finditer(line):
             waivers.append((line_number, match.group("reason").strip()))
     return tuple(waivers)
+
+
+def _contract_marker_bindings(
+    document: ParsedDocument,
+) -> tuple[frozenset[str], tuple[tuple[int, str], ...]]:
+    """Bind contract markers to concrete non-empty H2 sections."""
+    current_section: str | None = None
+    section_content: dict[str, bool] = {}
+    markers: list[tuple[int, str, str | None]] = []
+
+    for line_number, line in document.visible_lines:
+        heading = HEADING.fullmatch(line)
+        if heading is not None:
+            current_section = (
+                _normalize_heading(heading.group("title"))
+                if len(heading.group("level")) == 2
+                else None
+            )
+            if current_section is not None:
+                section_content.setdefault(current_section, False)
+            continue
+
+        marker = CONTRACT_MARKER.fullmatch(line.strip())
+        if marker is not None:
+            markers.append((line_number, marker.group("name").casefold(), current_section))
+            continue
+
+        if current_section is not None and line.strip() and not line.strip().startswith("<!--"):
+            section_content[current_section] = True
+
+    valid: set[str] = set()
+    invalid: list[tuple[int, str]] = []
+    for line_number, name, section in markers:
+        if section is None:
+            invalid.append((line_number, f"Contract marker '{name}' must appear inside an H2 section."))
+        elif not section_content.get(section, False):
+            invalid.append((line_number, f"Contract marker '{name}' is attached to an empty H2 section."))
+        else:
+            valid.add(name)
+    return frozenset(valid), tuple(invalid)
+
+
+def _semantic_concept_present(document: ParsedDocument, concept: str, language: LanguageName) -> bool | None:
+    """Validate prose for EN/PL and use bound markers only for other languages."""
+    valid_markers, _invalid = _contract_marker_bindings(document)
+    if language == "other":
+        return True if concept in valid_markers else None
+
+    patterns = CONCEPT_PATTERNS_BY_LANGUAGE[language]
+    if patterns is None:
+        return None
+    semantic_lines = (
+        line
+        for _, line in document.visible_lines
+        if CONTRACT_MARKER.fullmatch(line.strip()) is None
+    )
+    visible_text = "\n".join(semantic_lines)
+    return any(pattern.search(visible_text) for pattern in patterns[concept])
 
 
 def _validate_document(
@@ -114,6 +173,12 @@ def _validate_document(
                 Finding(str(path), "error", "content.changelog", line_number, "Move change history to CHANGELOG.md.")
             )
 
+    _valid_contracts, invalid_contracts = _contract_marker_bindings(document)
+    findings.extend(
+        Finding(str(path), "error", "language.invalid-contract-marker", line_number, message)
+        for line_number, message in invalid_contracts
+    )
+
     waivers = _active_context_waivers(document)
     valid_waiver = len(waivers) == 1 and len(waivers[0][1]) >= 20
     if waivers and not valid_waiver:
@@ -141,7 +206,7 @@ def _validate_document(
 
     nested = layout == "monorepo" and path.parent != root
     for concept in _ordered_requirements(profile, layout, nested):
-        present = document_has_concept(document, concept, language)
+        present = _semantic_concept_present(document, concept, language)
         if present is True:
             continue
         if present is None:
@@ -151,8 +216,8 @@ def _validate_document(
                     "warning",
                     "language.semantic-unverified",
                     1,
-                    f"Cannot verify the '{concept}' contract for language 'other'; add "
-                    f"<!-- agents-md: contract {concept} -->.",
+                    f"Cannot verify the '{concept}' contract for language 'other'; add a marker inside "
+                    "the matching non-empty H2 section.",
                 )
             )
             continue
