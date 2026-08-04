@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import sys
+import tomllib
 from pathlib import Path
 from typing import Any
 
@@ -45,8 +46,10 @@ def test_agents_tools_are_in_every_policy_critical_target_set() -> None:
         assert (ROOT / tools / name).is_file()
     assert not (ROOT / tools / "__init__.py").exists()
 
-    mypy = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
-    assert 'mypy_path = "skills/agents-md-architect/tools"' in mypy
+    config = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    mypy_path = config["tool"]["mypy"]["mypy_path"]
+    assert tools in mypy_path
+    assert "contracts" in mypy_path
 
 
 def test_hosted_workflow_consumes_canonical_target_inventory() -> None:
