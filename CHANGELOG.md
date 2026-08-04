@@ -11,6 +11,7 @@ This release adds a governed standard for designing and maintaining repository i
 - Added an executable validator for profile requirements, instruction length, relative links, repository-boundary escapes, blind references, placeholders, versioned current names, volatile counts, host-specific paths, generic advice, keyword-based approval, and false CI guarantees.
 - Added regression tests and stable adoption rules covering scope, discovery, profiles, ownership, safety, verification, routing, nested locality, drift, and completion evidence.
 - Added compositional layout and domain-profile validation, bounded English and Polish lexical contracts, and stable contract markers for other document languages.
+- Added a bounded `ci-cd-architect` GitHub Actions policy auditor for evaluating untrusted workflow trees from a trusted immutable revision.
 
 ### Changed
 
@@ -20,6 +21,7 @@ This release adds a governed standard for designing and maintaining repository i
 - Made audit and validation share one bounded instruction-tree read, enforced root topology for single and monorepo layouts, required safety contracts for router and application profiles, normalized filesystem failures, and bounded fail-closed repository and gate-source discovery.
 - Hardened full ancestor directive, command, and canonical-owner inheritance; rejected invalid YAML as command evidence while charging every read to the aggregate budget; recognized subprocess and operating-system calls only after real imports at any AST depth; and declared the PyYAML runtime dependency used by the audit tool.
 - Hardened fenced examples inside Markdown list containers, descriptor-bounded file reads, executable-only command evidence extraction, incremental repository enumeration, and platform-capability-preserving tests for the component-safe reader path.
+- Required workflow-policy approval to execute the auditor from an immutable authority outside the assessed pull-request tree; repository-local copies are diagnostic mirrors only.
 
 ## 1.1.0 - 2026-07-27
 
