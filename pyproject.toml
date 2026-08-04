@@ -8,6 +8,7 @@ markers = ["container: requires a local Docker daemon"]
 target-version = "py312"
 line-length = 120
 extend-exclude = [
+  "skills/agents-md-architect/tools/agents_md_shell_evidence_impl.py",
   "skills/mcp-server-architect/tools/dotnet-template",
 ]
 
