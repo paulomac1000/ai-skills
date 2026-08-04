@@ -5,9 +5,20 @@ from __future__ import annotations
 from pathlib import Path
 
 import agents_md_shell_evidence_impl as _impl
+from agents_md_command import parse_invocation
+
+
+def _normalize_invocation(command: str) -> str | None:
+    """Return a round-trippable display string that preserves exact argv boundaries."""
+    invocation = parse_invocation(command)
+    return invocation.display if invocation is not None else None
+
+
+# The implementation resolves this global at call time. Replace its legacy
+# whitespace-joining normalizer before exposing any extractor aliases.
+_impl._normalize_invocation = _normalize_invocation
 
 INVALID_YAML_MESSAGE = _impl.INVALID_YAML_MESSAGE
-_normalize_invocation = _impl._normalize_invocation
 _add_command_segments = _impl._add_command_segments
 _command_path_tokens = _impl._command_path_tokens
 _yaml_syntax_error = _impl._yaml_syntax_error
