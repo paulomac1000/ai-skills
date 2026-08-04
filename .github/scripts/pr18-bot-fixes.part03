@@ -1,0 +1,134 @@
+d0c7c7 100644
+--- a/tests/test_agents_md_latest_review.py
++++ b/tests/test_agents_md_latest_review.py
+@@ -662,3 +662,87 @@ def test_dynamic_github_condition_remains_potentially_executable(tmp_path: Path)
+     _, findings = audit_module.audit(tmp_path, "application", "single", "en")
+ 
+     assert "commands.unlocated-full-gate" not in _codes(findings)
++
++
++def test_dead_python_suite_does_not_discard_later_real_command() -> None:
++    commands = audit_module._extract_python_invocations(
++        """def dead() -> None:
++    if False:
++        print('never')
++
++def real() -> None:
++    import subprocess
++    subprocess.run(['python', 'scripts/ci.py'], check=True)
++"""
++    )
++
++    assert "python scripts/ci.py" in commands
++
++
++def test_just_recipe_with_dependencies_establishes_command_evidence() -> None:
++    commands = audit_module._extract_gate_invocations(
++        "justfile",
++        """build:
++    python scripts/build.py
++
++test: build
++    pytest -q
++""",
++    )
++
++    assert "pytest -q" in commands
++
++
++def test_just_assignment_does_not_start_recipe() -> None:
++    commands = audit_module._extract_gate_invocations(
++        "justfile",
++        """value := 'test'
++    python scripts/ghost.py
++""",
++    )
++
++    assert "python scripts/ghost.py" not in commands
++
++
++def test_jenkins_triple_quoted_commands_are_extracted() -> None:
++    commands = audit_module._extract_gate_invocations(
++        "Jenkinsfile",
++        """pipeline {
++  stages {
++    stage('test') {
++      steps {
++        sh '''
++          python -m pytest
++          python scripts/ci.py
++        '''
++        sh \"\"\"
++          python scripts/other.py
++        \"\"\"
++      }
++    }
++  }
++}
++""",
++    )
++
++    assert "python -m pytest" in commands
++    assert "python scripts/ci.py" in commands
++    assert "python scripts/other.py" in commands
++
++
++def test_just_quiet_recipe_with_dependencies_establishes_command_evidence(tmp_path: Path) -> None:
++    _write(tmp_path / "justfile", "@test: build\n    pytest -q\n")
++    _write(tmp_path / "AGENTS.md", _agents("pytest -q"))
++
++    _, findings = audit_module.audit(tmp_path, "application", "single", "en")
++
++    assert "commands.unlocated-full-gate" not in _codes(findings)
++
++
++def test_jenkins_single_line_powershell_uses_powershell_parser() -> None:
++    commands = shell_evidence._extract_gate_invocations(
++        "Jenkinsfile",
++        "powershell 'Write-Host ok # ; python scripts/ghost.py'\n",
++    )
++
++    assert "python scripts/ghost.py" not in commands
+diff --git a/tests/test_ci_cd_workflow_policy.py b/tests/test_ci_cd_workflow_policy.py
+index 2199f63..d15b01f 100644
+--- a/tests/test_ci_cd_workflow_policy.py
++++ b/tests/test_ci_cd_workflow_policy.py
+@@ -1,3 +1,4 @@
++import inspect
+ import sys
+ from pathlib import Path
+ 
+@@ -7,6 +8,7 @@ ROOT = Path(__file__).resolve().parents[1]
+ TOOLS = ROOT / "skills/ci-cd-architect/tools"
+ sys.path.insert(0, str(TOOLS))
+ 
++import check_github_actions_policy_impl as policy_impl  # noqa: E402
+ from check_github_actions_policy import audit_repository, audit_workflow  # noqa: E402
+ 
+ 
+@@ -177,7 +179,10 @@ def test_repository_discovery_rejects_symlink_workflow(tmp_path: Path) -> None:
+     workflow_dir.mkdir(parents=True)
+     target = tmp_path / "outside.yml"
+     target.write_text(_workflow(""), encoding="utf-8")
+-    (workflow_dir / "ci.yml").symlink_to(target)
++    try:
++        (workflow_dir / "ci.yml").symlink_to(target)
++    except OSError as error:
++        pytest.skip(f"symlink creation is unavailable: {error}")
+ 
+     assert any("non-symlink" in finding.message for finding in audit_repository(tmp_path))
+ 
+@@ -193,3 +198,13 @@ def test_audit_rejects_dotdot_escape_outside_repository(tmp_path: Path) -> None:
+     messages = [finding.message for finding in audit_workflow(escaped, repository)]
+ 
+     assert any("cannot read workflow safely" in message for message in messages)
++
++
++def test_impl_requires_explicit_hardened_dependencies() -> None:
++    workflow_parameters = inspect.signature(policy_impl.audit_workflow).parameters
++    repository_parameters = inspect.signature(policy_impl.audit_repository).parameters
++
++    assert workflow_parameters["reader"].default is inspect.Parameter.empty
++    assert repository_parameters["reader"].default is inspect.Parameter.empty
++    assert repository_parameters["enumerator"].default is inspect.Parameter.empty
++    assert not hasattr(policy_impl, "main")

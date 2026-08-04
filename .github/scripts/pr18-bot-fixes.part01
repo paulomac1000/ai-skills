@@ -1,0 +1,140 @@
+ompile(
++        r"^\s*(?P<step>sh|bat|powershell|pwsh)\s*(?:\(\s*)?(?:script\s*:\s*)?"
++        r"(?P<quote>['\"])(?P<command>(?:\\.|(?!\2).)*?)(?P=quote)\s*\)?\s*;?\s*$"
++    )
++    for line in "".join(masked).splitlines():
++        match = single_line.fullmatch(line)
++        if match is None:
++            continue
++        extractor = (
++            _extract_powershell_invocations
++            if match.group("step") in {"powershell", "pwsh"}
++            else _extract_shell_invocations
++        )
++        invocations.update(extractor(match.group("command")))
+     return invocations
+ 
+ 
+diff --git a/skills/ci-cd-architect/tools/check_github_actions_policy.py b/skills/ci-cd-architect/tools/check_github_actions_policy.py
+index 16bb49b..5ade599 100644
+--- a/skills/ci-cd-architect/tools/check_github_actions_policy.py
++++ b/skills/ci-cd-architect/tools/check_github_actions_policy.py
+@@ -3,6 +3,7 @@
+ 
+ from __future__ import annotations
+ 
++import argparse
+ import os
+ import stat
+ import sys
+@@ -130,13 +131,41 @@ def workflow_paths(repository_root: Path) -> tuple[list[Path], list[Finding]]:
+         return [], [Finding(workflow_dir, f"cannot enumerate workflows: {exc}")]
+ 
+ 
+-_impl._read_workflow = _read_workflow
+-_impl.workflow_paths = workflow_paths
++def audit_workflow(path: Path, repository_root: Path | None = None) -> list[Finding]:
++    """Audit one workflow with the hardened confined reader."""
++    root = (repository_root or path.parent).resolve()
++    return _impl.audit_workflow(path, root, reader=_read_workflow)
++
++
++def audit_repository(repository_root: Path) -> list[Finding]:
++    """Audit a repository with hardened reading and bounded enumeration."""
++    return _impl.audit_repository(
++        repository_root,
++        reader=_read_workflow,
++        enumerator=workflow_paths,
++    )
++
+ 
+-audit_workflow = _impl.audit_workflow
+-audit_repository = _impl.audit_repository
+ _event_names = _impl._event_names
+-main = _impl.main
++
++
++def main() -> int:
++    parser = argparse.ArgumentParser(description=__doc__)
++    parser.add_argument(
++        "repository_root",
++        nargs="?",
++        type=Path,
++        default=Path.cwd(),
++        help="Untrusted repository root to assess (default: current directory)",
++    )
++    args = parser.parse_args()
++    findings = audit_repository(args.repository_root)
++    if findings:
++        for finding in findings:
++            print(f"ERROR: {finding.render()}")
++        return 1
++    print("GitHub Actions policy: PASS")
++    return 0
+ 
+ 
+ if __name__ == "__main__":
+diff --git a/skills/ci-cd-architect/tools/check_github_actions_policy_impl.py b/skills/ci-cd-architect/tools/check_github_actions_policy_impl.py
+index 38a41c2..3a0a200 100644
+--- a/skills/ci-cd-architect/tools/check_github_actions_policy_impl.py
++++ b/skills/ci-cd-architect/tools/check_github_actions_policy_impl.py
+@@ -3,11 +3,8 @@
+ 
+ from __future__ import annotations
+ 
+-import argparse
+-import os
+ import re
+-import stat
+-from collections.abc import Iterator
++from collections.abc import Callable, Iterator
+ from dataclasses import dataclass
+ from pathlib import Path
+ from typing import Any
+@@ -251,53 +248,18 @@ def _scalar_strings(value: Any) -> Iterator[str]:
+             yield from _scalar_strings(item)
+ 
+ 
+-def _read_workflow(path: Path, repository_root: Path) -> tuple[str | None, str | None]:
+-    try:
+-        root = repository_root.resolve(strict=True)
+-        resolved = path.resolve(strict=True)
+-        resolved.relative_to(root)
+-        relative = path.relative_to(repository_root)
+-        current = root
+-        for component in relative.parts:
+-            current = current / component
+-            mode = current.lstat().st_mode
+-            if stat.S_ISLNK(mode):
+-                return None, "workflow path must not contain symlinks"
+-        file_stat = resolved.stat()
+-        if not stat.S_ISREG(file_stat.st_mode):
+-            return None, "workflow path must be a regular file"
+-        if file_stat.st_size > MAX_WORKFLOW_BYTES:
+-            return None, f"workflow exceeds {MAX_WORKFLOW_BYTES} byte limit"
+-
+-        flags = os.O_RDONLY
+-        if hasattr(os, "O_NOFOLLOW"):
+-            flags |= os.O_NOFOLLOW
+-        descriptor = os.open(resolved, flags)
+-        try:
+-            opened = os.fstat(descriptor)
+-            if not stat.S_ISREG(opened.st_mode):
+-                return None, "workflow path must be a regular file"
+-            chunks: list[bytes] = []
+-            remaining = MAX_WORKFLOW_BYTES + 1
+-            while remaining > 0:
+-                chunk = os.read(descriptor, min(64 * 1024, remaining))
+-                if not chunk:
+-                    break
+-                chunks.append(chunk)
+-                remaining -= len(chunk)
+-            payload = b"".join(chunks)
+-        finally:
+-            os.close(descriptor)
+-        if len(payload) > MAX_WORKFLOW_BYTES:
+-            return None, f"workflow exceeds {MAX_WORKFLOW_BYTES} byte limit"
+-        return payload.decode("utf-8"), None
+-    except (OSError, UnicodeError, ValueError) as exc:
+-        return None, f"cannot read workflow safely: {exc}"
+--
