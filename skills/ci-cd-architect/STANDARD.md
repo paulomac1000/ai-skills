@@ -5,7 +5,7 @@ type: reference
 status: active
 rigor: normative
 owners: [repository-maintainers]
-verification: Render every bundled template, parse it as YAML, run `python scripts/ci.py`, and review permissions and release identity manually.
+verification: Render every bundled template, parse it as YAML, run `python scripts/ci.py`, execute the trusted workflow-policy auditor against a candidate tree, and review permissions and release identity manually.
 ---
 
 # CI/CD standard
@@ -50,6 +50,8 @@ MCP repositories additionally test public tool registration, schema exposure, re
 
 Documentation changes trigger validation when either governed files, the validator, its configuration, or the workflow itself changes. Pull-request security scans are diff-aware where supported. Scheduled scans cover the full repository and upload SARIF only when a report exists.
 
+A workflow-policy result is authoritative only when the auditor comes from a trusted immutable revision outside the assessed pull-request tree. The candidate may contain an offline mirror, but CI must compare that mirror with the trusted source and execute the trusted source against the candidate workflows. The bundled `tools/check_github_actions_policy.py` fails closed on malformed or duplicate-key YAML, symlinked or oversized workflow input, mutable action and Docker references, broad permissions, dynamic runners, missing timeouts and concurrency, unsafe checkout credentials, incomplete artifact policy, and pull-request secret access.
+
 ## Release identity and artifact promotion
 
 A release workflow:
@@ -70,4 +72,4 @@ Pre-commit runs only deterministic, fast, secret-free checks. Pre-push may run t
 
 ## Verification
 
-Render every workflow with representative values, parse the YAML, inspect each job and `uses` reference, and run the associated project commands. For releases, perform a dry run or disposable-registry test proving the smoke-tested image and pushed digest represent the same build.
+Render every workflow with representative values, parse the YAML, inspect each job and `uses` reference, and run the associated project commands. Run the workflow-policy auditor from a trusted immutable checkout against the candidate repository root; do not execute the candidate's copy as approval authority. For releases, perform a dry run or disposable-registry test proving the smoke-tested image and pushed digest represent the same build.
