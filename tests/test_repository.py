@@ -26,6 +26,7 @@ POLISH_MARKERS = re.compile(
 LOCALIZED_LANGUAGE_CONTRACT_FILES = {
     Path("skills/agents-md-architect/tools/agents_md_types.py"),
     Path("skills/agents-md-architect/tools/agents_md_parse.py"),
+    Path("skills/agents-md-architect/tools/agents_md_completion_evidence.py"),
     Path("skills/agents-md-architect/tools/audit_agents_md.py"),
     Path("tests/test_agents_md_composition_and_language.py"),
 }
