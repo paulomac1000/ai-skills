@@ -32,12 +32,11 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Verify and apply reviewed patch
+      - name: Apply exact typing correction
         run: |
           set -euo pipefail
-          echo '49f1b4b10432eebf6f8fd689b5390c6d970b848454d5803fc97ba3b9742af581  .github/scripts/pr18-mypy-fix.patch' | sha256sum --check
-          git apply --check .github/scripts/pr18-mypy-fix.patch
-          git apply .github/scripts/pr18-mypy-fix.patch
+          echo '76cdb0aaca453f1842936441462004b9ccc8f943a67d3784cee919642047b573  .github/scripts/pr18-mypy-fix.py' | sha256sum --check
+          python .github/scripts/pr18-mypy-fix.py
           git diff --check
           test "$(git diff --name-only)" = 'skills/agents-md-architect/tools/agents_md_shell_evidence_impl.py'
 
@@ -54,6 +53,28 @@ jobs:
             tests/test_agents_md_latest_review.py \
             tests/test_agents_md_structural_followup.py
 
+      - name: Stage verified production file
+        run: |
+          set -euo pipefail
+          root=verified-mypy-fix
+          mkdir -p "$root/skills/agents-md-architect/tools"
+          cp \
+            skills/agents-md-architect/tools/agents_md_shell_evidence_impl.py \
+            "$root/skills/agents-md-architect/tools/agents_md_shell_evidence_impl.py"
+          printf '%s\n' \
+            "source_head=${{ github.event.pull_request.head.sha }}" \
+            > "$root/MANIFEST.txt"
+          find "$root" -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > "$root/SHA256SUMS"
+
+      - name: Upload verified production file
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: pr18-mypy-fix-${{ github.event.pull_request.head.sha }}
+          path: verified-mypy-fix
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+
   publish:
     needs: verify
     runs-on: ubuntu-24.04
@@ -68,7 +89,13 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Commit verified fix and remove transport files
+      - name: Download verified production file
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: pr18-mypy-fix-${{ github.event.pull_request.head.sha }}
+          path: verified-output
+
+      - name: Verify artifact and create clean commit
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           EXPECTED_HEAD: ${{ github.event.pull_request.head.sha }}
@@ -76,14 +103,25 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
-          echo '49f1b4b10432eebf6f8fd689b5390c6d970b848454d5803fc97ba3b9742af581  .github/scripts/pr18-mypy-fix.patch' | sha256sum --check
-          git apply --check .github/scripts/pr18-mypy-fix.patch
-          git apply .github/scripts/pr18-mypy-fix.patch
-          rm .github/scripts/pr18-mypy-fix.patch
-          rm .github/workflows/apply-pr18-mypy-fix.yml
+          root=verified-output
+          test "$(find "$root" -type f -printf '%P\n' | sort)" = "$(printf '%s\n' \
+            MANIFEST.txt \
+            SHA256SUMS \
+            skills/agents-md-architect/tools/agents_md_shell_evidence_impl.py | sort)"
+          grep -Fx "source_head=$EXPECTED_HEAD" "$root/MANIFEST.txt"
+          sed "s#  verified-mypy-fix/#  ${root}/#" "$root/SHA256SUMS" | sha256sum --check
+          cp \
+            "$root/skills/agents-md-architect/tools/agents_md_shell_evidence_impl.py" \
+            skills/agents-md-architect/tools/agents_md_shell_evidence_impl.py
+          rm -rf "$root"
+          rm -f \
+            .github/scripts/pr18-mypy-fix.patch \
+            .github/scripts/pr18-mypy-fix.py \
+            .github/workflows/apply-pr18-mypy-fix.yml
           git diff --check
           test "$(git status --porcelain --untracked-files=all | awk '{print $NF}' | sort)" = "$(printf '%s\n' \
             .github/scripts/pr18-mypy-fix.patch \
+            .github/scripts/pr18-mypy-fix.py \
             .github/workflows/apply-pr18-mypy-fix.yml \
             skills/agents-md-architect/tools/agents_md_shell_evidence_impl.py | sort)"
           git config user.name 'github-actions[bot]'
