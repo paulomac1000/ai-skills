@@ -9,7 +9,6 @@ from collections.abc import Iterable
 from pathlib import Path
 
 import yaml
-
 from agents_md_parse import parse_visible_lines
 from agents_md_types import HEADING, CommandRule, _normalize_rule
 
