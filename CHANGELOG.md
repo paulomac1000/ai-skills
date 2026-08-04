@@ -12,6 +12,7 @@ This release adds a governed standard for designing and maintaining repository i
 - Added regression tests and stable adoption rules covering scope, discovery, profiles, ownership, safety, verification, routing, nested locality, drift, and completion evidence.
 - Added compositional layout and domain-profile validation, bounded English and Polish lexical contracts, and stable contract markers for other document languages.
 - Added a bounded `ci-cd-architect` GitHub Actions policy auditor for evaluating untrusted workflow trees from a trusted immutable revision.
+- Added a governed Husky and lint-staged profile with evidence-based package-manager selection, staged-file preservation, offline execution, and explicit CI authority.
 
 ### Changed
 
@@ -22,6 +23,7 @@ This release adds a governed standard for designing and maintaining repository i
 - Hardened full ancestor directive, command, and canonical-owner inheritance; rejected invalid YAML as command evidence while charging every read to the aggregate budget; recognized subprocess and operating-system calls only after real imports at any AST depth; and declared the PyYAML runtime dependency used by the audit tool.
 - Hardened fenced examples inside Markdown list containers, descriptor-bounded file reads, executable-only command evidence extraction, incremental repository enumeration, and platform-capability-preserving tests for the component-safe reader path.
 - Required workflow-policy approval to execute the auditor from an immutable authority outside the assessed pull-request tree; repository-local copies are diagnostic mirrors only.
+- Replaced flattened command strings with lossless `argv` comparison for completion evidence, preserved quoted task and package-script names, rejected option-like task names, and removed ambiguous package-manager shorthand evidence.
 
 ## 1.1.0 - 2026-07-27
 
@@ -63,6 +65,6 @@ This release consolidates the complete implementation history of the branch into
 - 2026-06-06: Expanded MCP server guidance for transport, middleware, discovery, security, reliability, and production operation.
 - 2026-06-05: Standardized skill metadata and strengthened documentation and CI template validation.
 - 2026-06-01: Added the MCP consumer domain and deterministic decision-policy helpers.
-- 2026-05-23: Strengthened CI/CD release integrity, workflow security, and dependency automation.
+- 2026-05-23: Strengthened CI/CD release integrity, workflow security, reliability, and dependency automation.
 - 2026-05-21: Corrected CI rule identifiers and static-analysis edge cases.
 - 2026-05-13: Added stricter documentation structure checks.
