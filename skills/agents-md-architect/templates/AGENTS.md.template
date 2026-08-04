@@ -1,8 +1,6 @@
 # AGENTS.md
 
-<!-- agents-md: contract scope -->
-<!-- agents-md: contract precedence -->
-<!-- agents-md: contract nested -->
+<!-- For --language other, add only the selected profile's required contract markers inside their matching non-empty H2 sections. English and Polish validation uses the prose itself. -->
 
 These instructions apply to the repository. Before adding nested files, verify the selected platform's behavior using [the platform precedence contract](REPLACE_WITH_PLATFORM_REFERENCE).
 
@@ -19,8 +17,6 @@ These instructions apply to the repository. Before adding nested files, verify t
 
 ## Read before editing
 
-<!-- agents-md: contract routing -->
-
 1. Read [the canonical entry point](REPLACE_WITH_CANONICAL_ENTRYPOINT) for REPLACE_WITH_PURPOSE.
 2. When changing REPLACE_WITH_AREA, read [the focused contract](REPLACE_WITH_REFERENCE) for REPLACE_WITH_DECISION_OWNED.
 
@@ -34,17 +30,11 @@ Stop when these disagree. Reconcile the canonical owner instead of selecting the
 
 ## Architecture and safety boundaries
 
-<!-- agents-md: contract safety -->
-<!-- agents-md: contract data -->
-<!-- agents-md: contract risk -->
-
 - REPLACE_WITH_NON_OBVIOUS_DEPENDENCY_OR_GENERATED_FILE_RULE.
 - REPLACE_WITH_PROTECTED_ASSET_AND_ALLOWED_COMPONENT.
 - REPLACE_WITH_FORBIDDEN_FLOW_OR_DESTRUCTIVE_ACTION.
 
 ## Commands
-
-<!-- agents-md: contract commands -->
 
 - Setup: `REPLACE_WITH_SETUP_COMMAND`
 - Focused check: `REPLACE_WITH_FOCUSED_COMMAND`
@@ -53,8 +43,6 @@ Stop when these disagree. Reconcile the canonical owner instead of selecting the
 State external-service, credential, cost, or destructive preconditions next to the command that needs them.
 
 ## Definition of done
-
-<!-- agents-md: contract completion -->
 
 - The changed behavior has focused regression evidence.
 - Relevant links, generated-file ownership, and documentation agree.
