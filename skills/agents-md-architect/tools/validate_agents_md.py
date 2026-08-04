@@ -12,8 +12,11 @@ from pathlib import Path
 from typing import Literal, cast
 
 TOOLS = Path(__file__).resolve().parent
-if str(TOOLS) not in sys.path:
-    sys.path.insert(0, str(TOOLS))
+REPOSITORY_ROOT = TOOLS.parents[2]
+CONTRACTS = REPOSITORY_ROOT / "contracts"
+for candidate in (TOOLS, CONTRACTS):
+    if str(candidate) not in sys.path:
+        sys.path.insert(0, str(candidate))
 
 from agents_md_codex_platform import (  # noqa: E402
     CODEX_DEFAULT_PROJECT_DOC_MAX_BYTES,
@@ -29,7 +32,7 @@ from agents_md_document_rules import (  # noqa: E402
     _ordered_requirements as _ordered_requirements,
 )
 from agents_md_document_rules import _validate_document  # noqa: E402
-from agents_md_parse import parse_document, read_utf8_bounded, trusted_input, trusted_root  # noqa: E402
+from agents_md_parse import parse_document, trusted_input, trusted_root  # noqa: E402
 from agents_md_tree_validation import (  # noqa: E402
     _ancestor_chain as _ancestor_chain,
 )
@@ -38,6 +41,7 @@ from agents_md_tree_validation import (  # noqa: E402
     _validate_tree as _validate_tree,
 )
 from agents_md_types import (  # noqa: E402
+    MAX_INSTRUCTION_FILE_BYTES,
     MAX_INSTRUCTION_FILES,
     MAX_INSTRUCTION_TREE_BYTES,
     DomainProfileName,
@@ -46,6 +50,7 @@ from agents_md_types import (  # noqa: E402
     LayoutName,
     ParsedDocument,
 )
+from confined_io import ConfinedReadError, read_utf8_bounded  # noqa: E402
 
 PlatformName = Literal["generic", "codex"]
 LEGACY_PROFILE_CHOICES = ("router", "application", "monorepo", "mcp-server", "safety-critical")
@@ -77,22 +82,12 @@ def _read_document(
     trusted, code, message = trusted_input(path, root)
     if code is not None or trusted is None:
         return None, None, Finding(str(path), "error", code or "input.invalid", 1, message or "Invalid input."), 0
-    result = read_utf8_bounded(trusted)
-    if result.code is not None or result.text is None:
-        return (
-            None,
-            None,
-            Finding(
-                str(trusted),
-                "error",
-                result.code or "input.read-error",
-                1,
-                result.message or "Read failed.",
-            ),
-            result.byte_count,
-        )
-    document, unclosed_fence = parse_document(trusted, root, result.text, language)
-    return document, unclosed_fence, None, result.byte_count
+    try:
+        text, byte_count = read_utf8_bounded(trusted, root, MAX_INSTRUCTION_FILE_BYTES)
+    except ConfinedReadError as error:
+        return None, None, Finding(str(trusted), "error", error.code, 1, error.message), error.byte_count
+    document, unclosed_fence = parse_document(trusted, root, text, language)
+    return document, unclosed_fence, None, byte_count
 
 
 def validate_path(
