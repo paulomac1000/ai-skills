@@ -162,15 +162,11 @@ def _collect_workflow_entries(
             findings.append(Finding(entry_path, f"cannot inspect workflow: {exc}"))
             continue
         if _is_link_or_reparse(metadata) or not stat.S_ISREG(metadata.st_mode):
-            findings.append(
-                Finding(entry_path, "workflow path must be a regular non-symlink file")
-            )
+            findings.append(Finding(entry_path, "workflow path must be a regular non-symlink file"))
             continue
         total_bytes += metadata.st_size
         if total_bytes > MAX_TOTAL_BYTES:
-            findings.append(
-                Finding(workflow_dir, f"workflow bytes exceed {MAX_TOTAL_BYTES} total limit")
-            )
+            findings.append(Finding(workflow_dir, f"workflow bytes exceed {MAX_TOTAL_BYTES} total limit"))
             break
         paths.append(entry_path)
 
@@ -192,9 +188,7 @@ def workflow_paths(repository_root: Path) -> tuple[list[Path], list[Finding]]:
             return [], [Finding(workflow_dir, f"cannot enumerate workflows: {exc}")]
         try:
             if not stat.S_ISDIR(os.fstat(descriptor).st_mode):
-                return [], [
-                    Finding(workflow_dir, "workflow directory must be a regular directory")
-                ]
+                return [], [Finding(workflow_dir, "workflow directory must be a regular directory")]
             with os.scandir(descriptor) as entries:
                 return _collect_workflow_entries(entries, workflow_dir)
         except OSError as exc:
@@ -209,9 +203,7 @@ def workflow_paths(repository_root: Path) -> tuple[list[Path], list[Finding]]:
         with os.scandir(workflow_dir) as entries:
             paths, findings = _collect_workflow_entries(entries, workflow_dir)
         if not _snapshot_is_current(snapshot):
-            return [], [
-                Finding(workflow_dir, "workflow directory identity changed while enumerating")
-            ]
+            return [], [Finding(workflow_dir, "workflow directory identity changed while enumerating")]
         return paths, findings
     except FileNotFoundError:
         return [], [Finding(repository_root, "no GitHub Actions workflows found")]
