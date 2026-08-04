@@ -1,0 +1,167 @@
+ing < 0:
+             return
+-        yield line[end:closing].strip()
++        yield line[end:closing].strip(), index, closing + width
+         index = closing + width
+ 
+ 
+-def _is_path_candidate(value: str, source_line: str) -> bool:
++def _iter_code_spans(line: str) -> Iterator[str]:
++    for value, _start, _end in _iter_code_span_matches(line):
++        yield value
++
++
++_GENERIC_REFERENCE_OWNER = re.compile(
++    r"(?ix)(?:"
++    r"\bits(?:\s+\w+){0,3}|"
++    r"\btheir(?:\s+\w+){0,3}|"
++    r"\b(?:each|every|affected|selected)\s+"
++    r"(?:\w+\s+){0,2}(?:skill|package|component|module|service)(?:['’]s)?"
++    r"(?:\s+\w+){0,2}|"
++    r"\b(?:a|an|the)\s+(?:\w+\s+){0,2}skill(?:['’]s)?(?:\s+\w+){0,2}"
++    r")\s*$"
++)
++
++
++def _is_path_candidate(value: str, source_line: str, span_start: int | None = None) -> bool:
+     if not value or any(character.isspace() for character in value):
+         return False
+     if value.startswith(("$", "-", "http://", "https://")):
+         return False
+     if any(character in value for character in "{}|*<>="):
+         return False
+-    candidate = unquote(value.split("#", 1)[0]).removeprefix("./")
++    raw_candidate = unquote(value.split("#", 1)[0])
++    candidate = raw_candidate.removeprefix("./")
+     path = Path(candidate)
++    has_directory = "/" in candidate or "\\" in candidate or raw_candidate.startswith(("./", "../"))
++    if not has_directory and span_start is not None:
++        prefix = source_line[:span_start].rstrip()
++        if _GENERIC_REFERENCE_OWNER.search(prefix):
++            return False
+     return (
+         path.name in PATH_NAMES
+         or path.suffix.casefold() in PATH_SUFFIXES
+-        or ("/" in candidate and PATH_CUE.search(source_line) is not None)
++        or (has_directory and PATH_CUE.search(source_line) is not None)
+     )
+ 
+ 
+@@ -302,8 +361,8 @@
+             target = definitions.get(key)
+             if target:
+                 yield line_number, target
+-        for span in _iter_code_spans(line):
+-            if _is_path_candidate(span, line):
++        for span, start, _end in _iter_code_span_matches(line):
++            if _is_path_candidate(span, line, start):
+                 yield line_number, span
+ 
+ 
+--- a/skills/agents-md-architect/tools/agents_md_completion_evidence.py
++++ b/skills/agents-md-architect/tools/agents_md_completion_evidence.py
+@@ -10,7 +10,7 @@
+ 
+ import yaml
+ from agents_md_command import canonical_invocation, parse_invocation
+-from agents_md_parse import parse_visible_lines
++from agents_md_parse import parse_markdown_structure, parse_visible_lines
+ from agents_md_types import HEADING, CommandRule, _normalize_rule
+ 
+ _CODE_SPAN = re.compile(r"`([^`\n]+)`")
+@@ -143,31 +143,26 @@
+ 
+ def _fenced_completion_rules(text: str) -> list[CommandRule]:
+     rules: list[CommandRule] = []
++    visible, blocks, _unclosed = parse_markdown_structure(text)
++    block_by_line = {block.start_line: block for block in blocks if block.end_line is not None}
++    visible_by_line = dict(visible)
+     in_completion_section = False
+     section_label = "full gate"
+     pending_label: tuple[str, int] | None = None
+-    fence_marker: str | None = None
+-    fence_label = "full gate"
+-    capture = False
+-    body: list[tuple[int, str]] = []
+-
+-    for line_number, line in enumerate(text.splitlines(), start=1):
+-        if fence_marker is not None:
+-            stripped = line.lstrip(" \t")
+-            if re.fullmatch(rf"{re.escape(fence_marker[0])}{{{len(fence_marker)},}}[ \t]*", stripped):
+-                if capture:
+-                    rules.extend(
+-                        _rule(fence_label, command, command_line, fence_label)
+-                        for command_line, command in _logical_block_commands(body)
+-                    )
+-                fence_marker = None
+-                capture = False
+-                body = []
+-                pending_label = None
+-            elif capture:
+-                body.append((line_number, line))
++
++    for line_number in sorted((*visible_by_line, *block_by_line)):
++        block = block_by_line.get(line_number)
++        if block is not None:
++            if in_completion_section or pending_label is not None:
++                fence_label = pending_label[0] if pending_label is not None else section_label
++                rules.extend(
++                    _rule(fence_label, command, command_line, fence_label)
++                    for command_line, command in _logical_block_commands(list(block.body))
++                )
++            pending_label = None
+             continue
+ 
++        line = visible_by_line[line_number]
+         heading = HEADING.fullmatch(line)
+         if heading is not None:
+             title = heading.group("title")
+@@ -182,14 +177,6 @@
+                 pending_label = (label_match.group("label"), line_number)
+             continue
+ 
+-        opener = _FENCE.fullmatch(line)
+-        if opener is not None:
+-            fence_marker = opener.group("marker")
+-            capture = in_completion_section or pending_label is not None
+-            fence_label = pending_label[0] if pending_label is not None else section_label
+-            body = []
+-            continue
+-
+         if pending_label is not None and line.strip() and not _CODE_SPAN.findall(line):
+             pending_label = None
+ 
+--- a/skills/agents-md-architect/tools/audit_agents_md.py
++++ b/skills/agents-md-architect/tools/audit_agents_md.py
+@@ -19,7 +19,7 @@
+     if str(candidate) not in sys.path:
+         sys.path.insert(0, str(candidate))
+ 
+-from agents_md_command import CommandInvocation, parse_invocation  # noqa: E402
++from agents_md_command import CommandInvocation, invocation_from_argv, parse_invocation  # noqa: E402
+ from agents_md_completion_evidence import (  # noqa: E402
+     completion_command_rules,
+     public_task_invocations,
+@@ -76,11 +76,19 @@
+ 
+ 
+ @dataclass(frozen=True)
++class CommandEvidence:
++    """One exact invocation bound to the directory from which it is executable."""
++
++    working_directory: str
++    invocation: CommandInvocation
++
++
++@dataclass(frozen=True)
+ class KnownCommands:
+     """Static command evidence separated by public and internal execution surfaces."""
+ 
+-    public_entrypoints: frozenset[CommandInvocation]
+-    executed_commands: frozenset[CommandInvocation]
++    public_entrypoints: frozenset[CommandEvidence]
++    executed_commands: frozenset[CommandEvidence]
+ 
+ 
+ def _extract_source_invocations(relative: str, text: str) -> set[str]:
+@@ -1
