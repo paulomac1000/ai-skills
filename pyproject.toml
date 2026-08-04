@@ -22,7 +22,7 @@ line-ending = "lf"
 
 [tool.mypy]
 python_version = "3.12"
-mypy_path = "skills/agents-md-architect/tools"
+mypy_path = ["skills/agents-md-architect/tools", "contracts"]
 check_untyped_defs = true
 disallow_any_generics = true
 no_implicit_optional = true
