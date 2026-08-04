@@ -1,0 +1,93 @@
+name: Apply PR18 mypy fix
+
+on:
+  pull_request:
+    types: [synchronize]
+
+permissions: {}
+
+concurrency:
+  group: pr18-mypy-fix-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'agent/agents-md-architect'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Check out exact pull request head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+
+      - name: Verify and apply reviewed patch
+        run: |
+          set -euo pipefail
+          echo '44df911c7b8c65d3da841b3d53aa36b260cabc373f50428e18fa769aa6d3571a  .github/scripts/pr18-mypy-fix.patch' | sha256sum --check
+          git apply --check .github/scripts/pr18-mypy-fix.patch
+          git apply .github/scripts/pr18-mypy-fix.patch
+          git diff --check
+          test "$(git diff --name-only)" = 'skills/agents-md-architect/tools/agents_md_shell_evidence_impl.py'
+
+      - name: Install locked development dependencies
+        run: python scripts/install_locked.py
+
+      - name: Run typing and focused regressions
+        run: |
+          set -euo pipefail
+          python -m ruff check skills/agents-md-architect/tools/agents_md_shell_evidence_impl.py
+          python -m ruff format --check skills/agents-md-architect/tools/agents_md_shell_evidence_impl.py
+          python -m mypy skills/agents-md-architect/tools/audit_agents_md.py
+          python -m pytest -q \
+            tests/test_agents_md_latest_review.py \
+            tests/test_agents_md_structural_followup.py
+
+  publish:
+    needs: verify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Check out exact verified head without stored credentials
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Commit verified fix and remove transport files
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha }}
+          PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          echo '44df911c7b8c65d3da841b3d53aa36b260cabc373f50428e18fa769aa6d3571a  .github/scripts/pr18-mypy-fix.patch' | sha256sum --check
+          git apply --check .github/scripts/pr18-mypy-fix.patch
+          git apply .github/scripts/pr18-mypy-fix.patch
+          rm .github/scripts/pr18-mypy-fix.patch
+          rm .github/workflows/apply-pr18-mypy-fix.yml
+          git diff --check
+          test "$(git status --porcelain --untracked-files=all | awk '{print $NF}' | sort)" = "$(printf '%s\n' \
+            .github/scripts/pr18-mypy-fix.patch \
+            .github/workflows/apply-pr18-mypy-fix.yml \
+            skills/agents-md-architect/tools/agents_md_shell_evidence_impl.py | sort)"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'fix(agents-md): keep Jenkins match types distinct'
+          git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:${PR_HEAD_REF}"
