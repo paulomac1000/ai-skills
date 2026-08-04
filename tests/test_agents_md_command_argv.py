@@ -79,7 +79,7 @@ def test_leading_option_script_name_cannot_become_cli_option(tmp_path: Path) -> 
     assert "commands.unlocated-full-gate" in _audit_package(tmp_path, {"--version": "pytest"}, "npm run --version")
 
 
-@pytest.mark.parametrize("name", ("test:ci", "zażółć", "say'hello", 'say"hello'))
+@pytest.mark.parametrize("name", ("test:ci", "za\u017c\u00f3\u0142\u0107", "say'hello", 'say"hello'))
 def test_package_script_names_round_trip_without_boundary_loss(tmp_path: Path, name: str) -> None:
     command = canonical_invocation(("npm", "run", name))
     parsed = parse_invocation(command)
