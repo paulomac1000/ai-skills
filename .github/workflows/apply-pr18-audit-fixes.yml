@@ -157,6 +157,7 @@ jobs:
           tests/test_agents_md_latest_review.py
           tests/test_agents_md_validator.py
           PATHS
+          rm -rf "$root"
           rm -f .github/scripts/pr18-audit-fixes.part*
           rm -f \
             .github/scripts/pr18-audit-followup.py \
