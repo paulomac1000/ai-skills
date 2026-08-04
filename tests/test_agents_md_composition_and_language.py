@@ -150,12 +150,14 @@ def test_monorepo_composes_layout_and_domain(tmp_path: Path, profile: str, safet
     prepare(tmp_path)
     root = write(tmp_path, "AGENTS.md", root_text(safety=safety))
     nested = write(tmp_path, "packages/api/AGENTS.md", nested_text(safety=safety))
+    language = "en"
     if profile == "mcp-server":
         for path in (root, nested):
             text = path.read_text(encoding="utf-8")
             text = text.replace("<!-- agents-md: contract data -->", "<!-- agents-md: contract risk -->")
             path.write_text(text, encoding="utf-8")
-    assert validator.validate_many([root, nested], profile, tmp_path, "monorepo", "en") == []
+        language = "other"
+    assert validator.validate_many([root, nested], profile, tmp_path, "monorepo", language) == []
 
 
 def test_polish_safety_monorepo_passes(tmp_path: Path) -> None:
