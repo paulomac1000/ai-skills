@@ -19,6 +19,7 @@ for candidate in (TOOLS, CONTRACTS):
     if str(candidate) not in sys.path:
         sys.path.insert(0, str(candidate))
 
+from agents_md_command import CommandInvocation, parse_invocation  # noqa: E402
 from agents_md_completion_evidence import (  # noqa: E402
     completion_command_rules,
     public_task_invocations,
@@ -28,7 +29,6 @@ from agents_md_python_evidence import _extract_python_invocations  # noqa: E402
 from agents_md_shell_evidence import (  # noqa: E402
     _command_path_tokens,
     _extract_gate_invocations,
-    _normalize_invocation,
     _yaml_syntax_error,
 )
 from agents_md_shell_evidence import (  # noqa: E402
@@ -79,8 +79,8 @@ class AuditFinding:
 class KnownCommands:
     """Static command evidence separated by public and internal execution surfaces."""
 
-    public_entrypoints: frozenset[str]
-    executed_commands: frozenset[str]
+    public_entrypoints: frozenset[CommandInvocation]
+    executed_commands: frozenset[CommandInvocation]
 
 
 def _extract_source_invocations(relative: str, text: str) -> set[str]:
@@ -160,8 +160,9 @@ def _public_source_files(discovery: Discovery) -> tuple[str, ...]:
     return tuple(sorted(set((*discovery.task_runners, *manifests))))
 
 
-def _normalize_many(commands: Iterable[str]) -> set[str]:
-    return {normalized for command in commands if (normalized := _normalize_invocation(command)) is not None}
+def _parse_many(commands: Iterable[str]) -> set[CommandInvocation]:
+    """Parse commands without collapsing distinct argument boundaries."""
+    return {invocation for command in commands if (invocation := parse_invocation(command)) is not None}
 
 
 def _known_gate_commands(root: Path, discovery: Discovery) -> tuple[KnownCommands, list[AuditFinding]]:
@@ -169,8 +170,8 @@ def _known_gate_commands(root: Path, discovery: Discovery) -> tuple[KnownCommand
     public_sources = _public_source_files(discovery)
     sources = tuple(sorted(set((*gate_sources, *public_sources))))
     findings: list[AuditFinding] = []
-    public_commands = _normalize_many(_entrypoint_invocations(discovery))
-    executed_commands: set[str] = set()
+    public_commands = _parse_many(_entrypoint_invocations(discovery))
+    executed_commands: set[CommandInvocation] = set()
     if len(sources) > MAX_GATE_FILES:
         findings.append(
             AuditFinding(
@@ -208,18 +209,18 @@ def _known_gate_commands(root: Path, discovery: Discovery) -> tuple[KnownCommand
             if syntax_error is not None:
                 findings.append(AuditFinding(relative, "error", "evidence.invalid-yaml", 1, syntax_error))
                 continue
-        public_commands.update(_normalize_many(public_task_invocations(relative, text)))
+        public_commands.update(_parse_many(public_task_invocations(relative, text)))
         if relative in gate_sources:
-            executed_commands.update(_normalize_many(_extract_source_invocations(relative, text)))
+            executed_commands.update(_parse_many(_extract_source_invocations(relative, text)))
     return KnownCommands(frozenset(public_commands), frozenset(executed_commands)), findings
 
 
 def _command_reference_status(root: Path, command: str, known_commands: KnownCommands) -> str:
     """Classify static command evidence without claiming execution."""
-    normalized = _normalize_invocation(command)
-    if normalized is not None and normalized in known_commands.public_entrypoints:
+    invocation = parse_invocation(command)
+    if invocation is not None and invocation in known_commands.public_entrypoints:
         return "located-public"
-    if normalized is not None and normalized in known_commands.executed_commands:
+    if invocation is not None and invocation in known_commands.executed_commands:
         return "located-executed"
     for token in _command_path_tokens(command):
         try:
