@@ -40,8 +40,7 @@ def _validate_tree(documents: Sequence[ParsedDocument], root: Path) -> list[Find
     for child in documents:
         if child.path == root_document.path:
             continue
-        ancestors = _ancestor_chain(child, documents)
-        parent = ancestors[-1] if ancestors else root_document
+        ancestors = _ancestor_chain(child, documents) or (root_document,)
 
         inherited: dict[str, tuple[ParsedDocument, Directive]] = {}
         for ancestor in ancestors:
@@ -117,8 +116,18 @@ def _validate_tree(documents: Sequence[ParsedDocument], root: Path) -> list[Find
                     )
                 )
 
+        effective_sections: dict[str, tuple[ParsedDocument, str]] = {}
+        inherited_lines: set[str] = set()
+        for ancestor in ancestors:
+            inherited_lines.update(ancestor.meaningful_lines)
+            for heading, body in ancestor.sections.items():
+                effective_sections[heading] = (ancestor, body)
+
         for heading, body in child.sections.items():
-            inherited_body = parent.sections.get(heading)
+            inherited_section = effective_sections.get(heading)
+            if inherited_section is None:
+                continue
+            source, inherited_body = inherited_section
             if body and inherited_body == body and len(body) >= 40:
                 findings.append(
                     Finding(
@@ -126,19 +135,18 @@ def _validate_tree(documents: Sequence[ParsedDocument], root: Path) -> list[Find
                         "warning",
                         "tree.duplicated-section",
                         1,
-                        f"Section '{heading}' duplicates the inherited section from {parent.relative_path}.",
+                        f"Section '{heading}' duplicates the effective inherited section from {source.relative_path}.",
                     )
                 )
 
-        unique_lines = child.meaningful_lines - parent.meaningful_lines
-        if not unique_lines:
+        if not child.meaningful_lines - inherited_lines:
             findings.append(
                 Finding(
                     str(child.path),
                     "warning",
                     "tree.no-local-difference",
                     1,
-                    "Nested AGENTS.md adds no material local instruction.",
+                    "Nested AGENTS.md adds no material instruction beyond its full inherited chain.",
                 )
             )
     return findings
