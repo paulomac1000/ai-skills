@@ -31,7 +31,7 @@ class _PythonScope:
         return self.parent.resolve(name) if self.parent is not None else None
 
     def lexical_parent_for_callable(self) -> _PythonScope:
-        """Return the scope inherited by a function or lambda defined here."""
+        """Return the scope inherited by a function, lambda, or comprehension defined here."""
         return self.function_parent or self
 
 
@@ -249,9 +249,39 @@ class _PythonInvocationVisitor:
             child.bindings.update({name: "other" for name in _function_local_names(node)})
             self.process_expression(node.body, child)
             return
+        elif isinstance(node, (ast.ListComp, ast.SetComp, ast.GeneratorExp, ast.DictComp)):
+            self._process_comprehension(node, scope)
+            return
         for expression_child in ast.iter_child_nodes(node):
             if isinstance(expression_child, ast.expr) and not isinstance(node, ast.Lambda):
                 self.process_expression(expression_child, scope)
+
+    def _process_comprehension(
+        self,
+        node: ast.ListComp | ast.SetComp | ast.GeneratorExp | ast.DictComp,
+        scope: _PythonScope,
+    ) -> None:
+        """Model Python 3 comprehension scope, including class-body non-closure semantics."""
+        if not node.generators:
+            return
+        first, *remaining = node.generators
+        self.process_expression(first.iter, scope)
+        child = _PythonScope(scope.lexical_parent_for_callable())
+        for name in _bound_names(first.target):
+            child.bindings[name] = "other"
+        for condition in first.ifs:
+            self.process_expression(condition, child)
+        for generator in remaining:
+            self.process_expression(generator.iter, child)
+            for name in _bound_names(generator.target):
+                child.bindings[name] = "other"
+            for condition in generator.ifs:
+                self.process_expression(condition, child)
+        if isinstance(node, ast.DictComp):
+            self.process_expression(node.key, child)
+            self.process_expression(node.value, child)
+        else:
+            self.process_expression(node.elt, child)
 
     def _process_call(self, node: ast.Call, scope: _PythonScope) -> None:
         accepted = False
