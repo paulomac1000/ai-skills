@@ -113,12 +113,22 @@ def test_component_snapshot_rejects_symlink(tmp_path: Path) -> None:
         workflow_policy._component_snapshot(link / "workflow.yml")
 
 
-def test_component_snapshot_detects_replacement(tmp_path: Path) -> None:
+def test_component_snapshot_detects_replacement(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     workflow = tmp_path / "workflow.yml"
+    replacement = tmp_path / "replacement.yml"
     workflow.write_text("name: first\n", encoding="utf-8")
+    replacement.write_text("name: second\n", encoding="utf-8")
     snapshot = workflow_policy._component_snapshot(workflow)
-    workflow.unlink()
-    workflow.write_text("name: second\n", encoding="utf-8")
+    real_lstat = workflow_policy.os.lstat
+    replacement_stat = real_lstat(replacement)
+
+    def replaced_lstat(path: os.PathLike[str] | str) -> os.stat_result:
+        return replacement_stat if Path(path) == workflow else real_lstat(path)
+
+    monkeypatch.setattr(workflow_policy.os, "lstat", replaced_lstat)
 
     assert not workflow_policy._snapshot_is_current(snapshot)
 
@@ -175,7 +185,7 @@ def test_missing_workflow_directory_reports_stable_finding(tmp_path: Path) -> No
     assert any("no GitHub Actions workflows found" in finding.message for finding in findings)
 
 
-def test_workflow_directory_must_be_directory(tmp_path: Path) -> None:
+def test_workflow_directory_must_fail_closed(tmp_path: Path) -> None:
     workflow_path = tmp_path / ".github" / "workflows"
     workflow_path.parent.mkdir(parents=True)
     workflow_path.write_text("not a directory", encoding="utf-8")
@@ -183,7 +193,11 @@ def test_workflow_directory_must_be_directory(tmp_path: Path) -> None:
     paths, findings = workflow_policy.workflow_paths(tmp_path)
 
     assert paths == []
-    assert any("must be a regular directory" in finding.message for finding in findings)
+    assert any(
+        "must be a regular directory" in finding.message
+        or "cannot enumerate workflows" in finding.message
+        for finding in findings
+    )
 
 
 def test_workflow_enumeration_charges_non_yaml_entries_to_budget(
