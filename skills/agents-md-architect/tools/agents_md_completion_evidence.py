@@ -9,6 +9,7 @@ from collections.abc import Iterable
 from pathlib import Path
 
 import yaml
+from agents_md_command import canonical_invocation, parse_invocation
 from agents_md_parse import parse_visible_lines
 from agents_md_types import HEADING, CommandRule, _normalize_rule
 
@@ -32,10 +33,12 @@ _JUST_RECIPE = re.compile(r"^@?(?P<name>[A-Za-z_][A-Za-z0-9_-]*)(?:\s+[^:=#][^:#
 
 
 def _deduplicated_rules(values: Iterable[CommandRule]) -> tuple[CommandRule, ...]:
-    seen: set[tuple[str, str]] = set()
+    seen: set[tuple[str, tuple[str, ...]]] = set()
     result: list[CommandRule] = []
     for value in values:
-        key = (value.key, " ".join(value.command.split()))
+        invocation = parse_invocation(value.command)
+        command_key = invocation.argv if invocation is not None else ("<raw>", value.command.strip())
+        key = (value.key, command_key)
         if not value.command.strip() or key in seen:
             continue
         seen.add(key)
@@ -198,6 +201,11 @@ def completion_command_rules(text: str) -> tuple[CommandRule, ...]:
     return _deduplicated_rules((*_visible_completion_rules(text), *_fenced_completion_rules(text)))
 
 
+def _stable_public_name(name: str) -> bool:
+    """Reject task names that would be interpreted as CLI options or contain NUL."""
+    return bool(name) and not name.startswith("-") and "\x00" not in name
+
+
 def _make_invocations(text: str) -> set[str]:
     commands: set[str] = set()
     for line in text.splitlines():
@@ -209,7 +217,7 @@ def _make_invocations(text: str) -> set[str]:
         for target in match.group("targets").split():
             if target.startswith(".") or any(token in target for token in ("%", "$", "/")):
                 continue
-            commands.add(f"make {target}")
+            commands.add(canonical_invocation(("make", target)))
     return commands
 
 
@@ -220,7 +228,7 @@ def _just_invocations(text: str) -> set[str]:
             continue
         match = _JUST_RECIPE.fullmatch(line)
         if match is not None:
-            commands.add(f"just {match.group('name')}")
+            commands.add(canonical_invocation(("just", match.group("name"))))
     return commands
 
 
@@ -231,7 +239,11 @@ def _taskfile_invocations(text: str) -> set[str]:
         return set()
     if not isinstance(document, dict) or not isinstance(document.get("tasks"), dict):
         return set()
-    return {f"task {name}" for name in document["tasks"] if isinstance(name, str) and name.strip()}
+    return {
+        canonical_invocation(("task", name))
+        for name in document["tasks"]
+        if isinstance(name, str) and _stable_public_name(name)
+    }
 
 
 def _package_invocations(text: str) -> set[str]:
@@ -244,14 +256,13 @@ def _package_invocations(text: str) -> set[str]:
         return set()
     commands: set[str] = set()
     for name, value in scripts.items():
-        if not isinstance(name, str) or not name.strip() or not isinstance(value, str):
+        if not isinstance(name, str) or not _stable_public_name(name) or not isinstance(value, str):
             continue
         commands.update(
             {
-                f"npm run {name}",
-                f"pnpm run {name}",
-                f"pnpm {name}",
-                f"yarn {name}",
+                canonical_invocation(("npm", "run", name)),
+                canonical_invocation(("pnpm", "run", name)),
+                canonical_invocation(("yarn", "run", name)),
             }
         )
     return commands
@@ -268,7 +279,12 @@ def _msbuild_invocations(text: str) -> set[str]:
             continue
         name = element.attrib.get("Name", "").strip()
         if name:
-            commands.update({f"dotnet build -t:{name}", f"dotnet msbuild -t:{name}"})
+            commands.update(
+                {
+                    canonical_invocation(("dotnet", "build", f"-t:{name}")),
+                    canonical_invocation(("dotnet", "msbuild", f"-t:{name}")),
+                }
+            )
     return commands
 
 
