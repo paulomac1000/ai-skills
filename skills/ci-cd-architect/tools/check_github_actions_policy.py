@@ -7,9 +7,10 @@ import argparse
 import os
 import re
 import stat
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 import yaml
 
