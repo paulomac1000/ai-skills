@@ -138,7 +138,7 @@ def test_completion_gate_markdown_forms_are_audited(tmp_path: Path, gate_markdow
             "task quality",
         ),
         ("package.json", '{"scripts":{"quality":"python scripts/ci.py"}}', "npm run quality"),
-        ("package.json", '{"scripts":{"quality":"python scripts/ci.py"}}', "pnpm quality"),
+        ("package.json", '{"scripts":{"quality":"python scripts/ci.py"}}', "pnpm run quality"),
     ),
 )
 def test_public_task_runner_entrypoints_are_command_evidence(
