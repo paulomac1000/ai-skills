@@ -630,15 +630,15 @@ def _extract_jenkins_invocations(text: str) -> set[str]:
         r"(?P<quote>['\"])(?P<command>(?:\\.|(?!\2).)*?)(?P=quote)\s*\)?\s*;?\s*$"
     )
     for line in "".join(masked).splitlines():
-        match = single_line.fullmatch(line)
-        if match is None:
+        single_match = single_line.fullmatch(line)
+        if single_match is None:
             continue
         extractor = (
             _extract_powershell_invocations
-            if match.group("step") in {"powershell", "pwsh"}
+            if single_match.group("step") in {"powershell", "pwsh"}
             else _extract_shell_invocations
         )
-        invocations.update(extractor(match.group("command")))
+        invocations.update(extractor(single_match.group("command")))
     return invocations
 
 
