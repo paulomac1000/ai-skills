@@ -13,22 +13,23 @@ from pathlib import Path
 from typing import Literal
 
 TOOLS = Path(__file__).resolve().parent
-if str(TOOLS) not in sys.path:
-    sys.path.insert(0, str(TOOLS))
+REPOSITORY_ROOT = TOOLS.parents[2]
+CONTRACTS = REPOSITORY_ROOT / "contracts"
+for candidate in (TOOLS, CONTRACTS):
+    if str(candidate) not in sys.path:
+        sys.path.insert(0, str(candidate))
 
-from agents_md_parse import parse_visible_lines, read_utf8_bounded  # noqa: E402
+from agents_md_completion_evidence import (  # noqa: E402
+    completion_command_rules,
+    public_task_invocations,
+)
+from agents_md_parse import parse_visible_lines  # noqa: E402
 from agents_md_python_evidence import _extract_python_invocations  # noqa: E402
 from agents_md_shell_evidence import (  # noqa: E402
     _command_path_tokens,
     _extract_gate_invocations,
     _normalize_invocation,
     _yaml_syntax_error,
-)
-from agents_md_shell_evidence import (  # noqa: E402
-    _extract_shell_invocations as _extract_shell_invocations,
-)
-from agents_md_shell_evidence import (  # noqa: E402
-    _extract_yaml_invocations as _extract_yaml_invocations,
 )
 from agents_md_types import (  # noqa: E402
     MAX_GATE_FILE_BYTES,
@@ -37,6 +38,7 @@ from agents_md_types import (  # noqa: E402
     LanguageName,
     LayoutName,
 )
+from confined_io import ConfinedReadError, read_utf8_bounded  # noqa: E402
 from discover_repository import Discovery, discover  # noqa: E402
 from validate_agents_md import (  # noqa: E402
     CODEX_DEFAULT_PROJECT_DOC_MAX_BYTES,
@@ -47,20 +49,10 @@ from validate_agents_md import (  # noqa: E402
 )
 
 Severity = Literal["error", "warning"]
-CODE_SPAN = re.compile(r"`([^`\n]+)`")
 LINT_LEAKAGE = re.compile(
     r"(?i)\b(?:line length|quote style|indent(?:ation)? width|ruff rule|eslint rule|prettier config|"
     r"formatter config|stylecop rule)\b"
 )
-FULL_GATE_LINE = re.compile(
-    r"(?i)\b(?:full gate|complete gate|completion check|hosted ci|ci gate|pełna bramka|pełny gate)\b"
-)
-
-
-def _extract_source_invocations(relative: str, text: str) -> set[str]:
-    if Path(relative).suffix.casefold() == ".py":
-        return _extract_python_invocations(text)
-    return _extract_gate_invocations(relative, text)
 
 
 @dataclass(frozen=True)
@@ -72,6 +64,20 @@ class AuditFinding:
     code: str
     line: int
     message: str
+
+
+@dataclass(frozen=True)
+class KnownCommands:
+    """Static command evidence separated by public and internal execution surfaces."""
+
+    public_entrypoints: frozenset[str]
+    executed_commands: frozenset[str]
+
+
+def _extract_source_invocations(relative: str, text: str) -> set[str]:
+    if Path(relative).suffix.casefold() == ".py":
+        return _extract_python_invocations(text)
+    return _extract_gate_invocations(relative, text)
 
 
 def _confined_file(root: Path, relative: str) -> Path:
@@ -92,10 +98,11 @@ def _confined_file(root: Path, relative: str) -> Path:
 
 def _read_text(root: Path, relative: str, max_bytes: int = 2 * 1024 * 1024) -> str:
     path = _confined_file(root, relative)
-    result = read_utf8_bounded(path, max_bytes=max_bytes)
-    if result.code is not None or result.text is None:
-        raise ValueError(result.message or result.code or "unreadable file")
-    return result.text
+    try:
+        text, _count = read_utf8_bounded(path, root, max_bytes)
+    except ConfinedReadError as error:
+        raise ValueError(error.message) from error
+    return text
 
 
 def _paragraphs(text: str) -> dict[str, int]:
@@ -134,10 +141,31 @@ def _entrypoint_invocations(discovery: Discovery) -> set[str]:
     return invocations
 
 
-def _known_gate_commands(root: Path, discovery: Discovery) -> tuple[set[str], list[AuditFinding]]:
-    sources = tuple(sorted(set((*discovery.ci_files, *discovery.task_runners))))
+def _public_source_files(discovery: Discovery) -> tuple[str, ...]:
+    manifests = (
+        relative
+        for relative in discovery.manifests
+        if Path(relative).name.casefold() == "package.json"
+        or Path(relative).suffix.casefold() in {".csproj", ".fsproj", ".vbproj", ".targets", ".proj"}
+    )
+    return tuple(sorted(set((*discovery.task_runners, *manifests))))
+
+
+def _normalize_many(commands: Iterable[str]) -> set[str]:
+    return {
+        normalized
+        for command in commands
+        if (normalized := _normalize_invocation(command)) is not None
+    }
+
+
+def _known_gate_commands(root: Path, discovery: Discovery) -> tuple[KnownCommands, list[AuditFinding]]:
+    gate_sources = tuple(sorted(set((*discovery.ci_files, *discovery.task_runners))))
+    public_sources = _public_source_files(discovery)
+    sources = tuple(sorted(set((*gate_sources, *public_sources))))
     findings: list[AuditFinding] = []
-    commands = _entrypoint_invocations(discovery)
+    public_commands = _normalize_many(_entrypoint_invocations(discovery))
+    executed_commands: set[str] = set()
     if len(sources) > MAX_GATE_FILES:
         findings.append(
             AuditFinding(
@@ -148,28 +176,19 @@ def _known_gate_commands(root: Path, discovery: Discovery) -> tuple[set[str], li
                 f"Found {len(sources)} CI/task sources; maximum supported count is {MAX_GATE_FILES}.",
             )
         )
-        return commands, findings
+        return KnownCommands(frozenset(public_commands), frozenset()), findings
 
     total_bytes = 0
     for relative in sources:
         try:
             path = _confined_file(root, relative)
-        except ValueError as error:
-            findings.append(AuditFinding(relative, "error", "evidence.gate-source-unreadable", 1, str(error)))
-            continue
-        result = read_utf8_bounded(path, max_bytes=MAX_GATE_FILE_BYTES)
-        if result.code is not None or result.text is None:
+            text, byte_count = read_utf8_bounded(path, root, MAX_GATE_FILE_BYTES)
+        except (ValueError, ConfinedReadError) as error:
             findings.append(
-                AuditFinding(
-                    relative,
-                    "error",
-                    "evidence.gate-source-unreadable",
-                    1,
-                    result.message or result.code or "unreadable gate source",
-                )
+                AuditFinding(relative, "error", "evidence.gate-source-unreadable", 1, str(error))
             )
             continue
-        total_bytes += result.byte_count
+        total_bytes += byte_count
         if total_bytes > MAX_GATE_TOTAL_BYTES:
             findings.append(
                 AuditFinding(
@@ -182,19 +201,25 @@ def _known_gate_commands(root: Path, discovery: Discovery) -> tuple[set[str], li
             )
             break
         if Path(relative).suffix.casefold() in {".yml", ".yaml"}:
-            syntax_error = _yaml_syntax_error(result.text)
+            syntax_error = _yaml_syntax_error(text)
             if syntax_error is not None:
-                findings.append(AuditFinding(relative, "error", "evidence.invalid-yaml", 1, syntax_error))
+                findings.append(
+                    AuditFinding(relative, "error", "evidence.invalid-yaml", 1, syntax_error)
+                )
                 continue
-        commands.update(_extract_source_invocations(relative, result.text))
-    return commands, findings
+        public_commands.update(_normalize_many(public_task_invocations(relative, text)))
+        if relative in gate_sources:
+            executed_commands.update(_normalize_many(_extract_source_invocations(relative, text)))
+    return KnownCommands(frozenset(public_commands), frozenset(executed_commands)), findings
 
 
-def _command_reference_status(root: Path, command: str, known_commands: set[str]) -> str:
+def _command_reference_status(root: Path, command: str, known_commands: KnownCommands) -> str:
     """Classify static command evidence without claiming execution."""
     normalized = _normalize_invocation(command)
-    if normalized is not None and normalized in known_commands:
-        return "located"
+    if normalized is not None and normalized in known_commands.public_entrypoints:
+        return "located-public"
+    if normalized is not None and normalized in known_commands.executed_commands:
+        return "located-executed"
     for token in _command_path_tokens(command):
         try:
             _confined_file(root, token)
@@ -222,7 +247,8 @@ def audit(
     discovery = discover(root)
     safe_root = Path(discovery.root)
     findings: list[AuditFinding] = [
-        AuditFinding(safe_root.as_posix(), "error", "discovery.incomplete", 1, issue) for issue in discovery.issues
+        AuditFinding(safe_root.as_posix(), "error", "discovery.incomplete", 1, issue)
+        for issue in discovery.issues
     ]
 
     for relative in discovery.symlinks:
@@ -249,7 +275,6 @@ def audit(
         project_doc_fallback_filenames,
     )
     findings.extend(_convert(item) for item in validation_findings)
-    texts = {document.relative_path: document.text for document in documents}
 
     reference_paragraphs: dict[str, tuple[str, int]] = {}
     for reference in ("README.md", "CHANGELOG.md"):
@@ -263,8 +288,9 @@ def audit(
 
     known_commands, gate_findings = _known_gate_commands(safe_root, discovery)
     findings.extend(gate_findings)
-    for relative, text in texts.items():
-        for paragraph, line_number in _paragraphs(text).items():
+    for document in documents:
+        relative = document.relative_path
+        for paragraph, line_number in _paragraphs(document.text).items():
             source = reference_paragraphs.get(paragraph)
             if source:
                 findings.append(
@@ -277,8 +303,7 @@ def audit(
                     )
                 )
 
-        visible, _ = parse_visible_lines(text)
-        for line_number, line in visible:
+        for line_number, line in document.visible_lines:
             if LINT_LEAKAGE.search(line):
                 findings.append(
                     AuditFinding(
@@ -289,31 +314,30 @@ def audit(
                         "Keep formatter and linter configuration executable; document only a non-obvious repository exception.",
                     )
                 )
-            if not FULL_GATE_LINE.search(line):
-                continue
-            for command in CODE_SPAN.findall(line):
-                status = _command_reference_status(safe_root, command, known_commands)
-                if status == "unlocated":
-                    findings.append(
-                        AuditFinding(
-                            relative,
-                            "error",
-                            "commands.unlocated-full-gate",
-                            line_number,
-                            "Completion command could not be located in discovered CI or repository task runners: "
-                            + command,
-                        )
+
+        for command_rule in completion_command_rules(document.text):
+            status = _command_reference_status(safe_root, command_rule.command, known_commands)
+            if status == "unlocated":
+                findings.append(
+                    AuditFinding(
+                        relative,
+                        "error",
+                        "commands.unlocated-full-gate",
+                        command_rule.line,
+                        "Completion command could not be located in discovered CI or repository task runners: "
+                        + command_rule.command,
                     )
-                elif status == "unverified":
-                    findings.append(
-                        AuditFinding(
-                            relative,
-                            "warning",
-                            "commands.unverified-full-gate",
-                            line_number,
-                            f"A referenced path exists, but the exact completion invocation was not located: {command}",
-                        )
+                )
+            elif status == "unverified":
+                findings.append(
+                    AuditFinding(
+                        relative,
+                        "warning",
+                        "commands.unverified-full-gate",
+                        command_rule.line,
+                        f"A referenced path exists, but the exact completion invocation was not located: {command_rule.command}",
                     )
+                )
 
     ordered = sorted(findings, key=lambda item: (item.path, item.line, item.severity, item.code, item.message))
     return discovery, ordered
