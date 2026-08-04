@@ -21,10 +21,10 @@ jobs:
           EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
       - name: Package source tree
-        run: tar --exclude=.git -czf source-tree.tgz .
+        run: tar --exclude=.git -czf "$RUNNER_TEMP/source-tree.tgz" .
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: source-tree-${{ github.run_id }}
-          path: source-tree.tgz
+          path: ${{ runner.temp }}/source-tree.tgz
           if-no-files-found: error
           retention-days: 1
