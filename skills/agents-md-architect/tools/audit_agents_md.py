@@ -28,6 +28,8 @@ from agents_md_python_evidence import _extract_python_invocations  # noqa: E402
 from agents_md_shell_evidence import (  # noqa: E402
     _command_path_tokens,
     _extract_gate_invocations,
+    _extract_shell_invocations,
+    _extract_yaml_invocations,
     _normalize_invocation,
     _yaml_syntax_error,
 )
@@ -152,11 +154,7 @@ def _public_source_files(discovery: Discovery) -> tuple[str, ...]:
 
 
 def _normalize_many(commands: Iterable[str]) -> set[str]:
-    return {
-        normalized
-        for command in commands
-        if (normalized := _normalize_invocation(command)) is not None
-    }
+    return {normalized for command in commands if (normalized := _normalize_invocation(command)) is not None}
 
 
 def _known_gate_commands(root: Path, discovery: Discovery) -> tuple[KnownCommands, list[AuditFinding]]:
@@ -184,9 +182,7 @@ def _known_gate_commands(root: Path, discovery: Discovery) -> tuple[KnownCommand
             path = _confined_file(root, relative)
             text, byte_count = read_utf8_bounded(path, root, MAX_GATE_FILE_BYTES)
         except (ValueError, ConfinedReadError) as error:
-            findings.append(
-                AuditFinding(relative, "error", "evidence.gate-source-unreadable", 1, str(error))
-            )
+            findings.append(AuditFinding(relative, "error", "evidence.gate-source-unreadable", 1, str(error)))
             continue
         total_bytes += byte_count
         if total_bytes > MAX_GATE_TOTAL_BYTES:
@@ -203,9 +199,7 @@ def _known_gate_commands(root: Path, discovery: Discovery) -> tuple[KnownCommand
         if Path(relative).suffix.casefold() in {".yml", ".yaml"}:
             syntax_error = _yaml_syntax_error(text)
             if syntax_error is not None:
-                findings.append(
-                    AuditFinding(relative, "error", "evidence.invalid-yaml", 1, syntax_error)
-                )
+                findings.append(AuditFinding(relative, "error", "evidence.invalid-yaml", 1, syntax_error))
                 continue
         public_commands.update(_normalize_many(public_task_invocations(relative, text)))
         if relative in gate_sources:
@@ -247,8 +241,7 @@ def audit(
     discovery = discover(root)
     safe_root = Path(discovery.root)
     findings: list[AuditFinding] = [
-        AuditFinding(safe_root.as_posix(), "error", "discovery.incomplete", 1, issue)
-        for issue in discovery.issues
+        AuditFinding(safe_root.as_posix(), "error", "discovery.incomplete", 1, issue) for issue in discovery.issues
     ]
 
     for relative in discovery.symlinks:
