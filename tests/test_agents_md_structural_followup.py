@@ -54,6 +54,7 @@ jobs:
 last line"
 jobs:
   real:
+    runs-on: ubuntu-latest
     steps:
       - run: echo real
 '''
@@ -65,12 +66,14 @@ jobs:
 def test_yaml_indentation_indicators_preserve_executable_scalars() -> None:
     literal = '''jobs:
   test:
+    runs-on: ubuntu-latest
     steps:
       - run: |2
           python scripts/ci.py
 '''
     folded = '''jobs:
   test:
+    runs-on: ubuntu-latest
     steps:
       - run: >-2
           python -m
