@@ -45,6 +45,9 @@ jobs:
           echo '58da195b016357d35802a981faea0ad20b5f1e711955f90348e55a01393c3eb6  /tmp/pr18-bot-fixes.patch' | sha256sum --check
           git apply --check /tmp/pr18-bot-fixes.patch
           git apply /tmp/pr18-bot-fixes.patch
+          echo 'bc65e32b3a5d8a559b2a38b8bdb3d54b36e1910566f7369b7e7259094aa56960  .github/scripts/pr18-bot-format.patch' | sha256sum --check
+          git apply --check .github/scripts/pr18-bot-format.patch
+          git apply .github/scripts/pr18-bot-format.patch
           git diff --check
           test "$(git diff --name-only | sort)" = "$(printf '%s\n' \
             skills/agents-md-architect/tools/agents_md_python_evidence.py \
@@ -109,7 +112,11 @@ jobs:
           echo '58da195b016357d35802a981faea0ad20b5f1e711955f90348e55a01393c3eb6  /tmp/pr18-bot-fixes.patch' | sha256sum --check
           git apply --check /tmp/pr18-bot-fixes.patch
           git apply /tmp/pr18-bot-fixes.patch
+          echo 'bc65e32b3a5d8a559b2a38b8bdb3d54b36e1910566f7369b7e7259094aa56960  .github/scripts/pr18-bot-format.patch' | sha256sum --check
+          git apply --check .github/scripts/pr18-bot-format.patch
+          git apply .github/scripts/pr18-bot-format.patch
           rm .github/scripts/pr18-bot-fixes.part*
+          rm .github/scripts/pr18-bot-format.patch
           rm .github/workflows/apply-pr18-latest-bot-fixes.yml
           git diff --check
           test "$(git status --porcelain --untracked-files=all | awk '{print $NF}' | sort)" = "$(printf '%s\n' \
@@ -119,6 +126,7 @@ jobs:
             .github/scripts/pr18-bot-fixes.part01b \
             .github/scripts/pr18-bot-fixes.part02 \
             .github/scripts/pr18-bot-fixes.part03 \
+            .github/scripts/pr18-bot-format.patch \
             .github/workflows/apply-pr18-latest-bot-fixes.yml \
             skills/agents-md-architect/tools/agents_md_python_evidence.py \
             skills/agents-md-architect/tools/agents_md_shell_evidence_impl.py \

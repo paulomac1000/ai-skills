@@ -1,0 +1,27 @@
+diff --git a/skills/ci-cd-architect/tools/check_github_actions_policy_impl.py b/skills/ci-cd-architect/tools/check_github_actions_policy_impl.py
+index 3a0a200..30357a0 100644
+--- a/skills/ci-cd-architect/tools/check_github_actions_policy_impl.py
++++ b/skills/ci-cd-architect/tools/check_github_actions_policy_impl.py
+@@ -339,7 +339,6 @@ def audit_workflow(
+     return findings
+ 
+ 
+-
+ def audit_repository(
+     repository_root: Path,
+     *,
+diff --git a/tests/test_ci_cd_workflow_policy.py b/tests/test_ci_cd_workflow_policy.py
+index d15b01f..2834b65 100644
+--- a/tests/test_ci_cd_workflow_policy.py
++++ b/tests/test_ci_cd_workflow_policy.py
+@@ -94,9 +94,7 @@ def test_pr_secret_context_is_rejected(tmp_path: Path, reference: str) -> None:
+         ),
+         encoding="utf-8",
+     )
+-    assert any(
+-        "must not reference repository secrets" in message for message in _messages(workflow)
+-    )
++    assert any("must not reference repository secrets" in message for message in _messages(workflow))
+ 
+ 
+ @pytest.mark.parametrize(
