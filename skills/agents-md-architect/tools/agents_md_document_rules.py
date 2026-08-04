@@ -72,11 +72,7 @@ def _contract_marker_bindings(
     for line_number, line in document.visible_lines:
         heading = HEADING.fullmatch(line)
         if heading is not None:
-            current_section = (
-                _normalize_heading(heading.group("title"))
-                if len(heading.group("level")) == 2
-                else None
-            )
+            current_section = _normalize_heading(heading.group("title")) if len(heading.group("level")) == 2 else None
             if current_section is not None:
                 section_content.setdefault(current_section, False)
             continue
@@ -113,7 +109,7 @@ def _semantic_concept_present(document: ParsedDocument, concept: str, language: 
     semantic_lines = (
         line
         for _, line in document.visible_lines
-        if CONTRACT_MARKER.fullmatch(line.strip()) is None
+        if CONTRACT_MARKER.fullmatch(line.strip()) is None and HEADING.fullmatch(line) is None
     )
     visible_text = "\n".join(semantic_lines)
     return any(pattern.search(visible_text) for pattern in patterns[concept])
