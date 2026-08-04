@@ -14,6 +14,7 @@ QUALITY_PATHS = (
     "scripts/select_lock.py",
     "skills/afds-doc-writer/validate.py",
     "skills/agents-md-architect/tools",
+    "skills/ci-cd-architect/tools",
     "skills/mcp-server-consumer/tools",
     "skills/mcp-server-architect/tools/generate_python_server.py",
     "skills/mcp-server-architect/tools/generate_python_server_impl.py",
@@ -33,6 +34,7 @@ TYPE_PATHS = (
     "skills/agents-md-architect/tools/audit_agents_md.py",
     "skills/agents-md-architect/tools/discover_repository.py",
     "skills/agents-md-architect/tools/validate_agents_md.py",
+    "skills/ci-cd-architect/tools/check_github_actions_policy.py",
     "skills/mcp-server-consumer/tools/decision_engine.py",
     "skills/mcp-server-architect/tools/generate_python_server.py",
     "skills/mcp-server-architect/tools/generate_python_server_impl.py",
@@ -43,6 +45,7 @@ BANDIT_PATHS = (
     "scripts",
     "skills/afds-doc-writer",
     "skills/agents-md-architect/tools",
+    "skills/ci-cd-architect/tools",
     "skills/mcp-server-consumer/tools",
     "skills/mcp-server-architect/tools",
 )
@@ -50,6 +53,7 @@ POLICY_COVERAGE_PATHS = (
     "contracts/*.py",
     "skills/afds-doc-writer/*.py",
     "skills/agents-md-architect/tools/*.py",
+    "skills/ci-cd-architect/tools/*.py",
     "skills/mcp-server-consumer/tools/*.py",
 )
 
