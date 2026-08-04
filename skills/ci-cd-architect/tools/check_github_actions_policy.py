@@ -15,6 +15,7 @@ if str(REPOSITORY_ROOT) not in sys.path:
     sys.path.insert(0, str(REPOSITORY_ROOT))
 
 import check_github_actions_policy_impl as _impl  # noqa: E402
+
 from contracts.confined_io import ConfinedReadError, read_utf8_bounded  # noqa: E402
 from contracts.confined_io import component_snapshot as _component_snapshot  # noqa: E402
 from contracts.confined_io import is_link_or_reparse as _is_link_or_reparse  # noqa: E402
