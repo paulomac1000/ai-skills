@@ -86,9 +86,15 @@ def open_component_safe(path: Path, flags: int) -> int:
         os.close(directory)
 
 
-def open_stable(path: Path, flags: int) -> tuple[int, _ComponentSnapshot | None]:
+def open_stable(
+    path: Path,
+    flags: int,
+    *,
+    component_nofollow: bool | None = None,
+) -> tuple[int, _ComponentSnapshot | None]:
     """Open with component no-follow, or bind every component on fallback platforms."""
-    if supports_component_nofollow():
+    use_component_nofollow = supports_component_nofollow() if component_nofollow is None else component_nofollow
+    if use_component_nofollow:
         return open_component_safe(path, flags), None
 
     snapshot = component_snapshot(path)
