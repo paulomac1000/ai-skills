@@ -164,10 +164,15 @@ def _yaml_node_is_executable(relative: str, path: tuple[str, ...]) -> bool:
 
 def _yaml_node_uses_powershell(relative: str, path: tuple[str, ...]) -> bool:
     name = Path(relative).name.casefold()
-    return name in {"azure-pipelines.yml", "azure-pipelines.yaml"} and bool(path) and path[-1] in {
-        "pwsh",
-        "powershell",
-    }
+    return (
+        name in {"azure-pipelines.yml", "azure-pipelines.yaml"}
+        and bool(path)
+        and path[-1]
+        in {
+            "pwsh",
+            "powershell",
+        }
+    )
 
 
 def _compose_yaml(text: str) -> Node | None:
