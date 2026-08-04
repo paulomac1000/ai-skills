@@ -4,8 +4,7 @@ on:
   pull_request:
     types: [synchronize]
 
-permissions:
-  contents: read
+permissions: {}
 
 jobs:
   verify:
@@ -13,6 +12,8 @@ jobs:
       github.event.pull_request.head.repo.full_name == github.repository &&
       github.event.pull_request.head.ref == 'agent/agents-md-architect'
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
     steps:
       - name: Check out exact pull request head
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -105,3 +106,91 @@ jobs:
           if-no-files-found: error
           retention-days: 1
           compression-level: 0
+
+  publish:
+    needs: verify
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Check out exact verified head without stored credentials
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Download verified production files
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: pr18-audit-fixes-${{ github.event.pull_request.head.sha }}
+          path: verified-output
+
+      - name: Verify artifact and create clean production commit
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          root=verified-output
+          test "$(find "$root" -type f -printf '%P\n' | sort)" = "$(printf '%s\n' \
+            MANIFEST.txt \
+            SHA256SUMS \
+            skills/agents-md-architect/tools/agents_md_parse.py \
+            skills/agents-md-architect/tools/agents_md_shell_evidence.py \
+            skills/agents-md-architect/tools/agents_md_shell_evidence_impl.py \
+            skills/agents-md-architect/tools/audit_agents_md.py \
+            tests/test_agents_md_latest_review.py \
+            tests/test_agents_md_validator.py | sort)"
+          grep -Fx "source_head=$EXPECTED_HEAD" "$root/MANIFEST.txt"
+          grep -Fx 'base_production_head=dc491caa785c9df76d02e5d33bfcba464eb46de0' "$root/MANIFEST.txt"
+          grep -Fx 'main_patch_sha256=1cfcb47ecf60763464a2565cd98af7b9183ecd1a083db5d59c7b89dc2789d0bd' "$root/MANIFEST.txt"
+          sed "s#  verified-pr18/#  ${root}/#" "$root/SHA256SUMS" | sha256sum --check
+          while IFS= read -r path; do
+            cp "$root/$path" "$path"
+          done <<'PATHS'
+          skills/agents-md-architect/tools/agents_md_parse.py
+          skills/agents-md-architect/tools/agents_md_shell_evidence.py
+          skills/agents-md-architect/tools/agents_md_shell_evidence_impl.py
+          skills/agents-md-architect/tools/audit_agents_md.py
+          tests/test_agents_md_latest_review.py
+          tests/test_agents_md_validator.py
+          PATHS
+          rm -f .github/scripts/pr18-audit-fixes.part*
+          rm -f \
+            .github/scripts/pr18-audit-followup.py \
+            .github/scripts/pr18-audit-followup-fixture.py \
+            .github/scripts/pr18-audit-static-if.py \
+            .github/workflows/apply-pr18-audit-fixes.yml \
+            .tmp-placeholder \
+            .tmp-placeholder-2
+          git diff --check
+          test "$(git status --porcelain --untracked-files=all | awk '{print $NF}' | sort)" = "$(printf '%s\n' \
+            .github/scripts/pr18-audit-fixes.part00 \
+            .github/scripts/pr18-audit-fixes.part01 \
+            .github/scripts/pr18-audit-fixes.part02 \
+            .github/scripts/pr18-audit-fixes.part03 \
+            .github/scripts/pr18-audit-fixes.part04 \
+            .github/scripts/pr18-audit-fixes.part05 \
+            .github/scripts/pr18-audit-fixes.part06 \
+            .github/scripts/pr18-audit-fixes.part07 \
+            .github/scripts/pr18-audit-fixes.part08 \
+            .github/scripts/pr18-audit-fixes.part09 \
+            .github/scripts/pr18-audit-followup-fixture.py \
+            .github/scripts/pr18-audit-followup.py \
+            .github/scripts/pr18-audit-static-if.py \
+            .github/workflows/apply-pr18-audit-fixes.yml \
+            .tmp-placeholder \
+            .tmp-placeholder-2 \
+            skills/agents-md-architect/tools/agents_md_parse.py \
+            skills/agents-md-architect/tools/agents_md_shell_evidence.py \
+            skills/agents-md-architect/tools/agents_md_shell_evidence_impl.py \
+            skills/agents-md-architect/tools/audit_agents_md.py \
+            tests/test_agents_md_latest_review.py \
+            tests/test_agents_md_validator.py | sort)"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'fix(agents-md): preserve workflow command context'
+          git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:agent/agents-md-architect
