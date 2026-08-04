@@ -23,6 +23,7 @@ _add_command_segments = _impl._add_command_segments
 _command_path_tokens = _impl._command_path_tokens
 _yaml_syntax_error = _impl._yaml_syntax_error
 _extract_shell_invocations = _impl._extract_shell_invocations
+_extract_yaml_command_evidence = _impl._extract_yaml_command_evidence
 _extract_yaml_invocations = _impl._extract_yaml_invocations
 _extract_powershell_invocations = _impl._extract_powershell_invocations
 _extract_jenkins_invocations = _impl._extract_jenkins_invocations

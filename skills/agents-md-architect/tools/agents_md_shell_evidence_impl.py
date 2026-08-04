@@ -164,41 +164,215 @@ def _yaml_node_is_executable(relative: str, path: tuple[str, ...]) -> bool:
 
 def _yaml_node_uses_powershell(relative: str, path: tuple[str, ...]) -> bool:
     name = Path(relative).name.casefold()
-    return name in {"azure-pipelines.yml", "azure-pipelines.yaml"} and bool(path) and path[-1] in {
-        "pwsh",
-        "powershell",
-    }
+    return (
+        name in {"azure-pipelines.yml", "azure-pipelines.yaml"}
+        and bool(path)
+        and path[-1]
+        in {
+            "pwsh",
+            "powershell",
+        }
+    )
+
+
+def _mapping_value(node: Node | None, key: str) -> Node | None:
+    if not isinstance(node, MappingNode):
+        return None
+    for key_node, value_node in node.value:
+        if isinstance(key_node, ScalarNode) and key_node.value == key:
+            return value_node
+    return None
+
+
+def _scalar_value(node: Node | None) -> str | None:
+    return node.value if isinstance(node, ScalarNode) else None
+
+
+def _normalize_working_directory(value: str) -> str | None:
+    candidate = value.strip().replace("\\", "/")
+    if not candidate or "${{" in candidate or "$((" in candidate or "$(" in candidate:
+        return None
+    if candidate.startswith(("/", "~", "//")) or re.match(r"^[A-Za-z]:", candidate):
+        return None
+    parts = tuple(part for part in candidate.split("/") if part not in {"", "."})
+    if ".." in parts:
+        return None
+    normalized = "/".join(parts)
+    return normalized or "."
+
+
+def _working_directory_override(node: Node | None, inherited: str | None) -> str | None:
+    if node is None:
+        return inherited
+    value = _scalar_value(node)
+    return _normalize_working_directory(value) if value is not None else None
+
+
+def _shell_override(node: Node | None, inherited: str | None) -> str | None:
+    if node is None:
+        return inherited
+    value = _scalar_value(node)
+    if value is None or "${{" in value:
+        return None
+    return value.strip().casefold()
+
+
+def _github_condition_is_statically_false(node: Node | None) -> bool:
+    value = _scalar_value(_mapping_value(node, "if"))
+    if value is None:
+        return False
+    normalized = "".join(value.split()).casefold()
+    return normalized in {"false", "${{false}}"}
+
+
+def _github_run_defaults(node: Node | None) -> tuple[Node | None, Node | None]:
+    run = _mapping_value(_mapping_value(node, "defaults"), "run")
+    return _mapping_value(run, "working-directory"), _mapping_value(run, "shell")
+
+
+def _github_runner_default_shell(job: Node) -> tuple[bool, str | None]:
+    runs_on = _mapping_value(job, "runs-on")
+    if runs_on is None:
+        return False, None
+    values: list[str] = []
+    if isinstance(runs_on, ScalarNode):
+        values.append(runs_on.value)
+    elif isinstance(runs_on, SequenceNode):
+        for item in runs_on.value:
+            if not isinstance(item, ScalarNode):
+                return False, None
+            values.append(item.value)
+    else:
+        return False, None
+    if not values or any(not value.strip() for value in values):
+        return False, None
+    if any("${{" in value for value in values):
+        return True, None
+    labels = tuple(value.casefold() for value in values)
+    if any("windows" in value for value in labels):
+        return True, "pwsh"
+    if any(any(marker in value for marker in ("ubuntu", "linux", "macos")) for value in labels):
+        return True, ""
+    return True, None
+
+
+def _github_shell_kind(shell: str) -> str | None:
+    executable = shell.split(maxsplit=1)[0] if shell else ""
+    if executable in {"pwsh", "powershell"}:
+        return "powershell"
+    if executable in {"", "bash", "sh"}:
+        return "shell"
+    return None
+
+
+def _extract_github_yaml_command_evidence(
+    root: Node,
+    default_working_directory: str,
+) -> set[tuple[str, str]]:
+    evidence: set[tuple[str, str]] = set()
+    workflow_cwd_node, workflow_shell_node = _github_run_defaults(root)
+    workflow_cwd = _working_directory_override(workflow_cwd_node, default_working_directory)
+    jobs = _mapping_value(root, "jobs")
+    if not isinstance(jobs, MappingNode):
+        return evidence
+
+    for _job_key, job in jobs.value:
+        if not isinstance(job, MappingNode) or _github_condition_is_statically_false(job):
+            continue
+        has_runner, runner_shell = _github_runner_default_shell(job)
+        if not has_runner:
+            continue
+        job_cwd_node, job_shell_node = _github_run_defaults(job)
+        job_cwd = _working_directory_override(job_cwd_node, workflow_cwd)
+        workflow_shell = _shell_override(workflow_shell_node, runner_shell)
+        job_shell = _shell_override(job_shell_node, workflow_shell)
+        steps = _mapping_value(job, "steps")
+        if not isinstance(steps, SequenceNode):
+            continue
+        for step in steps.value:
+            if not isinstance(step, MappingNode) or _github_condition_is_statically_false(step):
+                continue
+            run = _scalar_value(_mapping_value(step, "run"))
+            if run is None:
+                continue
+            working_directory = _working_directory_override(_mapping_value(step, "working-directory"), job_cwd)
+            shell = _shell_override(_mapping_value(step, "shell"), job_shell)
+            if working_directory is None or shell is None:
+                continue
+            shell_kind = _github_shell_kind(shell)
+            if shell_kind is None:
+                continue
+            commands = (
+                _extract_powershell_invocations(run) if shell_kind == "powershell" else _extract_shell_invocations(run)
+            )
+            evidence.update((working_directory, command) for command in commands)
+    return evidence
+
+
+def _has_duplicate_yaml_mapping_key(node: Node) -> bool:
+    if isinstance(node, SequenceNode):
+        return any(_has_duplicate_yaml_mapping_key(item) for item in node.value)
+    if not isinstance(node, MappingNode):
+        return False
+    keys: set[tuple[str, str]] = set()
+    for key_node, value_node in node.value:
+        if isinstance(key_node, ScalarNode):
+            identity = (key_node.tag, key_node.value)
+            if identity in keys:
+                return True
+            keys.add(identity)
+        if _has_duplicate_yaml_mapping_key(value_node):
+            return True
+    return False
 
 
 def _compose_yaml(text: str) -> Node | None:
     try:
-        return yaml.compose(text, Loader=yaml.SafeLoader)
+        root = yaml.compose(text, Loader=yaml.SafeLoader)
     except (yaml.YAMLError, RecursionError):
         return None
+    if root is not None and _has_duplicate_yaml_mapping_key(root):
+        return None
+    return root
 
 
 def _yaml_syntax_error(text: str) -> str | None:
     """Return a stable error that never includes repository-controlled excerpts."""
     try:
-        yaml.compose(text, Loader=yaml.SafeLoader)
+        root = yaml.compose(text, Loader=yaml.SafeLoader)
     except (yaml.YAMLError, RecursionError):
+        return INVALID_YAML_MESSAGE
+    if root is not None and _has_duplicate_yaml_mapping_key(root):
         return INVALID_YAML_MESSAGE
     return None
 
 
-def _extract_yaml_invocations(relative: str, text: str) -> set[str]:
+def _extract_yaml_command_evidence(
+    relative: str,
+    text: str,
+    default_working_directory: str = ".",
+) -> set[tuple[str, str]]:
     root = _compose_yaml(text)
     if root is None:
         return set()
-    invocations: set[str] = set()
+    if relative.startswith(".github/workflows/"):
+        return _extract_github_yaml_command_evidence(root, default_working_directory)
+
+    evidence: set[tuple[str, str]] = set()
     for path, value, _style in _yaml_scalar_nodes(root):
         if not _yaml_node_is_executable(relative, path):
             continue
-        if _yaml_node_uses_powershell(relative, path):
-            invocations.update(_extract_powershell_invocations(value))
-        else:
-            invocations.update(_extract_shell_invocations(value))
-    return invocations
+        commands = (
+            _extract_powershell_invocations(value)
+            if _yaml_node_uses_powershell(relative, path)
+            else _extract_shell_invocations(value)
+        )
+        evidence.update((default_working_directory, command) for command in commands)
+    return evidence
+
+
+def _extract_yaml_invocations(relative: str, text: str) -> set[str]:
+    return {command for _working_directory, command in _extract_yaml_command_evidence(relative, text)}
 
 
 def _shell_line_continues(line: str) -> bool:

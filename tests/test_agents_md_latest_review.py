@@ -258,6 +258,7 @@ def test_yaml_literal_shell_comment_cannot_fabricate_command() -> None:
         ".github/workflows/ci.yml",
         """jobs:
   test:
+    runs-on: ubuntu-latest
     steps:
       - run: |
           echo ok # ; python scripts/ghost.py
@@ -354,3 +355,310 @@ Report the exact revision, skipped checks, and residual risk.
     _, findings = audit_module.audit(tmp_path, "application", "single", "en")
 
     assert "commands.unlocated-full-gate" in _codes(findings)
+
+
+@pytest.mark.parametrize(
+    "workflow",
+    (
+        """jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - run: npm run test
+""",
+        """defaults:
+  run:
+    working-directory: apps/web
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - run: npm run test
+""",
+        """jobs:
+  test:
+    steps:
+      - run: npm run test
+        working-directory: apps/web
+""",
+    ),
+)
+def test_github_working_directory_cannot_validate_root_gate(tmp_path: Path, workflow: str) -> None:
+    _write(tmp_path / ".github/workflows/ci.yml", workflow)
+    _write(tmp_path / "AGENTS.md", _agents("npm run test"))
+
+    _, findings = audit_module.audit(tmp_path, "application", "single", "en")
+
+    assert "commands.unlocated-full-gate" in _codes(findings)
+
+
+def test_github_working_directory_validates_matching_nested_gate(tmp_path: Path) -> None:
+    _write(
+        tmp_path / ".github/workflows/ci.yml",
+        """jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - run: npm run test
+""",
+    )
+    _write(tmp_path / "AGENTS.md", _agents("python scripts/root.py"))
+    _write(tmp_path / "scripts/root.py", "print('ok')\n")
+    _write(tmp_path / "apps/web/AGENTS.md", _agents("npm run test"))
+
+    _, findings = audit_module.audit(tmp_path, "application", "monorepo", "en")
+
+    nested_gate_findings = {
+        item.code for item in findings if item.path == "apps/web/AGENTS.md" and item.code.startswith("commands.")
+    }
+    assert "commands.unlocated-full-gate" not in nested_gate_findings
+
+
+def test_github_step_working_directory_overrides_job_default(tmp_path: Path) -> None:
+    _write(
+        tmp_path / ".github/workflows/ci.yml",
+        """jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/api
+    steps:
+      - run: npm run test
+        working-directory: apps/web
+""",
+    )
+    _write(tmp_path / "AGENTS.md", _agents("npm run test"))
+    _write(tmp_path / "apps/web/AGENTS.md", _agents("npm run test"))
+
+    _, findings = audit_module.audit(tmp_path, "application", "monorepo", "en")
+
+    assert any(item.path == "AGENTS.md" and item.code == "commands.unlocated-full-gate" for item in findings)
+    assert not any(
+        item.path == "apps/web/AGENTS.md" and item.code == "commands.unlocated-full-gate" for item in findings
+    )
+
+
+@pytest.mark.parametrize("working_directory", ("${{ matrix.directory }}", "../outside", "/tmp/project", "C:/outside"))
+def test_dynamic_or_external_github_working_directory_cannot_establish_evidence(
+    tmp_path: Path,
+    working_directory: str,
+) -> None:
+    _write(
+        tmp_path / ".github/workflows/ci.yml",
+        f"""jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - run: npm run test
+        working-directory: {working_directory}
+""",
+    )
+    _write(tmp_path / "AGENTS.md", _agents("npm run test"))
+
+    _, findings = audit_module.audit(tmp_path, "application", "single", "en")
+
+    assert "commands.unlocated-full-gate" in _codes(findings)
+
+
+def test_github_explicit_powershell_does_not_treat_comment_as_command() -> None:
+    evidence = shell_evidence._extract_yaml_command_evidence(
+        ".github/workflows/ci.yml",
+        """jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - run: |
+          Write-Host ok # ; python scripts/ghost.py
+          python scripts/ci.py
+""",
+    )
+
+    commands = {command for _directory, command in evidence}
+    assert "python scripts/ghost.py" not in commands
+    assert "python scripts/ci.py" in commands
+
+
+def test_windows_runner_uses_powershell_default_shell() -> None:
+    evidence = shell_evidence._extract_yaml_command_evidence(
+        ".github/workflows/ci.yml",
+        """jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - run: |
+          $example = @"
+          python scripts/ghost.py
+          "@
+          python scripts/ci.py
+""",
+    )
+
+    commands = {command for _directory, command in evidence}
+    assert "python scripts/ghost.py" not in commands
+    assert "python scripts/ci.py" in commands
+
+
+@pytest.mark.parametrize("shell", ("python", "cmd", "${{ matrix.shell }}"))
+def test_unsupported_or_dynamic_github_shell_cannot_establish_evidence(tmp_path: Path, shell: str) -> None:
+    _write(
+        tmp_path / ".github/workflows/ci.yml",
+        f"""jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - run: npm run test
+        shell: {shell}
+""",
+    )
+    _write(tmp_path / "AGENTS.md", _agents("npm run test"))
+
+    _, findings = audit_module.audit(tmp_path, "application", "single", "en")
+
+    assert "commands.unlocated-full-gate" in _codes(findings)
+
+
+def test_duplicate_yaml_keys_are_invalid_and_cannot_establish_evidence(tmp_path: Path) -> None:
+    _write(
+        tmp_path / ".github/workflows/ci.yml",
+        """jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - run: npm run test
+        run: echo shadowed
+""",
+    )
+    _write(tmp_path / "AGENTS.md", _agents("npm run test"))
+
+    _, findings = audit_module.audit(tmp_path, "application", "single", "en")
+
+    assert "evidence.invalid-yaml" in _codes(findings)
+    assert "commands.unlocated-full-gate" in _codes(findings)
+
+
+def test_github_job_without_runs_on_cannot_establish_evidence(tmp_path: Path) -> None:
+    _write(
+        tmp_path / ".github/workflows/ci.yml",
+        """jobs:
+  test:
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - run: npm run test
+""",
+    )
+    _write(tmp_path / "AGENTS.md", _agents("npm run test"))
+
+    _, findings = audit_module.audit(tmp_path, "application", "single", "en")
+
+    assert "commands.unlocated-full-gate" in _codes(findings)
+
+
+def test_self_hosted_runner_without_os_or_shell_cannot_establish_evidence(tmp_path: Path) -> None:
+    _write(
+        tmp_path / ".github/workflows/ci.yml",
+        """jobs:
+  test:
+    runs-on: self-hosted
+    steps:
+      - run: npm run test
+""",
+    )
+    _write(tmp_path / "AGENTS.md", _agents("npm run test"))
+
+    _, findings = audit_module.audit(tmp_path, "application", "single", "en")
+
+    assert "commands.unlocated-full-gate" in _codes(findings)
+
+
+def test_self_hosted_runner_with_explicit_shell_can_establish_evidence(tmp_path: Path) -> None:
+    _write(
+        tmp_path / ".github/workflows/ci.yml",
+        """jobs:
+  test:
+    runs-on: self-hosted
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - run: npm run test
+""",
+    )
+    _write(tmp_path / "AGENTS.md", _agents("npm run test"))
+
+    _, findings = audit_module.audit(tmp_path, "application", "single", "en")
+
+    assert "commands.unlocated-full-gate" not in _codes(findings)
+
+
+@pytest.mark.parametrize("condition", ("false", "${{ false }}"))
+def test_statically_disabled_github_step_cannot_establish_evidence(
+    tmp_path: Path,
+    condition: str,
+) -> None:
+    _write(
+        tmp_path / ".github/workflows/ci.yml",
+        f"""jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - if: {condition}
+        run: npm run test
+""",
+    )
+    _write(tmp_path / "AGENTS.md", _agents("npm run test"))
+
+    _, findings = audit_module.audit(tmp_path, "application", "single", "en")
+
+    assert "commands.unlocated-full-gate" in _codes(findings)
+
+
+@pytest.mark.parametrize("condition", ("false", "${{ false }}"))
+def test_statically_disabled_github_job_cannot_establish_evidence(
+    tmp_path: Path,
+    condition: str,
+) -> None:
+    _write(
+        tmp_path / ".github/workflows/ci.yml",
+        f"""jobs:
+  test:
+    if: {condition}
+    runs-on: ubuntu-latest
+    steps:
+      - run: npm run test
+""",
+    )
+    _write(tmp_path / "AGENTS.md", _agents("npm run test"))
+
+    _, findings = audit_module.audit(tmp_path, "application", "single", "en")
+
+    assert "commands.unlocated-full-gate" in _codes(findings)
+
+
+def test_dynamic_github_condition_remains_potentially_executable(tmp_path: Path) -> None:
+    _write(
+        tmp_path / ".github/workflows/ci.yml",
+        """jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - if: ${{ matrix.enabled }}
+        run: npm run test
+""",
+    )
+    _write(tmp_path / "AGENTS.md", _agents("npm run test"))
+
+    _, findings = audit_module.audit(tmp_path, "application", "single", "en")
+
+    assert "commands.unlocated-full-gate" not in _codes(findings)

@@ -29,6 +29,7 @@ from agents_md_python_evidence import _extract_python_invocations  # noqa: E402
 from agents_md_shell_evidence import (  # noqa: E402
     _command_path_tokens,
     _extract_gate_invocations,
+    _extract_yaml_command_evidence,
     _yaml_syntax_error,
 )
 from agents_md_shell_evidence import (  # noqa: E402
@@ -209,6 +210,16 @@ def _parse_many(commands: Iterable[str], working_directory: str) -> set[CommandE
     }
 
 
+def _executed_source_evidence(relative: str, text: str) -> set[CommandEvidence]:
+    working_directory = _source_working_directory(relative, executed=True)
+    if Path(relative).suffix.casefold() in {".yml", ".yaml"}:
+        evidence: set[CommandEvidence] = set()
+        for command_directory, command in _extract_yaml_command_evidence(relative, text, working_directory):
+            evidence.update(_parse_many((command,), command_directory))
+        return evidence
+    return _parse_many(_extract_source_invocations(relative, text), working_directory)
+
+
 def _known_gate_commands(root: Path, discovery: Discovery) -> tuple[KnownCommands, list[AuditFinding]]:
     gate_sources = tuple(sorted(set((*discovery.ci_files, *discovery.task_runners))))
     public_sources = _public_source_files(discovery)
@@ -257,12 +268,7 @@ def _known_gate_commands(root: Path, discovery: Discovery) -> tuple[KnownCommand
             _parse_many(public_task_invocations(relative, text), _source_working_directory(relative))
         )
         if relative in gate_sources:
-            executed_commands.update(
-                _parse_many(
-                    _extract_source_invocations(relative, text),
-                    _source_working_directory(relative, executed=True),
-                )
-            )
+            executed_commands.update(_executed_source_evidence(relative, text))
     return KnownCommands(frozenset(public_commands), frozenset(executed_commands)), findings
 
 
