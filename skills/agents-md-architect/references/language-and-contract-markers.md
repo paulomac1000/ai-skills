@@ -5,7 +5,7 @@ type: reference
 status: active
 rigor: operational
 owners: [repository-maintainers]
-verification: Validate one representative document with the selected language and prove that required contract markers and cross-file conflicts behave as documented.
+verification: Validate representative English, Polish, and other-language documents; prove that markers cannot replace EN/PL prose and that only markers bound to non-empty H2 sections satisfy other-language contracts.
 ---
 
 # Language and contract markers
@@ -14,25 +14,27 @@ The validator performs bounded lexical analysis, not general natural-language un
 
 ## Supported language modes
 
-- `--language en` enables the English concept and directive vocabulary.
-- `--language pl` enables the Polish concept and directive vocabulary.
-- `--language other` disables semantic keyword assumptions. Required contracts must use stable markers; missing markers produce `language.semantic-unverified`, which blocks `--strict`.
+- `--language en` validates required concepts from active English prose. Contract markers do not satisfy these checks.
+- `--language pl` validates required concepts from active Polish prose. Contract markers do not satisfy these checks.
+- `--language other` disables semantic keyword assumptions. Required contracts must use stable markers; missing valid markers produce `language.semantic-unverified`, which blocks `--strict`.
 
 A repository may write prose in any language. It must not claim semantic conflict detection for a language that was not selected and tested.
 
 ## Stable contract markers
 
-Place a marker next to the section that owns the contract:
+Markers are an explicit fallback for `--language other`, not self-certification for English or Polish. Add only identifiers required by the selected profile and layout. Place each marker inside the H2 section that owns the contract, and give that section real, non-comment content:
 
 ```markdown
-<!-- agents-md: contract scope -->
+## Verification commands
+
 <!-- agents-md: contract commands -->
-<!-- agents-md: contract completion -->
+
+- Full gate: `make quality`
 ```
 
-Available identifiers are `scope`, `precedence`, `routing`, `commands`, `completion`, `safety`, `data`, `nested`, `risk`, and `local`.
+A marker before an H2 or in an otherwise empty H2 is invalid and cannot satisfy a contract. Available identifiers are `scope`, `precedence`, `routing`, `commands`, `completion`, `safety`, `data`, `nested`, `risk`, and `local`.
 
-Markers state that the section exists; they do not prove that its prose is correct. A reviewer still verifies repository intent, platform behavior, and implementation parity.
+Markers state that a concrete section owns the named contract; they do not prove that its prose is correct. A reviewer still verifies repository intent, platform behavior, and implementation parity.
 
 ## Cross-file conflict limits
 
