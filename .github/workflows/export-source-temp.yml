@@ -1,8 +1,7 @@
 name: Export Source Temp
 
 on:
-  push:
-    branches: [agent/agents-md-architect]
+  pull_request:
 
 permissions:
   contents: read
@@ -14,12 +13,12 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 1
           persist-credentials: false
       - name: Verify exact revision
         env:
-          EXPECTED_SHA: ${{ github.sha }}
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
       - name: Package source tree
         run: tar --exclude=.git -czf source-tree.tgz .
