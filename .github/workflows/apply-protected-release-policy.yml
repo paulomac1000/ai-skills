@@ -23,8 +23,30 @@ jobs:
         with:
           ref: fix/protected-container-release-policy
           fetch-depth: 0
-      - name: Apply migration and remove one-shot files
-        run: python scripts/apply-protected-release-policy.py
+      - name: Repair and apply migration
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('scripts/apply-protected-release-policy.py')
+          text = path.read_text(encoding='utf-8')
+          old = '''replace_once(publish, "runs-on: ubuntu-latest", "runs-on: ubuntu-24.04")
+          # Template contains two runner declarations.
+          text = publish.read_text(encoding="utf-8")
+          text = text.replace("runs-on: ubuntu-latest", "runs-on: ubuntu-24.04")
+          publish.write_text(text, encoding="utf-8")
+          '''
+          new = '''text = publish.read_text(encoding="utf-8")
+          if text.count("runs-on: ubuntu-latest") != 2:
+              raise SystemExit("publish template runner count changed")
+          publish.write_text(text.replace("runs-on: ubuntu-latest", "runs-on: ubuntu-24.04"), encoding="utf-8")
+          '''
+          if old not in text:
+              raise SystemExit('migration repair target not found')
+          path.write_text(text.replace(old, new), encoding='utf-8')
+          PY
+          python scripts/apply-protected-release-policy.py
       - name: Commit migrated policy
         shell: bash
         run: |
