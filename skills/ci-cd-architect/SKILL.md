@@ -39,9 +39,9 @@ Generated templates and examples are architecture seeds, not production acceptan
 
 ## Constraints
 
-- Do not grant write permissions to untrusted pull-request code.
+- Do not grant write permissions to untrusted pull-request code. Keep workflow-level permissions read-only; narrowly scoped write access belongs only to a non-PR job protected by a named release environment.
 - Do not use mutable action tags in committed workflows.
-- Do not publish an artifact that was not tested in its published form.
+- Do not publish an artifact that was not tested in its published form, and never use broad operations such as `docker push --all-tags` when release channels have different promotion rights.
 - Do not assume `GITHUB_TOKEN`-generated events trigger downstream workflows.
 - Do not use a pip cache in a repository with no matching dependency file.
 - Do not hide required release jobs behind unreachable event conditions.

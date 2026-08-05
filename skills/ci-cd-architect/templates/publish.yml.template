@@ -20,7 +20,7 @@ concurrency:
 
 jobs:
   validate:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: <TIMEOUT_MINUTES>
     outputs:
       release_sha: ${{ steps.revision.outputs.sha }}
@@ -72,7 +72,7 @@ jobs:
   publish:
     needs: validate
     environment: <RELEASE_ENVIRONMENT>
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: <TIMEOUT_MINUTES>
     permissions:
       contents: read
@@ -117,11 +117,15 @@ jobs:
         shell: bash
         env:
           IMAGE_REPOSITORY: ghcr.io/${{ github.repository }}
+          IMAGE_TAGS: ${{ steps.meta.outputs.tags }}
           IMMUTABLE_TAG: sha-${{ needs.validate.outputs.release_short_sha }}
         run: |
           set -euo pipefail
-          docker push --all-tags "$IMAGE_REPOSITORY"
-          digest="$(docker inspect --format='{{index .RepoDigests 0}}' "$IMAGE_REPOSITORY:$IMMUTABLE_TAG" | cut -d@ -f2)"
+          while IFS= read -r image_tag; do
+            test -n "$image_tag" || continue
+            docker push "$image_tag"
+          done <<< "$IMAGE_TAGS"
+          digest="$(docker buildx imagetools inspect "$IMAGE_REPOSITORY:$IMMUTABLE_TAG" --format '{{json .Manifest.Digest}}' | tr -d '"')"
           test -n "$digest"
           echo "digest=$digest" >> "$GITHUB_OUTPUT"
       - uses: actions/attest-build-provenance@96b4a1ef7235a096b17240c259729fdd70c83d45

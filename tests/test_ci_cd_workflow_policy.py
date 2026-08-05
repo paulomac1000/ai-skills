@@ -206,3 +206,79 @@ def test_impl_requires_explicit_hardened_dependencies() -> None:
     assert repository_parameters["reader"].default is inspect.Parameter.empty
     assert repository_parameters["enumerator"].default is inspect.Parameter.empty
     assert not hasattr(policy_impl, "main")
+
+
+
+def test_protected_non_pr_release_job_may_use_narrow_write_scopes(tmp_path: Path) -> None:
+    workflow = tmp_path / "release.yml"
+    workflow.write_text(
+        """
+name: release
+on: workflow_dispatch
+permissions:
+  contents: read
+concurrency:
+  group: release
+  cancel-in-progress: false
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment: production-release
+    permissions:
+      contents: write
+      packages: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+""".lstrip(),
+        encoding="utf-8",
+    )
+    assert _messages(workflow) == []
+
+
+def test_write_scope_without_release_environment_is_rejected(tmp_path: Path) -> None:
+    workflow = tmp_path / "unsafe-release.yml"
+    workflow.write_text(
+        """
+name: unsafe
+on: workflow_dispatch
+permissions:
+  contents: read
+concurrency:
+  group: unsafe
+  cancel-in-progress: false
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      packages: write
+    steps: []
+""".lstrip(),
+        encoding="utf-8",
+    )
+    assert any("allowed write scopes are: none" in message for message in _messages(workflow))
+
+
+def test_literal_repository_local_reusable_workflow_is_accepted(tmp_path: Path) -> None:
+    workflow = tmp_path / "caller.yml"
+    workflow.write_text(
+        """
+name: caller
+on: workflow_dispatch
+permissions:
+  contents: read
+concurrency:
+  group: caller
+  cancel-in-progress: false
+jobs:
+  build:
+    uses: ./.github/workflows/container-build.yml
+""".lstrip(),
+        encoding="utf-8",
+    )
+    assert _messages(workflow) == []

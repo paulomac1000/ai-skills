@@ -27,6 +27,7 @@ Define stable delivery invariants for Python, .NET, MCP, documentation, package,
 - Third-party actions use full 40-character commit SHAs. Version comments are informational.
 - `actions/checkout` sets `persist-credentials: false` unless a narrowly reviewed step must push.
 - Top-level permissions default to `contents: read`; jobs elevate only capabilities they use.
+- Write scopes are forbidden for pull-request code. A non-PR job may use only `packages`, `contents`, `id-token`, or `attestations` write access, and only when it names a protected release environment. Repository-local reusable workflows are permitted through literal `./.github/workflows/*.yml` references; external or expression-derived workflow calls are not.
 - Every job has a positive numeric `timeout-minutes` and explicit concurrency semantics where overlapping runs are harmful.
 - Shell scripts use strict mode when failure propagation matters.
 - Cache keys include every file that changes dependency resolution, including central .NET package and build props.
@@ -62,7 +63,7 @@ A release workflow:
 4. passes that exact SHA to the protected publish job;
 5. derives human and immutable tags from validated outputs;
 6. builds a local image once, smoke-tests that image, and pushes the same local image tags;
-7. captures the registry digest and attests that digest.
+7. pushes only the explicitly derived tags, captures the registry digest, and attests that digest.
 
 Manual dispatch is protected by an environment. A selected tag must resolve to the captured SHA. The dispatch branch's `github.ref` and `github.sha` are not used as release identity when a separate release ref was selected.
 

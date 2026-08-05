@@ -26,6 +26,7 @@ _SECRET_CONTEXT_REFERENCE = re.compile(
 _WRITE_PERMISSION = re.compile(r"(^|-)write$")
 _WORKFLOW_SUFFIXES = {".yml", ".yaml"}
 _MUTABLE_RUNNERS = {"ubuntu-latest", "windows-latest", "macos-latest"}
+_PROTECTED_RELEASE_WRITE_SCOPES = frozenset({"packages", "contents", "id-token", "attestations"})
 
 
 class _UniqueKeyLoader(yaml.SafeLoader):
@@ -111,6 +112,7 @@ def _permission_findings(
     *,
     scope: str,
     allowed_read_scopes: frozenset[str] | None = None,
+    allowed_write_scopes: frozenset[str] | None = None,
 ) -> list[Finding]:
     if permissions is None:
         return [Finding(path, f"{scope} must declare explicit permissions")]
@@ -130,12 +132,14 @@ def _permission_findings(
         normalized_name = name.casefold()
         normalized_access = access.casefold()
         if _WRITE_PERMISSION.search(normalized_access):
-            findings.append(
-                Finding(
-                    path,
-                    f"{scope} grants {name}: {access}; this policy permits no write scope",
+            if allowed_write_scopes is None or normalized_name not in allowed_write_scopes:
+                allowed = ", ".join(sorted(allowed_write_scopes or ())) or "none"
+                findings.append(
+                    Finding(
+                        path,
+                        f"{scope} grants {name}: {access}; allowed write scopes are: {allowed}",
+                    )
                 )
-            )
         elif normalized_access not in {"read", "none"}:
             findings.append(Finding(path, f"{scope} has unsupported permission {name}: {access}"))
         elif (
@@ -309,20 +313,42 @@ def audit_workflow(
             findings.append(Finding(path, f"job {job_name!r} must be a mapping"))
             continue
         if "uses" in job:
-            findings.append(Finding(path, f"job {job_name!r} reusable workflow calls are not supported"))
-            findings.extend(_external_action_findings(path, f"job {job_name!r}", job.get("uses")))
+            uses = job.get("uses")
+            label = f"job {job_name!r}"
+            if not isinstance(uses, str):
+                findings.append(Finding(path, f"{label} reusable workflow reference must be a string"))
+            elif (
+                not uses.startswith("./.github/workflows/")
+                or ".." in Path(uses).parts
+                or Path(uses).suffix.casefold() not in _WORKFLOW_SUFFIXES
+                or _EXPRESSION_REFERENCE.search(uses)
+            ):
+                findings.append(
+                    Finding(
+                        path,
+                        f"{label} may call only a literal repository-local workflow below .github/workflows",
+                    )
+                )
+            if pull_request_workflow and any(
+                _SECRET_CONTEXT_REFERENCE.search(value) for value in _scalar_strings(job)
+            ):
+                findings.append(Finding(path, f"{label} pull-request call must not pass repository secrets"))
             continue
 
         if not _positive_int(job.get("timeout-minutes")):
             findings.append(Finding(path, f"job {job_name!r} needs positive timeout-minutes"))
         findings.extend(_runner_findings(path, str(job_name), job.get("runs-on")))
         if "permissions" in job:
+            protected_release_job = not pull_request_workflow and "environment" in job
             findings.extend(
                 _permission_findings(
                     path,
                     job.get("permissions"),
                     scope=f"job {job_name!r}",
                     allowed_read_scopes=allowed_read_scopes,
+                    allowed_write_scopes=(
+                        _PROTECTED_RELEASE_WRITE_SCOPES if protected_release_job else None
+                    ),
                 )
             )
 
