@@ -10,10 +10,13 @@ from pathlib import Path
 
 import yaml
 from agents_md_command import canonical_invocation, parse_invocation
-from agents_md_parse import parse_markdown_structure, parse_visible_lines
+from agents_md_parse import (
+    _iter_code_spans,
+    parse_markdown_structure,
+    parse_visible_lines,
+)
 from agents_md_types import HEADING, CommandRule, _normalize_rule
 
-_CODE_SPAN = re.compile(r"`([^`\n]+)`")
 _COMPLETION_LABEL = re.compile(
     r"(?ix)\b(?:"
     r"full(?:\s+completion)?\s+gate|"
@@ -85,14 +88,14 @@ def _visible_completion_rules(text: str) -> list[CommandRule]:
                 for cell in cells:
                     if cell == label_cell:
                         continue
-                    for command in _CODE_SPAN.findall(cell):
+                    for command in _iter_code_spans(cell):
                         rules.append(_rule(label_cell, command, line_number, line))
                 continue
 
         label_match = _LABEL_LINE.fullmatch(line)
         if label_match is not None and _COMPLETION_LABEL.search(label_match.group("label")):
             label = label_match.group("label")
-            commands = _CODE_SPAN.findall(label_match.group("tail"))
+            commands = tuple(_iter_code_spans(label_match.group("tail")))
             if commands:
                 rules.extend(_rule(label, command, line_number, line) for command in commands)
                 pending_label = None
@@ -103,7 +106,7 @@ def _visible_completion_rules(text: str) -> list[CommandRule]:
         if pending_label is not None:
             if not line.strip():
                 continue
-            commands = _CODE_SPAN.findall(line)
+            commands = tuple(_iter_code_spans(line))
             if commands:
                 label, _label_line = pending_label
                 rules.extend(_rule(label, command, line_number, line) for command in commands)
@@ -112,7 +115,7 @@ def _visible_completion_rules(text: str) -> list[CommandRule]:
             pending_label = None
 
         if in_completion_section:
-            for command in _CODE_SPAN.findall(line):
+            for command in _iter_code_spans(line):
                 rules.append(_rule(section_label, command, line_number, line))
 
     return rules
@@ -173,11 +176,11 @@ def _fenced_completion_rules(text: str) -> list[CommandRule]:
 
         label_match = _LABEL_LINE.fullmatch(line)
         if label_match is not None and _COMPLETION_LABEL.search(label_match.group("label")):
-            if not _CODE_SPAN.findall(label_match.group("tail")):
+            if not tuple(_iter_code_spans(label_match.group("tail"))):
                 pending_label = (label_match.group("label"), line_number)
             continue
 
-        if pending_label is not None and line.strip() and not _CODE_SPAN.findall(line):
+        if pending_label is not None and line.strip() and not tuple(_iter_code_spans(line)):
             pending_label = None
 
     return rules
