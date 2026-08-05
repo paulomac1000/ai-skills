@@ -212,7 +212,8 @@ def _iter_code_span_matches(line: str) -> Iterator[tuple[str, int, int]]:
                 break
             closing = closing_end
         else:
-            return
+            index = end
+            continue
         yield line[end:closing].strip(), index, closing + width
         index = closing + width
 

@@ -39,6 +39,11 @@ def test_inline_code_closer_requires_an_exact_backtick_run() -> None:
     assert list(parser.iter_references([(1, line)])) == []
 
 
+def test_unmatched_backtick_run_does_not_hide_a_later_code_span() -> None:
+    line = "Read ``unfinished and then `missing.md`."
+    assert list(parser.iter_references([(1, line)])) == [(1, "missing.md")]
+
+
 def test_recursive_yaml_alias_fails_closed_without_recursion_error() -> None:
     text = "jobs: &jobs\n  loop: *jobs\n"
     assert shell_impl._yaml_syntax_error(text) == shell_impl.INVALID_YAML_MESSAGE
@@ -46,9 +51,7 @@ def test_recursive_yaml_alias_fails_closed_without_recursion_error() -> None:
 
 
 def test_shell_implementation_preserves_argv_without_wrapper_rebinding() -> None:
-    assert shell_impl._extract_shell_invocations("python 'scripts/full gate.py'") == {
-        "python 'scripts/full gate.py'"
-    }
+    assert shell_impl._extract_shell_invocations("python 'scripts/full gate.py'") == {"python 'scripts/full gate.py'"}
     wrapper = (TOOLS / "agents_md_shell_evidence.py").read_text(encoding="utf-8")
     assert "_impl._normalize_invocation =" not in wrapper
 
