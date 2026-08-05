@@ -37,7 +37,21 @@ jobs:
       - name: Install locked development graph
         run: python scripts/install_locked.py
       - name: Apply deterministic remediation
-        run: python .github/scripts/pr18_final_audit_fix.py
+        run: |
+          python .github/scripts/pr18_final_audit_fix.py
+          python .github/scripts/pr18_final_audit_post_fix.py
+      - name: Apply safe automatic lint repairs
+        run: >-
+          python -m ruff check --fix
+          scripts/quality_targets.py
+          skills/agents-md-architect/tools/agents_md_codex_platform.py
+          skills/agents-md-architect/tools/agents_md_parse.py
+          skills/agents-md-architect/tools/agents_md_shell_evidence.py
+          skills/agents-md-architect/tools/agents_md_shell_evidence_impl.py
+          tests/test_agents_md_codex_followup.py
+          tests/test_agents_md_release_contract.py
+          tests/test_final_audit_regressions.py
+          tests/test_latest_bot_followup.py
       - name: Canonically format changed Python
         run: >-
           python -m ruff format
@@ -188,6 +202,7 @@ jobs:
           done < verified-output/files.txt
           rm -rf verified-output
           rm .github/scripts/pr18_final_audit_fix.py
+          rm .github/scripts/pr18_final_audit_post_fix.py
           rm .github/workflows/pr18-final-audit-remediation.yml
           git diff --check
           python - <<'PY'
@@ -195,6 +210,7 @@ jobs:
 
           expected = {
               '.github/scripts/pr18_final_audit_fix.py',
+              '.github/scripts/pr18_final_audit_post_fix.py',
               '.github/workflows/pr18-final-audit-remediation.yml',
               'CHANGELOG.md',
               'scripts/quality_targets.py',
