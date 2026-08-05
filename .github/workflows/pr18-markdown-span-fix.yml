@@ -1,0 +1,168 @@
+name: PR18 Markdown Span Fix
+
+on:
+  push:
+    branches:
+      - agent/agents-md-architect
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: pr18-markdown-span-fix
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Check out exact source head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+          architecture: x64
+          cache: pip
+          cache-dependency-path: requirements-dev-linux-x64-py312.lock
+      - name: Install locked development graph
+        run: python scripts/install_locked.py
+      - name: Apply deterministic fix
+        run: python .github/scripts/pr18_markdown_span_fix.py
+      - name: Format and verify focused changes
+        run: |
+          python -m ruff format \
+            skills/agents-md-architect/tools/agents_md_parse.py \
+            tests/test_final_audit_regressions.py
+          python -m ruff check \
+            skills/agents-md-architect/tools/agents_md_parse.py \
+            tests/test_final_audit_regressions.py
+          python -m pytest -q tests/test_final_audit_regressions.py
+      - name: Run complete locked gate
+        run: python scripts/ci.py
+      - name: Stage verified output
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf verified-output
+          mkdir -p verified-output/skills/agents-md-architect/tools verified-output/tests
+          cp skills/agents-md-architect/tools/agents_md_parse.py \
+            verified-output/skills/agents-md-architect/tools/agents_md_parse.py
+          cp tests/test_final_audit_regressions.py verified-output/tests/test_final_audit_regressions.py
+          printf '%s\n' \
+            skills/agents-md-architect/tools/agents_md_parse.py \
+            tests/test_final_audit_regressions.py > verified-output/files.txt
+          python - <<'PY'
+          from hashlib import sha256
+          from pathlib import Path
+
+          root = Path('verified-output')
+          lines = []
+          for relative in root.joinpath('files.txt').read_text(encoding='utf-8').splitlines():
+              lines.append(f"{sha256(root.joinpath(relative).read_bytes()).hexdigest()}  {relative}")
+          root.joinpath('SHA256SUMS').write_text('\n'.join(lines) + '\n', encoding='utf-8')
+          PY
+      - name: Upload verified files
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: pr18-markdown-span-output
+          path: verified-output
+          retention-days: 1
+          if-no-files-found: error
+
+  publish:
+    needs: verify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - name: Check out exact verified source head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Download verified files
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: pr18-markdown-span-output
+          path: verified-output
+      - name: Verify artifact and apply exact output
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from hashlib import sha256
+          from pathlib import Path
+
+          root = Path('verified-output')
+          expected = {
+              'skills/agents-md-architect/tools/agents_md_parse.py',
+              'tests/test_final_audit_regressions.py',
+          }
+          listed = set(root.joinpath('files.txt').read_text(encoding='utf-8').splitlines())
+          actual = {
+              path.relative_to(root).as_posix()
+              for path in root.rglob('*')
+              if path.is_file() and path.name not in {'files.txt', 'SHA256SUMS'}
+          }
+          if listed != expected or actual != expected:
+              raise SystemExit('artifact allowlist mismatch')
+          observed = {}
+          for line in root.joinpath('SHA256SUMS').read_text(encoding='utf-8').splitlines():
+              digest, relative = line.split('  ', 1)
+              observed[relative] = digest
+          if set(observed) != expected:
+              raise SystemExit('checksum allowlist mismatch')
+          for relative in expected:
+              if sha256(root.joinpath(relative).read_bytes()).hexdigest() != observed[relative]:
+                  raise SystemExit(f'checksum mismatch: {relative}')
+          PY
+          while IFS= read -r file; do
+            cp "verified-output/$file" "$file"
+          done < verified-output/files.txt
+          rm -rf verified-output
+          rm .github/scripts/pr18_markdown_span_fix.py
+          rm .github/workflows/pr18-markdown-span-fix.yml
+          git diff --check
+          python - <<'PY'
+          import subprocess
+
+          expected = {
+              '.github/scripts/pr18_markdown_span_fix.py',
+              '.github/workflows/pr18-markdown-span-fix.yml',
+              'skills/agents-md-architect/tools/agents_md_parse.py',
+              'tests/test_final_audit_regressions.py',
+          }
+          output = subprocess.run(
+              ['git', 'status', '--porcelain=v1', '--untracked-files=all'],
+              check=True,
+              capture_output=True,
+              text=True,
+          ).stdout
+          actual = {line[3:] for line in output.splitlines() if line}
+          if actual != expected:
+              raise SystemExit(f'working tree allowlist mismatch: {sorted(actual ^ expected)}')
+          PY
+      - name: Commit verified fix
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'fix(agents-md): continue after unmatched code-span opener'
+          git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:agent/agents-md-architect
