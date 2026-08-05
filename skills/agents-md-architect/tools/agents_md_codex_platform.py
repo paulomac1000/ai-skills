@@ -2,12 +2,19 @@
 
 from __future__ import annotations
 
+import sys
 from collections.abc import Iterable
 from pathlib import Path
 
-from agents_md_parse import read_utf8_bounded, trusted_input
-from agents_md_types import Finding
-from discover_repository import discover
+TOOLS = Path(__file__).resolve().parent
+CONTRACTS = TOOLS.parents[2] / "contracts"
+if str(CONTRACTS) not in sys.path:
+    sys.path.insert(0, str(CONTRACTS))
+
+from agents_md_parse import trusted_input  # noqa: E402
+from agents_md_types import MAX_INSTRUCTION_FILE_BYTES, Finding  # noqa: E402
+from confined_io import ConfinedReadError, read_utf8_bounded  # noqa: E402
+from discover_repository import discover  # noqa: E402
 
 CODEX_DEFAULT_PROJECT_DOC_MAX_BYTES = 32 * 1024
 CODEX_PRIMARY_FILENAMES = ("AGENTS.override.md", "AGENTS.md")
@@ -96,19 +103,20 @@ def _validate_codex_context(
                 )
             )
             continue
-        result = read_utf8_bounded(trusted)
-        if result.code is not None:
+        try:
+            _text, byte_count = read_utf8_bounded(trusted, root, MAX_INSTRUCTION_FILE_BYTES)
+        except ConfinedReadError as error:
             findings.append(
                 Finding(
                     str(path),
                     "error",
-                    result.code,
+                    error.code,
                     1,
-                    result.message or "Codex instruction file could not be read.",
+                    error.message,
                 )
             )
             continue
-        sizes[path] = result.byte_count
+        sizes[path] = byte_count
 
     for target_directory in sorted(selected_by_directory, key=lambda item: (len(item.parts), item.as_posix())):
         chain = [

@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-import stat
 import sys
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -15,7 +13,6 @@ ROOT = Path(__file__).resolve().parents[1]
 TOOLS = ROOT / "skills/agents-md-architect/tools"
 sys.path.insert(0, str(TOOLS))
 
-import agents_md_parse as parser  # noqa: E402
 import audit_agents_md as audit_module  # noqa: E402
 import discover_repository as discovery  # noqa: E402
 import validate_agents_md as validator  # noqa: E402
@@ -94,44 +91,6 @@ def test_fenced_example_inside_list_is_not_active_instruction(tmp_path: Path) ->
     assert "safety.keyword-approval" not in codes(findings)
     assert "links.missing" not in codes(findings)
     assert "structure.unclosed-fence" not in codes(findings)
-
-
-def test_bounded_reader_requests_only_limit_plus_one(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    read_sizes: list[int] = []
-
-    class FakeStream:
-        def __enter__(self) -> FakeStream:
-            return self
-
-        def __exit__(self, *_args: object) -> None:
-            return None
-
-        def read(self, size: int) -> bytes:
-            read_sizes.append(size)
-            return b"x" * size
-
-    component_safe = parser._supports_component_nofollow()
-    monkeypatch.setattr(parser, "_supports_component_nofollow", lambda: component_safe)
-    monkeypatch.setattr(parser.os, "open", lambda *_args, **_kwargs: 42)
-    if not component_safe:
-        monkeypatch.setattr(
-            parser.os,
-            "lstat",
-            lambda _path: SimpleNamespace(st_mode=stat.S_IFREG, st_size=1, st_dev=1, st_ino=1),
-        )
-    monkeypatch.setattr(
-        parser.os,
-        "fstat",
-        lambda _descriptor: SimpleNamespace(st_mode=stat.S_IFREG, st_size=1, st_dev=1, st_ino=1),
-    )
-    monkeypatch.setattr(parser.os, "fdopen", lambda *_args, **_kwargs: FakeStream())
-    monkeypatch.setattr(parser.os, "close", lambda _descriptor: None)
-
-    result = parser.read_utf8_bounded(Path("ignored"), max_bytes=8)
-    assert read_sizes == [9]
-    assert result.code == "input.too-large"
 
 
 def test_python_docstring_does_not_establish_gate_evidence(tmp_path: Path) -> None:
@@ -312,30 +271,6 @@ def test_dotnet_probe_consumes_shared_discovery_budget(
     assert any("discovery entries exceed" in issue for issue in result.issues)
 
 
-def test_no_nofollow_fallback_rejects_changed_file_identity(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    before = SimpleNamespace(st_mode=stat.S_IFREG, st_size=1, st_dev=1, st_ino=10)
-    after = SimpleNamespace(st_mode=stat.S_IFREG, st_size=1, st_dev=1, st_ino=11)
-    closed: list[int] = []
-
-    monkeypatch.setattr(parser.os, "O_NOFOLLOW", 0, raising=False)
-    monkeypatch.setattr(parser.os, "lstat", lambda _path: before)
-    monkeypatch.setattr(parser.os, "open", lambda *_args, **_kwargs: 42)
-    monkeypatch.setattr(parser.os, "fstat", lambda _descriptor: after)
-    monkeypatch.setattr(parser.os, "close", closed.append)
-    monkeypatch.setattr(
-        parser.os,
-        "fdopen",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("changed identity must not be read")),
-    )
-
-    result = parser.read_utf8_bounded(Path("ignored"), max_bytes=8)
-    assert result.code == "input.read-error"
-    assert "identity changed" in (result.message or "")
-    assert closed == [42]
-
-
 def test_github_literal_run_joins_shell_continuations(tmp_path: Path) -> None:
     write(
         tmp_path / ".github/workflows/ci.yml",
@@ -356,18 +291,6 @@ jobs:
     )
     _, findings = audit_module.audit(tmp_path, "application", "single", "en")
     assert "commands.unlocated-full-gate" not in codes(findings)
-
-
-def test_component_safe_reader_rejects_intermediate_symlink(tmp_path: Path) -> None:
-    if not parser._supports_component_nofollow():
-        pytest.skip("component-wise no-follow open is not available")
-    outside = tmp_path.parent / f"{tmp_path.name}-outside"
-    outside.mkdir()
-    write(outside / "secret.txt", "outside")
-    (tmp_path / "redirect").symlink_to(outside, target_is_directory=True)
-    result = parser.read_utf8_bounded(tmp_path / "redirect/secret.txt")
-    assert result.code == "input.read-error"
-    assert result.text is None
 
 
 def test_invalid_github_yaml_cannot_establish_gate_evidence(tmp_path: Path) -> None:

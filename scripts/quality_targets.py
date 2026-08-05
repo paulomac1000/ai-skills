@@ -35,6 +35,7 @@ TYPE_PATHS = (
     "skills/agents-md-architect/tools/discover_repository.py",
     "skills/agents-md-architect/tools/validate_agents_md.py",
     "skills/ci-cd-architect/tools/check_github_actions_policy.py",
+    "skills/ci-cd-architect/tools/check_github_actions_policy_impl.py",
     "skills/mcp-server-consumer/tools/decision_engine.py",
     "skills/mcp-server-architect/tools/generate_python_server.py",
     "skills/mcp-server-architect/tools/generate_python_server_impl.py",

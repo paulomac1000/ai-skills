@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import os
 import re
-import stat
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -19,7 +17,6 @@ from agents_md_types import (
     INLINE_LINK,
     LANGUAGE_NEGATIVE_DIRECTIVE,
     LANGUAGE_POSITIVE_DIRECTIVE,
-    MAX_INSTRUCTION_FILE_BYTES,
     PATH_CUE,
     PATH_NAMES,
     PATH_SUFFIXES,
@@ -30,7 +27,6 @@ from agents_md_types import (
     LanguageName,
     OwnershipRule,
     ParsedDocument,
-    ReadResult,
     _is_external,
     _normalize_heading,
     _normalize_rule,
@@ -194,101 +190,6 @@ def parse_visible_lines(text: str) -> tuple[list[tuple[int, str]], int | None]:
     return visible, unclosed
 
 
-def _supports_component_nofollow() -> bool:
-    return bool(
-        getattr(os, "O_NOFOLLOW", 0)
-        and getattr(os, "O_DIRECTORY", 0)
-        and os.open in getattr(os, "supports_dir_fd", set())
-    )
-
-
-def _open_component_safe(path: Path, flags: int) -> int:
-    """Open an absolute path without following any intermediate or final symlink."""
-    absolute = path.absolute()
-    parts = absolute.parts
-    if len(parts) < 2:
-        raise OSError("input path has no final component")
-    directory_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
-    directory = os.open(parts[0], directory_flags)
-    try:
-        for component in parts[1:-1]:
-            child = os.open(component, directory_flags, dir_fd=directory)
-            os.close(directory)
-            directory = child
-        return os.open(parts[-1], flags | getattr(os, "O_NOFOLLOW", 0), dir_fd=directory)
-    finally:
-        os.close(directory)
-
-
-def read_utf8_bounded(path: Path, max_bytes: int = MAX_INSTRUCTION_FILE_BYTES) -> ReadResult:
-    """Read at most max_bytes plus one from a stable, component-confined regular file."""
-    flags = os.O_RDONLY | getattr(os, "O_BINARY", 0)
-    expected_identity: os.stat_result | None = None
-    component_safe = _supports_component_nofollow()
-    if not component_safe:
-        try:
-            expected_identity = os.lstat(path)
-            if stat.S_ISLNK(expected_identity.st_mode):
-                return ReadResult(None, 0, "input.read-error", "Refusing to read a symlink.")
-        except OSError as error:
-            return ReadResult(None, 0, "input.read-error", f"Could not inspect input file: {error}")
-
-    try:
-        descriptor = _open_component_safe(path, flags) if component_safe else os.open(path, flags)
-    except OSError as error:
-        return ReadResult(None, 0, "input.read-error", f"Could not open input file: {error}")
-
-    try:
-        metadata = os.fstat(descriptor)
-        if expected_identity is not None:
-            try:
-                current_identity = os.lstat(path)
-            except OSError as error:
-                return ReadResult(None, 0, "input.read-error", f"Could not re-inspect input file: {error}")
-            if not os.path.samestat(expected_identity, metadata) or not os.path.samestat(current_identity, metadata):
-                return ReadResult(
-                    None,
-                    0,
-                    "input.read-error",
-                    "Input file identity changed while opening; refusing to follow a replacement.",
-                )
-        if not stat.S_ISREG(metadata.st_mode):
-            return ReadResult(None, 0, "input.read-error", "Input is not a regular file.")
-        if metadata.st_size > max_bytes:
-            return ReadResult(
-                None,
-                metadata.st_size,
-                "input.too-large",
-                f"Input file is {metadata.st_size} bytes; maximum supported size is {max_bytes} bytes.",
-            )
-        with os.fdopen(descriptor, "rb", closefd=True) as stream:
-            descriptor = -1
-            payload = stream.read(max_bytes + 1)
-    except OSError as error:
-        return ReadResult(None, 0, "input.read-error", f"Could not read input file: {error}")
-    finally:
-        if descriptor >= 0:
-            os.close(descriptor)
-
-    if len(payload) > max_bytes:
-        return ReadResult(
-            None,
-            len(payload),
-            "input.too-large",
-            f"Input file exceeds the maximum supported size of {max_bytes} bytes.",
-        )
-    try:
-        text = payload.decode("utf-8")
-    except UnicodeDecodeError as error:
-        return ReadResult(
-            None,
-            len(payload),
-            "input.invalid-utf8",
-            f"Input file is not valid UTF-8 at byte {error.start}.",
-        )
-    return ReadResult(text, len(payload), None, None)
-
-
 def _iter_code_span_matches(line: str) -> Iterator[tuple[str, int, int]]:
     index = 0
     while index < len(line):
@@ -299,8 +200,18 @@ def _iter_code_span_matches(line: str) -> Iterator[tuple[str, int, int]]:
         while end < len(line) and line[end] == "`":
             end += 1
         width = end - index
-        closing = line.find("`" * width, end)
-        if closing < 0:
+        closing = end
+        while closing < len(line):
+            if line[closing] != "`":
+                closing += 1
+                continue
+            closing_end = closing
+            while closing_end < len(line) and line[closing_end] == "`":
+                closing_end += 1
+            if closing_end - closing == width:
+                break
+            closing = closing_end
+        else:
             return
         yield line[end:closing].strip(), index, closing + width
         index = closing + width

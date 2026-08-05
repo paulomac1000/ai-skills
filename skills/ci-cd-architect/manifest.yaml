@@ -58,6 +58,7 @@ required:
 - SKILL.md
 - STANDARD.md
 - tools/check_github_actions_policy.py
+- tools/check_github_actions_policy_impl.py
 categories:
 - core
 - references

@@ -58,6 +58,7 @@ def test_repository_agents_md_passes_published_strict_tools() -> None:
         check=False,
         capture_output=True,
         text=True,
+        timeout=120,
     )
     assert validator.returncode == 0, validator.stdout + validator.stderr
 
@@ -78,5 +79,6 @@ def test_repository_agents_md_passes_published_strict_tools() -> None:
         check=False,
         capture_output=True,
         text=True,
+        timeout=120,
     )
     assert audit.returncode == 0, audit.stdout + audit.stderr

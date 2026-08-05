@@ -125,7 +125,13 @@ def test_component_snapshot_detects_replacement(
     real_lstat = workflow_policy.os.lstat
     replacement_stat = real_lstat(replacement)
 
-    def replaced_lstat(path: os.PathLike[str] | str) -> os.stat_result:
+    def replaced_lstat(
+        path: os.PathLike[str] | str,
+        *,
+        dir_fd: int | None = None,
+    ) -> os.stat_result:
+        if dir_fd is not None:
+            return real_lstat(path, dir_fd=dir_fd)
         return replacement_stat if Path(path) == workflow else real_lstat(path)
 
     monkeypatch.setattr(workflow_policy.os, "lstat", replaced_lstat)
@@ -194,8 +200,7 @@ def test_workflow_directory_must_fail_closed(tmp_path: Path) -> None:
 
     assert paths == []
     assert any(
-        "must be a regular directory" in finding.message
-        or "cannot enumerate workflows" in finding.message
+        "must be a regular directory" in finding.message or "cannot enumerate workflows" in finding.message
         for finding in findings
     )
 

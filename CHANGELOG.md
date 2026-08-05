@@ -26,6 +26,7 @@ This release adds a governed standard for designing and maintaining repository i
 - Replaced flattened command strings with lossless `argv` comparison for completion evidence, preserved quoted task and package-script names, rejected option-like task names, and removed ambiguous package-manager shorthand evidence.
 - Bound public command evidence to its source working directory, constructed discovered script entry points directly from `argv`, unified completion-fence parsing with list-aware CommonMark containers, and distinguished concrete repository paths from generic per-skill filenames.
 - Added a self-hosting release contract that runs the published strict validator and repository auditor against the repository's own root `AGENTS.md`.
+- Unified Codex context reads on shared component-confined I/O, removed the legacy duplicate reader, hardened exact Markdown span and recursive YAML parsing, and made policy-auditor publication and typing explicit.
 
 ## 1.1.0 - 2026-07-27
 

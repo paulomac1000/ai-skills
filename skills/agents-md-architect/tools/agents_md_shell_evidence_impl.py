@@ -7,6 +7,7 @@ import shlex
 from pathlib import Path
 
 import yaml
+from agents_md_command import parse_invocation
 from yaml.nodes import MappingNode, Node, ScalarNode, SequenceNode
 
 INVALID_YAML_MESSAGE = "YAML source is syntactically invalid and cannot establish command evidence."
@@ -30,11 +31,8 @@ _GITLAB_RESERVED_TOP_LEVEL = frozenset(
 
 
 def _normalize_invocation(command: str) -> str | None:
-    try:
-        tokens = shlex.split(command, posix=True)
-    except ValueError:
-        return None
-    return " ".join(tokens) if tokens else None
+    invocation = parse_invocation(command)
+    return invocation.display if invocation is not None else None
 
 
 def _command_segments(command: str) -> tuple[str, ...]:
@@ -113,7 +111,10 @@ def _yaml_scalar_nodes(node: Node | None) -> list[tuple[tuple[str, ...], str, st
                 visit(value_node, (*path, key_node.value))
 
     if node is not None:
-        visit(node, ())
+        try:
+            visit(node, ())
+        except RecursionError:
+            return []
     return nodes
 
 
@@ -329,9 +330,9 @@ def _has_duplicate_yaml_mapping_key(node: Node) -> bool:
 def _compose_yaml(text: str) -> Node | None:
     try:
         root = yaml.compose(text, Loader=yaml.SafeLoader)
+        if root is not None and _has_duplicate_yaml_mapping_key(root):
+            return None
     except (yaml.YAMLError, RecursionError):
-        return None
-    if root is not None and _has_duplicate_yaml_mapping_key(root):
         return None
     return root
 
@@ -340,9 +341,9 @@ def _yaml_syntax_error(text: str) -> str | None:
     """Return a stable error that never includes repository-controlled excerpts."""
     try:
         root = yaml.compose(text, Loader=yaml.SafeLoader)
+        if root is not None and _has_duplicate_yaml_mapping_key(root):
+            return INVALID_YAML_MESSAGE
     except (yaml.YAMLError, RecursionError):
-        return INVALID_YAML_MESSAGE
-    if root is not None and _has_duplicate_yaml_mapping_key(root):
         return INVALID_YAML_MESSAGE
     return None
 
