@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -146,7 +147,7 @@ def test_polish_directive_substrings_are_not_classified(line: str) -> None:
     assert parser._directive_category(line, "pl") is None
 
 
-def test_discovery_reports_scandir_errors_and_entry_limits(
+def test_discovery_reports_scandir_errors(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -155,9 +156,13 @@ def test_discovery_reports_scandir_errors_and_entry_limits(
 
     monkeypatch.setattr(discovery.os, "scandir", broken_scandir)
     result = discovery.discover(tmp_path)
-    assert result.issues and "unreadable path" in result.issues[0]
+    assert any("unreadable path" in issue for issue in result.issues)
 
-    monkeypatch.undo()
+
+def test_discovery_reports_entry_limit(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setattr(discovery, "MAX_DISCOVERY_ENTRIES", 1)
     write(tmp_path / "one.txt", "1")
     write(tmp_path / "two.txt", "2")
@@ -167,20 +172,7 @@ def test_discovery_reports_scandir_errors_and_entry_limits(
 
 def test_audit_reports_incomplete_discovery(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     original = discovery.discover(tmp_path)
-    incomplete = discovery.Discovery(
-        root=original.root,
-        files=original.files,
-        ecosystems=original.ecosystems,
-        manifests=original.manifests,
-        ci_files=original.ci_files,
-        task_runners=original.task_runners,
-        agent_files=original.agent_files,
-        documentation=original.documentation,
-        symlinks=original.symlinks,
-        issues=("unreadable path private: denied",),
-        empty=original.empty,
-        monorepo_signals=original.monorepo_signals,
-    )
+    incomplete = replace(original, issues=("unreadable path private: denied",))
     monkeypatch.setattr(audit_module, "discover", lambda _root: incomplete)
     _, findings = audit_module.audit(tmp_path, "application", "single", "en")
     assert "discovery.incomplete" in codes(findings)

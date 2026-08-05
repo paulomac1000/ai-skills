@@ -12,6 +12,17 @@ ROOT = Path(__file__).resolve().parents[1]
 PROFILES = {"router", "application", "monorepo", "mcp-server", "safety-critical"}
 
 
+def _run_tool(*arguments: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [sys.executable, *arguments],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+
+
 def test_rule_catalog_version_matches_single_repository_release() -> None:
     catalog = yaml.safe_load((ROOT / "contracts/rule-catalog.yaml").read_text(encoding="utf-8"))
     versions = {
@@ -39,46 +50,30 @@ def test_conditional_skill_dependencies_are_known_and_installed() -> None:
 
 def test_repository_agents_md_passes_published_strict_tools() -> None:
     tools = ROOT / "skills/agents-md-architect/tools"
-    validator = subprocess.run(
-        [
-            sys.executable,
-            str(tools / "validate_agents_md.py"),
-            "--strict",
-            "--repository-root",
-            str(ROOT),
-            "--layout",
-            "single",
-            "--profile",
-            "application",
-            "--language",
-            "en",
-            str(ROOT / "AGENTS.md"),
-        ],
-        cwd=ROOT,
-        check=False,
-        capture_output=True,
-        text=True,
-        timeout=120,
+    validator = _run_tool(
+        str(tools / "validate_agents_md.py"),
+        "--strict",
+        "--repository-root",
+        str(ROOT),
+        "--layout",
+        "single",
+        "--profile",
+        "application",
+        "--language",
+        "en",
+        str(ROOT / "AGENTS.md"),
     )
     assert validator.returncode == 0, validator.stdout + validator.stderr
 
-    audit = subprocess.run(
-        [
-            sys.executable,
-            str(tools / "audit_agents_md.py"),
-            "--strict",
-            "--layout",
-            "single",
-            "--profile",
-            "application",
-            "--language",
-            "en",
-            str(ROOT),
-        ],
-        cwd=ROOT,
-        check=False,
-        capture_output=True,
-        text=True,
-        timeout=120,
+    audit = _run_tool(
+        str(tools / "audit_agents_md.py"),
+        "--strict",
+        "--layout",
+        "single",
+        "--profile",
+        "application",
+        "--language",
+        "en",
+        str(ROOT),
     )
     assert audit.returncode == 0, audit.stdout + audit.stderr
