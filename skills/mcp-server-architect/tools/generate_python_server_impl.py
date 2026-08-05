@@ -53,7 +53,7 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
             version = "0.1.0"
             description = "Production-shaped MCP server generated from the MCP server architect standard"
             requires-python = ">=3.12"
-            dependencies = ["mcp>=1.27.2,<2", "uvicorn>=0.30,<1"]
+            dependencies = ["mcp>=2.0.0,<3", "uvicorn>=0.30,<1"]
 
             [project.optional-dependencies]
             dev = ["pytest==9.0.2"]
@@ -93,7 +93,7 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
 
             The HTTP path is `/mcp`. Only literal IPv4 or IPv6 loopback addresses are
             accepted. The ASGI boundary buffers at most the configured request limit and
-            rejects oversized or excessively fragmented bodies before entering FastMCP.
+            rejects oversized or excessively fragmented bodies before entering the MCP SDK application.
 
             Writes are disabled by default. A write requires a mandatory current version
             and a one-time approval token issued earlier by a trusted host. Approval records
@@ -177,10 +177,10 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
                 runs-on: ubuntu-latest
                 timeout-minutes: 10
                 steps:
-                  - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+                  - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
                     with:
                       persist-credentials: false
-                  - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+                  - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
                     with:
                       python-version: "3.12"
                       cache: pip
@@ -676,9 +676,8 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
             from typing import Any
 
             import uvicorn
-            from mcp.server.fastmcp import Context, FastMCP
-            from mcp.server.fastmcp.exceptions import ToolError
-            from mcp.server.session import ServerSession
+            from mcp.server.mcpserver import Context, MCPServer
+            from mcp.server.mcpserver.exceptions import ToolError
 
             from __PACKAGE__.config import Settings
             from __PACKAGE__.domain import InventoryService
@@ -699,55 +698,53 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
                 error = result.get("error") or {}
                 raise ToolError(f"{error.get('code', 'ERROR')}: {error.get('message', 'operation failed')}")
 
-            def build_server(settings: Settings | None = None, approvals: ApprovalRegistry | None = None) -> FastMCP:
+            def build_server(settings: Settings | None = None, approvals: ApprovalRegistry | None = None) -> MCPServer[AppContext]:
                 settings = (settings or Settings.from_env()).validate()
                 approvals = approvals or ApprovalRegistry()
                 validate_manifests(REGISTERED_TOOLS)
 
-                @asynccontextmanager
-                async def lifespan(_server: FastMCP) -> AsyncIterator[AppContext]:
-                    yield AppContext(settings, InvocationKernel(settings, InventoryService(), approvals))
+                kernel = InvocationKernel(settings, InventoryService(), approvals)
 
-                mcp = FastMCP(
+                @asynccontextmanager
+                async def lifespan(_server: MCPServer[AppContext]) -> AsyncIterator[AppContext]:
+                    yield AppContext(settings, kernel)
+
+                mcp = MCPServer(
                     "__SERVER_NAME__",
                     instructions=(
                         "Use list_items before put_item. Preserve item_id and current version. "
                         "Writes are disabled by default and require a trusted-host one-time approval."
                     ),
+                    version="0.1.0",
                     lifespan=lifespan,
-                    host=settings.host,
-                    port=settings.port,
-                    stateless_http=True,
-                    json_response=True,
                 )
 
                 @mcp.tool()
-                async def describe_capabilities(ctx: Context[ServerSession, AppContext]) -> dict[str, Any]:
+                async def describe_capabilities(ctx: Context[AppContext]) -> dict[str, Any]:
                     return _require_success(await ctx.request_context.lifespan_context.kernel.invoke("describe_capabilities", {}))
 
                 @mcp.tool()
-                async def get_health(ctx: Context[ServerSession, AppContext]) -> dict[str, Any]:
+                async def get_health(ctx: Context[AppContext]) -> dict[str, Any]:
                     return _require_success(await ctx.request_context.lifespan_context.kernel.invoke("get_health", {}))
 
                 @mcp.tool()
-                async def list_items(ctx: Context[ServerSession, AppContext], limit: int = 25) -> dict[str, Any]:
+                async def list_items(ctx: Context[AppContext], limit: int = 25) -> dict[str, Any]:
                     return _require_success(await ctx.request_context.lifespan_context.kernel.invoke("list_items", {"limit": limit}))
 
                 @mcp.tool()
-                async def put_item(item_id: str, name: str, expected_version: int, ctx: Context[ServerSession, AppContext], approval_token: str | None = None) -> dict[str, Any]:
+                async def put_item(item_id: str, name: str, expected_version: int, ctx: Context[AppContext], approval_token: str | None = None) -> dict[str, Any]:
                     return _require_success(await ctx.request_context.lifespan_context.kernel.invoke(
                         "put_item", {"item_id": item_id, "name": name, "expected_version": expected_version},
                         CallerContext(approval_token=approval_token),
                     ))
 
                 @mcp.resource("capabilities://catalog", mime_type="application/json")
-                async def capability_catalog(ctx: Context[ServerSession, AppContext]) -> str:
-                    return json.dumps(ctx.request_context.lifespan_context.kernel.catalog(), sort_keys=True)
+                async def capability_catalog() -> str:
+                    return json.dumps(kernel.catalog(), sort_keys=True)
 
                 @mcp.resource("health://ready", mime_type="application/json")
-                async def readiness(ctx: Context[ServerSession, AppContext]) -> str:
-                    app = ctx.request_context.lifespan_context
-                    return json.dumps({"ready": True, "transport": app.settings.transport, "active_capabilities": len(app.kernel.active_names)}, sort_keys=True)
+                async def readiness() -> str:
+                    return json.dumps({"ready": True, "transport": settings.transport, "active_capabilities": len(kernel.active_names)}, sort_keys=True)
 
                 @mcp.prompt()
                 def inventory_workflow() -> str:
@@ -755,11 +752,19 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
 
                 return mcp
 
-            def build_http_app(server: FastMCP, settings: Settings) -> RequestBodyLimitMiddleware:
+            def build_http_app(server: MCPServer[AppContext], settings: Settings) -> RequestBodyLimitMiddleware:
                 if settings.transport != "streamable-http":
                     raise ValueError("build_http_app requires streamable-http settings")
                 settings.validate()
-                return RequestBodyLimitMiddleware(server.streamable_http_app(), settings.max_request_body_bytes)
+                return RequestBodyLimitMiddleware(
+                    server.streamable_http_app(
+                        host=settings.host,
+                        json_response=True,
+                        stateless_http=True,
+                        max_request_body_size=settings.max_request_body_bytes,
+                    ),
+                    settings.max_request_body_bytes,
+                )
 
             def main() -> None:
                 settings = Settings.from_env()
@@ -901,24 +906,24 @@ def project_files(package: str, server_name: str) -> dict[str, str]:
         "tests/test_mcp_smoke.py": render(
             """
             import pytest
-            from mcp.shared.memory import create_connected_server_and_client_session
+            from mcp.client import Client
             from __PACKAGE__.config import Settings
             from __PACKAGE__.server import build_server
 
             @pytest.mark.anyio
             async def test_real_mcp_client_lists_and_calls_tool() -> None:
                 server = build_server(Settings())
-                async with create_connected_server_and_client_session(server, raise_exceptions=True) as session:
-                    listed = await session.list_tools()
+                async with Client(server, raise_exceptions=True) as client:
+                    listed = await client.list_tools()
                     names = {tool.name for tool in listed.tools}
                     assert {"describe_capabilities", "get_health", "list_items", "put_item"}.issubset(names)
-                    put_schema = next(tool.inputSchema for tool in listed.tools if tool.name == "put_item")
+                    put_schema = next(tool.input_schema for tool in listed.tools if tool.name == "put_item")
                     assert "expected_version" in put_schema.get("required", [])
                     assert "confirmed" not in put_schema.get("properties", {})
-                    result = await session.call_tool("list_items", {"limit": 10})
-                    assert result.isError is not True
-                    assert result.structuredContent is not None
-                    structured = result.structuredContent.get("result", result.structuredContent)
+                    result = await client.call_tool("list_items", {"limit": 10})
+                    assert result.is_error is not True
+                    assert result.structured_content is not None
+                    structured = result.structured_content.get("result", result.structured_content)
                     assert structured["success"] is True
             """
         ),

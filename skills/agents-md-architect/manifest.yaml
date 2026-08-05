@@ -1,0 +1,85 @@
+schema_version: 1
+name: agents-md-architect
+version: 1.2.0
+maturity: stable
+skill_format: ai-skills/v1
+normative_entrypoint: STANDARD.md
+compatibility:
+  agent_contract: tool-capable-instruction-agent
+  operating_systems:
+  - linux
+  - macos
+  - windows
+  runtimes:
+    python: '>=3.12,<3.15'
+  evidence_lanes:
+  - python-compatibility
+  tested_combinations:
+  - operating_system: linux
+    architecture: x64
+    runtime: python
+    version: '3.12'
+    lane: python-compatibility
+  - operating_system: linux
+    architecture: x64
+    runtime: python
+    version: '3.13'
+    lane: python-compatibility
+  - operating_system: linux
+    architecture: x64
+    runtime: python
+    version: '3.14'
+    lane: python-compatibility
+  - operating_system: macos
+    architecture: arm64
+    runtime: python
+    version: '3.12'
+    lane: python-compatibility
+  - operating_system: windows
+    architecture: x64
+    runtime: python
+    version: '3.12'
+    lane: python-compatibility
+dependencies:
+  skills: []
+  tools:
+  - python
+  packages:
+    python:
+    - PyYAML>=6.0.3,<7
+conditional_dependencies:
+  profiles:
+    mcp-server:
+      skills:
+      - mcp-server-architect
+deprecation:
+  policy: semantic-versioning
+  minimum_notice: one-minor-release
+required:
+- SKILL.md
+- STANDARD.md
+- references/repository-discovery.md
+- references/profiles-and-routing.md
+- references/language-and-contract-markers.md
+- references/anti-patterns-and-drift.md
+- references/lifecycle-and-evidence.md
+- references/instruction-precedence-and-platforms.md
+- templates/AGENTS.md.template
+- templates/nested-AGENTS.md.template
+- tools/discover_repository.py
+- tools/audit_agents_md.py
+- tools/agents_md_types.py
+- tools/agents_md_parse.py
+- tools/agents_md_completion_evidence.py
+- tools/validate_agents_md.py
+categories:
+- core
+- references
+- templates
+- tools
+adoption:
+  template: contracts/adoption-assessment.yaml.template
+  validator: contracts/validate_adoption.py
+  rule_catalog: contracts/rule-catalog.yaml
+  extension: generic
+  rule_map: contracts/standard-rule-map.yaml

@@ -8,6 +8,7 @@ markers = ["container: requires a local Docker daemon"]
 target-version = "py312"
 line-length = 120
 extend-exclude = [
+  "skills/agents-md-architect/tools/agents_md_shell_evidence_impl.py",
   "skills/mcp-server-architect/tools/dotnet-template",
 ]
 
@@ -21,6 +22,7 @@ line-ending = "lf"
 
 [tool.mypy]
 python_version = "3.12"
+mypy_path = ["skills/agents-md-architect/tools", "contracts"]
 check_untyped_defs = true
 disallow_any_generics = true
 no_implicit_optional = true

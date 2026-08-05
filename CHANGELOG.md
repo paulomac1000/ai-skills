@@ -1,5 +1,33 @@
 # Changelog
 
+## 1.2.0 - 2026-07-28
+
+This release adds a governed standard for designing and maintaining repository instruction systems for coding agents.
+
+### Added
+
+- Added `agents-md-architect` with a concise operating workflow, normative standard, repository-discovery playbook, profile and routing guidance, drift and anti-pattern guidance, and lifecycle evidence requirements.
+- Added root and nested `AGENTS.md` templates that preserve canonical ownership, operating modes, architecture and safety boundaries, exact commands, and evidence-based completion.
+- Added an executable validator for profile requirements, instruction length, relative links, repository-boundary escapes, blind references, placeholders, versioned current names, volatile counts, host-specific paths, generic advice, keyword-based approval, and false CI guarantees.
+- Added regression tests and stable adoption rules covering scope, discovery, profiles, ownership, safety, verification, routing, nested locality, drift, and completion evidence.
+- Added compositional layout and domain-profile validation, bounded English and Polish lexical contracts, and stable contract markers for other document languages.
+- Added a bounded `ci-cd-architect` GitHub Actions policy auditor for evaluating untrusted workflow trees from a trusted immutable revision.
+- Added a governed Husky and lint-staged profile with evidence-based package-manager selection, staged-file preservation, offline execution, and explicit CI authority.
+
+### Changed
+
+- Published all bundled skills as version `1.2.0` with `maturity: stable` and added the new skill to the cross-platform Python compatibility lane.
+- Extended repository quality, documentation, release, and adoption contracts to treat `agents-md-architect` as a first-class governed skill.
+- Hardened instruction discovery and validation for repository `bin/` entry points, ecosystem-specific build output, shared Markdown parsing, regular-file references, invalid UTF-8, bounded input trees, complete placeholder detection, and non-executing command evidence.
+- Made audit and validation share one bounded instruction-tree read, enforced root topology for single and monorepo layouts, required safety contracts for router and application profiles, normalized filesystem failures, and bounded fail-closed repository and gate-source discovery.
+- Hardened full ancestor directive, command, and canonical-owner inheritance; rejected invalid YAML as command evidence while charging every read to the aggregate budget; recognized subprocess and operating-system calls only after real imports at any AST depth; and declared the PyYAML runtime dependency used by the audit tool.
+- Hardened fenced examples inside Markdown list containers, descriptor-bounded file reads, executable-only command evidence extraction, incremental repository enumeration, and platform-capability-preserving tests for the component-safe reader path.
+- Required workflow-policy approval to execute the auditor from an immutable authority outside the assessed pull-request tree; repository-local copies are diagnostic mirrors only.
+- Replaced flattened command strings with lossless `argv` comparison for completion evidence, preserved quoted task and package-script names, rejected option-like task names, and removed ambiguous package-manager shorthand evidence.
+- Bound public command evidence to its source working directory, constructed discovered script entry points directly from `argv`, unified completion-fence parsing with list-aware CommonMark containers, and distinguished concrete repository paths from generic per-skill filenames.
+- Added a self-hosting release contract that runs the published strict validator and repository auditor against the repository's own root `AGENTS.md`.
+- Unified Codex context reads on shared component-confined I/O, removed the legacy duplicate reader, hardened exact Markdown span and recursive YAML parsing, and made policy-auditor publication and typing explicit.
+
 ## 1.1.0 - 2026-07-27
 
 This release consolidates the complete implementation history of the branch into one production version.
@@ -40,6 +68,6 @@ This release consolidates the complete implementation history of the branch into
 - 2026-06-06: Expanded MCP server guidance for transport, middleware, discovery, security, reliability, and production operation.
 - 2026-06-05: Standardized skill metadata and strengthened documentation and CI template validation.
 - 2026-06-01: Added the MCP consumer domain and deterministic decision-policy helpers.
-- 2026-05-23: Strengthened CI/CD release integrity, workflow security, and dependency automation.
+- 2026-05-23: Strengthened CI/CD release integrity, workflow security, reliability, and dependency automation.
 - 2026-05-21: Corrected CI rule identifiers and static-analysis edge cases.
 - 2026-05-13: Added stricter documentation structure checks.

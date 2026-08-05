@@ -1,6 +1,6 @@
 schema_version: 1
 name: ci-cd-architect
-version: 1.1.0
+version: 1.2.0
 maturity: stable
 skill_format: ai-skills/v1
 normative_entrypoint: STANDARD.md
@@ -10,6 +10,8 @@ compatibility:
   - linux
   - macos
   - windows
+  runtimes:
+    python: '>=3.12,<3.15'
   providers:
   - github-actions
   evidence_lanes:
@@ -45,16 +47,23 @@ dependencies:
   tools:
   - git
   - github-actions
+  - python
+  packages:
+    python:
+    - PyYAML>=6.0.3,<7
 deprecation:
   policy: semantic-versioning
   minimum_notice: one-minor-release
 required:
 - SKILL.md
 - STANDARD.md
+- tools/check_github_actions_policy.py
+- tools/check_github_actions_policy_impl.py
 categories:
 - core
 - references
 - templates
+- tools
 adoption:
   template: contracts/adoption-assessment.yaml.template
   validator: contracts/validate_adoption.py

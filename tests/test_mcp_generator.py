@@ -90,7 +90,7 @@ def test_generated_project_uses_public_sdk_and_fail_closed_controls(tmp_path: Pa
     generator.generate_project(target, "inventory_mcp", "Inventory MCP")
     source = "\n".join(path.read_text(encoding="utf-8") for path in sorted((target / "src").rglob("*.py")))
     for token in (
-        "from mcp.server.fastmcp import Context, FastMCP",
+        "from mcp.server.mcpserver import Context, MCPServer",
         "InvocationKernel",
         "ApprovalRegistry",
         "secrets.token_urlsafe(32)",
@@ -101,7 +101,8 @@ def test_generated_project_uses_public_sdk_and_fail_closed_controls(tmp_path: Pa
         "validate_manifests(REGISTERED_TOOLS)",
         "RequestBodyLimitMiddleware",
         "MCP_MAX_REQUEST_BODY_BYTES",
-        "server.streamable_http_app()",
+        "server.streamable_http_app(",
+        "max_request_body_size=settings.max_request_body_bytes",
         "address.is_loopback",
         "write_enabled must be a boolean",
         "write operations are disabled by operator policy",
@@ -120,7 +121,6 @@ def test_generated_project_uses_public_sdk_and_fail_closed_controls(tmp_path: Pa
         "._mcp_server",
         "_lifespan_data",
         "run_until_complete",
-        "max_request_body_size=",
     ):
         assert forbidden not in source
 
@@ -130,7 +130,7 @@ def test_generated_project_uses_public_sdk_and_fail_closed_controls(tmp_path: Pa
         assert "==" in lock
 
     pyproject = (target / "pyproject.toml").read_text(encoding="utf-8")
-    assert "mcp>=1.28.1,<2" in pyproject
+    assert "mcp>=2.0.0,<3" in pyproject
     assert "setuptools==83.0.0" in pyproject
     assert "pytest==9.1.1" in pyproject
 
@@ -327,12 +327,12 @@ async def test_generated_container_is_non_root_and_passes_official_stdio_smoke(t
                 tools = await session.list_tools()
                 assert "list_items" in {tool.name for tool in tools.tools}
                 result = await session.call_tool("list_items", {"limit": 1})
-                assert result.isError is not True
+                assert result.is_error is not True
                 denied = await session.call_tool(
                     "put_item",
                     {"item_id": "blocked", "name": "Blocked", "expected_version": 0},
                 )
-                assert denied.isError is True
+                assert denied.is_error is True
                 assert any("AUTHORIZATION_FAILED" in str(getattr(content, "text", "")) for content in denied.content)
     finally:
         subprocess.run(["docker", "image", "rm", "--force", image], check=False, capture_output=True, text=True)

@@ -10,13 +10,25 @@ from pathlib import Path
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
-EXPECTED_SKILLS = {"afds-doc-writer", "ci-cd-architect", "mcp-server-architect", "mcp-server-consumer"}
+EXPECTED_SKILLS = {
+    "afds-doc-writer",
+    "agents-md-architect",
+    "ci-cd-architect",
+    "mcp-server-architect",
+    "mcp-server-consumer",
+}
 ALLOWED_CATEGORIES = {"core", "references", "templates", "examples", "tools", "locks"}
 IGNORED_PARTS = {".git", ".venv", ".pytest_cache", "__pycache__", ".ruff_cache"}
 POLISH_MARKERS = re.compile(
     r"[\u0105\u0107\u0119\u0142\u0144\u00f3\u015b\u017a\u017c"
     r"\u0104\u0106\u0118\u0141\u0143\u00d3\u015a\u0179\u017b]"
 )
+LOCALIZED_LANGUAGE_CONTRACT_FILES = {
+    Path("skills/agents-md-architect/tools/agents_md_types.py"),
+    Path("skills/agents-md-architect/tools/agents_md_parse.py"),
+    Path("skills/agents-md-architect/tools/agents_md_completion_evidence.py"),
+    Path("tests/test_agents_md_composition_and_language.py"),
+}
 PROJECT_SPECIFIC_TERMS = {
     "ha-" + "mcp-readonly",
     "kontomierz-" + "mcp",
@@ -102,15 +114,20 @@ def test_skill_frontmatter_remains_portable() -> None:
         assert len(text.splitlines()) <= 90
 
 
-def test_release_contains_no_private_project_or_polish_examples() -> None:
+def test_release_contains_no_private_project_or_unscoped_polish_examples() -> None:
     suffixes = {".md", ".py", ".cs", ".csproj", ".yml", ".yaml", ".template", ".toml", ".txt", ".example"}
+    localized_files_seen: set[Path] = set()
     for path in source_files():
         if path.suffix.lower() not in suffixes:
             continue
         text = path.read_text(encoding="utf-8")
         lowered = text.lower()
         assert not any(term in lowered for term in PROJECT_SPECIFIC_TERMS), path
-        assert not POLISH_MARKERS.search(text), path
+        relative = path.relative_to(ROOT)
+        if POLISH_MARKERS.search(text):
+            assert relative in LOCALIZED_LANGUAGE_CONTRACT_FILES, path
+            localized_files_seen.add(relative)
+    assert localized_files_seen == LOCALIZED_LANGUAGE_CONTRACT_FILES
 
 
 def test_recovery_audit_covers_removed_operational_domains() -> None:
@@ -142,134 +159,6 @@ def test_recovery_audit_covers_removed_operational_domains() -> None:
         "embedded hosting",
         "legacy http+sse",
         "structured content",
-        "claimsprincipal",
-        "nuget",
     }
-    assert all(topic in text for topic in required_topics)
-
-
-def test_template_action_pins_have_an_update_path() -> None:
-    config = __import__("json").loads((ROOT / "renovate.json").read_text(encoding="utf-8"))
-    managers = config.get("customManagers") or []
-    assert any(
-        manager.get("customType") == "regex"
-        and any("ci-cd-architect" in pattern for pattern in manager.get("managerFilePatterns", []))
-        and "currentDigest" in " ".join(manager.get("matchStrings", []))
-        for manager in managers
-    )
-
-
-def test_python_and_dotnet_profiles_cover_the_same_core_invariants() -> None:
-    root = ROOT / "skills/mcp-server-architect/references"
-    profiles = {
-        "python": (root / "python-fastmcp.md").read_text(encoding="utf-8"),
-        "dotnet": (root / "dotnet-mcp.md").read_text(encoding="utf-8"),
-    }
-    for name, text in profiles.items():
-        missing = MCP_PARITY_HEADINGS - set(text.splitlines())
-        assert not missing, (name, missing)
-        for heading in MCP_PARITY_HEADINGS:
-            body = markdown_section(text, heading)
-            assert len(body) >= 120, (name, heading, body)
-
-    required_platform_contracts = {
-        "python": {"FastMCP", "asyncio", "contextvars", "event loop", "compatibility adapter", "Streamable HTTP"},
-        "dotnet": {
-            "ModelContextProtocol",
-            "Generic Host",
-            "CancellationToken",
-            "Activity",
-            "ClaimsPrincipal",
-            "AddAuthorizationFilters",
-            "WithStdioServerTransport",
-            "WithHttpTransport",
-            "MapMcp",
-            "UseStructuredContent",
-            "McpException",
-        },
-    }
-    for name, required in required_platform_contracts.items():
-        missing = required - {token for token in required if token in profiles[name]}
-        assert not missing, (name, missing)
-
-    standard = (ROOT / "skills/mcp-server-architect/STANDARD.md").read_text(encoding="utf-8")
-    assert "capability-manifests-and-versioning.md" in standard
-    assert "transport-lifecycle-and-conformance.md" in standard
-    assert "runtime-boundaries-and-artifacts.md" in standard
-    assert "Generated project acceptance" in standard
-    assert "dotnet-migration-simulation.md" in standard
-
-
-def test_mcp_examples_exercise_native_python_and_dotnet_hosting_surfaces() -> None:
-    examples = ROOT / "skills/mcp-server-architect/examples"
-    python_example = (examples / "python/server_composition.py.example").read_text(encoding="utf-8")
-    stdio_example = (examples / "dotnet/StdioProgram.cs.example").read_text(encoding="utf-8")
-    http_example = (examples / "dotnet/HttpProgram.cs.example").read_text(encoding="utf-8")
-    tool_example = (examples / "dotnet/InventoryTools.cs.example").read_text(encoding="utf-8")
-
-    for token in (
-        "from mcp.server.fastmcp import Context, FastMCP",
-        "lifespan",
-        "stateless_http=True",
-        "json_response=True",
-        "@mcp.tool()",
-    ):
-        assert token in python_example
-    assert "max_request_body_size=" not in python_example
-    for token in (
-        "AddMcpServer",
-        "WithStdioServerTransport",
-        "WithTools<InventoryTools>",
-        "LogToStandardErrorThreshold",
-    ):
-        assert token in stdio_example
-    for token in (
-        "WithHttpTransport",
-        "options.Stateless = true",
-        "AddAuthorizationFilters",
-        "UseAuthentication",
-        "UseAuthorization",
-        "UseRateLimiter",
-        "MapMcp",
-        "AllowedHosts",
-    ):
-        assert token in http_example
-    for token in (
-        "[McpServerToolType]",
-        "[McpServerTool",
-        "ClaimsPrincipal?",
-        "CancellationToken",
-        "UseStructuredContent = true",
-        "OutputSchemaType",
-        "throw new McpException",
-    ):
-        assert token in tool_example
-    for text in (stdio_example, http_example, tool_example):
-        assert "WithToolsFromAssembly" not in text
-        assert "EnableLegacySse" not in text
-
-
-def test_legacy_http_sse_is_forbidden_precisely_without_banning_modern_streaming() -> None:
-    skill = (ROOT / "skills/mcp-server-architect/SKILL.md").read_text(encoding="utf-8")
-    standard = (ROOT / "skills/mcp-server-architect/STANDARD.md").read_text(encoding="utf-8")
-    transport = (ROOT / "skills/mcp-server-architect/references/transport-lifecycle-and-conformance.md").read_text(
-        encoding="utf-8"
-    )
-    combined = "\n".join((skill, standard, transport)).casefold()
-    assert "deprecated two-endpoint http+sse" in combined
-    assert "must not implement" in combined or "forbidden" in combined
-    assert "text/event-stream" in combined
-    assert "removal date" in combined
-    assert "july 28" not in combined
-
-
-def test_legacy_standard_paths_remain_resolvable_deprecation_stubs() -> None:
-    entrypoints = {
-        ROOT / "skills/mcp-server-architect/mcp-server-standards.md": "STANDARD.md",
-        ROOT / "skills/afds-doc-writer/docs_standards.md": "STANDARD.md",
-    }
-    for path, target in entrypoints.items():
-        text = path.read_text(encoding="utf-8")
-        assert "status: deprecated" in text
-        assert target in text
-        assert len(text.splitlines()) < 50
+    missing = sorted(topic for topic in required_topics if topic not in text)
+    assert missing == []

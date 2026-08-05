@@ -17,7 +17,7 @@ The files in this directory make adoption evidence comparable across every skill
 - `rule-catalog.yaml` assigns stable identifiers to the complete adoption rule set for each skill.
 - `standard-rule-map.yaml` maps every normative `STANDARD.md` H2 heading to a stable rule or an explicit, reviewed exclusion.
 - `adoption-assessment.schema.json` is the canonical structural contract for assessment documents.
-- `adoption-assessment.yaml.template` is the generic assessment used by AFDS, CI/CD, MCP server, and MCP consumer adoptions.
+- `adoption-assessment.yaml.template` is the generic assessment used by AFDS, AGENTS.md, CI/CD, MCP server, and MCP consumer adoptions.
 - `validate_adoption.py` runs schema validation first, then validates semantics, immutable revisions, symlink-free local implementation paths and artifact trees, waivers, exact compatibility tuples, extensions, rollback, risks, and approval independence.
 - `write_evidence_report.py` writes the canonical machine-readable claim report uploaded by an evidence-producing job.
 - `evidence.py` binds an assessment claim to the exact GitHub Actions workflow, event, job, lane, artifact, report bytes, revision, and pull-request review.
@@ -33,7 +33,6 @@ The files in this directory make adoption evidence comparable across every skill
 The artifact download follows GitHub's signed redirect without forwarding the GitHub API token. Every HTTP response is closed deterministically. ZIP paths, duplicate entries, symlinks, entry counts, and declared sizes are validated before reading, and the report is decompressed incrementally under a limit based on the bytes actually consumed.
 
 The validator never treats a free-form URI, screenshot, aggregate badge, or self-declared `passed` value as verified remote evidence.
-
 
 ## Acceptance root of trust
 

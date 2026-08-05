@@ -68,7 +68,7 @@ def test_python_profile_covers_real_migration_failure_modes() -> None:
             "skills/mcp-server-architect/tools/generate_python_server.py",
             "official MCP Python SDK",
             "separately distributed FastMCP package",
-            "mcp>=1.27.2,<2",
+            "mcp>=2.0.0,<3",
             "real-client suite",
             "one invocation kernel",
             "threading.local",
@@ -244,3 +244,15 @@ def test_testing_strategy_has_executable_migration_evidence() -> None:
             "deprecated legacy HTTP+SSE",
         },
     )
+
+
+def test_published_python_composition_example_uses_sdk_v2() -> None:
+    example = (MCP / "examples/python/server_composition.py.example").read_text(encoding="utf-8")
+    assert "from mcp.server.mcpserver import Context, MCPServer" in example
+    assert "MCPServer[AppContext]" in example
+    assert "Context[AppContext]" in example
+    assert 'version="0.1.0"' in example
+    assert "mcp.server.fastmcp" not in example
+    assert "ServerSession" not in example
+    assert "stateless_http=True" not in example
+    compile(example, "server_composition.py.example", "exec")

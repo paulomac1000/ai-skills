@@ -2,7 +2,7 @@ schema_version: 2
 lanes:
   python-compatibility:
     workflow_job: compatibility-python
-    skills: [afds-doc-writer, ci-cd-architect, mcp-server-architect, mcp-server-consumer]
+    skills: [afds-doc-writer, agents-md-architect, ci-cd-architect, mcp-server-architect, mcp-server-consumer]
     combinations:
       - {runner: ubuntu-24.04, operating_system: linux, architecture: x64, runtime: python, version: "3.12", lock_id: linux-x64-py312}
       - {runner: ubuntu-24.04, operating_system: linux, architecture: x64, runtime: python, version: "3.13", lock_id: linux-x64-py313}

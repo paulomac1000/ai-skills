@@ -1,5 +1,5 @@
 ---
-description: Python MCP implementation profile with generation, configuration, lifecycle, invocation-kernel, transport, manifest, concurrency, artifact, browser, and SDK-upgrade controls.
+description: Python MCP SDK v2 implementation profile with generation, configuration, lifecycle, invocation-kernel, transport, manifest, concurrency, artifact, browser, and SDK-upgrade controls.
 doc_id: reference.python-fastmcp-profile
 type: reference
 status: active
@@ -8,13 +8,13 @@ owners: [repository-maintainers]
 verification: Generate a fresh project and run its official in-memory client suite, then run configuration-order, unit, manifest, registration, invocation-parity, lifecycle, transport, cancellation, executor, race, path, task, content-shape, browser-profile, and artifact regressions against every supported SDK lane.
 ---
 
-# Python and FastMCP profile
+# Python official MCP SDK profile
 
 ## Generated baseline
 
 For a new Python server, start at the repository root with `python skills/mcp-server-architect/tools/generate_python_server.py <target> --package <package> --name <server-name>`. The generator is stdlib-only, deterministic, atomic, refuses existing targets, and emits an installable project using the stable official MCP Python SDK lane. The generated server contains typed immutable settings, domain code, application-owned manifests, one invocation kernel, official SDK registration, stdio and loopback Streamable HTTP, tools, resources, a prompt, server instructions, structured errors, packaging, Docker, pinned CI, and a real-client test.
 
-The repository CI installs the pinned stable SDK, generates a fresh project, compiles it, and runs its own suite through `mcp.shared.memory.create_connected_server_and_client_session`. Text inspection alone is not generator verification. A generated project becomes production code only after replacing the sample adapter, reviewing manifests, adding principal and resource authorization, and implementing applicable upstream, transport, artifact, task, filesystem, browser, and deployment tests.
+The repository CI installs the pinned stable SDK, generates a fresh project, compiles it, and runs its own suite through the official in-process `mcp.client.Client`. Text inspection alone is not generator verification. A generated project becomes production code only after replacing the sample adapter, reviewing manifests, adding principal and resource authorization, and implementing applicable upstream, transport, artifact, task, filesystem, browser, and deployment tests.
 
 ## Project shape
 
@@ -26,7 +26,7 @@ Do not use module import as configuration or lifecycle. Modules that call `os.ge
 
 Record the exact SDK family and import surface. The official MCP Python SDK and the separately distributed FastMCP package are not treated as interchangeable because similarly named classes can have different lifecycle, provider, middleware, transport, and content APIs.
 
-For production, use the stable official SDK line with an upper bound that excludes the next major until migration is complete. The generated baseline uses `mcp>=1.27.2,<2`, while repository verification uses an exact stable pin. While official SDK v2 is pre-release, it belongs to a separate experimental CI lane with an exact pin and cannot define the production artifact. A candidate major becomes production-supported only after registration, lifecycle, transport, policy parity, content, cancellation, and artifact matrices pass.
+For production, use the stable official SDK v2 line with an upper bound that excludes the next major until a reviewed migration is complete. The generated baseline uses `mcp>=2.0.0,<3`, while repository verification uses the exact `mcp==2.0.0` pin. The v1 maintenance line is not the generated production baseline. Any later major becomes production-supported only after registration, lifecycle, transport, policy parity, content, cancellation, and artifact matrices pass.
 
 Pin direct dependencies and record the minimum and preferred tested versions. Do not write broad compatibility claims such as “supports version 2 and 3” without package identity, exact ranges, and evidence.
 

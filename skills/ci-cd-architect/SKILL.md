@@ -22,6 +22,8 @@ Use this skill when a repository needs trustworthy feedback before merge or a re
 
 Read `STANDARD.md`, then choose profiles using `references/template-selection.md`. Use `references/local-quality-gates.md`, `action-sha-maintenance.md`, and `failure-patterns.md` for implementation details.
 
+For GitHub Actions policy checks, run `tools/check_github_actions_policy.py` from a trusted immutable checkout and pass the candidate repository root as its argument. A pull request must not provide the authoritative copy of the auditor that approves the same pull request. A repository-local mirror may support offline diagnostics only when CI compares it byte-for-byte with the pinned trusted source before treating its result as evidence.
+
 ## Adoption and migration evidence
 
 Before claiming that this skill has been adopted or a migration is complete:

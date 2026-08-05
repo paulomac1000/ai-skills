@@ -8,36 +8,11 @@ import subprocess
 import sys
 from pathlib import Path
 
+from quality_targets import BANDIT_PATHS, POLICY_COVERAGE_PATHS, QUALITY_PATHS, TYPE_PATHS
 from select_lock import selected_lock
 
 ROOT = Path(__file__).resolve().parents[1]
 COMMAND_TIMEOUT_SECONDS = 900
-QUALITY_PATHS = (
-    "contracts",
-    "scripts/ci.py",
-    "scripts/install_locked.py",
-    "scripts/select_lock.py",
-    "skills/afds-doc-writer/validate.py",
-    "skills/mcp-server-consumer/tools",
-    "skills/mcp-server-architect/tools/generate_python_server.py",
-    "skills/mcp-server-architect/tools/generate_python_server_impl.py",
-    "skills/mcp-server-architect/tools/generate_dotnet_server.py",
-)
-TYPE_PATHS = (
-    "contracts/semver.py",
-    "contracts/evidence.py",
-    "contracts/validate_adoption.py",
-    "contracts/write_evidence_report.py",
-    "contracts/run_evidence_command.py",
-    "scripts/ci.py",
-    "scripts/install_locked.py",
-    "scripts/select_lock.py",
-    "skills/afds-doc-writer/validate.py",
-    "skills/mcp-server-consumer/tools/decision_engine.py",
-    "skills/mcp-server-architect/tools/generate_python_server.py",
-    "skills/mcp-server-architect/tools/generate_python_server_impl.py",
-    "skills/mcp-server-architect/tools/generate_dotnet_server.py",
-)
 
 
 def run(*command: str) -> None:
@@ -56,20 +31,7 @@ def main() -> int:
     run(sys.executable, "-m", "ruff", "check", *QUALITY_PATHS)
     run(sys.executable, "-m", "ruff", "format", "--check", *QUALITY_PATHS)
     run(sys.executable, "-m", "mypy", *TYPE_PATHS)
-    run(
-        sys.executable,
-        "-m",
-        "bandit",
-        "-q",
-        "-lll",
-        "-iii",
-        "-r",
-        "contracts",
-        "scripts",
-        "skills/afds-doc-writer",
-        "skills/mcp-server-consumer/tools",
-        "skills/mcp-server-architect/tools",
-    )
+    run(sys.executable, "-m", "bandit", "-q", "-lll", "-iii", "-r", *BANDIT_PATHS)
     run(sys.executable, "-m", "pip_audit", "-r", str(selected_lock()), "--progress-spinner", "off")
     run(
         sys.executable,
@@ -96,7 +58,7 @@ def main() -> int:
         "-m",
         "coverage",
         "report",
-        "--include=contracts/*.py,skills/afds-doc-writer/*.py,skills/mcp-server-consumer/tools/*.py",
+        f"--include={','.join(POLICY_COVERAGE_PATHS)}",
         "--fail-under=80",
     )
     run(
@@ -104,7 +66,11 @@ def main() -> int:
         "-m",
         "coverage",
         "report",
-        "--include=skills/mcp-server-architect/tools/generate_python_server.py,skills/mcp-server-architect/tools/generate_python_server_impl.py,skills/mcp-server-architect/tools/generate_dotnet_server.py",
+        (
+            "--include=skills/mcp-server-architect/tools/generate_python_server.py,"
+            "skills/mcp-server-architect/tools/generate_python_server_impl.py,"
+            "skills/mcp-server-architect/tools/generate_dotnet_server.py"
+        ),
         "--fail-under=85",
     )
     run(
