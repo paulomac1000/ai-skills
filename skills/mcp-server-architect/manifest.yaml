@@ -13,6 +13,7 @@ compatibility:
   runtimes:
     python: '>=3.12,<3.15'
     dotnet: 10.0.x
+  runtime_scope: compatibility.runtimes describes the ai-skills tools, not every assessed project.
   evidence_lanes:
   - python-compatibility
   - dotnet-compatibility
@@ -63,6 +64,17 @@ compatibility:
     runtime: python
     version: '3.12'
     lane: docker-artifact
+runtime_contract:
+  tool_runtime:
+    python: '>=3.12,<3.15'
+    dotnet: 10.0.x
+  assessed_project_runtime:
+    python: '>=3.10'
+    dotnet: '>=8.0'
+  generated_baseline_runtime:
+    python: '>=3.12,<3.15'
+    dotnet: 10.0.x
+  policy: Project runtime eligibility is derived from the selected SDK and required features; tool runtime never becomes an implicit project minimum.
 protocol:
   default_revision: '2026-07-28'
   negotiation: explicit
@@ -72,15 +84,17 @@ protocol:
       packages:
       - name: mcp
         tested_versions: ['2.0.0']
+      supported_revisions: ['2026-07-28', '2025-11-25']
       tested_revisions: []
-      current_revision_support: not-claimed
-      verification_required: Record the negotiated initialize revision in official-client evidence before adding a tested revision.
+      current_revision_support: upstream-supported-awaiting-repository-evidence
+      verification_required: Test modern server/discover and direct requests plus legacy initialize through the official client before moving a revision into tested_revisions.
     dotnet:
       packages:
       - name: ModelContextProtocol
         tested_versions: ['1.4.1']
       - name: ModelContextProtocol.AspNetCore
         tested_versions: ['1.4.1']
+      supported_revisions: []
       tested_revisions: []
       current_revision_support: not-claimed
       upgrade_policy: Remain on the stable SDK lane until a 2.x stable release and protocol evidence are reviewed together.
@@ -97,6 +111,9 @@ required:
 - STANDARD.md
 - references/migration-assessment.md
 - references/protocol-and-sdk-compatibility.md
+- references/protocol-2026-07-28.md
+- references/multiarch-artifact-promotion.md
+- references/principal-and-shell-boundaries.md
 - templates/migration-assessment.yaml.template
 - tools/generate_python_server.py
 - tools/generate_dotnet_server.py
