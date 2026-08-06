@@ -1,0 +1,151 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.12", "3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: ${{ matrix.python }}
+          architecture: x64
+          cache: pip
+          cache-dependency-path: locks/dev-linux-x64-py${{ replace(matrix.python, '.', '') }}.lock
+      - name: Verify exact checkout
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+      - name: Install hashed development graph
+        shell: bash
+        env:
+          PYTHON_VERSION: ${{ matrix.python }}
+        run: |
+          set -euo pipefail
+          LOCK="locks/dev-linux-x64-py${PYTHON_VERSION//./}.lock"
+          python -m pip install --require-hashes -r "$LOCK"
+          python -m pip install --no-build-isolation --no-deps -e .
+      - name: Validate source and generated workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m compileall -q src tests scripts
+          python -m ruff check src tests scripts
+          python -m ruff format --check src tests scripts
+          python -m mypy src scripts
+      - name: Execute tests and require evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pytest --junitxml=junit.xml
+          python scripts/assert_junit.py junit.xml --minimum-tests 1 --maximum-skips 0
+      - name: Upload test evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: test-evidence-py${{ replace(matrix.python, '.', '') }}-${{ github.run_id }}
+          path: junit.xml
+          if-no-files-found: error
+          retention-days: 14
+
+  exact-artifact:
+    needs: test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+          architecture: x64
+          cache: pip
+          cache-dependency-path: locks/dev-linux-x64-py312.lock
+      - name: Build one wheel
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --require-hashes -r locks/dev-linux-x64-py312.lock
+          python -m build --wheel --no-isolation
+          test "$(find dist -maxdepth 1 -name '*.whl' | wc -l)" -eq 1
+          sha256sum dist/*.whl | tee wheel.sha256
+      - name: Smoke exact installed wheel outside checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROJECT_ROOT="$PWD"
+          VENV="$(mktemp -d)/venv"
+          python -m venv "$VENV"
+          "$VENV/bin/python" -m pip install --require-hashes -r locks/runtime-linux-x64-py312.lock
+          "$VENV/bin/python" -m pip install --no-deps dist/*.whl
+          WORK="$(mktemp -d)"
+          cd "$WORK"
+          "$VENV/bin/python" "$PROJECT_ROOT/scripts/smoke_artifact.py" \
+            --distribution __DISTRIBUTION__ \
+            --package __PACKAGE__
+      - name: Build and smoke the exact-wheel container
+        shell: bash
+        run: |
+          set -euo pipefail
+          WHEEL="$(find dist -maxdepth 1 -name '*.whl' -print -quit)"
+          IMAGE="__DISTRIBUTION__:sha-${GITHUB_SHA}"
+          TOKEN="container-smoke-token-that-is-at-least-32-bytes"
+          docker build --build-arg "WHEEL=$WHEEL" --tag "$IMAGE" .
+          docker run --detach --name mcp-artifact-smoke \
+            --read-only \
+            --tmpfs /tmp:rw,noexec,nosuid,size=16m \
+            --mount type=volume,source=__DISTRIBUTION__-state,target=/var/lib/__DISTRIBUTION__ \
+            --publish 127.0.0.1:18080:8000 \
+            --env MCP_TRANSPORT=streamable-http \
+            --env MCP_HTTP_HOST=0.0.0.0 \
+            --env MCP_CONTAINER_BIND=1 \
+            --env "MCP_HTTP_BEARER_TOKEN=$TOKEN" \
+            "$IMAGE"
+          cleanup() { docker rm --force mcp-artifact-smoke >/dev/null 2>&1 || true; }
+          trap cleanup EXIT
+          for attempt in $(seq 1 50); do
+            if curl --fail --silent http://127.0.0.1:18080/health/ready >/dev/null; then break; fi
+            test "$attempt" -lt 50
+            sleep 0.2
+          done
+          python scripts/smoke_url.py --url http://127.0.0.1:18080/mcp --token "$TOKEN"
+          docker exec mcp-artifact-smoke python -c \
+            "from pathlib import Path; p=Path('/var/lib/__DISTRIBUTION__/atomic.tmp'); p.write_text('ok'); p.replace(p.with_suffix('.ok'))"
+          docker exec mcp-artifact-smoke python -c \
+            "import __PACKAGE__, pathlib; p=pathlib.Path(__PACKAGE__.__file__).resolve(); assert 'site-packages' in p.parts, p"
+          docker image inspect --format '{{index .RepoDigests 0}} {{.Id}}' "$IMAGE" | tee image-identity.txt
+      - name: Upload immutable artifact evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: exact-artifact-${{ github.run_id }}
+          path: |
+            dist/*.whl
+            wheel.sha256
+            image-identity.txt
+          if-no-files-found: error
+          retention-days: 30
