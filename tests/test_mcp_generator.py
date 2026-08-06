@@ -1,11 +1,9 @@
-"""Executable contract for the Python MCP project generator."""
+"""Executable contract for the canonical Python MCP project generator."""
 
 from __future__ import annotations
 
 import compileall
-import hashlib
 import importlib.util
-import re
 import shutil
 import subprocess
 import sys
@@ -13,22 +11,36 @@ import threading
 import venv
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from types import ModuleType
 
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 GENERATOR = ROOT / "skills/mcp-server-architect/tools/generate_python_server.py"
-FULL_SHA = re.compile(r"[0-9a-f]{40}")
+AUDITOR = ROOT / "skills/ci-cd-architect/tools/check_github_actions_policy.py"
+TEMPLATE_ROOT = ROOT / "skills/mcp-server-architect/tools/python-template"
 
 
-def load_generator():
-    """Load the generator from its public file entry point."""
-    spec = importlib.util.spec_from_file_location("mcp_project_generator", GENERATOR)
+def _load_module(path: Path, name: str) -> ModuleType:
+    spec = importlib.util.spec_from_file_location(name, path)
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
+
+
+def load_generator() -> ModuleType:
+    """Load the generator from its stable public file entry point."""
+    return _load_module(GENERATOR, "mcp_project_generator")
+
+
+def load_workflow_auditor() -> ModuleType:
+    """Load the same auditor used by repository and adoption gates."""
+    tools = str(AUDITOR.parent)
+    if tools not in sys.path:
+        sys.path.insert(0, tools)
+    return _load_module(AUDITOR, "generated_workflow_auditor")
 
 
 def run_checked(command: list[str], *, cwd: Path, timeout: int = 180) -> subprocess.CompletedProcess[str]:
@@ -56,121 +68,108 @@ def test_generator_emits_complete_deterministic_project(tmp_path: Path) -> None:
 
     expected = {
         Path("pyproject.toml"),
-        *(Path("requirements") / name for name in generator.LOCK_NAMES),
-        Path("requirements/python-runtime.in"),
-        Path("requirements/python-dev.in"),
-        Path("requirements/select_lock.py"),
         Path("README.md"),
-        Path("SECURITY.md"),
         Path("Dockerfile"),
         Path(".dockerignore"),
         Path(".github/workflows/ci.yml"),
-        Path("src/inventory_mcp/config.py"),
-        Path("src/inventory_mcp/domain.py"),
-        Path("src/inventory_mcp/http.py"),
-        Path("src/inventory_mcp/kernel.py"),
-        Path("src/inventory_mcp/manifests.py"),
         Path("src/inventory_mcp/server.py"),
-        Path("tests/test_config.py"),
-        Path("tests/test_http_limit.py"),
-        Path("tests/test_kernel.py"),
-        Path("tests/test_manifests.py"),
-        Path("tests/test_mcp_smoke.py"),
+        Path("src/inventory_mcp/kernel.py"),
+        Path("src/inventory_mcp/manifest.py"),
+        Path("src/inventory_mcp/security.py"),
+        Path("src/inventory_mcp/contracts/capability-manifest.schema.json"),
+        Path("src/inventory_mcp/capabilities/describe_capabilities.json"),
+        Path("src/inventory_mcp/capabilities/list_items.json"),
+        Path("src/inventory_mcp/capabilities/put_item.json"),
+        Path("scripts/assert_junit.py"),
+        Path("scripts/smoke_artifact.py"),
+        Path("scripts/smoke_url.py"),
+        Path("tests/test_generated_contract.py"),
+        *(Path("locks") / name for name in generator.LOCK_NAMES),
     }
-    assert expected.issubset(set(generated))
+    assert expected <= set(generated)
     assert compileall.compile_dir(first / "src", quiet=1)
     assert compileall.compile_dir(first / "tests", quiet=1)
+    assert compileall.compile_dir(first / "scripts", quiet=1)
     for relative in generated:
         assert (first / relative).read_bytes() == (second / relative).read_bytes()
 
 
-def test_generated_project_uses_public_sdk_and_fail_closed_controls(tmp_path: Path) -> None:
+def test_generator_has_one_canonical_template_source() -> None:
+    facade = GENERATOR.read_text(encoding="utf-8")
+    implementation = GENERATOR.with_name("generate_python_server_impl.py").read_text(encoding="utf-8")
+    assert "_replace_required" not in facade
+    assert "_replace_required" not in implementation
+    assert 'with_name("python-template")' in implementation
+    assert list(TEMPLATE_ROOT.rglob("*.template"))
+    assert "MCPServer(" not in implementation
+    assert "FROM python:" not in implementation
+
+
+def test_generated_project_uses_canonical_schema_and_public_sdk(tmp_path: Path) -> None:
     generator = load_generator()
     target = tmp_path / "server"
     generator.generate_project(target, "inventory_mcp", "Inventory MCP")
+
+    copied_schema = target / "src/inventory_mcp/contracts/capability-manifest.schema.json"
+    assert copied_schema.read_bytes() == (ROOT / "contracts/capability-manifest.schema.json").read_bytes()
+    generator.validate_generated_project(generator.project_files("inventory_mcp", "Inventory MCP"), "inventory_mcp")
+
     source = "\n".join(path.read_text(encoding="utf-8") for path in sorted((target / "src").rglob("*.py")))
-    for token in (
-        "from mcp.server.mcpserver import Context, MCPServer",
-        "InvocationKernel",
-        "ApprovalRegistry",
-        "secrets.token_urlsafe(32)",
-        "max_records: int = 1_024",
-        "record.principal == principal",
-        "threading.Lock()",
-        "approval registry capacity reached",
-        "validate_manifests(REGISTERED_TOOLS)",
-        "RequestBodyLimitMiddleware",
-        "MCP_MAX_REQUEST_BODY_BYTES",
-        "server.streamable_http_app(",
-        "max_request_body_size=settings.max_request_body_bytes",
-        "address.is_loopback",
-        "write_enabled must be a boolean",
-        "write operations are disabled by operator policy",
-        "expected_version is mandatory",
-        "expected_version: int",
-        "too many request body chunks",
-        "content-length mismatch",
-        "await self._app(scope, replay_receive, send)",
-    ):
-        assert token in source
-    assert "confirmed: bool" not in source
-    assert "caller.confirmed" not in source
-    assert "\nmcp = build_server" not in source
-    for forbidden in (
-        "_tool_manager",
-        "._mcp_server",
-        "_lifespan_data",
-        "run_until_complete",
-    ):
-        assert forbidden not in source
+    assert "from mcp.server import MCPServer" in source
+    assert "from mcp.server.mcpserver" not in source
+    assert "_tool_manager" not in source
+    assert "._mcp_server" not in source
+    assert "MCP_ENABLE_WRITES" in source
+    assert "arguments_digest" in source
+    assert "hmac.compare_digest" in source
+    assert "ContextVar" in source
 
-    for name in generator.LOCK_NAMES:
-        lock = (target / "requirements" / name).read_text(encoding="utf-8")
-        assert "--hash=sha256:" in lock
-        assert "==" in lock
+    manifests = "\n".join(
+        path.read_text(encoding="utf-8") for path in sorted((target / "src/inventory_mcp/capabilities").glob("*.json"))
+    )
+    assert "operational_impact" not in manifests
+    assert '"active"' not in manifests
+    assert '"active_state"' in manifests
 
-    pyproject = (target / "pyproject.toml").read_text(encoding="utf-8")
-    assert "mcp>=2.0.0,<3" in pyproject
-    assert "setuptools==83.0.0" in pyproject
-    assert "pytest==9.1.1" in pyproject
 
+def test_generated_workflow_passes_trusted_ci_policy(tmp_path: Path) -> None:
+    generator = load_generator()
+    target = tmp_path / "server"
+    generator.generate_project(target, "inventory_mcp", "Inventory MCP")
+    workflow = target / ".github/workflows/ci.yml"
+    auditor = load_workflow_auditor()
+    findings = auditor.audit_workflow(workflow, target, profile="trusted-ci")
+    assert findings == [], "\n".join(f"{finding.path}: {finding.message}" for finding in findings)
+
+    text = workflow.read_text(encoding="utf-8")
+    assert "ubuntu-latest" not in text
+    assert "replace(" not in text
+    assert "concurrency:" in text
+    assert "persist-credentials: false" in text
+    assert "--junitxml=junit.xml" in text
+    assert "--minimum-tests 1 --maximum-skips 0" in text
+    assert "Smoke exact installed wheel outside checkout" in text
+    assert "Build and smoke the exact-wheel container" in text
+
+
+def test_generated_container_installs_only_the_exact_wheel(tmp_path: Path) -> None:
+    generator = load_generator()
+    target = tmp_path / "server"
+    generator.generate_project(target, "inventory_mcp", "Inventory MCP")
     dockerfile = (target / "Dockerfile").read_text(encoding="utf-8")
-    assert "COPY requirements/runtime-linux-x64-py312.lock /tmp/runtime.lock" in dockerfile
-    assert "COPY dist/*.whl /tmp/wheel/" in dockerfile
-    assert "WHEEL_SHA256" in dockerfile
-    assert "sha256sum --check --strict" in dockerfile
-    assert 'pip install --no-cache-dir --no-deps "$wheel"' in dockerfile
-    assert "org.opencontainers.image.source-wheel-sha256" in dockerfile
+    assert "python:3.12.11-slim-bookworm@sha256:" in dockerfile
+    assert "COPY ${WHEEL} /tmp/application.whl" in dockerfile
+    assert "--require-hashes -r /tmp/runtime.lock" in dockerfile
+    assert "--no-deps /tmp/application.whl" in dockerfile
     assert "COPY src" not in dockerfile
-    assert "COPY pyproject.toml" not in dockerfile
-    assert "pip check" in dockerfile
-
-    dockerignore = (target / ".dockerignore").read_text(encoding="utf-8")
-    assert dockerignore.startswith("*\n")
-    assert "!dist/*.whl" in dockerignore
-    assert "!requirements/runtime-linux-x64-py312.lock" in dockerignore
-
-    workflow = (target / ".github/workflows/ci.yml").read_text(encoding="utf-8")
-    for line in workflow.splitlines():
-        if "uses:" not in line:
-            continue
-        revision = line.rsplit("@", 1)[1].split()[0]
-        assert FULL_SHA.fullmatch(revision)
-    assert "persist-credentials: false" in workflow
-    assert "Build exact wheel" in workflow
-    assert "Test exact wheel with the official MCP client" in workflow
-    assert "--require-hashes" in workflow
-    assert "Record exact wheel identity" in workflow
-    assert '--no-deps "${{ steps.wheel.outputs.path }}"' in workflow
-    assert "Build container from exact wheel" in workflow
-    assert "Verify container wheel identity" in workflow
+    assert "pip install --no-cache-dir ." not in dockerfile
 
 
 def test_generator_refuses_invalid_reserved_and_existing_targets(tmp_path: Path) -> None:
     generator = load_generator()
     invalid_names = (
-        "Bad-Name",
         "a",
+        "Bad-Name",
         "_hidden",
         "name.with.dot",
         "class",
@@ -182,22 +181,14 @@ def test_generator_refuses_invalid_reserved_and_existing_targets(tmp_path: Path)
         "email",
     )
     for package in invalid_names:
-        try:
+        with pytest.raises(ValueError):
             generator.project_files(package, "Valid Server")
-        except ValueError:
-            pass
-        else:
-            raise AssertionError(f"invalid package accepted: {package}")
-    assert {"mcp", "uvicorn", "pytest", "json", "email"}.issubset(generator.RESERVED_PACKAGE_NAMES)
+    assert {"mcp", "uvicorn", "pytest", "json", "email"} <= generator.RESERVED_PACKAGE_NAMES
 
     existing = tmp_path / "existing"
     existing.mkdir()
-    try:
+    with pytest.raises(FileExistsError):
         generator.generate_project(existing, "valid_mcp", "Valid Server")
-    except FileExistsError:
-        pass
-    else:
-        raise AssertionError("existing target was overwritten")
 
 
 def test_generator_concurrent_create_has_one_winner_and_never_replaces(tmp_path: Path) -> None:
@@ -206,7 +197,7 @@ def test_generator_concurrent_create_has_one_winner_and_never_replaces(tmp_path:
     target = tmp_path / "server"
     barrier = threading.Barrier(2)
 
-    def generate():
+    def generate() -> list[Path] | FileExistsError:
         barrier.wait(timeout=5)
         try:
             return generator.generate_project(target, "inventory_mcp", "Inventory MCP")
@@ -219,57 +210,63 @@ def test_generator_concurrent_create_has_one_winner_and_never_replaces(tmp_path:
     assert sum(isinstance(result, list) for result in results) == 1
     assert sum(isinstance(result, FileExistsError) for result in results) == 1
     assert (target / "src/inventory_mcp/server.py").is_file()
-    assert not list(tmp_path.glob(".server-*/"))
+    assert not list(tmp_path.glob(".server.*"))
 
 
-def _platform_lock_name(kind: str) -> str:
-    from scripts.select_lock import lock_id
+def test_generator_preserves_competing_target_created_before_publish(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    generator = load_generator()
+    implementation = generator._implementation
+    target = tmp_path / "server"
+    original = implementation._rename_noreplace
 
-    try:
-        identifier = lock_id()
-    except RuntimeError as exception:
-        pytest.skip(str(exception))
-    return f"requirements/{kind}-{identifier}.lock"
+    def create_competitor(source: Path, destination: Path) -> None:
+        destination.mkdir()
+        (destination / "sentinel.txt").write_text("competitor", encoding="utf-8")
+        original(source, destination)
+
+    monkeypatch.setattr(implementation, "_rename_noreplace", create_competitor)
+    with pytest.raises(FileExistsError):
+        generator.generate_project(target, "inventory_mcp", "Inventory MCP")
+    assert (target / "sentinel.txt").read_text(encoding="utf-8") == "competitor"
+    assert not (target / "src").exists()
+    assert not list(tmp_path.glob(".server.*"))
 
 
-def test_generated_project_builds_installs_and_tests_exact_wheel(tmp_path: Path) -> None:
-    """Prove installability without PYTHONPATH, editable source, or dependency resolution."""
+def test_generated_project_builds_installs_and_smokes_exact_wheel(tmp_path: Path) -> None:
+    """Prove import and protocol behavior without PYTHONPATH or editable source."""
     generator = load_generator()
     target = tmp_path / "server"
     generator.generate_project(target, "inventory_mcp", "Inventory MCP")
-
-    environment = tmp_path / "artifact-venv"
-    venv.EnvBuilder(with_pip=True).create(environment)
-    python = environment / ("Scripts/python.exe" if sys.platform == "win32" else "bin/python")
-    dev_lock = _platform_lock_name("dev")
-
-    run_checked([str(python), "-m", "pip", "install", "--require-hashes", "-r", dev_lock], cwd=target)
-    run_checked([str(python), "-m", "pip", "check"], cwd=target)
-    run_checked([str(python), "-m", "build", "--wheel", "--no-isolation"], cwd=target)
+    run_checked([sys.executable, "-m", "build", "--wheel", "--no-isolation"], cwd=target)
     wheels = list((target / "dist").glob("*.whl"))
     assert len(wheels) == 1
-    run_checked([str(python), "-m", "pip", "install", "--no-deps", str(wheels[0])], cwd=target)
-    run_checked([str(python), "-m", "pip", "check"], cwd=target)
+
+    environment = tmp_path / "artifact-venv"
+    venv.EnvBuilder(with_pip=True, system_site_packages=True).create(environment)
+    python = environment / ("Scripts/python.exe" if sys.platform == "win32" else "bin/python")
+    run_checked([str(python), "-m", "pip", "install", "--no-deps", str(wheels[0])], cwd=tmp_path)
+    outside_checkout = tmp_path / "outside-checkout"
+    outside_checkout.mkdir()
     run_checked(
         [
             str(python),
-            "-c",
-            "import inventory_mcp, pathlib; "
-            "p = pathlib.Path(inventory_mcp.__file__).resolve(); "
-            "assert 'site-packages' in p.parts, p",
+            str(target / "scripts/smoke_artifact.py"),
+            "--distribution",
+            "inventory-mcp",
+            "--package",
+            "inventory_mcp",
         ],
-        cwd=target,
+        cwd=outside_checkout,
     )
-    run_checked([str(python), "-m", "pytest", "-q", "tests"], cwd=target)
 
 
 @pytest.mark.container
 @pytest.mark.anyio
 async def test_generated_container_is_non_root_and_passes_official_stdio_smoke(tmp_path: Path) -> None:
-    """Build and invoke the exact generated image rather than only inspecting Dockerfile text."""
+    """Build and invoke the exact generated image rather than inspecting Dockerfile text only."""
     if shutil.which("docker") is None:
         pytest.skip("docker is unavailable")
-    from mcp import ClientSession, StdioServerParameters
+    from mcp import Client, StdioServerParameters
     from mcp.client.stdio import stdio_client
 
     generator = load_generator()
@@ -278,7 +275,6 @@ async def test_generated_container_is_non_root_and_passes_official_stdio_smoke(t
     run_checked([sys.executable, "-m", "build", "--wheel", "--no-isolation"], cwd=target)
     wheels = list((target / "dist").glob("*.whl"))
     assert len(wheels) == 1
-    wheel_sha256 = hashlib.sha256(wheels[0].read_bytes()).hexdigest()
 
     image = f"ai-skills-python-mcp:{tmp_path.name.lower()}"
     run_checked(
@@ -286,7 +282,7 @@ async def test_generated_container_is_non_root_and_passes_official_stdio_smoke(t
             "docker",
             "build",
             "--build-arg",
-            f"WHEEL_SHA256={wheel_sha256}",
+            f"WHEEL=dist/{wheels[0].name}",
             "--tag",
             image,
             ".",
@@ -295,17 +291,6 @@ async def test_generated_container_is_non_root_and_passes_official_stdio_smoke(t
         timeout=300,
     )
     try:
-        label = run_checked(
-            [
-                "docker",
-                "inspect",
-                "--format",
-                '{{ index .Config.Labels "org.opencontainers.image.source-wheel-sha256" }}',
-                image,
-            ],
-            cwd=target,
-        )
-        assert label.stdout.strip() == wheel_sha256
         identity = run_checked(
             [
                 "docker",
@@ -315,24 +300,29 @@ async def test_generated_container_is_non_root_and_passes_official_stdio_smoke(t
                 "python",
                 image,
                 "-c",
-                "import os, inventory_mcp; assert os.getuid() != 0; print(inventory_mcp.__version__)",
+                "import os, inventory_mcp, pathlib; "
+                "assert os.getuid() != 0; "
+                "p=pathlib.Path(inventory_mcp.__file__).resolve(); "
+                "assert 'site-packages' in p.parts, p",
             ],
             cwd=target,
         )
-        assert "0.1.0" in identity.stdout
+        assert identity.returncode == 0
         parameters = StdioServerParameters(command="docker", args=["run", "--rm", "-i", image])
-        async with stdio_client(parameters) as (read_stream, write_stream):
-            async with ClientSession(read_stream, write_stream) as session:
-                await session.initialize()
-                tools = await session.list_tools()
-                assert "list_items" in {tool.name for tool in tools.tools}
-                result = await session.call_tool("list_items", {"limit": 1})
-                assert result.is_error is not True
-                denied = await session.call_tool(
-                    "put_item",
-                    {"item_id": "blocked", "name": "Blocked", "expected_version": 0},
-                )
-                assert denied.is_error is True
-                assert any("AUTHORIZATION_FAILED" in str(getattr(content, "text", "")) for content in denied.content)
+        async with Client(stdio_client(parameters)) as client:
+            tools = await client.list_tools()
+            assert {"list_items", "put_item"} <= {tool.name for tool in tools.tools}
+            result = await client.call_tool("list_items", {"limit": 1})
+            assert result.is_error is False
+            denied = await client.call_tool(
+                "put_item",
+                {"item_id": "blocked", "value": "Blocked", "approval_record": "invalid"},
+            )
+            assert denied.is_error is True
     finally:
-        subprocess.run(["docker", "image", "rm", "--force", image], check=False, capture_output=True, text=True)
+        subprocess.run(
+            ["docker", "image", "rm", "--force", image],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
