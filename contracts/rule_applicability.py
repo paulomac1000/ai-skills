@@ -77,11 +77,7 @@ def validate_rule_metadata(rule: Mapping[str, Any]) -> list[str]:
         errors.append(f"{rule_id}: waivable must be boolean")
 
     evidence = rule.get("required_evidence")
-    if (
-        not isinstance(evidence, list)
-        or not evidence
-        or not all(item in EVIDENCE_TYPES for item in evidence)
-    ):
+    if not isinstance(evidence, list) or not evidence or not all(item in EVIDENCE_TYPES for item in evidence):
         errors.append(f"{rule_id}: required_evidence must use known evidence types")
     return errors
 
