@@ -96,7 +96,10 @@ def project_files(package_name: str, server_name: str) -> dict[str, str]:
         rendered[output_path] = _render(_read_regular_utf8(template), package_name, server_name)
 
     for lock_name in LOCK_NAMES:
-        rendered[f"locks/{lock_name}"] = _read_regular_utf8(LOCK_ROOT / lock_name, maximum=4 * 1024 * 1024)
+        rendered[f"locks/{lock_name}"] = _read_regular_utf8(
+            LOCK_ROOT / lock_name,
+            maximum=4 * 1024 * 1024,
+        )
     for contract_name in COPIED_CONTRACTS:
         destination = f"src/{package_name}/contracts/{contract_name}"
         rendered[destination] = _read_regular_utf8(CONTRACT_ROOT / contract_name)
@@ -129,7 +132,10 @@ def _validate_capabilities(files: Mapping[str, str], package_name: str) -> None:
     identifiers: set[str] = set()
     for path in manifest_paths:
         manifest = json.loads(files[path])
-        errors = sorted(validator.iter_errors(manifest), key=lambda item: tuple(item.absolute_path))
+        errors = sorted(
+            validator.iter_errors(manifest),
+            key=lambda item: tuple(item.absolute_path),
+        )
         if errors:
             raise ValueError(f"{path}: {errors[0].message}")
         capability_id = manifest["id"]
@@ -163,7 +169,12 @@ def validate_generated_project(files: Mapping[str, str], package_name: str) -> N
     _validate_capabilities(files, package_name)
 
     workflow = files[".github/workflows/ci.yml"]
-    forbidden_workflow_tokens = ("ubuntu-latest", "contents: write", "packages: write", "id-token: write")
+    forbidden_workflow_tokens = (
+        "ubuntu-latest",
+        "contents: write",
+        "packages: write",
+        "id-token: write",
+    )
     if any(token in workflow for token in forbidden_workflow_tokens):
         raise ValueError("generated CI violates the trusted-CI baseline")
     if "concurrency:" not in workflow or "persist-credentials: false" not in workflow:
@@ -177,7 +188,9 @@ def validate_generated_project(files: Mapping[str, str], package_name: str) -> N
 
     stale_manifest_fields = ("operational_impact", '"active"', '"side_effects"')
     manifest_content = "\n".join(
-        content for path, content in files.items() if "/capabilities/" in path and path.endswith(".json")
+        content
+        for path, content in files.items()
+        if "/capabilities/" in path and path.endswith(".json")
     )
     if any(field in manifest_content for field in stale_manifest_fields):
         raise ValueError("generated capability manifests contain legacy field names")
@@ -208,7 +221,13 @@ def _rename_noreplace(source: Path, destination: Path) -> None:
         renameat2 = getattr(libc, "renameat2", None)
         if renameat2 is None:
             raise RuntimeError("atomic no-replace publication requires renameat2")
-        renameat2.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint]
+        renameat2.argtypes = [
+            ctypes.c_int,
+            ctypes.c_char_p,
+            ctypes.c_int,
+            ctypes.c_char_p,
+            ctypes.c_uint,
+        ]
         renameat2.restype = ctypes.c_int
         if renameat2(-100, source_bytes, -100, destination_bytes, 1) != 0:
             error = ctypes.get_errno()
@@ -254,14 +273,14 @@ def generate_project(package_name: str, destination: Path, server_name: str) -> 
     if os.path.lexists(destination):
         raise FileExistsError(destination)
 
-    staging = Path(tempfile.mkdtemp(prefix=f".{destination.name}.", dir=parent))
+    staging: Path | None = Path(tempfile.mkdtemp(prefix=f".{destination.name}.", dir=parent))
     try:
         _write_files(staging, files)
         _rename_noreplace(staging, destination)
-        staging = Path()
+        staging = None
         return destination
     finally:
-        if staging and staging.exists():
+        if staging is not None and staging.exists():
             shutil.rmtree(staging)
 
 
