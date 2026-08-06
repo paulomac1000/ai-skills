@@ -9,11 +9,11 @@ import importlib.util
 import os
 import socket
 import subprocess
-import sys
 import tempfile
 import time
 import urllib.request
 from pathlib import Path
+from typing import Any
 
 import httpx2
 from mcp import Client, StdioServerParameters
@@ -42,7 +42,7 @@ def _wait_for_health(url: str, process: subprocess.Popen[bytes]) -> None:
         if process.poll() is not None:
             raise RuntimeError(f"HTTP server exited early with {process.returncode}")
         try:
-            with urllib.request.urlopen(url, timeout=1) as response:  # noqa: S310 - loopback URL is constructed locally
+            with urllib.request.urlopen(url, timeout=1) as response:  # noqa: S310 - constructed loopback URL
                 if response.status == 200:
                     return
         except OSError:
@@ -50,7 +50,7 @@ def _wait_for_health(url: str, process: subprocess.Popen[bytes]) -> None:
     raise RuntimeError("HTTP server did not become ready")
 
 
-async def _exercise(client: Client, *, expect_write_failure: bool = True) -> None:
+async def _exercise(client: Any, *, expect_write_failure: bool = True) -> None:
     tools = await client.list_tools()
     names = {tool.name for tool in tools.tools}
     required = {"describe_capabilities", "list_items", "put_item"}
@@ -88,7 +88,7 @@ async def _http_smoke(distribution: str) -> None:
         }
     )
     with tempfile.TemporaryFile() as output:
-        process = subprocess.Popen(  # noqa: S603 - distribution is a validated CLI argument from CI
+        process = subprocess.Popen(  # noqa: S603 - validated command name from CI configuration
             [distribution],
             env=environment,
             stdout=output,
