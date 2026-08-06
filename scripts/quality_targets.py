@@ -25,6 +25,7 @@ TYPE_PATHS = (
     "contracts/evidence.py",
     "contracts/rule_applicability.py",
     "contracts/validate_adoption.py",
+    "contracts/validate_atomic_claims.py",
     "contracts/validate_capability_manifest.py",
     "contracts/validate_conformance.py",
     "contracts/validate_evidence_provider.py",
