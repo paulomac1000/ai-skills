@@ -23,8 +23,12 @@ QUERIES = [
     ("mcp-server-architect/SKILL.md", "design secure agent friendly mcp server sdk review"),
     ("mcp-server-architect/STANDARD.md", "transport authorization errors cancellation observability maturity"),
     (
-        "mcp-server-architect/references/python-fastmcp.md",
-        "fastmcp private tools decorator context lifespan contentblock",
+        "mcp-server-architect/references/python-official-mcp-sdk.md",
+        "official python mcp sdk package mcp protocol revision wheel exact artifact",
+    ),
+    (
+        "mcp-server-architect/references/python-fastmcp-package.md",
+        "fastmcp package access token authmiddleware mounted server middleware provider",
     ),
     (
         "mcp-server-architect/references/dotnet-mcp.md",
@@ -73,7 +77,12 @@ class Ranker:
         self.lengths = [sum(count.values()) for count in self.counts]
         self.average = sum(self.lengths) / len(self.lengths)
         frequency = Counter(term for count in self.counts for term in count)
-        self.idf = {term: math.log(1 + (len(items) - value + 0.5) / (value + 0.5)) for term, value in frequency.items()}
+        self.idf = {
+            term: math.log(
+                1 + (len(items) - value + 0.5) / (value + 0.5)
+            )
+            for term, value in frequency.items()
+        }
 
     def rank(self, query: str) -> list[int]:
         scored = []
@@ -85,7 +94,16 @@ class Ranker:
                     score += (
                         self.idf.get(term, 0.0)
                         * frequency
-                        / (frequency + 1.5 * (0.25 + 0.75 * self.lengths[index] / self.average))
+                        / (
+                            frequency
+                            + 1.5
+                            * (
+                                0.25
+                                + 0.75
+                                * self.lengths[index]
+                                / self.average
+                            )
+                        )
                     )
             scored.append((score, self.items[index].key, index))
         scored.sort(key=lambda item: (-item[0], item[1]))
@@ -99,9 +117,15 @@ def evaluate() -> tuple[float, float, float]:
     context_sizes = []
     for target, query in QUERIES:
         ranking = ranker.rank(query)
-        position = next(index + 1 for index, item_index in enumerate(ranking) if items[item_index].key == target)
+        position = next(
+            index + 1
+            for index, item_index in enumerate(ranking)
+            if items[item_index].key == target
+        )
         positions.append(position)
-        context_sizes.append(sum(len(items[item_index].text) for item_index in ranking[:3]))
+        context_sizes.append(
+            sum(len(items[item_index].text) for item_index in ranking[:3])
+        )
     recall_at_three = sum(position <= 3 for position in positions) / len(positions)
     mrr = sum(1 / position for position in positions) / len(positions)
     return recall_at_three, mrr, sum(context_sizes) / len(context_sizes)
@@ -111,7 +135,7 @@ def test_recovered_documents_remain_retrievable_without_monolithic_context() -> 
     items = documents()
     recall_at_three, mrr, average_context = evaluate()
     assert len(items) >= 20
-    assert len(QUERIES) >= 18
+    assert len(QUERIES) >= 19
     assert recall_at_three >= 0.88
     assert mrr >= 0.78
     assert average_context <= 24_000
