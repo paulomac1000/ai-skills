@@ -130,8 +130,12 @@ adoption:
   template: contracts/adoption-assessment.yaml.template
   validator: contracts/validate_adoption.py
   rule_catalog: contracts/rule-catalog.yaml
-  extension: mcp
   rule_map: contracts/standard-rule-map.yaml
+  atomic_claim_catalog: contracts/atomic-claim-catalog.yaml
+  atomic_claim_schema: contracts/atomic-claim-report.schema.json
+  atomic_claim_validator: contracts/validate_atomic_claims.py
+  evidence_profiles: contracts/evidence-profiles.yaml
+  extension: mcp
 conformance:
   template: contracts/conformance-report.yaml.template
   validator: contracts/validate_conformance.py
