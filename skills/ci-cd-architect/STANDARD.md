@@ -27,7 +27,7 @@ Define stable delivery invariants for Python, .NET, MCP, documentation, package,
 - Third-party actions use full 40-character commit SHAs. Version comments are informational.
 - `actions/checkout` sets `persist-credentials: false` unless a narrowly reviewed step must push.
 - Top-level permissions default to `contents: read`; jobs elevate only capabilities they use.
-- Write scopes are forbidden for pull-request code. A non-PR job may use only `packages`, `contents`, `id-token`, or `attestations` write access, and only when it names a protected release environment. Repository-local reusable workflows are permitted through literal `./.github/workflows/*.yml` references; external or expression-derived workflow calls are not.
+- Write scopes are forbidden for pull-request code. A non-PR job may use only `packages`, `contents`, `id-token`, or `attestations` write access, and only when it names a protected release environment using the literal name `release` or a non-empty literal ending in `-release`. Empty values, mappings, and expression-derived environment names are not protection evidence. Repository-local reusable workflows are permitted through literal `./.github/workflows/*.yml` references; external or expression-derived workflow calls are not. Reusable-workflow caller jobs do not receive release write scopes from this exception; the called workflow must own its protected publishing job.
 - Every job has a positive numeric `timeout-minutes` and explicit concurrency semantics where overlapping runs are harmful.
 - Shell scripts use strict mode when failure propagation matters.
 - Cache keys include every file that changes dependency resolution, including central .NET package and build props.
