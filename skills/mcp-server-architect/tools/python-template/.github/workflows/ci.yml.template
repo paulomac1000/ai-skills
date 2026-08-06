@@ -31,7 +31,7 @@ jobs:
           python-version: ${{ matrix.python }}
           architecture: x64
           cache: pip
-          cache-dependency-path: locks/dev-linux-x64-py${{ replace(matrix.python, '.', '') }}.lock
+          cache-dependency-path: locks/dev-linux-x64-py*.lock
       - name: Verify exact checkout
         shell: bash
         env:
@@ -64,7 +64,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: test-evidence-py${{ replace(matrix.python, '.', '') }}-${{ github.run_id }}
+          name: test-evidence-${{ matrix.python }}-${{ github.run_id }}
           path: junit.xml
           if-no-files-found: error
           retention-days: 14
@@ -137,7 +137,7 @@ jobs:
             "from pathlib import Path; p=Path('/var/lib/__DISTRIBUTION__/atomic.tmp'); p.write_text('ok'); p.replace(p.with_suffix('.ok'))"
           docker exec mcp-artifact-smoke python -c \
             "import __PACKAGE__, pathlib; p=pathlib.Path(__PACKAGE__.__file__).resolve(); assert 'site-packages' in p.parts, p"
-          docker image inspect --format '{{index .RepoDigests 0}} {{.Id}}' "$IMAGE" | tee image-identity.txt
+          docker image inspect --format '{{.Id}}' "$IMAGE" | tee image-identity.txt
       - name: Upload immutable artifact evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
