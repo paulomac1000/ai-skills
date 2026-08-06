@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "id": "put_item",
+  "name": "Put item",
+  "description": "Writes one item only after a server-verifiable approval record is consumed.",
+  "operation_kind": "write",
+  "risk": "high",
+  "determinism": "environment-dependent",
+  "latency": "interactive",
+  "impact": "external",
+  "active_state": "write",
+  "retryable": false,
+  "idempotent": false,
+  "reversible": false,
+  "requires_confirmation": true,
+  "idempotency_key_required": false,
+  "authorization_scopes": ["inventory:write"],
+  "approval": {
+    "enforcement": "server-side",
+    "record_required": true,
+    "record_ttl_seconds": 3600,
+    "binds": ["principal", "capability", "target", "arguments-digest", "expires-at"]
+  },
+  "concurrency": {"scope": "principal-target", "limit": 1, "queue_limit": 4},
+  "max_response_bytes": 65536,
+  "protocol_revisions": ["2026-07-28", "2025-11-25"]
+}
