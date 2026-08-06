@@ -13,14 +13,14 @@ internal sealed record CanonicalConcurrency(
     int QueueLimit);
 
 internal sealed record CanonicalApproval(
-    [property: JsonPropertyName("issuer")]
-    string Issuer,
+    [property: JsonPropertyName("enforcement")]
+    string Enforcement,
+    [property: JsonPropertyName("record_required")]
+    bool RecordRequired,
+    [property: JsonPropertyName("record_ttl_seconds")]
+    int RecordTtlSeconds,
     [property: JsonPropertyName("binds")]
-    IReadOnlyList<string> Binds,
-    [property: JsonPropertyName("ttl_seconds")]
-    int TtlSeconds,
-    [property: JsonPropertyName("one_time")]
-    bool OneTime);
+    IReadOnlyList<string> Binds);
 
 internal sealed record CanonicalCapabilityManifest(
     [property: JsonPropertyName("schema_version")]
@@ -81,12 +81,18 @@ internal static class CanonicalCapabilityManifestContract
             ?? throw new InvalidOperationException(
                 "Embedded capability-manifest.schema.json is missing.");
         using var schema = JsonDocument.Parse(schemaStream);
-        var required = schema.RootElement
+        var schemaRoot = schema.RootElement;
+        var required = schemaRoot
             .GetProperty("required")
             .EnumerateArray()
             .Select(item => item.GetString())
             .Where(item => !string.IsNullOrWhiteSpace(item))
             .Cast<string>()
+            .ToHashSet(StringComparer.Ordinal);
+        var allowedProperties = schemaRoot
+            .GetProperty("properties")
+            .EnumerateObject()
+            .Select(property => property.Name)
             .ToHashSet(StringComparer.Ordinal);
 
         var registry = new CapabilityRegistry();
@@ -94,7 +100,12 @@ internal static class CanonicalCapabilityManifestContract
         {
             var rich = registry.Require(capabilityName);
             var canonical = Project(rich);
-            ValidateRequiredFields(required, canonical);
+            var document = JsonSerializer.SerializeToElement(
+                canonical,
+                SerializerOptions);
+            ValidateRequiredFields(required, document, canonical.Id);
+            ValidateNoUnknownFields(allowedProperties, document, canonical.Id);
+            ValidateSchemaEnums(schemaRoot, document, canonical.Id);
             ValidateSemantics(canonical);
         }
     }
@@ -118,37 +129,38 @@ internal static class CanonicalCapabilityManifestContract
         {
             DeterminismClass.Deterministic => "deterministic",
             DeterminismClass.EnvironmentDependent => "environment-dependent",
-            _ => "non-deterministic",
+            _ => "nondeterministic",
         };
         var latency = manifest.Latency switch
         {
             LatencyClass.Low or LatencyClass.Medium => "interactive",
-            LatencyClass.High => "slow",
+            LatencyClass.High => "bounded-long",
             _ => "background",
         };
         var impact = manifest.Impact switch
         {
             ImpactClass.None => "none",
-            ImpactClass.Transient => "internal",
-            ImpactClass.Persistent or ImpactClass.ServiceOutage
-                or ImpactClass.Financial or ImpactClass.Physical => "external",
-            _ => "irreversible",
+            ImpactClass.Transient => "local",
+            _ => "external",
         };
         var concurrencyScope = manifest.ConcurrencyScope switch
         {
             "none" => "global",
+            var value when value.Contains("principal", StringComparison.Ordinal)
+                && value.Contains("target", StringComparison.Ordinal) =>
+                "principal-target",
             var value when value.Contains("principal", StringComparison.Ordinal) =>
                 "principal",
             var value when value.Contains("target", StringComparison.Ordinal) =>
                 "target",
-            _ => "resource",
+            _ => "capability",
         };
         var approval = manifest.RequiresConfirmation
             ? new CanonicalApproval(
-                "trusted-host",
-                ["principal", "capability", "target", "arguments-digest"],
+                "server-side",
+                true,
                 300,
-                true)
+                ["principal", "capability", "target", "arguments-digest"])
             : null;
         var extensions = new Dictionary<string, object?>(StringComparer.Ordinal)
         {
@@ -194,11 +206,9 @@ internal static class CanonicalCapabilityManifestContract
 
     private static void ValidateRequiredFields(
         IReadOnlySet<string> required,
-        CanonicalCapabilityManifest manifest)
+        JsonElement document,
+        string capabilityId)
     {
-        var document = JsonSerializer.SerializeToElement(
-            manifest,
-            SerializerOptions);
         var observed = document
             .EnumerateObject()
             .Select(property => property.Name)
@@ -207,8 +217,81 @@ internal static class CanonicalCapabilityManifestContract
         if (missing.Length > 0)
         {
             throw new InvalidOperationException(
-                $"{manifest.Id}: canonical manifest is missing schema fields: "
+                $"{capabilityId}: canonical manifest is missing schema fields: "
                 + string.Join(", ", missing));
+        }
+    }
+
+    private static void ValidateNoUnknownFields(
+        IReadOnlySet<string> allowed,
+        JsonElement document,
+        string capabilityId)
+    {
+        var unknown = document
+            .EnumerateObject()
+            .Select(property => property.Name)
+            .Where(name => !allowed.Contains(name))
+            .ToArray();
+        if (unknown.Length > 0)
+        {
+            throw new InvalidOperationException(
+                $"{capabilityId}: canonical manifest has unknown schema fields: "
+                + string.Join(", ", unknown));
+        }
+    }
+
+    private static void ValidateSchemaEnums(
+        JsonElement schemaRoot,
+        JsonElement document,
+        string capabilityId)
+    {
+        var properties = schemaRoot.GetProperty("properties");
+        foreach (var propertyName in new[]
+        {
+            "operation_kind",
+            "risk",
+            "determinism",
+            "latency",
+            "impact",
+            "active_state",
+        })
+        {
+            RequireAllowedEnum(
+                properties.GetProperty(propertyName),
+                document.GetProperty(propertyName).GetString(),
+                capabilityId,
+                propertyName);
+        }
+
+        RequireAllowedEnum(
+            properties
+                .GetProperty("concurrency")
+                .GetProperty("properties")
+                .GetProperty("scope"),
+            document
+                .GetProperty("concurrency")
+                .GetProperty("scope")
+                .GetString(),
+            capabilityId,
+            "concurrency.scope");
+    }
+
+    private static void RequireAllowedEnum(
+        JsonElement propertySchema,
+        string? value,
+        string capabilityId,
+        string propertyName)
+    {
+        var allowed = propertySchema
+            .GetProperty("enum")
+            .EnumerateArray()
+            .Select(item => item.GetString())
+            .ToHashSet(StringComparer.Ordinal);
+        if (value is null || !allowed.Contains(value))
+        {
+            throw new InvalidOperationException(
+                $"{capabilityId}: {propertyName}={value ?? "<null>"} "
+                + "is outside the canonical schema enum.");
         }
     }
 
@@ -224,23 +307,75 @@ internal static class CanonicalCapabilityManifestContract
                 $"{manifest.Id}: canonical manifest identity is incomplete.");
         }
 
-        if (manifest.MaxResponseBytes is < 256 or > 16_777_216)
+        if (manifest.MaxResponseBytes is < 1 or > 16_777_216)
         {
             throw new InvalidOperationException(
                 $"{manifest.Id}: canonical response bound is invalid.");
         }
 
-        if ((manifest.OperationKind is "write" or "destructive")
-            && manifest.AuthorizationScopes.Count == 0)
+        if (manifest.Concurrency.Limit is < 1 or > 10_000
+            || manifest.Concurrency.QueueLimit is < 0 or > 100_000)
         {
             throw new InvalidOperationException(
-                $"{manifest.Id}: mutation lacks authorization scopes.");
+                $"{manifest.Id}: canonical concurrency contract is invalid.");
         }
 
-        if (manifest.RequiresConfirmation && manifest.Approval is null)
+        if (manifest.OperationKind is "write" or "destructive")
+        {
+            if (manifest.AuthorizationScopes.Count == 0
+                || manifest.Impact == "none")
+            {
+                throw new InvalidOperationException(
+                    $"{manifest.Id}: mutation lacks scopes or impact.");
+            }
+        }
+
+        if (manifest.OperationKind == "destructive"
+            && (!manifest.RequiresConfirmation
+                || manifest.Risk is not ("high" or "critical")))
         {
             throw new InvalidOperationException(
-                $"{manifest.Id}: confirmation lacks an approval contract.");
+                $"{manifest.Id}: destructive capability violates confirmation/risk policy.");
+        }
+
+        if (manifest.Retryable
+            && (!manifest.Idempotent || !manifest.IdempotencyKeyRequired))
+        {
+            throw new InvalidOperationException(
+                $"{manifest.Id}: retryable capability lacks idempotency-key policy.");
+        }
+
+        if (manifest.RequiresConfirmation)
+        {
+            if (manifest.Approval is null
+                || manifest.Approval.Enforcement != "server-side"
+                || !manifest.Approval.RecordRequired
+                || manifest.Approval.RecordTtlSeconds is < 1 or > 86_400)
+            {
+                throw new InvalidOperationException(
+                    $"{manifest.Id}: confirmation lacks a valid approval contract.");
+            }
+
+            var requiredBindings = new[]
+            {
+                "principal",
+                "capability",
+                "target",
+                "arguments-digest",
+            };
+            if (requiredBindings.Any(binding =>
+                    !manifest.Approval.Binds.Contains(
+                        binding,
+                        StringComparer.Ordinal)))
+            {
+                throw new InvalidOperationException(
+                    $"{manifest.Id}: approval binding is incomplete.");
+            }
+        }
+        else if (manifest.Approval is not null)
+        {
+            throw new InvalidOperationException(
+                $"{manifest.Id}: approval exists while confirmation is disabled.");
         }
     }
 }
