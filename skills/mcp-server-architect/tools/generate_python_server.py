@@ -15,9 +15,14 @@ from collections.abc import Sequence
 from pathlib import Path
 
 _IMPLEMENTATION_PATH = Path(__file__).with_name("generate_python_server_impl.py")
-_SPEC = importlib.util.spec_from_file_location("mcp_python_generator_implementation", _IMPLEMENTATION_PATH)
+_SPEC = importlib.util.spec_from_file_location(
+    "mcp_python_generator_implementation",
+    _IMPLEMENTATION_PATH,
+)
 if _SPEC is None or _SPEC.loader is None:
-    raise ImportError(f"Cannot load generator implementation: {_IMPLEMENTATION_PATH}")
+    raise ImportError(
+        f"Cannot load generator implementation: {_IMPLEMENTATION_PATH}"
+    )
 _implementation = importlib.util.module_from_spec(_SPEC)
 sys.modules[_SPEC.name] = _implementation
 _SPEC.loader.exec_module(_implementation)
@@ -33,7 +38,11 @@ RESERVED_PACKAGE_NAMES = frozenset(sys.stdlib_module_names) | {
     "uvicorn",
 }
 LOCK_NAMES = _implementation.LOCK_NAMES
-LOCK_IDS = tuple(name.removeprefix("runtime-").removesuffix(".lock") for name in LOCK_NAMES if name.startswith("runtime-"))
+LOCK_IDS = tuple(
+    name.removeprefix("runtime-").removesuffix(".lock")
+    for name in LOCK_NAMES
+    if name.startswith("runtime-")
+)
 SOURCE_NAMES = ("python-runtime.in", "python-dev.in")
 _BASE_PROJECT_FILES = _implementation.project_files
 validate_generated_project = _implementation.validate_generated_project
@@ -41,7 +50,10 @@ validate_generated_project = _implementation.validate_generated_project
 
 def _validate_public_identity(package_name: str, server_name: str) -> None:
     if not PACKAGE_RE.fullmatch(package_name) or keyword.iskeyword(package_name):
-        raise ValueError("package name must be a non-keyword matching ^[a-z][a-z0-9_]{1,63}$")
+        raise ValueError(
+            "package name must be a non-keyword matching "
+            "^[a-z][a-z0-9_]{1,63}$"
+        )
     if package_name in RESERVED_PACKAGE_NAMES:
         raise ValueError(f"package name is reserved: {package_name}")
     if not SERVER_RE.fullmatch(server_name):
@@ -57,19 +69,27 @@ def project_files(package_name: str, server_name: str) -> dict[str, str]:
 _implementation.project_files = project_files
 
 
-def generate_project(destination: Path, package_name: str, server_name: str) -> list[Path]:
-    """Render and atomically publish a project using the historical public argument order."""
+def generate_project(
+    destination: Path,
+    package_name: str,
+    server_name: str,
+) -> list[Path]:
+    """Render and atomically publish a project using the stable public API."""
     files = project_files(package_name, server_name)
     validate_generated_project(files, package_name)
     destination = destination.resolve(strict=False)
     parent = destination.parent
     parent.mkdir(parents=True, exist_ok=True)
     if parent.is_symlink() or not parent.is_dir():
-        raise ValueError("destination parent must be a regular directory, not a symlink")
+        raise ValueError(
+            "destination parent must be a regular directory, not a symlink"
+        )
     if os.path.lexists(destination):
         raise FileExistsError(destination)
 
-    staging: Path | None = Path(tempfile.mkdtemp(prefix=f".{destination.name}.", dir=parent))
+    staging: Path | None = Path(
+        tempfile.mkdtemp(prefix=f".{destination.name}.", dir=parent)
+    )
     try:
         _implementation._write_files(staging, files)
         _implementation._rename_noreplace(staging, destination)
@@ -80,15 +100,55 @@ def generate_project(destination: Path, package_name: str, server_name: str) -> 
     return [Path(path) for path in sorted(files)]
 
 
-def main(argv: Sequence[str] | None = None) -> int:
+def build_parser() -> argparse.ArgumentParser:
+    """Build a CLI supporting the canonical and explicit legacy syntax."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("destination", type=Path)
-    parser.add_argument("package_name")
-    parser.add_argument("--server-name")
+    parser.add_argument(
+        "legacy_package_name",
+        nargs="?",
+        help=(
+            "Deprecated positional package name. Prefer --package so package "
+            "identity cannot be confused with the destination."
+        ),
+    )
+    parser.add_argument("--package", dest="package_name")
+    parser.add_argument(
+        "--name",
+        "--server-name",
+        dest="server_name",
+        help="Human-readable MCP server name.",
+    )
+    return parser
+
+
+def _resolved_identity(
+    parser: argparse.ArgumentParser,
+    args: argparse.Namespace,
+) -> tuple[str, str]:
+    explicit = args.package_name
+    legacy = args.legacy_package_name
+    if explicit and legacy and explicit != legacy:
+        parser.error(
+            "package name was supplied twice with different values; use "
+            "only --package"
+        )
+    package_name = explicit or legacy
+    if not package_name:
+        parser.error("missing package name; use --package <package_name>")
+    server_name = (
+        args.server_name
+        or package_name.replace("_", " ").title()
+    )
+    return package_name, server_name
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    parser = build_parser()
     args = parser.parse_args(argv)
-    server_name = args.server_name or args.package_name.replace("_", " ").title()
+    package_name, server_name = _resolved_identity(parser, args)
     try:
-        generate_project(args.destination, args.package_name, server_name)
+        generate_project(args.destination, package_name, server_name)
     except (OSError, RuntimeError, ValueError) as exc:
         parser.error(str(exc))
     print(args.destination.resolve(strict=False))
@@ -105,6 +165,7 @@ __all__ = [
     "project_files",
     "validate_generated_project",
     "generate_project",
+    "build_parser",
     "main",
 ]
 
