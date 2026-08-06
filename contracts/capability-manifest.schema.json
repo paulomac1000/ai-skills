@@ -6,23 +6,10 @@
   "type": "object",
   "additionalProperties": false,
   "required": [
-    "schema_version",
-    "id",
-    "name",
-    "description",
-    "operation_kind",
-    "risk",
-    "determinism",
-    "latency",
-    "impact",
-    "active_state",
-    "retryable",
-    "idempotent",
-    "reversible",
-    "requires_confirmation",
-    "idempotency_key_required",
-    "authorization_scopes",
-    "concurrency",
+    "schema_version", "id", "name", "description", "operation_kind", "risk",
+    "determinism", "latency", "impact", "active_state", "retryable",
+    "idempotent", "reversible", "requires_confirmation",
+    "idempotency_key_required", "authorization_scopes", "concurrency",
     "max_response_bytes"
   ],
   "properties": {
@@ -35,7 +22,7 @@
     "determinism": {"enum": ["deterministic", "environment-dependent", "nondeterministic"]},
     "latency": {"enum": ["interactive", "bounded-long", "background"]},
     "impact": {"enum": ["none", "local", "external", "cross-tenant"]},
-    "active_state": {"enum": ["none", "read", "write"]},
+    "active_state": {"enum": ["active", "inactive", "deprecated"]},
     "retryable": {"type": "boolean"},
     "idempotent": {"type": "boolean"},
     "reversible": {"type": "boolean"},
@@ -49,16 +36,23 @@
     "approval": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["enforcement", "record_required"],
+      "required": ["enforcement", "record_required", "record_ttl_seconds", "binds"],
       "properties": {
         "enforcement": {"const": "server-side"},
         "record_required": {"const": true},
         "record_ttl_seconds": {"type": "integer", "minimum": 1, "maximum": 86400},
         "binds": {
           "type": "array",
-          "items": {"enum": ["principal", "capability", "target", "arguments-digest", "expires-at"]},
-          "minItems": 4,
-          "uniqueItems": true
+          "items": {"enum": ["principal", "capability", "target", "arguments-digest", "expires-at", "approval-id"]},
+          "minItems": 5,
+          "uniqueItems": true,
+          "allOf": [
+            {"contains": {"const": "principal"}},
+            {"contains": {"const": "capability"}},
+            {"contains": {"const": "target"}},
+            {"contains": {"const": "arguments-digest"}},
+            {"contains": {"const": "expires-at"}}
+          ]
         }
       }
     },
@@ -67,9 +61,10 @@
       "additionalProperties": false,
       "required": ["scope", "limit"],
       "properties": {
-        "scope": {"enum": ["global", "principal", "target", "capability", "principal-target"]},
+        "scope": {"enum": ["global", "principal", "target", "credential", "resource", "capability", "principal-target", "custom"]},
         "limit": {"type": "integer", "minimum": 1, "maximum": 10000},
-        "queue_limit": {"type": "integer", "minimum": 0, "maximum": 100000}
+        "queue_limit": {"type": "integer", "minimum": 0, "maximum": 100000},
+        "global_limit": {"type": "integer", "minimum": 1, "maximum": 10000}
       }
     },
     "max_response_bytes": {"type": "integer", "minimum": 1, "maximum": 16777216},
@@ -117,13 +112,19 @@
       "if": {"properties": {"operation_kind": {"const": "read"}}, "required": ["operation_kind"]},
       "then": {
         "properties": {
-          "retryable": {"default": false},
-          "idempotent": {"default": false},
-          "reversible": {"default": false},
-          "requires_confirmation": {"default": false},
-          "idempotency_key_required": {"default": false}
+          "impact": {"const": "none"},
+          "retryable": {"const": false},
+          "idempotent": {"const": false},
+          "reversible": {"const": false},
+          "requires_confirmation": {"const": false},
+          "idempotency_key_required": {"const": false}
         }
       }
+    },
+    {
+      "if": {"properties": {"active_state": {"const": "active"}}, "required": ["active_state"]},
+      "then": {},
+      "else": {"properties": {"retryable": {"const": false}}}
     }
   ]
 }
