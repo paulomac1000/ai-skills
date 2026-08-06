@@ -59,6 +59,7 @@ required:
 - STANDARD.md
 - references/protected-release-workflows.md
 - references/trusted-auditor-bootstrap.md
+- references/finding-triage.md
 - templates/publish.yml.template
 - templates/trusted-workflow-audit.yml.template
 - tools/check_github_actions_policy.py
