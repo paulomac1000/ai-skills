@@ -1,0 +1,22 @@
+schema_version: 1
+default_profile: governed
+profiles:
+  governed:
+    require_frontmatter: true
+    check_structure: true
+    check_links: true
+    check_anchors: true
+    require_verification_by_rigor: true
+  human-facing:
+    require_frontmatter: false
+    check_structure: true
+    check_links: true
+    check_anchors: true
+    require_verification_by_rigor: false
+documents:
+  - match: README.md
+    profile: human-facing
+  - match: CHANGELOG.md
+    profile: human-facing
+  - match: skills/*/SKILL.md
+    profile: human-facing

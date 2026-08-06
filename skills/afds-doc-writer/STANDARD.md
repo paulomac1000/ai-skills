@@ -5,7 +5,7 @@ type: reference
 status: active
 rigor: normative
 owners: [repository-maintainers]
-verification: Run `python skills/afds-doc-writer/validate.py README.md RECOVERY_AUDIT.md skills` and `python -m pytest`.
+verification: Run `python skills/afds-doc-writer/validate.py README.md RECOVERY_AUDIT.md contracts skills` and `python -m pytest`.
 ---
 
 # AFDS documentation standard
@@ -21,7 +21,7 @@ This standard defines how technical documentation is selected, structured, verif
 3. **Answer first.** Put the operational answer, contract, decision, or procedure before background.
 4. **Retrieval is designed.** Titles, identifiers, descriptions, aliases, and headings use terms readers will search for.
 5. **Statement kinds remain distinct.** Requirements, observations, examples, assumptions, hypotheses, and open questions are not interchangeable.
-6. **Verification is explicit.** Operational and normative documents name a command, check, review method, or observable acceptance condition.
+6. **Verification is explicit where rigor requires it.** Operational and normative documents name a command, check, review method, or observable acceptance condition. Informative documents may omit verification.
 7. **Volatile facts belong to automation.** Generated inventories and measurements are produced from sources of truth.
 8. **Failure behavior is documented where relevant.** A procedure or system document states safe stop, rollback, degradation, or recovery behavior.
 9. **Change impact is visible.** Contract and decision changes identify affected consumers and downstream documents.
@@ -42,6 +42,8 @@ Choose one primary type. Split documents when readers, ownership, lifecycle, or 
 
 ## Required metadata
 
+Every governed document provides these common fields:
+
 ```yaml
 description: One non-empty sentence stating the question answered
 doc_id: <type>.<stable-slug>
@@ -49,18 +51,29 @@ type: workflow | reference | system | guide | decision | contract
 status: draft | active | evolving | deprecated | archived
 rigor: informative | operational | normative
 owners: [team-or-role]
-verification: Concrete command, check, or review method
 ```
 
 `description`, `doc_id`, `type`, `status`, and `rigor` are strings. `owners` is a non-empty list of non-empty role or team names. `doc_id` is stable and begins with the selected type. Optional `aliases`, `entities`, `upstream`, `downstream`, `supersedes`, and `review_triggers` are used only when meaningful.
 
+For `operational` and `normative` documents, explicit verification is additionally required. It may be declared as a non-empty `verification` metadata field or as a non-empty `## Verification` section. `Informative` documents may provide verification but are not required to do so.
+
 Do not author automation-owned fields such as `last_verified`, generated backlinks, semantic hashes, dependency versions, or fitness scores.
+
+## Governance profiles
+
+A repository assigns validation behavior through `governance.yaml`; a document is never exempted only because its basename is `README.md`, `SKILL.md`, or `CHANGELOG.md`.
+
+The `governed` profile requires AFDS metadata, one H1, unique headings, confined links, valid anchors, and verification according to rigor. The `human-facing` profile may omit AFDS frontmatter but still checks structure, links, anchors, bounded input, and repository confinement. Additional profiles must state every enabled check explicitly and fail closed when the governance file is malformed.
+
+Assignments are repository-relative POSIX globs. The repository declares one default profile and a reviewed ordered list of overrides. A filename convention may select a profile only through this explicit manifest.
 
 ## Structure and links
 
 Every governed document has exactly one H1 outside code examples. H2 sections separate independently retrievable answers. Headings remain unique after normalization.
 
 Relative inline and reference-style links resolve from the containing document. Fenced code, inline code spans, escaped pseudo-links, and image destinations are not treated as documentation links. Valid Markdown titles, angle-bracket destinations, nested parentheses, and longer closing fences are supported.
+
+The validator receives a repository root and confines both source documents and relative link targets to it. Source paths and link targets are regular, bounded UTF-8 files with no symlink or reparse-point component. Absolute paths, parent traversal, backslash-based ambiguity, directory targets, oversized targets, and repository escapes fail closed. A `#fragment` must resolve to an actual normalized heading anchor in the target document; existence of the target file alone is insufficient.
 
 ## Evidence and uncertainty
 
@@ -78,8 +91,8 @@ Lifecycle and change-impact rules are defined in [Lifecycle and impact](referenc
 
 ## Quality gate
 
-A governed document is acceptable when metadata types are valid, one H1 exists, headings are unique, relative links resolve, verification is explicit where required, claims are grounded or labeled uncertain, and ownership is unambiguous.
+A governed document is acceptable when metadata types are valid, one H1 exists, headings are unique, relative links and anchors resolve within the repository, verification is explicit where required, claims are grounded or labeled uncertain, and ownership is unambiguous. A human-facing document is acceptable only when its selected profile passes every enabled structural and confinement check.
 
 ## Verification
 
-Run the AFDS validator and the repository test suite. Reviewers additionally compare normative claims with the implementation or authoritative source they govern. Structural validation proves consistency, not factual truth.
+Run the AFDS validator with the repository governance file and the repository test suite. Reviewers additionally compare normative claims with the implementation or authoritative source they govern. Structural validation proves consistency, not factual truth.

@@ -63,6 +63,27 @@ compatibility:
     runtime: python
     version: '3.12'
     lane: docker-artifact
+protocol:
+  default_revision: '2026-07-28'
+  negotiation: explicit
+  compatibility_policy: Claims are recorded per SDK profile; one language profile never implies another.
+  sdk_profiles:
+    python:
+      packages:
+      - name: mcp
+        tested_versions: ['2.0.0']
+      tested_revisions: []
+      current_revision_support: not-claimed
+      verification_required: Record the negotiated initialize revision in official-client evidence before adding a tested revision.
+    dotnet:
+      packages:
+      - name: ModelContextProtocol
+        tested_versions: ['1.4.1']
+      - name: ModelContextProtocol.AspNetCore
+        tested_versions: ['1.4.1']
+      tested_revisions: []
+      current_revision_support: not-claimed
+      upgrade_policy: Remain on the stable SDK lane until a 2.x stable release and protocol evidence are reviewed together.
 dependencies:
   skills: []
   tools:
@@ -75,6 +96,7 @@ required:
 - SKILL.md
 - STANDARD.md
 - references/migration-assessment.md
+- references/protocol-and-sdk-compatibility.md
 - templates/migration-assessment.yaml.template
 - tools/generate_python_server.py
 - tools/generate_dotnet_server.py
@@ -93,3 +115,6 @@ adoption:
   rule_catalog: contracts/rule-catalog.yaml
   extension: mcp
   rule_map: contracts/standard-rule-map.yaml
+conformance:
+  template: contracts/conformance-report.yaml.template
+  validator: contracts/validate_conformance.py

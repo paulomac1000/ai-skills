@@ -51,6 +51,8 @@ REPLACEMENTS = {
     "<VALIDATION_COMMAND>": "python skills/afds-doc-writer/validate.py skills",
     "<SEMGREP_RULES>": "p/default p/secrets",
     "<SEMGREP_CRON>": "17 3 * * 2",
+    "<TRUSTED_VERIFIER_REPOSITORY>": "paulomac1000/ai-skills",
+    "<TRUSTED_VERIFIER_SHA>": "661ff01a5e70d58d6c94a12545b24647e52063ed",
 }
 
 
@@ -111,6 +113,7 @@ def test_expected_production_profiles_are_present() -> None:
         "semgrep-pr.yml.template",
         "semgrep-scheduled.yml.template",
         "publish.yml.template",
+        "trusted-workflow-audit.yml.template",
     }.issubset(names)
     assert (TEMPLATES / "dependabot-multi-ecosystem.yaml.template").exists()
     assert (TEMPLATES / "pre-commit-python.yaml.template").exists()
@@ -127,6 +130,21 @@ def test_all_external_uses_references_are_full_sha_pinned() -> None:
             assert "@" in value, (path, value)
             action, revision = value.rsplit("@", 1)
             assert action and FULL_SHA.fullmatch(revision), (path, value)
+
+
+def test_every_rendered_workflow_passes_declared_policy_profile(tmp_path: Path) -> None:
+    tools = ROOT / "skills/ci-cd-architect/tools"
+    sys.path.insert(0, str(tools))
+    import check_github_actions_policy_impl as policy
+
+    def reader(path: Path, _root: Path) -> tuple[str | None, str | None]:
+        return path.read_text(encoding="utf-8"), None
+
+    for source in workflow_files():
+        rendered = tmp_path / source.name.removesuffix(".template")
+        rendered.write_text(render(source), encoding="utf-8")
+        findings = policy.audit_workflow(rendered, tmp_path, reader=reader)
+        assert findings == [], (source, [finding.message for finding in findings])
 
 
 def test_jobs_are_bounded_and_checkout_drops_credentials() -> None:
@@ -158,49 +176,73 @@ def test_documentation_workflow_tracks_its_own_contract() -> None:
     assert workflow_path in events["push"]["paths"]
 
 
-def test_publish_builds_once_then_smoke_tests_before_push() -> None:
+def test_publish_builds_and_smokes_before_closing_artifact() -> None:
     document = parse(TEMPLATES / "publish.yml.template")
     jobs = document["jobs"]
-    assert jobs["publish"]["needs"] == "validate"
-    steps = jobs["publish"]["steps"]
-    metadata_index = next(
-        i for i, step in enumerate(steps) if str(step.get("uses", "")).startswith("docker/metadata-action@")
-    )
+    validate = jobs["validate-build"]
+    publish = jobs["publish"]
+    assert publish["needs"] == "validate-build"
+    validate_steps = validate["steps"]
     build_index = next(
-        i for i, step in enumerate(steps) if str(step.get("uses", "")).startswith("docker/build-push-action@")
+        i for i, step in enumerate(validate_steps) if str(step.get("uses", "")).startswith("docker/build-push-action@")
     )
-    smoke_index = next(i for i, step in enumerate(steps) if step.get("name") == "Smoke-test exact release image")
-    push_index = next(i for i, step in enumerate(steps) if step.get("name") == "Push smoke-tested image tags")
-    attest_index = next(
-        i for i, step in enumerate(steps) if str(step.get("uses", "")).startswith("actions/attest-build-provenance@")
+    smoke_index = next(
+        i
+        for i, step in enumerate(validate_steps)
+        if step.get("name") == "Smoke-test exact release image"
     )
-    assert metadata_index < build_index < smoke_index < push_index < attest_index
-    build = steps[build_index]
+    close_index = next(
+        i
+        for i, step in enumerate(validate_steps)
+        if step.get("name") == "Close tested image into an archive"
+    )
+    upload_index = next(
+        i for i, step in enumerate(validate_steps) if str(step.get("uses", "")).startswith("actions/upload-artifact@")
+    )
+    assert build_index < smoke_index < close_index < upload_index
+    build = validate_steps[build_index]
     assert build["with"]["load"] is True
     assert build["with"]["push"] is False
-    assert "docker push --all-tags" in steps[push_index]["run"]
-    assert jobs["publish"]["steps"][attest_index]["with"]["subject-digest"] == "${{ steps.push.outputs.digest }}"
+    assert validate.get("permissions") is None
+    publish_steps = publish["steps"]
+    assert not any(str(step.get("uses", "")).startswith("actions/checkout@") for step in publish_steps)
+    push = next(step for step in publish_steps if step.get("name") == "Push only explicitly approved tags")
+    assert "docker push --all-tags" not in push["run"]
+    assert 'docker push "$IMMUTABLE_REF"' in push["run"]
+    attest = next(
+        step for step in publish_steps if str(step.get("uses", "")).startswith("actions/attest-build-provenance@")
+    )
+    assert attest["with"]["subject-digest"] == "${{ steps.push.outputs.digest }}"
 
 
-def test_publish_reuses_validated_revision_and_locates_metadata_by_action() -> None:
+def test_publish_constrains_revision_and_verifies_closed_archive() -> None:
     document = parse(TEMPLATES / "publish.yml.template")
-    validate = document["jobs"]["validate"]
+    validate = document["jobs"]["validate-build"]
     publish = document["jobs"]["publish"]
-    validate_checkout = next(
+    checkout = next(
         step for step in validate["steps"] if str(step.get("uses", "")).startswith("actions/checkout@")
     )
-    publish_checkout = next(
-        step for step in publish["steps"] if str(step.get("uses", "")).startswith("actions/checkout@")
+    assert checkout["with"]["fetch-depth"] == 0
+    assert checkout["with"]["persist-credentials"] is False
+    resolver = next(step for step in validate["steps"] if step.get("id") == "revision")
+    assert "git merge-base --is-ancestor" in resolver["run"]
+    assert "origin/$DEFAULT_BRANCH" in resolver["run"]
+    assert "^[0-9a-f]{40}$" in resolver["run"]
+    archive = next(step for step in validate["steps"] if step.get("id") == "archive")
+    assert "sha256sum release-artifact/image.tar" in archive["run"]
+    verify = next(
+        step
+        for step in publish["steps"]
+        if step.get("name") == "Verify archive identity before registry access"
     )
-    assert "inputs.release_ref" in validate_checkout["with"]["ref"]
-    assert publish_checkout["with"]["ref"] == "${{ needs.validate.outputs.release_sha }}"
-    metadata = next(
-        step for step in publish["steps"] if str(step.get("uses", "")).startswith("docker/metadata-action@")
-    )
-    tags = metadata["with"]["tags"]
-    assert "needs.validate.outputs.release_tag" in tags
-    assert "needs.validate.outputs.release_short_sha" in tags
-    assert "type=semver" not in tags and "type=sha" not in tags
+    assert "sha256sum --check" in verify["run"]
+    assert "sourceRevision" in verify["run"]
+    assert "org.opencontainers.image.revision" in verify["run"]
+    immutable = validate["outputs"]["immutable_ref"]
+    assert "steps.identity.outputs.immutable_ref" in immutable
+    source = (TEMPLATES / "publish.yml.template").read_text(encoding="utf-8")
+    assert "sha-${RELEASE_SHA}" in source
+    assert "release_short_sha" not in source
 
 
 def test_dotnet_quality_provisions_coverage_and_reports_safely() -> None:
@@ -240,7 +282,7 @@ def _embedded_nuget_validator() -> str:
     document = parse(TEMPLATES / "dotnet-package.yml.template")
     step = next(
         step
-        for step in document["jobs"]["package"]["steps"]
+        for step in document["jobs"]["validate-package"]["steps"]
         if step.get("name") == "Validate exact package identity allowlist"
     )
     run = step["run"]
@@ -270,17 +312,29 @@ def _run_nuget_validator(tmp_path: Path) -> subprocess.CompletedProcess[str]:
     )
 
 
-def test_dotnet_package_release_uses_direct_nuspec_metadata_and_identity_set(tmp_path: Path) -> None:
+def test_dotnet_package_release_uses_closed_artifact_and_identity_set(tmp_path: Path) -> None:
     document = parse(TEMPLATES / "dotnet-package.yml.template")
-    steps = document["jobs"]["package"]["steps"]
+    validate = document["jobs"]["validate-package"]
+    publish = document["jobs"]["publish"]
+    steps = validate["steps"]
     resolver = next(step for step in steps if step.get("id") == "release_ref")
     identity = next(step for step in steps if step.get("id") == "release")
     pack = next(step for step in steps if step.get("name") == "Pack")
-    allowlist = next(step for step in steps if step.get("name") == "Validate exact package identity allowlist")
-    checkouts = [step for step in steps if str(step.get("uses", "")).startswith("actions/checkout@")]
-    publisher = next(step for step in steps if step.get("name") == "Publish package files")
-    release = next(step for step in steps if str(step.get("uses", "")).startswith("softprops/action-gh-release@"))
+    allowlist = next(
+        step for step in steps if step.get("name") == "Validate exact package identity allowlist"
+    )
+    checkouts = [
+        step for step in steps if str(step.get("uses", "")).startswith("actions/checkout@")
+    ]
+    publish_steps = publish["steps"]
+    publisher = next(step for step in publish_steps if step.get("name") == "Publish package files")
+    release = next(
+        step
+        for step in publish_steps
+        if str(step.get("uses", "")).startswith("softprops/action-gh-release@")
+    )
     assert "refs/tags/$release_tag" in resolver["run"]
+    assert "git merge-base --is-ancestor" in resolver["run"]
     assert checkouts[-1]["with"]["ref"] == "${{ steps.release_ref.outputs.sha }}"
     assert 'normalized_version="${RELEASE_TAG#v}"' in identity["run"]
     assert 'echo "version=$normalized_version"' in identity["run"]
@@ -301,10 +355,15 @@ def test_dotnet_package_release_uses_direct_nuspec_metadata_and_identity_set(tmp
     ):
         assert required in script
     assert "root.iter()" not in script
+    assert publish["needs"] == "validate-package"
+    assert not any(
+        str(step.get("uses", "")).startswith("actions/checkout@")
+        for step in publish_steps
+    )
     assert "mapfile -t packages < nupkg/publish-files.txt" in publisher["run"]
     assert 'for package in "${packages[@]}"' in publisher["run"]
-    assert release["with"]["tag_name"] == "${{ steps.release_ref.outputs.tag }}"
-    assert release["with"]["target_commitish"] == "${{ steps.release_ref.outputs.sha }}"
+    assert release["with"]["tag_name"] == "${{ needs.validate-package.outputs.release_tag }}"
+    assert release["with"]["target_commitish"] == "${{ needs.validate-package.outputs.release_sha }}"
 
     malicious = """<?xml version="1.0"?><package><metadata><dependencies><group><dependency id="Example.Package" version="1.2.3" /></group></dependencies><id>Malicious.Package</id><version>9.9.9</version></metadata></package>"""
     _write_nupkg(tmp_path / "nupkg/malicious.nupkg", malicious)

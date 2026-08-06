@@ -1,3 +1,4 @@
+# ai-skills-policy-profile: pull-request
 name: .NET MCP contract
 
 on:
@@ -15,7 +16,7 @@ concurrency:
 
 jobs:
   stable-contract:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: <TIMEOUT_MINUTES>
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -77,7 +78,7 @@ jobs:
   candidate-sdk:
     if: github.event_name == 'workflow_dispatch'
     continue-on-error: true
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: <TIMEOUT_MINUTES>
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1

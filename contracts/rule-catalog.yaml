@@ -5,10 +5,13 @@ skills:
     rules:
     - id: afds.metadata.required
       source: STANDARD.md#required-metadata
-      description: Governed documents provide valid, typed, stable metadata.
+      description: Governed documents provide valid, typed, stable metadata and rigor-specific verification.
+    - id: afds.governance.profiled
+      source: STANDARD.md#governance-profiles
+      description: Validation profiles are selected by an explicit repository governance manifest rather than basenames.
     - id: afds.structure.links
       source: STANDARD.md#structure-and-links
-      description: Structure, headings, and relative links pass the AFDS validator.
+      description: Structure, confined links, regular-file targets, and relative anchors pass the AFDS validator.
     - id: afds.evidence.uncertainty
       source: STANDARD.md#evidence-and-uncertainty
       description: Claims identify evidence, confidence, and unresolved uncertainty.
@@ -61,15 +64,18 @@ skills:
     - id: cicd.workflow.least-privilege
       source: STANDARD.md#universal-workflow-controls
       description: Workflows are bounded, least-privileged, pinned, and concurrency-safe.
+    - id: cicd.workflow.profiled
+      source: STANDARD.md#workflow-policy-profiles
+      description: Pull request, trusted CI, and protected release workflows are audited under explicit fail-closed profiles.
     - id: cicd.quality.language
       source: STANDARD.md#python-quality
       description: Applicable language quality, typing, test, and coverage gates execute.
     - id: cicd.security.documentation
       source: STANDARD.md#documentation-and-security
-      description: Documentation and security gates are executable and fail closed.
+      description: Documentation and security gates are executable and fail closed through external immutable authority.
     - id: cicd.release.identity
       source: STANDARD.md#release-identity-and-artifact-promotion
-      description: Release identity is validated and the tested artifact is promoted unchanged.
+      description: Release identity is validated and a closed smoke-tested artifact is promoted without executing source in the publisher.
     - id: cicd.local.bounded
       source: STANDARD.md#local-quality-gates
       description: Local hooks are bounded and consistent with hosted CI.
@@ -81,39 +87,192 @@ skills:
     - id: mcp.architecture.boundaries
       source: STANDARD.md#core-architecture
       description: Domain, adapters, invocation policy, registration, and transports remain separated.
+      applies_when: {maturity_at_least: L1}
+      severity: blocking
+      waivable: false
+      required_evidence: [unit]
+    - id: mcp.sdk.compatibility-isolation
+      source: STANDARD.md#core-architecture
+      description: SDK compatibility logic is isolated and protocol claims remain profile-specific.
+      applies_when: {maturity_at_least: L2}
+      severity: blocking
+      waivable: true
+      required_evidence: [unit, official-client]
+    - id: mcp.configuration.lifecycle
+      source: STANDARD.md#configuration-and-identity
+      description: Configuration is loaded, validated, frozen, and intentionally reloaded before dependency construction.
+      applies_when: {maturity_at_least: L1}
+      severity: blocking
+      waivable: false
+      required_evidence: [unit]
     - id: mcp.identity.target-binding
       source: STANDARD.md#configuration-and-identity
       description: Caller and target identities are authenticated, authorized, and revalidated around I/O.
+      applies_when: {maturity_at_least: L2}
+      severity: blocking
+      waivable: false
+      required_evidence: [unit, integration]
+    - id: mcp.components.public-contract
+      source: STANDARD.md#public-component-contracts
+      description: Public components expose bounded, stable, versioned, machine-readable contracts.
+      applies_when: {maturity_at_least: L1}
+      severity: blocking
+      waivable: false
+      required_evidence: [unit, official-client]
+    - id: mcp.discovery.progressive
+      source: STANDARD.md#public-component-contracts
+      description: Large catalogs use bounded progressive discovery with stable identifiers and terminating pagination.
+      applies_when: {maturity_at_least: L2, profiles_any: [large-catalog, gateway]}
+      severity: blocking
+      waivable: true
+      required_evidence: [unit, official-client]
     - id: mcp.manifest.complete
       source: STANDARD.md#multi-axis-safety-classification
       description: Every capability has a complete application-owned manifest and conservative defaults.
+      applies_when: {maturity_at_least: L2}
+      severity: blocking
+      waivable: false
+      required_evidence: [unit]
     - id: mcp.retry.fail-closed
       source: STANDARD.md#side-effects-retries-and-workflows
       description: Retry, reconciliation, idempotency, and compensation rules fail closed.
+      applies_when: {maturity_at_least: L1}
+      severity: blocking
+      waivable: false
+      required_evidence: [unit]
     - id: mcp.transport.supported
       source: STANDARD.md#transport-and-lifecycle
       description: Only supported MCP transports are advertised and lifecycle ownership is explicit.
+      applies_when: {maturity_at_least: L1}
+      severity: blocking
+      waivable: false
+      required_evidence: [official-client]
+    - id: mcp.transport.remote-hardening
+      source: STANDARD.md#transport-and-lifecycle
+      description: Remote HTTP applies intentional binding, Origin and host policy, authentication, bounded input, and explicit state mode.
+      applies_when: {maturity_at_least: L2, profiles_any: [remote-http]}
+      severity: blocking
+      waivable: false
+      required_evidence: [integration, security, official-client]
     - id: mcp.deadline.concurrency
       source: STANDARD.md#deadlines-cancellation-retries-and-concurrency
       description: Deadlines, cancellation, concurrency, and resource limits are enforced at runtime.
+      applies_when: {maturity_at_least: L2}
+      severity: blocking
+      waivable: true
+      required_evidence: [unit, integration]
     - id: mcp.response.structured
       source: STANDARD.md#data-errors-and-responses
       description: Inputs and response envelopes are validated, bounded, structured, and sanitized.
+      applies_when: {maturity_at_least: L1}
+      severity: blocking
+      waivable: false
+      required_evidence: [unit, official-client]
     - id: mcp.authorization.server-side
       source: STANDARD.md#authentication-and-authorization
       description: Authorization and approval are server-side and cannot be asserted by model input.
+      applies_when: {maturity_at_least: L2}
+      severity: blocking
+      waivable: false
+      required_evidence: [unit, security]
+    - id: mcp.filesystem.containment
+      source: STANDARD.md#runtime-boundaries-artifacts-and-browser-automation
+      description: Filesystem I/O uses component-aware confinement, symlink policy, and bounded regular files.
+      applies_when: {maturity_at_least: L1, capabilities_any: [filesystem, upload, archive]}
+      severity: blocking
+      waivable: false
+      required_evidence: [unit, security]
+    - id: mcp.artifact.ownership
+      source: STANDARD.md#runtime-boundaries-artifacts-and-browser-automation
+      description: Generated artifacts have public identities, owners, integrity, retention, and deletion behavior.
+      applies_when: {maturity_at_least: L2, profiles_any: [artifact-producing]}
+      severity: blocking
+      waivable: true
+      required_evidence: [unit, artifact]
+    - id: mcp.task.supervision
+      source: STANDARD.md#runtime-boundaries-artifacts-and-browser-automation
+      description: Background work is supervised, bounded, principal-bound, and retained through terminal state.
+      applies_when: {maturity_at_least: L2, capabilities_any: [background-task]}
+      severity: blocking
+      waivable: false
+      required_evidence: [unit, integration]
+    - id: mcp.browser.profile-isolation
+      source: STANDARD.md#runtime-boundaries-artifacts-and-browser-automation
+      description: Persistent browser profiles are isolated credential stores with explicit locking and cleanup.
+      applies_when: {maturity_at_least: L2, capabilities_any: [browser-automation]}
+      severity: blocking
+      waivable: false
+      required_evidence: [unit, security, artifact]
+    - id: mcp.backends.identity
+      source: STANDARD.md#multi-backend-and-embedded-hosting
+      description: Multi-backend systems preserve configured target identity, namespace, and source provenance.
+      applies_when: {maturity_at_least: L2, profiles_any: [multi-backend, gateway]}
+      severity: blocking
+      waivable: false
+      required_evidence: [unit, integration]
+    - id: mcp.embedded.host-ownership
+      source: STANDARD.md#multi-backend-and-embedded-hosting
+      description: Embedded servers participate in host lifecycle without owning unrelated global process resources.
+      applies_when: {maturity_at_least: L2, profiles_any: [embedded-host]}
+      severity: blocking
+      waivable: false
+      required_evidence: [unit, integration]
+    - id: mcp.authorization.resource-isolation
+      source: STANDARD.md#authentication-and-authorization
+      description: Hardened deployments authorize exact tenants, targets, resources, artifacts, tasks, and browser accounts per principal.
+      applies_when: {maturity_at_least: L4}
+      severity: blocking
+      waivable: false
+      required_evidence: [integration, security]
+    - id: mcp.abuse.controls
+      source: STANDARD.md#authentication-and-authorization
+      description: Public or multi-tenant deployments enforce quotas, abuse controls, credential boundaries, and confused-deputy resistance.
+      applies_when: {maturity_at_least: L4, profiles_any: [remote-http, public, multi-tenant]}
+      severity: blocking
+      waivable: false
+      required_evidence: [integration, security]
     - id: mcp.operations.observable
       source: STANDARD.md#observability-and-operations
-      description: Health, readiness, audit, metrics, and failure diagnostics are production-ready.
+      description: Audit, metrics, correlation, degradation, and failure diagnostics are production-ready.
+      applies_when: {maturity_at_least: L2}
+      severity: blocking
+      waivable: true
+      required_evidence: [integration]
+    - id: mcp.health.readiness
+      source: STANDARD.md#observability-and-operations
+      description: Startup, liveness, readiness, capability health, and dependency health remain distinct.
+      applies_when: {maturity_at_least: L2}
+      severity: blocking
+      waivable: false
+      required_evidence: [integration]
+    - id: mcp.operations.recovery-drills
+      source: STANDARD.md#observability-and-operations
+      description: Production services exercise dependency failure, graceful shutdown, saturation, and bad-release recovery.
+      applies_when: {maturity_at_least: L3}
+      severity: blocking
+      waivable: true
+      required_evidence: [integration, review]
     - id: mcp.artifact.exact
       source: STANDARD.md#generated-project-acceptance
       description: Exact wheels, packages, binaries, or images are built, installed, and smoke-tested.
+      applies_when: {maturity_at_least: L2, profiles_any: [artifact-producing, packaged, container]}
+      severity: blocking
+      waivable: false
+      required_evidence: [artifact, official-client]
     - id: mcp.migration.accounted
       source: STANDARD.md#migration-acceptance
       description: Scope, behavior changes, waivers, rollback, and residual risks are fully accounted for.
+      applies_when: {maturity_at_least: L2, profiles_any: [migration]}
+      severity: blocking
+      waivable: false
+      required_evidence: [review]
     - id: mcp.verification.layered
       source: STANDARD.md#verification-layers
       description: Layered tests and official-client workflows cover every advertised transport.
+      applies_when: {maturity_at_least: L1}
+      severity: blocking
+      waivable: false
+      required_evidence: [unit, official-client]
   mcp-server-consumer:
     rules:
     - id: consumer.outcome.first

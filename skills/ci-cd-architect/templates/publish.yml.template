@@ -1,4 +1,5 @@
-# Validate the selected revision, build once, smoke-test locally, and push the same image.
+# ai-skills-policy-profile: protected-release
+# Validate a trusted revision, build once without write permissions, and publish only the closed tested archive.
 name: Publish container
 
 on:
@@ -7,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       release_ref:
-        description: Commit SHA or tag to validate and publish
+        description: Existing v* tag or full 40-character commit SHA reachable from the default branch
         required: true
         type: string
 
@@ -19,42 +20,63 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  validate:
-    runs-on: ubuntu-latest
+  validate-build:
+    runs-on: ubuntu-24.04
     timeout-minutes: <TIMEOUT_MINUTES>
     outputs:
       release_sha: ${{ steps.revision.outputs.sha }}
-      release_short_sha: ${{ steps.revision.outputs.short_sha }}
       release_tag: ${{ steps.revision.outputs.tag }}
+      immutable_ref: ${{ steps.identity.outputs.immutable_ref }}
+      archive_digest: ${{ steps.archive.outputs.digest }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.release_ref || github.sha }}
           fetch-depth: 0
           persist-credentials: false
-      - id: revision
+      - name: Resolve and constrain release identity
+        id: revision
         shell: bash
         env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           EVENT_NAME: ${{ github.event_name }}
           EVENT_REF_NAME: ${{ github.ref_name }}
           REQUESTED_REF: ${{ github.event_name == 'workflow_dispatch' && inputs.release_ref || github.ref }}
         run: |
           set -euo pipefail
-          release_sha="$(git rev-parse HEAD)"
-          release_short_sha="$(git rev-parse --short=12 HEAD)"
+          requested="$REQUESTED_REF"
           release_tag=""
           if [[ "$EVENT_NAME" == "push" ]]; then
             release_tag="$EVENT_REF_NAME"
-          elif [[ "$REQUESTED_REF" == refs/tags/* ]]; then
-            release_tag="${REQUESTED_REF#refs/tags/}"
-          elif git show-ref --verify --quiet "refs/tags/$REQUESTED_REF"; then
-            release_tag="$REQUESTED_REF"
+            requested="refs/tags/$release_tag"
           fi
+
+          if [[ "$requested" =~ ^[0-9a-f]{40}$ ]]; then
+            release_sha="$requested"
+          else
+            case "$requested" in
+              refs/tags/v*) release_tag="${requested#refs/tags/}" ;;
+              v*) release_tag="$requested" ;;
+              *) echo "release_ref must be an existing v* tag or full commit SHA" >&2; exit 1 ;;
+            esac
+            git show-ref --verify --quiet "refs/tags/$release_tag" || {
+              echo "Tag not found: $release_tag" >&2
+              exit 1
+            }
+            release_sha="$(git rev-parse "refs/tags/$release_tag^{commit}")"
+          fi
+
+          [[ "$release_sha" =~ ^[0-9a-f]{40}$ ]]
+          git cat-file -e "$release_sha^{commit}"
+          git merge-base --is-ancestor "$release_sha" "origin/$DEFAULT_BRANCH" || {
+            echo "Selected revision is not reachable from origin/$DEFAULT_BRANCH" >&2
+            exit 1
+          }
+          git checkout --detach "$release_sha"
+          test "$(git rev-parse HEAD)" = "$release_sha"
           if [[ -n "$release_tag" ]]; then
             test "$(git rev-parse "refs/tags/$release_tag^{commit}")" = "$release_sha"
           fi
           echo "sha=$release_sha" >> "$GITHUB_OUTPUT"
-          echo "short_sha=$release_short_sha" >> "$GITHUB_OUTPUT"
           echo "tag=$release_tag" >> "$GITHUB_OUTPUT"
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
@@ -63,16 +85,78 @@ jobs:
           cache-dependency-path: <DEPENDENCY_FILE>
       - run: <INSTALL_COMMAND>
       - run: <TEST_COMMAND>
-      - name: Verify revision was not changed
+      - name: Verify revision remained unchanged
         shell: bash
         env:
           EXPECTED_SHA: ${{ steps.revision.outputs.sha }}
         run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+      - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5
+      - name: Define immutable image identity
+        id: identity
+        shell: bash
+        env:
+          RELEASE_SHA: ${{ steps.revision.outputs.sha }}
+        run: echo "immutable_ref=ghcr.io/${GITHUB_REPOSITORY}:sha-${RELEASE_SHA}" >> "$GITHUB_OUTPUT"
+      - name: Build release image once
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf
+        with:
+          context: .
+          load: true
+          push: false
+          tags: ${{ steps.identity.outputs.immutable_ref }}
+          labels: |
+            org.opencontainers.image.revision=${{ steps.revision.outputs.sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Smoke-test exact release image
+        env:
+          IMAGE_REF: ${{ steps.identity.outputs.immutable_ref }}
+        run: <CONTAINER_SMOKE_COMMAND>
+      - name: Close tested image into an archive
+        id: archive
+        shell: bash
+        env:
+          IMAGE_REF: ${{ steps.identity.outputs.immutable_ref }}
+          RELEASE_SHA: ${{ steps.revision.outputs.sha }}
+          RELEASE_TAG: ${{ steps.revision.outputs.tag }}
+        run: |
+          set -euo pipefail
+          mkdir -p release-artifact
+          docker image save --output release-artifact/image.tar "$IMAGE_REF"
+          sha256sum release-artifact/image.tar > release-artifact/image.tar.sha256
+          digest="sha256:$(cut -d' ' -f1 release-artifact/image.tar.sha256)"
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          manifest = {
+              "schemaVersion": 1,
+              "sourceRevision": os.environ["RELEASE_SHA"],
+              "releaseTag": os.environ["RELEASE_TAG"] or None,
+              "image": os.environ["IMAGE_REF"],
+              "archiveDigest": "sha256:" + Path("release-artifact/image.tar.sha256").read_text().split()[0],
+          }
+          Path("release-artifact/manifest.json").write_text(
+              json.dumps(manifest, sort_keys=True, separators=(",", ":")) + "\n",
+              encoding="utf-8",
+          )
+          PY
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+      - name: Upload closed release artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: release-image-${{ steps.revision.outputs.sha }}
+          path: release-artifact/
+          if-no-files-found: error
+          include-hidden-files: false
+          retention-days: 7
 
   publish:
-    needs: validate
+    needs: validate-build
     environment: <RELEASE_ENVIRONMENT>
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: <TIMEOUT_MINUTES>
     permissions:
       contents: read
@@ -80,49 +164,55 @@ jobs:
       id-token: write
       attestations: write
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Download closed tested image
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
         with:
-          ref: ${{ needs.validate.outputs.release_sha }}
-          persist-credentials: false
-      - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5
+          name: release-image-${{ needs.validate-build.outputs.release_sha }}
+          path: release-artifact
+      - name: Verify archive identity before registry access
+        shell: bash
+        env:
+          EXPECTED_DIGEST: ${{ needs.validate-build.outputs.archive_digest }}
+          EXPECTED_SHA: ${{ needs.validate-build.outputs.release_sha }}
+          EXPECTED_IMAGE: ${{ needs.validate-build.outputs.immutable_ref }}
+        run: |
+          set -euo pipefail
+          sha256sum --check release-artifact/image.tar.sha256
+          actual="sha256:$(cut -d' ' -f1 release-artifact/image.tar.sha256)"
+          test "$actual" = "$EXPECTED_DIGEST"
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          manifest = json.loads(Path("release-artifact/manifest.json").read_text(encoding="utf-8"))
+          assert manifest["sourceRevision"] == os.environ["EXPECTED_SHA"]
+          assert manifest["image"] == os.environ["EXPECTED_IMAGE"]
+          assert manifest["archiveDigest"] == os.environ["EXPECTED_DIGEST"]
+          PY
+          docker image load --input release-artifact/image.tar
+          test "$(docker image inspect "$EXPECTED_IMAGE" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')" = "$EXPECTED_SHA"
       - uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - id: meta
-        uses: docker/metadata-action@80c7e94dd9b9319bd5eb7a0e0fe9291e23a2a2e9
-        with:
-          images: ghcr.io/${{ github.repository }}
-          tags: |
-            type=raw,value=${{ needs.validate.outputs.release_tag }},enable=${{ needs.validate.outputs.release_tag != '' }}
-            type=raw,value=sha-${{ needs.validate.outputs.release_short_sha }}
-      - name: Build release image once
-        id: build
-        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf
-        with:
-          context: .
-          load: true
-          push: false
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-      - name: Smoke-test exact release image
-        env:
-          IMAGE_REF: ghcr.io/${{ github.repository }}:sha-${{ needs.validate.outputs.release_short_sha }}
-        run: <CONTAINER_SMOKE_COMMAND>
-      - name: Push smoke-tested image tags
+      - name: Push only explicitly approved tags
         id: push
         shell: bash
         env:
-          IMAGE_REPOSITORY: ghcr.io/${{ github.repository }}
-          IMMUTABLE_TAG: sha-${{ needs.validate.outputs.release_short_sha }}
+          IMMUTABLE_REF: ${{ needs.validate-build.outputs.immutable_ref }}
+          RELEASE_TAG: ${{ needs.validate-build.outputs.release_tag }}
         run: |
           set -euo pipefail
-          docker push --all-tags "$IMAGE_REPOSITORY"
-          digest="$(docker inspect --format='{{index .RepoDigests 0}}' "$IMAGE_REPOSITORY:$IMMUTABLE_TAG" | cut -d@ -f2)"
-          test -n "$digest"
+          docker push "$IMMUTABLE_REF"
+          repository="${IMMUTABLE_REF%%:sha-*}"
+          if [[ -n "$RELEASE_TAG" ]]; then
+            docker image tag "$IMMUTABLE_REF" "$repository:$RELEASE_TAG"
+            docker push "$repository:$RELEASE_TAG"
+          fi
+          digest="$(docker buildx imagetools inspect "$IMMUTABLE_REF" --format '{{.Manifest.Digest}}')"
+          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
           echo "digest=$digest" >> "$GITHUB_OUTPUT"
       - uses: actions/attest-build-provenance@96b4a1ef7235a096b17240c259729fdd70c83d45
         with:

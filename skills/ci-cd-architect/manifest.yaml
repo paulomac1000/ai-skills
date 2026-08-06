@@ -57,6 +57,9 @@ deprecation:
 required:
 - SKILL.md
 - STANDARD.md
+- references/protected-release-workflows.md
+- templates/publish.yml.template
+- templates/trusted-workflow-audit.yml.template
 - tools/check_github_actions_policy.py
 - tools/check_github_actions_policy_impl.py
 categories:

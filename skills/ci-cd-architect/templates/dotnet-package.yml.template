@@ -1,3 +1,4 @@
+# ai-skills-policy-profile: protected-release
 name: .NET package release
 
 on:
@@ -6,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       release_ref:
-        description: Existing tag to validate and publish, for example v1.2.3
+        description: Existing v* tag reachable from the default branch
         required: true
         type: string
 
@@ -18,13 +19,14 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  package:
-    runs-on: ubuntu-latest
+  validate-package:
+    runs-on: ubuntu-24.04
     timeout-minutes: <TIMEOUT_MINUTES>
-    environment: <RELEASE_ENVIRONMENT>
-    permissions:
-      contents: write
-      packages: write
+    outputs:
+      release_sha: ${{ steps.release_ref.outputs.sha }}
+      release_tag: ${{ steps.release_ref.outputs.tag }}
+      release_version: ${{ steps.release.outputs.version }}
+      manifest_digest: ${{ steps.close.outputs.manifest_digest }}
     steps:
       - name: Fetch repository and tags from trusted workflow revision
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -35,11 +37,12 @@ jobs:
         id: release_ref
         shell: bash
         env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           REQUESTED_REF: ${{ github.event_name == 'workflow_dispatch' && inputs.release_ref || github.ref }}
         run: |
           set -euo pipefail
           case "$REQUESTED_REF" in
-            refs/tags/*) release_tag="${REQUESTED_REF#refs/tags/}" ;;
+            refs/tags/v*) release_tag="${REQUESTED_REF#refs/tags/}" ;;
             v*) release_tag="$REQUESTED_REF" ;;
             *) echo "release_ref must name an existing v* tag" >&2; exit 1 ;;
           esac
@@ -47,8 +50,12 @@ jobs:
             echo "Tag not found: $release_tag" >&2
             exit 1
           }
-          release_sha="$(git rev-list -n 1 "refs/tags/$release_tag")"
-          test -n "$release_sha"
+          release_sha="$(git rev-parse "refs/tags/$release_tag^{commit}")"
+          [[ "$release_sha" =~ ^[0-9a-f]{40}$ ]]
+          git merge-base --is-ancestor "$release_sha" "origin/$DEFAULT_BRANCH" || {
+            echo "Selected tag is not reachable from origin/$DEFAULT_BRANCH" >&2
+            exit 1
+          }
           echo "tag=$release_tag" >> "$GITHUB_OUTPUT"
           echo "sha=$release_sha" >> "$GITHUB_OUTPUT"
       - name: Check out validated release revision
@@ -176,9 +183,7 @@ jobs:
 
           manifest = pathlib.Path("nupkg/publish-files.txt")
           manifest.write_text(
-              "".join(
-                  f"{verified[package_id].as_posix()}\n" for package_id in sorted(verified)
-              ),
+              "".join(f"{verified[package_id].as_posix()}\n" for package_id in sorted(verified)),
               encoding="utf-8",
           )
           print(f"Validated {len(verified)} exact package identities")
@@ -188,12 +193,91 @@ jobs:
         env:
           EXPECTED_SHA: ${{ steps.release_ref.outputs.sha }}
         run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
-      - name: Upload package artifact
+      - name: Close tested packages and release manifest
+        id: close
+        shell: bash
+        env:
+          RELEASE_SHA: ${{ steps.release_ref.outputs.sha }}
+          RELEASE_TAG: ${{ steps.release_ref.outputs.tag }}
+          RELEASE_VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          mapfile -t packages < nupkg/publish-files.txt
+          if (( ${#packages[@]} == 0 )); then
+            echo "Validated package manifest is empty" >&2
+            exit 1
+          fi
+          : > nupkg/SHA256SUMS
+          for package in "${packages[@]}"; do
+            test -f "$package"
+            sha256sum "$package" >> nupkg/SHA256SUMS
+          done
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          manifest = {
+              "schemaVersion": 1,
+              "sourceRevision": os.environ["RELEASE_SHA"],
+              "releaseTag": os.environ["RELEASE_TAG"],
+              "version": os.environ["RELEASE_VERSION"],
+              "files": Path("nupkg/publish-files.txt").read_text(encoding="utf-8").splitlines(),
+          }
+          Path("nupkg/release-manifest.json").write_text(
+              json.dumps(manifest, sort_keys=True, separators=(",", ":")) + "\n",
+              encoding="utf-8",
+          )
+          PY
+          manifest_digest="sha256:$(sha256sum nupkg/release-manifest.json | cut -d' ' -f1)"
+          echo "manifest_digest=$manifest_digest" >> "$GITHUB_OUTPUT"
+      - name: Upload closed package artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: nuget-${{ steps.release.outputs.version }}
-          path: nupkg/*.nupkg
+          name: nuget-${{ steps.release_ref.outputs.sha }}
+          path: nupkg/
+          if-no-files-found: error
           retention-days: 7
+
+  publish:
+    needs: validate-package
+    runs-on: ubuntu-24.04
+    timeout-minutes: <TIMEOUT_MINUTES>
+    environment: <RELEASE_ENVIRONMENT>
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      - name: Download closed package artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: nuget-${{ needs.validate-package.outputs.release_sha }}
+          path: nupkg
+      - name: Verify package artifact identity before publication
+        shell: bash
+        env:
+          EXPECTED_MANIFEST_DIGEST: ${{ needs.validate-package.outputs.manifest_digest }}
+          EXPECTED_SHA: ${{ needs.validate-package.outputs.release_sha }}
+          EXPECTED_TAG: ${{ needs.validate-package.outputs.release_tag }}
+          EXPECTED_VERSION: ${{ needs.validate-package.outputs.release_version }}
+        run: |
+          set -euo pipefail
+          test "sha256:$(sha256sum nupkg/release-manifest.json | cut -d' ' -f1)" = "$EXPECTED_MANIFEST_DIGEST"
+          sha256sum --check nupkg/SHA256SUMS
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          manifest = json.loads(Path("nupkg/release-manifest.json").read_text(encoding="utf-8"))
+          assert manifest["sourceRevision"] == os.environ["EXPECTED_SHA"]
+          assert manifest["releaseTag"] == os.environ["EXPECTED_TAG"]
+          assert manifest["version"] == os.environ["EXPECTED_VERSION"]
+          assert manifest["files"]
+          PY
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68
+        with:
+          dotnet-version: "<DOTNET_VERSION>"
       - name: Publish package files
         shell: bash
         run: |
@@ -213,7 +297,7 @@ jobs:
       - name: Create GitHub release for validated tag
         uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda
         with:
-          tag_name: ${{ steps.release_ref.outputs.tag }}
-          target_commitish: ${{ steps.release_ref.outputs.sha }}
+          tag_name: ${{ needs.validate-package.outputs.release_tag }}
+          target_commitish: ${{ needs.validate-package.outputs.release_sha }}
           files: nupkg/*.nupkg
           generate_release_notes: true

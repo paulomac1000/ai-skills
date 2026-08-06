@@ -33,6 +33,31 @@ Define stable delivery invariants for Python, .NET, MCP, documentation, package,
 - Generated artifacts have explicit names, retention, and failure behavior.
 - Pull-request workflows do not expose privileged secrets to untrusted code.
 - Reusable templates parameterize the default branch, runtime version, install command, test command, and relevant paths.
+- GitHub-hosted runners use a concrete image label such as `ubuntu-24.04`; moving `*-latest` labels are not accepted as reproducible execution identities. A `${{ matrix.os }}` runner is accepted only when every generated matrix value is a concrete literal runner and no expression or moving label can enter the axis.
+
+## Workflow policy profiles
+
+The trusted auditor evaluates one explicit profile. A workflow declares it in a leading comment or in the repository-owned `.github/workflow-policy.yaml` map:
+
+```yaml
+# ai-skills-policy-profile: pull-request
+```
+
+```yaml
+schema_version: 1
+workflows:
+  .github/workflows/ci.yml: trusted-ci
+```
+
+A path declaration and an inline marker must agree. Unknown profiles, missing governed paths, malformed configuration, duplicate YAML keys, and paths outside `.github/workflows` fail closed.
+
+The supported profiles are:
+
+- `pull-request`: untrusted repository code, no write permissions, no repository secrets, and only the minimum read scopes;
+- `trusted-ci`: trusted or mixed-event validation with top-level read-only permissions; job-level `checks: write` or `security-events: write` is allowed only for bounded reporting, never artifact or source publication;
+- `protected-release`: no pull-request event, top-level read-only permissions, and narrowly scoped job-level write permissions only for protected publication.
+
+A protected-release job with write permissions names a protected environment and depends on a prior validation or artifact-production job. Supported release write scopes are limited to the capabilities actually needed for contents, packages, OIDC, attestations, or security reporting. A trusted-CI reporting step that writes checks or SARIF uses an event and fork guard appropriate to the provider. The auditor rejects unrecognized write scopes and top-level write permissions. Local reusable workflows remain inside `.github/workflows`; external reusable workflows and actions use full immutable SHAs. Pull-request workflows never inherit secrets through reusable workflow calls.
 
 ## Python quality
 
@@ -48,23 +73,22 @@ MCP repositories additionally test public tool registration, schema exposure, re
 
 ## Documentation and security
 
-Documentation changes trigger validation when either governed files, the validator, its configuration, or the workflow itself changes. Pull-request security scans are diff-aware where supported. Scheduled scans cover the full repository and upload SARIF only when a report exists.
+Documentation changes trigger validation when either governed files, the validator, its governance file, or the workflow itself changes. Pull-request security scans are diff-aware where supported. Scheduled scans cover the full repository and upload SARIF only when a report exists.
 
-A workflow-policy result is authoritative only when the auditor comes from a trusted immutable revision outside the assessed pull-request tree. The candidate may contain an offline mirror, but CI must compare that mirror with the trusted source and execute the trusted source against the candidate workflows. The bundled `tools/check_github_actions_policy.py` fails closed on malformed or duplicate-key YAML, symlinked or oversized workflow input, mutable action and Docker references, broad permissions, dynamic runners, missing timeouts and concurrency, unsafe checkout credentials, incomplete artifact policy, and pull-request secret access.
+A workflow-policy result is authoritative only when the auditor comes from a trusted immutable revision outside the assessed pull-request tree. The candidate may contain an offline mirror, but CI must compare that mirror with the trusted source and execute the trusted source against the candidate workflows. The bundled `tools/check_github_actions_policy.py` fails closed on malformed or duplicate-key YAML, symlinked or oversized workflow input, mutable action and Docker references, permissions inconsistent with the selected profile, unconstrained runner expressions, missing timeouts and concurrency, unsafe checkout credentials, incomplete artifact policy, and pull-request secret access.
+
+The canonical consumption path is a protected reusable workflow from a separately governed verifier repository, pinned by full commit SHA. `templates/trusted-workflow-audit.yml.template` checks out the caller revision and an independently pinned verifier into separate directories, installs the verifier's hashed dependency graph, and executes only the trusted auditor against the candidate workflows. Where that distribution channel is unavailable, a signed wheel or OCI verifier pinned by digest may be used. `curl main | python`, a mutable branch reference, or the assessed revision's own verifier cannot serve as acceptance authority.
 
 ## Release identity and artifact promotion
 
-A release workflow:
+A protected container release uses two trust stages:
 
-1. checks out the selected tag or commit;
-2. captures its full SHA immediately;
-3. runs repository-controlled validation and confirms `HEAD` did not change;
-4. passes that exact SHA to the protected publish job;
-5. derives human and immutable tags from validated outputs;
-6. builds a local image once, smoke-tests that image, and pushes the same local image tags;
-7. captures the registry digest and attests that digest.
+1. a read-only validation job checks out the selected existing tag or full SHA, proves it is reachable from the trusted default branch, captures the full source SHA, runs validation, builds once, smoke-tests that exact image, exports it as an OCI or Docker archive, and records checksums and metadata;
+2. a protected publish job does not check out or execute source code. It downloads the closed archive from the prior job, verifies checksums, source revision and image metadata, loads the tested image, applies an immutable `sha-<full-40-character-sha>` tag plus explicitly allowed release aliases, and pushes only those named tags.
 
-Manual dispatch is protected by an environment. A selected tag must resolve to the captured SHA. The dispatch branch's `github.ref` and `github.sha` are not used as release identity when a separate release ref was selected.
+A selected tag resolves to the captured SHA. Manual dispatch never treats the dispatch branch's `github.ref` or `github.sha` as release identity when a separate release ref was selected. Arbitrary branch preview builds remain unprivileged; a job with registry write permission treats their exported image only as bounded data and never runs it.
+
+`docker push --all-tags` is forbidden because unrelated local tags may be promoted accidentally. The workflow captures the registry digest after push and attests that digest when the provider and repository plan support it. A short SHA may be a human alias but is not the durable source identity.
 
 ## Local quality gates
 
@@ -72,4 +96,4 @@ Pre-commit runs only deterministic, fast, secret-free checks. Pre-push may run t
 
 ## Verification
 
-Render every workflow with representative values, parse the YAML, inspect each job and `uses` reference, and run the associated project commands. Run the workflow-policy auditor from a trusted immutable checkout against the candidate repository root; do not execute the candidate's copy as approval authority. For releases, perform a dry run or disposable-registry test proving the smoke-tested image and pushed digest represent the same build.
+Render every workflow with representative values, parse the YAML, inspect each job and `uses` reference, and run the workflow-policy auditor under the declared profile. Every bundled workflow template must pass its own expected profile after rendering. Run the auditor from a trusted immutable checkout against the candidate repository root; do not execute the candidate's copy as approval authority. For releases, perform a dry run or disposable-registry test proving that the archived smoke-tested image and pushed digest represent the same build and that the publish job never executes candidate source.

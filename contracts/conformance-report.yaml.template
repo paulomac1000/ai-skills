@@ -1,0 +1,24 @@
+schema_version: 1
+report_id: REPLACE_WITH_STABLE_ID
+generated_at: "YYYY-MM-DDTHH:MM:SSZ"
+repository:
+  name: owner/repository
+  revision: REPLACE_WITH_FULL_IMMUTABLE_COMMIT_SHA
+skill:
+  name: mcp-server-architect
+  version: 1.2.0
+context:
+  target_level: L1
+  profiles: []
+  capabilities: []
+checks:
+  - rule_id: REPLACE_WITH_APPLICABLE_RULE_ID
+    status: passed
+    implementation:
+      - path: relative/path
+        symbol: REPLACE_WITH_SYMBOL
+    command: REPLACE_WITH_EXACT_COMMAND
+    result: passed
+    evidence_types: [unit]
+    evidence_paths: [relative/test-result.xml]
+residual_risks: []

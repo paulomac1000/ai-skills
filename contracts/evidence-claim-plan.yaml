@@ -4,6 +4,15 @@ profiles:
     subject: afds.metadata.required
     selectors:
     - '*test_afds*'
+    - '*test_contract_consistency_followup*'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: afds.governance.profiled
+    selectors:
+    - '*test_afds*'
+    - '*test_contract_consistency_followup*'
     result_files:
     - repository-junit.xml
     execution_id: repository
@@ -11,6 +20,7 @@ profiles:
     subject: afds.structure.links
     selectors:
     - '*test_afds*'
+    - '*test_contract_consistency_followup*'
     result_files:
     - repository-junit.xml
     execution_id: repository
@@ -18,6 +28,7 @@ profiles:
     subject: afds.evidence.uncertainty
     selectors:
     - '*test_afds*'
+    - '*test_contract_consistency_followup*'
     result_files:
     - repository-junit.xml
     execution_id: repository
@@ -25,6 +36,7 @@ profiles:
     subject: afds.ownership.lifecycle
     selectors:
     - '*test_afds*'
+    - '*test_contract_consistency_followup*'
     result_files:
     - repository-junit.xml
     execution_id: repository
@@ -32,6 +44,7 @@ profiles:
     subject: afds.quality.executable
     selectors:
     - '*test_afds*'
+    - '*test_contract_consistency_followup*'
     result_files:
     - repository-junit.xml
     execution_id: repository
@@ -39,6 +52,7 @@ profiles:
     subject: afds.verification.recorded
     selectors:
     - '*test_afds*'
+    - '*test_contract_consistency_followup*'
     result_files:
     - repository-junit.xml
     execution_id: repository
@@ -116,6 +130,8 @@ profiles:
     subject: cicd.layers.separated
     selectors:
     - '*test_templates*'
+    - '*test_ci_cd_workflow_policy*'
+    - '*test_contract_consistency_followup*'
     result_files:
     - repository-junit.xml
     execution_id: repository
@@ -123,6 +139,17 @@ profiles:
     subject: cicd.workflow.least-privilege
     selectors:
     - '*test_templates*'
+    - '*test_ci_cd_workflow_policy*'
+    - '*test_contract_consistency_followup*'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: cicd.workflow.profiled
+    selectors:
+    - '*test_templates*'
+    - '*test_ci_cd_workflow_policy*'
+    - '*test_contract_consistency_followup*'
     result_files:
     - repository-junit.xml
     execution_id: repository
@@ -138,6 +165,8 @@ profiles:
     subject: cicd.security.documentation
     selectors:
     - '*test_templates*'
+    - '*test_ci_cd_workflow_policy*'
+    - '*test_contract_consistency_followup*'
     result_files:
     - repository-junit.xml
     execution_id: repository
@@ -145,6 +174,8 @@ profiles:
     subject: cicd.release.identity
     selectors:
     - '*test_templates*'
+    - '*test_ci_cd_workflow_policy*'
+    - '*test_contract_consistency_followup*'
     result_files:
     - repository-junit.xml
     execution_id: repository
@@ -171,7 +202,36 @@ profiles:
     - repository-junit.xml
     execution_id: repository
   - kind: rule
+    subject: mcp.sdk.compatibility-isolation
+    selectors:
+    - '*test_mcp_*'
+    - '*test_contract_consistency_followup*'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: mcp.configuration.lifecycle
+    selectors:
+    - '*test_mcp_*'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
     subject: mcp.identity.target-binding
+    selectors:
+    - '*test_mcp_*'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: mcp.components.public-contract
+    selectors:
+    - '*test_mcp_*'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: mcp.discovery.progressive
     selectors:
     - '*test_mcp_*'
     result_files:
@@ -199,6 +259,13 @@ profiles:
     - repository-junit.xml
     execution_id: repository
   - kind: rule
+    subject: mcp.transport.remote-hardening
+    selectors:
+    - '*test_mcp_*'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
     subject: mcp.deadline.concurrency
     selectors:
     - '*test_mcp_*'
@@ -220,7 +287,77 @@ profiles:
     - repository-junit.xml
     execution_id: repository
   - kind: rule
+    subject: mcp.filesystem.containment
+    selectors:
+    - '*test_mcp_*'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: mcp.artifact.ownership
+    selectors:
+    - '*test_mcp_*'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: mcp.task.supervision
+    selectors:
+    - '*test_mcp_*'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: mcp.browser.profile-isolation
+    selectors:
+    - '*test_mcp_*'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: mcp.backends.identity
+    selectors:
+    - '*test_mcp_*'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: mcp.embedded.host-ownership
+    selectors:
+    - '*test_mcp_*'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: mcp.authorization.resource-isolation
+    selectors:
+    - '*test_mcp_*'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: mcp.abuse.controls
+    selectors:
+    - '*test_mcp_*'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
     subject: mcp.operations.observable
+    selectors:
+    - '*test_mcp_*'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: mcp.health.readiness
+    selectors:
+    - '*test_mcp_*'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: mcp.operations.recovery-drills
     selectors:
     - '*test_mcp_*'
     result_files:

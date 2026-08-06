@@ -50,6 +50,8 @@ deprecation:
 required:
 - SKILL.md
 - STANDARD.md
+- governance.yaml
+- validate.py
 categories:
 - core
 - references

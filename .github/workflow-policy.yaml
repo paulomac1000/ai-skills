@@ -1,0 +1,3 @@
+schema_version: 1
+workflows:
+  .github/workflows/ci.yml: trusted-ci

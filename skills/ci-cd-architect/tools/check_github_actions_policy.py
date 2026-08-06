@@ -7,7 +7,7 @@ import argparse
 import os
 import stat
 import sys
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from pathlib import Path
 
 TOOLS = Path(__file__).resolve().parent
@@ -16,17 +16,19 @@ CONTRACTS = REPOSITORY_ROOT / "contracts"
 if str(CONTRACTS) not in sys.path:
     sys.path.insert(0, str(CONTRACTS))
 
+import yaml  # noqa: E402
+
 import check_github_actions_policy_impl as _impl  # noqa: E402
 from confined_io import ConfinedReadError, read_utf8_bounded  # noqa: E402
 from confined_io import component_snapshot as _component_snapshot  # noqa: E402
 from confined_io import is_link_or_reparse as _is_link_or_reparse  # noqa: E402
 from confined_io import open_stable as _confined_open_stable  # noqa: E402
 from confined_io import snapshot_is_current as _snapshot_is_current  # noqa: E402
-from confined_io import (  # noqa: E402
-    supports_component_nofollow as _supports_component_nofollow,
-)
+from confined_io import supports_component_nofollow as _supports_component_nofollow  # noqa: E402
 
 MAX_DISCOVERY_ENTRIES = 4096
+MAX_POLICY_BYTES = 64 * 1024
+POLICY_PATH = Path(".github/workflow-policy.yaml")
 MAX_WORKFLOW_FILES = _impl.MAX_WORKFLOW_FILES
 MAX_WORKFLOW_BYTES = _impl.MAX_WORKFLOW_BYTES
 MAX_TOTAL_BYTES = _impl.MAX_TOTAL_BYTES
@@ -34,16 +36,10 @@ Finding = _impl.Finding
 
 
 def _open_stable(path: Path, flags: int) -> tuple[int, tuple[tuple[Path, os.stat_result], ...] | None]:
-    """Delegate stable opens while preserving the tested capability seam."""
-    return _confined_open_stable(
-        path,
-        flags,
-        component_nofollow=_supports_component_nofollow(),
-    )
+    return _confined_open_stable(path, flags, component_nofollow=_supports_component_nofollow())
 
 
 def _read_workflow(path: Path, repository_root: Path) -> tuple[str | None, str | None]:
-    """Read a bounded workflow through the shared stable confinement layer."""
     try:
         text, _count = read_utf8_bounded(path, repository_root, MAX_WORKFLOW_BYTES)
         return text, None
@@ -60,15 +56,9 @@ def _collect_workflow_entries(
     paths: list[Path] = []
     findings: list[Finding] = []
     total_bytes = 0
-
     for entries_seen, entry in enumerate(entries, start=1):
         if entries_seen > MAX_DISCOVERY_ENTRIES:
-            findings.append(
-                Finding(
-                    workflow_dir,
-                    f"workflow directory entry count exceeds {MAX_DISCOVERY_ENTRIES}",
-                )
-            )
+            findings.append(Finding(workflow_dir, f"workflow directory entry count exceeds {MAX_DISCOVERY_ENTRIES}"))
             break
         if Path(entry.name).suffix.casefold() not in _impl._WORKFLOW_SUFFIXES:
             continue
@@ -89,19 +79,15 @@ def _collect_workflow_entries(
             findings.append(Finding(workflow_dir, f"workflow bytes exceed {MAX_TOTAL_BYTES} total limit"))
             break
         paths.append(entry_path)
-
     paths.sort(key=lambda item: item.name)
     return paths, findings
 
 
 def workflow_paths(repository_root: Path) -> tuple[list[Path], list[Finding]]:
-    """Enumerate workflow candidates incrementally under a global entry budget."""
     workflow_dir = repository_root / ".github" / "workflows"
-
     if _supports_component_nofollow() and os.scandir in getattr(os, "supports_fd", set()):
         try:
-            directory_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
-            descriptor, _ = _open_stable(workflow_dir, directory_flags)
+            descriptor, _ = _open_stable(workflow_dir, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
         except FileNotFoundError:
             return [], [Finding(repository_root, "no GitHub Actions workflows found")]
         except OSError as exc:
@@ -131,19 +117,71 @@ def workflow_paths(repository_root: Path) -> tuple[list[Path], list[Finding]]:
         return [], [Finding(workflow_dir, f"cannot enumerate workflows: {exc}")]
 
 
-def audit_workflow(path: Path, repository_root: Path | None = None) -> list[Finding]:
-    """Audit one workflow with the hardened confined reader."""
+def audit_workflow(
+    path: Path,
+    repository_root: Path | None = None,
+    *,
+    profile: str | None = None,
+) -> list[Finding]:
     root = (repository_root or path.parent).resolve()
-    return _impl.audit_workflow(path, root, reader=_read_workflow)
+    return _impl.audit_workflow(path, root, reader=_read_workflow, profile=profile)
+
+
+def _repository_profiles(repository_root: Path) -> tuple[dict[str, str], list[Finding]]:
+    policy_path = repository_root / POLICY_PATH
+    if not os.path.lexists(policy_path):
+        return {}, []
+    try:
+        raw_text, _count = read_utf8_bounded(policy_path, repository_root, MAX_POLICY_BYTES)
+        document = yaml.load(raw_text, Loader=_impl._UniqueKeyLoader)
+    except ConfinedReadError as error:
+        return {}, [Finding(policy_path, f"cannot read workflow policy safely: {error.message}")]
+    except yaml.YAMLError as error:
+        return {}, [Finding(policy_path, f"cannot parse workflow policy: {error}")]
+    if not isinstance(document, Mapping) or document.get("schema_version") != 1:
+        return {}, [Finding(policy_path, "workflow policy must be a schema_version 1 mapping")]
+    if set(document) != {"schema_version", "workflows"}:
+        return {}, [Finding(policy_path, "workflow policy contains unsupported fields")]
+    raw_workflows = document.get("workflows")
+    if not isinstance(raw_workflows, Mapping):
+        return {}, [Finding(policy_path, "workflow policy workflows must be a mapping")]
+
+    profiles: dict[str, str] = {}
+    findings: list[Finding] = []
+    for raw_path, raw_profile in raw_workflows.items():
+        if not isinstance(raw_path, str) or not isinstance(raw_profile, str):
+            findings.append(Finding(policy_path, "workflow policy paths and profiles must be strings"))
+            continue
+        candidate = Path(raw_path)
+        if (
+            candidate.is_absolute()
+            or "\\" in raw_path
+            or ".." in candidate.parts
+            or candidate.parts[:2] != (".github", "workflows")
+            or candidate.suffix.casefold() not in _impl._WORKFLOW_SUFFIXES
+        ):
+            findings.append(Finding(policy_path, f"invalid governed workflow path: {raw_path}"))
+            continue
+        profile = raw_profile.casefold()
+        if profile not in _impl._PROFILES:
+            findings.append(Finding(policy_path, f"unknown profile for {raw_path}: {raw_profile}"))
+            continue
+        profiles[candidate.as_posix()] = profile
+    return profiles, findings
 
 
 def audit_repository(repository_root: Path) -> list[Finding]:
-    """Audit a repository with hardened reading and bounded enumeration."""
-    return _impl.audit_repository(
-        repository_root,
-        reader=_read_workflow,
-        enumerator=workflow_paths,
-    )
+    root = repository_root.resolve()
+    paths, findings = workflow_paths(root)
+    profiles, policy_findings = _repository_profiles(root)
+    findings.extend(policy_findings)
+    discovered = {path.relative_to(root).as_posix() for path in paths}
+    for governed_path in sorted(set(profiles) - discovered):
+        findings.append(Finding(root / POLICY_PATH, f"governed workflow does not exist: {governed_path}"))
+    for path in paths:
+        relative = path.relative_to(root).as_posix()
+        findings.extend(audit_workflow(path, root, profile=profiles.get(relative)))
+    return findings
 
 
 _event_names = _impl._event_names
@@ -151,15 +189,19 @@ _event_names = _impl._event_names
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("repository_root", nargs="?", type=Path, default=Path.cwd())
     parser.add_argument(
-        "repository_root",
-        nargs="?",
-        type=Path,
-        default=Path.cwd(),
-        help="Untrusted repository root to assess (default: current directory)",
+        "--profile",
+        choices=("pull-request", "trusted-ci", "protected-release"),
+        help="Override profile when auditing one workflow path",
     )
+    parser.add_argument("--workflow", type=Path, help="Audit one workflow instead of repository discovery")
     args = parser.parse_args()
-    findings = audit_repository(args.repository_root)
+    findings = (
+        audit_workflow(args.workflow, args.repository_root, profile=args.profile)
+        if args.workflow is not None
+        else audit_repository(args.repository_root)
+    )
     if findings:
         for finding in findings:
             print(f"ERROR: {finding.render()}")
