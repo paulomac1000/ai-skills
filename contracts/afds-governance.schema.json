@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/paulomac1000/ai-skills/blob/main/contracts/afds-governance.schema.json",
+  "title": "AFDS governance configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "default_profile", "profiles", "documents"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "default_profile": {"type": "string", "pattern": "^[a-z][a-z0-9-]*$"},
+    "profiles": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {"pattern": "^[a-z][a-z0-9-]*$"},
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "require_frontmatter",
+          "check_structure",
+          "check_links",
+          "check_anchors",
+          "require_verification_by_rigor"
+        ],
+        "properties": {
+          "require_frontmatter": {"type": "boolean"},
+          "check_structure": {"type": "boolean"},
+          "check_links": {"type": "boolean"},
+          "check_anchors": {"type": "boolean"},
+          "require_verification_by_rigor": {"type": "boolean"}
+        }
+      }
+    },
+    "documents": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["match", "profile"],
+        "properties": {
+          "match": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512,
+            "not": {"pattern": "(^/|\\\\|(^|/)\\.\\.(/|$))"}
+          },
+          "profile": {"type": "string", "pattern": "^[a-z][a-z0-9-]*$"}
+        }
+      }
+    }
+  }
+}
