@@ -30,6 +30,7 @@ skills:
       purpose: {excluded: true, rationale: Informational scope heading, not an independently assessable invariant.}
       pipeline-layers: {rule_id: cicd.layers.separated, primary: true}
       universal-workflow-controls: {rule_id: cicd.workflow.least-privilege, primary: true}
+      trusted-release-environment-authority: {rule_id: cicd.workflow.least-privilege}
       python-quality: {rule_id: cicd.quality.language, primary: true}
       net-quality: {rule_id: cicd.quality.language}
       mcp-specific-assurance: {rule_id: cicd.quality.language}
