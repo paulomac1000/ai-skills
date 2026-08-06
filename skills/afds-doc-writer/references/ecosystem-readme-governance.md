@@ -1,4 +1,5 @@
 ---
+afds_schema_version: 2
 description: Defines AFDS treatment for README files consumed by package registries, marketplaces, and repository hosting systems.
 doc_id: reference.afds.ecosystem-readme-governance
 type: reference
@@ -7,8 +8,8 @@ rigor: normative
 owners:
   - Documentation maintainers
 verification:
-  method: manual-review
-  command: python skills/afds-doc-writer/validate.py --repository-root . README.md skills
+  kind: command
+  value: python skills/afds-doc-writer/validate.py --repository-root . README.md skills
 ---
 # Ecosystem README governance
 
