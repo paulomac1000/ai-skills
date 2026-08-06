@@ -41,12 +41,19 @@ def test_runtime_and_protocol_claims_are_separate() -> None:
     manifest = yaml.safe_load(
         (ROOT / "skills/mcp-server-architect/manifest.yaml").read_text(encoding="utf-8")
     )
-    python = manifest["protocol"]["sdk_profiles"]["python"]
-    dotnet = manifest["protocol"]["sdk_profiles"]["dotnet"]
-    assert "2026-07-28" in python["supported_revisions"]
-    assert python["tested_revisions"] == []
+    profiles = manifest["protocol"]["sdk_profiles"]
+    python = profiles["python-official-mcp"]
+    fastmcp = profiles["python-fastmcp-package"]
+    dotnet = profiles["dotnet-official-mcp"]
+
+    assert "2026-07-28" in python["upstream_supported_revisions"]
+    assert python["repository_tested_revisions"] == []
     assert python["current_revision_support"] == "not-claimed"
-    assert dotnet["supported_revisions"] == []
+    assert fastmcp["repository_tested_revisions"] == []
+    assert fastmcp["current_revision_support"] == "not-claimed"
+    assert dotnet["verified_baseline_versions"] == ["1.4.1"]
+    assert dotnet["upstream_stable_candidate_versions"] == ["2.1.0"]
+    assert dotnet["repository_tested_revisions"] == []
     assert dotnet["current_revision_support"] == "not-claimed"
 
 
