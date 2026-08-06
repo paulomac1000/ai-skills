@@ -23,6 +23,7 @@ QUALITY_PATHS = (
 TYPE_PATHS = (
     "contracts/semver.py",
     "contracts/evidence.py",
+    "contracts/render_rule_catalog.py",
     "contracts/rule_applicability.py",
     "contracts/validate_adoption.py",
     "contracts/validate_atomic_claims.py",
