@@ -7,13 +7,19 @@ import argparse
 import os
 import re
 import stat
+import sys
 from collections.abc import Mapping
 from datetime import datetime
 from pathlib import Path, PurePosixPath
 from typing import Any
 
 import yaml
-from rule_applicability import RuleContext, expected_rules
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from contracts.rule_applicability import RuleContext, expected_rules  # noqa: E402
 
 FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
 REPOSITORY = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
@@ -41,9 +47,7 @@ def _exact_fields(
 
 
 def _strings(value: Any, name: str, errors: list[str]) -> list[str]:
-    if not isinstance(value, list) or not all(
-        isinstance(item, str) and item for item in value
-    ):
+    if not isinstance(value, list) or not all(isinstance(item, str) and item for item in value):
         errors.append(f"{name}: must be a list of non-empty strings")
         return []
     return value
@@ -149,14 +153,10 @@ def _validate_check(
     if not isinstance(command, str) or not command.strip():
         errors.append(f"{location}.command: must be executable text")
 
-    evidence_types = set(
-        _strings(check.get("evidence_types"), f"{location}.evidence_types", errors)
-    )
+    evidence_types = set(_strings(check.get("evidence_types"), f"{location}.evidence_types", errors))
     missing_evidence = set(rule["required_evidence"]) - evidence_types
     if missing_evidence:
-        errors.append(
-            f"{location}.evidence_types: missing {sorted(missing_evidence)}"
-        )
+        errors.append(f"{location}.evidence_types: missing {sorted(missing_evidence)}")
 
     paths = _strings(check.get("evidence_paths"), f"{location}.evidence_paths", errors)
     if not paths:
@@ -224,9 +224,7 @@ def validate(
     repository = _mapping(report.get("repository"), "repository", errors)
     _exact_fields(repository, {"name", "revision"}, "repository", errors)
     repository_name = repository.get("name")
-    if not isinstance(repository_name, str) or not REPOSITORY.fullmatch(
-        repository_name
-    ):
+    if not isinstance(repository_name, str) or not REPOSITORY.fullmatch(repository_name):
         errors.append("repository.name: must be owner/repository")
     revision = repository.get("revision")
     if not isinstance(revision, str) or not FULL_SHA.fullmatch(revision):
@@ -293,9 +291,7 @@ def validate(
         checks[rule_id] = check
         rule = expected.get(rule_id)
         if rule is None:
-            errors.append(
-                f"{location}.rule_id: not applicable for selected context"
-            )
+            errors.append(f"{location}.rule_id: not applicable for selected context")
             continue
         _validate_check(check, rule, index, repository_root, errors)
 
