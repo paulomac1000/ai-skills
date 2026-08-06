@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "id": "list_items",
+  "name": "List items",
+  "description": "Lists a bounded number of deterministic inventory records.",
+  "operation_kind": "read",
+  "risk": "low",
+  "determinism": "environment-dependent",
+  "latency": "interactive",
+  "impact": "none",
+  "active_state": "read",
+  "retryable": false,
+  "idempotent": false,
+  "reversible": false,
+  "requires_confirmation": false,
+  "idempotency_key_required": false,
+  "authorization_scopes": [],
+  "concurrency": {"scope": "principal", "limit": 8, "queue_limit": 16},
+  "max_response_bytes": 65536,
+  "protocol_revisions": ["2026-07-28", "2025-11-25"]
+}
