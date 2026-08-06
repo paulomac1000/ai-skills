@@ -176,7 +176,14 @@ def _rename_noreplace(source: Path, destination: Path) -> None:
         return
 
     if operating_system == "Windows":
-        os.rename(source, destination)
+        try:
+            os.rename(source, destination)
+        except FileExistsError as exc:
+            raise FileExistsError(
+                errno.EEXIST,
+                "generation target already exists",
+                destination,
+            ) from exc
         return
 
     raise RuntimeError(
