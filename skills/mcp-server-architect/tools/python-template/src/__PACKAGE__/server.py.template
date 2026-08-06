@@ -48,7 +48,7 @@ async def health_ready(request: Request) -> Response:
 
 
 def build_http_app() -> BearerAuthMiddleware:
-    """Build the loopback-only authenticated Streamable HTTP application."""
+    """Build the authenticated Streamable HTTP application."""
     app = mcp.streamable_http_app(
         host="127.0.0.1",
         stateless_http=True,
@@ -58,24 +58,32 @@ def build_http_app() -> BearerAuthMiddleware:
     return BearerAuthMiddleware(app, require_http_token())
 
 
+def _http_host() -> str:
+    host = os.environ.get("MCP_HTTP_HOST", "127.0.0.1")
+    if host in {"127.0.0.1", "::1", "localhost"}:
+        return host
+    if host == "0.0.0.0" and os.environ.get("MCP_CONTAINER_BIND") == "1":
+        return host
+    raise SystemExit(
+        "generated HTTP baseline is loopback-only; 0.0.0.0 is allowed only inside an explicitly isolated container network"
+    )
+
+
 def main() -> None:
-    """Run local stdio by default or authenticated loopback Streamable HTTP."""
+    """Run local stdio by default or authenticated Streamable HTTP."""
     transport = os.environ.get("MCP_TRANSPORT", "stdio")
     if transport == "stdio":
         mcp.run()
         return
     if transport != "streamable-http":
         raise SystemExit("MCP_TRANSPORT must be stdio or streamable-http")
-    host = os.environ.get("MCP_HTTP_HOST", "127.0.0.1")
-    if host not in {"127.0.0.1", "::1", "localhost"}:
-        raise SystemExit("generated HTTP baseline is loopback-only; integrate a real identity provider before remote bind")
     try:
         port = int(os.environ.get("MCP_HTTP_PORT", "8000"))
     except ValueError as exc:
         raise SystemExit("MCP_HTTP_PORT must be an integer") from exc
     if not 1 <= port <= 65535:
         raise SystemExit("MCP_HTTP_PORT must be from 1 to 65535")
-    uvicorn.run(build_http_app(), host=host, port=port, log_level="info")
+    uvicorn.run(build_http_app(), host=_http_host(), port=port, log_level="info")
 
 
 if __name__ == "__main__":
