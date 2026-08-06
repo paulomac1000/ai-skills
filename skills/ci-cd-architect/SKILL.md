@@ -24,6 +24,8 @@ Read `STANDARD.md`, then choose profiles using `references/template-selection.md
 
 For GitHub Actions policy checks, run `tools/check_github_actions_policy.py` from a trusted immutable checkout and pass the candidate repository root as its argument. A pull request must not provide the authoritative copy of the auditor that approves the same pull request. A repository-local mirror may support offline diagnostics only when CI compares it byte-for-byte with the pinned trusted source before treating its result as evidence.
 
+The auditor's release-environment allowlist is empty by default. Add `--protected-release-environment NAME` only after trusted provider-side inspection confirms that the exact GitHub environment exists and has the required approval and deployment restrictions. The assessed revision must not provide, modify, or derive this allowlist. A name such as `production-release` is only a syntax-constrained identifier and never proves protection by itself.
+
 ## Adoption and migration evidence
 
 Before claiming that this skill has been adopted or a migration is complete:
@@ -39,11 +41,12 @@ Generated templates and examples are architecture seeds, not production acceptan
 
 ## Constraints
 
-- Do not grant write permissions to untrusted pull-request code. Keep workflow-level permissions read-only; narrowly scoped write access belongs only to a non-PR job protected by a named release environment.
+- Do not grant write permissions to untrusted pull-request code. Keep workflow-level permissions read-only; narrowly scoped write access belongs only to a non-PR job whose exact release environment is present in a trusted allowlist obtained outside the assessed revision.
+- Do not treat an environment name, an `environment:` key, or candidate-owned configuration as proof that GitHub deployment protection is active.
 - Do not use mutable action tags in committed workflows.
 - Do not publish an artifact that was not tested in its published form, and never use broad operations such as `docker push --all-tags` when release channels have different promotion rights.
 - Do not assume `GITHUB_TOKEN`-generated events trigger downstream workflows.
 - Do not use a pip cache in a repository with no matching dependency file.
 - Do not hide required release jobs behind unreachable event conditions.
 
-The assessed revision MUST NOT supply the authoritative verifier, claim catalog, or acceptance workflow used to approve itself; candidate-local validation is diagnostic and final acceptance requires immutable external authority coordinates.
+The assessed revision MUST NOT supply the authoritative verifier, claim catalog, release-environment allowlist, or acceptance workflow used to approve itself; candidate-local validation is diagnostic and final acceptance requires immutable external authority coordinates.
