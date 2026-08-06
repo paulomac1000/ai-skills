@@ -86,7 +86,7 @@ protocol:
         tested_versions: ['2.0.0']
       supported_revisions: ['2026-07-28', '2025-11-25']
       tested_revisions: []
-      current_revision_support: upstream-supported-awaiting-repository-evidence
+      current_revision_support: not-claimed
       verification_required: Test modern server/discover and direct requests plus legacy initialize through the official client before moving a revision into tested_revisions.
     dotnet:
       packages:
