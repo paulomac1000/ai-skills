@@ -78,26 +78,36 @@ runtime_contract:
 protocol:
   default_revision: '2026-07-28'
   negotiation: explicit
-  compatibility_policy: Claims are recorded per SDK profile; one language profile never implies another.
+  compatibility_policy: Claims are recorded per exact SDK profile; one package, language, or upstream release never implies another profile's support or repository evidence.
   sdk_profiles:
-    python:
+    python-official-mcp:
+      distribution: mcp
+      import_namespace: mcp
+      generated: true
       packages:
       - name: mcp
-        tested_versions: ['2.0.0']
-      supported_revisions: ['2026-07-28', '2025-11-25']
-      tested_revisions: []
+        verified_baseline_versions: ['2.0.0']
+      upstream_supported_revisions: ['2026-07-28', '2025-11-25']
+      repository_tested_revisions: []
       current_revision_support: not-claimed
-      verification_required: Test modern server/discover and direct requests plus legacy initialize through the official client before moving a revision into tested_revisions.
-    dotnet:
-      packages:
-      - name: ModelContextProtocol
-        tested_versions: ['1.4.1']
-      - name: ModelContextProtocol.AspNetCore
-        tested_versions: ['1.4.1']
-      supported_revisions: []
-      tested_revisions: []
+      verification_required: Test modern server/discover and direct requests plus forced earlier-revision initialize through the official client against exact installed and container artifacts before adding repository-tested revisions.
+    python-fastmcp-package:
+      distribution: fastmcp
+      import_namespace: fastmcp
+      generated: false
+      verified_baseline_versions: []
+      repository_tested_revisions: []
       current_revision_support: not-claimed
-      upgrade_policy: Remain on the stable SDK lane until a 2.x stable release and protocol evidence are reviewed together.
+      verification_required: Existing projects require exact package, middleware, auth-context, mounted-state, transport, and artifact evidence; mixed or unresolved SDK ownership is unsupported-sdk-profile.
+    dotnet-official-mcp:
+      distribution: ModelContextProtocol
+      import_namespace: ModelContextProtocol
+      generated: true
+      verified_baseline_versions: ['1.4.1']
+      upstream_stable_candidate_versions: ['2.1.0']
+      repository_tested_revisions: []
+      current_revision_support: not-claimed
+      upgrade_policy: The upstream stable 2.1.0 line is not the generated baseline until exact NuGet locks are regenerated and restore, build, publish, official-client, transport, and protocol-revision evidence pass together. Do not hand-edit lock files or infer support from release status.
 dependencies:
   skills: []
   tools:
@@ -112,6 +122,8 @@ required:
 - references/migration-assessment.md
 - references/protocol-and-sdk-compatibility.md
 - references/protocol-2026-07-28.md
+- references/python-official-mcp-sdk.md
+- references/python-fastmcp-package.md
 - references/multiarch-artifact-promotion.md
 - references/principal-and-shell-boundaries.md
 - templates/migration-assessment.yaml.template
