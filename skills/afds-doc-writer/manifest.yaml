@@ -52,6 +52,7 @@ required:
 - STANDARD.md
 - governance.yaml
 - validate.py
+- references/ecosystem-readme-governance.md
 categories:
 - core
 - references
