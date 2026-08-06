@@ -348,9 +348,7 @@ def audit_workflow(
                         allowed_read_scopes=allowed_read_scopes,
                     )
                 )
-            if pull_request_workflow and any(
-                _SECRET_CONTEXT_REFERENCE.search(value) for value in _scalar_strings(job)
-            ):
+            if pull_request_workflow and any(_SECRET_CONTEXT_REFERENCE.search(value) for value in _scalar_strings(job)):
                 findings.append(Finding(path, f"{label} pull-request call must not pass repository secrets"))
             continue
 
@@ -358,9 +356,8 @@ def audit_workflow(
             findings.append(Finding(path, f"job {job_name!r} needs positive timeout-minutes"))
         findings.extend(_runner_findings(path, str(job_name), job.get("runs-on")))
         if "permissions" in job:
-            protected_release_job = (
-                not pull_request_workflow
-                and _is_protected_release_environment(job.get("environment"))
+            protected_release_job = not pull_request_workflow and _is_protected_release_environment(
+                job.get("environment")
             )
             findings.extend(
                 _permission_findings(
@@ -368,9 +365,7 @@ def audit_workflow(
                     job.get("permissions"),
                     scope=f"job {job_name!r}",
                     allowed_read_scopes=allowed_read_scopes,
-                    allowed_write_scopes=(
-                        _PROTECTED_RELEASE_WRITE_SCOPES if protected_release_job else None
-                    ),
+                    allowed_write_scopes=(_PROTECTED_RELEASE_WRITE_SCOPES if protected_release_job else None),
                 )
             )
 
@@ -381,9 +376,7 @@ def audit_workflow(
         for index, step in enumerate(steps, start=1):
             findings.extend(_action_findings(path, str(job_name), index, step))
 
-    if pull_request_workflow and any(
-        _SECRET_CONTEXT_REFERENCE.search(value) for value in _scalar_strings(document)
-    ):
+    if pull_request_workflow and any(_SECRET_CONTEXT_REFERENCE.search(value) for value in _scalar_strings(document)):
         findings.append(Finding(path, "pull-request workflows must not reference repository secrets"))
 
     return findings
