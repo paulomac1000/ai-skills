@@ -35,8 +35,19 @@ jobs:
     ).lstrip()
 
 
-def _messages(path: Path) -> list[str]:
-    return [finding.message for finding in audit_workflow(path, path.parent)]
+def _messages(
+    path: Path,
+    *,
+    protected_release_environments: frozenset[str] = frozenset(),
+) -> list[str]:
+    return [
+        finding.message
+        for finding in audit_workflow(
+            path,
+            path.parent,
+            protected_release_environments=protected_release_environments,
+        )
+    ]
 
 
 def test_safe_workflow_passes(tmp_path: Path) -> None:
@@ -203,8 +214,10 @@ def test_impl_requires_explicit_hardened_dependencies() -> None:
     repository_parameters = inspect.signature(policy_impl.audit_repository).parameters
 
     assert workflow_parameters["reader"].default is inspect.Parameter.empty
+    assert workflow_parameters["protected_release_environments"].default is inspect.Parameter.empty
     assert repository_parameters["reader"].default is inspect.Parameter.empty
     assert repository_parameters["enumerator"].default is inspect.Parameter.empty
+    assert repository_parameters["protected_release_environments"].default is inspect.Parameter.empty
     assert not hasattr(policy_impl, "main")
 
 
@@ -236,7 +249,38 @@ jobs:
 """.lstrip(),
         encoding="utf-8",
     )
-    assert _messages(workflow) == []
+    assert (
+        _messages(
+            workflow,
+            protected_release_environments=frozenset({"production-release"}),
+        )
+        == []
+    )
+
+
+def test_release_environment_name_alone_cannot_authorize_write_scope(tmp_path: Path) -> None:
+    workflow = tmp_path / "self-authorized-release.yml"
+    workflow.write_text(
+        """
+name: unsafe
+on: workflow_dispatch
+permissions:
+  contents: read
+concurrency:
+  group: unsafe
+  cancel-in-progress: false
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment: production-release
+    permissions:
+      packages: write
+    steps: []
+""".lstrip(),
+        encoding="utf-8",
+    )
+    assert any("allowed write scopes are: none" in message for message in _messages(workflow))
 
 
 def test_write_scope_without_release_environment_is_rejected(tmp_path: Path) -> None:
@@ -267,7 +311,7 @@ jobs:
     "environment_value",
     ("", "{}", "${{ inputs.environment }}", "production"),
 )
-def test_write_scope_requires_literal_approved_release_environment(
+def test_write_scope_requires_literal_allowlisted_release_environment(
     tmp_path: Path,
     environment_value: str,
 ) -> None:
