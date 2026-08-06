@@ -53,11 +53,17 @@ required:
 - governance.yaml
 - validate.py
 - references/ecosystem-readme-governance.md
+- templates/governed-document.md.template
 categories:
 - core
 - references
 - templates
 - tools
+contracts:
+  frontmatter_schema: contracts/afds-frontmatter.schema.json
+  current_document_schema: 2
+  legacy_document_schema: 1
+  strict_migration_flag: --minimum-document-schema 2
 adoption:
   template: contracts/adoption-assessment.yaml.template
   validator: contracts/validate_adoption.py
