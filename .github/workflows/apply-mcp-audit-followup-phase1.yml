@@ -36,7 +36,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          gzip --decompress --stdout .phase1/apply.py.gz > /tmp/apply_followup_phase1.py
+          cat .phase1/part-a .phase1/part-b | base64 --decode | gzip --decompress > /tmp/apply_followup_phase1.py
           python -m py_compile /tmp/apply_followup_phase1.py
           python /tmp/apply_followup_phase1.py
       - name: Normalize and statically verify changed Python
