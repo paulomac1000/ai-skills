@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/paulomac1000/ai-skills/blob/main/contracts/afds-frontmatter.schema.json",
+  "title": "AFDS governed document frontmatter v2",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "afds_schema_version",
+    "description",
+    "doc_id",
+    "type",
+    "status",
+    "rigor",
+    "owners"
+  ],
+  "properties": {
+    "afds_schema_version": {"const": 2},
+    "description": {"type": "string", "minLength": 1},
+    "doc_id": {
+      "type": "string",
+      "pattern": "^(workflow|reference|system|guide|decision|contract)\\.[a-z0-9][a-z0-9.-]*$"
+    },
+    "type": {
+      "enum": ["workflow", "reference", "system", "guide", "decision", "contract"]
+    },
+    "status": {
+      "enum": ["draft", "active", "evolving", "deprecated", "archived"]
+    },
+    "rigor": {"enum": ["informative", "operational", "normative"]},
+    "owners": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "verification": {
+      "$ref": "#/$defs/verification"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "rigor": {"enum": ["operational", "normative"]}
+        },
+        "required": ["rigor"]
+      },
+      "then": {"required": ["verification"]}
+    }
+  ],
+  "$defs": {
+    "verification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "value"],
+      "properties": {
+        "kind": {
+          "enum": ["command", "ci-job", "manual-review", "observable"]
+        },
+        "value": {"type": "string", "minLength": 1}
+      }
+    }
+  }
+}
