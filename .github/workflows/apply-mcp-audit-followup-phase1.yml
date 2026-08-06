@@ -11,7 +11,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: apply-mcp-audit-followup-phase1-retry
+  group: apply-mcp-audit-followup-phase1-binary
   cancel-in-progress: false
 
 jobs:
@@ -32,11 +32,12 @@ jobs:
           cache-dependency-path: requirements-dev-linux-x64-py312.lock
       - name: Install repository toolchain
         run: python scripts/install_locked.py
-      - name: Apply reviewed migration
+      - name: Verify and apply reviewed migration
         shell: bash
         run: |
           set -euo pipefail
-          cat .phase1/part-a .phase1/part-b | base64 --decode | gzip --decompress > /tmp/apply_followup_phase1.py
+          echo "0c3c0c3a0d14f72a01245b1b44b2c7cabb370753fd32f61d213d8b195e652b61  .phase1/apply.py.gz" | sha256sum --check --strict
+          gzip --decompress --stdout .phase1/apply.py.gz > /tmp/apply_followup_phase1.py
           python -m py_compile /tmp/apply_followup_phase1.py
           python /tmp/apply_followup_phase1.py
       - name: Normalize and statically verify changed Python
