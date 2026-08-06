@@ -146,6 +146,7 @@ class TrustedCapabilityContract:
 def _validate_binding(
     value: TrustedCapabilityPolicy | TrustedCapabilityContract | None,
     identity: CapabilityIdentity | None,
+    invoked_name: str,
     field_name: str,
 ) -> None:
     if value is None:
@@ -153,6 +154,10 @@ def _validate_binding(
     if identity is None:
         raise ValueError(
             f"identity is required when {field_name} is supplied"
+        )
+    if identity.tool_name != invoked_name:
+        raise ValueError(
+            f"{field_name} tool identity does not match invoked capability name"
         )
     if value.binding.identity != identity:
         raise ValueError(
@@ -202,8 +207,8 @@ def infer_capability_profile(
     elif not isinstance(metadata, Mapping):
         raise TypeError("metadata must be a mapping or None")
 
-    _validate_binding(trusted_policy, identity, "trusted_policy")
-    _validate_binding(trusted_contract, identity, "trusted_contract")
+    _validate_binding(trusted_policy, identity, name, "trusted_policy")
+    _validate_binding(trusted_contract, identity, name, "trusted_contract")
 
     policy_risk = (
         _LEGACY._risk(trusted_policy.risk)
