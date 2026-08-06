@@ -12,7 +12,7 @@
     "skills": {
       "type": "object",
       "minProperties": 1,
-      "propertyNames": {"pattern": "^[a-z0-9][a-z0-9-]*$"},
+      "propertyNames": {"pattern": "^[a-z0-9][a-z0-9-]{0,63}$"},
       "additionalProperties": {
         "type": "object",
         "additionalProperties": false,
@@ -22,7 +22,7 @@
           "revision": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
           "normative_entrypoint": {
             "type": "string",
-            "pattern": "^skills/[a-z0-9][a-z0-9-]*/[A-Za-z0-9._/-]+[.]md$"
+            "pattern": "^skills/[a-z0-9][a-z0-9-]{0,63}/(?:[A-Za-z0-9][A-Za-z0-9._-]*/)*[A-Za-z0-9][A-Za-z0-9._-]*[.]md$"
           },
           "content_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
         }
