@@ -1,11 +1,14 @@
 ---
+afds_schema_version: 2
 description: Normative rules for evidence-based, retrievable, maintainable technical documentation.
 doc_id: reference.afds-standard
 type: reference
 status: active
 rigor: normative
 owners: [repository-maintainers]
-verification: Run `python skills/afds-doc-writer/validate.py README.md RECOVERY_AUDIT.md contracts skills` and `python -m pytest`.
+verification:
+  kind: command
+  value: Run `python skills/afds-doc-writer/validate.py --repository-root . README.md RECOVERY_AUDIT.md contracts skills` and `python -m pytest`.
 ---
 
 # AFDS documentation standard
@@ -21,7 +24,7 @@ This standard defines how technical documentation is selected, structured, verif
 3. **Answer first.** Put the operational answer, contract, decision, or procedure before background.
 4. **Retrieval is designed.** Titles, identifiers, descriptions, aliases, and headings use terms readers will search for.
 5. **Statement kinds remain distinct.** Requirements, observations, examples, assumptions, hypotheses, and open questions are not interchangeable.
-6. **Verification is explicit where rigor requires it.** Operational and normative documents name a command, check, review method, or observable acceptance condition. Informative documents may omit verification.
+6. **Verification is explicit where rigor requires it.** Operational and normative documents name a command, CI job, review method, or observable acceptance condition through the versioned metadata contract. Informative documents may omit verification.
 7. **Volatile facts belong to automation.** Generated inventories and measurements are produced from sources of truth.
 8. **Failure behavior is documented where relevant.** A procedure or system document states safe stop, rollback, degradation, or recovery behavior.
 9. **Change impact is visible.** Contract and decision changes identify affected consumers and downstream documents.
@@ -40,32 +43,57 @@ This standard defines how technical documentation is selected, structured, verif
 
 Choose one primary type. Split documents when readers, ownership, lifecycle, or verification differ.
 
-## Required metadata
+## Versioned metadata contract
 
-Every governed document provides these common fields:
+Every newly authored governed document uses AFDS document schema v2:
 
 ```yaml
+afds_schema_version: 2
 description: One non-empty sentence stating the question answered
 doc_id: <type>.<stable-slug>
 type: workflow | reference | system | guide | decision | contract
 status: draft | active | evolving | deprecated | archived
 rigor: informative | operational | normative
 owners: [team-or-role]
+verification:
+  kind: command | ci-job | manual-review | observable
+  value: Concrete method or acceptance condition
 ```
 
 `description`, `doc_id`, `type`, `status`, and `rigor` are strings. `owners` is a non-empty list of non-empty role or team names. `doc_id` is stable and begins with the selected type. Optional `aliases`, `entities`, `upstream`, `downstream`, `supersedes`, and `review_triggers` are used only when meaningful.
 
-For `operational` and `normative` documents, explicit verification is additionally required. It may be declared as a non-empty `verification` metadata field or as a non-empty `## Verification` section. `Informative` documents may provide verification but are not required to do so.
+For `operational` and `normative` v2 documents, `verification` is required and is an object containing exactly `kind` and `value`. `value` is a non-empty string. `Informative` documents may omit verification; when present it uses the same typed shape.
+
+A `## Verification` section explains commands, criteria, or review detail for readers. In schema v2 it never substitutes for metadata. The metadata names the method; executed results belong to conformance, evidence, CI, or review records rather than durable document frontmatter.
+
+The machine-readable schema is `contracts/afds-frontmatter.schema.json`. The standalone validator additionally enforces relationships such as `doc_id` type prefixes, repository confinement, and document structure.
 
 Do not author automation-owned fields such as `last_verified`, generated backlinks, semantic hashes, dependency versions, or fitness scores.
+
+## Legacy v1 migration
+
+A governed document without `afds_schema_version` is read as legacy schema v1. Legacy v1 remains readable during migration and may use a non-empty metadata value or `## Verification` section for operational or normative rigor.
+
+Legacy compatibility is not the target authoring format. Repositories complete migration by converting verification to the v2 object, adding `afds_schema_version: 2`, and enabling:
+
+```text
+python skills/afds-doc-writer/validate.py \
+  --repository-root . \
+  --minimum-document-schema 2 \
+  <governed-inputs...>
+```
+
+The strict option returns a deterministic migration finding for v1 documents. Unknown schema versions fail closed. A repository must not label itself fully AFDS v2 while its governed scope still depends on v1 compatibility.
 
 ## Governance profiles
 
 A repository assigns validation behavior through `governance.yaml`; a document is never exempted only because its basename is `README.md`, `SKILL.md`, or `CHANGELOG.md`.
 
-The `governed` profile requires AFDS metadata, one H1, unique headings, confined links, valid anchors, and verification according to rigor. The `human-facing` profile may omit AFDS frontmatter but still checks structure, links, anchors, bounded input, and repository confinement. Additional profiles must state every enabled check explicitly and fail closed when the governance file is malformed.
+The `governed` profile requires AFDS metadata, one H1, unique headings, confined links, valid anchors, and verification according to rigor. The `conventional-document` profile may omit AFDS frontmatter but still checks structure, links, anchors, bounded input, and repository confinement. `human-facing` remains a compatibility alias with the same structural guarantees. Additional profiles must state every enabled check explicitly and fail closed when the governance file is malformed.
 
 Assignments are repository-relative POSIX globs. The repository declares one default profile and a reviewed ordered list of overrides. A filename convention may select a profile only through this explicit manifest.
+
+When a conventional document contains AFDS frontmatter, the validator validates that metadata rather than treating the file as exempt. Ecosystem entrypoints such as a root README follow [Ecosystem README governance](references/ecosystem-readme-governance.md): use supported frontmatter, a sidecar index, or an informational entrypoint linked to governed documents.
 
 ## Structure and links
 
@@ -91,7 +119,9 @@ Lifecycle and change-impact rules are defined in [Lifecycle and impact](referenc
 
 ## Quality gate
 
-A governed document is acceptable when metadata types are valid, one H1 exists, headings are unique, relative links and anchors resolve within the repository, verification is explicit where required, claims are grounded or labeled uncertain, and ownership is unambiguous. A human-facing document is acceptable only when its selected profile passes every enabled structural and confinement check.
+A governed document is acceptable when metadata types are valid, one H1 exists, headings are unique, relative links and anchors resolve within the repository, verification is explicit where required, claims are grounded or labeled uncertain, and ownership is unambiguous. A human-facing or conventional document is acceptable only when its selected profile passes every enabled structural and confinement check.
+
+Schema v1 compatibility proves only that a legacy document remains readable. AFDS v2 conformance additionally requires the strict minimum-document-schema gate over the declared governed scope.
 
 ## Verification
 
