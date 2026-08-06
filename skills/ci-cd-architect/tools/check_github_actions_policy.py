@@ -131,18 +131,46 @@ def workflow_paths(repository_root: Path) -> tuple[list[Path], list[Finding]]:
         return [], [Finding(workflow_dir, f"cannot enumerate workflows: {exc}")]
 
 
-def audit_workflow(path: Path, repository_root: Path | None = None) -> list[Finding]:
+def _release_environment_argument(value: str) -> str:
+    """Accept only a literal release-environment name; external verification is still required."""
+    if (
+        value != value.strip()
+        or _impl._EXPRESSION_REFERENCE.search(value)
+        or _impl._RELEASE_ENVIRONMENT_NAME.fullmatch(value) is None
+    ):
+        raise argparse.ArgumentTypeError(
+            "release environment must be a literal name equal to 'release' or ending in '-release'"
+        )
+    return value
+
+
+def audit_workflow(
+    path: Path,
+    repository_root: Path | None = None,
+    *,
+    protected_release_environments: frozenset[str] = frozenset(),
+) -> list[Finding]:
     """Audit one workflow with the hardened confined reader."""
     root = (repository_root or path.parent).resolve()
-    return _impl.audit_workflow(path, root, reader=_read_workflow)
+    return _impl.audit_workflow(
+        path,
+        root,
+        reader=_read_workflow,
+        protected_release_environments=protected_release_environments,
+    )
 
 
-def audit_repository(repository_root: Path) -> list[Finding]:
+def audit_repository(
+    repository_root: Path,
+    *,
+    protected_release_environments: frozenset[str] = frozenset(),
+) -> list[Finding]:
     """Audit a repository with hardened reading and bounded enumeration."""
     return _impl.audit_repository(
         repository_root,
         reader=_read_workflow,
         enumerator=workflow_paths,
+        protected_release_environments=protected_release_environments,
     )
 
 
@@ -158,8 +186,24 @@ def main() -> int:
         default=Path.cwd(),
         help="Untrusted repository root to assess (default: current directory)",
     )
+    parser.add_argument(
+        "--protected-release-environment",
+        action="append",
+        default=[],
+        type=_release_environment_argument,
+        metavar="NAME",
+        help=(
+            "Exact environment independently verified through trusted GitHub provider data; "
+            "repeat for each approved release environment. The default empty allowlist "
+            "rejects every job-level write scope."
+        ),
+    )
     args = parser.parse_args()
-    findings = audit_repository(args.repository_root)
+    protected_release_environments = frozenset(args.protected_release_environment)
+    findings = audit_repository(
+        args.repository_root,
+        protected_release_environments=protected_release_environments,
+    )
     if findings:
         for finding in findings:
             print(f"ERROR: {finding.render()}")
