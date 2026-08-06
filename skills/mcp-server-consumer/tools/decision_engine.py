@@ -17,12 +17,16 @@ from pathlib import Path
 from typing import Any
 
 
-def _load_legacy():
+def _load_legacy() -> Any:
     path = Path(__file__).with_name("decision_engine_legacy.py")
-    module_name = f"{__name__}._legacy" if "." in __name__ else f"{__name__}_legacy"
+    module_name = (
+        f"{__name__}._legacy" if "." in __name__ else f"{__name__}_legacy"
+    )
     spec = importlib.util.spec_from_file_location(module_name, path)
     if spec is None or spec.loader is None:
-        raise ImportError(f"cannot load decision engine compatibility module: {path}")
+        raise ImportError(
+            f"cannot load decision engine compatibility module: {path}"
+        )
     module = importlib.util.module_from_spec(spec)
     sys.modules[module_name] = module
     spec.loader.exec_module(module)
@@ -56,7 +60,10 @@ _POLICY_SOURCE = re.compile(r"^[a-z][a-z0-9-]*:sha256:[0-9a-f]{64}$")
 
 def _nonempty(value: str, field_name: str, maximum: int = 512) -> None:
     if not isinstance(value, str) or not value.strip() or len(value) > maximum:
-        raise ValueError(f"{field_name} must be a non-empty string of at most {maximum} characters")
+        raise ValueError(
+            f"{field_name} must be a non-empty string of at most "
+            f"{maximum} characters"
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,7 +80,9 @@ class CapabilityIdentity:
         _nonempty(self.server_identity, "server_identity")
         _nonempty(self.tool_name, "tool_name", 255)
         if not _DIGEST.fullmatch(self.tool_schema_hash):
-            raise ValueError("tool_schema_hash must be a lowercase sha256 digest")
+            raise ValueError(
+                "tool_schema_hash must be a lowercase sha256 digest"
+            )
         _nonempty(self.manifest_version, "manifest_version", 128)
         if self.target_scope is not None:
             _nonempty(self.target_scope, "target_scope", 255)
@@ -91,7 +100,8 @@ class TrustedPolicyBinding:
             raise TypeError("identity must be CapabilityIdentity")
         if not _POLICY_SOURCE.fullmatch(self.source):
             raise ValueError(
-                "source must be an immutable '<kind>:sha256:<64 lowercase hex>' identity"
+                "source must be an immutable "
+                "'<kind>:sha256:<64 lowercase hex>' identity"
             )
 
 
@@ -100,7 +110,7 @@ class TrustedCapabilityPolicy:
     """Consumer-owned policy values bound to one reviewed capability identity."""
 
     binding: TrustedPolicyBinding
-    risk: str | Risk | None = None
+    risk: object = None
     requires_confirmation: bool | None = None
     sensitive: bool | None = None
     idempotent: bool | None = None
@@ -108,7 +118,11 @@ class TrustedCapabilityPolicy:
     def __post_init__(self) -> None:
         if not isinstance(self.binding, TrustedPolicyBinding):
             raise TypeError("binding must be TrustedPolicyBinding")
-        for field_name in ("requires_confirmation", "sensitive", "idempotent"):
+        for field_name in (
+            "requires_confirmation",
+            "sensitive",
+            "idempotent",
+        ):
             value = getattr(self, field_name)
             if value is not None and type(value) is not bool:
                 raise TypeError(f"{field_name} must be boolean or None")
@@ -119,7 +133,7 @@ class TrustedCapabilityContract:
     """Reviewed capability facts bound to server, schema, manifest, and target scope."""
 
     binding: TrustedPolicyBinding
-    risk: str | Risk | None = None
+    risk: object = None
     idempotent: bool | None = None
 
     def __post_init__(self) -> None:
@@ -137,9 +151,13 @@ def _validate_binding(
     if value is None:
         return
     if identity is None:
-        raise ValueError(f"identity is required when {field_name} is supplied")
+        raise ValueError(
+            f"identity is required when {field_name} is supplied"
+        )
     if value.binding.identity != identity:
-        raise ValueError(f"{field_name} does not match the observed capability identity")
+        raise ValueError(
+            f"{field_name} does not match the observed capability identity"
+        )
 
 
 def _source(source: str, addition: str) -> str:
@@ -153,11 +171,11 @@ def infer_capability_profile(
     identity: CapabilityIdentity | None = None,
     trusted_policy: TrustedCapabilityPolicy | None = None,
     trusted_contract: TrustedCapabilityContract | None = None,
-) -> CapabilityProfile:
-    """Infer a fail-closed profile using only exact, identity-bound trusted values.
+) -> Any:
+    """Infer a fail-closed profile using exact, identity-bound trusted values.
 
-    Server-discovered values and annotations are never allowed to reduce risk,
-    confer idempotency, or create trust. They may only escalate risk, require
+    Server-discovered values and annotations never reduce risk, confer
+    idempotency, or create trust. They may only escalate risk, require
     confirmation, mark confidentiality, or veto an idempotency claim.
     """
 
@@ -166,13 +184,19 @@ def infer_capability_profile(
     if identity is not None and not isinstance(identity, CapabilityIdentity):
         raise TypeError("identity must be CapabilityIdentity or None")
     if trusted_policy is not None and not isinstance(
-        trusted_policy, TrustedCapabilityPolicy
+        trusted_policy,
+        TrustedCapabilityPolicy,
     ):
-        raise TypeError("trusted_policy must be TrustedCapabilityPolicy or None")
+        raise TypeError(
+            "trusted_policy must be TrustedCapabilityPolicy or None"
+        )
     if trusted_contract is not None and not isinstance(
-        trusted_contract, TrustedCapabilityContract
+        trusted_contract,
+        TrustedCapabilityContract,
     ):
-        raise TypeError("trusted_contract must be TrustedCapabilityContract or None")
+        raise TypeError(
+            "trusted_contract must be TrustedCapabilityContract or None"
+        )
     if metadata is None:
         metadata = {}
     elif not isinstance(metadata, Mapping):
@@ -181,7 +205,11 @@ def infer_capability_profile(
     _validate_binding(trusted_policy, identity, "trusted_policy")
     _validate_binding(trusted_contract, identity, "trusted_contract")
 
-    policy_risk = _LEGACY._risk(trusted_policy.risk) if trusted_policy else Risk.UNKNOWN
+    policy_risk = (
+        _LEGACY._risk(trusted_policy.risk)
+        if trusted_policy
+        else Risk.UNKNOWN
+    )
     contract_risk = (
         _LEGACY._risk(trusted_contract.risk)
         if trusted_contract
@@ -190,13 +218,25 @@ def infer_capability_profile(
     inferred = _LEGACY._higher_risk(policy_risk, contract_risk)
     source = "unknown"
     if trusted_policy is not None and policy_risk is not Risk.UNKNOWN:
-        source = _source(source, f"consumer-policy:{trusted_policy.binding.source}")
+        source = _source(
+            source,
+            f"consumer-policy:{trusted_policy.binding.source}",
+        )
     if trusted_contract is not None and contract_risk is not Risk.UNKNOWN:
-        source = _source(source, f"consumer-contract:{trusted_contract.binding.source}")
+        source = _source(
+            source,
+            f"consumer-contract:{trusted_contract.binding.source}",
+        )
 
     signals = (
-        (_LEGACY._untrusted_risk_signal(metadata.get("risk")), "untrusted-risk-escalation"),
-        (_LEGACY._untrusted_side_effect_signal(metadata), "side-effect-escalation"),
+        (
+            _LEGACY._untrusted_risk_signal(metadata.get("risk")),
+            "untrusted-risk-escalation",
+        ),
+        (
+            _LEGACY._untrusted_side_effect_signal(metadata),
+            "side-effect-escalation",
+        ),
         (_LEGACY._prefixed_risk(name), "name-prefix-escalation"),
     )
     for candidate, label in signals:
@@ -206,7 +246,10 @@ def infer_capability_profile(
             source = _source(source, label)
 
     annotations = metadata.get("annotations")
-    if isinstance(annotations, Mapping) and annotations.get("destructiveHint") is True:
+    if (
+        isinstance(annotations, Mapping)
+        and annotations.get("destructiveHint") is True
+    ):
         previous = inferred
         inferred = _LEGACY._higher_risk(inferred, Risk.DESTRUCTIVE)
         if inferred is not previous:
@@ -233,14 +276,21 @@ def infer_capability_profile(
 
     if (
         metadata.get("idempotent") is False
-        or (trusted_policy is not None and trusted_policy.idempotent is False)
-        or (trusted_contract is not None and trusted_contract.idempotent is False)
+        or (
+            trusted_policy is not None
+            and trusted_policy.idempotent is False
+        )
+        or (
+            trusted_contract is not None
+            and trusted_contract.idempotent is False
+        )
     ):
         idempotent: bool | None = False
     elif (
         trusted_policy is not None and trusted_policy.idempotent is True
     ) or (
-        trusted_contract is not None and trusted_contract.idempotent is True
+        trusted_contract is not None
+        and trusted_contract.idempotent is True
     ):
         idempotent = True
     else:
