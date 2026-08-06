@@ -143,6 +143,14 @@ internal static class CanonicalCapabilityManifestContract
             ImpactClass.Transient => "local",
             _ => "external",
         };
+        var activeState = manifest.ActiveState switch
+        {
+            "active" => "active",
+            "inactive" => "inactive",
+            "deprecated" => "deprecated",
+            _ => throw new InvalidOperationException(
+                $"{manifest.Name}: unsupported active state {manifest.ActiveState}"),
+        };
         var concurrencyScope = manifest.ConcurrencyScope switch
         {
             "none" => "global",
@@ -160,7 +168,13 @@ internal static class CanonicalCapabilityManifestContract
                 "server-side",
                 true,
                 300,
-                ["principal", "capability", "target", "arguments-digest"])
+                [
+                    "principal",
+                    "capability",
+                    "target",
+                    "arguments-digest",
+                    "expires-at",
+                ])
             : null;
         var extensions = new Dictionary<string, object?>(StringComparer.Ordinal)
         {
@@ -173,7 +187,6 @@ internal static class CanonicalCapabilityManifestContract
             ["timeout_milliseconds"] = manifest.TimeoutMilliseconds,
             ["cost"] = manifest.Cost,
             ["target_binding"] = manifest.TargetBinding,
-            ["profile_active_state"] = manifest.ActiveState,
             ["requires_approval"] = manifest.RequiresApproval,
             ["evidence"] = manifest.Evidence,
         };
@@ -188,7 +201,7 @@ internal static class CanonicalCapabilityManifestContract
             determinism,
             latency,
             impact,
-            operationKind == "read" ? "read" : "write",
+            activeState,
             manifest.Retryable,
             manifest.Idempotent,
             manifest.Reversible,
@@ -307,6 +320,12 @@ internal static class CanonicalCapabilityManifestContract
                 $"{manifest.Id}: canonical manifest identity is incomplete.");
         }
 
+        if (manifest.ActiveState != "active")
+        {
+            throw new InvalidOperationException(
+                $"{manifest.Id}: only active capabilities may be registered.");
+        }
+
         if (manifest.MaxResponseBytes is < 1 or > 16_777_216)
         {
             throw new InvalidOperationException(
@@ -318,6 +337,18 @@ internal static class CanonicalCapabilityManifestContract
         {
             throw new InvalidOperationException(
                 $"{manifest.Id}: canonical concurrency contract is invalid.");
+        }
+
+        if (manifest.OperationKind == "read"
+            && (manifest.Impact != "none"
+                || manifest.Retryable
+                || manifest.Idempotent
+                || manifest.Reversible
+                || manifest.RequiresConfirmation
+                || manifest.IdempotencyKeyRequired))
+        {
+            throw new InvalidOperationException(
+                $"{manifest.Id}: read capability carries write/retry flags.");
         }
 
         if (manifest.OperationKind is "write" or "destructive")
@@ -362,6 +393,7 @@ internal static class CanonicalCapabilityManifestContract
                 "capability",
                 "target",
                 "arguments-digest",
+                "expires-at",
             };
             if (requiredBindings.Any(binding =>
                     !manifest.Approval.Binds.Contains(
