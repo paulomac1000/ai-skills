@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
@@ -40,9 +39,11 @@ def _load_mapping(path: Path) -> Mapping[str, Any]:
 def _semantic_findings(manifest: Mapping[str, Any]) -> list[str]:
     findings: list[str] = []
     operation = manifest.get("operation_kind")
+    raw_extensions = manifest.get("extensions", {})
+    extensions = raw_extensions if isinstance(raw_extensions, Mapping) else {}
     if operation in {"write", "destructive"}:
         for flag in ("retryable", "idempotent", "reversible"):
-            if manifest.get(flag) is True and f"{flag}_rationale" not in manifest.get("extensions", {}):
+            if manifest.get(flag) is True and f"{flag}_rationale" not in extensions:
                 findings.append(
                     f"extensions.{flag}_rationale is required when a {operation} capability sets {flag}=true"
                 )
@@ -51,7 +52,8 @@ def _semantic_findings(manifest: Mapping[str, Any]) -> list[str]:
         if not isinstance(approval, Mapping):
             findings.append("approval record policy is required for confirmation-protected capabilities")
         else:
-            binds = set(approval.get("binds", []))
+            raw_binds = approval.get("binds", [])
+            binds = set(raw_binds) if isinstance(raw_binds, list) else set()
             required = {"principal", "capability", "target", "arguments-digest"}
             missing = sorted(required - binds)
             if missing:
