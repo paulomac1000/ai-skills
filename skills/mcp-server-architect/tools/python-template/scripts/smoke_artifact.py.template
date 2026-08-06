@@ -1,0 +1,130 @@
+#!/usr/bin/env python3
+"""Exercise the installed entry point and loopback container contract through the official client."""
+
+from __future__ import annotations
+
+import argparse
+import asyncio
+import importlib.util
+import os
+import socket
+import subprocess
+import sys
+import tempfile
+import time
+import urllib.request
+from pathlib import Path
+
+import httpx2
+from mcp import Client, StdioServerParameters
+from mcp.client.stdio import stdio_client
+from mcp.client.streamable_http import streamable_http_client
+
+
+def _assert_installed(package: str) -> None:
+    spec = importlib.util.find_spec(package)
+    if spec is None or spec.origin is None:
+        raise RuntimeError(f"cannot resolve installed package {package!r}")
+    origin = Path(spec.origin).resolve()
+    if "site-packages" not in origin.parts:
+        raise RuntimeError(f"package did not load from site-packages: {origin}")
+
+
+def _free_loopback_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server:
+        server.bind(("127.0.0.1", 0))
+        return int(server.getsockname()[1])
+
+
+def _wait_for_health(url: str, process: subprocess.Popen[bytes]) -> None:
+    deadline = time.monotonic() + 20
+    while time.monotonic() < deadline:
+        if process.poll() is not None:
+            raise RuntimeError(f"HTTP server exited early with {process.returncode}")
+        try:
+            with urllib.request.urlopen(url, timeout=1) as response:  # noqa: S310 - loopback URL is constructed locally
+                if response.status == 200:
+                    return
+        except OSError:
+            time.sleep(0.2)
+    raise RuntimeError("HTTP server did not become ready")
+
+
+async def _exercise(client: Client, *, expect_write_failure: bool = True) -> None:
+    tools = await client.list_tools()
+    names = {tool.name for tool in tools.tools}
+    required = {"describe_capabilities", "list_items", "put_item"}
+    if not required <= names:
+        raise RuntimeError(f"missing tools: {sorted(required - names)}")
+    safe = await client.call_tool("list_items", {"limit": 1})
+    if safe.is_error:
+        raise RuntimeError("safe list_items call failed")
+    if expect_write_failure:
+        denied = await client.call_tool(
+            "put_item",
+            {"item_id": "smoke", "value": "denied", "approval_record": "invalid"},
+        )
+        if not denied.is_error:
+            raise RuntimeError("write succeeded without a valid server approval record")
+
+
+async def _stdio_smoke(distribution: str) -> None:
+    parameters = StdioServerParameters(command=distribution, args=[])
+    async with Client(stdio_client(parameters)) as client:
+        await _exercise(client)
+    async with Client(stdio_client(parameters), mode="legacy") as client:
+        await _exercise(client)
+
+
+async def _http_smoke(distribution: str) -> None:
+    token = "artifact-smoke-token-that-is-at-least-32-bytes"
+    port = _free_loopback_port()
+    environment = dict(os.environ)
+    environment.update(
+        {
+            "MCP_TRANSPORT": "streamable-http",
+            "MCP_HTTP_BEARER_TOKEN": token,
+            "MCP_HTTP_PORT": str(port),
+        }
+    )
+    with tempfile.TemporaryFile() as output:
+        process = subprocess.Popen(  # noqa: S603 - distribution is a validated CLI argument from CI
+            [distribution],
+            env=environment,
+            stdout=output,
+            stderr=output,
+        )
+        try:
+            _wait_for_health(f"http://127.0.0.1:{port}/health/ready", process)
+            async with httpx2.AsyncClient(headers={"Authorization": f"Bearer {token}"}) as http_client:
+                transport = streamable_http_client(
+                    f"http://127.0.0.1:{port}/mcp",
+                    http_client=http_client,
+                )
+                async with Client(transport) as client:
+                    await _exercise(client)
+        finally:
+            process.terminate()
+            try:
+                process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=5)
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--distribution", required=True)
+    parser.add_argument("--package", required=True)
+    args = parser.parse_args()
+    if not args.distribution.replace("-", "").replace("_", "").isalnum():
+        raise SystemExit("distribution must contain only letters, digits, hyphens, and underscores")
+    _assert_installed(args.package)
+    asyncio.run(_stdio_smoke(args.distribution))
+    asyncio.run(_http_smoke(args.distribution))
+    print("exact-artifact smoke passed")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
