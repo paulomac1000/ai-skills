@@ -7,9 +7,7 @@
     <PackageReference Include="ModelContextProtocol.AspNetCore" />
   </ItemGroup>
   <ItemGroup>
-    <None Include="../../contracts/capability-manifest.schema.json"
-          Link="contracts/capability-manifest.schema.json"
-          CopyToOutputDirectory="PreserveNewest"
-          CopyToPublishDirectory="PreserveNewest" />
+    <EmbeddedResource Include="../../contracts/capability-manifest.schema.json"
+                      LogicalName="capability-manifest.schema.json" />
   </ItemGroup>
 </Project>
