@@ -1,6 +1,7 @@
 """Reusable pure-logic helpers for MCP consumers."""
 
 from .decision_engine import (
+    CapabilityIdentity,
     CapabilityProfile,
     Decision,
     ErrorAction,
@@ -10,6 +11,7 @@ from .decision_engine import (
     Risk,
     TrustedCapabilityContract,
     TrustedCapabilityPolicy,
+    TrustedPolicyBinding,
     UserIntent,
     choose_initial_detail_params,
     evaluate_decision,
@@ -22,6 +24,7 @@ from .decision_engine import (
 )
 
 __all__ = [
+    "CapabilityIdentity",
     "CapabilityProfile",
     "Decision",
     "ErrorAction",
@@ -31,6 +34,7 @@ __all__ = [
     "Risk",
     "TrustedCapabilityContract",
     "TrustedCapabilityPolicy",
+    "TrustedPolicyBinding",
     "UserIntent",
     "choose_initial_detail_params",
     "evaluate_decision",
