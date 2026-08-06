@@ -8,7 +8,7 @@
   "determinism": "environment-dependent",
   "latency": "interactive",
   "impact": "external",
-  "active_state": "write",
+  "active_state": "active",
   "retryable": false,
   "idempotent": false,
   "reversible": false,
