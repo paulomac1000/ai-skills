@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "id": "describe_capabilities",
+  "name": "Describe capabilities",
+  "description": "Returns the validated application-owned capability catalog.",
+  "operation_kind": "read",
+  "risk": "low",
+  "determinism": "deterministic",
+  "latency": "interactive",
+  "impact": "none",
+  "active_state": "read",
+  "retryable": false,
+  "idempotent": false,
+  "reversible": false,
+  "requires_confirmation": false,
+  "idempotency_key_required": false,
+  "authorization_scopes": [],
+  "concurrency": {"scope": "global", "limit": 32, "queue_limit": 64},
+  "max_response_bytes": 262144,
+  "protocol_revisions": ["2026-07-28", "2025-11-25"]
+}
