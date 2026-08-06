@@ -44,6 +44,7 @@ TYPE_PATHS = (
     "skills/ci-cd-architect/tools/check_github_actions_policy.py",
     "skills/ci-cd-architect/tools/check_github_actions_policy_impl.py",
     "skills/mcp-server-consumer/tools/decision_engine.py",
+    "skills/mcp-server-consumer/tools/decision_engine_legacy.py",
     "skills/mcp-server-architect/tools/generate_python_server.py",
     "skills/mcp-server-architect/tools/generate_python_server_impl.py",
     "skills/mcp-server-architect/tools/generate_dotnet_server.py",
