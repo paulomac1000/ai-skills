@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/paulomac1000/ai-skills/blob/main/contracts/ai-skills-lock.schema.json",
+  "title": "AI Skills consumer lock",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "repository", "revision", "skills"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "repository": {"const": "paulomac1000/ai-skills"},
+    "revision": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "skills": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {"pattern": "^[a-z0-9][a-z0-9-]*$"},
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["version", "revision", "normative_entrypoint"],
+        "properties": {
+          "version": {"type": "string", "pattern": "^[0-9]+[.][0-9]+[.][0-9]+(?:-[0-9A-Za-z.-]+)?$"},
+          "revision": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+          "normative_entrypoint": {
+            "type": "string",
+            "pattern": "^skills/[a-z0-9][a-z0-9-]*/[A-Za-z0-9._/-]+[.]md$"
+          },
+          "content_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+        }
+      }
+    }
+  }
+}
