@@ -1,0 +1,93 @@
+"""Generated baseline unit and in-memory protocol tests."""
+
+from __future__ import annotations
+
+import json
+from importlib.resources import files
+
+import pytest
+from mcp import Client
+
+from __PACKAGE__.kernel import describe_capabilities, list_items, put_item
+from __PACKAGE__.manifest import MANIFESTS
+from __PACKAGE__.security import BearerAuthMiddleware
+from __PACKAGE__.server import mcp
+
+
+def test_manifest_catalog_matches_registered_tools() -> None:
+    assert set(MANIFESTS) == {"describe_capabilities", "list_items", "put_item"}
+    schema = json.loads(
+        files("__PACKAGE__").joinpath("contracts/capability-manifest.schema.json").read_text(encoding="utf-8")
+    )
+    assert set(schema["required"]) <= set(MANIFESTS["list_items"])
+
+
+def test_final_payload_contains_provenance_and_respects_bound() -> None:
+    payload = describe_capabilities()
+    assert payload["_meta"]["capability_id"] == "describe_capabilities"
+    encoded = json.dumps(payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    assert len(encoded) <= MANIFESTS["describe_capabilities"]["max_response_bytes"]
+
+
+def test_write_is_fail_closed_without_server_approval() -> None:
+    with pytest.raises(PermissionError, match="disabled"):
+        put_item("item", "value", "invalid")
+
+
+@pytest.mark.parametrize(
+    "authorization",
+    [
+        b"",
+        b"Basic abc",
+        b"Bearer short",
+        b"Bearer abc;def",
+        b"Bearer abc\ndef",
+        b"Bearer " + b"a" * 9000,
+        b"Bearer " + "ą".encode(),
+    ],
+)
+def test_malformed_bearer_is_rejected(authorization: bytes) -> None:
+    called = False
+    messages: list[dict[str, object]] = []
+
+    async def app(scope: object, receive: object, send: object) -> None:
+        del scope, receive, send
+        nonlocal called
+        called = True
+
+    async def send(message: dict[str, object]) -> None:
+        messages.append(message)
+
+    middleware = BearerAuthMiddleware(app, b"a" * 32)
+    scope = {"type": "http", "path": "/mcp", "headers": [(b"authorization", authorization)]}
+    import asyncio
+
+    asyncio.run(middleware(scope, None, send))
+    assert called is False
+    assert messages[0]["status"] == 401
+
+
+@pytest.mark.anyio
+async def test_official_client_exercises_modern_in_memory_path() -> None:
+    async with Client(mcp, raise_exceptions=True) as client:
+        tools = await client.list_tools()
+        assert {tool.name for tool in tools.tools} == set(MANIFESTS)
+        result = await client.call_tool("list_items", {"limit": 1})
+        assert result.is_error is False
+
+
+@pytest.mark.anyio
+async def test_official_client_exercises_legacy_in_memory_path() -> None:
+    async with Client(mcp, mode="legacy") as client:
+        tools = await client.list_tools()
+        assert {tool.name for tool in tools.tools} == set(MANIFESTS)
+        denied = await client.call_tool(
+            "put_item",
+            {"item_id": "item", "value": "value", "approval_record": "invalid"},
+        )
+        assert denied.is_error is True
+
+
+def test_list_limit_is_bounded() -> None:
+    with pytest.raises(ValueError, match="1 to 100"):
+        list_items(101)
