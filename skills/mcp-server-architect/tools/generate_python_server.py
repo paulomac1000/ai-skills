@@ -6,8 +6,11 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import keyword
+import os
 import re
+import shutil
 import sys
+import tempfile
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -57,7 +60,23 @@ _implementation.project_files = project_files
 def generate_project(destination: Path, package_name: str, server_name: str) -> list[Path]:
     """Render and atomically publish a project using the historical public argument order."""
     files = project_files(package_name, server_name)
-    _implementation.generate_project(package_name, destination, server_name)
+    validate_generated_project(files, package_name)
+    destination = destination.resolve(strict=False)
+    parent = destination.parent
+    parent.mkdir(parents=True, exist_ok=True)
+    if parent.is_symlink() or not parent.is_dir():
+        raise ValueError("destination parent must be a regular directory, not a symlink")
+    if os.path.lexists(destination):
+        raise FileExistsError(destination)
+
+    staging: Path | None = Path(tempfile.mkdtemp(prefix=f".{destination.name}.", dir=parent))
+    try:
+        _implementation._write_files(staging, files)
+        _implementation._rename_noreplace(staging, destination)
+        staging = None
+    finally:
+        if staging is not None and staging.exists():
+            shutil.rmtree(staging)
     return [Path(path) for path in sorted(files)]
 
 
