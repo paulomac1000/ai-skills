@@ -62,12 +62,21 @@ def test_mcp_manifest_keeps_protocol_claims_separate_by_sdk() -> None:
     )
     profiles = manifest["protocol"]["sdk_profiles"]
     assert manifest["protocol"]["default_revision"] == "2026-07-28"
-    assert profiles["python"]["current_revision_support"] == "not-claimed"
-    assert profiles["python"]["tested_revisions"] == []
-    assert profiles["dotnet"]["current_revision_support"] == "not-claimed"
-    assert profiles["dotnet"]["tested_revisions"] == []
-    assert profiles["python"]["packages"][0]["tested_versions"] == ["2.0.0"]
-    assert profiles["dotnet"]["packages"][0]["tested_versions"] == ["1.4.1"]
+
+    python = profiles["python-official-mcp"]
+    assert python["current_revision_support"] == "not-claimed"
+    assert python["repository_tested_revisions"] == []
+    assert python["packages"][0]["verified_baseline_versions"] == ["2.0.0"]
+
+    fastmcp = profiles["python-fastmcp-package"]
+    assert fastmcp["generated"] is False
+    assert fastmcp["verified_baseline_versions"] == []
+
+    dotnet = profiles["dotnet-official-mcp"]
+    assert dotnet["current_revision_support"] == "not-claimed"
+    assert dotnet["repository_tested_revisions"] == []
+    assert dotnet["verified_baseline_versions"] == ["1.4.1"]
+    assert dotnet["upstream_stable_candidate_versions"] == ["2.1.0"]
 
 
 def test_afds_governance_replaces_basename_exemptions() -> None:
@@ -214,11 +223,15 @@ def test_protocol_sdk_versions_match_committed_dependency_contracts() -> None:
         / "skills/mcp-server-architect/tools/dotnet-template/Directory.Packages.props.template"
     ).read_text(encoding="utf-8")
 
-    python_version = profiles["python"]["packages"][0]["tested_versions"][0]
+    python_package = profiles["python-official-mcp"]["packages"][0]
+    python_version = python_package["verified_baseline_versions"][0]
     assert f"mcp=={python_version}" in runtime
-    for package in profiles["dotnet"]["packages"]:
-        version = package["tested_versions"][0]
-        assert f'Include="{package["name"]}" Version="{version}"' in packages
+
+    dotnet = profiles["dotnet-official-mcp"]
+    dotnet_version = dotnet["verified_baseline_versions"][0]
+    assert f'Include="ModelContextProtocol" Version="{dotnet_version}"' in packages
+    assert f'Include="ModelContextProtocol.AspNetCore" Version="{dotnet_version}"' in packages
+    assert dotnet["upstream_stable_candidate_versions"][0] not in packages
 
 
 def test_new_conformance_modules_are_in_typing_gate() -> None:
@@ -226,5 +239,6 @@ def test_new_conformance_modules_are_in_typing_gate() -> None:
     source = (ROOT / "scripts/quality_targets.py").read_text(encoding="utf-8")
     exec(compile(source, "scripts/quality_targets.py", "exec"), namespace)
     type_paths = set(namespace["TYPE_PATHS"])
+    assert "contracts/render_rule_catalog.py" in type_paths
     assert "contracts/rule_applicability.py" in type_paths
     assert "contracts/validate_conformance.py" in type_paths
