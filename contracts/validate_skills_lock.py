@@ -7,6 +7,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import stat
 from collections.abc import Mapping, Sequence
 from pathlib import Path, PurePosixPath
@@ -20,6 +21,7 @@ MAX_LOCK_BYTES = 256 * 1024
 MAX_SOURCE_BYTES = 4 * 1024 * 1024
 MOVING_REVISIONS = {"main", "master", "head", "latest", "stable", "develop", "development"}
 DEPRECATED_SKILL_NAMES = {"precommitcheck", "mcp-architect", "cicd-architect"}
+SKILL_NAME = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
 
 
 def _read_regular_utf8(path: Path, maximum: int) -> str:
@@ -51,17 +53,24 @@ def _load_mapping(path: Path, maximum: int = MAX_LOCK_BYTES) -> Mapping[str, Any
 
 
 def _safe_source(root: Path, raw: str) -> Path:
-    if "\\" in raw:
-        raise ValueError("normative entrypoint must use POSIX separators")
+    if not raw or "\\" in raw:
+        raise ValueError("normative entrypoint must use a non-empty POSIX path")
     pure = PurePosixPath(raw)
     if pure.is_absolute() or any(part in {"", ".", ".."} for part in pure.parts):
         raise ValueError("normative entrypoint must remain inside skills root")
-    current = root.resolve(strict=True)
+    try:
+        current = root.resolve(strict=True)
+    except OSError as exc:
+        raise ValueError(f"cannot resolve skills root: {exc}") from exc
     for part in pure.parts:
         current /= part
         if not os.path.lexists(current):
             raise ValueError("normative entrypoint does not exist")
-        if stat.S_ISLNK(current.lstat().st_mode):
+        try:
+            mode = current.lstat().st_mode
+        except OSError as exc:
+            raise ValueError(f"cannot inspect normative entrypoint: {exc}") from exc
+        if stat.S_ISLNK(mode):
             raise ValueError("normative entrypoint must not contain symlinks")
     _read_regular_utf8(current, MAX_SOURCE_BYTES)
     return current
@@ -69,9 +78,12 @@ def _safe_source(root: Path, raw: str) -> Path:
 
 def _digest(path: Path) -> str:
     value = hashlib.sha256()
-    with path.open("rb") as handle:
-        while chunk := handle.read(1024 * 1024):
-            value.update(chunk)
+    try:
+        with path.open("rb") as handle:
+            while chunk := handle.read(1024 * 1024):
+                value.update(chunk)
+    except OSError as exc:
+        raise ValueError(f"cannot hash normative source: {exc}") from exc
     return f"sha256:{value.hexdigest()}"
 
 
@@ -84,7 +96,7 @@ def validate_lock(
     try:
         schema = _load_mapping(schema_path)
         lock = _load_mapping(lock_path)
-    except ValueError as exc:
+    except (OSError, ValueError) as exc:
         return [str(exc)]
 
     findings = [
@@ -103,10 +115,16 @@ def validate_lock(
         return findings
     for skill_name, raw_entry in skills.items():
         location = f"skills.{skill_name}"
+        if not isinstance(skill_name, str) or not SKILL_NAME.fullmatch(skill_name):
+            findings.append(f"{location}: invalid skill name")
+            continue
         if skill_name in DEPRECATED_SKILL_NAMES:
             findings.append(f"{location}: deprecated or ambiguous skill name")
         if not isinstance(raw_entry, Mapping):
             continue
+        version = raw_entry.get("version")
+        if not isinstance(version, str) or not version.strip():
+            findings.append(f"{location}.version: must be a non-empty string")
         skill_revision = raw_entry.get("revision")
         if isinstance(revision, str) and isinstance(skill_revision, str) and skill_revision != revision:
             findings.append(f"{location}.revision: must equal repository revision")
@@ -118,17 +136,20 @@ def validate_lock(
             continue
         try:
             source = _safe_source(skills_root, entrypoint)
-            manifest = _load_mapping(skills_root / "skills" / str(skill_name) / "manifest.yaml")
-        except ValueError as exc:
+            manifest = _load_mapping(
+                skills_root / "skills" / skill_name / "manifest.yaml"
+            )
+            source_digest = _digest(source)
+        except (OSError, ValueError) as exc:
             findings.append(f"{location}: {exc}")
             continue
-        if raw_entry.get("version") != manifest.get("version"):
+        if version != manifest.get("version"):
             findings.append(f"{location}.version: does not match local manifest")
         manifest_entrypoint = manifest.get("normative_entrypoint")
         if entrypoint != f"skills/{skill_name}/{manifest_entrypoint}":
             findings.append(f"{location}.normative_entrypoint: does not match local manifest")
         expected_digest = raw_entry.get("content_digest")
-        if isinstance(expected_digest, str) and expected_digest != _digest(source):
+        if isinstance(expected_digest, str) and expected_digest != source_digest:
             findings.append(f"{location}.content_digest: does not match normative source")
     return findings
 
