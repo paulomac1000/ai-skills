@@ -329,9 +329,7 @@ def audit_workflow(
                         f"{label} may call only a literal repository-local workflow below .github/workflows",
                     )
                 )
-            if pull_request_workflow and any(
-                _SECRET_CONTEXT_REFERENCE.search(value) for value in _scalar_strings(job)
-            ):
+            if pull_request_workflow and any(_SECRET_CONTEXT_REFERENCE.search(value) for value in _scalar_strings(job)):
                 findings.append(Finding(path, f"{label} pull-request call must not pass repository secrets"))
             continue
 
@@ -346,9 +344,7 @@ def audit_workflow(
                     job.get("permissions"),
                     scope=f"job {job_name!r}",
                     allowed_read_scopes=allowed_read_scopes,
-                    allowed_write_scopes=(
-                        _PROTECTED_RELEASE_WRITE_SCOPES if protected_release_job else None
-                    ),
+                    allowed_write_scopes=(_PROTECTED_RELEASE_WRITE_SCOPES if protected_release_job else None),
                 )
             )
 

@@ -208,7 +208,6 @@ def test_impl_requires_explicit_hardened_dependencies() -> None:
     assert not hasattr(policy_impl, "main")
 
 
-
 def test_protected_non_pr_release_job_may_use_narrow_write_scopes(tmp_path: Path) -> None:
     workflow = tmp_path / "release.yml"
     workflow.write_text(

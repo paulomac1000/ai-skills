@@ -178,7 +178,10 @@ def test_publish_builds_once_then_smoke_tests_before_push() -> None:
     build = steps[build_index]
     assert build["with"]["load"] is True
     assert build["with"]["push"] is False
-    assert "docker push --all-tags" in steps[push_index]["run"]
+    push_script = steps[push_index]["run"]
+    assert "docker push --all-tags" not in push_script
+    assert "while IFS= read -r image_tag" in push_script
+    assert 'docker push "$image_tag"' in push_script
     assert jobs["publish"]["steps"][attest_index]["with"]["subject-digest"] == "${{ steps.push.outputs.digest }}"
 
 
