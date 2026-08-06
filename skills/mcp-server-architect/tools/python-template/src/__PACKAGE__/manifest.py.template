@@ -10,6 +10,13 @@ from typing import Any
 from jsonschema import Draft202012Validator
 
 _MAX_MANIFEST_BYTES = 256 * 1024
+_REQUIRED_APPROVAL_BINDINGS = {
+    "principal",
+    "capability",
+    "target",
+    "arguments-digest",
+    "expires-at",
+}
 
 
 def _load_json(resource: Any, label: str) -> Mapping[str, Any]:
@@ -30,9 +37,14 @@ def _semantic_findings(manifest: Mapping[str, Any]) -> list[str]:
     operation = manifest.get("operation_kind")
     extensions = manifest.get("extensions")
     rationales = extensions if isinstance(extensions, Mapping) else {}
+    if manifest.get("active_state") != "active":
+        findings.append("only active manifests may be registered")
     if operation in {"write", "destructive"}:
         for flag in ("retryable", "idempotent", "reversible"):
-            if manifest.get(flag) is True and f"{flag}_rationale" not in rationales:
+            if (
+                manifest.get(flag) is True
+                and f"{flag}_rationale" not in rationales
+            ):
                 findings.append(f"extensions.{flag}_rationale is required")
     if manifest.get("requires_confirmation") is True:
         approval = manifest.get("approval")
@@ -41,16 +53,19 @@ def _semantic_findings(manifest: Mapping[str, Any]) -> list[str]:
         else:
             binds = approval.get("binds")
             observed = set(binds) if isinstance(binds, list) else set()
-            required = {"principal", "capability", "target", "arguments-digest"}
-            if missing := sorted(required - observed):
+            missing = sorted(_REQUIRED_APPROVAL_BINDINGS - observed)
+            if missing:
                 findings.append(f"approval.binds is missing {missing}")
     return findings
 
 
 def load_manifests() -> dict[str, Mapping[str, Any]]:
-    """Return every validated manifest keyed by immutable capability ID."""
+    """Return every validated active manifest keyed by immutable capability ID."""
     package = files(__package__)
-    schema = _load_json(package.joinpath("contracts/capability-manifest.schema.json"), "schema")
+    schema = _load_json(
+        package.joinpath("contracts/capability-manifest.schema.json"),
+        "schema",
+    )
     Draft202012Validator.check_schema(schema)
     validator = Draft202012Validator(schema)
 
@@ -61,7 +76,8 @@ def load_manifests() -> dict[str, Mapping[str, Any]]:
             continue
         manifest = _load_json(resource, resource.name)
         findings = [
-            f"{'.'.join(str(part) for part in error.absolute_path) or '$'}: {error.message}"
+            f"{'.'.join(str(part) for part in error.absolute_path) or '$'}: "
+            f"{error.message}"
             for error in sorted(
                 validator.iter_errors(manifest),
                 key=lambda item: tuple(str(part) for part in item.absolute_path),
