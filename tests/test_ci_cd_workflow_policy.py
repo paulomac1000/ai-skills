@@ -263,6 +263,38 @@ jobs:
     assert any("allowed write scopes are: none" in message for message in _messages(workflow))
 
 
+@pytest.mark.parametrize(
+    "environment_value",
+    ("", "{}", "${{ inputs.environment }}", "production"),
+)
+def test_write_scope_requires_literal_approved_release_environment(
+    tmp_path: Path,
+    environment_value: str,
+) -> None:
+    workflow = tmp_path / "unprotected-release.yml"
+    workflow.write_text(
+        f"""
+name: unsafe
+on: workflow_dispatch
+permissions:
+  contents: read
+concurrency:
+  group: unsafe
+  cancel-in-progress: false
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment: {environment_value}
+    permissions:
+      packages: write
+    steps: []
+""".lstrip(),
+        encoding="utf-8",
+    )
+    assert any("allowed write scopes are: none" in message for message in _messages(workflow))
+
+
 def test_literal_repository_local_reusable_workflow_is_accepted(tmp_path: Path) -> None:
     workflow = tmp_path / "caller.yml"
     workflow.write_text(
@@ -281,3 +313,25 @@ jobs:
         encoding="utf-8",
     )
     assert _messages(workflow) == []
+
+
+def test_pr_reusable_workflow_write_permission_is_rejected(tmp_path: Path) -> None:
+    workflow = tmp_path / "pr-caller.yml"
+    workflow.write_text(
+        """
+name: caller
+on: pull_request
+permissions:
+  contents: read
+concurrency:
+  group: caller
+  cancel-in-progress: false
+jobs:
+  build:
+    uses: ./.github/workflows/container-build.yml
+    permissions:
+      contents: write
+""".lstrip(),
+        encoding="utf-8",
+    )
+    assert any("allowed write scopes are: none" in message for message in _messages(workflow))
