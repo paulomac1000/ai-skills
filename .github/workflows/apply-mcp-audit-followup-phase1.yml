@@ -1,0 +1,80 @@
+name: Apply MCP audit follow-up phase 1
+
+on:
+  push:
+    branches: ["agent/fix-contract-consistency"]
+    paths:
+      - ".phase1/**"
+      - ".github/workflows/apply-mcp-audit-followup-phase1.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: apply-mcp-audit-followup-phase1
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: agent/fix-contract-consistency
+          fetch-depth: 0
+          persist-credentials: true
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-dev-linux-x64-py312.lock
+      - name: Install repository toolchain
+        run: python scripts/install_locked.py
+      - name: Apply reviewed migration
+        shell: bash
+        run: |
+          set -euo pipefail
+          gzip --decompress --stdout .phase1/apply.py.gz > /tmp/apply_followup_phase1.py
+          python -m py_compile /tmp/apply_followup_phase1.py
+          python /tmp/apply_followup_phase1.py
+      - name: Normalize and statically verify changed Python
+        shell: bash
+        run: |
+          set -euo pipefail
+          FILES=(
+            contracts/mcp_capability_manifest.py
+            skills/ci-cd-architect/tools/check_github_actions_policy_impl.py
+            skills/mcp-server-architect/tools/generate_python_server.py
+            skills/mcp-server-architect/tools/generate_python_server_impl.py
+            tests/test_generator_platform_contracts.py
+            tests/test_mcp_audit_followup.py
+            tests/test_mcp_generator.py
+          )
+          python -m ruff format "${FILES[@]}"
+          python -m ruff check --fix "${FILES[@]}"
+          python -m ruff check "${FILES[@]}"
+          python -m compileall -q contracts skills/mcp-server-architect/tools tests
+      - name: Run focused regression suite
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pytest -q \
+            tests/test_mcp_audit_followup.py \
+            tests/test_mcp_generator.py \
+            tests/test_generator_platform_contracts.py \
+            tests/test_ci_cd_workflow_policy.py \
+            tests/test_skill_manifest_contract.py \
+            tests/test_repository.py
+      - name: Commit verified phase
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf .phase1 .github/workflows/apply-mcp-audit-followup-phase1.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "fix: harden MCP generator and SDK contracts"
+          git push origin HEAD:agent/fix-contract-consistency
