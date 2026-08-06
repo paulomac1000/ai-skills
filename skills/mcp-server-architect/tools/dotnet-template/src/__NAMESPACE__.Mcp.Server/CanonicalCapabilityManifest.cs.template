@@ -75,11 +75,12 @@ internal static class CanonicalCapabilityManifestContract
     [ModuleInitializer]
     internal static void ValidateGeneratedCatalog()
     {
-        var schemaPath = Path.Combine(
-            AppContext.BaseDirectory,
-            "contracts",
-            "capability-manifest.schema.json");
-        using var schema = JsonDocument.Parse(File.ReadAllText(schemaPath));
+        var assembly = typeof(CanonicalCapabilityManifestContract).Assembly;
+        using var schemaStream = assembly.GetManifestResourceStream(
+            "capability-manifest.schema.json")
+            ?? throw new InvalidOperationException(
+                "Embedded capability-manifest.schema.json is missing.");
+        using var schema = JsonDocument.Parse(schemaStream);
         var required = schema.RootElement
             .GetProperty("required")
             .EnumerateArray()
@@ -229,7 +230,7 @@ internal static class CanonicalCapabilityManifestContract
                 $"{manifest.Id}: canonical response bound is invalid.");
         }
 
-        if (manifest.OperationKind is "write" or "destructive"
+        if ((manifest.OperationKind is "write" or "destructive")
             && manifest.AuthorizationScopes.Count == 0)
         {
             throw new InvalidOperationException(
