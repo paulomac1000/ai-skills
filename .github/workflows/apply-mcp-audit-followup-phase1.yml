@@ -11,7 +11,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: apply-mcp-audit-followup-phase1
+  group: apply-mcp-audit-followup-phase1-retry
   cancel-in-progress: false
 
 jobs:
