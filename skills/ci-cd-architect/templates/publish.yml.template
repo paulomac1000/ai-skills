@@ -49,7 +49,6 @@ jobs:
             release_tag="$EVENT_REF_NAME"
             requested="refs/tags/$release_tag"
           fi
-
           if [[ "$requested" =~ ^[0-9a-f]{40}$ ]]; then
             release_sha="$requested"
           else
@@ -64,7 +63,6 @@ jobs:
             }
             release_sha="$(git rev-parse "refs/tags/$release_tag^{commit}")"
           fi
-
           [[ "$release_sha" =~ ^[0-9a-f]{40}$ ]]
           git cat-file -e "$release_sha^{commit}"
           git merge-base --is-ancestor "$release_sha" "origin/$DEFAULT_BRANCH" || {
@@ -96,7 +94,11 @@ jobs:
         shell: bash
         env:
           RELEASE_SHA: ${{ steps.revision.outputs.sha }}
-        run: echo "immutable_ref=ghcr.io/${GITHUB_REPOSITORY}:sha-${RELEASE_SHA}" >> "$GITHUB_OUTPUT"
+        run: |
+          set -euo pipefail
+          repository="${GITHUB_REPOSITORY,,}"
+          [[ "$repository" =~ ^[a-z0-9._-]+/[a-z0-9._-]+$ ]]
+          echo "immutable_ref=ghcr.io/${repository}:sha-${RELEASE_SHA}" >> "$GITHUB_OUTPUT"
       - name: Build release image once
         uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf
         with:
@@ -130,7 +132,6 @@ jobs:
           import json
           import os
           from pathlib import Path
-
           manifest = {
               "schemaVersion": 1,
               "sourceRevision": os.environ["RELEASE_SHA"],
@@ -184,7 +185,6 @@ jobs:
           import json
           import os
           from pathlib import Path
-
           manifest = json.loads(Path("release-artifact/manifest.json").read_text(encoding="utf-8"))
           assert manifest["sourceRevision"] == os.environ["EXPECTED_SHA"]
           assert manifest["image"] == os.environ["EXPECTED_IMAGE"]
@@ -214,8 +214,9 @@ jobs:
           digest="$(docker buildx imagetools inspect "$IMMUTABLE_REF" --format '{{.Manifest.Digest}}')"
           [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
           echo "digest=$digest" >> "$GITHUB_OUTPUT"
+          echo "subject_name=$repository" >> "$GITHUB_OUTPUT"
       - uses: actions/attest-build-provenance@96b4a1ef7235a096b17240c259729fdd70c83d45
         with:
-          subject-name: ghcr.io/${{ github.repository }}
+          subject-name: ${{ steps.push.outputs.subject_name }}
           subject-digest: ${{ steps.push.outputs.digest }}
           push-to-registry: true
