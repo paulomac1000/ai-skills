@@ -13,7 +13,6 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 import yaml
-
 from rule_applicability import RuleContext, expected_rules
 
 FULL_SHA = re.compile(r"^[0-9a-f]{40}$")

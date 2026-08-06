@@ -16,9 +16,8 @@ CONTRACTS = REPOSITORY_ROOT / "contracts"
 if str(CONTRACTS) not in sys.path:
     sys.path.insert(0, str(CONTRACTS))
 
-import yaml  # noqa: E402
-
 import check_github_actions_policy_impl as _impl  # noqa: E402
+import yaml  # noqa: E402
 from confined_io import ConfinedReadError, read_utf8_bounded  # noqa: E402
 from confined_io import component_snapshot as _component_snapshot  # noqa: E402
 from confined_io import is_link_or_reparse as _is_link_or_reparse  # noqa: E402
