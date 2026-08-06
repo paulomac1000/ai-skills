@@ -1,0 +1,6 @@
+*
+!Dockerfile
+!dist/
+!dist/*.whl
+!locks/
+!locks/runtime-linux-x64-py312.lock
