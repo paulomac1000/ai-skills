@@ -1,25 +1,21 @@
-#!/usr/bin/env python3
-"""Render the canonical official-SDK Python MCP server template."""
+"""Render and validate the canonical official-SDK Python MCP server template."""
 
 from __future__ import annotations
 
-import argparse
 import ctypes
 import errno
 import json
 import os
 import re
-import shutil
 import stat
 import sys
-import tempfile
 import tomllib
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from pathlib import Path, PurePosixPath
 
 from jsonschema import Draft202012Validator
 
-PACKAGE_NAME = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
+PACKAGE_NAME = re.compile(r"^[a-z][a-z0-9_]{1,63}$")
 MAX_TEMPLATE_BYTES = 2 * 1024 * 1024
 TEMPLATE_ROOT = Path(__file__).with_name("python-template")
 SKILL_ROOT = Path(__file__).resolve().parent.parent
@@ -58,7 +54,7 @@ def _read_regular_utf8(path: Path, *, maximum: int = MAX_TEMPLATE_BYTES) -> str:
 
 def _validate_inputs(package_name: str, server_name: str) -> None:
     if not PACKAGE_NAME.fullmatch(package_name):
-        raise ValueError("package name must match ^[a-z][a-z0-9_]{0,63}$")
+        raise ValueError("package name must match ^[a-z][a-z0-9_]{1,63}$")
     if not server_name or len(server_name) > 128 or any(ord(character) < 0x20 for character in server_name):
         raise ValueError("server name must contain 1-128 printable characters")
 
@@ -259,45 +255,3 @@ def _rename_noreplace(source: Path, destination: Path) -> None:
             raise OSError(error, os.strerror(error), destination)
         return
     raise RuntimeError(f"atomic no-replace publication is unsupported on {sys.platform}")
-
-
-def generate_project(package_name: str, destination: Path, server_name: str) -> Path:
-    """Render, validate, and atomically publish one project without overwriting output."""
-    files = project_files(package_name, server_name)
-    validate_generated_project(files, package_name)
-    destination = destination.resolve(strict=False)
-    parent = destination.parent
-    parent.mkdir(parents=True, exist_ok=True)
-    if parent.is_symlink() or not parent.is_dir():
-        raise ValueError("destination parent must be a regular directory, not a symlink")
-    if os.path.lexists(destination):
-        raise FileExistsError(destination)
-
-    staging: Path | None = Path(tempfile.mkdtemp(prefix=f".{destination.name}.", dir=parent))
-    try:
-        _write_files(staging, files)
-        _rename_noreplace(staging, destination)
-        staging = None
-        return destination
-    finally:
-        if staging is not None and staging.exists():
-            shutil.rmtree(staging)
-
-
-def main(argv: Sequence[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("package_name")
-    parser.add_argument("destination", type=Path)
-    parser.add_argument("--server-name")
-    args = parser.parse_args(argv)
-    server_name = args.server_name or args.package_name.replace("_", " ").title()
-    try:
-        generated = generate_project(args.package_name, args.destination, server_name)
-    except (OSError, RuntimeError, ValueError) as exc:
-        parser.error(str(exc))
-    print(generated)
-    return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
