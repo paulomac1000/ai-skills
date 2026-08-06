@@ -8,6 +8,8 @@ import re
 import sys
 from pathlib import Path
 
+import yaml
+
 ROOT = Path(__file__).resolve().parents[1]
 GENERATOR = ROOT / "skills/mcp-server-architect/tools/generate_dotnet_server.py"
 JSON_PROPERTY = re.compile(r'JsonPropertyName\("([a-z0-9_]+)"\)')
@@ -54,11 +56,51 @@ def test_dotnet_canonical_projection_covers_every_required_schema_field() -> Non
         "GetManifestResourceStream",
         '"capability-manifest.schema.json"',
         'GetProperty("required")',
+        'GetProperty("properties")',
         "ValidateRequiredFields",
+        "ValidateNoUnknownFields",
+        "ValidateSchemaEnums",
         "ValidateSemantics",
         '"arguments-digest"',
     ):
         assert required in adapter
+
+
+def test_dotnet_projection_uses_only_canonical_enum_values_and_approval_fields() -> None:
+    adapter = (
+        ROOT
+        / "skills/mcp-server-architect/tools/dotnet-template/src/"
+        "__NAMESPACE__.Mcp.Server/CanonicalCapabilityManifest.cs.template"
+    ).read_text(encoding="utf-8")
+
+    for canonical in (
+        '"environment-dependent"',
+        '"nondeterministic"',
+        '"bounded-long"',
+        '"local"',
+        '"principal-target"',
+        '"capability"',
+        '"server-side"',
+        'JsonPropertyName("record_required")',
+        'JsonPropertyName("record_ttl_seconds")',
+    ):
+        assert canonical in adapter
+
+    for stale in (
+        '"non-deterministic"',
+        '"slow"',
+        '"internal"',
+        '"irreversible"',
+        'JsonPropertyName("issuer")',
+        'JsonPropertyName("ttl_seconds")',
+        'JsonPropertyName("one_time")',
+    ):
+        assert stale not in adapter
+
+    principal_target = adapter.index('"principal-target"')
+    principal = adapter.index('\n                "principal",', principal_target)
+    target = adapter.index('\n                "target",', principal)
+    assert principal_target < principal < target
 
 
 def test_dotnet_schema_is_embedded_and_rich_manifest_evidence_is_preserved() -> None:
@@ -86,7 +128,7 @@ def test_dotnet_schema_is_embedded_and_rich_manifest_evidence_is_preserved() -> 
 
 
 def test_dotnet_baseline_does_not_claim_unverified_sdk_candidate() -> None:
-    manifest = __import__("yaml").safe_load(
+    manifest = yaml.safe_load(
         (ROOT / "skills/mcp-server-architect/manifest.yaml").read_text(
             encoding="utf-8"
         )
