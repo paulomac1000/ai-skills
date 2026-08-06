@@ -27,6 +27,7 @@ _WRITE_PERMISSION = re.compile(r"(^|-)write$")
 _WORKFLOW_SUFFIXES = {".yml", ".yaml"}
 _MUTABLE_RUNNERS = {"ubuntu-latest", "windows-latest", "macos-latest"}
 _PROTECTED_RELEASE_WRITE_SCOPES = frozenset({"packages", "contents", "id-token", "attestations"})
+_RELEASE_ENVIRONMENT_NAME = re.compile(r"^(?:release|[A-Za-z0-9][A-Za-z0-9_.-]*-release)$")
 
 
 class _UniqueKeyLoader(yaml.SafeLoader):
@@ -104,6 +105,15 @@ def _event_names(events: Any) -> tuple[set[str], str | None]:
 
 def _positive_int(value: Any) -> bool:
     return isinstance(value, int) and not isinstance(value, bool) and value > 0
+
+
+def _is_protected_release_environment(value: Any) -> bool:
+    return (
+        isinstance(value, str)
+        and value == value.strip()
+        and not _EXPRESSION_REFERENCE.search(value)
+        and _RELEASE_ENVIRONMENT_NAME.fullmatch(value) is not None
+    )
 
 
 def _permission_findings(
@@ -329,7 +339,18 @@ def audit_workflow(
                         f"{label} may call only a literal repository-local workflow below .github/workflows",
                     )
                 )
-            if pull_request_workflow and any(_SECRET_CONTEXT_REFERENCE.search(value) for value in _scalar_strings(job)):
+            if "permissions" in job:
+                findings.extend(
+                    _permission_findings(
+                        path,
+                        job.get("permissions"),
+                        scope=label,
+                        allowed_read_scopes=allowed_read_scopes,
+                    )
+                )
+            if pull_request_workflow and any(
+                _SECRET_CONTEXT_REFERENCE.search(value) for value in _scalar_strings(job)
+            ):
                 findings.append(Finding(path, f"{label} pull-request call must not pass repository secrets"))
             continue
 
@@ -337,14 +358,19 @@ def audit_workflow(
             findings.append(Finding(path, f"job {job_name!r} needs positive timeout-minutes"))
         findings.extend(_runner_findings(path, str(job_name), job.get("runs-on")))
         if "permissions" in job:
-            protected_release_job = not pull_request_workflow and "environment" in job
+            protected_release_job = (
+                not pull_request_workflow
+                and _is_protected_release_environment(job.get("environment"))
+            )
             findings.extend(
                 _permission_findings(
                     path,
                     job.get("permissions"),
                     scope=f"job {job_name!r}",
                     allowed_read_scopes=allowed_read_scopes,
-                    allowed_write_scopes=(_PROTECTED_RELEASE_WRITE_SCOPES if protected_release_job else None),
+                    allowed_write_scopes=(
+                        _PROTECTED_RELEASE_WRITE_SCOPES if protected_release_job else None
+                    ),
                 )
             )
 
@@ -355,7 +381,9 @@ def audit_workflow(
         for index, step in enumerate(steps, start=1):
             findings.extend(_action_findings(path, str(job_name), index, step))
 
-    if pull_request_workflow and any(_SECRET_CONTEXT_REFERENCE.search(value) for value in _scalar_strings(document)):
+    if pull_request_workflow and any(
+        _SECRET_CONTEXT_REFERENCE.search(value) for value in _scalar_strings(document)
+    ):
         findings.append(Finding(path, "pull-request workflows must not reference repository secrets"))
 
     return findings
