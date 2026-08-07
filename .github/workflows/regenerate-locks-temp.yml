@@ -45,7 +45,7 @@ jobs:
           python-version: ${{ matrix.python }}
           architecture: ${{ matrix.architecture }}
       - name: Install lock compiler
-        run: python -m pip install pip-tools==7.6.0
+        run: python -m pip install "pip<26" pip-tools==7.6.0
       - name: Compile target locks
         run: python scripts/compile_locks.py
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
