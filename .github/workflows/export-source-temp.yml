@@ -20,7 +20,15 @@ jobs:
         env:
           EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}
         run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
-      - name: Package source tree
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+          architecture: x64
+      - name: Format Python source for follow-up commit
+        run: |
+          python -m pip install ruff==0.16.0
+          python -m ruff format $(python scripts/quality_targets.py quality) tests
+      - name: Package formatted source tree
         run: tar --exclude=.git -czf "$RUNNER_TEMP/source-tree.tgz" .
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
