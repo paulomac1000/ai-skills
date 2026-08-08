@@ -60,10 +60,13 @@ required:
 - references/protected-release-workflows.md
 - references/trusted-auditor-bootstrap.md
 - references/finding-triage.md
+- references/on-demand-ci.md
 - templates/publish.yml.template
 - templates/trusted-workflow-audit.yml.template
+- templates/on-demand-ci.yaml.template
 - tools/check_github_actions_policy.py
 - tools/check_github_actions_policy_impl.py
+- tools/check_ci_execution_policy.py
 categories:
 - core
 - references
