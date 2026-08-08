@@ -12,6 +12,7 @@ TOOLS = ROOT / "skills/ci-cd-architect/tools"
 TEMPLATE = ROOT / "skills/ci-cd-architect/templates/on-demand-ci.yaml.template"
 sys.path.insert(0, str(TOOLS))
 import check_ci_execution_policy as policy  # noqa: E402
+import check_github_actions_policy_impl as trust_policy  # noqa: E402
 
 
 def _audit(text: str, branches: tuple[str, ...] = ("main", "master")) -> list[str]:
@@ -119,13 +120,20 @@ def test_custom_integration_branch_is_explicit() -> None:
     assert _audit(text, ("trunk",)) == []
 
 
-def test_template_is_manual_on_branches_and_full_on_integration_push() -> None:
+def test_template_is_manual_on_branches_and_full_on_integration_push(tmp_path: Path) -> None:
     rendered = _render_template()
+    workflow = tmp_path / "ci.yml"
+    workflow.write_text(rendered, encoding="utf-8")
     assert policy.audit_text(
         Path(".github/workflows/ci.yml"),
         rendered,
         integration_branches=("main",),
     ) == []
+
+    def reader(path: Path, _root: Path) -> tuple[str | None, str | None]:
+        return path.read_text(encoding="utf-8"), None
+
+    assert trust_policy.audit_workflow(workflow, tmp_path, reader=reader) == []
     document = yaml.safe_load(rendered)
     events = document.get("on", document.get(True))
     assert set(events) == {"push", "workflow_dispatch"}
