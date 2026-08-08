@@ -34,11 +34,19 @@ An on-demand development workflow:
 
 A repository may use a manual-only workflow for an isolated expensive concern such as Semgrep, cross-platform runtime isolation, a Docker build, or documentation validation. Scheduled assurance remains a separate workflow and must be intentionally budgeted rather than hidden inside the on-demand workflow.
 
+## Manual-dispatch bootstrap
+
+GitHub only accepts `workflow_dispatch` for a workflow file that exists on the repository's default branch. After that definition exists there, the Actions UI, CLI, or API can dispatch it for a selected ref, including a candidate branch.
+
+This matters during migration. If a workflow is being introduced for the first time, or the default-branch copy does not yet declare `workflow_dispatch`, the candidate branch cannot prove its new manual trigger by dispatching that candidate-only definition. Validate the workflow structurally and with repository-owned tests, merge the trigger change through the repository's existing trusted acceptance path, then prove manual dispatch on the first subsequent candidate. Do not add a privileged temporary workflow solely to work around this GitHub bootstrap rule.
+
+When converting an existing workflow that already has `workflow_dispatch` on the default branch, manual candidate-ref validation can be used immediately.
+
 ## Recommended agent loop
 
 1. Run formatting, syntax, focused tests, and repository-owned local checks without GitHub Actions.
 2. During implementation, do not trigger hosted CI after every agent commit.
-3. When remote validation is useful, dispatch the fast gate with the default `full=false`.
+3. When remote validation is useful and the workflow is dispatchable from the default branch, dispatch the fast gate with the default `full=false`.
 4. Near completion, dispatch `full=true` once on the candidate branch and record the exact run SHA.
 5. If the branch changes after that run, the prior run is stale evidence; rerun the required gate on the new exact SHA.
 6. Merge only under the repository's acceptance policy. A push to `main` or `master` runs the full integration gate automatically.
@@ -73,17 +81,18 @@ For a repository that currently runs expensive CI on every PR or branch push:
 
 1. Inventory every workflow trigger and approximate which jobs are expensive.
 2. Keep cheap administrative and deliberately scheduled/release workflows separate.
-3. Convert expensive development workflows to `workflow_dispatch`; add restricted `push.branches` only for integration branches that require automatic assurance.
-4. Where useful, split one workflow into `validate` and `full` jobs. `validate` is the cheap default manual path. Gate `full` with:
+3. Confirm whether each target workflow already has a dispatchable definition on the default branch; record workflows that require one-time bootstrap through the existing acceptance path.
+4. Convert expensive development workflows to `workflow_dispatch`; add restricted `push.branches` only for integration branches that require automatic assurance.
+5. Where useful, split one workflow into `validate` and `full` jobs. `validate` is the cheap default manual path. Gate `full` with:
 
 ```yaml
 if: github.event_name == 'push' || inputs.full == true
 ```
 
-5. Add `# ai-skills-execution-policy: on-demand`.
-6. Run `tools/check_ci_execution_policy.py` against the migrated workflow or repository.
-7. Manually prove both fast and full dispatch paths and verify that a feature-branch push or PR synchronization does not start the workflow.
-8. Update required-check/branch-protection settings. Do not leave a required PR check pointing at a workflow that is intentionally no longer triggered on pull requests.
+6. Add `# ai-skills-execution-policy: on-demand`.
+7. Run `tools/check_ci_execution_policy.py` against the migrated workflow or repository.
+8. When GitHub's default-branch dispatch precondition is satisfied, manually prove both fast and full dispatch paths and verify that a feature-branch push or PR synchronization does not start the workflow.
+9. Update required-check/branch-protection settings. Do not leave a required PR check pointing at a workflow that is intentionally no longer triggered on pull requests.
 
 ## Validation command
 
