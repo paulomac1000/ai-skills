@@ -1,0 +1,57 @@
+name: Branch format cleanup
+
+on:
+  push:
+    branches:
+      - fix/unified-contract-release-hardening
+
+permissions:
+  contents: write
+
+concurrency:
+  group: branch-format-cleanup
+  cancel-in-progress: true
+
+jobs:
+  format:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: fix/unified-contract-release-hardening
+          persist-credentials: true
+      - name: Refuse to format an intermediate payload state
+        id: state
+        shell: bash
+        run: |
+          if [[ -d .transport ]]; then
+            echo 'final=false' >> "$GITHUB_OUTPUT"
+          else
+            echo 'final=true' >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        if: ${{ steps.state.outputs.final == 'true' }}
+        with:
+          python-version: '3.12'
+          architecture: x64
+      - name: Apply repository formatter
+        if: ${{ steps.state.outputs.final == 'true' }}
+        run: |
+          python -m pip install ruff==0.16.0
+          python -m ruff format contracts/validate_adoption.py skills/afds-doc-writer/validate.py tests/test_templates.py
+          python -m ruff check --fix contracts/validate_adoption.py skills/afds-doc-writer/validate.py tests/test_templates.py
+          python -m compileall -q contracts/validate_adoption.py skills/afds-doc-writer/validate.py
+      - name: Remove formatter and publish cleanup
+        if: ${{ steps.state.outputs.final == 'true' }}
+        run: |
+          set -euo pipefail
+          git rm -f .github/workflows/branch-format-cleanup.yml
+          git add contracts/validate_adoption.py skills/afds-doc-writer/validate.py tests/test_templates.py
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m 'chore: format final authority files [format-complete]'
+          git push origin HEAD:fix/unified-contract-release-hardening
