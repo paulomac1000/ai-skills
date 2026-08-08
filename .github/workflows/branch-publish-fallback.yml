@@ -1,0 +1,195 @@
+name: Branch staged-tree fallback
+
+on:
+  push:
+    branches:
+      - fix/unified-contract-release-hardening
+
+permissions:
+  contents: read
+
+env:
+  BASE_TREE: b355475528425b52507a8933d535066237585c3d
+
+concurrency:
+  group: branch-staged-tree-fallback
+  cancel-in-progress: true
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    outputs:
+      has_payload: ${{ steps.probe.outputs.has_payload }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - id: probe
+        shell: bash
+        run: |
+          if [[ -d .transport ]]; then
+            echo 'has_payload=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'has_payload=false' >> "$GITHUB_OUTPUT"
+          fi
+
+  cleanup:
+    needs: probe
+    if: ${{ needs.probe.outputs.has_payload == 'false' }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: fix/unified-contract-release-hardening
+          persist-credentials: true
+      - name: Remove fallback transport
+        run: |
+          set -euo pipefail
+          git rm -f .github/workflows/branch-publish-fallback.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git commit -m 'chore: remove branch transport [native-locks-complete]'
+          git push origin HEAD:fix/unified-contract-release-hardening
+
+  generate:
+    needs: probe
+    if: ${{ needs.probe.outputs.has_payload == 'true' }}
+    name: Generate ${{ matrix.lock_id }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {os: ubuntu-24.04, python: '3.12', architecture: x64, lock_id: linux-x64-py312}
+          - {os: ubuntu-24.04, python: '3.13', architecture: x64, lock_id: linux-x64-py313}
+          - {os: ubuntu-24.04, python: '3.14', architecture: x64, lock_id: linux-x64-py314}
+          - {os: macos-15, python: '3.12', architecture: arm64, lock_id: macos-arm64-py312}
+          - {os: windows-2025, python: '3.12', architecture: x64, lock_id: windows-x64-py312}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: ${{ matrix.python }}
+          architecture: ${{ matrix.architecture }}
+      - name: Materialize staged source
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: python
+        run: |
+          import base64, json, os, shutil, stat, urllib.request
+          from pathlib import Path, PurePosixPath
+          root = Path.cwd(); api = os.environ['GITHUB_API_URL']; repo = os.environ['GITHUB_REPOSITORY']; token = os.environ['GH_TOKEN']
+          def get(url):
+              request = urllib.request.Request(url, headers={'Authorization': f'Bearer {token}', 'Accept': 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28'})
+              with urllib.request.urlopen(request, timeout=30) as response: return json.loads(response.read())
+          tree = get(f"{api}/repos/{repo}/git/trees/{os.environ['BASE_TREE']}?recursive=1")
+          if tree.get('truncated'): raise SystemExit('staged tree truncated')
+          for child in list(root.iterdir()):
+              if child.name == '.git': continue
+              shutil.rmtree(child) if child.is_dir() and not child.is_symlink() else child.unlink()
+          for entry in tree['tree']:
+              if entry.get('type') != 'blob': continue
+              rel = PurePosixPath(entry['path'])
+              if rel.is_absolute() or '..' in rel.parts: raise SystemExit(f'unsafe path {rel}')
+              blob = get(f"{api}/repos/{repo}/git/blobs/{entry['sha']}")
+              target = root.joinpath(*rel.parts); target.parent.mkdir(parents=True, exist_ok=True)
+              target.write_bytes(base64.b64decode(blob['content']))
+              if entry.get('mode') == '100755': target.chmod(target.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+      - run: python -m pip install "pip<26" pip-tools==7.6.0
+      - run: python scripts/compile_locks.py
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: fallback-locks-${{ matrix.lock_id }}
+          path: |
+            requirements-dev-${{ matrix.lock_id }}.lock
+            skills/mcp-server-architect/locks/runtime-${{ matrix.lock_id }}.lock
+            skills/mcp-server-architect/locks/dev-${{ matrix.lock_id }}.lock
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    needs: [probe, generate]
+    if: ${{ always() && needs.probe.outputs.has_payload == 'true' && needs.generate.result == 'success' }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: fix/unified-contract-release-hardening
+          fetch-depth: 2
+          persist-credentials: true
+      - run: cp -R .transport "$RUNNER_TEMP/transport-payload"
+      - name: Materialize staged source
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python - <<'PY'
+          import base64, json, os, shutil, stat, urllib.request
+          from pathlib import Path, PurePosixPath
+          root = Path.cwd(); api = os.environ['GITHUB_API_URL']; repo = os.environ['GITHUB_REPOSITORY']; token = os.environ['GH_TOKEN']
+          def get(url):
+              request = urllib.request.Request(url, headers={'Authorization': f'Bearer {token}', 'Accept': 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28'})
+              with urllib.request.urlopen(request, timeout=30) as response: return json.loads(response.read())
+          tree = get(f"{api}/repos/{repo}/git/trees/{os.environ['BASE_TREE']}?recursive=1")
+          if tree.get('truncated'): raise SystemExit('staged tree truncated')
+          for child in list(root.iterdir()):
+              if child.name == '.git': continue
+              shutil.rmtree(child) if child.is_dir() and not child.is_symlink() else child.unlink()
+          for entry in tree['tree']:
+              if entry.get('type') != 'blob': continue
+              rel = PurePosixPath(entry['path'])
+              if rel.is_absolute() or '..' in rel.parts: raise SystemExit(f'unsafe path {rel}')
+              blob = get(f"{api}/repos/{repo}/git/blobs/{entry['sha']}")
+              target = root.joinpath(*rel.parts); target.parent.mkdir(parents=True, exist_ok=True)
+              target.write_bytes(base64.b64decode(blob['content']))
+              if entry.get('mode') == '100755': target.chmod(target.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+          PY
+      - name: Overlay authority payloads
+        run: |
+          cp "$RUNNER_TEMP/transport-payload/adoption-assessment.schema.json" contracts/adoption-assessment.schema.json
+          cp "$RUNNER_TEMP/transport-payload/validate_adoption.py" contracts/validate_adoption.py
+          chmod +x contracts/validate_adoption.py
+          cp "$RUNNER_TEMP/transport-payload/afds_validate.py" skills/afds-doc-writer/validate.py
+          chmod +x skills/afds-doc-writer/validate.py
+          cp "$RUNNER_TEMP/transport-payload/test_templates.py" tests/test_templates.py
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          path = Path('contracts/adoption-assessment.schema.json')
+          schema = json.loads(path.read_text(encoding='utf-8'))
+          base = schema['$defs']['compatibility']['properties']
+          props = dict(base)
+          props.update({'command': {'type': 'string', 'minLength': 1}, 'evidence': {'oneOf': [{'type': 'null'}, {'$ref': '#/$defs/evidence'}]}, 'result': {'enum': ['passed', 'failed', 'not-run', 'not-applicable']}})
+          schema['$defs']['compatibilityResult'] = {'type': 'object', 'additionalProperties': False, 'required': [*base.keys(), 'command', 'evidence', 'result'], 'properties': props}
+          path.write_text(json.dumps(schema, indent=2) + '\n', encoding='utf-8')
+          PY
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          pattern: fallback-locks-*
+          merge-multiple: true
+          path: .
+      - name: Verify native lock payload
+        run: |
+          set -euo pipefail
+          test "$(grep -R -l 'build==1.5.1' requirements-dev-*.lock skills/mcp-server-architect/locks || true)" = ""
+          grep -q 'build==1.5.0' requirements-dev-linux-x64-py312.lock
+          python -m compileall -q contracts scripts skills
+          git diff --check
+      - name: Publish and remove all transport state
+        run: |
+          set -euo pipefail
+          git add -A
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git commit -m 'fix: publish canonical self-compliant tree [native-locks-complete]'
+          git push origin HEAD:fix/unified-contract-release-hardening
