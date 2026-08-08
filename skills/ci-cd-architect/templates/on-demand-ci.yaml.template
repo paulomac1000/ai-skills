@@ -1,0 +1,68 @@
+# ai-skills-policy-profile: trusted-ci
+# ai-skills-execution-policy: on-demand
+name: Cost-aware quality
+
+on:
+  push:
+    branches: [<DEFAULT_BRANCH>]
+  workflow_dispatch:
+    inputs:
+      full:
+        description: Run the complete quality, security, test, and artifact gate
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cost-aware-quality-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: <FAST_TIMEOUT_MINUTES>
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "<PYTHON_VERSION>"
+          cache: pip
+          cache-dependency-path: <DEPENDENCY_FILE>
+      - name: Install dependencies
+        run: <INSTALL_COMMAND>
+      - name: Fast validation
+        run: <FAST_CHECK_COMMAND>
+
+  full:
+    needs: validate
+    if: github.event_name == 'push' || inputs.full == true
+    runs-on: ubuntu-24.04
+    timeout-minutes: <FULL_TIMEOUT_MINUTES>
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "<PYTHON_VERSION>"
+          cache: pip
+          cache-dependency-path: <DEPENDENCY_FILE>
+      - name: Install dependencies
+        run: <INSTALL_COMMAND>
+      - name: Full quality and tests
+        run: <FULL_CHECK_COMMAND>
+      - name: Expensive artifact or container validation
+        run: <ARTIFACT_CHECK_COMMAND>
+      - name: Upload full-gate artifacts
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: full-gate-${{ github.run_id }}
+          path: <TEST_ARTIFACT_PATH>
+          if-no-files-found: ignore
+          retention-days: 7
