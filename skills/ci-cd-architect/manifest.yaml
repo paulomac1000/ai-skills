@@ -59,14 +59,17 @@ required:
 - STANDARD.md
 - references/protected-release-workflows.md
 - references/trusted-auditor-bootstrap.md
+- references/trusted-executable-sources.md
 - references/finding-triage.md
 - references/on-demand-ci.md
 - templates/publish.yml.template
 - templates/trusted-workflow-audit.yml.template
 - templates/on-demand-ci.yaml.template
+- templates/trusted-executable-sources.lock.yaml.template
 - tools/check_github_actions_policy.py
 - tools/check_github_actions_policy_impl.py
 - tools/check_ci_execution_policy.py
+- tools/check_consumer_trust_hygiene.py
 categories:
 - core
 - references

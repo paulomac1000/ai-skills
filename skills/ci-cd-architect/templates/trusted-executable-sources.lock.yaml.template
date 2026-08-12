@@ -1,0 +1,11 @@
+schema_version: 1
+sources:
+  - id: trusted-evidence-collector
+    role: evidence-collector
+    repository: owner/trusted-tooling
+    revision: 0000000000000000000000000000000000000000
+    credential_access: read-only-provider
+    files:
+      - authority_path: tools/collector.py
+        local_path: scripts/vendor/collector.py
+        sha256: sha256:0000000000000000000000000000000000000000000000000000000000000000

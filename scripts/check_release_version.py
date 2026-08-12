@@ -25,8 +25,10 @@ def _git_show(base: str, path: str) -> str | None:
 
 
 def _changed_paths(base: str) -> set[str]:
+    # CI fetches the immutable base object shallowly. Comparing the two endpoint
+    # trees does not require merge-base history and is exactly what this gate needs.
     completed = subprocess.run(  # noqa: S603
-        ["git", "diff", "--name-only", f"{base}...HEAD"],
+        ["git", "diff", "--name-only", base, "HEAD"],
         cwd=ROOT,
         check=True,
         capture_output=True,

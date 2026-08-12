@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Execute one exact argv and emit a canonical diagnostic execution record."""
+"""Execute one exact argv and emit command, test, and artifact observations."""
 
 from __future__ import annotations
 
@@ -9,9 +9,11 @@ import json
 import os
 import re
 import subprocess
+import sys
+import tempfile
 import xml.etree.ElementTree as ET
 from pathlib import Path
-from typing import Any
+from typing import Any, BinaryIO
 
 EXECUTION_ID = re.compile(r"[a-z0-9][a-z0-9-]{0,63}")
 READ_CHUNK_BYTES = 1024 * 1024
@@ -23,6 +25,25 @@ def _digest(path: Path) -> str:
         while chunk := source.read(READ_CHUNK_BYTES):
             digest.update(chunk)
     return f"sha256:{digest.hexdigest()}"
+
+
+def _stream_observation(source: BinaryIO) -> dict[str, Any]:
+    source.flush()
+    source.seek(0)
+    digest = hashlib.sha256()
+    size = 0
+    while chunk := source.read(READ_CHUNK_BYTES):
+        digest.update(chunk)
+        size += len(chunk)
+    source.seek(0)
+    return {"digest": f"sha256:{digest.hexdigest()}", "bytes": size}
+
+
+def _replay(source: BinaryIO, destination: BinaryIO) -> None:
+    source.seek(0)
+    while chunk := source.read(READ_CHUNK_BYTES):
+        destination.write(chunk)
+    destination.flush()
 
 
 def _tag(element: ET.Element) -> str:
@@ -115,7 +136,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--execution-id", required=True)
     parser.add_argument("--working-directory", type=Path, default=Path("."))
-    parser.add_argument("--result-file", action="append", type=Path, required=True)
+    parser.add_argument("--result-file", action="append", type=Path, default=[])
+    parser.add_argument("--artifact-file", action="append", type=Path, default=[])
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("argv", nargs=argparse.REMAINDER)
     return parser
@@ -132,37 +154,63 @@ def main(raw_args: list[str] | None = None) -> int:
     if not argv or any(not isinstance(value, str) or not value for value in argv):
         raise ValueError("an exact non-empty argv is required after --")
     repository_root = Path.cwd().resolve(strict=True)
-    working_directory, working_directory_text = _safe_working_directory(
-        args.working_directory,
-        repository_root,
-    )
+    working_directory, working_directory_text = _safe_working_directory(args.working_directory, repository_root)
 
-    completed = subprocess.run(argv, cwd=working_directory, check=False)  # noqa: S603
+    with tempfile.TemporaryFile() as stdout_capture, tempfile.TemporaryFile() as stderr_capture:
+        completed = subprocess.run(  # noqa: S603
+            argv,
+            cwd=working_directory,
+            check=False,
+            stdout=stdout_capture,
+            stderr=stderr_capture,
+        )
+        stdout_observation = _stream_observation(stdout_capture)
+        stderr_observation = _stream_observation(stderr_capture)
+        _replay(stdout_capture, sys.stdout.buffer)
+        _replay(stderr_capture, sys.stderr.buffer)
+
     results: list[dict[str, Any]] = []
+    artifacts: list[dict[str, Any]] = []
     validation_error: str | None = None
     try:
         for raw_path in args.result_file:
             path, relative = _safe_relative(raw_path, working_directory, "result_file")
-            cases = _junit_cases(path)
             results.append(
                 {
+                    "kind": "test-result",
                     "path": relative,
                     "format": "junit",
                     "digest": _digest(path),
-                    "test_cases": cases,
+                    "test_cases": _junit_cases(path),
+                }
+            )
+        for raw_path in args.artifact_file:
+            path, relative = _safe_relative(raw_path, working_directory, "artifact_file")
+            artifacts.append(
+                {
+                    "kind": "artifact-observation",
+                    "path": relative,
+                    "digest": _digest(path),
+                    "bytes": path.stat().st_size,
                 }
             )
     except (OSError, ValueError) as exc:
         validation_error = str(exc)
 
-    record = {
+    record: dict[str, Any] = {
         "format": "ai-skills-execution-record",
         "execution_id": execution_id,
         "argv": argv,
         "working_directory": working_directory_text,
         "command_digest": _command_digest(argv, working_directory_text),
         "exit_status": completed.returncode,
+        "command_result": {
+            "kind": "command-result",
+            "stdout": stdout_observation,
+            "stderr": stderr_observation,
+        },
         "results": results,
+        "artifacts": artifacts,
     }
     if validation_error is not None:
         record["validation_error"] = validation_error
