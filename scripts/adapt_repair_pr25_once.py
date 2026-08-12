@@ -98,7 +98,7 @@ path.write_text(text, encoding="utf-8")
 # emits explicit Any-typed dynamic boundaries instead.
 additional_path = Path(__file__).with_name("repair_pr25_additional.py")
 additional = additional_path.read_text(encoding="utf-8")
-additional += r'''
+additional += r"""
 
 # Ruff- and mypy-compatible dynamic module/platform boundaries.
 replace_once(
@@ -132,5 +132,5 @@ replace_once(
         kernel32 = win_dll("kernel32", use_last_error=True)
 ''',
 )
-'''
+"""
 additional_path.write_text(additional, encoding="utf-8")
