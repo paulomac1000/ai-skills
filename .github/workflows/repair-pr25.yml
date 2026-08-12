@@ -1,0 +1,333 @@
+name: Repair PR25 blockers
+
+on:
+  push:
+    branches: [fix/unified-contract-release-hardening]
+
+concurrency:
+  group: repair-pr25
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  locks:
+    if: github.event.head_commit.message == 'chore: stage audited PR25 repair runner'
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            python: '3.12'
+            architecture: x64
+            expected: linux-x64-py312
+          - os: ubuntu-24.04
+            python: '3.13'
+            architecture: x64
+            expected: linux-x64-py313
+          - os: ubuntu-24.04
+            python: '3.14'
+            architecture: x64
+            expected: linux-x64-py314
+          - os: macos-15
+            python: '3.12'
+            architecture: arm64
+            expected: macos-arm64-py312
+          - os: windows-2025
+            python: '3.12'
+            architecture: x64
+            expected: windows-x64-py312
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: ${{ matrix.python }}
+          architecture: ${{ matrix.architecture }}
+      - name: Install current native development graph
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/install_locked.py
+      - name: Compile native lock graphs
+        shell: bash
+        env:
+          EXPECTED_ID: ${{ matrix.expected }}
+        run: |
+          set -euo pipefail
+          identifier="$(python scripts/compile_locks.py | tail -n 1)"
+          test "$identifier" = "$EXPECTED_ID"
+          mkdir -p repair-out
+          cp "requirements-dev-${identifier}.lock" repair-out/root.lock
+          cp "skills/mcp-server-architect/locks/runtime-${identifier}.lock" repair-out/runtime.lock
+          cp "skills/mcp-server-architect/locks/dev-${identifier}.lock" repair-out/dev.lock
+          printf '%s\n' "$identifier" > repair-out/id.txt
+          grep -q 'build==1.5.0' repair-out/root.lock
+          grep -q 'build==1.5.0' repair-out/dev.lock
+          ! grep -q 'build==1.5.1' repair-out/root.lock
+          ! grep -q 'build==1.5.1' repair-out/dev.lock
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: locks-${{ matrix.expected }}
+          path: repair-out/
+          if-no-files-found: error
+          retention-days: 1
+
+  apply:
+    if: github.event.head_commit.message == 'chore: stage audited PR25 repair runner'
+    needs: locks
+    permissions:
+      contents: write
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify immutable repair base
+        shell: bash
+        env:
+          START_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$START_SHA"
+          test "$(git ls-remote origin refs/heads/fix/unified-contract-release-hardening | cut -f1)" = "$START_SHA"
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          pattern: locks-*
+          path: repair-download
+          merge-multiple: false
+      - name: Install regenerated lock graphs
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import shutil
+
+          roots = sorted(Path('repair-download').glob('locks-*'))
+          if len(roots) != 5:
+              raise SystemExit(f'expected 5 native lock artifacts, got {len(roots)}')
+          seen = set()
+          for root in roots:
+              identifier = (root / 'id.txt').read_text(encoding='utf-8').strip()
+              if not identifier or identifier in seen:
+                  raise SystemExit(f'invalid duplicate lock identifier: {identifier!r}')
+              seen.add(identifier)
+              shutil.copy2(root / 'root.lock', Path(f'requirements-dev-{identifier}.lock'))
+              shutil.copy2(root / 'runtime.lock', Path(f'skills/mcp-server-architect/locks/runtime-{identifier}.lock'))
+              shutil.copy2(root / 'dev.lock', Path(f'skills/mcp-server-architect/locks/dev-{identifier}.lock'))
+          expected = {
+              'linux-x64-py312', 'linux-x64-py313', 'linux-x64-py314',
+              'macos-arm64-py312', 'windows-x64-py312',
+          }
+          if seen != expected:
+              raise SystemExit(f'wrong lock target set: {seen}')
+          PY
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+          architecture: x64
+      - name: Apply audited source corrections
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          def replace_once(path: str, old: str, new: str) -> None:
+              file = Path(path)
+              text = file.read_text(encoding='utf-8')
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{path}: expected one replacement, found {count}: {old[:80]!r}')
+              file.write_text(text.replace(old, new), encoding='utf-8')
+
+          replace_once(
+              'skills/mcp-server-architect/references/python-official-mcp-sdk.md',
+              '## Generated baseline\n\nFor a new project run:',
+              '## Generated baseline\n\nThe reviewed generated baseline is pinned by its lock graph to `mcp==2.0.0`; changing that exact SDK version requires regenerated locks and exact-artifact compatibility evidence.\n\nFor a new project run:',
+          )
+          replace_once(
+              'skills/mcp-server-architect/references/python-fastmcp.md',
+              'It is **not** an SDK profile',
+              'It is not an SDK profile',
+          )
+          replace_once(
+              'contracts/standard-rule-map.yaml',
+              '      workflow-policy-profiles: {rule_id: cicd.workflow.profiled, primary: true}\n      python-quality:',
+              '      workflow-policy-profiles: {rule_id: cicd.workflow.profiled, primary: true}\n      execution-policy-and-hosted-runner-budget: {rule_id: cicd.workflow.profiled}\n      python-quality:',
+          )
+          replace_once(
+              'tests/test_post_review_regressions.py',
+              '    assert "mcp.streamable_http_app()" in source\n    assert \'mode="stateless"\' in source\n    assert \'mount("/mcp", protected)\' in source\n',
+              '    assert "mcp.streamable_http_app(" in source\n    assert "stateless_http=True" in source\n    assert "BearerAuthMiddleware" in source\n',
+          )
+          replace_once(
+              'tests/test_templates.py',
+              '    "<DEPENDENCY_FILE>": "requirements-dev-linux-x64-py312.lock",\n    "<VERIFIER_LOCK_FILE>": "requirements-dev-linux-x64-py312.lock",\n    "<INSTALL_COMMAND>": "python -m pip install --require-hashes -r requirements-dev-linux-x64-py312.lock",',
+              '    "<DEPENDENCY_FILE>": "requirements-dev-linux-x64-py313.lock",\n    "<VERIFIER_LOCK_FILE>": "requirements-dev-linux-x64-py313.lock",\n    "<INSTALL_COMMAND>": "python -m pip install --require-hashes -r requirements-dev-linux-x64-py313.lock",',
+          )
+          replace_once(
+              'tests/test_templates.py',
+              '    assert "mapfile -t packages < nupkg/publish-files.txt" in publisher["run"]',
+              '    assert "mapfile -t packages < nupkg/verified-publish-files.txt" in publisher["run"]',
+          )
+          replace_once(
+              'tests/test_audit_contract_extensions.py',
+              '    assert any(\n        "full commit SHA" in finding or "does not match" in finding\n        for finding in findings\n    )\n    assert any("locked skill" in finding for finding in findings)',
+              '    assert any("full commit SHA" in finding for finding in findings)\n    assert any("locked skill" in finding for finding in findings)',
+          )
+          replace_once(
+              'skills/mcp-server-architect/tools/python-template/Dockerfile.template',
+              'FROM python:3.12.11-slim-bookworm@sha256:8d8d1a11f5f2e7879d4b9be3ec040b1f48d99b5284942230ca11843bb65c2d4a',
+              'FROM python:3.12.11-slim-bookworm@sha256:519591d6871b7bc437060736b9f7456b8731f1499a57e22e6c285135ae657bf7',
+          )
+          replace_once(
+              'skills/mcp-server-architect/tools/python-template/.github/workflows/ci.yml.template',
+              '          WHEEL="$(find dist -maxdepth 1 -name \'*.whl\' -print -quit)"\n          WHEEL_SHA256="$(sha256sum "$WHEEL" | cut -d\' \' -f1)"\n          test "$(cat wheel.sha256)" = "$WHEEL_SHA256  $WHEEL"\n          IMAGE="__DISTRIBUTION__:sha-${GITHUB_SHA}"',
+              '          EXPECTED_SHA="${{ github.event.pull_request.head.sha || github.sha }}"\n          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"\n          WHEEL="$(find dist -maxdepth 1 -name \'*.whl\' -print -quit)"\n          WHEEL_SHA256="$(sha256sum "$WHEEL" | cut -d\' \' -f1)"\n          test "$(cat wheel.sha256)" = "$WHEEL_SHA256  $WHEEL"\n          IMAGE="__DISTRIBUTION__:sha-${EXPECTED_SHA}"',
+          )
+          replace_once(
+              'skills/mcp-server-architect/tools/generate_python_server.py',
+              '_implementation.project_files = project_files',
+              '_implementation.__dict__["project_files"] = project_files',
+          )
+          replace_once(
+              'skills/mcp-server-architect/tools/generate_python_server_impl.py',
+              'from pathlib import Path, PurePosixPath\n',
+              'from pathlib import Path, PurePosixPath\nfrom typing import Any\n',
+          )
+          replace_once(
+              'skills/mcp-server-architect/tools/generate_python_server_impl.py',
+              '        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)\n',
+              '        windows_ctypes: Any = ctypes\n        kernel32 = windows_ctypes.WinDLL("kernel32", use_last_error=True)\n',
+          )
+          replace_once(
+              'skills/mcp-server-architect/tools/generate_python_server_impl.py',
+              '            error = ctypes.get_last_error()\n',
+              '            error = windows_ctypes.get_last_error()\n',
+          )
+          replace_once(
+              'skills/mcp-server-architect/tools/generate_python_server_impl.py',
+              '            raise ctypes.WinError(error)\n',
+              '            raise windows_ctypes.WinError(error)\n',
+          )
+          replace_once(
+              'contracts/validate_capability_manifest.py',
+              '    ]\n    findings.extend(_semantic_findings(manifest, require_active=require_active))\n    return findings\n',
+              '    ]\n    if findings:\n        return findings\n    findings.extend(_semantic_findings(manifest, require_active=require_active))\n    return findings\n',
+          )
+          replace_once(
+              'skills/afds-doc-writer/validate.py',
+              'from functools import lru_cache\n',
+              'from functools import cache\n',
+          )
+          replace_once(
+              'skills/afds-doc-writer/validate.py',
+              '    @lru_cache(maxsize=None)\n',
+              '    @cache\n',
+          )
+          replace_once(
+              'skills/afds-doc-writer/validate.py',
+              '    for destination in iter_link_destinations(body):\n        decoded = unquote(destination)\n        if re.match(r"^[a-z][a-z0-9+.-]*:", decoded, re.I) or decoded.startswith("//"):\n            continue\n        raw_path, separator, fragment = decoded.partition("#")\n        display = decoded\n',
+              '    for destination in iter_link_destinations(body):\n        encoded_path, separator, encoded_fragment = destination.partition("#")\n        if re.match(r"^[a-z][a-z0-9+.-]*:", encoded_path, re.I) or encoded_path.startswith("//"):\n            continue\n        raw_path = unquote(encoded_path)\n        fragment = unquote(encoded_fragment)\n        display = unquote(destination)\n',
+          )
+          replace_once(
+              'skills/afds-doc-writer/validate.py',
+              '    root = args.repository_root.resolve()\n    governance_path = args.governance or root / "skills/afds-doc-writer/governance.yaml"\n    governance: Governance | None = None\n    findings: list[Finding] = []\n    if governance_path.exists():\n        try:\n            governance = _load_governance(governance_path)\n        except (OSError, ValueError, yaml.YAMLError) as exc:\n            findings.append(Finding(governance_path, f"invalid governance: {exc}"))\n',
+              '    root = args.repository_root.resolve()\n    explicit_governance = args.governance is not None\n    governance_path = args.governance or root / "skills/afds-doc-writer/governance.yaml"\n    governance: Governance | None = None\n    findings: list[Finding] = []\n    if not governance_path.is_file():\n        if explicit_governance:\n            findings.append(Finding(governance_path, "governance file does not exist or is not a file"))\n    else:\n        try:\n            governance = _load_governance(governance_path)\n        except (OSError, ValueError, yaml.YAMLError) as exc:\n            findings.append(Finding(governance_path, f"invalid governance: {exc}"))\n',
+          )
+
+          legacy_path = Path('skills/mcp-server-consumer/tools/decision_engine_legacy.py')
+          legacy = legacy_path.read_text(encoding='utf-8')
+          legacy, count = re.subn(
+              r'\n@dataclass\(frozen=True\)\nclass TrustedCapabilityPolicy:.*?(?=\n@dataclass\(frozen=True\)\nclass CapabilityProfile:)',
+              '',
+              legacy,
+              count=1,
+              flags=re.S,
+          )
+          if count != 1:
+              raise SystemExit('failed to remove duplicate legacy trust dataclasses')
+          legacy, count = re.subn(
+              r'\ndef infer_capability_profile\(.*?(?=\ndef _alias_value\()',
+              '\n',
+              legacy,
+              count=1,
+              flags=re.S,
+          )
+          if count != 1:
+              raise SystemExit('failed to remove obsolete legacy trust inference entry point')
+          legacy_path.write_text(legacy, encoding='utf-8')
+          PY
+      - name: Install repaired hashed development graph
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/install_locked.py
+      - name: Format and lint canonical quality targets
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m ruff check --fix $(python scripts/quality_targets.py quality)
+          python -m ruff format $(python scripts/quality_targets.py quality)
+          python -m ruff check $(python scripts/quality_targets.py quality)
+          python -m ruff format --check $(python scripts/quality_targets.py quality)
+          python -m mypy $(python scripts/quality_targets.py typing)
+      - name: Run focused repair regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m compileall -q contracts scripts skills tests
+          python skills/afds-doc-writer/validate.py README.md RECOVERY_AUDIT.md contracts skills
+          python -m pytest \
+            tests/test_mcp_migration_standard.py \
+            tests/test_rule_catalog_contract.py \
+            tests/test_post_review_regressions.py \
+            tests/test_python_sdk_profile_routing.py \
+            tests/test_repository_completion_contract.py \
+            tests/test_templates.py \
+            tests/test_audit_contract_extensions.py \
+            tests/test_decision_engine.py \
+            tests/test_contract_edge_cases.py
+          python -m pytest tests/test_mcp_generator.py -m 'not container'
+      - name: Verify regenerated locks and clean final patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          for lock in requirements-dev-*.lock skills/mcp-server-architect/locks/dev-*.lock; do
+            ! grep -q 'build==1.5.1' "$lock"
+          done
+          git rm .github/workflows/repair-pr25.yml
+          rm -rf repair-download
+          git diff --check
+          test -z "$(git ls-files --others --exclude-standard)"
+          git add -A
+          git diff --cached --check
+      - name: Commit repaired branch locally
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'ai-skills repair agent'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix: close PR25 review and CI blockers'
+      - name: Fast-forward push verified repair
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          START_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git ls-remote origin refs/heads/fix/unified-contract-release-hardening | cut -f1)" = "$START_SHA"
+          git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:refs/heads/fix/unified-contract-release-hardening
