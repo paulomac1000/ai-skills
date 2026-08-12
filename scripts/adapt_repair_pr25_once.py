@@ -60,5 +60,35 @@ if text.count(old_decision_end) != 1:
     raise RuntimeError("temporary repair decision adapter expected one match")
 text = text.replace(old_decision_end, new_decision_end, 1)
 
+artifact_start = text.index("    # Exact artifact identity must use the revision actually checked out.\n")
+artifact_end = text.index("    # Independent lock failures get independent regressions.\n", artifact_start)
+artifact_section = '''    # Exact artifact identity must use the revision actually checked out.
+    replace_once(
+        "skills/mcp-server-architect/tools/python-template/.github/workflows/ci.yml.template",
+        ''' + "'''" + '''      - name: Build and smoke the exact-wheel container
+        shell: bash
+        run: |
+          set -euo pipefail
+          WHEEL="$(find dist -maxdepth 1 -name '*.whl' -print -quit)"
+''' + "'''" + ''',
+        ''' + "'''" + '''      - name: Build and smoke the exact-wheel container
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          WHEEL="$(find dist -maxdepth 1 -name '*.whl' -print -quit)"
+''' + "'''" + ''',
+    )
+    replace_once(
+        "skills/mcp-server-architect/tools/python-template/.github/workflows/ci.yml.template",
+        '          IMAGE="__DISTRIBUTION__:sha-${GITHUB_SHA}"\\n',
+        '          IMAGE="__DISTRIBUTION__:sha-${EXPECTED_SHA}"\\n',
+    )
+
+'''
+text = text[:artifact_start] + artifact_section + text[artifact_end:]
+
 text = text.replace('"--root",', '"--repository-root",')
 path.write_text(text, encoding="utf-8")
