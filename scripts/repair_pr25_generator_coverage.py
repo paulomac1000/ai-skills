@@ -91,7 +91,7 @@ def test_python_generator_project_validation_rejects_contract_and_artifact_drift
 
     weak_ci = dict(files)
     weak_ci[".github/workflows/ci.yml"] = files[".github/workflows/ci.yml"].replace(
-        "concurrency:", "not-concurrency:", 1
+        "concurrency:", "parallel-policy:"
     )
     with pytest.raises(ValueError, match="lacks concurrency"):
         impl.validate_generated_project(weak_ci, "sample_server")
