@@ -10,6 +10,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: repair-pr25-final
+  cancel-in-progress: true
+
 jobs:
   repair:
     runs-on: ubuntu-24.04
@@ -17,7 +21,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: fix/unified-contract-release-hardening
+          ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: true
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
@@ -44,13 +48,15 @@ jobs:
             echo "::error::$message"
             exit "$status"
           fi
+      - name: Apply remaining verified regression alignment
+        run: python scripts/repair_pr25_additional.py
       - name: Remove one-shot repair machinery
-        run: git rm .github/workflows/repair-pr25.yml scripts/repair_pr25_once.py scripts/adapt_repair_pr25_once.py
+        run: git rm .github/workflows/repair-pr25.yml scripts/repair_pr25_once.py scripts/adapt_repair_pr25_once.py scripts/repair_pr25_additional.py
       - name: Format and run focused regressions
         run: |
           python -m ruff format contracts skills tests scripts
           python -m ruff check contracts skills tests scripts
-          python -m pytest -q tests/test_latest_bot_followup.py tests/test_contract_hardening_regressions.py tests/test_adoption_contract.py tests/test_audit_contract_extensions.py tests/test_decision_engine.py tests/test_templates.py tests/test_python_generator_cli.py tests/test_conformance_report.py
+          python -m pytest -q tests/test_latest_bot_followup.py tests/test_contract_hardening_regressions.py tests/test_adoption_contract.py tests/test_audit_contract_extensions.py tests/test_decision_engine.py tests/test_templates.py tests/test_python_generator_cli.py tests/test_conformance_report.py tests/test_mcp_migration_standard.py tests/test_post_review_regressions.py tests/test_python_sdk_profile_routing.py tests/test_repository_completion_contract.py tests/test_rule_catalog_contract.py
       - name: Run repository quality gate
         run: python scripts/ci.py
       - name: Run generated Python container gate
