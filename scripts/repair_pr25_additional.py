@@ -85,6 +85,87 @@ replace_once(
 ''',
 )
 
+# Shared applicability must never permit a child below its parent maturity floor.
+replace_once(
+    "contracts/atomic-claim-catalog.yaml",
+    '''  - id: mcp.identity.local-principal
+    parent_rule_id: mcp.identity.target-binding
+    skill: mcp-server-architect
+    source: skills/mcp-server-architect/references/principal-and-shell-boundaries.md#local-stdio-principal
+    description: A local stdio deployment derives an explicit principal from a documented operating-system process boundary and never trusts model-supplied identity.
+    applies_when: {maturity_at_least: L1, profiles_any: [local-stdio]}
+''',
+    '''  - id: mcp.identity.local-principal
+    parent_rule_id: mcp.identity.target-binding
+    skill: mcp-server-architect
+    source: skills/mcp-server-architect/references/principal-and-shell-boundaries.md#local-stdio-principal
+    description: A local stdio deployment derives an explicit principal from a documented operating-system process boundary and never trusts model-supplied identity.
+    applies_when: {maturity_at_least: L2, profiles_any: [local-stdio]}
+''',
+)
+replace_once(
+    "tests/test_atomic_claim_contract.py",
+    '''    assert local["applies_when"]["profiles_any"] == ["local-stdio"]
+    assert remote["applies_when"]["profiles_any"] == ["remote-http"]
+''',
+    '''    assert local["applies_when"] == {
+        "maturity_at_least": "L2",
+        "profiles_any": ["local-stdio"],
+    }
+    assert remote["applies_when"]["profiles_any"] == ["remote-http"]
+''',
+)
+
+# This fixture must be schema-valid so the test reaches the intended semantic checks.
+replace_once(
+    "tests/test_atomic_claim_contract.py",
+    '''        "active_state": "write",
+        "retryable": True,
+        "idempotent": True,
+        "reversible": True,
+        "requires_confirmation": True,
+        "idempotency_key_required": True,
+        "authorization_scopes": ["device:delete"],
+        "concurrency": {"scope": "principal-target", "limit": 1},
+        "max_response_bytes": 65536,
+''',
+    '''        "active_state": "active",
+        "retryable": True,
+        "idempotent": True,
+        "reversible": True,
+        "requires_confirmation": True,
+        "idempotency_key_required": True,
+        "authorization_scopes": ["device:delete"],
+        "approval": {
+            "enforcement": "server-side",
+            "record_required": True,
+            "record_ttl_seconds": 300,
+            "binds": [
+                "principal",
+                "capability",
+                "target",
+                "arguments-digest",
+                "expires-at",
+            ],
+        },
+        "concurrency": {"scope": "principal-target", "limit": 1},
+        "max_response_bytes": 65536,
+''',
+)
+replace_once(
+    "tests/test_atomic_claim_contract.py",
+    '''    assert any("reversible_rationale" in finding for finding in findings)
+    assert any("approval" in finding for finding in findings)
+''',
+    '''    assert any("reversible_rationale" in finding for finding in findings)
+
+    without_approval = dict(manifest)
+    without_approval.pop("approval")
+    path.write_text(yaml.safe_dump(without_approval), encoding="utf-8")
+    assert any("approval" in finding for finding in validate_manifest(path))
+''',
+)
+
 # Close exact Ruff findings exposed after the main repair.
 replace_once(
     "skills/afds-doc-writer/validate.py",
