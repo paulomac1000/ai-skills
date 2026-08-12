@@ -112,9 +112,14 @@ jobs:
         run: |
           set -euo pipefail
           WHEEL="$(find dist -maxdepth 1 -name '*.whl' -print -quit)"
+          WHEEL_SHA256="$(sha256sum "$WHEEL" | cut -d' ' -f1)"
+          test "$(cat wheel.sha256)" = "$WHEEL_SHA256  $WHEEL"
           IMAGE="__DISTRIBUTION__:sha-${GITHUB_SHA}"
           TOKEN="container-smoke-token-that-is-at-least-32-bytes"
-          docker build --build-arg "WHEEL=$WHEEL" --tag "$IMAGE" .
+          docker build \
+            --build-arg "WHEEL=$WHEEL" \
+            --build-arg "WHEEL_SHA256=$WHEEL_SHA256" \
+            --tag "$IMAGE" .
           docker run --detach --name mcp-artifact-smoke \
             --read-only \
             --tmpfs /tmp:rw,noexec,nosuid,size=16m \

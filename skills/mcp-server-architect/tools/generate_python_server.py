@@ -75,7 +75,19 @@ def project_files(package_name: str, server_name: str) -> dict[str, str]:
     return _BASE_PROJECT_FILES(package_name, server_name)
 
 
-setattr(_implementation, "project_files", project_files)
+_implementation.project_files = project_files
+
+
+def _reject_symlink_components(path: Path) -> None:
+    """Reject symlinks in the lexical path without resolving through them."""
+    absolute = path.absolute()
+    current = Path(absolute.anchor)
+    for part in absolute.parts[1:]:
+        current /= part
+        if current.is_symlink():
+            raise ValueError(
+                f"destination path must not contain symlinks: {current}"
+            )
 
 
 def generate_project(
@@ -90,12 +102,12 @@ def generate_project(
     expanded = destination.expanduser()
     if os.path.lexists(expanded):
         raise FileExistsError(expanded)
+    _reject_symlink_components(expanded.parent)
     parent = expanded.parent.resolve(strict=False)
     parent.mkdir(parents=True, exist_ok=True)
-    if parent.is_symlink() or not parent.is_dir():
-        raise ValueError(
-            "destination parent must be a regular directory, not a symlink"
-        )
+    _reject_symlink_components(expanded.parent)
+    if not parent.is_dir():
+        raise ValueError("destination parent must be a regular directory")
     destination = parent / expanded.name
     if os.path.lexists(destination):
         raise FileExistsError(destination)

@@ -1,114 +1,78 @@
-schema_version: 2
-
+schema_version: 1
 skills:
   afds-doc-writer:
-    required-metadata:
-      - afds.metadata.required
-    governance-profiles:
-      - afds.governance.profiled
-    structure-and-links:
-      - afds.structure.confined-links
-      - afds.structure.anchors
-    quality-gate:
-      - afds.quality.gated
-
+    headings:
+      purpose: {excluded: true, rationale: Informational scope heading, not an independently assessable invariant.}
+      core-invariants: {rule_id: afds.metadata.required}
+      document-types: {rule_id: afds.metadata.required}
+      required-metadata: {rule_id: afds.metadata.required, primary: true}
+      governance-profiles: {rule_id: afds.governance.profiled, primary: true}
+      structure-and-links: {rule_id: afds.structure.links, primary: true}
+      evidence-and-uncertainty: {rule_id: afds.evidence.uncertainty, primary: true}
+      canonical-ownership-and-lifecycle: {rule_id: afds.ownership.lifecycle, primary: true}
+      quality-gate: {rule_id: afds.quality.executable, primary: true}
+      verification: {rule_id: afds.verification.recorded, primary: true}
   agents-md-architect:
-    normative-language:
-      - agents.scope.normative
-    standard-lookup-and-inheritance:
-      - agents.scope.inheritance
-    context-discovery:
-      - agents.context.measured
-    command-verification:
-      - agents.commands.verified
-    safety-and-privileged-commands:
-      - agents.commands.safety
-    canonical-paths-and-conventions:
-      - agents.paths.canonical
-    two-layer-architecture:
-      - agents.layers.separated
-    thin-local-adapters-and-invariants:
-      - agents.adapters.thin
-
+    headings:
+      purpose: {excluded: true, rationale: Informational scope heading, not an independently assessable invariant.}
+      scope-and-precedence: {rule_id: agents.scope.precedence, primary: true}
+      repository-discovery: {rule_id: agents.discovery.evidence, primary: true}
+      operating-modes-and-profiles: {rule_id: agents.modes.profiled, primary: true}
+      canonical-ownership-and-architecture-boundaries: {rule_id: agents.ownership.boundaries, primary: true}
+      safety-and-data-boundaries: {rule_id: agents.safety.fail-closed, primary: true}
+      commands-and-verification: {rule_id: agents.commands.executable, primary: true}
+      context-economy-and-routing: {rule_id: agents.context.routed, primary: true}
+      nested-instructions: {rule_id: agents.nested.locality, primary: true}
+      anti-patterns-and-drift: {rule_id: agents.drift.prevented, primary: true}
+      definition-of-done: {rule_id: agents.completion.evidenced, primary: true}
+      verification: {rule_id: agents.completion.evidenced}
   ci-cd-architect:
-    mandatory-properties:
-      - cicd.workflow.profiled
-    execution-policy-and-hosted-runner-budget:
-      - cicd.workflow.profiled
-    layer-1--fast-feedback:
-      - cicd.layers.separated
-    layer-2--deterministic-quality-gate:
-      - cicd.layers.separated
-    artifact-and-container-integrity:
-      - cicd.artifact.exact
-      - cicd.artifact.single-build
-    mcp-contract-gate:
-      - cicd.mcp.registration
-      - cicd.mcp.real-client
-      - cicd.mcp.failure
-      - cicd.mcp.protocol-conformance
-      - cicd.mcp.artifact-smoke
-    container-publishing:
-      - cicd.artifact.exact
-      - cicd.artifact.single-build
-    release-integrity:
-      - cicd.release.integrity
-    security:
-      - cicd.security.pinned-actions
-
+    headings:
+      purpose: {excluded: true, rationale: Informational scope heading, not an independently assessable invariant.}
+      pipeline-layers: {rule_id: cicd.layers.separated, primary: true}
+      universal-workflow-controls: {rule_id: cicd.workflow.least-privilege, primary: true}
+      workflow-policy-profiles: {rule_id: cicd.workflow.profiled, primary: true}
+      python-quality: {rule_id: cicd.quality.language, primary: true}
+      net-quality: {rule_id: cicd.quality.language}
+      mcp-specific-assurance: {rule_id: cicd.quality.language}
+      documentation-and-security: {rule_id: cicd.security.documentation, primary: true}
+      release-identity-and-artifact-promotion: {rule_id: cicd.release.identity, primary: true}
+      local-quality-gates: {rule_id: cicd.local.bounded, primary: true}
+      verification: {rule_id: cicd.verification.recorded, primary: true}
   mcp-server-architect:
-    architecture-invariants:
-      - mcp.kernel.single
-      - mcp.manifest.complete
-      - mcp.concurrency.enforced
-      - mcp.runtime.isolation
-      - mcp.backends.confined
-      - mcp.browser.boundaries
-    transport:
-      - mcp.transport.modern
-      - mcp.transport.parity
-    lifecycle-and-state:
-      - mcp.lifecycle.owned
-      - mcp.lifecycle.readiness
-      - mcp.retry.explicit
-      - mcp.concurrency.enforced
-    security:
-      - mcp.authn.required
-      - mcp.authz.resource
-      - mcp.path.safe
-      - mcp.command.safe
-      - mcp.runtime.isolation
-      - mcp.backends.confined
-      - mcp.browser.boundaries
-    tool-and-capability-design:
-      - mcp.manifest.complete
-      - mcp.response.bounded
-    testing:
-      - mcp.test.real-client
-      - mcp.test.failure
-      - mcp.test.protocol-conformance
-      - mcp.artifact.exact
-      - mcp.test.artifact-smoke
-      - mcp.migration.assessed
-    repository-adoption-contract:
-      - mcp.migration.assessed
-
+    headings:
+      purpose: {excluded: true, rationale: Informational scope heading, not an independently assessable invariant.}
+      maturity-levels: {excluded: true, rationale: Classification vocabulary evaluated through the selected target level.}
+      skill-contract-and-precedence: {rule_id: mcp.architecture.boundaries}
+      core-architecture: {rule_ids: [mcp.architecture.boundaries, mcp.sdk.compatibility-isolation], primary: true}
+      configuration-and-identity: {rule_ids: [mcp.configuration.lifecycle, mcp.identity.target-binding], primary: true}
+      public-component-contracts: {rule_ids: [mcp.components.public-contract, mcp.discovery.progressive], primary: true}
+      multi-axis-safety-classification: {rule_id: mcp.manifest.complete, primary: true}
+      side-effects-retries-and-workflows: {rule_id: mcp.retry.fail-closed, primary: true}
+      transport-and-lifecycle: {rule_ids: [mcp.transport.supported, mcp.transport.remote-hardening], primary: true}
+      deadlines-cancellation-retries-and-concurrency: {rule_id: mcp.deadline.concurrency, primary: true}
+      data-errors-and-responses: {rule_id: mcp.response.structured, primary: true}
+      authentication-and-authorization: {rule_ids: [mcp.authorization.server-side, mcp.authorization.resource-isolation, mcp.abuse.controls], primary: true}
+      runtime-boundaries-artifacts-and-browser-automation: {rule_ids: [mcp.filesystem.containment, mcp.artifact.ownership, mcp.task.supervision, mcp.browser.profile-isolation], primary: true}
+      multi-backend-and-embedded-hosting: {rule_ids: [mcp.backends.identity, mcp.embedded.host-ownership], primary: true}
+      observability-and-operations: {rule_ids: [mcp.operations.observable, mcp.health.readiness, mcp.operations.recovery-drills], primary: true}
+      generated-project-acceptance: {rule_id: mcp.artifact.exact, primary: true}
+      migration-acceptance: {rule_id: mcp.migration.accounted, primary: true}
+      verification-layers: {rule_id: mcp.verification.layered, primary: true}
+      implementation-profiles: {excluded: true, rationale: Profile routing is evidence context, not a separate invariant.}
+      verification: {rule_id: mcp.verification.layered}
   mcp-server-consumer:
-    trust-and-discovery-model:
-      - consumer.trust.typed
-      - consumer.identity.bound
-    risk-model:
-      - consumer.risk.fail-closed
-    high-risk-confirmation:
-      - consumer.confirmation.required
-    retry-policy:
-      - consumer.retry.proven
-    response-validation:
-      - consumer.response.validated
-    context-efficiency:
-      - consumer.context.bounded
-      - consumer.discovery.bounded
-    pagination-and-bounded-loops:
-      - consumer.pagination.bounded
-    user-experience-contract:
-      - consumer.ux.fail-closed
+    headings:
+      purpose: {excluded: true, rationale: Informational scope heading, not an independently assessable invariant.}
+      scope-and-non-goals: {excluded: true, rationale: Scope declaration constrains the helper but is not a separate adoption rule.}
+      outcome-before-capability: {rule_id: consumer.outcome.first, primary: true}
+      trust-and-provenance: {rule_id: consumer.trust.provenance, primary: true}
+      decision-policy: {rule_id: consumer.policy.fail-closed, primary: true}
+      efficient-selection: {rule_id: consumer.selection.efficient, primary: true}
+      response-contract: {rule_id: consumer.response.validated, primary: true}
+      retry-policy: {rule_id: consumer.retry.reconciled, primary: true}
+      pagination: {rule_id: consumer.pagination.bounded, primary: true}
+      cross-server-workflows: {rule_id: consumer.workflow.compensated}
+      partial-execution-and-compensation: {rule_id: consumer.workflow.compensated, primary: true}
+      compatibility-and-negotiation: {rule_id: consumer.compatibility.negotiated, primary: true}
+      verification: {rule_id: consumer.verification.adversarial, primary: true}

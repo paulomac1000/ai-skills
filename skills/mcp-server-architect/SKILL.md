@@ -31,7 +31,7 @@ Use this skill for new MCP servers, transport migrations, SDK upgrades, security
 18. Complete applicability, compatibility, behavior, waiver, rollback, residual-risk, SDK-profile, protocol-revision, transport, and exact-artifact evidence before claiming adoption.
 19. Review the selected SDK profile and cross-language incident map before claiming Python/.NET parity.
 
-Read `STANDARD.md`, `references/migration-assessment.md`, `references/capability-manifests-and-versioning.md`, `references/protocol-and-sdk-compatibility.md`, `references/transport-lifecycle-and-conformance.md`, `references/runtime-boundaries-and-artifacts.md`, the selected SDK profile, both migration simulations, testing strategy, security/operations guidance, and the problem-solution matrix for production work.
+Read `STANDARD.md`, `references/migration-assessment.md`, `references/capability-manifests-and-versioning.md`, `references/protocol-and-sdk-compatibility.md`, `references/transport-lifecycle-and-conformance.md`, `references/runtime-boundaries-and-artifacts.md`, the selected SDK profile, both migration simulations, `references/testing-strategy.md`, `references/security-and-operations.md`, and `references/problem-solution-matrix.md` for production work.
 
 ## SDK and generated-baseline evidence
 

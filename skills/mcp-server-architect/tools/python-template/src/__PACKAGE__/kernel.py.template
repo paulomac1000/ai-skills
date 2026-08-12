@@ -17,11 +17,12 @@ from .manifest import MANIFESTS
 from .security import current_principal
 
 _ITEMS: dict[str, str] = {}
-_MAX_ITEMS = 10_000
 _LOCK = threading.RLock()
 _CONSUMED_APPROVALS: dict[str, dict[str, int]] = {}
+_APPROVAL_PRINCIPAL_EXPIRY: dict[str, int] = {}
 _MAX_CONSUMED_APPROVALS_PER_PRINCIPAL = 10_000
 _MAX_APPROVAL_PRINCIPALS = 1_024
+_MAX_ITEMS = 10_000
 
 
 def _canonical_bytes(value: Any) -> bytes:
@@ -53,16 +54,20 @@ def _bounded_payload(
 
 def describe_capabilities() -> dict[str, Any]:
     manifests = [dict(MANIFESTS[key]) for key in sorted(MANIFESTS)]
-    return _bounded_payload("describe_capabilities", {"capabilities": manifests})
+    return _bounded_payload(
+        "describe_capabilities",
+        {"capabilities": manifests},
+    )
 
 
 def list_items(limit: int = 25) -> dict[str, Any]:
     if type(limit) is not int or not 1 <= limit <= 100:
         raise ValueError("limit must be an integer from 1 to 100")
     with _LOCK:
-        item_ids = heapq.nsmallest(limit, _ITEMS)
+        selected = heapq.nsmallest(limit, _ITEMS.items(), key=lambda item: item[0])
         items = [
-            {"item_id": item_id, "value": _ITEMS[item_id]} for item_id in item_ids
+            {"item_id": item_id, "value": value}
+            for item_id, value in selected
         ]
     return _bounded_payload("list_items", {"items": items, "count": len(items)})
 
@@ -79,7 +84,9 @@ def _decode_b64url(value: str) -> bytes:
 def _approval_key() -> bytes:
     raw = os.environ.get("MCP_APPROVAL_HMAC_KEY")
     if raw is None:
-        raise PermissionError("write operations require a configured approval authority")
+        raise PermissionError(
+            "write operations require a configured approval authority"
+        )
     key = raw.encode("utf-8")
     if len(key) < 32:
         raise PermissionError("approval authority key is too short")
@@ -105,10 +112,10 @@ def _consume_approval(item_id: str, value: str, record: str) -> None:
     if not isinstance(payload, Mapping):
         raise PermissionError("approval record is invalid")
 
-    principal = current_principal()
     arguments_digest = hashlib.sha256(
         _canonical_bytes({"item_id": item_id, "value": value})
     ).hexdigest()
+    principal = current_principal()
     expected_claims = {
         "principal": principal,
         "capability": "put_item",
@@ -129,20 +136,43 @@ def _consume_approval(item_id: str, value: str, record: str) -> None:
         raise PermissionError("approval record nonce is invalid")
 
     with _LOCK:
+        expired_principals = [
+            candidate
+            for candidate, latest_expiry in _APPROVAL_PRINCIPAL_EXPIRY.items()
+            if latest_expiry <= now
+        ]
+        for candidate in expired_principals:
+            _APPROVAL_PRINCIPAL_EXPIRY.pop(candidate, None)
+            _CONSUMED_APPROVALS.pop(candidate, None)
+
         registry = _CONSUMED_APPROVALS.get(principal)
+        if registry is not None:
+            expired = [
+                key for key, expiry in registry.items() if expiry <= now
+            ]
+            for key in expired:
+                del registry[key]
+            if not registry:
+                _CONSUMED_APPROVALS.pop(principal, None)
+                _APPROVAL_PRINCIPAL_EXPIRY.pop(principal, None)
+                registry = None
+
         if registry is None:
             if len(_CONSUMED_APPROVALS) >= _MAX_APPROVAL_PRINCIPALS:
-                raise PermissionError("approval principal registry is at capacity")
+                raise PermissionError(
+                    "approval principal registry is at capacity"
+                )
             registry = {}
             _CONSUMED_APPROVALS[principal] = registry
-        expired = [key for key, expiry in registry.items() if expiry <= now]
-        for key in expired:
-            del registry[key]
         if nonce in registry:
             raise PermissionError("approval record was already consumed")
         if len(registry) >= _MAX_CONSUMED_APPROVALS_PER_PRINCIPAL:
             raise PermissionError("approval replay registry is at capacity")
         registry[nonce] = expires_at
+        _APPROVAL_PRINCIPAL_EXPIRY[principal] = max(
+            expires_at,
+            _APPROVAL_PRINCIPAL_EXPIRY.get(principal, expires_at),
+        )
 
 
 def put_item(item_id: str, value: str, approval_record: str) -> dict[str, Any]:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import compileall
+import hashlib
 import importlib.util
 import json
 import shutil
@@ -179,6 +180,8 @@ def test_generated_workflow_passes_trusted_ci_policy(tmp_path: Path) -> None:
     assert "--minimum-tests 1 --maximum-skips 0" in text
     assert "Smoke exact installed wheel outside checkout" in text
     assert "Build and smoke the exact-wheel container" in text
+    assert "WHEEL_SHA256" in text
+    assert "wheel.sha256" in text
 
 
 def test_generated_container_installs_only_the_exact_wheel(tmp_path: Path) -> None:
@@ -187,9 +190,11 @@ def test_generated_container_installs_only_the_exact_wheel(tmp_path: Path) -> No
     generator.generate_project(target, "inventory_mcp", "Inventory MCP")
     dockerfile = (target / "Dockerfile").read_text(encoding="utf-8")
     assert "python:3.12.11-slim-bookworm@sha256:" in dockerfile
-    assert "COPY ${WHEEL} /tmp/application.whl" in dockerfile
+    assert "COPY ${WHEEL} /tmp/wheels/" in dockerfile
+    assert "ARG WHEEL_SHA256" in dockerfile
+    assert 'sha256sum "$wheel"' in dockerfile
     assert "--require-hashes -r /tmp/runtime.lock" in dockerfile
-    assert "--no-deps /tmp/application.whl" in dockerfile
+    assert '--no-deps "$wheel"' in dockerfile
     assert "COPY src" not in dockerfile
     assert "pip install --no-cache-dir ." not in dockerfile
 
@@ -230,6 +235,17 @@ def test_generator_refuses_invalid_reserved_and_existing_targets(
     existing.mkdir()
     with pytest.raises(FileExistsError):
         generator.generate_project(existing, "valid_mcp", "Valid Server")
+
+    real_parent = tmp_path / "real-parent"
+    real_parent.mkdir()
+    linked_parent = tmp_path / "linked-parent"
+    linked_parent.symlink_to(real_parent, target_is_directory=True)
+    with pytest.raises(ValueError, match="symlinks"):
+        generator.generate_project(
+            linked_parent / "server",
+            "valid_mcp",
+            "Valid Server",
+        )
 
 
 def test_generator_concurrent_create_has_one_winner_and_never_replaces(
@@ -347,6 +363,7 @@ async def test_generated_container_is_non_root_and_passes_official_stdio_smoke(
     )
     wheels = list((target / "dist").glob("*.whl"))
     assert len(wheels) == 1
+    wheel_digest = hashlib.sha256(wheels[0].read_bytes()).hexdigest()
 
     image = f"ai-skills-python-mcp:{tmp_path.name.lower()}"
     run_checked(
@@ -355,6 +372,8 @@ async def test_generated_container_is_non_root_and_passes_official_stdio_smoke(
             "build",
             "--build-arg",
             f"WHEEL=dist/{wheels[0].name}",
+            "--build-arg",
+            f"WHEEL_SHA256={wheel_digest}",
             "--tag",
             image,
             ".",

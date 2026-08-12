@@ -9,16 +9,27 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_temporary_workflows_and_misleading_sdk_profile_are_absent() -> None:
+def test_temporary_workflows_and_sdk_profile_routing_are_clean() -> None:
     workflows = ROOT / ".github/workflows"
     assert not (workflows / "export-source-temp.yml").exists()
     assert not (workflows / "regenerate-locks-temp.yml").exists()
     assert not (workflows / "apply-mcp-audit-followup-phase1.yml").exists()
 
     references = ROOT / "skills/mcp-server-architect/references"
-    assert not (references / "python-fastmcp.md").exists()
+    pointer = references / "python-fastmcp.md"
+    assert pointer.is_file()
     assert (references / "python-official-mcp-sdk.md").is_file()
     assert (references / "python-fastmcp-package.md").is_file()
+    assert (references / "dotnet-mcp-sdk.md").is_file()
+    pointer_text = pointer.read_text(encoding="utf-8")
+    assert "not an SDK profile" in pointer_text
+    assert "python-fastmcp-package.md" in pointer_text
+
+    manifest = (ROOT / "skills/mcp-server-architect/manifest.yaml").read_text(
+        encoding="utf-8"
+    )
+    assert "- references/python-fastmcp.md" not in manifest
+    assert "- references/python-fastmcp-package.md" in manifest
 
 
 def test_python_generator_has_one_public_cli_and_no_string_patching() -> None:
