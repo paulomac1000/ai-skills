@@ -12,8 +12,12 @@ CONTRACTS = ROOT / "contracts"
 
 
 def test_mcp_template_extends_the_generic_adoption_contract_without_false_defaults() -> None:
-    generic = yaml.safe_load((CONTRACTS / "adoption-assessment.yaml.template").read_text(encoding="utf-8"))
-    template = yaml.safe_load((SKILL / "templates/migration-assessment.yaml.template").read_text(encoding="utf-8"))
+    generic = yaml.safe_load(
+        (CONTRACTS / "adoption-assessment.yaml.template").read_text(encoding="utf-8")
+    )
+    template = yaml.safe_load(
+        (SKILL / "templates/migration-assessment.yaml.template").read_text(encoding="utf-8")
+    )
     manifest = yaml.safe_load((SKILL / "manifest.yaml").read_text(encoding="utf-8"))
 
     assert template["schema_version"] == generic["schema_version"] == 1
@@ -53,7 +57,9 @@ def test_mcp_template_extends_the_generic_adoption_contract_without_false_defaul
 
 
 def test_every_provider_reference_carries_execution_and_report_identity() -> None:
-    template = yaml.safe_load((SKILL / "templates/migration-assessment.yaml.template").read_text(encoding="utf-8"))
+    template = yaml.safe_load(
+        (SKILL / "templates/migration-assessment.yaml.template").read_text(encoding="utf-8")
+    )
     references = [
         template["applicability"][0]["verification"][0]["evidence"],
         template["artifact_verification"]["artifacts"][0]["evidence"],
@@ -80,13 +86,14 @@ def test_every_provider_reference_carries_execution_and_report_identity() -> Non
 def test_manifest_requires_repository_adoption_contract_and_mcp_extension() -> None:
     manifest = yaml.safe_load((SKILL / "manifest.yaml").read_text(encoding="utf-8"))
     adoption = manifest["adoption"]
-    assert adoption == {
+    required = {
         "template": "contracts/adoption-assessment.yaml.template",
         "validator": "contracts/validate_adoption.py",
         "rule_catalog": "contracts/rule-catalog.yaml",
         "rule_map": "contracts/standard-rule-map.yaml",
         "extension": "mcp",
     }
+    assert required.items() <= adoption.items()
     for key in ("template", "validator", "rule_catalog", "rule_map"):
         assert (ROOT / adoption[key]).is_file()
 

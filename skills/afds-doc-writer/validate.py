@@ -11,6 +11,7 @@ import stat
 import sys
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path, PurePosixPath
 from typing import Any
 from urllib.parse import unquote
@@ -19,21 +20,30 @@ import yaml
 
 FRONTMATTER = re.compile(r"\A---\s*\n(.*?)\n---\s*\n", re.S)
 HEADING = re.compile(r"^(#{1,6})\s+(.+?)\s*$", re.M)
-FENCE_OPENER = re.compile(
-    r"^(?P<indent>[ \t]*)(?P<fence>`{3,}|~{3,})(?P<info>[^\r\n]*)$"
-)
+FENCE_OPENER = re.compile(r"^(?P<indent>[ \t]*)(?P<fence>`{3,}|~{3,})(?P<info>[^\r\n]*)$")
 REFERENCE_DEFINITION = re.compile(
     r"^(?P<indent>[ ]{0,3})\[(?P<label>[^\]\n]+)\]:[ \t]*(?P<raw>[^\r\n]+)$",
     re.M,
 )
-REFERENCE_LINK = re.compile(
-    r"(?<!\!)\[(?P<label>(?:\\.|[^\]\n])+)\]\[(?P<reference>[^\]\n]*)\]"
-)
+REFERENCE_LINK = re.compile(r"(?<!\!)\[(?P<label>(?:\\.|[^\]\n])+)\]\[(?P<reference>[^\]\n]*)\]")
 BRACKETED_LABEL = re.compile(r"\[(?P<label>(?:\\.|[^\]\n])+)\]")
-DOC_ID = re.compile(
-    r"^(workflow|reference|system|guide|decision|contract)\.[a-z0-9][a-z0-9.-]*$"
-)
+DOC_ID = re.compile(r"^(workflow|reference|system|guide|decision|contract)\.[a-z0-9][a-z0-9.-]*$")
 COMMON_REQUIRED = {"description", "doc_id", "type", "status", "rigor", "owners"}
+AFDS_DIALECT_KEYS = {
+    "afds_schema_version",
+    "doc_id",
+    "type",
+    "status",
+    "rigor",
+    "owners",
+    "verification",
+    "aliases",
+    "entities",
+    "upstream",
+    "downstream",
+    "supersedes",
+    "review_triggers",
+}
 VALID_TYPES = {"workflow", "reference", "system", "guide", "decision", "contract"}
 VALID_STATUS = {"draft", "active", "evolving", "deprecated", "archived"}
 VALID_RIGOR = {"informative", "operational", "normative"}
@@ -103,9 +113,7 @@ def collect_files(inputs: Iterable[Path]) -> tuple[list[Path], list[Finding]]:
                 files.add(item)
         elif item.is_dir():
             files.update(
-                path
-                for path in item.rglob("*.md")
-                if not {".git", ".venv", "__pycache__"}.intersection(path.parts)
+                path for path in item.rglob("*.md") if not {".git", ".venv", "__pycache__"}.intersection(path.parts)
             )
         else:
             findings.append(Finding(item, "unsupported input type"))
@@ -255,11 +263,7 @@ def iter_inline_link_destinations(text: str) -> Iterator[str]:
         if open_bracket is None or _is_escaped(text, open_bracket):
             cursor = close_bracket + 2
             continue
-        if (
-            open_bracket > 0
-            and text[open_bracket - 1] == "!"
-            and not _is_escaped(text, open_bracket - 1)
-        ):
+        if open_bracket > 0 and text[open_bracket - 1] == "!" and not _is_escaped(text, open_bracket - 1):
             cursor = close_bracket + 2
             continue
         start = close_bracket + 2
@@ -377,9 +381,7 @@ def _typed_verification_finding(metadata: Mapping[str, Any]) -> str | None:
     kind = verification.get("kind")
     value = verification.get("value")
     if kind not in VALID_VERIFICATION_KINDS:
-        return (
-            "verification.kind must be command, ci-job, manual-review, or observable"
-        )
+        return "verification.kind must be command, ci-job, manual-review, or observable"
     if not isinstance(value, str) or not value.strip():
         return "verification.value must be a non-empty string"
     return None
@@ -399,13 +401,9 @@ def _verification_findings(
         return findings
     if schema_version < minimum_schema_version:
         findings.append(
-            "afds_schema_version 1 is below required minimum 2; migrate verification "
-            "to an object with kind and value"
+            "afds_schema_version 1 is below required minimum 2; migrate verification to an object with kind and value"
         )
-    verification_required = isinstance(rigor, str) and rigor in {
-        "operational",
-        "normative",
-    }
+    verification_required = isinstance(rigor, str) and rigor in {"operational", "normative"}
     if schema_version == CURRENT_DOCUMENT_SCHEMA:
         if "verification" in metadata:
             finding = _typed_verification_finding(metadata)
@@ -435,17 +433,12 @@ def _load_governance(path: Path) -> Governance:
         if set(value) != required_options:
             missing = sorted(required_options - set(value))
             unknown = sorted(set(value) - required_options)
-            raise ValueError(
-                f"profile {name!r} must declare exactly the supported options; "
-                f"missing={missing}, unknown={unknown}"
-            )
+            raise ValueError(f"profile {name!r} must declare exactly the supported options; missing={missing}, unknown={unknown}")
         profile_options: dict[str, bool] = {}
         for key in DEFAULT_PROFILES["governed"]:
             candidate = value[key]
             if type(candidate) is not bool:
-                raise ValueError(
-                    f"profile {name!r} option {key!r} must be boolean"
-                )
+                raise ValueError(f"profile {name!r} option {key!r} must be boolean")
             profile_options[key] = candidate
         profiles[name] = profile_options
     default_profile = raw.get("default_profile", "governed")
@@ -457,26 +450,40 @@ def _load_governance(path: Path) -> Governance:
     assignments: list[tuple[str, str]] = []
     for entry in raw_assignments:
         if not isinstance(entry, dict) or set(entry) != {"match", "profile"}:
-            raise ValueError(
-                "each governance document entry needs only match and profile"
-            )
+            raise ValueError("each governance document entry needs only match and profile")
         pattern = entry["match"]
         profile = entry["profile"]
-        if (
-            not isinstance(pattern, str)
-            or not pattern
-            or pattern.startswith("/")
-            or "\\" in pattern
-        ):
-            raise ValueError(
-                "governance match must be a safe repository-relative POSIX glob"
-            )
+        if not isinstance(pattern, str) or not pattern or pattern.startswith("/") or "\\" in pattern:
+            raise ValueError("governance match must be a safe repository-relative POSIX glob")
         if any(part == ".." for part in PurePosixPath(pattern).parts):
             raise ValueError("governance match must not contain parent traversal")
         if profile not in profiles:
             raise ValueError(f"unknown governance profile: {profile}")
         assignments.append((pattern, profile))
     return Governance(profiles, tuple(assignments), default_profile)
+
+
+def _path_glob_match(relative: str, pattern: str) -> bool:
+    """Match POSIX path components without allowing '*' to cross '/'."""
+    relative_parts = PurePosixPath(relative).parts
+    pattern_parts = PurePosixPath(pattern).parts
+
+    @lru_cache(maxsize=None)
+    def matches(relative_index: int, pattern_index: int) -> bool:
+        if pattern_index == len(pattern_parts):
+            return relative_index == len(relative_parts)
+        current = pattern_parts[pattern_index]
+        if current == "**":
+            return matches(relative_index, pattern_index + 1) or (
+                relative_index < len(relative_parts) and matches(relative_index + 1, pattern_index)
+            )
+        return (
+            relative_index < len(relative_parts)
+            and fnmatch.fnmatchcase(relative_parts[relative_index], current)
+            and matches(relative_index + 1, pattern_index + 1)
+        )
+
+    return matches(0, 0)
 
 
 def _profile_for(
@@ -486,12 +493,10 @@ def _profile_for(
 ) -> Mapping[str, bool]:
     if governance is None:
         return DEFAULT_PROFILES["governed"]
-    relative = path.resolve(strict=False).relative_to(
-        repository_root.resolve()
-    ).as_posix()
+    relative = path.resolve(strict=False).relative_to(repository_root.resolve()).as_posix()
     selected = governance.default_profile
     for pattern, profile in governance.assignments:
-        if fnmatch.fnmatchcase(relative, pattern):
+        if _path_glob_match(relative, pattern):
             selected = profile
     return governance.profiles[selected]
 
@@ -562,9 +567,7 @@ def _safe_link_target(
     if "\\" in raw_target:
         return None, "link target must use POSIX separators"
     candidate_path = PurePosixPath(raw_target)
-    if candidate_path.is_absolute() or any(
-        part in {"", ".", ".."} for part in candidate_path.parts
-    ):
+    if candidate_path.is_absolute() or any(part in {"", ".", ".."} for part in candidate_path.parts):
         return None, "link target must be a confined repository-relative path"
     root = repository_root.resolve()
     candidate = source.parent.joinpath(*candidate_path.parts)
@@ -605,44 +608,34 @@ def _validate_links(
     anchor_cache: dict[Path, set[str]] = {}
     for destination in iter_link_destinations(body):
         decoded = unquote(destination)
-        if re.match(r"^[a-z][a-z0-9+.-]*:", decoded, re.I) or decoded.startswith(
-            "//"
-        ):
+        if re.match(r"^[a-z][a-z0-9+.-]*:", decoded, re.I) or decoded.startswith("//"):
             continue
         raw_path, separator, fragment = decoded.partition("#")
         display = decoded
+        resolved_target: Path
         if not raw_path:
-            target_path = path
+            resolved_target = path
         else:
-            target_path, unsafe = _safe_link_target(
-                path,
-                raw_path,
-                repository_root,
-            )
+            linked_target, unsafe = _safe_link_target(path, raw_path, repository_root)
             if unsafe:
-                findings.append(
-                    Finding(path, f"unsafe relative link: {raw_path}: {unsafe}")
-                )
+                findings.append(Finding(path, f"unsafe relative link: {raw_path}: {unsafe}"))
                 continue
-            if target_path is None:
+            if linked_target is None:
                 findings.append(Finding(path, f"broken relative link: {raw_path}"))
                 continue
+            resolved_target = linked_target
         if separator and fragment and check_anchors:
             try:
                 anchors = anchor_cache.setdefault(
-                    target_path,
-                    _anchors(target_path.read_text(encoding="utf-8")),
+                    resolved_target,
+                    _anchors(resolved_target.read_text(encoding="utf-8")),
                 )
             except (OSError, UnicodeDecodeError):
-                findings.append(
-                    Finding(path, f"cannot inspect relative anchor: {display}")
-                )
+                findings.append(Finding(path, f"cannot inspect relative anchor: {display}"))
                 continue
             normalized_fragment = _github_anchor(fragment)
             if normalized_fragment not in anchors:
-                findings.append(
-                    Finding(path, f"broken relative anchor: {display}")
-                )
+                findings.append(Finding(path, f"broken relative anchor: {display}"))
     return findings
 
 
@@ -666,29 +659,16 @@ def _metadata_findings(
 ) -> list[Finding]:
     findings: list[Finding] = []
     if "owner" in metadata:
-        findings.append(
-            Finding(
-                path,
-                'unknown field "owner"; use "owners" as a non-empty list',
-            )
-        )
+        findings.append(Finding(path, 'unknown field "owner"; use "owners" as a non-empty list'))
     missing = sorted(field for field in COMMON_REQUIRED if not metadata.get(field))
     if missing:
-        findings.append(
-            Finding(path, f"missing required fields: {', '.join(missing)}")
-        )
+        findings.append(Finding(path, f"missing required fields: {', '.join(missing)}"))
     description = metadata.get("description")
     if not isinstance(description, str) or not description.strip():
         findings.append(Finding(path, "description must be a non-empty string"))
     owners = metadata.get("owners")
-    if not (
-        isinstance(owners, list)
-        and owners
-        and all(isinstance(owner, str) and owner.strip() for owner in owners)
-    ):
-        findings.append(
-            Finding(path, "owners must be a non-empty list of role or team names")
-        )
+    if not (isinstance(owners, list) and owners and all(isinstance(owner, str) and owner.strip() for owner in owners)):
+        findings.append(Finding(path, "owners must be a non-empty list of role or team names"))
 
     doc_type = metadata.get("type")
     doc_id = metadata.get("doc_id")
@@ -698,11 +678,7 @@ def _metadata_findings(
         findings.append(Finding(path, f"invalid type: {doc_type}"))
     if not isinstance(doc_id, str) or not DOC_ID.fullmatch(doc_id):
         findings.append(Finding(path, f"invalid doc_id: {doc_id}"))
-    elif (
-        isinstance(doc_type, str)
-        and doc_type in VALID_TYPES
-        and not doc_id.startswith(f"{doc_type}.")
-    ):
+    elif isinstance(doc_type, str) and doc_type in VALID_TYPES and not doc_id.startswith(f"{doc_type}."):
         findings.append(Finding(path, "doc_id prefix does not match type"))
     if not isinstance(status, str) or status not in VALID_STATUS:
         findings.append(Finding(path, f"invalid status: {status}"))
@@ -710,9 +686,8 @@ def _metadata_findings(
         findings.append(Finding(path, f"invalid rigor: {rigor}"))
     authored = sorted(AUTOMATION_FIELDS.intersection(metadata))
     if authored:
-        findings.append(
-            Finding(path, f"automation-owned fields: {', '.join(authored)}")
-        )
+        findings.append(Finding(path, f"automation-owned fields: {', '.join(authored)}"))
+
     if require_verification_by_rigor:
         clean_body = strip_inline_code_spans(strip_fenced_blocks(body))
         findings.extend(
@@ -728,11 +703,27 @@ def _metadata_findings(
         schema_version, schema_error = _document_schema(metadata)
         if schema_error:
             findings.append(Finding(path, schema_error))
-        elif schema_version == CURRENT_DOCUMENT_SCHEMA and "verification" in metadata:
-            verification_error = _typed_verification_finding(metadata)
-            if verification_error:
-                findings.append(Finding(path, verification_error))
+        else:
+            if schema_version < minimum_schema_version:
+                findings.append(
+                    Finding(
+                        path,
+                        "afds_schema_version 1 is below required minimum 2; migrate verification to an object with kind and value",
+                    )
+                )
+            if schema_version == CURRENT_DOCUMENT_SCHEMA and "verification" in metadata:
+                verification_error = _typed_verification_finding(metadata)
+                if verification_error:
+                    findings.append(Finding(path, verification_error))
     return findings
+
+
+def _is_afds_metadata(metadata: Mapping[str, Any]) -> bool:
+    """Distinguish AFDS metadata from foreign portable frontmatter such as SKILL.md."""
+    if "afds_schema_version" in metadata or "doc_id" in metadata:
+        return True
+    strong_keys = {"type", "status", "rigor", "owners", "verification"}
+    return len(strong_keys.intersection(metadata)) >= 2
 
 
 def validate(
@@ -745,12 +736,7 @@ def validate(
 ) -> list[Finding]:
     """Validate one Markdown document under its selected governance profile."""
     if minimum_schema_version not in {1, CURRENT_DOCUMENT_SCHEMA}:
-        return [
-            Finding(
-                path,
-                "minimum_schema_version must be 1 or 2",
-            )
-        ]
+        return [Finding(path, "minimum_schema_version must be 1 or 2")]
     root = (repository_root or _discover_repository_root(path)).resolve()
     if governance is None:
         governance_path = root / "skills/afds-doc-writer/governance.yaml"
@@ -766,7 +752,6 @@ def validate(
     selected = profile or _profile_for(path, root, governance)
 
     match = FRONTMATTER.search(text)
-    metadata: Mapping[str, Any] = {}
     body = text
     findings: list[Finding] = []
     if selected.get("require_frontmatter", True):
@@ -778,17 +763,13 @@ def validate(
             return [Finding(path, f"invalid YAML: {exc}")]
         if not isinstance(loaded, dict):
             return [Finding(path, "frontmatter must be a mapping")]
-        metadata = loaded
         body = text[match.end() :]
         findings.extend(
             _metadata_findings(
                 path,
-                metadata,
+                loaded,
                 body,
-                require_verification_by_rigor=selected.get(
-                    "require_verification_by_rigor",
-                    True,
-                ),
+                require_verification_by_rigor=selected.get("require_verification_by_rigor", True),
                 minimum_schema_version=minimum_schema_version,
             )
         )
@@ -799,37 +780,27 @@ def validate(
             return [Finding(path, f"invalid YAML: {exc}")]
         if not isinstance(loaded, dict):
             return [Finding(path, "frontmatter must be a mapping")]
-        metadata = loaded
         body = text[match.end() :]
-        findings.extend(
-            _metadata_findings(
-                path,
-                metadata,
-                body,
-                require_verification_by_rigor=selected.get(
-                    "require_verification_by_rigor",
-                    False,
-                ),
-                minimum_schema_version=minimum_schema_version,
+        if _is_afds_metadata(loaded):
+            findings.extend(
+                _metadata_findings(
+                    path,
+                    loaded,
+                    body,
+                    require_verification_by_rigor=selected.get("require_verification_by_rigor", False),
+                    minimum_schema_version=minimum_schema_version,
+                )
             )
-        )
 
     structural_body = strip_inline_code_spans(strip_fenced_blocks(body))
     if selected.get("check_structure", True):
         headings = HEADING.findall(structural_body)
         if sum(level == "#" for level, _ in headings) != 1:
             findings.append(Finding(path, "expected exactly one H1"))
-        normalized = [
-            re.sub(r"[^a-z0-9]+", " ", title.lower()).strip()
-            for _, title in headings
-        ]
-        duplicates = sorted(
-            {title for title in normalized if normalized.count(title) > 1}
-        )
+        normalized = [re.sub(r"[^a-z0-9]+", " ", title.lower()).strip() for _, title in headings]
+        duplicates = sorted({title for title in normalized if normalized.count(title) > 1})
         if duplicates:
-            findings.append(
-                Finding(path, f"duplicate headings: {', '.join(duplicates)}")
-            )
+            findings.append(Finding(path, f"duplicate headings: {', '.join(duplicates)}"))
     if selected.get("check_links", True):
         findings.extend(
             _validate_links(
@@ -859,18 +830,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
     root = args.repository_root.resolve()
-    governance_path = (
-        args.governance or root / "skills/afds-doc-writer/governance.yaml"
-    )
+    governance_path = args.governance or root / "skills/afds-doc-writer/governance.yaml"
     governance: Governance | None = None
     findings: list[Finding] = []
     if governance_path.exists():
         try:
             governance = _load_governance(governance_path)
         except (OSError, ValueError, yaml.YAMLError) as exc:
-            findings.append(
-                Finding(governance_path, f"invalid governance: {exc}")
-            )
+            findings.append(Finding(governance_path, f"invalid governance: {exc}"))
     paths, input_findings = collect_files(args.inputs)
     findings.extend(input_findings)
     findings.extend(

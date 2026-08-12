@@ -85,8 +85,6 @@ jobs:
             echo "validated release tag must start with v and contain a package version" >&2
             exit 1
           fi
-          # Canonical SemVer 2.0 grammar. Core and numeric prerelease
-          # identifiers reject leading zeroes; build identifiers may contain them.
           core_identifier='(0|[1-9][0-9]*)'
           prerelease_identifier='(0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)'
           build_identifier='[0-9A-Za-z-]+'
@@ -128,11 +126,9 @@ jobs:
           expected = set(expected_values)
           if len(expected) != len(expected_values):
               raise SystemExit("DOTNET_PACKAGE_IDS contains duplicate PackageId values")
-
           expected_version = os.environ["EXPECTED_VERSION"].strip()
           if not expected_version:
               raise SystemExit("expected package version is empty")
-
           package_paths = sorted(pathlib.Path("nupkg").glob("*.nupkg"))
           if not package_paths:
               raise SystemExit("No .nupkg files found")
@@ -157,7 +153,6 @@ jobs:
                   if len(nuspecs) != 1:
                       raise SystemExit(f"{package_path}: expected exactly one .nuspec, found {len(nuspecs)}")
                   root = ET.fromstring(archive.read(nuspecs[0]))
-
               if local_name(root.tag) != "package":
                   raise SystemExit(f"{package_path}: nuspec root must be package")
               metadata = direct_child(root, "metadata")
@@ -172,15 +167,12 @@ jobs:
               if package_id in verified:
                   raise SystemExit(f"Duplicate package artifact for PackageId {package_id!r}")
               if version != expected_version:
-                  raise SystemExit(
-                      f"{package_path}: version {version!r} does not match validated tag version {expected_version!r}"
-                  )
+                  raise SystemExit(f"{package_path}: version {version!r} does not match validated tag version {expected_version!r}")
               verified[package_id] = package_path
 
           missing = expected - set(verified)
           if missing:
               raise SystemExit(f"Missing allowlisted PackageId artifacts: {sorted(missing)}")
-
           manifest = pathlib.Path("nupkg/publish-files.txt")
           manifest.write_text(
               "".join(f"{verified[package_id].as_posix()}\n" for package_id in sorted(verified)),
@@ -207,22 +199,26 @@ jobs:
             echo "Validated package manifest is empty" >&2
             exit 1
           fi
-          : > nupkg/SHA256SUMS
           for package in "${packages[@]}"; do
             test -f "$package"
-            sha256sum "$package" >> nupkg/SHA256SUMS
           done
           python - <<'PY'
+          import hashlib
           import json
           import os
           from pathlib import Path
 
+          paths = Path("nupkg/publish-files.txt").read_text(encoding="utf-8").splitlines()
+          files = [
+              {"path": path, "sha256": hashlib.sha256(Path(path).read_bytes()).hexdigest()}
+              for path in paths
+          ]
           manifest = {
               "schemaVersion": 1,
               "sourceRevision": os.environ["RELEASE_SHA"],
               "releaseTag": os.environ["RELEASE_TAG"],
               "version": os.environ["RELEASE_VERSION"],
-              "files": Path("nupkg/publish-files.txt").read_text(encoding="utf-8").splitlines(),
+              "files": files,
           }
           Path("nupkg/release-manifest.json").write_text(
               json.dumps(manifest, sort_keys=True, separators=(",", ":")) + "\n",
@@ -263,8 +259,8 @@ jobs:
         run: |
           set -euo pipefail
           test "sha256:$(sha256sum nupkg/release-manifest.json | cut -d' ' -f1)" = "$EXPECTED_MANIFEST_DIGEST"
-          sha256sum --check nupkg/SHA256SUMS
           python - <<'PY'
+          import hashlib
           import json
           import os
           from pathlib import Path
@@ -273,7 +269,22 @@ jobs:
           assert manifest["sourceRevision"] == os.environ["EXPECTED_SHA"]
           assert manifest["releaseTag"] == os.environ["EXPECTED_TAG"]
           assert manifest["version"] == os.environ["EXPECTED_VERSION"]
-          assert manifest["files"]
+          files = manifest["files"]
+          assert isinstance(files, list) and files
+          verified: list[str] = []
+          for entry in files:
+              assert isinstance(entry, dict) and set(entry) == {"path", "sha256"}
+              path = entry["path"]
+              expected = entry["sha256"]
+              assert isinstance(path, str) and path.startswith("nupkg/") and ".." not in Path(path).parts
+              assert isinstance(expected, str) and len(expected) == 64
+              actual = hashlib.sha256(Path(path).read_bytes()).hexdigest()
+              assert actual == expected
+              verified.append(path)
+          Path("nupkg/verified-publish-files.txt").write_text(
+              "".join(f"{path}\n" for path in verified),
+              encoding="utf-8",
+          )
           PY
       - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68
         with:
@@ -282,7 +293,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mapfile -t packages < nupkg/publish-files.txt
+          mapfile -t packages < nupkg/verified-publish-files.txt
           if (( ${#packages[@]} == 0 )); then
             echo "Validated package manifest is empty" >&2
             exit 1

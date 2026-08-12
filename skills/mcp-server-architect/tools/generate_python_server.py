@@ -20,13 +20,23 @@ _SPEC = importlib.util.spec_from_file_location(
     _IMPLEMENTATION_PATH,
 )
 if _SPEC is None or _SPEC.loader is None:
-    raise ImportError(f"Cannot load generator implementation: {_IMPLEMENTATION_PATH}")
+    raise ImportError(
+        f"Cannot load generator implementation: {_IMPLEMENTATION_PATH}"
+    )
 _implementation = importlib.util.module_from_spec(_SPEC)
 sys.modules[_SPEC.name] = _implementation
 _SPEC.loader.exec_module(_implementation)
 
 PACKAGE_RE = re.compile(r"^[a-z][a-z0-9_]{1,63}$")
 SERVER_RE = re.compile(r"^[^\x00-\x1f\x7f]{1,128}$")
+_WINDOWS_RESERVED_NAMES = {
+    "con",
+    "prn",
+    "aux",
+    "nul",
+    *(f"com{number}" for number in range(1, 10)),
+    *(f"lpt{number}" for number in range(1, 10)),
+}
 RESERVED_PACKAGE_NAMES = frozenset(sys.stdlib_module_names) | {
     "contracts",
     "mcp",
@@ -34,6 +44,7 @@ RESERVED_PACKAGE_NAMES = frozenset(sys.stdlib_module_names) | {
     "scripts",
     "tests",
     "uvicorn",
+    *_WINDOWS_RESERVED_NAMES,
 }
 LOCK_NAMES = _implementation.LOCK_NAMES
 LOCK_IDS = tuple(
@@ -52,7 +63,7 @@ def _validate_public_identity(package_name: str, server_name: str) -> None:
             "package name must be a non-keyword matching "
             "^[a-z][a-z0-9_]{1,63}$"
         )
-    if package_name in RESERVED_PACKAGE_NAMES:
+    if package_name.casefold() in RESERVED_PACKAGE_NAMES:
         raise ValueError(f"package name is reserved: {package_name}")
     if not SERVER_RE.fullmatch(server_name):
         raise ValueError("server name must contain 1-128 printable characters")
@@ -64,7 +75,7 @@ def project_files(package_name: str, server_name: str) -> dict[str, str]:
     return _BASE_PROJECT_FILES(package_name, server_name)
 
 
-_implementation.project_files = project_files
+setattr(_implementation, "project_files", project_files)
 
 
 def generate_project(
@@ -75,11 +86,17 @@ def generate_project(
     """Render and atomically publish a project using the stable public API."""
     files = project_files(package_name, server_name)
     validate_generated_project(files, package_name)
-    destination = destination.resolve(strict=False)
-    parent = destination.parent
+
+    expanded = destination.expanduser()
+    if os.path.lexists(expanded):
+        raise FileExistsError(expanded)
+    parent = expanded.parent.resolve(strict=False)
     parent.mkdir(parents=True, exist_ok=True)
     if parent.is_symlink() or not parent.is_dir():
-        raise ValueError("destination parent must be a regular directory, not a symlink")
+        raise ValueError(
+            "destination parent must be a regular directory, not a symlink"
+        )
+    destination = parent / expanded.name
     if os.path.lexists(destination):
         raise FileExistsError(destination)
 
@@ -126,7 +143,8 @@ def _resolved_identity(
     legacy = args.legacy_package_name
     if explicit and legacy and explicit != legacy:
         parser.error(
-            "package name was supplied twice with different values; use only --package"
+            "package name was supplied twice with different values; use "
+            "only --package"
         )
     package_name = explicit or legacy
     if not package_name:
@@ -143,7 +161,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         generate_project(args.destination, package_name, server_name)
     except (OSError, RuntimeError, ValueError) as exc:
         parser.error(str(exc))
-    print(args.destination.resolve(strict=False))
+    print(f"Generated {args.destination.resolve(strict=False)}")
     return 0
 
 

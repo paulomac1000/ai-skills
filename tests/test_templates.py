@@ -19,19 +19,31 @@ TEMPLATES = ROOT / "skills/ci-cd-architect/templates"
 FULL_SHA = re.compile(r"[0-9a-f]{40}")
 REPLACEMENTS = {
     "<TIMEOUT_MINUTES>": "20",
+    "<FAST_TIMEOUT_MINUTES>": "10",
+    "<FULL_TIMEOUT_MINUTES>": "30",
     "<DEFAULT_BRANCH>": "trunk",
     "<PYTHON_VERSION>": "3.13",
     "<DEPENDENCY_FILE>": "requirements-dev-linux-x64-py312.lock",
+    "<VERIFIER_LOCK_FILE>": "requirements-dev-linux-x64-py312.lock",
     "<INSTALL_COMMAND>": "python -m pip install --require-hashes -r requirements-dev-linux-x64-py312.lock",
     "<TYPECHECK_COMMAND>": "python -m mypy src",
     "<SECURITY_COMMAND>": "python -m bandit -r src",
     "<TEST_COMMAND>": "python -m pytest --cov=src --cov-report=xml",
+    "<FAST_CHECK_COMMAND>": "python -m pytest -q tests/unit",
+    "<FULL_CHECK_COMMAND>": "python -m pytest -q",
+    "<ARTIFACT_CHECK_COMMAND>": "python -m pytest -q tests/artifact",
     "<TEST_ARTIFACT_PATH>": "coverage.xml",
     "<MCP_REGISTRATION_TEST_COMMAND>": "python -m pytest tests/test_registration.py",
     "<MCP_CLIENT_TEST_COMMAND>": "python -m pytest tests/test_client.py",
     "<MCP_FAILURE_TEST_COMMAND>": "python -m pytest tests/test_failures.py",
     "<LOCAL_IMAGE_REF>": "local/example:test",
     "<CONTAINER_SMOKE_COMMAND>": 'docker run --rm "$IMAGE_REF" --health-check',
+    "<QUARANTINE_REGISTRY>": "quarantine.example.invalid",
+    "<QUARANTINE_REPOSITORY>": "example/service",
+    "<QUARANTINE_USERNAME_SECRET>": "QUARANTINE_USERNAME",
+    "<QUARANTINE_PASSWORD_SECRET>": "QUARANTINE_PASSWORD",
+    "<QUARANTINE_READ_USERNAME_SECRET>": "QUARANTINE_READ_USERNAME",
+    "<QUARANTINE_READ_PASSWORD_SECRET>": "QUARANTINE_READ_PASSWORD",
     "<DOTNET_VERSION>": "10.0.302",
     "<SOLUTION_PATH>": "src/App.sln",
     "<SERVER_PROJECT>": "src/App/App.csproj",
@@ -118,6 +130,7 @@ def test_expected_production_profiles_are_present() -> None:
     assert (TEMPLATES / "dependabot-multi-ecosystem.yaml.template").exists()
     assert (TEMPLATES / "pre-commit-python.yaml.template").exists()
     assert (TEMPLATES / "pre-commit-dotnet.yaml.template").exists()
+    assert (TEMPLATES / "on-demand-ci.yaml.template").exists()
 
 
 def test_all_external_uses_references_are_full_sha_pinned() -> None:
@@ -135,15 +148,12 @@ def test_all_external_uses_references_are_full_sha_pinned() -> None:
 def test_every_rendered_workflow_passes_declared_policy_profile(tmp_path: Path) -> None:
     tools = ROOT / "skills/ci-cd-architect/tools"
     sys.path.insert(0, str(tools))
-    import check_github_actions_policy_impl as policy
-
-    def reader(path: Path, _root: Path) -> tuple[str | None, str | None]:
-        return path.read_text(encoding="utf-8"), None
+    import check_github_actions_policy as policy
 
     for source in workflow_files():
         rendered = tmp_path / source.name.removesuffix(".template")
         rendered.write_text(render(source), encoding="utf-8")
-        findings = policy.audit_workflow(rendered, tmp_path, reader=reader)
+        findings = policy.audit_workflow(rendered, tmp_path)
         assert findings == [], (source, [finding.message for finding in findings])
 
 
@@ -158,7 +168,9 @@ def test_jobs_are_bounded_and_checkout_drops_credentials() -> None:
             timeout = job.get("timeout-minutes")
             assert type(timeout) is int and timeout > 0, (path, job_name)
             for step in job.get("steps") or []:
-                if isinstance(step, dict) and str(step.get("uses", "")).startswith("actions/checkout@"):
+                if isinstance(step, dict) and str(step.get("uses", "")).startswith(
+                    "actions/checkout@"
+                ):
                     assert step.get("with", {}).get("persist-credentials") is False
 
 
@@ -176,51 +188,63 @@ def test_documentation_workflow_tracks_its_own_contract() -> None:
     assert workflow_path in events["push"]["paths"]
 
 
-def test_publish_builds_and_smokes_before_closing_artifact() -> None:
+def test_publish_builds_smokes_quarantines_and_promotes_exact_digest() -> None:
     document = parse(TEMPLATES / "publish.yml.template")
-    jobs = document["jobs"]
-    validate = jobs["validate-build"]
-    publish = jobs["publish"]
+    validate = document["jobs"]["validate-build"]
+    publish = document["jobs"]["publish"]
     assert publish["needs"] == "validate-build"
     validate_steps = validate["steps"]
     build_index = next(
-        i for i, step in enumerate(validate_steps) if str(step.get("uses", "")).startswith("docker/build-push-action@")
+        i for i, step in enumerate(validate_steps) if step.get("name") == "Build release image once"
     )
     smoke_index = next(
+        i for i, step in enumerate(validate_steps) if step.get("name") == "Smoke-test local release image"
+    )
+    quarantine_index = next(
+        i for i, step in enumerate(validate_steps) if step.get("id") == "quarantine"
+    )
+    digest_smoke_index = next(
         i
         for i, step in enumerate(validate_steps)
-        if step.get("name") == "Smoke-test exact release image"
+        if step.get("name") == "Smoke-test exact quarantined digest"
     )
-    close_index = next(
-        i
-        for i, step in enumerate(validate_steps)
-        if step.get("name") == "Close tested image into an archive"
-    )
-    upload_index = next(
-        i for i, step in enumerate(validate_steps) if str(step.get("uses", "")).startswith("actions/upload-artifact@")
-    )
-    assert build_index < smoke_index < close_index < upload_index
+    assert build_index < smoke_index < quarantine_index < digest_smoke_index
     build = validate_steps[build_index]
-    assert build["with"]["load"] is True
-    assert build["with"]["push"] is False
+    assert "docker buildx build --load" in build["run"]
+    assert "org.opencontainers.image.revision=$RELEASE_SHA" in build["run"]
+    quarantine = validate_steps[quarantine_index]
+    assert "docker push" in quarantine["run"]
+    assert "imagetools inspect" in quarantine["run"]
+    assert "sha256:[0-9a-f]{64}" in quarantine["run"]
     assert validate.get("permissions") is None
+
     publish_steps = publish["steps"]
-    assert not any(str(step.get("uses", "")).startswith("actions/checkout@") for step in publish_steps)
-    push = next(step for step in publish_steps if step.get("name") == "Push only explicitly approved tags")
-    assert "docker push --all-tags" not in push["run"]
-    assert 'docker push "$IMMUTABLE_REF"' in push["run"]
-    attest = next(
-        step for step in publish_steps if str(step.get("uses", "")).startswith("actions/attest-build-provenance@")
+    assert not any(
+        str(step.get("uses", "")).startswith("actions/checkout@")
+        for step in publish_steps
     )
-    assert attest["with"]["subject-digest"] == "${{ steps.push.outputs.digest }}"
+    promote = next(step for step in publish_steps if step.get("id") == "promote")
+    assert "imagetools create" in promote["run"]
+    assert 'source_ref="${QUARANTINE_REF%:*}@$EXPECTED_DIGEST"' in promote["run"]
+    assert 'test "$promoted" = "$EXPECTED_DIGEST"' in promote["run"]
+    assert "docker push --all-tags" not in promote["run"]
+    attest = next(
+        step
+        for step in publish_steps
+        if str(step.get("uses", "")).startswith("actions/attest-build-provenance@")
+    )
+    assert attest["with"]["subject-name"] == "${{ steps.promote.outputs.subject_name }}"
+    assert attest["with"]["subject-digest"] == "${{ steps.promote.outputs.digest }}"
 
 
-def test_publish_constrains_revision_and_verifies_closed_archive() -> None:
+def test_publish_constrains_revision_and_keeps_candidate_out_of_publisher() -> None:
     document = parse(TEMPLATES / "publish.yml.template")
     validate = document["jobs"]["validate-build"]
     publish = document["jobs"]["publish"]
     checkout = next(
-        step for step in validate["steps"] if str(step.get("uses", "")).startswith("actions/checkout@")
+        step
+        for step in validate["steps"]
+        if str(step.get("uses", "")).startswith("actions/checkout@")
     )
     assert checkout["with"]["fetch-depth"] == 0
     assert checkout["with"]["persist-credentials"] is False
@@ -228,30 +252,33 @@ def test_publish_constrains_revision_and_verifies_closed_archive() -> None:
     assert "git merge-base --is-ancestor" in resolver["run"]
     assert "origin/$DEFAULT_BRANCH" in resolver["run"]
     assert "^[0-9a-f]{40}$" in resolver["run"]
-    archive = next(step for step in validate["steps"] if step.get("id") == "archive")
-    assert "sha256sum release-artifact/image.tar" in archive["run"]
-    verify = next(
-        step
+    assert "git checkout --detach" in resolver["run"]
+    assert not any(
+        str(step.get("uses", "")).startswith("actions/checkout@")
         for step in publish["steps"]
-        if step.get("name") == "Verify archive identity before registry access"
     )
-    assert "sha256sum --check" in verify["run"]
-    assert "sourceRevision" in verify["run"]
-    assert "org.opencontainers.image.revision" in verify["run"]
-    immutable = validate["outputs"]["immutable_ref"]
-    assert "steps.identity.outputs.immutable_ref" in immutable
     source = (TEMPLATES / "publish.yml.template").read_text(encoding="utf-8")
-    assert "sha-${RELEASE_SHA}" in source
+    assert "sha-$RELEASE_SHA" in source
     assert "release_short_sha" not in source
 
 
 def test_dotnet_quality_provisions_coverage_and_reports_safely() -> None:
     document = parse(TEMPLATES / "dotnet-ci.yml.template")
     job = document["jobs"]["build-test"]
-    assert job["permissions"] == {"actions": "read", "checks": "write", "contents": "read"}
-    install = next(step for step in job["steps"] if step.get("name") == "Install pinned ReportGenerator")
-    coverage = next(step for step in job["steps"] if step.get("name") == "Generate coverage report")
-    reporter = next(step for step in job["steps"] if step.get("name") == "Publish test report")
+    assert job["permissions"] == {
+        "actions": "read",
+        "checks": "write",
+        "contents": "read",
+    }
+    install = next(
+        step for step in job["steps"] if step.get("name") == "Install pinned ReportGenerator"
+    )
+    coverage = next(
+        step for step in job["steps"] if step.get("name") == "Generate coverage report"
+    )
+    reporter = next(
+        step for step in job["steps"] if step.get("name") == "Publish test report"
+    )
     assert '--version "5.4.3"' in install["run"]
     assert "TestResults/**/coverage.cobertura.xml" in coverage["run"]
     assert "pull_request.head.repo.full_name" in reporter["if"]
@@ -321,13 +348,25 @@ def test_dotnet_package_release_uses_closed_artifact_and_identity_set(tmp_path: 
     identity = next(step for step in steps if step.get("id") == "release")
     pack = next(step for step in steps if step.get("name") == "Pack")
     allowlist = next(
-        step for step in steps if step.get("name") == "Validate exact package identity allowlist"
+        step
+        for step in steps
+        if step.get("name") == "Validate exact package identity allowlist"
     )
+    close = next(step for step in steps if step.get("id") == "close")
     checkouts = [
-        step for step in steps if str(step.get("uses", "")).startswith("actions/checkout@")
+        step
+        for step in steps
+        if str(step.get("uses", "")).startswith("actions/checkout@")
     ]
     publish_steps = publish["steps"]
-    publisher = next(step for step in publish_steps if step.get("name") == "Publish package files")
+    verify = next(
+        step
+        for step in publish_steps
+        if step.get("name") == "Verify package artifact identity before publication"
+    )
+    publisher = next(
+        step for step in publish_steps if step.get("name") == "Publish package files"
+    )
     release = next(
         step
         for step in publish_steps
@@ -342,7 +381,6 @@ def test_dotnet_package_release_uses_closed_artifact_and_identity_set(tmp_path: 
     assert "canonical SemVer 2.0" in identity["run"]
     assert pack["env"]["PACKAGE_VERSION"] == "${{ steps.release.outputs.version }}"
     assert '-p:PackageVersion="$PACKAGE_VERSION"' in pack["run"]
-    assert "-p:PackageVersion=${{ steps.release.outputs.version }}" not in pack["run"]
     assert allowlist["env"]["EXPECTED_PACKAGE_IDS"] == "Example.Package"
     script = allowlist["run"]
     for required in (
@@ -355,6 +393,10 @@ def test_dotnet_package_release_uses_closed_artifact_and_identity_set(tmp_path: 
     ):
         assert required in script
     assert "root.iter()" not in script
+    assert "hashlib.sha256" in close["run"]
+    assert '"sha256":' in close["run"]
+    assert "hashlib.sha256" in verify["run"]
+    assert "release-manifest.json" in verify["run"]
     assert publish["needs"] == "validate-package"
     assert not any(
         str(step.get("uses", "")).startswith("actions/checkout@")
@@ -377,7 +419,9 @@ def test_dotnet_package_release_uses_closed_artifact_and_identity_set(tmp_path: 
     _write_nupkg(tmp_path / "nupkg/valid.nupkg", valid)
     accepted = _run_nuget_validator(tmp_path)
     assert accepted.returncode == 0, accepted.stderr
-    assert (tmp_path / "nupkg/publish-files.txt").read_text(encoding="utf-8") == "nupkg/valid.nupkg\n"
+    assert (tmp_path / "nupkg/publish-files.txt").read_text(encoding="utf-8") == (
+        "nupkg/valid.nupkg\n"
+    )
 
 
 def test_semgrep_manual_baseline_and_fork_upload_are_explicit() -> None:
@@ -394,7 +438,10 @@ def test_semgrep_manual_baseline_and_fork_upload_are_explicit() -> None:
 def test_renovate_manager_matches_action_subpaths_without_changing_dep_name() -> None:
     config = json.loads((ROOT / "renovate.json").read_text(encoding="utf-8"))
     pattern = config["customManagers"][0]["matchStrings"][0].replace("(?<", "(?P<")
-    match = re.search(pattern, "uses: github/codeql-action/upload-sarif@411bbbe57033eedfc1a82d68c01345aa96c737d7 # v4")
+    match = re.search(
+        pattern,
+        "uses: github/codeql-action/upload-sarif@411bbbe57033eedfc1a82d68c01345aa96c737d7 # v4",
+    )
     assert match is not None
     assert match.group("depName") == "github/codeql-action"
 

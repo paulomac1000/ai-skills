@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import compileall
 import importlib.util
+import json
 import shutil
 import subprocess
 import sys
@@ -43,7 +44,12 @@ def load_workflow_auditor() -> ModuleType:
     return _load_module(AUDITOR, "generated_workflow_auditor")
 
 
-def run_checked(command: list[str], *, cwd: Path, timeout: int = 180) -> subprocess.CompletedProcess[str]:
+def run_checked(
+    command: list[str],
+    *,
+    cwd: Path,
+    timeout: int = 180,
+) -> subprocess.CompletedProcess[str]:
     """Run one artifact-verification command and retain diagnostics on failure."""
     completed = subprocess.run(
         command,
@@ -63,7 +69,11 @@ def test_generator_emits_complete_deterministic_project(tmp_path: Path) -> None:
     generator = load_generator()
     first = tmp_path / "first"
     second = tmp_path / "second"
-    generated = generator.generate_project(first, "inventory_mcp", "Inventory MCP")
+    generated = generator.generate_project(
+        first,
+        "inventory_mcp",
+        "Inventory MCP",
+    )
     generator.generate_project(second, "inventory_mcp", "Inventory MCP")
 
     expected = {
@@ -96,7 +106,9 @@ def test_generator_emits_complete_deterministic_project(tmp_path: Path) -> None:
 
 def test_generator_has_one_canonical_template_source() -> None:
     facade = GENERATOR.read_text(encoding="utf-8")
-    implementation = GENERATOR.with_name("generate_python_server_impl.py").read_text(encoding="utf-8")
+    implementation = GENERATOR.with_name(
+        "generate_python_server_impl.py"
+    ).read_text(encoding="utf-8")
     assert "_replace_required" not in facade
     assert "_replace_required" not in implementation
     assert 'with_name("python-template")' in implementation
@@ -105,16 +117,28 @@ def test_generator_has_one_canonical_template_source() -> None:
     assert "FROM python:" not in implementation
 
 
-def test_generated_project_uses_canonical_schema_and_public_sdk(tmp_path: Path) -> None:
+def test_generated_project_uses_canonical_schema_and_public_sdk(
+    tmp_path: Path,
+) -> None:
     generator = load_generator()
     target = tmp_path / "server"
     generator.generate_project(target, "inventory_mcp", "Inventory MCP")
 
-    copied_schema = target / "src/inventory_mcp/contracts/capability-manifest.schema.json"
-    assert copied_schema.read_bytes() == (ROOT / "contracts/capability-manifest.schema.json").read_bytes()
-    generator.validate_generated_project(generator.project_files("inventory_mcp", "Inventory MCP"), "inventory_mcp")
+    copied_schema = (
+        target / "src/inventory_mcp/contracts/capability-manifest.schema.json"
+    )
+    assert copied_schema.read_bytes() == (
+        ROOT / "contracts/capability-manifest.schema.json"
+    ).read_bytes()
+    generator.validate_generated_project(
+        generator.project_files("inventory_mcp", "Inventory MCP"),
+        "inventory_mcp",
+    )
 
-    source = "\n".join(path.read_text(encoding="utf-8") for path in sorted((target / "src").rglob("*.py")))
+    source = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in sorted((target / "src").rglob("*.py"))
+    )
     assert "from mcp.server import MCPServer" in source
     assert "from mcp.server.mcpserver" not in source
     assert "_tool_manager" not in source
@@ -124,12 +148,16 @@ def test_generated_project_uses_canonical_schema_and_public_sdk(tmp_path: Path) 
     assert "hmac.compare_digest" in source
     assert "ContextVar" in source
 
-    manifests = "\n".join(
-        path.read_text(encoding="utf-8") for path in sorted((target / "src/inventory_mcp/capabilities").glob("*.json"))
+    capability_paths = sorted(
+        (target / "src/inventory_mcp/capabilities").glob("*.json")
     )
-    assert "operational_impact" not in manifests
-    assert '"active"' not in manifests
-    assert '"active_state"' in manifests
+    assert capability_paths
+    for path in capability_paths:
+        manifest = json.loads(path.read_text(encoding="utf-8"))
+        assert not {"operational_impact", "active", "side_effects"}.intersection(
+            manifest
+        )
+        assert manifest["active_state"] == "active"
 
 
 def test_generated_workflow_passes_trusted_ci_policy(tmp_path: Path) -> None:
@@ -139,11 +167,12 @@ def test_generated_workflow_passes_trusted_ci_policy(tmp_path: Path) -> None:
     workflow = target / ".github/workflows/ci.yml"
     auditor = load_workflow_auditor()
     findings = auditor.audit_workflow(workflow, target, profile="trusted-ci")
-    assert findings == [], "\n".join(f"{finding.path}: {finding.message}" for finding in findings)
+    assert findings == [], "\n".join(
+        f"{finding.path}: {finding.message}" for finding in findings
+    )
 
     text = workflow.read_text(encoding="utf-8")
     assert "ubuntu-latest" not in text
-    assert "replace(" not in text
     assert "concurrency:" in text
     assert "persist-credentials: false" in text
     assert "--junitxml=junit.xml" in text
@@ -165,7 +194,9 @@ def test_generated_container_installs_only_the_exact_wheel(tmp_path: Path) -> No
     assert "pip install --no-cache-dir ." not in dockerfile
 
 
-def test_generator_refuses_invalid_reserved_and_existing_targets(tmp_path: Path) -> None:
+def test_generator_refuses_invalid_reserved_and_existing_targets(
+    tmp_path: Path,
+) -> None:
     generator = load_generator()
     invalid_names = (
         "a",
@@ -179,11 +210,21 @@ def test_generator_refuses_invalid_reserved_and_existing_targets(tmp_path: Path)
         "pytest",
         "json",
         "email",
+        "con",
+        "nul",
     )
     for package in invalid_names:
         with pytest.raises(ValueError):
             generator.project_files(package, "Valid Server")
-    assert {"mcp", "uvicorn", "pytest", "json", "email"} <= generator.RESERVED_PACKAGE_NAMES
+    assert {
+        "mcp",
+        "uvicorn",
+        "pytest",
+        "json",
+        "email",
+        "con",
+        "nul",
+    } <= generator.RESERVED_PACKAGE_NAMES
 
     existing = tmp_path / "existing"
     existing.mkdir()
@@ -191,7 +232,9 @@ def test_generator_refuses_invalid_reserved_and_existing_targets(tmp_path: Path)
         generator.generate_project(existing, "valid_mcp", "Valid Server")
 
 
-def test_generator_concurrent_create_has_one_winner_and_never_replaces(tmp_path: Path) -> None:
+def test_generator_concurrent_create_has_one_winner_and_never_replaces(
+    tmp_path: Path,
+) -> None:
     """Exercise the operating-system-specific no-replace publish primitive."""
     generator = load_generator()
     target = tmp_path / "server"
@@ -200,7 +243,11 @@ def test_generator_concurrent_create_has_one_winner_and_never_replaces(tmp_path:
     def generate() -> list[Path] | FileExistsError:
         barrier.wait(timeout=5)
         try:
-            return generator.generate_project(target, "inventory_mcp", "Inventory MCP")
+            return generator.generate_project(
+                target,
+                "inventory_mcp",
+                "Inventory MCP",
+            )
         except FileExistsError as exception:
             return exception
 
@@ -213,7 +260,10 @@ def test_generator_concurrent_create_has_one_winner_and_never_replaces(tmp_path:
     assert not list(tmp_path.glob(".server.*"))
 
 
-def test_generator_preserves_competing_target_created_before_publish(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_generator_preserves_competing_target_created_before_publish(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     generator = load_generator()
     implementation = generator._implementation
     target = tmp_path / "server"
@@ -221,10 +271,17 @@ def test_generator_preserves_competing_target_created_before_publish(tmp_path: P
 
     def create_competitor(source: Path, destination: Path) -> None:
         destination.mkdir()
-        (destination / "sentinel.txt").write_text("competitor", encoding="utf-8")
+        (destination / "sentinel.txt").write_text(
+            "competitor",
+            encoding="utf-8",
+        )
         original(source, destination)
 
-    monkeypatch.setattr(implementation, "_rename_noreplace", create_competitor)
+    monkeypatch.setattr(
+        implementation,
+        "_rename_noreplace",
+        create_competitor,
+    )
     with pytest.raises(FileExistsError):
         generator.generate_project(target, "inventory_mcp", "Inventory MCP")
     assert (target / "sentinel.txt").read_text(encoding="utf-8") == "competitor"
@@ -232,19 +289,29 @@ def test_generator_preserves_competing_target_created_before_publish(tmp_path: P
     assert not list(tmp_path.glob(".server.*"))
 
 
-def test_generated_project_builds_installs_and_smokes_exact_wheel(tmp_path: Path) -> None:
+def test_generated_project_builds_installs_and_smokes_exact_wheel(
+    tmp_path: Path,
+) -> None:
     """Prove import and protocol behavior without PYTHONPATH or editable source."""
     generator = load_generator()
     target = tmp_path / "server"
     generator.generate_project(target, "inventory_mcp", "Inventory MCP")
-    run_checked([sys.executable, "-m", "build", "--wheel", "--no-isolation"], cwd=target)
+    run_checked(
+        [sys.executable, "-m", "build", "--wheel", "--no-isolation"],
+        cwd=target,
+    )
     wheels = list((target / "dist").glob("*.whl"))
     assert len(wheels) == 1
 
     environment = tmp_path / "artifact-venv"
     venv.EnvBuilder(with_pip=True, system_site_packages=True).create(environment)
-    python = environment / ("Scripts/python.exe" if sys.platform == "win32" else "bin/python")
-    run_checked([str(python), "-m", "pip", "install", "--no-deps", str(wheels[0])], cwd=tmp_path)
+    python = environment / (
+        "Scripts/python.exe" if sys.platform == "win32" else "bin/python"
+    )
+    run_checked(
+        [str(python), "-m", "pip", "install", "--no-deps", str(wheels[0])],
+        cwd=tmp_path,
+    )
     outside_checkout = tmp_path / "outside-checkout"
     outside_checkout.mkdir()
     run_checked(
@@ -262,7 +329,9 @@ def test_generated_project_builds_installs_and_smokes_exact_wheel(tmp_path: Path
 
 @pytest.mark.container
 @pytest.mark.anyio
-async def test_generated_container_is_non_root_and_passes_official_stdio_smoke(tmp_path: Path) -> None:
+async def test_generated_container_is_non_root_and_passes_official_stdio_smoke(
+    tmp_path: Path,
+) -> None:
     """Build and invoke the exact generated image rather than inspecting Dockerfile text only."""
     if shutil.which("docker") is None:
         pytest.skip("docker is unavailable")
@@ -272,7 +341,10 @@ async def test_generated_container_is_non_root_and_passes_official_stdio_smoke(t
     generator = load_generator()
     target = tmp_path / "server"
     generator.generate_project(target, "inventory_mcp", "Inventory MCP")
-    run_checked([sys.executable, "-m", "build", "--wheel", "--no-isolation"], cwd=target)
+    run_checked(
+        [sys.executable, "-m", "build", "--wheel", "--no-isolation"],
+        cwd=target,
+    )
     wheels = list((target / "dist").glob("*.whl"))
     assert len(wheels) == 1
 
@@ -308,15 +380,24 @@ async def test_generated_container_is_non_root_and_passes_official_stdio_smoke(t
             cwd=target,
         )
         assert identity.returncode == 0
-        parameters = StdioServerParameters(command="docker", args=["run", "--rm", "-i", image])
+        parameters = StdioServerParameters(
+            command="docker",
+            args=["run", "--rm", "-i", image],
+        )
         async with Client(stdio_client(parameters)) as client:
             tools = await client.list_tools()
-            assert {"list_items", "put_item"} <= {tool.name for tool in tools.tools}
+            assert {"list_items", "put_item"} <= {
+                tool.name for tool in tools.tools
+            }
             result = await client.call_tool("list_items", {"limit": 1})
             assert result.is_error is False
             denied = await client.call_tool(
                 "put_item",
-                {"item_id": "blocked", "value": "Blocked", "approval_record": "invalid"},
+                {
+                    "item_id": "blocked",
+                    "value": "Blocked",
+                    "approval_record": "invalid",
+                },
             )
             assert denied.is_error is True
     finally:

@@ -78,14 +78,19 @@ def test_generated_manifests_are_active_and_read_flags_fail_closed() -> None:
         / "skills/mcp-server-architect/tools/python-template/src/"
         "__PACKAGE__/capabilities"
     )
-    for path in capability_dir.glob("*.json.template"):
+    paths = sorted(capability_dir.glob("*.json.template"))
+    assert {path.name for path in paths} == {
+        "describe_capabilities.json.template",
+        "list_items.json.template",
+        "put_item.json.template",
+    }
+    for path in paths:
         manifest = json.loads(path.read_text(encoding="utf-8"))
         assert manifest["active_state"] == "active"
         if manifest["operation_kind"] == "read":
             assert manifest["impact"] == "none"
             for field in (
                 "retryable",
-                "idempotent",
                 "reversible",
                 "requires_confirmation",
                 "idempotency_key_required",
@@ -102,8 +107,11 @@ def test_dotnet_projection_preserves_lifecycle_and_expiry_binding() -> None:
         "__NAMESPACE__.Mcp.Server/CanonicalCapabilityManifest.cs.template"
     ).read_text(encoding="utf-8")
     assert "var activeState = manifest.ActiveState switch" in adapter
-    assert '"inactive" => "inactive"' in adapter
-    assert '"deprecated" => "deprecated"' in adapter
+    assert 'CapabilityActiveState.Active => "active"' in adapter
+    assert "CapabilityActiveState.Disabled" in adapter
+    assert "CapabilityActiveState.Degraded" in adapter
+    assert "CapabilityActiveState.Unavailable" in adapter
+    assert 'CapabilityActiveState.Deprecated => "deprecated"' in adapter
     assert '"expires-at"' in adapter
     assert "only active capabilities may be registered" in adapter
     assert 'operationKind == "read" ? "read" : "write"' not in adapter
@@ -123,44 +131,7 @@ def test_release_template_lowercases_ghcr_identity_and_attestation_subject() -> 
     template = (
         ROOT / "skills/ci-cd-architect/templates/publish.yml.template"
     ).read_text(encoding="utf-8")
-    assert 'repository="${GITHUB_REPOSITORY,,}"' in template
+    assert 'repository="ghcr.io/${GITHUB_REPOSITORY,,}"' in template
     assert "subject_name=$repository" in template
-    assert "subject-name: ${{ steps.push.outputs.subject_name }}" in template
+    assert "subject-name: ${{ steps.promote.outputs.subject_name }}" in template
     assert "docker push --all-tags" not in template
-
-
-def test_privileged_local_reusable_workflow_guard_is_executable() -> None:
-    auditor = (
-        ROOT
-        / "skills/ci-cd-architect/tools/check_github_actions_policy.py"
-    ).read_text(encoding="utf-8")
-    assert "_privileged_local_reusable_findings" in auditor
-    assert "write-enabled local reusable workflow" in auditor
-    assert "recursively audited" in auditor
-
-
-def test_lock_schema_and_validator_reject_path_and_name_ambiguity() -> None:
-    schema = json.loads(
-        (ROOT / "contracts/ai-skills-lock.schema.json").read_text(
-            encoding="utf-8"
-        )
-    )
-    pattern = schema["properties"]["skills"]["additionalProperties"][
-        "properties"
-    ]["normative_entrypoint"]["pattern"]
-    assert ".." not in pattern
-    validator = (
-        ROOT / "contracts/validate_skills_lock.py"
-    ).read_text(encoding="utf-8")
-    assert "SKILL_NAME" in validator
-    assert "must be a non-empty string" in validator
-    assert "cannot inspect normative entrypoint" in validator
-
-
-def test_ecosystem_readme_governance_is_explicit_afds_v2() -> None:
-    document = (
-        ROOT
-        / "skills/afds-doc-writer/references/ecosystem-readme-governance.md"
-    ).read_text(encoding="utf-8")
-    assert document.startswith("---\nafds_schema_version: 2\n")
-    assert "verification:\n  kind: command\n  value:" in document

@@ -7,8 +7,10 @@ import argparse
 import asyncio
 import importlib.util
 import os
+import shutil
 import socket
 import subprocess
+import sys
 import tempfile
 import time
 import urllib.request
@@ -30,6 +32,16 @@ def _assert_installed(package: str) -> None:
         raise RuntimeError(f"package did not load from site-packages: {origin}")
 
 
+def _entrypoint(distribution: str) -> str:
+    scripts = str(Path(sys.executable).resolve().parent)
+    executable = shutil.which(distribution, path=scripts)
+    if executable is None:
+        raise RuntimeError(
+            f"cannot resolve installed entry point {distribution!r} beside {sys.executable}"
+        )
+    return executable
+
+
 def _free_loopback_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server:
         server.bind(("127.0.0.1", 0))
@@ -40,9 +52,14 @@ def _wait_for_health(url: str, process: subprocess.Popen[bytes]) -> None:
     deadline = time.monotonic() + 20
     while time.monotonic() < deadline:
         if process.poll() is not None:
-            raise RuntimeError(f"HTTP server exited early with {process.returncode}")
+            raise RuntimeError(
+                f"HTTP server exited early with {process.returncode}"
+            )
         try:
-            with urllib.request.urlopen(url, timeout=1) as response:  # noqa: S310 - constructed loopback URL
+            with urllib.request.urlopen(  # noqa: S310 - constructed loopback URL
+                url,
+                timeout=1,
+            ) as response:
                 if response.status == 200:
                     return
         except OSError:
@@ -62,21 +79,27 @@ async def _exercise(client: Any, *, expect_write_failure: bool = True) -> None:
     if expect_write_failure:
         denied = await client.call_tool(
             "put_item",
-            {"item_id": "smoke", "value": "denied", "approval_record": "invalid"},
+            {
+                "item_id": "smoke",
+                "value": "denied",
+                "approval_record": "invalid",
+            },
         )
         if not denied.is_error:
-            raise RuntimeError("write succeeded without a valid server approval record")
+            raise RuntimeError(
+                "write succeeded without a valid server approval record"
+            )
 
 
-async def _stdio_smoke(distribution: str) -> None:
-    parameters = StdioServerParameters(command=distribution, args=[])
+async def _stdio_smoke(executable: str) -> None:
+    parameters = StdioServerParameters(command=executable, args=[])
     async with Client(stdio_client(parameters)) as client:
         await _exercise(client)
     async with Client(stdio_client(parameters), mode="legacy") as client:
         await _exercise(client)
 
 
-async def _http_smoke(distribution: str) -> None:
+async def _http_smoke(executable: str) -> None:
     token = "artifact-smoke-token-that-is-at-least-32-bytes"
     port = _free_loopback_port()
     environment = dict(os.environ)
@@ -88,15 +111,20 @@ async def _http_smoke(distribution: str) -> None:
         }
     )
     with tempfile.TemporaryFile() as output:
-        process = subprocess.Popen(  # noqa: S603 - validated command name from CI configuration
-            [distribution],
+        process = subprocess.Popen(  # noqa: S603 - resolved installed entry point
+            [executable],
             env=environment,
             stdout=output,
             stderr=output,
         )
         try:
-            _wait_for_health(f"http://127.0.0.1:{port}/health/ready", process)
-            async with httpx2.AsyncClient(headers={"Authorization": f"Bearer {token}"}) as http_client:
+            _wait_for_health(
+                f"http://127.0.0.1:{port}/health/ready",
+                process,
+            )
+            async with httpx2.AsyncClient(
+                headers={"Authorization": f"Bearer {token}"}
+            ) as http_client:
                 transport = streamable_http_client(
                     f"http://127.0.0.1:{port}/mcp",
                     http_client=http_client,
@@ -118,10 +146,13 @@ def main() -> int:
     parser.add_argument("--package", required=True)
     args = parser.parse_args()
     if not args.distribution.replace("-", "").replace("_", "").isalnum():
-        raise SystemExit("distribution must contain only letters, digits, hyphens, and underscores")
+        raise SystemExit(
+            "distribution must contain only letters, digits, hyphens, and underscores"
+        )
     _assert_installed(args.package)
-    asyncio.run(_stdio_smoke(args.distribution))
-    asyncio.run(_http_smoke(args.distribution))
+    executable = _entrypoint(args.distribution)
+    asyncio.run(_stdio_smoke(executable))
+    asyncio.run(_http_smoke(executable))
     print("exact-artifact smoke passed")
     return 0
 

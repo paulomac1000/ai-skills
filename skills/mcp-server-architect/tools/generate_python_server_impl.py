@@ -39,7 +39,19 @@ TOKENS = ("__PACKAGE__", "__DISTRIBUTION__", "__SERVER_NAME__")
 _LEGACY_CAPABILITY_FIELDS = {"operational_impact", "active", "side_effects"}
 
 
-def _read_regular_utf8(path: Path, *, maximum: int = MAX_TEMPLATE_BYTES) -> str:
+def _runtime_platform() -> str:
+    return sys.platform
+
+
+def _runtime_os_name() -> str:
+    return os.name
+
+
+def _read_regular_utf8(
+    path: Path,
+    *,
+    maximum: int = MAX_TEMPLATE_BYTES,
+) -> str:
     if path.is_symlink():
         raise ValueError(f"template input must not be a symlink: {path}")
     metadata = path.stat()
@@ -75,10 +87,13 @@ def _render(value: str, package_name: str, server_name: str) -> str:
 def _safe_relative_path(raw: str) -> PurePosixPath:
     if not raw or "\\" in raw:
         raise ValueError(
-            f"generated path must be a repository-relative POSIX path: {raw!r}"
+            "generated path must be a repository-relative POSIX path: "
+            f"{raw!r}"
         )
     path = PurePosixPath(raw)
-    if path.is_absolute() or any(part in {"", ".", ".."} for part in path.parts):
+    if path.is_absolute() or any(
+        part in {"", ".", ".."} for part in path.parts
+    ):
         raise ValueError(f"generated path escapes project root: {raw!r}")
     return path
 
@@ -87,19 +102,25 @@ def project_files(package_name: str, server_name: str) -> dict[str, str]:
     """Return the complete rendered project from one canonical template tree."""
     _validate_inputs(package_name, server_name)
     if not TEMPLATE_ROOT.is_dir() or TEMPLATE_ROOT.is_symlink():
-        raise ValueError("canonical Python template directory is missing or unsafe")
+        raise ValueError(
+            "canonical Python template directory is missing or unsafe"
+        )
 
     rendered: dict[str, str] = {}
     for template in sorted(TEMPLATE_ROOT.rglob("*.template")):
         relative_template = template.relative_to(TEMPLATE_ROOT).as_posix()
         output_name = _render(
-            relative_template.removesuffix(".template"), package_name, server_name
+            relative_template.removesuffix(".template"),
+            package_name,
+            server_name,
         )
         output_path = _safe_relative_path(output_name).as_posix()
         if output_path in rendered:
             raise ValueError(f"duplicate generated path: {output_path}")
         rendered[output_path] = _render(
-            _read_regular_utf8(template), package_name, server_name
+            _read_regular_utf8(template),
+            package_name,
+            server_name,
         )
 
     for lock_name in LOCK_NAMES:
@@ -109,7 +130,9 @@ def project_files(package_name: str, server_name: str) -> dict[str, str]:
         )
     for contract_name in COPIED_CONTRACTS:
         destination = f"src/{package_name}/contracts/{contract_name}"
-        rendered[destination] = _read_regular_utf8(CONTRACT_ROOT / contract_name)
+        rendered[destination] = _read_regular_utf8(
+            CONTRACT_ROOT / contract_name
+        )
 
     if not rendered:
         raise ValueError("canonical Python template did not produce any files")
@@ -124,7 +147,10 @@ def project_files(package_name: str, server_name: str) -> dict[str, str]:
     return rendered
 
 
-def _validate_capabilities(files: Mapping[str, str], package_name: str) -> None:
+def _validate_capabilities(
+    files: Mapping[str, str],
+    package_name: str,
+) -> None:
     schema_path = f"src/{package_name}/contracts/capability-manifest.schema.json"
     schema = json.loads(files[schema_path])
     Draft202012Validator.check_schema(schema)
@@ -140,7 +166,9 @@ def _validate_capabilities(files: Mapping[str, str], package_name: str) -> None:
     identifiers: set[str] = set()
     for path in manifest_paths:
         manifest = json.loads(files[path])
-        stale_fields = sorted(_LEGACY_CAPABILITY_FIELDS.intersection(manifest))
+        stale_fields = sorted(
+            _LEGACY_CAPABILITY_FIELDS.intersection(manifest)
+        )
         if stale_fields:
             raise ValueError(
                 "generated capability manifests contain legacy field names: "
@@ -154,12 +182,17 @@ def _validate_capabilities(files: Mapping[str, str], package_name: str) -> None:
             raise ValueError(f"{path}: {errors[0].message}")
         capability_id = manifest["id"]
         if capability_id in identifiers:
-            raise ValueError(f"duplicate generated capability id: {capability_id}")
+            raise ValueError(
+                f"duplicate generated capability id: {capability_id}"
+            )
         identifiers.add(capability_id)
 
 
-def validate_generated_project(files: Mapping[str, str], package_name: str) -> None:
-    """Reject stale, incomplete, or policy-incompatible rendered output before publication."""
+def validate_generated_project(
+    files: Mapping[str, str],
+    package_name: str,
+) -> None:
+    """Reject stale, incomplete, or unsafe rendered output before publication."""
     required = {
         "pyproject.toml",
         "README.md",
@@ -175,8 +208,12 @@ def validate_generated_project(files: Mapping[str, str], package_name: str) -> N
         raise ValueError(f"canonical template is incomplete: {missing}")
 
     pyproject = tomllib.loads(files["pyproject.toml"])
-    if pyproject.get("project", {}).get("name") != package_name.replace("_", "-"):
-        raise ValueError("generated package identity does not match requested name")
+    if pyproject.get("project", {}).get("name") != package_name.replace(
+        "_", "-"
+    ):
+        raise ValueError(
+            "generated package identity does not match requested name"
+        )
     for path, content in files.items():
         if path.endswith(".py"):
             compile(content, path, "exec")
@@ -191,12 +228,19 @@ def validate_generated_project(files: Mapping[str, str], package_name: str) -> N
     )
     if any(token in workflow for token in forbidden_workflow_tokens):
         raise ValueError("generated CI violates the trusted-CI baseline")
-    if "concurrency:" not in workflow or "persist-credentials: false" not in workflow:
-        raise ValueError("generated CI lacks concurrency or credential confinement")
+    if (
+        "concurrency:" not in workflow
+        or "persist-credentials: false" not in workflow
+    ):
+        raise ValueError(
+            "generated CI lacks concurrency or credential confinement"
+        )
 
     dockerfile = files["Dockerfile"]
     if "@sha256:" not in dockerfile or "COPY ${WHEEL}" not in dockerfile:
-        raise ValueError("generated container must pin its base and copy the exact wheel")
+        raise ValueError(
+            "generated container must pin its base and copy the exact wheel"
+        )
     if "COPY src" in dockerfile or "pip install --no-cache-dir ." in dockerfile:
         raise ValueError(
             "generated container must not rebuild the application from source"
@@ -213,7 +257,7 @@ def _write_files(root: Path, files: Mapping[str, str]) -> None:
         for name in names:
             with (Path(directory) / name).open("r+b") as handle:
                 os.fsync(handle.fileno())
-        if os.name == "nt":
+        if _runtime_os_name() == "nt":
             continue
         descriptor = os.open(directory, os.O_RDONLY)
         try:
@@ -225,11 +269,15 @@ def _write_files(root: Path, files: Mapping[str, str]) -> None:
 def _rename_noreplace(source: Path, destination: Path) -> None:
     source_bytes = os.fsencode(source)
     destination_bytes = os.fsencode(destination)
-    if sys.platform.startswith("linux"):
+    platform_name = _runtime_platform()
+    os_name = _runtime_os_name()
+    if platform_name.startswith("linux"):
         libc = ctypes.CDLL(None, use_errno=True)
         renameat2 = getattr(libc, "renameat2", None)
         if renameat2 is None:
-            raise RuntimeError("atomic no-replace publication requires renameat2")
+            raise RuntimeError(
+                "atomic no-replace publication requires renameat2"
+            )
         renameat2.argtypes = [
             ctypes.c_int,
             ctypes.c_char_p,
@@ -244,12 +292,18 @@ def _rename_noreplace(source: Path, destination: Path) -> None:
                 raise FileExistsError(destination)
             raise OSError(error, os.strerror(error), destination)
         return
-    if sys.platform == "darwin":
+    if platform_name == "darwin":
         libc = ctypes.CDLL(None, use_errno=True)
         renamex_np = getattr(libc, "renamex_np", None)
         if renamex_np is None:
-            raise RuntimeError("atomic no-replace publication requires renamex_np")
-        renamex_np.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_uint]
+            raise RuntimeError(
+                "atomic no-replace publication requires renamex_np"
+            )
+        renamex_np.argtypes = [
+            ctypes.c_char_p,
+            ctypes.c_char_p,
+            ctypes.c_uint,
+        ]
         renamex_np.restype = ctypes.c_int
         if renamex_np(source_bytes, destination_bytes, 0x00000004) != 0:
             error = ctypes.get_errno()
@@ -257,7 +311,7 @@ def _rename_noreplace(source: Path, destination: Path) -> None:
                 raise FileExistsError(destination)
             raise OSError(error, os.strerror(error), destination)
         return
-    if os.name == "nt":
+    if os_name == "nt":
         kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
         move_file = kernel32.MoveFileW
         move_file.argtypes = [ctypes.c_wchar_p, ctypes.c_wchar_p]
@@ -269,5 +323,6 @@ def _rename_noreplace(source: Path, destination: Path) -> None:
             raise ctypes.WinError(error)
         return
     raise RuntimeError(
-        f"atomic no-replace publication is unsupported on {sys.platform}"
+        "atomic no-replace publication is unsupported on "
+        f"{platform_name}"
     )

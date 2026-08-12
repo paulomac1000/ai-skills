@@ -11,7 +11,10 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def load_engine():
     path = ROOT / "skills/mcp-server-consumer/tools/decision_engine.py"
-    spec = importlib.util.spec_from_file_location("mcp_decision_engine_payload_regression", path)
+    spec = importlib.util.spec_from_file_location(
+        "mcp_decision_engine_payload_regression",
+        path,
+    )
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
@@ -32,10 +35,26 @@ def test_malformed_success_payloads_fail_closed() -> None:
         {"content": [{"type": "image", "data": "Zm9v"}]},
         {"content": [{"type": "audio", "data": "", "mimeType": "audio/wav"}]},
         {"content": [{"type": "resource_link", "uri": "https://example.invalid"}]},
-        {"content": [{"type": "resource_link", "uri": "u", "name": "n", "size": True}]},
+        {
+            "content": [
+                {
+                    "type": "resource_link",
+                    "uri": "u",
+                    "name": "n",
+                    "size": True,
+                }
+            ]
+        },
         {"content": [{"type": "resource", "resource": {"text": "missing uri"}}]},
         {"content": [{"type": "resource", "resource": {"uri": "u"}}]},
-        {"content": [{"type": "resource", "resource": {"uri": "u", "text": "x", "blob": "eA=="}}]},
+        {
+            "content": [
+                {
+                    "type": "resource",
+                    "resource": {"uri": "u", "text": "x", "blob": "eA=="},
+                }
+            ]
+        },
         {"content": [{"type": "text", "text": "ok"}, 7]},
         {"structuredContent": None},
         {"structuredContent": []},
@@ -66,12 +85,23 @@ def test_valid_mcp_content_blocks_and_legacy_success_shapes_remain_supported() -
                 }
             ]
         },
-        {"content": [{"type": "resource", "resource": {"uri": "file:///text", "text": ""}}]},
         {
             "content": [
                 {
                     "type": "resource",
-                    "resource": {"uri": "file:///blob", "blob": "", "mimeType": "application/octet-stream"},
+                    "resource": {"uri": "file:///text", "text": ""},
+                }
+            ]
+        },
+        {
+            "content": [
+                {
+                    "type": "resource",
+                    "resource": {
+                        "uri": "file:///blob",
+                        "blob": "",
+                        "mimeType": "application/octet-stream",
+                    },
                 }
             ]
         },
@@ -121,10 +151,24 @@ def test_untrusted_helper_shapes_do_not_raise_or_select() -> None:
 
 def test_dotnet_manifest_canonical_fields_escalate_monotonically() -> None:
     engine = load_engine()
+    identity = engine.CapabilityIdentity(
+        server_identity="server:inventory",
+        tool_name="list_items",
+        tool_schema_hash="sha256:" + "1" * 64,
+        manifest_version="1",
+    )
+    policy = engine.TrustedCapabilityPolicy(
+        binding=engine.TrustedPolicyBinding(
+            identity=identity,
+            source="reviewed-policy:sha256:" + "2" * 64,
+        ),
+        risk=engine.Risk.READ,
+    )
     profile = engine.infer_capability_profile(
         "list_items",
         {"risk": "READ", "sideEffects": "write", "requiresConfirmation": True},
-        trusted_policy=engine.TrustedCapabilityPolicy(risk=engine.Risk.READ),
+        identity=identity,
+        trusted_policy=policy,
     )
     assert profile.risk is engine.Risk.WRITE
     assert profile.requires_confirmation is True
@@ -143,7 +187,13 @@ def test_malformed_top_level_meta_and_retry_markers_fail_closed() -> None:
         {"content": [], "_meta": []},
         {"content": [], "retryable": "yes"},
         {"isError": True, "content": [], "retryable": 1},
-        {"error": {"code": "TIMEOUT", "message": "failed", "retryable": "yes"}},
+        {
+            "error": {
+                "code": "TIMEOUT",
+                "message": "failed",
+                "retryable": "yes",
+            }
+        },
     )
     for response in malformed:
         result = engine.handle_response(response)

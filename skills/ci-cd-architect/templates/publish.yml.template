@@ -98,7 +98,7 @@ jobs:
         run: |
           set -euo pipefail
           local_ref="ai-skills-release:sha-$RELEASE_SHA"
-          docker build --label "org.opencontainers.image.revision=$RELEASE_SHA" --tag "$local_ref" .
+          docker buildx build --load --label "org.opencontainers.image.revision=$RELEASE_SHA" --tag "$local_ref" .
           echo "ref=$local_ref" >> "$GITHUB_OUTPUT"
       - name: Smoke-test local release image
         env:

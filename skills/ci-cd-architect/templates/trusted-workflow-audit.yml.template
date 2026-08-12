@@ -39,7 +39,7 @@ jobs:
         with:
           python-version: "<PYTHON_VERSION>"
           cache: pip
-          cache-dependency-path: trusted-verifier/requirements-dev-linux-x64-py312.lock
+          cache-dependency-path: trusted-verifier/<VERIFIER_LOCK_FILE>
       - name: Verify immutable checkouts
         shell: bash
         env:
