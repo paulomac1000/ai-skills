@@ -69,9 +69,7 @@ def _security_hook_findings(root: Path) -> list[str]:
             r"remains\s+a\s+required\s+ci\s+gate",
         )
         if any(re.search(pattern, lowered) for pattern in no_op_patterns):
-            findings.append(
-                f"{path}: security scanner {scanner} may succeed locally when the scanner is unavailable"
-            )
+            findings.append(f"{path}: security scanner {scanner} may succeed locally when the scanner is unavailable")
     return findings
 
 
@@ -92,9 +90,7 @@ def check_repository(root: Path) -> list[str]:
     lowered = combined.casefold()
     trusted_lock = (root / "trusted-executable-sources.lock.yaml").is_file()
     if "afds_validate_" in lowered and ".ai-skills/skills/afds-doc-writer/validate.py" in lowered and not trusted_lock:
-        findings.append(
-            "vendored and authority AFDS validators coexist without trusted-executable-sources.lock.yaml"
-        )
+        findings.append("vendored and authority AFDS validators coexist without trusted-executable-sources.lock.yaml")
     revisions = sorted(set(TRUSTED_REVISION.findall(combined)))
     if revisions and not trusted_lock:
         findings.append(

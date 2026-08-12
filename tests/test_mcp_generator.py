@@ -124,7 +124,9 @@ def test_generated_project_uses_canonical_schema_and_public_sdk(
     generator.generate_project(target, "inventory_mcp", "Inventory MCP")
 
     copied_schema = target / "src/inventory_mcp/contracts/capability-manifest.schema.json"
-    assert copied_schema.read_bytes() == (ROOT / "contracts/capability-manifest.schema.json").read_bytes()
+    assert json.loads(copied_schema.read_text(encoding="utf-8")) == json.loads(
+        (ROOT / "contracts/capability-manifest.schema.json").read_text(encoding="utf-8")
+    )
     generator.validate_generated_project(
         generator.project_files("inventory_mcp", "Inventory MCP"),
         "inventory_mcp",

@@ -41,12 +41,22 @@ def _safe_file(root: Path, raw: str, name: str) -> Path:
     relative = Path(raw)
     if relative.is_absolute() or any(part in {"", ".", ".."} for part in relative.parts):
         raise ValueError(f"{name} must stay inside its checkout root")
-    candidate = root.joinpath(*relative.parts)
+    root = root.resolve(strict=True)
+    current = root
+    for part in relative.parts:
+        current /= part
+        if os.path.lexists(current) and current.is_symlink():
+            raise ValueError(f"{name} must not contain symlink components: {raw}")
     try:
-        metadata = candidate.lstat()
+        candidate = root.joinpath(*relative.parts).resolve(strict=True)
     except FileNotFoundError as exc:
         raise ValueError(f"{name} does not exist: {raw}") from exc
-    if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISREG(metadata.st_mode):
+    try:
+        candidate.relative_to(root)
+    except ValueError as exc:
+        raise ValueError(f"{name} must stay inside its checkout root") from exc
+    metadata = candidate.stat()
+    if not stat.S_ISREG(metadata.st_mode):
         raise ValueError(f"{name} must be a regular non-symlink file: {raw}")
     if metadata.st_size > MAX_SOURCE_BYTES:
         raise ValueError(f"{name} exceeds {MAX_SOURCE_BYTES} bytes: {raw}")
@@ -141,9 +151,7 @@ def validate_lock(
                     findings.append(f"sources.{index}.files.{file_index}: {exc}")
                 else:
                     if _digest(authority) != expected:
-                        findings.append(
-                            f"sources.{index}.files.{file_index}: authority digest does not match lock"
-                        )
+                        findings.append(f"sources.{index}.files.{file_index}: authority digest does not match lock")
     unknown_roots = sorted(set(roots) - seen)
     findings.extend(f"authority checkout has no lock entry: {source_id}" for source_id in unknown_roots)
     return findings
