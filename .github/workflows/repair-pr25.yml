@@ -30,10 +30,22 @@ jobs:
           dotnet-version: "10.0.302"
       - name: Install reviewed dependency graph
         run: python -m pip install --require-hashes -r requirements-dev-linux-x64-py313.lock
+      - name: Align one-shot repair with exact head
+        run: python scripts/adapt_repair_pr25_once.py
       - name: Apply exact-head repair
-        run: python scripts/repair_pr25_once.py
+        shell: bash
+        run: |
+          set +e
+          python scripts/repair_pr25_once.py > repair-pr25.log 2>&1
+          status=$?
+          cat repair-pr25.log
+          if (( status != 0 )); then
+            message="$(tail -n 2 repair-pr25.log | tr '\n' ' ' | sed 's/%/%25/g; s/\r/%0D/g; s/\n/%0A/g')"
+            echo "::error::$message"
+            exit "$status"
+          fi
       - name: Remove one-shot repair machinery
-        run: git rm .github/workflows/repair-pr25.yml scripts/repair_pr25_once.py
+        run: git rm .github/workflows/repair-pr25.yml scripts/repair_pr25_once.py scripts/adapt_repair_pr25_once.py
       - name: Format and run focused regressions
         run: |
           python -m ruff format contracts skills tests scripts
