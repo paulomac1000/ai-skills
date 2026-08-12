@@ -1,3 +1,4 @@
+# One-shot native regeneration; removed after the lock refresh.
 name: Refresh PR25 native locks
 
 on:
