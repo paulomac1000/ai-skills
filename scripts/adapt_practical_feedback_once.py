@@ -48,6 +48,12 @@ if text.count(old) != 1:
     raise RuntimeError(f"expected one generic changelog replacement, found {text.count(old)}")
 text = text.replace(old, new, 1)
 
+manifest_old = '''- references/principal-and-shell-boundaries.md\\n- references/upstream-contract-discovery.md\\n'''
+manifest_new = '''- references/principal-and-shell-boundaries.md\\n- references/security-and-operations.md\\n- references/upstream-contract-discovery.md\\n'''
+if text.count(manifest_old) != 1:
+    raise RuntimeError(f"expected one manifest routing insertion, found {text.count(manifest_old)}")
+text = text.replace(manifest_old, manifest_new, 1)
+
 text += r"""
 
 replace_once(
