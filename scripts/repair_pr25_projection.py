@@ -359,9 +359,11 @@ replace_once(
     '''                    if atomic_catalog is None:
                         parent_rules = expected_rules(catalog, skill_name, context)
                     else:
-                        parent_rules = project_applicability(
-                            catalog, atomic_catalog, skill_name, context
-                        ).parent_rules
+                        parent_rules = list(
+                            project_applicability(
+                                catalog, atomic_catalog, skill_name, context
+                            ).parent_rules
+                        )
                     machine_applicable_rules = {
                         str(rule["id"]) for rule in parent_rules
                     }
