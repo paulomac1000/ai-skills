@@ -16,7 +16,7 @@ text += r'''
 
 def _python_generator_impl():
     name = "boundary_generate_python_server_impl"
-    module_path = ROOT / "skills/mcp-server-architect/tools/generate_python_server_impl.py"
+    module_path = Path(__file__).resolve().parents[1] / "skills/mcp-server-architect/tools/generate_python_server_impl.py"
     spec = importlib.util.spec_from_file_location(name, module_path)
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
