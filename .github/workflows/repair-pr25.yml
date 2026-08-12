@@ -64,6 +64,7 @@ jobs:
         run: git rm -f .github/workflows/repair-pr25.yml scripts/repair_pr25_once.py scripts/adapt_repair_pr25_once.py scripts/repair_pr25_additional.py
       - name: Format and run focused regressions
         run: |
+          python -m ruff check --fix contracts skills tests scripts
           python -m ruff format contracts skills tests scripts
           python -m ruff check contracts skills tests scripts
           python -m pytest -q tests/test_latest_bot_followup.py tests/test_contract_hardening_regressions.py tests/test_adoption_contract.py tests/test_audit_contract_extensions.py tests/test_decision_engine.py tests/test_templates.py tests/test_python_generator_cli.py tests/test_conformance_report.py tests/test_mcp_migration_standard.py tests/test_post_review_regressions.py tests/test_python_sdk_profile_routing.py tests/test_repository_completion_contract.py tests/test_rule_catalog_contract.py
