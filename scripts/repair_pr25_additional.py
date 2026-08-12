@@ -1,9 +1,14 @@
 #!/usr/bin/env python3
 """Apply remaining verified regression alignment for PR 25; deleted before commit."""
 
+from __future__ import annotations
+
+import os
+import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 
 
 def replace_once(path: str, old: str, new: str) -> None:
@@ -34,4 +39,13 @@ replace_once(
     "tests/test_templates.py",
     '    assert "mapfile -t packages < nupkg/publish-files.txt" in publisher["run"]\n',
     '    assert "mapfile -t packages < nupkg/verified-publish-files.txt" in publisher["run"]\n',
+)
+
+base_digest = os.environ.get("PYTHON_BASE_IMAGE_DIGEST", "")
+if not DIGEST.fullmatch(base_digest):
+    raise RuntimeError("PYTHON_BASE_IMAGE_DIGEST must be an exact sha256 digest")
+replace_once(
+    "skills/mcp-server-architect/tools/python-template/Dockerfile.template",
+    "FROM python:3.12.11-slim-bookworm@sha256:8d8d1a11f5f2e7879d4b9be3ec040b1f48d99b5284942230ca11843bb65c2d4a\n",
+    f"FROM python:3.12.11-slim-bookworm@{base_digest}\n",
 )
