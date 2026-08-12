@@ -14,6 +14,7 @@ on:
       - scripts/repair_pr25_practical_feedback.py
       - scripts/adapt_practical_feedback_once.py
       - scripts/repair_pr25_coverage.py
+      - scripts/repair_pr25_coverage_extra.py
 
 permissions:
   contents: write
@@ -72,10 +73,12 @@ jobs:
       - name: Apply practical consumer-driven repair
         run: python scripts/repair_pr25_practical_feedback.py
       - name: Add policy boundary coverage
-        run: python scripts/repair_pr25_coverage.py
+        run: |
+          python scripts/repair_pr25_coverage.py
+          python scripts/repair_pr25_coverage_extra.py
       - name: Remove one-shot repair machinery and stage final tree
         run: |
-          git rm -f .github/workflows/repair-pr25.yml scripts/repair_pr25_once.py scripts/adapt_repair_pr25_once.py scripts/repair_pr25_additional.py scripts/repair_pr25_projection.py scripts/repair_pr25_practical_feedback.py scripts/adapt_practical_feedback_once.py scripts/repair_pr25_coverage.py
+          git rm -f .github/workflows/repair-pr25.yml scripts/repair_pr25_once.py scripts/adapt_repair_pr25_once.py scripts/repair_pr25_additional.py scripts/repair_pr25_projection.py scripts/repair_pr25_practical_feedback.py scripts/adapt_practical_feedback_once.py scripts/repair_pr25_coverage.py scripts/repair_pr25_coverage_extra.py
           git add -A
       - name: Format and run focused regressions
         run: |
