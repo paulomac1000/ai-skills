@@ -48,7 +48,7 @@ if text.count(old) != 1:
     raise RuntimeError(f"expected one generic changelog replacement, found {text.count(old)}")
 text = text.replace(old, new, 1)
 
-text += r'''
+text += r"""
 
 replace_once(
     "tests/test_mcp_migration_standard.py",
@@ -81,5 +81,5 @@ replace_once(
     assert "load other references only when" in skill
 ''',
 )
-'''
+"""
 path.write_text(text, encoding="utf-8")
