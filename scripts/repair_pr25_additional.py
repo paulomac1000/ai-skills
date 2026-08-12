@@ -50,8 +50,6 @@ replace_once(
     '    assert "mapfile -t packages < nupkg/publish-files.txt" in publisher["run"]\n',
     '    assert "mapfile -t packages < nupkg/verified-publish-files.txt" in publisher["run"]\n',
 )
-
-# The .NET projection intentionally groups all non-active operational states.
 replace_once(
     "tests/test_contract_hardening_regressions.py",
     '''    assert 'CapabilityActiveState.Disabled => "inactive"' in adapter
@@ -65,15 +63,11 @@ replace_once(
     )
 ''',
 )
-
-# The new consumer heading elaborates the existing exact trust/provenance binding rule.
 replace_once(
     "contracts/standard-rule-map.yaml",
     "      retry-policy: {rule_id: consumer.retry.reconciled, primary: true}\n      pagination: {rule_id: consumer.pagination.bounded, primary: true}\n",
     "      retry-policy: {rule_id: consumer.retry.reconciled, primary: true}\n      catalog-and-approval-invalidation: {rule_id: consumer.trust.provenance}\n      pagination: {rule_id: consumer.pagination.bounded, primary: true}\n",
 )
-
-# The moving-revision regression must prove the specific immutable-SHA guard.
 replace_once(
     "tests/test_audit_contract_extensions.py",
     '''    assert any(
@@ -84,8 +78,6 @@ replace_once(
     '''    assert any("full commit SHA" in finding for finding in findings)
 ''',
 )
-
-# Shared applicability must never permit a child below its parent maturity floor.
 replace_once(
     "contracts/atomic-claim-catalog.yaml",
     '''  - id: mcp.identity.local-principal
@@ -115,8 +107,6 @@ replace_once(
     assert remote["applies_when"]["profiles_any"] == ["remote-http"]
 ''',
 )
-
-# This fixture must be schema-valid so the test reaches the intended semantic checks.
 replace_once(
     "tests/test_atomic_claim_contract.py",
     '''        "active_state": "write",
@@ -165,8 +155,6 @@ replace_once(
     assert any("approval" in finding for finding in validate_manifest(path))
 ''',
 )
-
-# Keep dynamic/platform-specific generator boundaries visible to mypy without Linux-only attr errors.
 replace_once(
     "skills/mcp-server-architect/tools/generate_python_server.py",
     "_implementation.project_files = project_files\n",
@@ -202,8 +190,6 @@ replace_once(
         return
 ''',
 )
-
-# Close exact Ruff findings exposed after the main repair.
 replace_once(
     "skills/afds-doc-writer/validate.py",
     "from functools import lru_cache\n",
@@ -235,6 +221,39 @@ replace_once(
 
 def codes(findings: Iterable[_FindingWithCode]) -> set[str]:
     return {item.code for item in findings}
+''',
+)
+
+# Every stable rule must be bound to executable repository evidence.
+replace_once(
+    "contracts/evidence-claim-plan.yaml",
+    '''  - kind: rule
+    subject: cicd.workflow.profiled
+    selectors:
+    - '*test_templates*'
+    - '*test_ci_cd_workflow_policy*'
+    - '*test_contract_consistency_followup*'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+''',
+    '''  - kind: rule
+    subject: cicd.workflow.profiled
+    selectors:
+    - '*test_templates*'
+    - '*test_ci_cd_workflow_policy*'
+    - '*test_contract_consistency_followup*'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: cicd.execution.on-demand
+    selectors:
+    - '*test_ci_execution_policy*'
+    - '*test_templates*'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
 ''',
 )
 
