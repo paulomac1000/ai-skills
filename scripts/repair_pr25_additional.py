@@ -166,6 +166,43 @@ replace_once(
 ''',
 )
 
+# Keep dynamic/platform-specific generator boundaries visible to mypy without Linux-only attr errors.
+replace_once(
+    "skills/mcp-server-architect/tools/generate_python_server.py",
+    "_implementation.project_files = project_files\n",
+    'setattr(_implementation, "project_files", project_files)\n',
+)
+replace_once(
+    "skills/mcp-server-architect/tools/generate_python_server_impl.py",
+    '''    if os_name == "nt":
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        move_file = kernel32.MoveFileW
+        move_file.argtypes = [ctypes.c_wchar_p, ctypes.c_wchar_p]
+        move_file.restype = ctypes.c_int
+        if not move_file(str(source), str(destination)):
+            error = ctypes.get_last_error()
+            if error in {80, 183}:
+                raise FileExistsError(destination)
+            raise ctypes.WinError(error)
+        return
+''',
+    '''    if os_name == "nt":
+        win_dll = getattr(ctypes, "WinDLL")
+        get_last_error = getattr(ctypes, "get_last_error")
+        win_error = getattr(ctypes, "WinError")
+        kernel32 = win_dll("kernel32", use_last_error=True)
+        move_file = kernel32.MoveFileW
+        move_file.argtypes = [ctypes.c_wchar_p, ctypes.c_wchar_p]
+        move_file.restype = ctypes.c_int
+        if not move_file(str(source), str(destination)):
+            error = get_last_error()
+            if error in {80, 183}:
+                raise FileExistsError(destination)
+            raise win_error(error)
+        return
+''',
+)
+
 # Close exact Ruff findings exposed after the main repair.
 replace_once(
     "skills/afds-doc-writer/validate.py",
