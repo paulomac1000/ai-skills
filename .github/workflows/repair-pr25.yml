@@ -61,7 +61,7 @@ jobs:
       - name: Apply remaining verified regression alignment
         run: python scripts/repair_pr25_additional.py
       - name: Remove one-shot repair machinery
-        run: git rm .github/workflows/repair-pr25.yml scripts/repair_pr25_once.py scripts/adapt_repair_pr25_once.py scripts/repair_pr25_additional.py
+        run: git rm -f .github/workflows/repair-pr25.yml scripts/repair_pr25_once.py scripts/adapt_repair_pr25_once.py scripts/repair_pr25_additional.py
       - name: Format and run focused regressions
         run: |
           python -m ruff format contracts skills tests scripts
