@@ -36,12 +36,39 @@ replace_once(
     '    assert "mcp.streamable_http_app(" in source\n    assert "stateless_http=True" in source\n',
 )
 replace_once(
+    "tests/test_post_review_regressions.py",
+    '    assert \'mode="stateless"\' in source\n',
+    "",
+)
+replace_once(
     "tests/test_templates.py",
     '    assert "mapfile -t packages < nupkg/publish-files.txt" in publisher["run"]\n',
     '    assert "mapfile -t packages < nupkg/verified-publish-files.txt" in publisher["run"]\n',
 )
 
-# Close the three exact Ruff findings exposed after the main repair.
+# The .NET projection intentionally groups all non-active operational states.
+replace_once(
+    "tests/test_contract_hardening_regressions.py",
+    '''    assert 'CapabilityActiveState.Disabled => "inactive"' in adapter
+    assert 'CapabilityActiveState.Degraded => "inactive"' in adapter
+    assert 'CapabilityActiveState.Unavailable => "inactive"' in adapter
+''',
+    '''    assert (
+        'CapabilityActiveState.Disabled or CapabilityActiveState.Degraded or '
+        'CapabilityActiveState.Unavailable => "inactive"'
+        in adapter
+    )
+''',
+)
+
+# The new consumer heading elaborates the existing exact trust/provenance binding rule.
+replace_once(
+    "contracts/standard-rule-map.yaml",
+    "      retry-policy: {rule_id: consumer.retry.reconciled, primary: true}\n      pagination: {rule_id: consumer.pagination.bounded, primary: true}\n",
+    "      retry-policy: {rule_id: consumer.retry.reconciled, primary: true}\n      catalog-and-approval-invalidation: {rule_id: consumer.trust.provenance}\n      pagination: {rule_id: consumer.pagination.bounded, primary: true}\n",
+)
+
+# Close exact Ruff findings exposed after the main repair.
 replace_once(
     "skills/afds-doc-writer/validate.py",
     "from functools import lru_cache\n",
