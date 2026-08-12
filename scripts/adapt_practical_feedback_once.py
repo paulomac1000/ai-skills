@@ -47,4 +47,39 @@ new = '''replace_once(
 if text.count(old) != 1:
     raise RuntimeError(f"expected one generic changelog replacement, found {text.count(old)}")
 text = text.replace(old, new, 1)
+
+text += r'''
+
+replace_once(
+    "tests/test_mcp_migration_standard.py",
+    '''def test_migration_and_testing_references_are_linked_from_skill() -> None:
+    skill = text("SKILL.md")
+    for required in (
+        "references/migration-assessment.md",
+        "references/testing-strategy.md",
+        "references/security-and-operations.md",
+        "references/python-official-mcp-sdk.md",
+        "references/python-fastmcp-package.md",
+    ):
+        assert required in skill
+''',
+    '''def test_migration_entrypoint_is_small_and_specialist_references_remain_routable() -> None:
+    skill = text("SKILL.md")
+    manifest = text("manifest.yaml")
+    for required in (
+        "references/testing-strategy.md",
+        "references/upstream-contract-discovery.md",
+    ):
+        assert required in skill
+    for routed in (
+        "references/migration-assessment.md",
+        "references/security-and-operations.md",
+        "references/python-official-mcp-sdk.md",
+        "references/python-fastmcp-package.md",
+    ):
+        assert routed in manifest
+    assert "load other references only when" in skill
+''',
+)
+'''
 path.write_text(text, encoding="utf-8")
