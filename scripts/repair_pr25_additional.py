@@ -41,6 +41,41 @@ replace_once(
     '    assert "mapfile -t packages < nupkg/verified-publish-files.txt" in publisher["run"]\n',
 )
 
+# Close the three exact Ruff findings exposed after the main repair.
+replace_once(
+    "skills/afds-doc-writer/validate.py",
+    "from functools import lru_cache\n",
+    "from functools import cache\n",
+)
+replace_once(
+    "skills/afds-doc-writer/validate.py",
+    "    @lru_cache(maxsize=None)\n",
+    "    @cache\n",
+)
+replace_once(
+    "tests/decision_engine_cases.py",
+    "\nimport pytest\n",
+    "",
+)
+replace_once(
+    "tests/test_agents_md_structural_followup.py",
+    "from pathlib import Path\n",
+    "from collections.abc import Iterable\nfrom pathlib import Path\nfrom typing import Protocol\n",
+)
+replace_once(
+    "tests/test_agents_md_structural_followup.py",
+    '''def codes(findings: list[object]) -> set[str]:
+    return {getattr(item, "code") for item in findings}
+''',
+    '''class _FindingWithCode(Protocol):
+    code: str
+
+
+def codes(findings: Iterable[_FindingWithCode]) -> set[str]:
+    return {item.code for item in findings}
+''',
+)
+
 base_digest = os.environ.get("PYTHON_BASE_IMAGE_DIGEST", "")
 if not DIGEST.fullmatch(base_digest):
     raise RuntimeError("PYTHON_BASE_IMAGE_DIGEST must be an exact sha256 digest")
