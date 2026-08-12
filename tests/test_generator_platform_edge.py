@@ -1,4 +1,4 @@
-"""Small hosted-CI boundary regression for the Python generator platform guard."""
+"""Small hosted-CI boundary regressions for Python generator guards."""
 
 from __future__ import annotations
 
@@ -11,9 +11,8 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def _implementation():
-    name = "generator_platform_edge_impl"
-    path = ROOT / "skills/mcp-server-architect/tools/generate_python_server_impl.py"
+def _load(name: str, relative: str):
+    path = ROOT / relative
     spec = importlib.util.spec_from_file_location(name, path)
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
@@ -25,7 +24,10 @@ def _implementation():
 def test_atomic_publication_rejects_unsupported_platform(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    implementation = _implementation()
+    implementation = _load(
+        "generator_platform_edge_impl",
+        "skills/mcp-server-architect/tools/generate_python_server_impl.py",
+    )
     source = tmp_path / "source"
     source.write_text("payload", encoding="utf-8")
     destination = tmp_path / "destination"
@@ -34,3 +36,15 @@ def test_atomic_publication_rejects_unsupported_platform(
 
     with pytest.raises(RuntimeError, match="unsupported on freebsd"):
         implementation._rename_noreplace(source, destination)
+
+
+def test_generator_cli_fails_closed_for_existing_destination(tmp_path: Path) -> None:
+    generator = _load(
+        "generator_platform_edge_public",
+        "skills/mcp-server-architect/tools/generate_python_server.py",
+    )
+    destination = tmp_path / "existing"
+    destination.mkdir()
+
+    with pytest.raises(SystemExit):
+        generator.main([str(destination), "--package", "sample_server"])
