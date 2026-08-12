@@ -23,9 +23,9 @@ REPLACEMENTS = {
     "<FULL_TIMEOUT_MINUTES>": "30",
     "<DEFAULT_BRANCH>": "trunk",
     "<PYTHON_VERSION>": "3.13",
-    "<DEPENDENCY_FILE>": "requirements-dev-linux-x64-py312.lock",
-    "<VERIFIER_LOCK_FILE>": "requirements-dev-linux-x64-py312.lock",
-    "<INSTALL_COMMAND>": "python -m pip install --require-hashes -r requirements-dev-linux-x64-py312.lock",
+    "<DEPENDENCY_FILE>": "requirements-dev-linux-x64-py313.lock",
+    "<VERIFIER_LOCK_FILE>": "requirements-dev-linux-x64-py313.lock",
+    "<INSTALL_COMMAND>": "python -m pip install --require-hashes -r requirements-dev-linux-x64-py313.lock",
     "<TYPECHECK_COMMAND>": "python -m mypy src",
     "<SECURITY_COMMAND>": "python -m bandit -r src",
     "<TEST_COMMAND>": "python -m pytest --cov=src --cov-report=xml",
@@ -168,9 +168,7 @@ def test_jobs_are_bounded_and_checkout_drops_credentials() -> None:
             timeout = job.get("timeout-minutes")
             assert type(timeout) is int and timeout > 0, (path, job_name)
             for step in job.get("steps") or []:
-                if isinstance(step, dict) and str(step.get("uses", "")).startswith(
-                    "actions/checkout@"
-                ):
+                if isinstance(step, dict) and str(step.get("uses", "")).startswith("actions/checkout@"):
                     assert step.get("with", {}).get("persist-credentials") is False
 
 
@@ -194,19 +192,13 @@ def test_publish_builds_smokes_quarantines_and_promotes_exact_digest() -> None:
     publish = document["jobs"]["publish"]
     assert publish["needs"] == "validate-build"
     validate_steps = validate["steps"]
-    build_index = next(
-        i for i, step in enumerate(validate_steps) if step.get("name") == "Build release image once"
-    )
+    build_index = next(i for i, step in enumerate(validate_steps) if step.get("name") == "Build release image once")
     smoke_index = next(
         i for i, step in enumerate(validate_steps) if step.get("name") == "Smoke-test local release image"
     )
-    quarantine_index = next(
-        i for i, step in enumerate(validate_steps) if step.get("id") == "quarantine"
-    )
+    quarantine_index = next(i for i, step in enumerate(validate_steps) if step.get("id") == "quarantine")
     digest_smoke_index = next(
-        i
-        for i, step in enumerate(validate_steps)
-        if step.get("name") == "Smoke-test exact quarantined digest"
+        i for i, step in enumerate(validate_steps) if step.get("name") == "Smoke-test exact quarantined digest"
     )
     assert build_index < smoke_index < quarantine_index < digest_smoke_index
     build = validate_steps[build_index]
@@ -219,19 +211,14 @@ def test_publish_builds_smokes_quarantines_and_promotes_exact_digest() -> None:
     assert validate.get("permissions") is None
 
     publish_steps = publish["steps"]
-    assert not any(
-        str(step.get("uses", "")).startswith("actions/checkout@")
-        for step in publish_steps
-    )
+    assert not any(str(step.get("uses", "")).startswith("actions/checkout@") for step in publish_steps)
     promote = next(step for step in publish_steps if step.get("id") == "promote")
     assert "imagetools create" in promote["run"]
     assert 'source_ref="${QUARANTINE_REF%:*}@$EXPECTED_DIGEST"' in promote["run"]
     assert 'test "$promoted" = "$EXPECTED_DIGEST"' in promote["run"]
     assert "docker push --all-tags" not in promote["run"]
     attest = next(
-        step
-        for step in publish_steps
-        if str(step.get("uses", "")).startswith("actions/attest-build-provenance@")
+        step for step in publish_steps if str(step.get("uses", "")).startswith("actions/attest-build-provenance@")
     )
     assert attest["with"]["subject-name"] == "${{ steps.promote.outputs.subject_name }}"
     assert attest["with"]["subject-digest"] == "${{ steps.promote.outputs.digest }}"
@@ -241,11 +228,7 @@ def test_publish_constrains_revision_and_keeps_candidate_out_of_publisher() -> N
     document = parse(TEMPLATES / "publish.yml.template")
     validate = document["jobs"]["validate-build"]
     publish = document["jobs"]["publish"]
-    checkout = next(
-        step
-        for step in validate["steps"]
-        if str(step.get("uses", "")).startswith("actions/checkout@")
-    )
+    checkout = next(step for step in validate["steps"] if str(step.get("uses", "")).startswith("actions/checkout@"))
     assert checkout["with"]["fetch-depth"] == 0
     assert checkout["with"]["persist-credentials"] is False
     resolver = next(step for step in validate["steps"] if step.get("id") == "revision")
@@ -253,10 +236,7 @@ def test_publish_constrains_revision_and_keeps_candidate_out_of_publisher() -> N
     assert "origin/$DEFAULT_BRANCH" in resolver["run"]
     assert "^[0-9a-f]{40}$" in resolver["run"]
     assert "git checkout --detach" in resolver["run"]
-    assert not any(
-        str(step.get("uses", "")).startswith("actions/checkout@")
-        for step in publish["steps"]
-    )
+    assert not any(str(step.get("uses", "")).startswith("actions/checkout@") for step in publish["steps"])
     source = (TEMPLATES / "publish.yml.template").read_text(encoding="utf-8")
     assert "sha-$RELEASE_SHA" in source
     assert "release_short_sha" not in source
@@ -270,15 +250,9 @@ def test_dotnet_quality_provisions_coverage_and_reports_safely() -> None:
         "checks": "write",
         "contents": "read",
     }
-    install = next(
-        step for step in job["steps"] if step.get("name") == "Install pinned ReportGenerator"
-    )
-    coverage = next(
-        step for step in job["steps"] if step.get("name") == "Generate coverage report"
-    )
-    reporter = next(
-        step for step in job["steps"] if step.get("name") == "Publish test report"
-    )
+    install = next(step for step in job["steps"] if step.get("name") == "Install pinned ReportGenerator")
+    coverage = next(step for step in job["steps"] if step.get("name") == "Generate coverage report")
+    reporter = next(step for step in job["steps"] if step.get("name") == "Publish test report")
     assert '--version "5.4.3"' in install["run"]
     assert "TestResults/**/coverage.cobertura.xml" in coverage["run"]
     assert "pull_request.head.repo.full_name" in reporter["if"]
@@ -347,30 +321,16 @@ def test_dotnet_package_release_uses_closed_artifact_and_identity_set(tmp_path: 
     resolver = next(step for step in steps if step.get("id") == "release_ref")
     identity = next(step for step in steps if step.get("id") == "release")
     pack = next(step for step in steps if step.get("name") == "Pack")
-    allowlist = next(
-        step
-        for step in steps
-        if step.get("name") == "Validate exact package identity allowlist"
-    )
+    allowlist = next(step for step in steps if step.get("name") == "Validate exact package identity allowlist")
     close = next(step for step in steps if step.get("id") == "close")
-    checkouts = [
-        step
-        for step in steps
-        if str(step.get("uses", "")).startswith("actions/checkout@")
-    ]
+    checkouts = [step for step in steps if str(step.get("uses", "")).startswith("actions/checkout@")]
     publish_steps = publish["steps"]
     verify = next(
-        step
-        for step in publish_steps
-        if step.get("name") == "Verify package artifact identity before publication"
+        step for step in publish_steps if step.get("name") == "Verify package artifact identity before publication"
     )
-    publisher = next(
-        step for step in publish_steps if step.get("name") == "Publish package files"
-    )
+    publisher = next(step for step in publish_steps if step.get("name") == "Publish package files")
     release = next(
-        step
-        for step in publish_steps
-        if str(step.get("uses", "")).startswith("softprops/action-gh-release@")
+        step for step in publish_steps if str(step.get("uses", "")).startswith("softprops/action-gh-release@")
     )
     assert "refs/tags/$release_tag" in resolver["run"]
     assert "git merge-base --is-ancestor" in resolver["run"]
@@ -398,11 +358,8 @@ def test_dotnet_package_release_uses_closed_artifact_and_identity_set(tmp_path: 
     assert "hashlib.sha256" in verify["run"]
     assert "release-manifest.json" in verify["run"]
     assert publish["needs"] == "validate-package"
-    assert not any(
-        str(step.get("uses", "")).startswith("actions/checkout@")
-        for step in publish_steps
-    )
-    assert "mapfile -t packages < nupkg/publish-files.txt" in publisher["run"]
+    assert not any(str(step.get("uses", "")).startswith("actions/checkout@") for step in publish_steps)
+    assert "mapfile -t packages < nupkg/verified-publish-files.txt" in publisher["run"]
     assert 'for package in "${packages[@]}"' in publisher["run"]
     assert release["with"]["tag_name"] == "${{ needs.validate-package.outputs.release_tag }}"
     assert release["with"]["target_commitish"] == "${{ needs.validate-package.outputs.release_sha }}"
@@ -419,9 +376,7 @@ def test_dotnet_package_release_uses_closed_artifact_and_identity_set(tmp_path: 
     _write_nupkg(tmp_path / "nupkg/valid.nupkg", valid)
     accepted = _run_nuget_validator(tmp_path)
     assert accepted.returncode == 0, accepted.stderr
-    assert (tmp_path / "nupkg/publish-files.txt").read_text(encoding="utf-8") == (
-        "nupkg/valid.nupkg\n"
-    )
+    assert (tmp_path / "nupkg/publish-files.txt").read_text(encoding="utf-8") == ("nupkg/valid.nupkg\n")
 
 
 def test_semgrep_manual_baseline_and_fork_upload_are_explicit() -> None:

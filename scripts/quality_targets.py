@@ -19,6 +19,9 @@ QUALITY_PATHS = (
     "skills/mcp-server-architect/tools/generate_python_server.py",
     "skills/mcp-server-architect/tools/generate_python_server_impl.py",
     "skills/mcp-server-architect/tools/generate_dotnet_server.py",
+    "skills/mcp-server-architect/tools/inspect_existing_project.py",
+    "skills/mcp-server-architect/tools/check_consumer_canaries.py",
+    "scripts/check_release_version.py",
 )
 TYPE_PATHS = (
     "contracts/semver.py",
@@ -31,12 +34,15 @@ TYPE_PATHS = (
     "contracts/validate_conformance.py",
     "contracts/validate_evidence_provider.py",
     "contracts/validate_skills_lock.py",
+    "contracts/validate_upstream_contract.py",
+    "contracts/validate_live_backend_test_policy.py",
     "contracts/write_evidence_report.py",
     "contracts/run_evidence_command.py",
     "scripts/ci.py",
     "scripts/install_locked.py",
     "scripts/quality_targets.py",
     "scripts/select_lock.py",
+    "scripts/check_release_version.py",
     "skills/afds-doc-writer/validate.py",
     "skills/agents-md-architect/tools/audit_agents_md.py",
     "skills/agents-md-architect/tools/discover_repository.py",
@@ -49,6 +55,8 @@ TYPE_PATHS = (
     "skills/mcp-server-architect/tools/generate_python_server.py",
     "skills/mcp-server-architect/tools/generate_python_server_impl.py",
     "skills/mcp-server-architect/tools/generate_dotnet_server.py",
+    "skills/mcp-server-architect/tools/inspect_existing_project.py",
+    "skills/mcp-server-architect/tools/check_consumer_canaries.py",
 )
 BANDIT_PATHS = (
     "contracts",

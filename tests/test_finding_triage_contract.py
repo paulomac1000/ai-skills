@@ -11,9 +11,7 @@ REFERENCE = ROOT / "skills/ci-cd-architect/references/finding-triage.md"
 
 
 def test_finding_triage_is_packaged_by_ci_skill() -> None:
-    manifest = yaml.safe_load(
-        (ROOT / "skills/ci-cd-architect/manifest.yaml").read_text(encoding="utf-8")
-    )
+    manifest = yaml.safe_load((ROOT / "skills/ci-cd-architect/manifest.yaml").read_text(encoding="utf-8"))
     assert "references/finding-triage.md" in manifest["required"]
     assert REFERENCE.is_file()
 

@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/paulomac1000/ai-skills/blob/main/contracts/live-backend-test-policy.schema.json",
+  "title": "Live backend test safety policy",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "default_execution", "mutations"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "default_execution": {"const": "excluded"},
+    "mutations": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled_by_default", "independent_opt_ins", "credential_access", "unique_namespace", "cleanup"],
+      "properties": {
+        "enabled_by_default": {"const": false},
+        "independent_opt_ins": {"type": "integer", "minimum": 2},
+        "credential_access": {"const": "after-opt-in"},
+        "unique_namespace": {"const": true},
+        "cleanup": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["capture_created_ids", "reconcile_by_marker", "report_unreconciled"],
+          "properties": {
+            "capture_created_ids": {"const": true},
+            "reconcile_by_marker": {"const": true},
+            "report_unreconciled": {"const": true}
+          }
+        }
+      }
+    }
+  }
+}

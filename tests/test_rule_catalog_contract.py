@@ -81,10 +81,7 @@ def test_every_normative_heading_is_mapped_or_explicitly_excluded() -> None:
 
     for skill_name, mapping in rule_map["skills"].items():
         standard = ROOT / "skills" / skill_name / "STANDARD.md"
-        anchors = {
-            heading_anchor(title)
-            for title in normative_h2_titles(standard.read_text(encoding="utf-8"))
-        }
+        anchors = {heading_anchor(title) for title in normative_h2_titles(standard.read_text(encoding="utf-8"))}
         mapped = mapping["headings"]
         assert set(mapped) == anchors, skill_name
 

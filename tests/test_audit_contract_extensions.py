@@ -127,9 +127,7 @@ def test_hosted_provider_can_supply_l2_exact_sha_evidence(tmp_path: Path) -> Non
 def test_sensitive_profile_escalates_to_independent_release(tmp_path: Path) -> None:
     record = _write_yaml(
         tmp_path / "evidence.yaml",
-        _evidence_record(
-            "hosted-provider", "provider-backed-exact-sha", "azure-pipelines"
-        ),
+        _evidence_record("hosted-provider", "provider-backed-exact-sha", "azure-pipelines"),
     )
     findings = validate_record(
         record,
@@ -168,7 +166,7 @@ def test_skill_lock_validates_version_entrypoint_revision_and_digest(tmp_path: P
     assert validate_lock(lock, skills_root=tmp_path) == []
 
 
-def test_skill_lock_rejects_moving_revision_and_cross_skill_entrypoint(tmp_path: Path) -> None:
+def test_skill_lock_rejects_moving_repository_revision(tmp_path: Path) -> None:
     lock = _write_yaml(
         tmp_path / "ai-skills.lock.yaml",
         {
@@ -179,25 +177,37 @@ def test_skill_lock_rejects_moving_revision_and_cross_skill_entrypoint(tmp_path:
                 "example": {
                     "version": "1.2.0",
                     "revision": FULL_SHA,
+                    "normative_entrypoint": "skills/example/STANDARD.md",
+                }
+            },
+        },
+    )
+    findings = validate_lock(lock)
+    assert any("full commit SHA" in finding for finding in findings)
+
+
+def test_skill_lock_rejects_cross_skill_entrypoint(tmp_path: Path) -> None:
+    lock = _write_yaml(
+        tmp_path / "ai-skills.lock.yaml",
+        {
+            "schema_version": 1,
+            "repository": "paulomac1000/ai-skills",
+            "revision": FULL_SHA,
+            "skills": {
+                "example": {
+                    "version": "1.2.0",
+                    "revision": FULL_SHA,
                     "normative_entrypoint": "skills/other/STANDARD.md",
                 }
             },
         },
     )
     findings = validate_lock(lock)
-    assert any(
-        "full commit SHA" in finding or "does not match" in finding
-        for finding in findings
-    )
     assert any("locked skill" in finding for finding in findings)
 
 
 def test_mcp_runtime_scopes_are_not_conflated() -> None:
-    manifest = yaml.safe_load(
-        (ROOT / "skills/mcp-server-architect/manifest.yaml").read_text(
-            encoding="utf-8"
-        )
-    )
+    manifest = yaml.safe_load((ROOT / "skills/mcp-server-architect/manifest.yaml").read_text(encoding="utf-8"))
     runtime = manifest["runtime_contract"]
     assert runtime["tool_runtime"]["python"] == ">=3.12,<3.15"
     assert runtime["assessed_project_runtime"]["python"] == ">=3.10"

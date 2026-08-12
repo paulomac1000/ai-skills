@@ -23,7 +23,8 @@ if str(ROOT) not in sys.path:
 
 from contracts.rule_applicability import (  # noqa: E402
     RuleContext,
-    rule_applies,
+    project_applicability,
+    test_case_identity_finding,
     validate_rule_metadata,
 )
 
@@ -147,11 +148,7 @@ def _selector_finding(selector: object, root: Path) -> str | None:
         tree = ast.parse(_read_utf8(path), filename=raw_path)
     except (SyntaxError, ValueError) as exc:
         return f"invalid test selector source: {exc}"
-    functions = {
-        node.name
-        for node in tree.body
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-    }
+    functions = {node.name for node in tree.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))}
     if function_name not in functions:
         return f"test function {function_name!r} does not exist"
     return None
@@ -239,23 +236,18 @@ def validate_catalog(
             for selector_index, selector in enumerate(selectors):
                 selector_finding = _selector_finding(selector, root)
                 if selector_finding:
-                    findings.append(
-                        f"{location}.test_selectors[{selector_index}]: {selector_finding}"
-                    )
+                    findings.append(f"{location}.test_selectors[{selector_index}]: {selector_finding}")
     return findings
 
 
-def _controls(catalog: Mapping[str, Any], skill: str, context: RuleContext) -> dict[str, Mapping[str, Any]]:
-    raw_controls = catalog.get("controls")
-    if not isinstance(raw_controls, list):
-        return {}
-    return {
-        str(control["id"]): control
-        for control in raw_controls
-        if isinstance(control, Mapping)
-        and control.get("skill") == skill
-        and rule_applies(control, context)
-    }
+def _controls(
+    catalog: Mapping[str, Any],
+    parent_catalog: Mapping[str, Any],
+    skill: str,
+    context: RuleContext,
+) -> dict[str, Mapping[str, Any]]:
+    projection = project_applicability(parent_catalog, catalog, skill, context)
+    return {str(control["id"]): control for control in projection.child_controls}
 
 
 def _schema_findings(report: Mapping[str, Any], schema: Mapping[str, Any]) -> list[str]:
@@ -308,12 +300,15 @@ def validate_report(
     try:
         report = _load_mapping(report_path)
         catalog = _load_mapping(catalog_path)
+        parent_catalog = _load_mapping(parent_catalog_path)
         schema = _load_mapping(schema_path)
         root = repository_root.resolve(strict=True)
     except (OSError, ValueError) as exc:
         return [str(exc)]
 
     findings = _schema_findings(report, schema)
+    if findings:
+        return findings
     skill = report.get("skill")
     context_raw = report.get("context")
     if not isinstance(skill, str) or not isinstance(context_raw, Mapping):
@@ -327,7 +322,10 @@ def validate_report(
     except (TypeError, ValueError) as exc:
         return [*findings, f"context: {exc}"]
 
-    expected = _controls(catalog, skill, context)
+    try:
+        expected = _controls(catalog, parent_catalog, skill, context)
+    except ValueError as exc:
+        return [*findings, f"applicability: {exc}"]
     checks = report.get("checks")
     if not isinstance(checks, list):
         return findings
@@ -346,6 +344,12 @@ def validate_report(
         if control is None:
             findings.append(f"{location}.control_id: not applicable for the selected context")
             continue
+        test_case = raw.get("test_case")
+        test_case_finding = test_case_identity_finding(test_case, root)
+        if test_case_finding:
+            findings.append(f"{location}.test_case: {test_case_finding}")
+        elif test_case not in control.get("test_selectors", []):
+            findings.append(f"{location}.test_case: is not an approved selector for {control_id}")
         evidence_types = raw.get("evidence_types")
         observed = set(evidence_types) if isinstance(evidence_types, list) else set()
         required = set(control.get("required_evidence", []))

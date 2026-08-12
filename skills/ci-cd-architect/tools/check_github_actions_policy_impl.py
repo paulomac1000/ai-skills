@@ -33,9 +33,7 @@ _WORKFLOW_SUFFIXES = {".yml", ".yaml"}
 _MUTABLE_RUNNERS = {"ubuntu-latest", "windows-latest", "macos-latest"}
 _PROFILES = {"pull-request", "trusted-ci", "protected-release"}
 _TRUSTED_CI_WRITE_SCOPES = frozenset({"checks", "security-events"})
-_PROTECTED_RELEASE_WRITE_SCOPES = frozenset(
-    {"attestations", "contents", "id-token", "packages", "security-events"}
-)
+_PROTECTED_RELEASE_WRITE_SCOPES = frozenset({"attestations", "contents", "id-token", "packages", "security-events"})
 
 
 class _UniqueKeyLoader(yaml.SafeLoader):

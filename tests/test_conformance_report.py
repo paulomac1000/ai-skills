@@ -25,6 +25,9 @@ def _repository(tmp_path: Path) -> tuple[Path, dict[str, Any], list[dict[str, An
     (skill / "manifest.yaml").write_text("version: 1.2.0\n", encoding="utf-8")
     (root / "implementation.py").write_text("class ContractMarker: pass\n", encoding="utf-8")
     (root / "evidence.xml").write_text("<testsuite/>\n", encoding="utf-8")
+    test_file = root / "tests" / "test_rule.py"
+    test_file.parent.mkdir(parents=True)
+    test_file.write_text("def test_rule():\n    pass\n", encoding="utf-8")
     catalog = yaml.safe_load((CONTRACTS / "rule-catalog.yaml").read_text(encoding="utf-8"))
     rules = expected_rules(catalog, "mcp-server-architect", RuleContext("L1"))
     return root, catalog, rules
@@ -42,10 +45,9 @@ def _report(rules: list[dict[str, Any]]) -> dict[str, Any]:
             {
                 "rule_id": rule["id"],
                 "status": "passed",
-                "implementation": [
-                    {"path": "implementation.py", "symbol": "ContractMarker"}
-                ],
+                "implementation": [{"path": "implementation.py", "symbol": "ContractMarker"}],
                 "command": "python -m pytest",
+                "test_case": "tests/test_rule.py::test_rule",
                 "result": "passed",
                 "evidence_types": rule["required_evidence"],
                 "evidence_paths": ["evidence.xml"],

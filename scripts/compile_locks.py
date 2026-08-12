@@ -58,9 +58,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     requested = (
         normalize_platform(args.platform or sys.platform),
         normalize_architecture(args.architecture or platform.machine()),
-        normalize_python_version(
-            args.python_version or f"{sys.version_info.major}.{sys.version_info.minor}"
-        ),
+        normalize_python_version(args.python_version or f"{sys.version_info.major}.{sys.version_info.minor}"),
     )
     native = _native_target()
     if requested != native:
@@ -77,9 +75,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     _compile(GENERATOR_LOCK_ROOT / "python-dev.in", generator_dev)
     for path in (root_dev, runtime, generator_dev):
         if not path.is_file() or path.stat().st_size == 0:
-            raise RuntimeError(
-                f"lock compiler did not produce {path.relative_to(ROOT)}"
-            )
+            raise RuntimeError(f"lock compiler did not produce {path.relative_to(ROOT)}")
     print(identifier)
     return 0
 

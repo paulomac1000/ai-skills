@@ -11,9 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def _render_publish() -> str:
-    text = (
-        ROOT / "skills/ci-cd-architect/templates/publish.yml.template"
-    ).read_text(encoding="utf-8")
+    text = (ROOT / "skills/ci-cd-architect/templates/publish.yml.template").read_text(encoding="utf-8")
     replacements = {
         "<TIMEOUT_MINUTES>": "30",
         "<PYTHON_VERSION>": "3.12",
@@ -55,11 +53,7 @@ def test_publish_template_never_pushes_all_tags_or_builds_in_privileged_job() ->
 
 
 def test_mcp_manifest_keeps_protocol_claims_separate_by_sdk() -> None:
-    manifest = yaml.safe_load(
-        (ROOT / "skills/mcp-server-architect/manifest.yaml").read_text(
-            encoding="utf-8"
-        )
-    )
+    manifest = yaml.safe_load((ROOT / "skills/mcp-server-architect/manifest.yaml").read_text(encoding="utf-8"))
     profiles = manifest["protocol"]["sdk_profiles"]
     assert manifest["protocol"]["default_revision"] == "2026-07-28"
 
@@ -80,25 +74,15 @@ def test_mcp_manifest_keeps_protocol_claims_separate_by_sdk() -> None:
 
 
 def test_afds_governance_replaces_basename_exemptions() -> None:
-    validator = (ROOT / "skills/afds-doc-writer/validate.py").read_text(
-        encoding="utf-8"
-    )
-    governance = yaml.safe_load(
-        (ROOT / "skills/afds-doc-writer/governance.yaml").read_text(
-            encoding="utf-8"
-        )
-    )
+    validator = (ROOT / "skills/afds-doc-writer/validate.py").read_text(encoding="utf-8")
+    governance = yaml.safe_load((ROOT / "skills/afds-doc-writer/governance.yaml").read_text(encoding="utf-8"))
     assert "EXEMPT_NAMES" not in validator
     assert governance["default_profile"] == "governed"
-    assert any(
-        entry["match"] == "README.md" for entry in governance["documents"]
-    )
+    assert any(entry["match"] == "README.md" for entry in governance["documents"])
 
 
 def test_lightweight_conformance_contract_has_no_provider_identifiers() -> None:
-    template = (ROOT / "contracts/conformance-report.yaml.template").read_text(
-        encoding="utf-8"
-    )
+    template = (ROOT / "contracts/conformance-report.yaml.template").read_text(encoding="utf-8")
     assert "run_id:" not in template
     assert "job_id:" not in template
     assert "artifact_id:" not in template
@@ -198,9 +182,7 @@ jobs:
 
 
 def test_trusted_auditor_template_executes_external_immutable_verifier() -> None:
-    text = (
-        ROOT / "skills/ci-cd-architect/templates/trusted-workflow-audit.yml.template"
-    ).read_text(encoding="utf-8")
+    text = (ROOT / "skills/ci-cd-architect/templates/trusted-workflow-audit.yml.template").read_text(encoding="utf-8")
     assert "workflow_call:" in text
     assert "<TRUSTED_VERIFIER_REPOSITORY>" in text
     assert "<TRUSTED_VERIFIER_SHA>" in text
@@ -209,19 +191,12 @@ def test_trusted_auditor_template_executes_external_immutable_verifier() -> None
 
 
 def test_protocol_sdk_versions_match_committed_dependency_contracts() -> None:
-    manifest = yaml.safe_load(
-        (ROOT / "skills/mcp-server-architect/manifest.yaml").read_text(
-            encoding="utf-8"
-        )
-    )
+    manifest = yaml.safe_load((ROOT / "skills/mcp-server-architect/manifest.yaml").read_text(encoding="utf-8"))
     profiles = manifest["protocol"]["sdk_profiles"]
-    runtime = (
-        ROOT / "skills/mcp-server-architect/locks/python-runtime.in"
-    ).read_text(encoding="utf-8")
-    packages = (
-        ROOT
-        / "skills/mcp-server-architect/tools/dotnet-template/Directory.Packages.props.template"
-    ).read_text(encoding="utf-8")
+    runtime = (ROOT / "skills/mcp-server-architect/locks/python-runtime.in").read_text(encoding="utf-8")
+    packages = (ROOT / "skills/mcp-server-architect/tools/dotnet-template/Directory.Packages.props.template").read_text(
+        encoding="utf-8"
+    )
 
     python_package = profiles["python-official-mcp"]["packages"][0]
     python_version = python_package["verified_baseline_versions"][0]

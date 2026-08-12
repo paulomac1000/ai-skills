@@ -71,9 +71,7 @@ def test_missing_relative_anchor_is_rejected(tmp_path: Path) -> None:
         tmp_path / "doc.md",
         governed() + "\n[Missing](target.md#not-present)\n",
     )
-    assert "broken relative anchor: target.md#not-present" in messages(
-        validator.validate(source)
-    )
+    assert "broken relative anchor: target.md#not-present" in messages(validator.validate(source))
 
 
 def test_relative_link_cannot_escape_repository(tmp_path: Path) -> None:
@@ -86,10 +84,7 @@ def test_relative_link_cannot_escape_repository(tmp_path: Path) -> None:
         governed() + "\n[Outside](../outside.md)\n",
     )
     findings = messages(validator.validate(source, repository))
-    assert any(
-        message.startswith("unsafe relative link: ../outside.md")
-        for message in findings
-    )
+    assert any(message.startswith("unsafe relative link: ../outside.md") for message in findings)
 
 
 def test_relative_link_rejects_symlink_target(tmp_path: Path) -> None:
@@ -102,9 +97,7 @@ def test_relative_link_rejects_symlink_target(tmp_path: Path) -> None:
         pytest.skip(f"symlink creation unavailable: {exc}")
     source = write(tmp_path / "doc.md", governed() + "\n[Target](link.md)\n")
     findings = messages(validator.validate(source))
-    assert any(
-        message.startswith("unsafe relative link: link.md") for message in findings
-    )
+    assert any(message.startswith("unsafe relative link: link.md") for message in findings)
 
 
 def test_informative_document_does_not_require_verification(tmp_path: Path) -> None:

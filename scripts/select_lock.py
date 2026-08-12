@@ -66,14 +66,10 @@ def lock_id(
     """Return the exact OS/architecture/Python lock identifier."""
     os_name = normalize_platform(platform)
     arch = normalize_architecture(architecture or host_platform.machine())
-    version = normalize_python_version(
-        python_version or f"{sys.version_info.major}.{sys.version_info.minor}"
-    )
+    version = normalize_python_version(python_version or f"{sys.version_info.major}.{sys.version_info.minor}")
     target = (os_name, arch, version)
     if target not in SUPPORTED_LOCKS:
-        raise RuntimeError(
-            f"unsupported lock target: {os_name}/{arch}/python-{version}"
-        )
+        raise RuntimeError(f"unsupported lock target: {os_name}/{arch}/python-{version}")
     return f"{os_name}-{arch}-py{version.replace('.', '')}"
 
 

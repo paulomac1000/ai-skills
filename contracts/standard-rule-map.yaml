@@ -32,6 +32,7 @@ skills:
       pipeline-layers: {rule_id: cicd.layers.separated, primary: true}
       universal-workflow-controls: {rule_id: cicd.workflow.least-privilege, primary: true}
       workflow-policy-profiles: {rule_id: cicd.workflow.profiled, primary: true}
+      execution-policy-and-hosted-runner-budget: {rule_id: cicd.execution.on-demand, primary: true}
       python-quality: {rule_id: cicd.quality.language, primary: true}
       net-quality: {rule_id: cicd.quality.language}
       mcp-specific-assurance: {rule_id: cicd.quality.language}
@@ -71,6 +72,7 @@ skills:
       efficient-selection: {rule_id: consumer.selection.efficient, primary: true}
       response-contract: {rule_id: consumer.response.validated, primary: true}
       retry-policy: {rule_id: consumer.retry.reconciled, primary: true}
+      catalog-and-approval-invalidation: {rule_id: consumer.trust.provenance}
       pagination: {rule_id: consumer.pagination.bounded, primary: true}
       cross-server-workflows: {rule_id: consumer.workflow.compensated}
       partial-execution-and-compensation: {rule_id: consumer.workflow.compensated, primary: true}

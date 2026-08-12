@@ -12,11 +12,7 @@ IMPLEMENTATION = PUBLIC.with_name("generate_python_server_impl.py")
 
 def _top_level_functions(path: Path) -> set[str]:
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-    return {
-        node.name
-        for node in tree.body
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-    }
+    return {node.name for node in tree.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))}
 
 
 def test_only_public_generator_exposes_cli_and_publication() -> None:

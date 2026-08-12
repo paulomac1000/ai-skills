@@ -49,11 +49,7 @@ def test_consumer_policy_identity_must_match_invoked_tool_name() -> None:
 
 
 def test_capability_schema_separates_lifecycle_from_operation_kind() -> None:
-    schema = json.loads(
-        (ROOT / "contracts/capability-manifest.schema.json").read_text(
-            encoding="utf-8"
-        )
-    )
+    schema = json.loads((ROOT / "contracts/capability-manifest.schema.json").read_text(encoding="utf-8"))
     assert schema["properties"]["operation_kind"]["enum"] == [
         "read",
         "write",
@@ -66,18 +62,11 @@ def test_capability_schema_separates_lifecycle_from_operation_kind() -> None:
     ]
     approval = schema["properties"]["approval"]["properties"]["binds"]
     assert "expires-at" in approval["items"]["enum"]
-    assert any(
-        condition.get("contains", {}).get("const") == "expires-at"
-        for condition in approval["allOf"]
-    )
+    assert any(condition.get("contains", {}).get("const") == "expires-at" for condition in approval["allOf"])
 
 
 def test_generated_manifests_are_active_and_read_flags_fail_closed() -> None:
-    capability_dir = (
-        ROOT
-        / "skills/mcp-server-architect/tools/python-template/src/"
-        "__PACKAGE__/capabilities"
-    )
+    capability_dir = ROOT / "skills/mcp-server-architect/tools/python-template/src/__PACKAGE__/capabilities"
     paths = sorted(capability_dir.glob("*.json.template"))
     assert {path.name for path in paths} == {
         "describe_capabilities.json.template",
@@ -102,15 +91,15 @@ def test_generated_manifests_are_active_and_read_flags_fail_closed() -> None:
 
 def test_dotnet_projection_preserves_lifecycle_and_expiry_binding() -> None:
     adapter = (
-        ROOT
-        / "skills/mcp-server-architect/tools/dotnet-template/src/"
+        ROOT / "skills/mcp-server-architect/tools/dotnet-template/src/"
         "__NAMESPACE__.Mcp.Server/CanonicalCapabilityManifest.cs.template"
     ).read_text(encoding="utf-8")
     assert "var activeState = manifest.ActiveState switch" in adapter
     assert 'CapabilityActiveState.Active => "active"' in adapter
-    assert "CapabilityActiveState.Disabled" in adapter
-    assert "CapabilityActiveState.Degraded" in adapter
-    assert "CapabilityActiveState.Unavailable" in adapter
+    assert (
+        "CapabilityActiveState.Disabled or CapabilityActiveState.Degraded or "
+        'CapabilityActiveState.Unavailable => "inactive"' in adapter
+    )
     assert 'CapabilityActiveState.Deprecated => "deprecated"' in adapter
     assert '"expires-at"' in adapter
     assert "only active capabilities may be registered" in adapter
@@ -118,9 +107,7 @@ def test_dotnet_projection_preserves_lifecycle_and_expiry_binding() -> None:
 
 
 def test_windows_atomic_publication_normalizes_existing_target() -> None:
-    generator = (
-        ROOT / "skills/mcp-server-architect/tools/generate_dotnet_server.py"
-    ).read_text(encoding="utf-8")
+    generator = (ROOT / "skills/mcp-server-architect/tools/generate_dotnet_server.py").read_text(encoding="utf-8")
     windows = generator.split('if operating_system == "Windows":', 1)[1]
     windows = windows.split("raise RuntimeError", 1)[0]
     assert "except FileExistsError as exc:" in windows
@@ -128,9 +115,7 @@ def test_windows_atomic_publication_normalizes_existing_target() -> None:
 
 
 def test_release_template_lowercases_ghcr_identity_and_attestation_subject() -> None:
-    template = (
-        ROOT / "skills/ci-cd-architect/templates/publish.yml.template"
-    ).read_text(encoding="utf-8")
+    template = (ROOT / "skills/ci-cd-architect/templates/publish.yml.template").read_text(encoding="utf-8")
     assert 'repository="ghcr.io/${GITHUB_REPOSITORY,,}"' in template
     assert "subject_name=$repository" in template
     assert "subject-name: ${{ steps.promote.outputs.subject_name }}" in template

@@ -25,9 +25,7 @@ class _UniqueKeyLoader(yaml.SafeLoader):
     """YAML loader that rejects duplicate keys."""
 
 
-def _construct_unique_mapping(
-    loader: _UniqueKeyLoader, node: yaml.MappingNode, deep: bool = False
-) -> dict[Any, Any]:
+def _construct_unique_mapping(loader: _UniqueKeyLoader, node: yaml.MappingNode, deep: bool = False) -> dict[Any, Any]:
     loader.flatten_mapping(node)
     result: dict[Any, Any] = {}
     for key_node, value_node in node.value:
@@ -52,9 +50,7 @@ def _construct_unique_mapping(
     return result
 
 
-_UniqueKeyLoader.add_constructor(
-    yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _construct_unique_mapping
-)
+_UniqueKeyLoader.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _construct_unique_mapping)
 
 
 @dataclass(frozen=True)
@@ -86,9 +82,7 @@ def _event_map(value: Any) -> tuple[dict[str, Any], str | None]:
     return {}, "workflow events must be a string, list, or mapping"
 
 
-def _branch_findings(
-    path: Path, push: Any, allowed_branches: frozenset[str]
-) -> list[Finding]:
+def _branch_findings(path: Path, push: Any, allowed_branches: frozenset[str]) -> list[Finding]:
     if not isinstance(push, dict):
         return [
             Finding(
@@ -198,9 +192,7 @@ def _workflow_paths(root: Path) -> list[Path]:
     directory = root / ".github" / "workflows"
     if not directory.is_dir():
         return []
-    return sorted(
-        path for path in directory.iterdir() if path.is_file() and path.suffix in _WORKFLOW_SUFFIXES
-    )
+    return sorted(path for path in directory.iterdir() if path.is_file() and path.suffix in _WORKFLOW_SUFFIXES)
 
 
 def audit_repository(
@@ -254,9 +246,7 @@ def main(argv: list[str] | None = None) -> int:
                 findings.append(Finding(workflow, f"cannot read workflow: {exc}"))
                 continue
             display = path.relative_to(root) if path.is_relative_to(root) else path
-            findings.extend(
-                audit_text(display, raw_text, integration_branches=branches, require_marker=True)
-            )
+            findings.extend(audit_text(display, raw_text, integration_branches=branches, require_marker=True))
     else:
         findings.extend(audit_repository(root, integration_branches=branches))
 

@@ -1,0 +1,11 @@
+schema_version: 1
+default_execution: excluded
+mutations:
+  enabled_by_default: false
+  independent_opt_ins: 2
+  credential_access: after-opt-in
+  unique_namespace: true
+  cleanup:
+    capture_created_ids: true
+    reconcile_by_marker: true
+    report_unreconciled: true

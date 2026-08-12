@@ -134,7 +134,9 @@ For .NET, use `StdioClientTransport` with `InheritEnvironmentVariables=false`, r
 
 ### Upstream contract
 
-Use fakes, mock HTTP handlers, recorded fixtures, emulators, browser fixtures, canaries, or Testcontainers according to the integration. Verify timeout, cancellation, host identity, credential placement, status mapping, retry hints, pagination, ambiguous completion, UI drift, and partial failure rather than mocking the final return value.
+For an external, legacy, poorly documented, or contradicted backend, this is an entry gate before adapter refactoring. First record the observed contract with `upstream-contract.yaml`; do not infer JSON/form encoding, localized dates, pagination termination, empty success bodies, returned create identity, delete semantics, or retry safety from existing client code.
+
+Use fakes, mock HTTP handlers, recorded fixtures, emulators, browser fixtures, canaries, or Testcontainers according to the integration. Verify timeout, cancellation, host identity, credential placement, status mapping, retry hints, pagination, ambiguous completion, UI drift, and partial failure rather than mocking the final return value. Public canonical values and upstream dialects have a negative boundary test so localized dates, money, identifiers, enums, or field names do not leak back into the MCP contract unintentionally.
 
 For shell or device protocols, fuzz validated arguments and verify fixed executable or closed-template behavior. For API keys in query parameters, inspect logs, traces, exceptions, and proxy requests for leakage.
 
@@ -157,7 +159,7 @@ Every substantial migration runs the applicable regressions:
 | financial API adapter | decimal/date semantics, query-secret redaction, idempotency key, pagination termination |
 | browser automation | profile isolation/lock, shared-context race, interactive auth, session bounds, UI drift |
 
-Run both the Python migration simulation and .NET migration simulation. A new reusable finding becomes a test category here; repository-specific names and fixtures remain in implementation repositories.
+For consumer migration, run the simulation matching the selected implementation profile; cross-language simulations are routed only when a claimed parity decision needs them. ai-skills itself runs both Python and .NET simulations. A reusable real-consumer finding becomes a generic invariant plus an executable regression; exact external consumer revisions may remain in the dedicated canary catalog rather than leaking project names into normative guidance.
 
 ## Test doubles
 
@@ -167,7 +169,7 @@ Mock stable application-owned interfaces. Avoid patching SDK internals or produc
 
 Run the stable production SDK lane at minimum and preferred versions. Run prerelease or next-major SDKs in a separate candidate lane with exact pins and no publication. Candidate success does not replace stable production evidence.
 
-Keep generator, unit, integration, smoke, e2e, conformance, live-backend, browser, artifact, and migration suites separately visible. A skipped suite declares its prerequisite and does not contribute misleading coverage.
+Keep generator, unit, integration, smoke, e2e, conformance, live-backend, browser, artifact, and migration suites separately visible. A skipped suite declares its prerequisite and does not contribute misleading coverage. Live-backend suites are deselected by default. Mutating live tests require at least two independent opt-ins, read credentials only after the opt-ins pass, use a unique namespace, reconcile partially successful creates, and report every cleanup that cannot be confirmed.
 
 ## Verification
 

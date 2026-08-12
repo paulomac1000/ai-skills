@@ -38,7 +38,7 @@ def test_mcp_standard_contains_recovered_operational_rules() -> None:
 
     assert "distribution is `mcp`" in official
     assert "distribution and import namespace are `fastmcp`" in fastmcp
-    assert "mcp==2.0.0" in official
+    assert "dependency lock and assessment identify the exact package version" in official
     assert "ModelContextProtocol" in dotnet
     assert "1.4.1" in dotnet
 
@@ -52,13 +52,19 @@ def test_standard_rejects_deprecated_sse_for_new_servers() -> None:
     assert "Streamable HTTP" in combined
 
 
-def test_migration_and_testing_references_are_linked_from_skill() -> None:
+def test_migration_entrypoint_is_small_and_specialist_references_remain_routable() -> None:
     skill = text("SKILL.md")
+    manifest = text("manifest.yaml")
     for required in (
-        "references/migration-assessment.md",
         "references/testing-strategy.md",
+        "references/upstream-contract-discovery.md",
+    ):
+        assert required in skill
+    for routed in (
+        "references/migration-assessment.md",
         "references/security-and-operations.md",
         "references/python-official-mcp-sdk.md",
         "references/python-fastmcp-package.md",
     ):
-        assert required in skill
+        assert routed in manifest
+    assert "load other references only when" in skill

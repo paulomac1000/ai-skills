@@ -77,9 +77,8 @@ def test_generated_http_uses_official_streamable_transport_not_custom_replay(
     generator.generate_project(target, "safe_mcp", "Safe MCP")
     assert not (target / "src/safe_mcp/http.py").exists()
     source = (target / "src/safe_mcp/server.py").read_text(encoding="utf-8")
-    assert "mcp.streamable_http_app()" in source
-    assert 'mode="stateless"' in source
-    assert 'mount("/mcp", protected)' in source
+    assert "mcp.streamable_http_app(" in source
+    assert "stateless_http=True" in source
     assert "legacy" not in source.casefold()
 
 
@@ -100,9 +99,7 @@ def test_consumer_rejects_empty_or_meta_only_response() -> None:
 
 
 def _release_template() -> str:
-    return (
-        ROOT / "skills/ci-cd-architect/templates/dotnet-package.yml.template"
-    ).read_text(encoding="utf-8")
+    return (ROOT / "skills/ci-cd-architect/templates/dotnet-package.yml.template").read_text(encoding="utf-8")
 
 
 def _semver_is_accepted(version: str) -> bool:
@@ -169,35 +166,23 @@ def test_dotnet_release_semver_rejects_leading_zeroes_and_empty_identifiers() ->
 
 
 def test_target_authorization_precedes_network_resolution_in_normative_docs() -> None:
-    transport = (
-        ROOT
-        / "skills/mcp-server-architect/references/transport-lifecycle-and-conformance.md"
-    ).read_text(encoding="utf-8")
-    simulation = (
-        ROOT
-        / "skills/mcp-server-architect/references/dotnet-migration-simulation.md"
-    ).read_text(encoding="utf-8")
+    transport = (ROOT / "skills/mcp-server-architect/references/transport-lifecycle-and-conformance.md").read_text(
+        encoding="utf-8"
+    )
+    simulation = (ROOT / "skills/mcp-server-architect/references/dotnet-migration-simulation.md").read_text(
+        encoding="utf-8"
+    )
 
-    assert (
-        "authorize the selector namespace or tenant before any discovery or lookup"
-        in transport
-    )
-    assert (
-        "failed preliminary authorization must produce no network-backed target probe"
-        in transport
-    )
+    assert "authorize the selector namespace or tenant before any discovery or lookup" in transport
+    assert "failed preliminary authorization must produce no network-backed target probe" in transport
     assert "authorize its device namespace before discovery" in simulation
-    assert (
-        "unauthorized selector and prove the resolver performs no network-backed discovery"
-        in simulation
-    )
+    assert "unauthorized selector and prove the resolver performs no network-backed discovery" in simulation
     assert "Authorization occurs after target resolution" not in transport
 
 
 def test_dotnet_approval_capacity_check_is_serialized() -> None:
     source = (
-        ROOT
-        / "skills/mcp-server-architect/tools/dotnet-template/src/"
+        ROOT / "skills/mcp-server-architect/tools/dotnet-template/src/"
         "__NAMESPACE__.Mcp.Server/ApprovalRegistry.cs.template"
     ).read_text(encoding="utf-8")
     lock_index = source.index("lock (_issueGate)")
@@ -209,14 +194,9 @@ def test_dotnet_approval_capacity_check_is_serialized() -> None:
 
 def test_dotnet_smoke_rejects_unknown_mode_and_retries_probe_timeout() -> None:
     source = (
-        ROOT
-        / "skills/mcp-server-architect/tools/dotnet-template/tests/"
-        "__NAMESPACE__.Mcp.Smoke/Program.cs.template"
+        ROOT / "skills/mcp-server-architect/tools/dotnet-template/tests/__NAMESPACE__.Mcp.Smoke/Program.cs.template"
     ).read_text(encoding="utf-8")
-    assert (
-        'args.Length == 2 && !string.Equals(args[1], "--http", StringComparison.Ordinal)'
-        in source
-    )
+    assert 'args.Length == 2 && !string.Equals(args[1], "--http", StringComparison.Ordinal)' in source
     assert "if (args.Length == 2)" in source
     assert "args.Contains(" not in source
     assert "catch (HttpRequestException)" in source

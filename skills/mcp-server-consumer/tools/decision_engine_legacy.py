@@ -43,7 +43,7 @@ class UserIntent(StrEnum):
 
 
 @dataclass(frozen=True)
-class TrustedCapabilityPolicy:
+class _LegacyTrustedCapabilityPolicy:
     """Consumer-owned policy values, never populated from discovered metadata."""
 
     risk: str | Risk | None = None
@@ -53,7 +53,7 @@ class TrustedCapabilityPolicy:
 
 
 @dataclass(frozen=True)
-class TrustedCapabilityContract:
+class _LegacyTrustedCapabilityContract:
     """Reviewed capability-contract facts kept outside server metadata."""
 
     risk: str | Risk | None = None
@@ -208,15 +208,15 @@ def infer_capability_profile(
     name: str,
     metadata: Mapping[str, Any] | None = None,
     *,
-    trusted_policy: TrustedCapabilityPolicy | None = None,
-    trusted_contract: TrustedCapabilityContract | None = None,
+    trusted_policy: _LegacyTrustedCapabilityPolicy | None = None,
+    trusted_contract: _LegacyTrustedCapabilityContract | None = None,
     trusted_server: bool = False,
 ) -> CapabilityProfile:
     """Infer a fail-closed profile without upgrading untrusted metadata to policy."""
 
-    if trusted_policy is not None and not isinstance(trusted_policy, TrustedCapabilityPolicy):
+    if trusted_policy is not None and not isinstance(trusted_policy, _LegacyTrustedCapabilityPolicy):
         raise TypeError("trusted_policy must be TrustedCapabilityPolicy or None")
-    if trusted_contract is not None and not isinstance(trusted_contract, TrustedCapabilityContract):
+    if trusted_contract is not None and not isinstance(trusted_contract, _LegacyTrustedCapabilityContract):
         raise TypeError("trusted_contract must be TrustedCapabilityContract or None")
     if metadata is None:
         metadata = {}

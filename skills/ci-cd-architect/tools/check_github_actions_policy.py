@@ -74,8 +74,7 @@ def _collect_workflow_entries(
             findings.append(
                 Finding(
                     workflow_dir,
-                    "workflow directory entry count exceeds "
-                    f"{MAX_DISCOVERY_ENTRIES}",
+                    f"workflow directory entry count exceeds {MAX_DISCOVERY_ENTRIES}",
                 )
             )
             break
@@ -93,9 +92,7 @@ def _collect_workflow_entries(
         try:
             metadata = entry.stat(follow_symlinks=False)
         except OSError as exc:
-            findings.append(
-                Finding(entry_path, f"cannot inspect workflow: {exc}")
-            )
+            findings.append(Finding(entry_path, f"cannot inspect workflow: {exc}"))
             continue
         if _is_link_or_reparse(metadata) or not stat.S_ISREG(metadata.st_mode):
             findings.append(
@@ -123,23 +120,16 @@ def workflow_paths(
     repository_root: Path,
 ) -> tuple[list[Path], list[Finding]]:
     workflow_dir = repository_root / ".github" / "workflows"
-    if (
-        _supports_component_nofollow()
-        and os.scandir in getattr(os, "supports_fd", set())
-    ):
+    if _supports_component_nofollow() and os.scandir in getattr(os, "supports_fd", set()):
         try:
             descriptor, _ = _open_stable(
                 workflow_dir,
                 os.O_RDONLY | getattr(os, "O_DIRECTORY", 0),
             )
         except FileNotFoundError:
-            return [], [
-                Finding(repository_root, "no GitHub Actions workflows found")
-            ]
+            return [], [Finding(repository_root, "no GitHub Actions workflows found")]
         except OSError as exc:
-            return [], [
-                Finding(workflow_dir, f"cannot enumerate workflows: {exc}")
-            ]
+            return [], [Finding(workflow_dir, f"cannot enumerate workflows: {exc}")]
         try:
             if not stat.S_ISDIR(os.fstat(descriptor).st_mode):
                 return [], [
@@ -151,9 +141,7 @@ def workflow_paths(
             with os.scandir(descriptor) as entries:
                 return _collect_workflow_entries(entries, workflow_dir)
         except OSError as exc:
-            return [], [
-                Finding(workflow_dir, f"cannot enumerate workflows: {exc}")
-            ]
+            return [], [Finding(workflow_dir, f"cannot enumerate workflows: {exc}")]
         finally:
             os.close(descriptor)
 
@@ -180,20 +168,13 @@ def workflow_paths(
             ]
         return paths, findings
     except FileNotFoundError:
-        return [], [
-            Finding(repository_root, "no GitHub Actions workflows found")
-        ]
+        return [], [Finding(repository_root, "no GitHub Actions workflows found")]
     except OSError as exc:
-        return [], [
-            Finding(workflow_dir, f"cannot enumerate workflows: {exc}")
-        ]
+        return [], [Finding(workflow_dir, f"cannot enumerate workflows: {exc}")]
 
 
 def _permissions_write(value: object) -> bool:
-    return isinstance(value, Mapping) and any(
-        isinstance(scope, str) and scope.casefold() == "write"
-        for scope in value.values()
-    )
+    return _impl._permission_has_write(dict(value) if isinstance(value, Mapping) else value)
 
 
 def _privileged_local_reusable_findings(
@@ -271,9 +252,7 @@ def _repository_profiles(
             )
         ]
     except yaml.YAMLError as error:
-        return {}, [
-            Finding(policy_path, f"cannot parse workflow policy: {error}")
-        ]
+        return {}, [Finding(policy_path, f"cannot parse workflow policy: {error}")]
     if not isinstance(document, Mapping) or document.get("schema_version") != 1:
         return {}, [
             Finding(
@@ -282,14 +261,10 @@ def _repository_profiles(
             )
         ]
     if set(document) != {"schema_version", "workflows"}:
-        return {}, [
-            Finding(policy_path, "workflow policy contains unsupported fields")
-        ]
+        return {}, [Finding(policy_path, "workflow policy contains unsupported fields")]
     raw_workflows = document.get("workflows")
     if not isinstance(raw_workflows, Mapping):
-        return {}, [
-            Finding(policy_path, "workflow policy workflows must be a mapping")
-        ]
+        return {}, [Finding(policy_path, "workflow policy workflows must be a mapping")]
 
     profiles: dict[str, str] = {}
     findings: list[Finding] = []
@@ -345,9 +320,7 @@ def audit_repository(repository_root: Path) -> list[Finding]:
         )
     for path in paths:
         relative = path.relative_to(root).as_posix()
-        findings.extend(
-            audit_workflow(path, root, profile=profiles.get(relative))
-        )
+        findings.extend(audit_workflow(path, root, profile=profiles.get(relative)))
     return findings
 
 

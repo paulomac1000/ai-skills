@@ -56,9 +56,7 @@ _POLICY_SOURCE = re.compile(r"^[a-z][a-z0-9-]*:sha256:[0-9a-f]{64}$")
 
 def _nonempty(value: str, field_name: str, maximum: int = 512) -> None:
     if not isinstance(value, str) or not value.strip() or len(value) > maximum:
-        raise ValueError(
-            f"{field_name} must be a non-empty string of at most {maximum} characters"
-        )
+        raise ValueError(f"{field_name} must be a non-empty string of at most {maximum} characters")
 
 
 @dataclass(frozen=True, slots=True)
@@ -92,9 +90,7 @@ class TrustedPolicyBinding:
         if not isinstance(self.identity, CapabilityIdentity):
             raise TypeError("identity must be CapabilityIdentity")
         if not _POLICY_SOURCE.fullmatch(self.source):
-            raise ValueError(
-                "source must be an immutable '<kind>:sha256:<64 lowercase hex>' identity"
-            )
+            raise ValueError("source must be an immutable '<kind>:sha256:<64 lowercase hex>' identity")
 
 
 @dataclass(frozen=True, slots=True)
@@ -146,13 +142,9 @@ def _validate_binding(
     if identity is None:
         raise ValueError(f"identity is required when {field_name} is supplied")
     if identity.tool_name != invoked_name:
-        raise ValueError(
-            f"{field_name} tool identity does not match invoked capability name"
-        )
+        raise ValueError(f"{field_name} tool identity does not match invoked capability name")
     if value.binding.identity != identity:
-        raise ValueError(
-            f"{field_name} does not match the observed capability identity"
-        )
+        raise ValueError(f"{field_name} does not match the observed capability identity")
 
 
 def _source(source: str, addition: str) -> str:
@@ -197,9 +189,7 @@ def infer_capability_profile(
     _validate_binding(trusted_contract, identity, name, "trusted_contract")
 
     policy_risk = _LEGACY._risk(trusted_policy.risk) if trusted_policy else Risk.UNKNOWN
-    contract_risk = (
-        _LEGACY._risk(trusted_contract.risk) if trusted_contract else Risk.UNKNOWN
-    )
+    contract_risk = _LEGACY._risk(trusted_contract.risk) if trusted_contract else Risk.UNKNOWN
     inferred = _LEGACY._higher_risk(policy_risk, contract_risk)
     source = "unknown"
     if trusted_policy is not None and policy_risk is not Risk.UNKNOWN:
@@ -231,10 +221,7 @@ def infer_capability_profile(
             source = _source(source, label)
 
     annotations = metadata.get("annotations")
-    if (
-        isinstance(annotations, Mapping)
-        and annotations.get("destructiveHint") is True
-    ):
+    if isinstance(annotations, Mapping) and annotations.get("destructiveHint") is True:
         previous = inferred
         inferred = _LEGACY._higher_risk(inferred, Risk.DESTRUCTIVE)
         if inferred is not previous:
@@ -258,10 +245,7 @@ def infer_capability_profile(
     requires_confirmation = (
         metadata.get("requiresConfirmation") is True
         or metadata.get("requires_confirmation") is True
-        or (
-            trusted_policy is not None
-            and trusted_policy.requires_confirmation is True
-        )
+        or (trusted_policy is not None and trusted_policy.requires_confirmation is True)
     )
 
     if (
@@ -270,9 +254,9 @@ def infer_capability_profile(
         or (trusted_contract is not None and trusted_contract.idempotent is False)
     ):
         idempotent: bool | None = False
-    elif (
-        trusted_policy is not None and trusted_policy.idempotent is True
-    ) or (trusted_contract is not None and trusted_contract.idempotent is True):
+    elif (trusted_policy is not None and trusted_policy.idempotent is True) or (
+        trusted_contract is not None and trusted_contract.idempotent is True
+    ):
         idempotent = True
     else:
         idempotent = None

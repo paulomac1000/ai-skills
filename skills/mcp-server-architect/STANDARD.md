@@ -170,11 +170,15 @@ Generation uses exclusive no-replace publication and refuses an existing file, d
 
 ## Migration acceptance
 
-Every L2+ migration produces `migration-assessment.yaml` from `templates/migration-assessment.yaml.template`, covers every `mcp-server-architect` rule in `contracts/rule-catalog.yaml`, preserves the complete normative-heading mapping in `contracts/standard-rule-map.yaml`, and follows `references/migration-assessment.md`. The assessment pins the immutable source revision, skill version, maturity target, profiles, scope, applicability matrix, implementation evidence, verification commands, preserved and intentionally changed behavior, removed legacy behavior, waivers, exact artifact identity, rollback, residual risks, and independent decision.
+Existing projects begin with bounded read-only discovery rather than a handwritten final assessment. Discovery records observed package identity, transports, packaging, external boundaries, live-test prerequisites, and unresolved facts. An external, legacy, poorly documented, or contradicted backend requires an observed `upstream-contract.yaml` before its adapter contract is redesigned. Inferred upstream behavior is a discovery state, not acceptance evidence.
+
+Migration state progresses through `discovered -> planned -> implemented -> locally-verified -> provider-verified -> accepted`. Normal unfinished work does not require a waiver. A waiver represents an intentional final deviation from an applicable rule, not the fact that implementation has not reached acceptance yet.
+
+Every L2+ migration eventually produces `migration-assessment.yaml` from `templates/migration-assessment.yaml.template`, covers every `mcp-server-architect` rule in `contracts/rule-catalog.yaml`, preserves the complete normative-heading mapping in `contracts/standard-rule-map.yaml`, and follows `references/migration-assessment.md`. The final assessment pins the immutable source revision, skill version, maturity target, profiles, scope, applicability matrix, implementation evidence, verification commands, preserved and intentionally changed behavior, removed legacy behavior, waivers, exact artifact identity, rollback, residual risks, and independent decision.
 
 `not-applicable` requires an architectural rationale. `deferred` requires an owned, expiring waiver and compensating controls. No waiver may permit model-controlled authorization, fail-open risk, target substitution, unbounded privileged execution, or a new legacy HTTP+SSE implementation. A green aggregate check without rule-to-code-to-test evidence is insufficient.
 
-A canonical independent reviewer may approve only through provider-backed evidence whose review state and commit ID match the immutable assessed revision, after every advertised transport passes official-client smoke against the exact deployment artifact and all applicable rules have executable evidence. An undocumented behavioral difference or unresolved normative conflict is a migration defect.
+A canonical independent reviewer may approve only through provider-backed evidence whose review state and commit ID match the immutable assessed revision, after every advertised transport passes official-client smoke against the exact deployment artifact and all applicable rules have executable evidence. Runtime risk and publication exposure are separate axes: destructive local-single-user capabilities still require strong runtime authorization, but independent protected-release authority is driven by maturity and actual distribution/exposure rather than the mere presence of a delete operation. An undocumented behavioral difference or unresolved normative conflict is a migration defect.
 
 ## Verification layers
 
@@ -186,8 +190,8 @@ A canonical independent reviewer may approve only through provider-backed eviden
 6. transport conformance and invocation-kernel parity tests;
 7. representative official-client workflows;
 8. deployment-artifact smoke tests;
-9. upstream contract tests with controlled fakes, recordings, canaries, or test containers;
-10. Python migration simulation and .NET migration simulation across analogous archetypes;
+9. upstream contract tests with controlled fakes, recordings, canaries, or test containers; for unknown or legacy upstreams this layer moves before adapter refactoring;
+10. the implementation-language migration simulation for consumer work, while ai-skills self-validation runs both Python and .NET simulations;
 11. fresh-project generation followed by installation or restore, compilation, and its own real-client suite;
 12. completed migration assessment with independent decision for every L2+ adoption or migration.
 

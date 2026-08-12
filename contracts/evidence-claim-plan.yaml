@@ -154,6 +154,14 @@ profiles:
     - repository-junit.xml
     execution_id: repository
   - kind: rule
+    subject: cicd.execution.on-demand
+    selectors:
+    - '*test_ci_execution_policy*'
+    - '*test_templates*'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
     subject: cicd.quality.language
     selectors:
     - '*test_ci_scripts*'

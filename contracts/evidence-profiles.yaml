@@ -23,13 +23,13 @@ profiles:
     independent_review_required: false
     intended_use: Local development, experiments, and baseline technical conformance.
   hosted-provider:
-    provider_kinds: [github-actions, gitlab-ci, azure-pipelines, jenkins, generic-hosted]
+    provider_kinds: [github-actions]
     maximum_maturity: L2
     minimum_quality: provider-backed-exact-sha
     independent_review_required: false
     intended_use: Private or internal services with hosted CI and exact-revision evidence.
   independent-release:
-    provider_kinds: [github-actions, gitlab-ci, azure-pipelines, jenkins, generic-hosted]
+    provider_kinds: [github-actions]
     maximum_maturity: L4
     minimum_quality: independently-approved
     independent_review_required: true
@@ -55,4 +55,5 @@ escalation:
   public: independent-release
   sensitive: independent-release
   multi-tenant: independent-release
-  destructive: independent-release
+  public-distribution: independent-release
+  shared-service: independent-release

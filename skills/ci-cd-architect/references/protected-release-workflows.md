@@ -1,11 +1,14 @@
 ---
+afds_schema_version: 2
 description: Safe construction and distribution of protected release workflows and trusted workflow auditors.
 doc_id: reference.protected-release-workflows
 type: reference
 status: active
 rigor: operational
 owners: [repository-maintainers]
-verification: Render the bundled publish template, audit it with the protected-release profile, and perform a disposable-registry release using a closed image archive.
+verification:
+  kind: command
+  value: Render the bundled publish template, audit it with the protected-release profile, and perform a disposable-registry release using a closed image archive.
 ---
 
 # Protected release workflows

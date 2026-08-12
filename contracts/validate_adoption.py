@@ -24,9 +24,16 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from contracts.evidence import EvidenceVerifier, GitHubEvidenceVerifier  # noqa: E402
+from contracts.rule_applicability import (  # noqa: E402
+    RuleContext,
+    expected_rules,
+    project_applicability,
+    test_case_identity_finding,
+)
 from contracts.semver import is_semver  # noqa: E402
 
 DEFAULT_CATALOG = Path(__file__).with_name("rule-catalog.yaml")
+DEFAULT_ATOMIC_CATALOG = Path(__file__).with_name("atomic-claim-catalog.yaml")
 DEFAULT_SCHEMA = Path(__file__).with_name("adoption-assessment.schema.json")
 DEFAULT_SKILLS = ROOT / "skills"
 FULL_SHA = re.compile(r"[0-9a-f]{40}")
@@ -451,6 +458,7 @@ def _validate_applicability(
     catalog_rules: set[str],
     findings: list[Finding],
     *,
+    machine_applicable_rules: set[str] | None = None,
     as_of: date,
     repository: str,
     revision: str,
@@ -471,6 +479,22 @@ def _validate_applicability(
         status_value = entry.get("status")
         if status_value not in ALLOWED_STATUSES:
             findings.append(Finding(f"{location}.status", f"must be one of {sorted(ALLOWED_STATUSES)}"))
+        if machine_applicable_rules is not None and rule_id in catalog_rules:
+            machine_applies = rule_id in machine_applicable_rules
+            if machine_applies and status_value == "not-applicable":
+                findings.append(
+                    Finding(
+                        f"{location}.status",
+                        "catalog applicability requires this rule to be applicable or explicitly deferred",
+                    )
+                )
+            elif not machine_applies and status_value != "not-applicable":
+                findings.append(
+                    Finding(
+                        f"{location}.status",
+                        "catalog applicability requires this rule to be not-applicable",
+                    )
+                )
         _text(entry.get("rationale"), f"{location}.rationale", findings)
         waiver_id = entry.get("waiver_id")
         if status_value == "applicable":
@@ -492,6 +516,20 @@ def _validate_applicability(
                 verification_location = f"{location}.verification[{verification_index}]"
                 verification = _mapping(raw_verification, verification_location, findings)
                 command = _text(verification.get("command"), f"{verification_location}.command", findings)
+                test_case = _text(
+                    verification.get("test_case"),
+                    f"{verification_location}.test_case",
+                    findings,
+                )
+                if test_case:
+                    test_case_finding = test_case_identity_finding(test_case, repository_root)
+                    if test_case_finding:
+                        findings.append(
+                            Finding(
+                                f"{verification_location}.test_case",
+                                test_case_finding,
+                            )
+                        )
                 evidence = _evidence_reference(
                     verification.get("evidence"),
                     f"{verification_location}.evidence",
@@ -507,6 +545,7 @@ def _validate_applicability(
                         "subject": rule_id,
                         "result": "passed",
                         "command_digest": _command_digest(command),
+                        "test_case": test_case,
                     }
                     _provider_findings(
                         f"{verification_location}.evidence",
@@ -518,6 +557,20 @@ def _validate_applicability(
         elif status_value == "not-applicable":
             if waiver_id is not None:
                 findings.append(Finding(f"{location}.waiver_id", "not-applicable rule must not use a waiver"))
+            if entry.get("implementation"):
+                findings.append(
+                    Finding(
+                        f"{location}.implementation",
+                        "not-applicable rule must not claim implementation evidence",
+                    )
+                )
+            if entry.get("verification"):
+                findings.append(
+                    Finding(
+                        f"{location}.verification",
+                        "not-applicable rule must not claim verification evidence",
+                    )
+                )
         elif status_value == "deferred":
             _text(waiver_id, f"{location}.waiver_id", findings)
 
@@ -711,6 +764,7 @@ def _validate_mcp_extension(
     if mcp.get("target_level") not in {"L1", "L2", "L3", "L4"}:
         findings.append(Finding("extensions.mcp.target_level", "must be L1, L2, L3, or L4"))
     _text_list(mcp.get("profiles"), "extensions.mcp.profiles", findings, nonempty=True)
+    _text_list(mcp.get("capabilities"), "extensions.mcp.capabilities", findings)
     advertised = set(
         _text_list(
             mcp.get("advertised_transports"),
@@ -764,6 +818,7 @@ def validate_document(
     catalog: Mapping[str, Any],
     skills_root: Path,
     *,
+    atomic_catalog: Mapping[str, Any] | None = None,
     require_approval: bool,
     as_of: date,
     schema: Mapping[str, Any] | None = None,
@@ -847,10 +902,46 @@ def validate_document(
     _text_list(scope.get("exclusion_rationale"), "scope.exclusion_rationale", findings)
 
     catalog_rules = _catalog_rules(catalog, skill_name, findings) if skill_name else set()
+    machine_applicable_rules: set[str] | None = None
+    if skill_name == "mcp-server-architect":
+        raw_extensions = assessment.get("extensions")
+        raw_mcp = raw_extensions.get("mcp") if isinstance(raw_extensions, Mapping) else None
+        if isinstance(raw_mcp, Mapping):
+            level = raw_mcp.get("target_level")
+            profiles = raw_mcp.get("profiles")
+            capabilities = raw_mcp.get("capabilities", [])
+            if (
+                isinstance(level, str)
+                and isinstance(profiles, list)
+                and all(isinstance(item, str) for item in profiles)
+                and isinstance(capabilities, list)
+                and all(isinstance(item, str) for item in capabilities)
+            ):
+                try:
+                    context = RuleContext(
+                        target_level=level,
+                        profiles=frozenset(profiles),
+                        capabilities=frozenset(capabilities),
+                    )
+                    if atomic_catalog is None:
+                        parent_rules = expected_rules(catalog, skill_name, context)
+                    else:
+                        parent_rules = list(
+                            project_applicability(catalog, atomic_catalog, skill_name, context).parent_rules
+                        )
+                    machine_applicable_rules = {str(rule["id"]) for rule in parent_rules}
+                except (KeyError, TypeError, ValueError) as exc:
+                    findings.append(
+                        Finding(
+                            "extensions.mcp",
+                            f"cannot derive catalog applicability: {exc}",
+                        )
+                    )
     _validate_applicability(
         assessment,
         catalog_rules,
         findings,
+        machine_applicable_rules=machine_applicable_rules,
         as_of=as_of,
         repository=repository,
         revision=revision,
@@ -950,6 +1041,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         assessment = _load_yaml(args.assessment)
         catalog = _load_yaml(args.catalog)
+        atomic_catalog = _load_yaml(DEFAULT_ATOMIC_CATALOG)
         schema = _load_json(args.schema)
         Draft202012Validator.check_schema(schema)
     except (OSError, ValueError, json.JSONDecodeError, yaml.YAMLError) as exc:
@@ -970,6 +1062,7 @@ def main(argv: list[str] | None = None) -> int:
         assessment,
         catalog,
         args.skills_root,
+        atomic_catalog=atomic_catalog,
         require_approval=args.require_approval,
         as_of=args.as_of,
         schema=schema,

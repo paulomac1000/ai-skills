@@ -1,4 +1,5 @@
 ---
+afds_schema_version: 2
 description: Evidence-based triage protocol for scanner, linter, reviewer-bot, dependency, and security findings before code changes or acceptance claims.
 doc_id: reference.finding-triage
 type: reference

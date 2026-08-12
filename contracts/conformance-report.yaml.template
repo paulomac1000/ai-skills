@@ -18,6 +18,7 @@ checks:
       - path: relative/path
         symbol: REPLACE_WITH_SYMBOL
     command: REPLACE_WITH_EXACT_COMMAND
+    test_case: tests/REPLACE_WITH_TEST_FILE.py::test_REPLACE_WITH_EXACT_CASE
     result: passed
     evidence_types: [unit]
     evidence_paths: [relative/test-result.xml]

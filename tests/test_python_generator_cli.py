@@ -29,15 +29,18 @@ def test_canonical_cli_uses_documented_package_and_name_options(
 ) -> None:
     generator = load_generator()
     target = tmp_path / "canonical"
-    assert generator.main(
-        [
-            str(target),
-            "--package",
-            "inventory_mcp",
-            "--name",
-            "Inventory MCP",
-        ]
-    ) == 0
+    assert (
+        generator.main(
+            [
+                str(target),
+                "--package",
+                "inventory_mcp",
+                "--name",
+                "Inventory MCP",
+            ]
+        )
+        == 0
+    )
     assert (target / "src/inventory_mcp/server.py").is_file()
 
 
@@ -46,14 +49,17 @@ def test_legacy_positional_package_and_server_name_alias_remain_supported(
 ) -> None:
     generator = load_generator()
     target = tmp_path / "legacy"
-    assert generator.main(
-        [
-            str(target),
-            "inventory_mcp",
-            "--server-name",
-            "Inventory MCP",
-        ]
-    ) == 0
+    assert (
+        generator.main(
+            [
+                str(target),
+                "inventory_mcp",
+                "--server-name",
+                "Inventory MCP",
+            ]
+        )
+        == 0
+    )
     assert (target / "src/inventory_mcp/server.py").is_file()
 
 
@@ -61,9 +67,10 @@ def test_conflicting_or_missing_package_identity_fails_closed(
     tmp_path: Path,
 ) -> None:
     generator = load_generator()
-    with pytest.raises(SystemExit):
+    with pytest.raises(SystemExit) as missing:
         generator.main([str(tmp_path / "missing")])
-    with pytest.raises(SystemExit):
+    assert missing.value.code != 0
+    with pytest.raises(SystemExit) as conflict:
         generator.main(
             [
                 str(tmp_path / "conflict"),
@@ -72,15 +79,11 @@ def test_conflicting_or_missing_package_identity_fails_closed(
                 "canonical_mcp",
             ]
         )
+    assert conflict.value.code != 0
     assert not (tmp_path / "missing").exists()
     assert not (tmp_path / "conflict").exists()
 
 
 def test_skill_documents_the_actual_canonical_cli() -> None:
-    skill = (
-        ROOT / "skills/mcp-server-architect/SKILL.md"
-    ).read_text(encoding="utf-8")
-    assert (
-        "generate_python_server.py <target> --package <package_name> "
-        '--name "<Server Name>"'
-    ) in skill
+    skill = (ROOT / "skills/mcp-server-architect/SKILL.md").read_text(encoding="utf-8")
+    assert ('generate_python_server.py <target> --package <package_name> --name "<Server Name>"') in skill

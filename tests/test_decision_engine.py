@@ -10,13 +10,6 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 LEGACY_CASES = ROOT / "tests/decision_engine_cases.py"
-LEGACY_TRUST_CASES = {
-    "test_tools_package_public_entry_point_imports",
-    "test_untrusted_signals_can_only_increase_risk_and_preserve_confidentiality",
-    "test_typed_trust_channels_reject_boolean_upgrade_switches",
-    "test_annotations_require_consumer_controlled_server_trust",
-    "test_positive_idempotency_comes_only_from_typed_external_values",
-}
 
 
 def _load_cases():
@@ -30,7 +23,7 @@ def _load_cases():
 
 _CASES = _load_cases()
 for _name, _value in vars(_CASES).items():
-    if _name.startswith("test_") and _name not in LEGACY_TRUST_CASES:
+    if _name.startswith("test_"):
         globals()[_name] = _value
 
 load_engine = _CASES.load_engine
@@ -68,10 +61,7 @@ def test_tools_package_public_entry_point_imports() -> None:
     )
     assert tools.Decision.INVOKE.value == "invoke"
     assert tools.TrustedCapabilityPolicy(binding=binding, risk="READ").risk == "READ"
-    assert (
-        tools.TrustedCapabilityContract(binding=binding, idempotent=True).idempotent
-        is True
-    )
+    assert tools.TrustedCapabilityContract(binding=binding, idempotent=True).idempotent is True
     assert callable(tools.infer_capability_profile)
     assert callable(tools.handle_response)
 
@@ -226,10 +216,13 @@ def test_positive_idempotency_requires_bound_trusted_values_and_untrusted_veto_w
         idempotent=True,
     )
 
-    assert engine.infer_capability_profile(
-        "inventory.update",
-        {"idempotent": True},
-    ).idempotent is None
+    assert (
+        engine.infer_capability_profile(
+            "inventory.update",
+            {"idempotent": True},
+        ).idempotent
+        is None
+    )
 
     positive = engine.infer_capability_profile(
         "inventory.update",

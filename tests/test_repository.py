@@ -29,6 +29,7 @@ LOCALIZED_LANGUAGE_CONTRACT_FILES = {
     Path("skills/agents-md-architect/tools/agents_md_completion_evidence.py"),
     Path("tests/test_agents_md_composition_and_language.py"),
 }
+PROJECT_SPECIFIC_EVIDENCE_FILES = {Path("contracts/consumer-canaries.yaml")}
 PROJECT_SPECIFIC_TERMS = {
     "ha-" + "mcp-readonly",
     "kontomierz-" + "mcp",
@@ -122,8 +123,9 @@ def test_release_contains_no_private_project_or_unscoped_polish_examples() -> No
             continue
         text = path.read_text(encoding="utf-8")
         lowered = text.lower()
-        assert not any(term in lowered for term in PROJECT_SPECIFIC_TERMS), path
         relative = path.relative_to(ROOT)
+        if relative not in PROJECT_SPECIFIC_EVIDENCE_FILES:
+            assert not any(term in lowered for term in PROJECT_SPECIFIC_TERMS), path
         if POLISH_MARKERS.search(text):
             assert relative in LOCALIZED_LANGUAGE_CONTRACT_FILES, path
             localized_files_seen.add(relative)

@@ -4,34 +4,76 @@
   "title": "AI Skills atomic child-control report",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "report_id", "repository", "skill", "context", "checks", "residual_risks"],
+  "required": [
+    "schema_version",
+    "report_id",
+    "repository",
+    "skill",
+    "context",
+    "checks",
+    "residual_risks"
+  ],
   "properties": {
-    "schema_version": {"const": 1},
-    "report_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"},
+    "schema_version": {
+      "const": 1
+    },
+    "report_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+    },
     "repository": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["name", "revision"],
+      "required": [
+        "name",
+        "revision"
+      ],
       "properties": {
-        "name": {"type": "string", "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"},
-        "revision": {"type": "string", "pattern": "^[0-9a-f]{40}$"}
+        "name": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"
+        },
+        "revision": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        }
       }
     },
-    "skill": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$"},
+    "skill": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*$"
+    },
     "context": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["target_level", "profiles", "capabilities"],
+      "required": [
+        "target_level",
+        "profiles",
+        "capabilities"
+      ],
       "properties": {
-        "target_level": {"enum": ["L1", "L2", "L3", "L4"]},
+        "target_level": {
+          "enum": [
+            "L1",
+            "L2",
+            "L3",
+            "L4"
+          ]
+        },
         "profiles": {
           "type": "array",
-          "items": {"type": "string", "minLength": 1},
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
           "uniqueItems": true
         },
         "capabilities": {
           "type": "array",
-          "items": {"type": "string", "minLength": 1},
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
           "uniqueItems": true
         }
       }
@@ -46,45 +88,81 @@
           "status",
           "implementation",
           "command",
+          "test_case",
           "result",
           "evidence_types",
           "evidence_paths"
         ],
         "properties": {
-          "control_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9.-]*$"},
-          "status": {"const": "passed"},
+          "control_id": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9.-]*$"
+          },
+          "status": {
+            "const": "passed"
+          },
           "implementation": {
             "type": "array",
             "minItems": 1,
             "items": {
               "type": "object",
               "additionalProperties": false,
-              "required": ["path", "symbol"],
+              "required": [
+                "path",
+                "symbol"
+              ],
               "properties": {
-                "path": {"type": "string", "minLength": 1},
-                "symbol": {"type": "string", "minLength": 1}
+                "path": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "symbol": {
+                  "type": "string",
+                  "minLength": 1
+                }
               }
             }
           },
-          "command": {"type": "string", "minLength": 1},
-          "result": {"const": "passed"},
+          "command": {
+            "type": "string",
+            "minLength": 1
+          },
+          "result": {
+            "const": "passed"
+          },
           "evidence_types": {
             "type": "array",
             "minItems": 1,
             "items": {
-              "enum": ["unit", "integration", "official-client", "artifact", "security", "review"]
+              "enum": [
+                "unit",
+                "integration",
+                "official-client",
+                "artifact",
+                "security",
+                "review"
+              ]
             },
             "uniqueItems": true
           },
           "evidence_paths": {
             "type": "array",
             "minItems": 1,
-            "items": {"type": "string", "minLength": 1},
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
             "uniqueItems": true
+          },
+          "test_case": {
+            "type": "string",
+            "pattern": "^tests/[A-Za-z0-9_./-]+[.]py::test_[A-Za-z0-9_]+$"
           }
         }
       }
     },
-    "residual_risks": {"type": "array"}
+    "residual_risks": {
+      "type": "array"
+    }
   }
 }

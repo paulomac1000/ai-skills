@@ -11,7 +11,7 @@ import stat
 import sys
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
-from functools import lru_cache
+from functools import cache
 from pathlib import Path, PurePosixPath
 from typing import Any
 from urllib.parse import unquote
@@ -433,7 +433,9 @@ def _load_governance(path: Path) -> Governance:
         if set(value) != required_options:
             missing = sorted(required_options - set(value))
             unknown = sorted(set(value) - required_options)
-            raise ValueError(f"profile {name!r} must declare exactly the supported options; missing={missing}, unknown={unknown}")
+            raise ValueError(
+                f"profile {name!r} must declare exactly the supported options; missing={missing}, unknown={unknown}"
+            )
         profile_options: dict[str, bool] = {}
         for key in DEFAULT_PROFILES["governed"]:
             candidate = value[key]
@@ -468,7 +470,7 @@ def _path_glob_match(relative: str, pattern: str) -> bool:
     relative_parts = PurePosixPath(relative).parts
     pattern_parts = PurePosixPath(pattern).parts
 
-    @lru_cache(maxsize=None)
+    @cache
     def matches(relative_index: int, pattern_index: int) -> bool:
         if pattern_index == len(pattern_parts):
             return relative_index == len(relative_parts)
@@ -491,6 +493,7 @@ def _profile_for(
     repository_root: Path,
     governance: Governance | None,
 ) -> Mapping[str, bool]:
+    """Return the last matching governance profile; later entries intentionally win."""
     if governance is None:
         return DEFAULT_PROFILES["governed"]
     relative = path.resolve(strict=False).relative_to(repository_root.resolve()).as_posix()
@@ -607,21 +610,22 @@ def _validate_links(
     findings: list[Finding] = []
     anchor_cache: dict[Path, set[str]] = {}
     for destination in iter_link_destinations(body):
-        decoded = unquote(destination)
-        if re.match(r"^[a-z][a-z0-9+.-]*:", decoded, re.I) or decoded.startswith("//"):
+        raw_path, separator, raw_fragment = destination.partition("#")
+        decoded_path = unquote(raw_path)
+        fragment = unquote(raw_fragment) if separator else ""
+        if re.match(r"^[a-z][a-z0-9+.-]*:", decoded_path, re.I) or decoded_path.startswith("//"):
             continue
-        raw_path, separator, fragment = decoded.partition("#")
-        display = decoded
+        display = unquote(destination)
         resolved_target: Path
-        if not raw_path:
+        if not decoded_path:
             resolved_target = path
         else:
-            linked_target, unsafe = _safe_link_target(path, raw_path, repository_root)
+            linked_target, unsafe = _safe_link_target(path, decoded_path, repository_root)
             if unsafe:
-                findings.append(Finding(path, f"unsafe relative link: {raw_path}: {unsafe}"))
+                findings.append(Finding(path, f"unsafe relative link: {decoded_path}: {unsafe}"))
                 continue
             if linked_target is None:
-                findings.append(Finding(path, f"broken relative link: {raw_path}"))
+                findings.append(Finding(path, f"broken relative link: {decoded_path}"))
                 continue
             resolved_target = linked_target
         if separator and fragment and check_anchors:
@@ -720,10 +724,8 @@ def _metadata_findings(
 
 def _is_afds_metadata(metadata: Mapping[str, Any]) -> bool:
     """Distinguish AFDS metadata from foreign portable frontmatter such as SKILL.md."""
-    if "afds_schema_version" in metadata or "doc_id" in metadata:
-        return True
-    strong_keys = {"type", "status", "rigor", "owners", "verification"}
-    return len(strong_keys.intersection(metadata)) >= 2
+    dialect_keys = {"afds_schema_version", "doc_id", "rigor", "owners", "verification"}
+    return bool(dialect_keys.intersection(metadata))
 
 
 def validate(
@@ -833,7 +835,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     governance_path = args.governance or root / "skills/afds-doc-writer/governance.yaml"
     governance: Governance | None = None
     findings: list[Finding] = []
-    if governance_path.exists():
+    if args.governance is not None and not governance_path.is_file():
+        findings.append(Finding(governance_path, "governance file does not exist"))
+    elif governance_path.exists():
         try:
             governance = _load_governance(governance_path)
         except (OSError, ValueError, yaml.YAMLError) as exc:

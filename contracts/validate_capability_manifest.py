@@ -97,6 +97,8 @@ def validate_manifest(
             key=lambda item: tuple(str(part) for part in item.absolute_path),
         )
     ]
+    if findings:
+        return findings
     findings.extend(_semantic_findings(manifest, require_active=require_active))
     return findings
 

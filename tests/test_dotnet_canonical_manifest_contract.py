@@ -31,21 +31,14 @@ def test_dotnet_generator_copies_the_canonical_schema_verbatim() -> None:
     generator = load_generator()
     files = generator.project_files("Acme", "Acme MCP")
     generated = files["contracts/capability-manifest.schema.json"]
-    canonical = (ROOT / "contracts/capability-manifest.schema.json").read_text(
-        encoding="utf-8"
-    )
+    canonical = (ROOT / "contracts/capability-manifest.schema.json").read_text(encoding="utf-8")
     assert generated == canonical.rstrip() + "\n"
 
 
 def test_dotnet_canonical_projection_covers_every_required_schema_field() -> None:
-    schema = json.loads(
-        (ROOT / "contracts/capability-manifest.schema.json").read_text(
-            encoding="utf-8"
-        )
-    )
+    schema = json.loads((ROOT / "contracts/capability-manifest.schema.json").read_text(encoding="utf-8"))
     adapter = (
-        ROOT
-        / "skills/mcp-server-architect/tools/dotnet-template/src/"
+        ROOT / "skills/mcp-server-architect/tools/dotnet-template/src/"
         "__NAMESPACE__.Mcp.Server/CanonicalCapabilityManifest.cs.template"
     ).read_text(encoding="utf-8")
     observed = set(JSON_PROPERTY.findall(adapter))
@@ -68,8 +61,7 @@ def test_dotnet_canonical_projection_covers_every_required_schema_field() -> Non
 
 def test_dotnet_projection_uses_only_canonical_enum_values_and_approval_fields() -> None:
     adapter = (
-        ROOT
-        / "skills/mcp-server-architect/tools/dotnet-template/src/"
+        ROOT / "skills/mcp-server-architect/tools/dotnet-template/src/"
         "__NAMESPACE__.Mcp.Server/CanonicalCapabilityManifest.cs.template"
     ).read_text(encoding="utf-8")
 
@@ -105,18 +97,13 @@ def test_dotnet_projection_uses_only_canonical_enum_values_and_approval_fields()
 
 def test_dotnet_schema_is_embedded_and_rich_manifest_evidence_is_preserved() -> None:
     template_root = ROOT / "skills/mcp-server-architect/tools/dotnet-template"
-    project = (
-        template_root
-        / "src/__NAMESPACE__.Mcp.Server/__NAMESPACE__.Mcp.Server.csproj.template"
-    ).read_text(encoding="utf-8")
-    rich = (
-        template_root
-        / "src/__NAMESPACE__.Mcp.Server/CapabilityManifest.cs.template"
-    ).read_text(encoding="utf-8")
-    adapter = (
-        template_root
-        / "src/__NAMESPACE__.Mcp.Server/CanonicalCapabilityManifest.cs.template"
-    ).read_text(encoding="utf-8")
+    project = (template_root / "src/__NAMESPACE__.Mcp.Server/__NAMESPACE__.Mcp.Server.csproj.template").read_text(
+        encoding="utf-8"
+    )
+    rich = (template_root / "src/__NAMESPACE__.Mcp.Server/CapabilityManifest.cs.template").read_text(encoding="utf-8")
+    adapter = (template_root / "src/__NAMESPACE__.Mcp.Server/CanonicalCapabilityManifest.cs.template").read_text(
+        encoding="utf-8"
+    )
 
     assert "EmbeddedResource" in project
     assert "capability-manifest.schema.json" in project
@@ -128,16 +115,11 @@ def test_dotnet_schema_is_embedded_and_rich_manifest_evidence_is_preserved() -> 
 
 
 def test_dotnet_baseline_does_not_claim_unverified_sdk_candidate() -> None:
-    manifest = yaml.safe_load(
-        (ROOT / "skills/mcp-server-architect/manifest.yaml").read_text(
-            encoding="utf-8"
-        )
-    )
+    manifest = yaml.safe_load((ROOT / "skills/mcp-server-architect/manifest.yaml").read_text(encoding="utf-8"))
     profile = manifest["protocol"]["sdk_profiles"]["dotnet-official-mcp"]
-    packages = (
-        ROOT
-        / "skills/mcp-server-architect/tools/dotnet-template/Directory.Packages.props.template"
-    ).read_text(encoding="utf-8")
+    packages = (ROOT / "skills/mcp-server-architect/tools/dotnet-template/Directory.Packages.props.template").read_text(
+        encoding="utf-8"
+    )
 
     assert profile["verified_baseline_versions"] == ["1.4.1"]
     assert profile["upstream_stable_candidate_versions"] == ["2.1.0"]

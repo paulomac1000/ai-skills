@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import ast
+import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 LEVELS = {"L1": 1, "L2": 2, "L3": 3, "L4": 4}
@@ -131,3 +134,71 @@ def expected_rules(
         if rule_applies(normalized, context):
             result.append(normalized)
     return result
+
+
+TEST_CASE_IDENTITY = re.compile(r"^(tests/[A-Za-z0-9_./-]+[.]py)::(test_[A-Za-z0-9_]+)$")
+
+
+@dataclass(frozen=True, slots=True)
+class ApplicabilityProjection:
+    """One context projection shared by parent rules and atomic child controls."""
+
+    parent_rules: tuple[Mapping[str, Any], ...]
+    child_controls: tuple[Mapping[str, Any], ...]
+
+
+def project_applicability(
+    parent_catalog: Mapping[str, Any],
+    child_catalog: Mapping[str, Any],
+    skill_name: str,
+    context: RuleContext,
+) -> ApplicabilityProjection:
+    """Project parent and child applicability and reject child-without-parent states."""
+    parents = tuple(expected_rules(parent_catalog, skill_name, context))
+    parent_ids = {str(rule["id"]) for rule in parents}
+    raw_controls = child_catalog.get("controls", [])
+    if not isinstance(raw_controls, Sequence):
+        raise ValueError("atomic child-control catalog has no controls")
+    children: list[Mapping[str, Any]] = []
+    for raw in raw_controls:
+        if not isinstance(raw, Mapping) or raw.get("skill") != skill_name:
+            continue
+        parent_id = raw.get("parent_rule_id")
+        control_id = raw.get("id")
+        if not isinstance(parent_id, str) or not isinstance(control_id, str):
+            raise ValueError("atomic child control has invalid parent or control identity")
+        if not rule_applies(raw, context):
+            continue
+        if parent_id not in parent_ids:
+            raise ValueError(f"child control {control_id} applies while parent rule {parent_id} does not")
+        children.append(raw)
+    return ApplicabilityProjection(parents, tuple(children))
+
+
+def test_case_identity_finding(value: object, repository_root: Path) -> str | None:
+    """Validate one exact repository test identity without executing candidate code."""
+    if not isinstance(value, str):
+        return "must be an exact tests/file.py::test_name identity"
+    match = TEST_CASE_IDENTITY.fullmatch(value)
+    if match is None:
+        return "must be an exact tests/file.py::test_name identity"
+    raw_path, function_name = match.groups()
+    pure = PurePosixPath(raw_path)
+    if pure.is_absolute() or any(part in {"", ".", ".."} for part in pure.parts):
+        return "test path must remain inside the repository"
+    root = repository_root.resolve(strict=True)
+    current = root
+    for part in pure.parts:
+        current /= part
+        if current.is_symlink():
+            return "test path must not contain symlinks"
+    if not current.is_file():
+        return "test file does not exist"
+    try:
+        tree = ast.parse(current.read_text(encoding="utf-8"), filename=raw_path)
+    except (OSError, UnicodeDecodeError, SyntaxError) as exc:
+        return f"cannot inspect test file: {exc}"
+    functions = {node.name for node in tree.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))}
+    if function_name not in functions:
+        return f"test function {function_name!r} does not exist"
+    return None

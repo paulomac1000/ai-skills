@@ -1,11 +1,14 @@
 ---
+afds_schema_version: 2
 description: Cost-aware GitHub Actions execution for high-churn repositories without weakening final acceptance gates.
 doc_id: reference.on-demand-ci
 type: reference
 status: active
 rigor: operational
 owners: [repository-maintainers]
-verification: Render the on-demand CI template, run the execution-policy validator, manually dispatch both fast and full modes, and verify that only the integration branch triggers automatically.
+verification:
+  kind: command
+  value: Render the on-demand CI template, run the execution-policy validator, manually dispatch both fast and full modes, and verify that only the integration branch triggers automatically.
 ---
 
 # On-demand CI

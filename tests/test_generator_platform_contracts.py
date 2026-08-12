@@ -81,9 +81,7 @@ def test_dotnet_generator_validation_template_and_cli_contracts(
         == 0
     )
     assert "generated" in capsys.readouterr().out
-    assert (
-        target / "src/Acme.Product.Mcp.Server/Acme.Product.Mcp.Server.csproj"
-    ).is_file()
+    assert (target / "src/Acme.Product.Mcp.Server/Acme.Product.Mcp.Server.csproj").is_file()
 
 
 def test_dotnet_no_replace_platform_and_error_contracts(

@@ -39,10 +39,7 @@ def _validate(namespace: str, server_name: str) -> None:
         or namespace in RESERVED_NAMESPACES
         or root in RESERVED_NAMESPACE_ROOTS
     ):
-        raise ValueError(
-            "namespace must be 1-191 characters of dot-separated, "
-            "non-reserved PascalCase identifiers"
-        )
+        raise ValueError("namespace must be 1-191 characters of dot-separated, non-reserved PascalCase identifiers")
     if not SERVER_RE.fullmatch(server_name):
         raise ValueError("server name must be 2-79 safe display characters")
 
@@ -75,9 +72,7 @@ def project_files(namespace: str, server_name: str) -> dict[str, str]:
     """Return every generated UTF-8 file keyed by its rendered relative path."""
     _validate(namespace, server_name)
     if not TEMPLATE_ROOT.is_dir() or TEMPLATE_ROOT.is_symlink():
-        raise FileNotFoundError(
-            f"template directory is missing or unsafe: {TEMPLATE_ROOT}"
-        )
+        raise FileNotFoundError(f"template directory is missing or unsafe: {TEMPLATE_ROOT}")
 
     files: dict[str, str] = {}
     for source in sorted(TEMPLATE_ROOT.rglob("*")):
@@ -104,9 +99,7 @@ def project_files(namespace: str, server_name: str) -> dict[str, str]:
         destination = f"contracts/{contract_name}"
         if destination in files:
             raise ValueError(f"duplicate generated path: {destination}")
-        files[destination] = (
-            _read_regular_utf8(CONTRACT_ROOT / contract_name).rstrip() + "\n"
-        )
+        files[destination] = _read_regular_utf8(CONTRACT_ROOT / contract_name).rstrip() + "\n"
 
     if not files:
         raise RuntimeError("the .NET template is empty")
@@ -134,9 +127,7 @@ def _rename_noreplace(source: Path, destination: Path) -> None:
         libc = ctypes.CDLL(None, use_errno=True)
         renameat2 = getattr(libc, "renameat2", None)
         if renameat2 is None:
-            raise RuntimeError(
-                "atomic no-replace rename requires renameat2 on this Linux runtime"
-            )
+            raise RuntimeError("atomic no-replace rename requires renameat2 on this Linux runtime")
         renameat2.argtypes = [
             ctypes.c_int,
             ctypes.c_char_p,
@@ -162,9 +153,7 @@ def _rename_noreplace(source: Path, destination: Path) -> None:
         libc = ctypes.CDLL(None, use_errno=True)
         renamex_np = getattr(libc, "renamex_np", None)
         if renamex_np is None:
-            raise RuntimeError(
-                "atomic no-replace rename requires renamex_np on this macOS runtime"
-            )
+            raise RuntimeError("atomic no-replace rename requires renamex_np on this macOS runtime")
         renamex_np.argtypes = [
             ctypes.c_char_p,
             ctypes.c_char_p,
@@ -186,9 +175,7 @@ def _rename_noreplace(source: Path, destination: Path) -> None:
             ) from exc
         return
 
-    raise RuntimeError(
-        "this platform has no configured atomic no-replace directory rename"
-    )
+    raise RuntimeError("this platform has no configured atomic no-replace directory rename")
 
 
 def generate_project(target: Path, namespace: str, server_name: str) -> list[Path]:
@@ -204,9 +191,7 @@ def generate_project(target: Path, namespace: str, server_name: str) -> list[Pat
         )
 
     files = project_files(namespace, server_name)
-    staging = Path(
-        tempfile.mkdtemp(prefix=f".{target.name}-", dir=target.parent)
-    )
+    staging = Path(tempfile.mkdtemp(prefix=f".{target.name}-", dir=target.parent))
     published = False
     try:
         for relative, content in sorted(files.items()):

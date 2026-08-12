@@ -220,3 +220,132 @@ def test_workflow_enumeration_charges_non_yaml_entries_to_budget(
 
     assert paths == []
     assert any("entry count exceeds 3" in finding.message for finding in findings)
+
+
+def test_capability_manifest_schema_error_stops_unhashable_semantics(tmp_path: Path) -> None:
+    import json
+
+    from contracts.validate_capability_manifest import validate_manifest
+
+    manifest = {
+        "schema_version": 1,
+        "id": "dangerous.write",
+        "name": "Dangerous write",
+        "description": "Malformed approval binds produce findings, not a traceback.",
+        "operation_kind": "write",
+        "risk": "high",
+        "determinism": "deterministic",
+        "latency": "interactive",
+        "impact": "external",
+        "active_state": "active",
+        "retryable": False,
+        "idempotent": False,
+        "reversible": False,
+        "requires_confirmation": True,
+        "idempotency_key_required": False,
+        "authorization_scopes": ["write"],
+        "concurrency": {"scope": "principal", "limit": 1, "queue_limit": 1},
+        "max_response_bytes": 1024,
+        "protocol_revisions": ["2026-07-28"],
+        "approval": {"binds": [{}]},
+    }
+    path = tmp_path / "manifest.json"
+    path.write_text(json.dumps(manifest), encoding="utf-8")
+    assert validate_manifest(path)
+
+
+def test_atomic_claim_schema_error_stops_semantics(tmp_path: Path) -> None:
+    import json
+
+    from contracts.validate_atomic_claims import validate_report
+
+    report = tmp_path / "report.json"
+    report.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "skill": "mcp-server-architect",
+                "context": {
+                    "target_level": "L1",
+                    "profiles": [],
+                    "capabilities": [],
+                },
+                "checks": [
+                    {
+                        "control_id": "mcp.architecture.separation.domain-adapter",
+                        "status": "passed",
+                        "evidence_types": [{}],
+                        "implementation": 1,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    assert validate_report(report)
+
+
+def test_afds_percent_encoded_hash_remains_part_of_local_path(tmp_path: Path) -> None:
+    import importlib.util
+    import sys
+
+    module_path = ROOT / "skills/afds-doc-writer/validate.py"
+    spec = importlib.util.spec_from_file_location("afds_encoded_hash", module_path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    target = tmp_path / "guide#part.md"
+    target.write_text("# Guide\n", encoding="utf-8")
+    source = tmp_path / "README.md"
+    source.write_text("[guide](guide%23part.md)\n", encoding="utf-8")
+    assert (
+        module._validate_links(
+            source,
+            source.read_text(encoding="utf-8"),
+            tmp_path,
+            check_anchors=True,
+        )
+        == []
+    )
+
+
+def test_explicit_missing_afds_governance_fails_closed(tmp_path: Path) -> None:
+    import importlib.util
+    import sys
+
+    module_path = ROOT / "skills/afds-doc-writer/validate.py"
+    spec = importlib.util.spec_from_file_location("afds_missing_governance", module_path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    readme = tmp_path / "README.md"
+    readme.write_text("# Example\n", encoding="utf-8")
+    assert (
+        module.main(
+            [
+                "--repository-root",
+                str(tmp_path),
+                "--governance",
+                str(tmp_path / "missing.yaml"),
+                str(readme),
+            ]
+        )
+        == 1
+    )
+
+
+def test_hyphenated_write_permission_is_privileged() -> None:
+    assert workflow_policy._permissions_write({"contents": "read-write"}) is True
+
+
+def test_generated_python_image_uses_exact_checked_out_sha() -> None:
+    template = (ROOT / "skills/mcp-server-architect/tools/python-template/.github/workflows/ci.yml.template").read_text(
+        encoding="utf-8"
+    )
+    expression = "${" + "{ github.event.pull_request.head.sha || github.sha }}"
+    assert f"EXPECTED_SHA: {expression}" in template
+    assert 'test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"' in template
+    assert "sha-${EXPECTED_SHA}" in template
+    assert "sha-${GITHUB_SHA}" not in template

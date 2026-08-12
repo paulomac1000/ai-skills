@@ -1,0 +1,17 @@
+schema_version: 1
+upstream:
+  name: replace-with-upstream-name
+  classification: unknown
+observations:
+  - operation: replace-with-operation
+    method: GET
+    endpoint: /replace-with-observed-endpoint
+    request_encoding: none
+    required_fields: []
+    date_formats: []
+    success_statuses: [200]
+    response_body: json
+    credential_placement: header
+    confidence: inferred
+    evidence:
+      - replace-with-recording-probe-or-authoritative-document-reference

@@ -13,6 +13,7 @@ import sys
 import tempfile
 from collections.abc import Sequence
 from pathlib import Path
+from typing import Any
 
 _IMPLEMENTATION_PATH = Path(__file__).with_name("generate_python_server_impl.py")
 _SPEC = importlib.util.spec_from_file_location(
@@ -20,9 +21,7 @@ _SPEC = importlib.util.spec_from_file_location(
     _IMPLEMENTATION_PATH,
 )
 if _SPEC is None or _SPEC.loader is None:
-    raise ImportError(
-        f"Cannot load generator implementation: {_IMPLEMENTATION_PATH}"
-    )
+    raise ImportError(f"Cannot load generator implementation: {_IMPLEMENTATION_PATH}")
 _implementation = importlib.util.module_from_spec(_SPEC)
 sys.modules[_SPEC.name] = _implementation
 _SPEC.loader.exec_module(_implementation)
@@ -48,9 +47,7 @@ RESERVED_PACKAGE_NAMES = frozenset(sys.stdlib_module_names) | {
 }
 LOCK_NAMES = _implementation.LOCK_NAMES
 LOCK_IDS = tuple(
-    name.removeprefix("runtime-").removesuffix(".lock")
-    for name in LOCK_NAMES
-    if name.startswith("runtime-")
+    name.removeprefix("runtime-").removesuffix(".lock") for name in LOCK_NAMES if name.startswith("runtime-")
 )
 SOURCE_NAMES = ("python-runtime.in", "python-dev.in")
 _BASE_PROJECT_FILES = _implementation.project_files
@@ -59,10 +56,7 @@ validate_generated_project = _implementation.validate_generated_project
 
 def _validate_public_identity(package_name: str, server_name: str) -> None:
     if not PACKAGE_RE.fullmatch(package_name) or keyword.iskeyword(package_name):
-        raise ValueError(
-            "package name must be a non-keyword matching "
-            "^[a-z][a-z0-9_]{1,63}$"
-        )
+        raise ValueError("package name must be a non-keyword matching ^[a-z][a-z0-9_]{1,63}$")
     if package_name.casefold() in RESERVED_PACKAGE_NAMES:
         raise ValueError(f"package name is reserved: {package_name}")
     if not SERVER_RE.fullmatch(server_name):
@@ -75,7 +69,8 @@ def project_files(package_name: str, server_name: str) -> dict[str, str]:
     return _BASE_PROJECT_FILES(package_name, server_name)
 
 
-_implementation.project_files = project_files
+_implementation_dynamic: Any = _implementation
+_implementation_dynamic.project_files = project_files
 
 
 def _reject_symlink_components(path: Path) -> None:
@@ -85,9 +80,7 @@ def _reject_symlink_components(path: Path) -> None:
     for part in absolute.parts[1:]:
         current /= part
         if current.is_symlink():
-            raise ValueError(
-                f"destination path must not contain symlinks: {current}"
-            )
+            raise ValueError(f"destination path must not contain symlinks: {current}")
 
 
 def generate_project(
@@ -112,9 +105,7 @@ def generate_project(
     if os.path.lexists(destination):
         raise FileExistsError(destination)
 
-    staging: Path | None = Path(
-        tempfile.mkdtemp(prefix=f".{destination.name}.", dir=parent)
-    )
+    staging: Path | None = Path(tempfile.mkdtemp(prefix=f".{destination.name}.", dir=parent))
     try:
         _implementation._write_files(staging, files)
         _implementation._rename_noreplace(staging, destination)
@@ -154,10 +145,7 @@ def _resolved_identity(
     explicit = args.package_name
     legacy = args.legacy_package_name
     if explicit and legacy and explicit != legacy:
-        parser.error(
-            "package name was supplied twice with different values; use "
-            "only --package"
-        )
+        parser.error("package name was supplied twice with different values; use only --package")
     package_name = explicit or legacy
     if not package_name:
         parser.error("missing package name; use --package <package_name>")

@@ -19,13 +19,18 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from contracts.rule_applicability import RuleContext, expected_rules  # noqa: E402
+from contracts.rule_applicability import (  # noqa: E402
+    RuleContext,
+    project_applicability,
+    test_case_identity_finding,
+)
 
 FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
 REPOSITORY = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 SKILL_NAME = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 REPORT_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 MAX_IMPLEMENTATION_BYTES = 2 * 1024 * 1024
+DEFAULT_ATOMIC_CATALOG = Path(__file__).with_name("atomic-claim-catalog.yaml")
 
 
 def _mapping(value: Any, name: str, errors: list[str]) -> Mapping[str, Any]:
@@ -139,6 +144,7 @@ def _validate_check(
             "status",
             "implementation",
             "command",
+            "test_case",
             "result",
             "evidence_types",
             "evidence_paths",
@@ -152,6 +158,9 @@ def _validate_check(
     command = check.get("command")
     if not isinstance(command, str) or not command.strip():
         errors.append(f"{location}.command: must be executable text")
+    test_case_finding = test_case_identity_finding(check.get("test_case"), repository_root)
+    if test_case_finding:
+        errors.append(f"{location}.test_case: {test_case_finding}")
 
     evidence_types = set(_strings(check.get("evidence_types"), f"{location}.evidence_types", errors))
     missing_evidence = set(rule["required_evidence"]) - evidence_types
@@ -186,11 +195,13 @@ def validate(
     report_path: Path,
     repository_root: Path,
     catalog_path: Path,
+    atomic_catalog_path: Path = DEFAULT_ATOMIC_CATALOG,
 ) -> list[str]:
     """Return all structural and semantic conformance findings."""
     errors: list[str] = []
     report = _load_yaml(report_path, "$", errors)
     catalog = _load_yaml(catalog_path, "catalog", errors)
+    atomic_catalog = _load_yaml(atomic_catalog_path, "atomic catalog", errors)
     if errors:
         return errors
 
@@ -245,7 +256,11 @@ def validate(
     if manifest_path is None:
         return errors
     manifest = _load_yaml(manifest_path, "skill manifest", errors)
-    if skill.get("version") != manifest.get("version"):
+    reported_version = skill.get("version")
+    manifest_version = manifest.get("version")
+    if not isinstance(reported_version, str) or not reported_version:
+        errors.append("skill.version: must be a non-empty string")
+    elif not isinstance(manifest_version, str) or reported_version != manifest_version:
         errors.append("skill.version: must equal the local skill manifest")
 
     context_raw = _mapping(report.get("context"), "context", errors)
@@ -267,7 +282,8 @@ def validate(
             frozenset(profiles),
             frozenset(capabilities),
         )
-        rules = expected_rules(catalog, skill_name, context)
+        projection = project_applicability(catalog, atomic_catalog, skill_name, context)
+        rules = projection.parent_rules
     except ValueError as exc:
         errors.append(f"context or catalog: {exc}")
         return errors

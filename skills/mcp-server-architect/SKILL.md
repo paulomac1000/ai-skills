@@ -10,8 +10,8 @@ Use this skill for new MCP servers, transport migrations, SDK upgrades, security
 ## Workflow
 
 1. Define consumer outcomes, cross-tool workflows, stable IDs, capability boundaries, risk, authorization, and response contracts before choosing an SDK.
-2. For an existing server, create `migration-assessment.yaml` from `templates/migration-assessment.yaml.template`, bind it to the exact source revision, and classify every applicable rule before changing code.
-3. Resolve distribution name, exact SDK version, import namespace, registration/enumeration APIs, auth context, transport startup API, and protocol revisions from locks and production imports.
+2. For an existing server, run the read-only inspector first. Record discovered facts and unknowns before editing code; do not fabricate a complete migration assessment from source assumptions.
+3. If the repository integrates an external, legacy, or poorly documented backend, observe and validate `upstream-contract.yaml` before refactoring its adapter. Then resolve distribution name, exact SDK version, import namespace, registration/enumeration APIs, auth context, transport startup API, and protocol revisions from locks and production imports.
 4. Route Python by package identity: official `mcp` uses `references/python-official-mcp-sdk.md`; independent `fastmcp` uses `references/python-fastmcp-package.md`; unresolved or mixed ownership is `unsupported-sdk-profile` and requires an owned waiver or reviewed profile for L2+.
 5. Generate new baselines instead of copying old servers:
    - Python official SDK: `python skills/mcp-server-architect/tools/generate_python_server.py <target> --package <package_name> --name "<Server Name>"`;
@@ -28,10 +28,10 @@ Use this skill for new MCP servers, transport migrations, SDK upgrades, security
 15. Add transport parity, correlation, traces, metrics, audit events, and separate response/log sanitization.
 16. Test domain, manifest, policy, registration, lifecycle, filesystem, artifacts, tasks, browser state, transports, races, and real-client behavior independently.
 17. Build and smoke the exact deployment artifact; generation or source inspection alone is never acceptance evidence.
-18. Complete applicability, compatibility, behavior, waiver, rollback, residual-risk, SDK-profile, protocol-revision, transport, and exact-artifact evidence before claiming adoption.
-19. Review the selected SDK profile and cross-language incident map before claiming Python/.NET parity.
+18. Progress through discovered, planned, implemented, locally verified, provider verified, and accepted states. Build the full provider-backed assessment only when implementation and local exact-artifact verification are stable enough for formal adoption.
+19. Complete applicability, compatibility, behavior, waiver, rollback, residual-risk, SDK-profile, protocol-revision, transport, and exact-artifact evidence before claiming adoption.
 
-Read `STANDARD.md`, `references/migration-assessment.md`, `references/capability-manifests-and-versioning.md`, `references/protocol-and-sdk-compatibility.md`, `references/transport-lifecycle-and-conformance.md`, `references/runtime-boundaries-and-artifacts.md`, the selected SDK profile, both migration simulations, `references/testing-strategy.md`, `references/security-and-operations.md`, and `references/problem-solution-matrix.md` for production work.
+Read `STANDARD.md`, `references/testing-strategy.md`, and the SDK profile selected by package identity first. Add `references/upstream-contract-discovery.md` when an external upstream is present, and load other references only when the inspector or an applicable rule routes to them. Python consumers do not need the .NET migration simulation, and .NET consumers do not need the Python simulation; both simulations remain mandatory for ai-skills self-validation.
 
 ## SDK and generated-baseline evidence
 
@@ -41,9 +41,9 @@ Both generators are atomic and non-overwriting. The Python seed emits only the o
 
 ## Adoption and migration evidence
 
-1. Read `contracts/rule-catalog.yaml`, the atomic child-control catalog, compatibility matrix, evidence profiles, and selected skill manifest.
-2. Create one assessment per skill from `contracts/adoption-assessment.yaml.template`, bound to the exact SHA; use the assessment bundle/index for multi-skill migrations.
-3. Record maturity, deployment profiles, capabilities, SDK profile, protocol revisions, and transports; let machine applicability determine required rules and child controls.
+1. Start with read-only discovery and a lightweight conformance plan; `unknown` and `needs human decision` are valid migration states and are not waivers.
+2. Read `contracts/rule-catalog.yaml`, atomic child controls, compatibility matrix, evidence profiles, and the selected skill manifest only after discovery identifies the relevant profile.
+3. Create the full assessment from `contracts/adoption-assessment.yaml.template` when the implementation is ready for formal local/provider verification, bind it to the exact SHA, and let machine applicability determine required rules and child controls.
 4. Bind every passed claim to executable result data and exact test-case identity. A badge, screenshot, commit message, located command, or handwritten `passed` is not evidence.
 5. Local structural evidence is diagnostic only. L2 requires provider-backed exact-SHA evidence; L3/L4 and public, multi-tenant, or sensitive deployments require the independent-release profile.
 6. Provider adapters are not the provider-neutral evidence model. The GitHub.com adapter is one reference implementation, not a portability requirement.

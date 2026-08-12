@@ -136,9 +136,7 @@ def validate_lock(
             continue
         try:
             source = _safe_source(skills_root, entrypoint)
-            manifest = _load_mapping(
-                skills_root / "skills" / skill_name / "manifest.yaml"
-            )
+            manifest = _load_mapping(skills_root / "skills" / skill_name / "manifest.yaml")
             source_digest = _digest(source)
         except (OSError, ValueError) as exc:
             findings.append(f"{location}: {exc}")

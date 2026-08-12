@@ -1,11 +1,14 @@
 ---
+afds_schema_version: 2
 description: Normative CI/CD rules for secure, reproducible, cost-aware, and observable quality gates and releases.
 doc_id: reference.ci-cd-standard
 type: reference
 status: active
 rigor: normative
 owners: [repository-maintainers]
-verification: Render every bundled template, parse it as YAML, run `python scripts/ci.py`, execute the trusted workflow-policy auditor and the on-demand execution-policy validator against a candidate tree, and review permissions, trigger policy, evidence identity, and release identity manually.
+verification:
+  kind: command
+  value: Render every bundled template, parse it as YAML, run `python scripts/ci.py`, execute the trusted workflow-policy auditor and the on-demand execution-policy validator against a candidate tree, and review permissions, trigger policy, evidence identity, and release identity manually.
 ---
 
 # CI/CD standard

@@ -25,9 +25,7 @@ def test_temporary_workflows_and_sdk_profile_routing_are_clean() -> None:
     assert "not an SDK profile" in pointer_text
     assert "python-fastmcp-package.md" in pointer_text
 
-    manifest = (ROOT / "skills/mcp-server-architect/manifest.yaml").read_text(
-        encoding="utf-8"
-    )
+    manifest = (ROOT / "skills/mcp-server-architect/manifest.yaml").read_text(encoding="utf-8")
     assert "- references/python-fastmcp.md" not in manifest
     assert "- references/python-fastmcp-package.md" in manifest
 
@@ -35,9 +33,7 @@ def test_temporary_workflows_and_sdk_profile_routing_are_clean() -> None:
 def test_python_generator_has_one_public_cli_and_no_string_patching() -> None:
     tools = ROOT / "skills/mcp-server-architect/tools"
     public = (tools / "generate_python_server.py").read_text(encoding="utf-8")
-    implementation = (tools / "generate_python_server_impl.py").read_text(
-        encoding="utf-8"
-    )
+    implementation = (tools / "generate_python_server_impl.py").read_text(encoding="utf-8")
 
     assert "def generate_project" in public
     assert "def main" in public
@@ -52,10 +48,7 @@ def test_consumer_public_signature_has_no_boolean_trust_upgrade() -> None:
     path = ROOT / "skills/mcp-server-consumer/tools/decision_engine.py"
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     function = next(
-        node
-        for node in tree.body
-        if isinstance(node, ast.FunctionDef)
-        and node.name == "infer_capability_profile"
+        node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "infer_capability_profile"
     )
     arguments = {
         argument.arg
@@ -94,6 +87,4 @@ def test_identity_binding_is_exact_and_immutable() -> None:
         source="reviewed-contract:sha256:" + "2" * 64,
     )
     assert binding.identity == identity
-    assert "trusted_server" not in inspect.signature(
-        engine.infer_capability_profile
-    ).parameters
+    assert "trusted_server" not in inspect.signature(engine.infer_capability_profile).parameters

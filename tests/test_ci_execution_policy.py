@@ -77,11 +77,7 @@ def test_rejects_pull_request_and_unrestricted_push() -> None:
 
 
 def test_rejects_feature_branch_and_tag_push() -> None:
-    findings = _audit(
-        _workflow(
-            '  push:\n    branches: [main, feature]\n    tags: ["*"]\n  workflow_dispatch:\n'
-        )
-    )
+    findings = _audit(_workflow('  push:\n    branches: [main, feature]\n    tags: ["*"]\n  workflow_dispatch:\n'))
     assert any("feature" in finding for finding in findings)
     assert any("tags" in finding for finding in findings)
 
@@ -92,24 +88,14 @@ def test_requires_manual_dispatch() -> None:
 
 
 def test_requires_cancel_in_progress() -> None:
-    text = _workflow("  workflow_dispatch:\n").replace(
-        "cancel-in-progress: true", "cancel-in-progress: false"
-    )
+    text = _workflow("  workflow_dispatch:\n").replace("cancel-in-progress: true", "cancel-in-progress: false")
     assert any("cancel-in-progress" in finding for finding in _audit(text))
 
 
 def test_full_input_is_boolean_and_defaults_false() -> None:
-    good = _workflow(
-        "  workflow_dispatch:\n"
-        "    inputs:\n"
-        "      full:\n"
-        "        type: boolean\n"
-        "        default: false\n"
-    )
+    good = _workflow("  workflow_dispatch:\n    inputs:\n      full:\n        type: boolean\n        default: false\n")
     assert _audit(good) == []
-    bad = good.replace("type: boolean", "type: string").replace(
-        "default: false", "default: true"
-    )
+    bad = good.replace("type: boolean", "type: string").replace("default: false", "default: true")
     findings = _audit(bad)
     assert any("type: boolean" in finding for finding in findings)
     assert any("default to false" in finding for finding in findings)
@@ -124,11 +110,14 @@ def test_template_is_manual_on_branches_and_full_on_integration_push(tmp_path: P
     rendered = _render_template()
     workflow = tmp_path / "ci.yml"
     workflow.write_text(rendered, encoding="utf-8")
-    assert policy.audit_text(
-        Path(".github/workflows/ci.yml"),
-        rendered,
-        integration_branches=("main",),
-    ) == []
+    assert (
+        policy.audit_text(
+            Path(".github/workflows/ci.yml"),
+            rendered,
+            integration_branches=("main",),
+        )
+        == []
+    )
 
     def reader(path: Path, _root: Path) -> tuple[str | None, str | None]:
         return path.read_text(encoding="utf-8"), None
@@ -147,10 +136,6 @@ def test_template_is_manual_on_branches_and_full_on_integration_push(tmp_path: P
 def test_repository_scan_only_enforces_marked_workflows(tmp_path: Path) -> None:
     workflows = tmp_path / ".github/workflows"
     workflows.mkdir(parents=True)
-    (workflows / "cost-aware.yml").write_text(
-        _workflow("  workflow_dispatch:\n"), encoding="utf-8"
-    )
-    (workflows / "labeler.yml").write_text(
-        "name: Labeler\non: pull_request_target\n", encoding="utf-8"
-    )
+    (workflows / "cost-aware.yml").write_text(_workflow("  workflow_dispatch:\n"), encoding="utf-8")
+    (workflows / "labeler.yml").write_text("name: Labeler\non: pull_request_target\n", encoding="utf-8")
     assert policy.audit_repository(tmp_path) == []

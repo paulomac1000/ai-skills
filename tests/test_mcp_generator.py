@@ -107,9 +107,7 @@ def test_generator_emits_complete_deterministic_project(tmp_path: Path) -> None:
 
 def test_generator_has_one_canonical_template_source() -> None:
     facade = GENERATOR.read_text(encoding="utf-8")
-    implementation = GENERATOR.with_name(
-        "generate_python_server_impl.py"
-    ).read_text(encoding="utf-8")
+    implementation = GENERATOR.with_name("generate_python_server_impl.py").read_text(encoding="utf-8")
     assert "_replace_required" not in facade
     assert "_replace_required" not in implementation
     assert 'with_name("python-template")' in implementation
@@ -125,21 +123,14 @@ def test_generated_project_uses_canonical_schema_and_public_sdk(
     target = tmp_path / "server"
     generator.generate_project(target, "inventory_mcp", "Inventory MCP")
 
-    copied_schema = (
-        target / "src/inventory_mcp/contracts/capability-manifest.schema.json"
-    )
-    assert copied_schema.read_bytes() == (
-        ROOT / "contracts/capability-manifest.schema.json"
-    ).read_bytes()
+    copied_schema = target / "src/inventory_mcp/contracts/capability-manifest.schema.json"
+    assert copied_schema.read_bytes() == (ROOT / "contracts/capability-manifest.schema.json").read_bytes()
     generator.validate_generated_project(
         generator.project_files("inventory_mcp", "Inventory MCP"),
         "inventory_mcp",
     )
 
-    source = "\n".join(
-        path.read_text(encoding="utf-8")
-        for path in sorted((target / "src").rglob("*.py"))
-    )
+    source = "\n".join(path.read_text(encoding="utf-8") for path in sorted((target / "src").rglob("*.py")))
     assert "from mcp.server import MCPServer" in source
     assert "from mcp.server.mcpserver" not in source
     assert "_tool_manager" not in source
@@ -149,15 +140,11 @@ def test_generated_project_uses_canonical_schema_and_public_sdk(
     assert "hmac.compare_digest" in source
     assert "ContextVar" in source
 
-    capability_paths = sorted(
-        (target / "src/inventory_mcp/capabilities").glob("*.json")
-    )
+    capability_paths = sorted((target / "src/inventory_mcp/capabilities").glob("*.json"))
     assert capability_paths
     for path in capability_paths:
         manifest = json.loads(path.read_text(encoding="utf-8"))
-        assert not {"operational_impact", "active", "side_effects"}.intersection(
-            manifest
-        )
+        assert not {"operational_impact", "active", "side_effects"}.intersection(manifest)
         assert manifest["active_state"] == "active"
 
 
@@ -168,9 +155,7 @@ def test_generated_workflow_passes_trusted_ci_policy(tmp_path: Path) -> None:
     workflow = target / ".github/workflows/ci.yml"
     auditor = load_workflow_auditor()
     findings = auditor.audit_workflow(workflow, target, profile="trusted-ci")
-    assert findings == [], "\n".join(
-        f"{finding.path}: {finding.message}" for finding in findings
-    )
+    assert findings == [], "\n".join(f"{finding.path}: {finding.message}" for finding in findings)
 
     text = workflow.read_text(encoding="utf-8")
     assert "ubuntu-latest" not in text
@@ -321,9 +306,7 @@ def test_generated_project_builds_installs_and_smokes_exact_wheel(
 
     environment = tmp_path / "artifact-venv"
     venv.EnvBuilder(with_pip=True, system_site_packages=True).create(environment)
-    python = environment / (
-        "Scripts/python.exe" if sys.platform == "win32" else "bin/python"
-    )
+    python = environment / ("Scripts/python.exe" if sys.platform == "win32" else "bin/python")
     run_checked(
         [str(python), "-m", "pip", "install", "--no-deps", str(wheels[0])],
         cwd=tmp_path,
@@ -405,9 +388,7 @@ async def test_generated_container_is_non_root_and_passes_official_stdio_smoke(
         )
         async with Client(stdio_client(parameters)) as client:
             tools = await client.list_tools()
-            assert {"list_items", "put_item"} <= {
-                tool.name for tool in tools.tools
-            }
+            assert {"list_items", "put_item"} <= {tool.name for tool in tools.tools}
             result = await client.call_tool("list_items", {"limit": 1})
             assert result.is_error is False
             denied = await client.call_tool(

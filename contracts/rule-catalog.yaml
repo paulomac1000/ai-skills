@@ -1,5 +1,5 @@
 schema_version: 1
-catalog_version: 1.2.0
+catalog_version: 1.3.0
 skills:
   afds-doc-writer:
     rules:
@@ -67,6 +67,9 @@ skills:
     - id: cicd.workflow.profiled
       source: STANDARD.md#workflow-policy-profiles
       description: Pull request, trusted CI, and protected release workflows are audited under explicit fail-closed profiles.
+    - id: cicd.execution.on-demand
+      source: STANDARD.md#execution-policy-and-hosted-runner-budget
+      description: Cost-aware workflows remain manually dispatchable on development refs while preserving exact-SHA full acceptance gates.
     - id: cicd.quality.language
       source: STANDARD.md#python-quality
       description: Applicable language quality, typing, test, and coverage gates execute.

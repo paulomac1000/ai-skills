@@ -1,5 +1,5 @@
 schema_version: 1
-catalog_version: 1.2.0
+catalog_version: 1.3.0
 controls:
   - id: cicd.mcp.protocol-conformance
     parent_rule_id: cicd.quality.language
@@ -46,7 +46,7 @@ controls:
     skill: mcp-server-architect
     source: skills/mcp-server-architect/references/principal-and-shell-boundaries.md#local-stdio-principal
     description: A local stdio deployment derives an explicit principal from a documented operating-system process boundary and never trusts model-supplied identity.
-    applies_when: {maturity_at_least: L1, profiles_any: [local-stdio]}
+    applies_when: {maturity_at_least: L2, profiles_any: [local-stdio]}
     severity: blocking
     waivable: false
     required_evidence: [unit, security]
@@ -91,6 +91,36 @@ controls:
     waivable: false
     required_evidence: [unit, security, integration]
     test_selectors: [tests/test_atomic_claim_contract.py::test_shell_boundary_adversarial_matrix_is_normative]
+  - id: mcp.upstream.contract-observed
+    parent_rule_id: mcp.verification.layered
+    skill: mcp-server-architect
+    source: skills/mcp-server-architect/STANDARD.md#migration-acceptance
+    description: External or legacy upstream behavior is discovered from controlled observations before adapter refactoring, and inferred dialect assumptions cannot satisfy acceptance.
+    applies_when: {maturity_at_least: L1, profiles_any: [external-upstream, legacy-upstream]}
+    severity: blocking
+    waivable: false
+    required_evidence: [integration]
+    test_selectors: [tests/test_practical_consumer_feedback.py::test_atomic_controls_capture_practical_migration_failures]
+  - id: mcp.testing.live-backend-safety
+    parent_rule_id: mcp.verification.layered
+    skill: mcp-server-architect
+    source: skills/mcp-server-architect/STANDARD.md#verification-layers
+    description: Live-backend tests are excluded by default and mutating probes require independent opt-ins, delayed credential access, unique test identities, reconciliation, and reported cleanup failures.
+    applies_when: {maturity_at_least: L1, profiles_any: [live-backend]}
+    severity: blocking
+    waivable: false
+    required_evidence: [integration, security]
+    test_selectors: [tests/test_practical_consumer_feedback.py::test_atomic_controls_capture_practical_migration_failures]
+  - id: mcp.authorization.transport-parity
+    parent_rule_id: mcp.authorization.server-side
+    skill: mcp-server-architect
+    source: skills/mcp-server-architect/STANDARD.md#authentication-and-authorization
+    description: Every advertised transport enforces the same operator gate, authorization, exact capability, target, and resource policy for representative write and destructive operations.
+    applies_when: {maturity_at_least: L2, profiles_all: [local-stdio, remote-http], capabilities_any: [write, destructive]}
+    severity: blocking
+    waivable: false
+    required_evidence: [integration, security, official-client]
+    test_selectors: [tests/test_practical_consumer_feedback.py::test_atomic_controls_capture_practical_migration_failures]
   - id: mcp.response.protocol-error
     parent_rule_id: mcp.response.structured
     skill: mcp-server-architect

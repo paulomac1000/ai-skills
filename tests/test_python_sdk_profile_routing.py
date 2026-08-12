@@ -19,12 +19,8 @@ def test_legacy_python_fastmcp_filename_is_only_a_compatibility_pointer() -> Non
 
 
 def test_official_and_fastmcp_profiles_have_distinct_package_identity() -> None:
-    official = (SKILL / "references/python-official-mcp-sdk.md").read_text(
-        encoding="utf-8"
-    )
-    fastmcp = (SKILL / "references/python-fastmcp-package.md").read_text(
-        encoding="utf-8"
-    )
+    official = (SKILL / "references/python-official-mcp-sdk.md").read_text(encoding="utf-8")
+    fastmcp = (SKILL / "references/python-fastmcp-package.md").read_text(encoding="utf-8")
 
     assert "distribution is `mcp`" in official
     assert "official `mcp` namespace" in official
@@ -32,10 +28,7 @@ def test_official_and_fastmcp_profiles_have_distinct_package_identity() -> None:
     assert "AuthMiddleware" in fastmcp
     assert "AccessToken" in fastmcp
     assert "Mounted servers" in fastmcp
-    assert (
-        "does not claim that the official generator emits a FastMCP project"
-        in fastmcp
-    )
+    assert "does not claim that the official generator emits a FastMCP project" in fastmcp
 
 
 def test_skill_routes_by_distribution_imports_and_public_api() -> None:
@@ -75,8 +68,6 @@ def test_manifest_records_profile_support_without_conflating_upstream_and_eviden
 
 
 def test_python_generator_is_official_mcp_only() -> None:
-    pyproject = (
-        SKILL / "tools/python-template/pyproject.toml.template"
-    ).read_text(encoding="utf-8")
+    pyproject = (SKILL / "tools/python-template/pyproject.toml.template").read_text(encoding="utf-8")
     assert '"mcp==2.0.0"' in pyproject
     assert '"fastmcp' not in pyproject
