@@ -41,6 +41,11 @@ replace_once(
     "",
 )
 replace_once(
+    "tests/test_post_review_regressions.py",
+    '    assert \'mount("/mcp", protected)\' in source\n',
+    "",
+)
+replace_once(
     "tests/test_templates.py",
     '    assert "mapfile -t packages < nupkg/publish-files.txt" in publisher["run"]\n',
     '    assert "mapfile -t packages < nupkg/verified-publish-files.txt" in publisher["run"]\n',
@@ -66,6 +71,18 @@ replace_once(
     "contracts/standard-rule-map.yaml",
     "      retry-policy: {rule_id: consumer.retry.reconciled, primary: true}\n      pagination: {rule_id: consumer.pagination.bounded, primary: true}\n",
     "      retry-policy: {rule_id: consumer.retry.reconciled, primary: true}\n      catalog-and-approval-invalidation: {rule_id: consumer.trust.provenance}\n      pagination: {rule_id: consumer.pagination.bounded, primary: true}\n",
+)
+
+# The moving-revision regression must prove the specific immutable-SHA guard.
+replace_once(
+    "tests/test_audit_contract_extensions.py",
+    '''    assert any(
+        "full commit SHA" in finding or "does not match" in finding
+        for finding in findings
+    )
+''',
+    '''    assert any("full commit SHA" in finding for finding in findings)
+''',
 )
 
 # Close exact Ruff findings exposed after the main repair.
