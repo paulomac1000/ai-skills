@@ -87,5 +87,21 @@ replace_once(
     assert "load other references only when" in skill
 ''',
 )
+
+replace_once(
+    "skills/mcp-server-architect/SKILL.md",
+    "2. Read the rule catalog, atomic child controls, compatibility matrix, evidence profiles, and selected skill manifest only after discovery identifies the relevant profile.",
+    "2. Read `contracts/rule-catalog.yaml`, atomic child controls, compatibility matrix, evidence profiles, and the selected skill manifest only after discovery identifies the relevant profile.",
+)
+replace_once(
+    "skills/mcp-server-architect/templates/migration-assessment.yaml.template",
+    "  version: 1.2.0\n",
+    "  version: 1.3.0\n",
+)
+replace_once(
+    "tests/test_skill_manifest_contract.py",
+    'RELEASE_VERSION = "1.2.0"\n',
+    'RELEASE_VERSION = "1.3.0"\n',
+)
 """
 path.write_text(text, encoding="utf-8")
