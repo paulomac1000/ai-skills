@@ -6,6 +6,9 @@ on:
       - fix/unified-contract-release-hardening
     paths:
       - .github/workflows/repair-pr25.yml
+      - scripts/repair_pr25_once.py
+      - scripts/adapt_repair_pr25_once.py
+      - scripts/repair_pr25_additional.py
 
 permissions:
   contents: write
