@@ -92,3 +92,45 @@ text = text[:artifact_start] + artifact_section + text[artifact_end:]
 
 text = text.replace('"--root",', '"--repository-root",')
 path.write_text(text, encoding="utf-8")
+
+# Ruff turns constant setattr/getattr calls back into direct attributes, which are
+# not present in Linux ctypes stubs. Adapt the subsequent one-shot script so it
+# emits explicit Any-typed dynamic boundaries instead.
+additional_path = Path(__file__).with_name("repair_pr25_additional.py")
+additional = additional_path.read_text(encoding="utf-8")
+additional += r'''
+
+# Ruff- and mypy-compatible dynamic module/platform boundaries.
+replace_once(
+    "skills/mcp-server-architect/tools/generate_python_server.py",
+    "from pathlib import Path\n",
+    "from pathlib import Path\nfrom typing import Any\n",
+)
+replace_once(
+    "skills/mcp-server-architect/tools/generate_python_server.py",
+    'setattr(_implementation, "project_files", project_files)\n',
+    "_implementation_dynamic: Any = _implementation\n_implementation_dynamic.project_files = project_files\n",
+)
+replace_once(
+    "skills/mcp-server-architect/tools/generate_python_server_impl.py",
+    "from pathlib import Path, PurePosixPath\n",
+    "from pathlib import Path, PurePosixPath\nfrom typing import Any\n",
+)
+replace_once(
+    "skills/mcp-server-architect/tools/generate_python_server_impl.py",
+    '''    if os_name == "nt":
+        win_dll = getattr(ctypes, "WinDLL")
+        get_last_error = getattr(ctypes, "get_last_error")
+        win_error = getattr(ctypes, "WinError")
+        kernel32 = win_dll("kernel32", use_last_error=True)
+''',
+    '''    if os_name == "nt":
+        ctypes_windows: Any = ctypes
+        win_dll = ctypes_windows.WinDLL
+        get_last_error = ctypes_windows.get_last_error
+        win_error = ctypes_windows.WinError
+        kernel32 = win_dll("kernel32", use_last_error=True)
+''',
+)
+'''
+additional_path.write_text(additional, encoding="utf-8")
