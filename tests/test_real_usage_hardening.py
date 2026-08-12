@@ -161,7 +161,10 @@ def test_trusted_source_lock_binds_authority_and_vendored_bytes(tmp_path: Path) 
         )
         == []
     )
-    assert any("requires an authority checkout" in item for item in validate_lock(path, repository_root=repository))
+    assert any(
+        "requires an authority checkout" in item
+        for item in validate_lock(path, repository_root=repository)
+    )
     (repository / "scripts/vendor/collector.py").write_text("changed\n", encoding="utf-8")
     assert any(
         "local vendored digest" in item
@@ -321,8 +324,13 @@ def test_trusted_source_validator_schema_and_cli_edges(tmp_path: Path, capsys: p
     assert validator.main([str(invalid), "--repository-root", str(repository)]) == 1
     assert "trusted executable source findings" in capsys.readouterr().out
 
+    authority = tmp_path / "authority-root"
+    authority.mkdir()
+    authority_value = str(authority)
     with pytest.raises(ValueError, match="unique"):
-        validator._authority_roots(["collector=/tmp", "collector=/tmp"])
+        validator._authority_roots(
+            [f"collector={authority_value}", f"collector={authority_value}"]
+        )
     with pytest.raises(ValueError, match="SOURCE_ID=PATH"):
         validator._authority_roots(["malformed"])
 
