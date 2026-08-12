@@ -10,7 +10,13 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-PLATFORM_NAMES = {"linux": "linux", "darwin": "macos", "win32": "windows"}
+PLATFORM_NAMES = {
+    "linux": "linux",
+    "darwin": "macos",
+    "macos": "macos",
+    "win32": "windows",
+    "windows": "windows",
+}
 ARCHITECTURES = {
     "amd64": "x64",
     "x86_64": "x64",
@@ -29,7 +35,7 @@ SUPPORTED_LOCKS = {
 
 
 def normalize_platform(value: str) -> str:
-    """Return the contract OS name or fail closed."""
+    """Return the idempotent contract OS name or fail closed."""
     normalized = PLATFORM_NAMES.get(value.casefold())
     if normalized is None:
         raise RuntimeError(f"unsupported lock platform: {value}")
@@ -60,10 +66,14 @@ def lock_id(
     """Return the exact OS/architecture/Python lock identifier."""
     os_name = normalize_platform(platform)
     arch = normalize_architecture(architecture or host_platform.machine())
-    version = normalize_python_version(python_version or f"{sys.version_info.major}.{sys.version_info.minor}")
+    version = normalize_python_version(
+        python_version or f"{sys.version_info.major}.{sys.version_info.minor}"
+    )
     target = (os_name, arch, version)
     if target not in SUPPORTED_LOCKS:
-        raise RuntimeError(f"unsupported lock target: {os_name}/{arch}/python-{version}")
+        raise RuntimeError(
+            f"unsupported lock target: {os_name}/{arch}/python-{version}"
+        )
     return f"{os_name}-{arch}-py{version.replace('.', '')}"
 
 
@@ -80,13 +90,22 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--platform", default=sys.platform)
     parser.add_argument("--architecture", default=host_platform.machine())
-    parser.add_argument("--python-version", default=f"{sys.version_info.major}.{sys.version_info.minor}")
+    parser.add_argument(
+        "--python-version",
+        default=f"{sys.version_info.major}.{sys.version_info.minor}",
+    )
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    print(selected_lock(args.platform, args.architecture, args.python_version).relative_to(ROOT))
+    print(
+        selected_lock(
+            args.platform,
+            args.architecture,
+            args.python_version,
+        ).relative_to(ROOT)
+    )
     return 0
 
 
