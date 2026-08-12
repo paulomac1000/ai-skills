@@ -38,6 +38,37 @@ def test_atomic_publication_rejects_unsupported_platform(
         implementation._rename_noreplace(source, destination)
 
 
+def test_atomic_publication_exercises_macos_no_replace_adapter(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    implementation = _load(
+        "generator_platform_edge_macos_impl",
+        "skills/mcp-server-architect/tools/generate_python_server_impl.py",
+    )
+
+    class FakeRename:
+        argtypes = None
+        restype = None
+
+        def __call__(self, source: bytes, destination: bytes, flags: int) -> int:
+            assert source
+            assert destination
+            assert flags == 0x00000004
+            return 0
+
+    class FakeLibC:
+        renamex_np = FakeRename()
+
+    source = tmp_path / "source"
+    source.write_text("payload", encoding="utf-8")
+    destination = tmp_path / "destination"
+    monkeypatch.setattr(implementation, "_runtime_platform", lambda: "darwin")
+    monkeypatch.setattr(implementation, "_runtime_os_name", lambda: "posix")
+    monkeypatch.setattr(implementation.ctypes, "CDLL", lambda *args, **kwargs: FakeLibC())
+
+    implementation._rename_noreplace(source, destination)
+
+
 def test_generator_cli_fails_closed_for_existing_destination(tmp_path: Path) -> None:
     generator = _load(
         "generator_platform_edge_public",
