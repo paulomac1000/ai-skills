@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import heapq
 import hmac
 import json
 import os
@@ -16,16 +17,26 @@ from .manifest import MANIFESTS
 from .security import current_principal
 
 _ITEMS: dict[str, str] = {}
+_MAX_ITEMS = 10_000
 _LOCK = threading.RLock()
-_CONSUMED_APPROVALS: dict[str, int] = {}
-_MAX_CONSUMED_APPROVALS = 10_000
+_CONSUMED_APPROVALS: dict[str, dict[str, int]] = {}
+_MAX_CONSUMED_APPROVALS_PER_PRINCIPAL = 10_000
+_MAX_APPROVAL_PRINCIPALS = 1_024
 
 
 def _canonical_bytes(value: Any) -> bytes:
-    return json.dumps(value, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    return json.dumps(
+        value,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
 
 
-def _bounded_payload(capability_id: str, payload: Mapping[str, Any]) -> dict[str, Any]:
+def _bounded_payload(
+    capability_id: str,
+    payload: Mapping[str, Any],
+) -> dict[str, Any]:
     manifest = MANIFESTS[capability_id]
     maximum = int(manifest["max_response_bytes"])
     result = dict(payload)
@@ -49,9 +60,9 @@ def list_items(limit: int = 25) -> dict[str, Any]:
     if type(limit) is not int or not 1 <= limit <= 100:
         raise ValueError("limit must be an integer from 1 to 100")
     with _LOCK:
+        item_ids = heapq.nsmallest(limit, _ITEMS)
         items = [
-            {"item_id": item_id, "value": value}
-            for item_id, value in sorted(_ITEMS.items())[:limit]
+            {"item_id": item_id, "value": _ITEMS[item_id]} for item_id in item_ids
         ]
     return _bounded_payload("list_items", {"items": items, "count": len(items)})
 
@@ -94,11 +105,12 @@ def _consume_approval(item_id: str, value: str, record: str) -> None:
     if not isinstance(payload, Mapping):
         raise PermissionError("approval record is invalid")
 
+    principal = current_principal()
     arguments_digest = hashlib.sha256(
         _canonical_bytes({"item_id": item_id, "value": value})
     ).hexdigest()
     expected_claims = {
-        "principal": current_principal(),
+        "principal": principal,
         "capability": "put_item",
         "target": item_id,
         "arguments_digest": arguments_digest,
@@ -110,19 +122,27 @@ def _consume_approval(item_id: str, value: str, record: str) -> None:
     nonce = payload.get("nonce")
     now = int(time.time())
     if type(expires_at) is not int or expires_at <= now or expires_at > now + 3600:
-        raise PermissionError("approval record is expired or exceeds the one-hour policy")
+        raise PermissionError(
+            "approval record is expired or exceeds the one-hour policy"
+        )
     if not isinstance(nonce, str) or not 16 <= len(nonce) <= 128:
         raise PermissionError("approval record nonce is invalid")
 
     with _LOCK:
-        expired = [key for key, expiry in _CONSUMED_APPROVALS.items() if expiry <= now]
+        registry = _CONSUMED_APPROVALS.get(principal)
+        if registry is None:
+            if len(_CONSUMED_APPROVALS) >= _MAX_APPROVAL_PRINCIPALS:
+                raise PermissionError("approval principal registry is at capacity")
+            registry = {}
+            _CONSUMED_APPROVALS[principal] = registry
+        expired = [key for key, expiry in registry.items() if expiry <= now]
         for key in expired:
-            del _CONSUMED_APPROVALS[key]
-        if nonce in _CONSUMED_APPROVALS:
+            del registry[key]
+        if nonce in registry:
             raise PermissionError("approval record was already consumed")
-        if len(_CONSUMED_APPROVALS) >= _MAX_CONSUMED_APPROVALS:
+        if len(registry) >= _MAX_CONSUMED_APPROVALS_PER_PRINCIPAL:
             raise PermissionError("approval replay registry is at capacity")
-        _CONSUMED_APPROVALS[nonce] = expires_at
+        registry[nonce] = expires_at
 
 
 def put_item(item_id: str, value: str, approval_record: str) -> dict[str, Any]:
@@ -132,5 +152,7 @@ def put_item(item_id: str, value: str, approval_record: str) -> dict[str, Any]:
         raise ValueError("value must be at most 4096 UTF-8 bytes")
     _consume_approval(item_id, value, approval_record)
     with _LOCK:
+        if item_id not in _ITEMS and len(_ITEMS) >= _MAX_ITEMS:
+            raise RuntimeError(f"item store is at capacity ({_MAX_ITEMS})")
         _ITEMS[item_id] = value
     return _bounded_payload("put_item", {"item_id": item_id, "updated": True})

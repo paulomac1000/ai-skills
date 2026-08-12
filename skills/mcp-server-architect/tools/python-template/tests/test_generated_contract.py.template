@@ -17,7 +17,9 @@ from __PACKAGE__.server import mcp
 def test_manifest_catalog_matches_registered_tools() -> None:
     assert set(MANIFESTS) == {"describe_capabilities", "list_items", "put_item"}
     schema = json.loads(
-        files("__PACKAGE__").joinpath("contracts/capability-manifest.schema.json").read_text(encoding="utf-8")
+        files("__PACKAGE__")
+        .joinpath("contracts/capability-manifest.schema.json")
+        .read_text(encoding="utf-8")
     )
     assert set(schema["required"]) <= set(MANIFESTS["list_items"])
 
@@ -25,7 +27,12 @@ def test_manifest_catalog_matches_registered_tools() -> None:
 def test_final_payload_contains_provenance_and_respects_bound() -> None:
     payload = describe_capabilities()
     assert payload["_meta"]["capability_id"] == "describe_capabilities"
-    encoded = json.dumps(payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    encoded = json.dumps(
+        payload,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
     assert len(encoded) <= MANIFESTS["describe_capabilities"]["max_response_bytes"]
 
 
@@ -43,7 +50,7 @@ def test_write_is_fail_closed_without_server_approval() -> None:
         b"Bearer abc;def",
         b"Bearer abc\ndef",
         b"Bearer " + b"a" * 9000,
-        b"Bearer " + "ą".encode(),
+        b"Bearer " + b"\xc4\x85",
     ],
 )
 def test_malformed_bearer_is_rejected(authorization: bytes) -> None:
@@ -59,7 +66,11 @@ def test_malformed_bearer_is_rejected(authorization: bytes) -> None:
         messages.append(message)
 
     middleware = BearerAuthMiddleware(app, b"a" * 32)
-    scope = {"type": "http", "path": "/mcp", "headers": [(b"authorization", authorization)]}
+    scope = {
+        "type": "http",
+        "path": "/mcp",
+        "headers": [(b"authorization", authorization)],
+    }
     import asyncio
 
     asyncio.run(middleware(scope, None, send))

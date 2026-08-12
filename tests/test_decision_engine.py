@@ -10,7 +10,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 LEGACY_CASES = ROOT / "tests/decision_engine_cases.py"
-EXCLUDED = {
+LEGACY_TRUST_CASES = {
     "test_tools_package_public_entry_point_imports",
     "test_untrusted_signals_can_only_increase_risk_and_preserve_confidentiality",
     "test_typed_trust_channels_reject_boolean_upgrade_switches",
@@ -30,7 +30,7 @@ def _load_cases():
 
 _CASES = _load_cases()
 for _name, _value in vars(_CASES).items():
-    if _name.startswith("test_") and _name not in EXCLUDED:
+    if _name.startswith("test_") and _name not in LEGACY_TRUST_CASES:
         globals()[_name] = _value
 
 load_engine = _CASES.load_engine
@@ -68,7 +68,10 @@ def test_tools_package_public_entry_point_imports() -> None:
     )
     assert tools.Decision.INVOKE.value == "invoke"
     assert tools.TrustedCapabilityPolicy(binding=binding, risk="READ").risk == "READ"
-    assert tools.TrustedCapabilityContract(binding=binding, idempotent=True).idempotent is True
+    assert (
+        tools.TrustedCapabilityContract(binding=binding, idempotent=True).idempotent
+        is True
+    )
     assert callable(tools.infer_capability_profile)
     assert callable(tools.handle_response)
 
@@ -109,6 +112,15 @@ def test_untrusted_signals_only_escalate_bound_policy() -> None:
     )
     assert destructive.risk is engine.Risk.DESTRUCTIVE
     assert "untrusted-annotation-escalation" in destructive.source
+
+    sensitive_then_destructive = engine.infer_capability_profile(
+        "inventory.list",
+        {"risk": "SENSITIVE", "annotations": {"destructiveHint": True}},
+        identity=identity,
+        trusted_policy=policy,
+    )
+    assert sensitive_then_destructive.risk is engine.Risk.DESTRUCTIVE
+    assert sensitive_then_destructive.sensitive is True
 
 
 def test_boolean_server_trust_is_not_a_public_channel() -> None:
@@ -183,6 +195,13 @@ def test_trusted_values_require_an_exact_capability_binding() -> None:
             manifest_version="other-version",
             target_scope=identity.target_scope,
         ),
+        engine.CapabilityIdentity(
+            server_identity=identity.server_identity,
+            tool_name=identity.tool_name,
+            tool_schema_hash=identity.tool_schema_hash,
+            manifest_version=identity.manifest_version,
+            target_scope="tenant:other",
+        ),
     ):
         with pytest.raises(ValueError, match="does not match"):
             engine.infer_capability_profile(
@@ -195,7 +214,7 @@ def test_trusted_values_require_an_exact_capability_binding() -> None:
 
 def test_positive_idempotency_requires_bound_trusted_values_and_untrusted_veto_wins() -> None:
     engine = load_engine()
-    identity = _identity(engine)
+    identity = _identity(engine, tool="inventory.update")
     policy = engine.TrustedCapabilityPolicy(
         binding=_binding(engine, identity),
         risk=engine.Risk.WRITE,

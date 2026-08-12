@@ -24,7 +24,7 @@ This standard defines how technical documentation is selected, structured, verif
 3. **Answer first.** Put the operational answer, contract, decision, or procedure before background.
 4. **Retrieval is designed.** Titles, identifiers, descriptions, aliases, and headings use terms readers will search for.
 5. **Statement kinds remain distinct.** Requirements, observations, examples, assumptions, hypotheses, and open questions are not interchangeable.
-6. **Verification is explicit where rigor requires it.** Operational and normative documents name a command, CI job, review method, or observable acceptance condition through the versioned metadata contract. Informative documents may omit verification.
+6. **Verification is explicit where rigor requires it.** Operational and normative documents name a command, CI job, review method, or observable acceptance condition through the required metadata contract. Informative documents may omit verification.
 7. **Volatile facts belong to automation.** Generated inventories and measurements are produced from sources of truth.
 8. **Failure behavior is documented where relevant.** A procedure or system document states safe stop, rollback, degradation, or recovery behavior.
 9. **Change impact is visible.** Contract and decision changes identify affected consumers and downstream documents.
@@ -43,9 +43,9 @@ This standard defines how technical documentation is selected, structured, verif
 
 Choose one primary type. Split documents when readers, ownership, lifecycle, or verification differ.
 
-## Versioned metadata contract
+## Required metadata
 
-Every newly authored governed document uses AFDS document schema v2:
+Every newly authored governed document uses the current AFDS document schema identified by `afds_schema_version: 2`:
 
 ```yaml
 afds_schema_version: 2
@@ -62,19 +62,19 @@ verification:
 
 `description`, `doc_id`, `type`, `status`, and `rigor` are strings. `owners` is a non-empty list of non-empty role or team names. `doc_id` is stable and begins with the selected type. Optional `aliases`, `entities`, `upstream`, `downstream`, `supersedes`, and `review_triggers` are used only when meaningful.
 
-For `operational` and `normative` v2 documents, `verification` is required and is an object containing exactly `kind` and `value`. `value` is a non-empty string. `Informative` documents may omit verification; when present it uses the same typed shape.
+For `operational` and `normative` documents with `afds_schema_version: 2`, `verification` is required and is an object containing exactly `kind` and `value`. `value` is a non-empty string. `Informative` documents may omit verification; when present it uses the same typed shape.
 
-A `## Verification` section explains commands, criteria, or review detail for readers. In schema v2 it never substitutes for metadata. The metadata names the method; executed results belong to conformance, evidence, CI, or review records rather than durable document frontmatter.
+A `## Verification` section explains commands, criteria, or review detail for readers. In the current versioned schema it never substitutes for metadata. The metadata names the method; executed results belong to conformance, evidence, CI, or review records rather than durable document frontmatter.
 
 The machine-readable schema is `contracts/afds-frontmatter.schema.json`. The standalone validator additionally enforces relationships such as `doc_id` type prefixes, repository confinement, and document structure.
 
 Do not author automation-owned fields such as `last_verified`, generated backlinks, semantic hashes, dependency versions, or fitness scores.
 
-## Legacy v1 migration
+### Legacy migration
 
-A governed document without `afds_schema_version` is read as legacy schema v1. Legacy v1 remains readable during migration and may use a non-empty metadata value or `## Verification` section for operational or normative rigor.
+A governed document without `afds_schema_version` is read using the legacy implicit version 1 contract. That compatibility mode remains readable during migration and may use a non-empty metadata value or `## Verification` section for operational or normative rigor.
 
-Legacy compatibility is not the target authoring format. Repositories complete migration by converting verification to the v2 object, adding `afds_schema_version: 2`, and enabling:
+Legacy compatibility is not the target authoring format. Repositories complete migration by converting verification to the current object form, adding `afds_schema_version: 2`, and enabling:
 
 ```text
 python skills/afds-doc-writer/validate.py \
@@ -83,7 +83,7 @@ python skills/afds-doc-writer/validate.py \
   <governed-inputs...>
 ```
 
-The strict option returns a deterministic migration finding for v1 documents. Unknown schema versions fail closed. A repository must not label itself fully AFDS v2 while its governed scope still depends on v1 compatibility.
+The strict option returns a deterministic migration finding for implicit-version documents. Unknown schema versions fail closed. A repository must not label itself fully migrated while its governed scope still depends on legacy compatibility.
 
 ## Governance profiles
 
@@ -121,7 +121,7 @@ Lifecycle and change-impact rules are defined in [Lifecycle and impact](referenc
 
 A governed document is acceptable when metadata types are valid, one H1 exists, headings are unique, relative links and anchors resolve within the repository, verification is explicit where required, claims are grounded or labeled uncertain, and ownership is unambiguous. A human-facing or conventional document is acceptable only when its selected profile passes every enabled structural and confinement check.
 
-Schema v1 compatibility proves only that a legacy document remains readable. AFDS v2 conformance additionally requires the strict minimum-document-schema gate over the declared governed scope.
+Legacy implicit-version compatibility proves only that an older document remains readable. Full AFDS conformance additionally requires the strict minimum-document-schema gate over the declared governed scope.
 
 ## Verification
 

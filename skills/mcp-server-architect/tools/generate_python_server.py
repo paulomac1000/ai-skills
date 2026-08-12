@@ -20,9 +20,7 @@ _SPEC = importlib.util.spec_from_file_location(
     _IMPLEMENTATION_PATH,
 )
 if _SPEC is None or _SPEC.loader is None:
-    raise ImportError(
-        f"Cannot load generator implementation: {_IMPLEMENTATION_PATH}"
-    )
+    raise ImportError(f"Cannot load generator implementation: {_IMPLEMENTATION_PATH}")
 _implementation = importlib.util.module_from_spec(_SPEC)
 sys.modules[_SPEC.name] = _implementation
 _SPEC.loader.exec_module(_implementation)
@@ -81,9 +79,7 @@ def generate_project(
     parent = destination.parent
     parent.mkdir(parents=True, exist_ok=True)
     if parent.is_symlink() or not parent.is_dir():
-        raise ValueError(
-            "destination parent must be a regular directory, not a symlink"
-        )
+        raise ValueError("destination parent must be a regular directory, not a symlink")
     if os.path.lexists(destination):
         raise FileExistsError(destination)
 
@@ -130,16 +126,12 @@ def _resolved_identity(
     legacy = args.legacy_package_name
     if explicit and legacy and explicit != legacy:
         parser.error(
-            "package name was supplied twice with different values; use "
-            "only --package"
+            "package name was supplied twice with different values; use only --package"
         )
     package_name = explicit or legacy
     if not package_name:
         parser.error("missing package name; use --package <package_name>")
-    server_name = (
-        args.server_name
-        or package_name.replace("_", " ").title()
-    )
+    server_name = args.server_name or package_name.replace("_", " ").title()
     return package_name, server_name
 
 

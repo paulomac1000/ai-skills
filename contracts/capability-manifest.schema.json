@@ -114,7 +114,6 @@
         "properties": {
           "impact": {"const": "none"},
           "retryable": {"const": false},
-          "idempotent": {"const": false},
           "reversible": {"const": false},
           "requires_confirmation": {"const": false},
           "idempotency_key_required": {"const": false}

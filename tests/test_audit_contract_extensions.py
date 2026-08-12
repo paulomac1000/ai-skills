@@ -34,7 +34,7 @@ def _capability(**overrides: object) -> dict[str, object]:
         "determinism": "environment-dependent",
         "latency": "interactive",
         "impact": "none",
-        "active_state": "read",
+        "active_state": "active",
         "retryable": False,
         "idempotent": False,
         "reversible": False,
@@ -127,7 +127,9 @@ def test_hosted_provider_can_supply_l2_exact_sha_evidence(tmp_path: Path) -> Non
 def test_sensitive_profile_escalates_to_independent_release(tmp_path: Path) -> None:
     record = _write_yaml(
         tmp_path / "evidence.yaml",
-        _evidence_record("hosted-provider", "provider-backed-exact-sha", "azure-pipelines"),
+        _evidence_record(
+            "hosted-provider", "provider-backed-exact-sha", "azure-pipelines"
+        ),
     )
     findings = validate_record(
         record,
@@ -183,13 +185,18 @@ def test_skill_lock_rejects_moving_revision_and_cross_skill_entrypoint(tmp_path:
         },
     )
     findings = validate_lock(lock)
-    assert any("full commit SHA" in finding or "does not match" in finding for finding in findings)
+    assert any(
+        "full commit SHA" in finding or "does not match" in finding
+        for finding in findings
+    )
     assert any("locked skill" in finding for finding in findings)
 
 
 def test_mcp_runtime_scopes_are_not_conflated() -> None:
     manifest = yaml.safe_load(
-        (ROOT / "skills/mcp-server-architect/manifest.yaml").read_text(encoding="utf-8")
+        (ROOT / "skills/mcp-server-architect/manifest.yaml").read_text(
+            encoding="utf-8"
+        )
     )
     runtime = manifest["runtime_contract"]
     assert runtime["tool_runtime"]["python"] == ">=3.12,<3.15"

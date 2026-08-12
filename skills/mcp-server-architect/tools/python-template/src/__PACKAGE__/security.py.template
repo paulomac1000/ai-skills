@@ -6,12 +6,14 @@ import contextvars
 import hashlib
 import hmac
 import os
+import secrets
 from collections.abc import Awaitable, Callable
 from typing import Any
 
 _MAX_AUTHORIZATION_BYTES = 8192
 _MIN_TOKEN_BYTES = 32
 _MAX_TOKEN_BYTES = 4096
+_PRINCIPAL_KEY = secrets.token_bytes(32)
 
 
 def _process_principal() -> str:
@@ -40,13 +42,17 @@ def require_http_token() -> bytes:
         token = raw.encode("ascii")
     except UnicodeEncodeError as exc:
         raise RuntimeError("MCP_HTTP_BEARER_TOKEN must be ASCII") from exc
-    if not _MIN_TOKEN_BYTES <= len(token) <= _MAX_TOKEN_BYTES or any(byte <= 0x20 for byte in token):
+    if not _MIN_TOKEN_BYTES <= len(token) <= _MAX_TOKEN_BYTES or any(
+        byte <= 0x20 or byte > 0x7E for byte in token
+    ):
         raise RuntimeError("MCP_HTTP_BEARER_TOKEN must be 32-4096 visible ASCII bytes")
     return token
 
 
 def _extract_bearer(headers: list[tuple[bytes, bytes]]) -> bytes | None:
-    authorization_values = [value for name, value in headers if name.lower() == b"authorization"]
+    authorization_values = [
+        value for name, value in headers if name.lower() == b"authorization"
+    ]
     if len(authorization_values) != 1:
         return None
     value = authorization_values[0]
@@ -56,7 +62,10 @@ def _extract_bearer(headers: list[tuple[bytes, bytes]]) -> bytes | None:
         scheme, token = value.split(b" ", 1)
     except ValueError:
         return None
-    if scheme.lower() != b"bearer" or not _MIN_TOKEN_BYTES <= len(token) <= _MAX_TOKEN_BYTES:
+    if (
+        scheme.lower() != b"bearer"
+        or not _MIN_TOKEN_BYTES <= len(token) <= _MAX_TOKEN_BYTES
+    ):
         return None
     if any(byte <= 0x20 or byte > 0x7E for byte in token):
         return None
@@ -64,7 +73,8 @@ def _extract_bearer(headers: list[tuple[bytes, bytes]]) -> bytes | None:
 
 
 def _principal_for_token(token: bytes) -> str:
-    return f"http:bearer-sha256:{hashlib.sha256(token).hexdigest()}"
+    digest = hmac.new(_PRINCIPAL_KEY, token, hashlib.sha256).hexdigest()
+    return f"http:bearer-hmac-sha256:{digest}"
 
 
 class BearerAuthMiddleware:
@@ -75,7 +85,10 @@ class BearerAuthMiddleware:
         self._expected_token = expected_token
 
     async def __call__(self, scope: dict[str, Any], receive: Any, send: Any) -> None:
-        if scope.get("type") != "http" or scope.get("path") in {"/health/live", "/health/ready"}:
+        if scope.get("type") != "http" or scope.get("path") in {
+            "/health/live",
+            "/health/ready",
+        }:
             await self._app(scope, receive, send)
             return
         headers = scope.get("headers")
@@ -88,7 +101,9 @@ class BearerAuthMiddleware:
                     "headers": [(b"content-type", b"application/json")],
                 }
             )
-            await send({"type": "http.response.body", "body": b'{"error":"unauthorized"}'})
+            await send(
+                {"type": "http.response.body", "body": b'{"error":"unauthorized"}'}
+            )
             return
         principal_token = _current_principal.set(_principal_for_token(token))
         try:

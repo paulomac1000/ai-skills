@@ -1,4 +1,4 @@
-"""Regression tests for AFDS document schema v2 and controlled v1 migration."""
+"""Regression tests for the current AFDS document schema and controlled legacy migration."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def load_validator():
     path = ROOT / "skills/afds-doc-writer/validate.py"
-    spec = importlib.util.spec_from_file_location("afds_v2_validator", path)
+    spec = importlib.util.spec_from_file_location("afds_document_schema_validator", path)
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
@@ -50,7 +50,7 @@ owners: [maintainers]
 """
 
 
-def test_v2_accepts_each_typed_verification_kind(tmp_path: Path) -> None:
+def test_current_schema_accepts_each_typed_verification_kind(tmp_path: Path) -> None:
     validator = load_validator()
     for kind in ("command", "ci-job", "manual-review", "observable"):
         path = write(
@@ -66,7 +66,7 @@ def test_v2_accepts_each_typed_verification_kind(tmp_path: Path) -> None:
         assert validator.validate(path, tmp_path) == []
 
 
-def test_v2_rejects_legacy_string_and_body_only_verification(tmp_path: Path) -> None:
+def test_current_schema_rejects_legacy_string_and_body_only_verification(tmp_path: Path) -> None:
     validator = load_validator()
     string_path = write(
         tmp_path / "string.md",
@@ -85,7 +85,7 @@ def test_v2_rejects_legacy_string_and_body_only_verification(tmp_path: Path) -> 
     )
 
 
-def test_v2_rejects_unknown_kind_extra_fields_and_empty_value(tmp_path: Path) -> None:
+def test_current_schema_rejects_unknown_kind_extra_fields_and_empty_value(tmp_path: Path) -> None:
     validator = load_validator()
     cases = {
         "kind.md": (
@@ -106,7 +106,7 @@ def test_v2_rejects_unknown_kind_extra_fields_and_empty_value(tmp_path: Path) ->
         assert expected in messages(validator.validate(path, tmp_path))
 
 
-def test_v1_remains_readable_but_strict_migration_fails_closed(tmp_path: Path) -> None:
+def test_legacy_schema_remains_readable_but_strict_migration_fails_closed(tmp_path: Path) -> None:
     validator = load_validator()
     path = write(
         tmp_path / "legacy.md",
@@ -150,7 +150,7 @@ def test_unknown_schema_and_singular_owner_are_deterministic_findings(
     assert "missing required fields: owners" in result
 
 
-def test_informative_v2_may_omit_verification_but_validates_it_when_present(
+def test_informative_current_schema_may_omit_verification_but_validates_it_when_present(
     tmp_path: Path,
 ) -> None:
     validator = load_validator()
@@ -169,7 +169,7 @@ def test_informative_v2_may_omit_verification_but_validates_it_when_present(
     )
 
 
-def test_afds_v2_json_schema_is_valid_and_matches_template() -> None:
+def test_afds_frontmatter_json_schema_is_valid_and_matches_template() -> None:
     schema_path = ROOT / "contracts/afds-frontmatter.schema.json"
     schema = json.loads(schema_path.read_text(encoding="utf-8"))
     Draft202012Validator.check_schema(schema)

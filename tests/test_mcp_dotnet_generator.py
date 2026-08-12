@@ -269,28 +269,6 @@ def test_generated_project_builds_and_passes_real_client_smoke(tmp_path: Path) -
     target = tmp_path / "server"
     generator.generate_project(target, "Acme", "Acme MCP")
     project = "tests/Acme.Mcp.Smoke/Acme.Mcp.Smoke.csproj"
-    refresh = subprocess.run(
-        ["dotnet", "restore", project, "--force-evaluate"],
-        cwd=target,
-        check=False,
-        capture_output=True,
-        text=True,
-        timeout=180,
-    )
-    evidence_locks = ROOT / "evidence/dotnet-locks"
-    evidence_locks.mkdir(parents=True, exist_ok=True)
-    if refresh.returncode == 0:
-        shutil.copy2(
-            target / "src/Acme.Mcp.Server/packages.lock.json",
-            evidence_locks / "server.packages.lock.json",
-        )
-        shutil.copy2(
-            target / "tests/Acme.Mcp.Smoke/packages.lock.json",
-            evidence_locks / "smoke.packages.lock.json",
-        )
-    assert refresh.returncode == 0, (
-        f"force-evaluate restore failed\nstdout:\n{refresh.stdout}\nstderr:\n{refresh.stderr}"
-    )
     server_dll = "src/Acme.Mcp.Server/bin/Release/net10.0/Acme.Mcp.Server.dll"
     smoke_dll = "tests/Acme.Mcp.Smoke/bin/Release/net10.0/Acme.Mcp.Smoke.dll"
     published = "publish/Acme.Mcp.Server.dll"

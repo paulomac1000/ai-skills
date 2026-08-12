@@ -145,9 +145,9 @@ internal static class CanonicalCapabilityManifestContract
         };
         var activeState = manifest.ActiveState switch
         {
-            "active" => "active",
-            "inactive" => "inactive",
-            "deprecated" => "deprecated",
+            CapabilityActiveState.Active => "active",
+            CapabilityActiveState.Disabled or CapabilityActiveState.Degraded or CapabilityActiveState.Unavailable => "inactive",
+            CapabilityActiveState.Deprecated => "deprecated",
             _ => throw new InvalidOperationException(
                 $"{manifest.Name}: unsupported active state {manifest.ActiveState}"),
         };
@@ -218,7 +218,7 @@ internal static class CanonicalCapabilityManifestContract
     }
 
     private static void ValidateRequiredFields(
-        IReadOnlySet<string> required,
+        HashSet<string> required,
         JsonElement document,
         string capabilityId)
     {
@@ -236,7 +236,7 @@ internal static class CanonicalCapabilityManifestContract
     }
 
     private static void ValidateNoUnknownFields(
-        IReadOnlySet<string> allowed,
+        HashSet<string> allowed,
         JsonElement document,
         string capabilityId)
     {
@@ -342,7 +342,6 @@ internal static class CanonicalCapabilityManifestContract
         if (manifest.OperationKind == "read"
             && (manifest.Impact != "none"
                 || manifest.Retryable
-                || manifest.Idempotent
                 || manifest.Reversible
                 || manifest.RequiresConfirmation
                 || manifest.IdempotencyKeyRequired))

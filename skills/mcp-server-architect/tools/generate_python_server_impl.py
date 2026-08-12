@@ -36,6 +36,7 @@ LOCK_NAMES = (
 )
 COPIED_CONTRACTS = ("capability-manifest.schema.json",)
 TOKENS = ("__PACKAGE__", "__DISTRIBUTION__", "__SERVER_NAME__")
+_LEGACY_CAPABILITY_FIELDS = {"operational_impact", "active", "side_effects"}
 
 
 def _read_regular_utf8(path: Path, *, maximum: int = MAX_TEMPLATE_BYTES) -> str:
@@ -55,7 +56,11 @@ def _read_regular_utf8(path: Path, *, maximum: int = MAX_TEMPLATE_BYTES) -> str:
 def _validate_inputs(package_name: str, server_name: str) -> None:
     if not PACKAGE_NAME.fullmatch(package_name):
         raise ValueError("package name must match ^[a-z][a-z0-9_]{1,63}$")
-    if not server_name or len(server_name) > 128 or any(ord(character) < 0x20 for character in server_name):
+    if (
+        not server_name
+        or len(server_name) > 128
+        or any(ord(character) < 0x20 for character in server_name)
+    ):
         raise ValueError("server name must contain 1-128 printable characters")
 
 
@@ -69,7 +74,9 @@ def _render(value: str, package_name: str, server_name: str) -> str:
 
 def _safe_relative_path(raw: str) -> PurePosixPath:
     if not raw or "\\" in raw:
-        raise ValueError(f"generated path must be a repository-relative POSIX path: {raw!r}")
+        raise ValueError(
+            f"generated path must be a repository-relative POSIX path: {raw!r}"
+        )
     path = PurePosixPath(raw)
     if path.is_absolute() or any(part in {"", ".", ".."} for part in path.parts):
         raise ValueError(f"generated path escapes project root: {raw!r}")
@@ -85,11 +92,15 @@ def project_files(package_name: str, server_name: str) -> dict[str, str]:
     rendered: dict[str, str] = {}
     for template in sorted(TEMPLATE_ROOT.rglob("*.template")):
         relative_template = template.relative_to(TEMPLATE_ROOT).as_posix()
-        output_name = _render(relative_template.removesuffix(".template"), package_name, server_name)
+        output_name = _render(
+            relative_template.removesuffix(".template"), package_name, server_name
+        )
         output_path = _safe_relative_path(output_name).as_posix()
         if output_path in rendered:
             raise ValueError(f"duplicate generated path: {output_path}")
-        rendered[output_path] = _render(_read_regular_utf8(template), package_name, server_name)
+        rendered[output_path] = _render(
+            _read_regular_utf8(template), package_name, server_name
+        )
 
     for lock_name in LOCK_NAMES:
         rendered[f"locks/{lock_name}"] = _read_regular_utf8(
@@ -121,13 +132,20 @@ def _validate_capabilities(files: Mapping[str, str], package_name: str) -> None:
     manifest_paths = sorted(
         path
         for path in files
-        if path.startswith(f"src/{package_name}/capabilities/") and path.endswith(".json")
+        if path.startswith(f"src/{package_name}/capabilities/")
+        and path.endswith(".json")
     )
     if not manifest_paths:
         raise ValueError("generated project has no capability manifests")
     identifiers: set[str] = set()
     for path in manifest_paths:
         manifest = json.loads(files[path])
+        stale_fields = sorted(_LEGACY_CAPABILITY_FIELDS.intersection(manifest))
+        if stale_fields:
+            raise ValueError(
+                "generated capability manifests contain legacy field names: "
+                + ", ".join(stale_fields)
+            )
         errors = sorted(
             validator.iter_errors(manifest),
             key=lambda item: tuple(item.absolute_path),
@@ -180,16 +198,9 @@ def validate_generated_project(files: Mapping[str, str], package_name: str) -> N
     if "@sha256:" not in dockerfile or "COPY ${WHEEL}" not in dockerfile:
         raise ValueError("generated container must pin its base and copy the exact wheel")
     if "COPY src" in dockerfile or "pip install --no-cache-dir ." in dockerfile:
-        raise ValueError("generated container must not rebuild the application from source")
-
-    stale_manifest_fields = ("operational_impact", '"active"', '"side_effects"')
-    manifest_content = "\n".join(
-        content
-        for path, content in files.items()
-        if "/capabilities/" in path and path.endswith(".json")
-    )
-    if any(field in manifest_content for field in stale_manifest_fields):
-        raise ValueError("generated capability manifests contain legacy field names")
+        raise ValueError(
+            "generated container must not rebuild the application from source"
+        )
 
 
 def _write_files(root: Path, files: Mapping[str, str]) -> None:
@@ -200,8 +211,10 @@ def _write_files(root: Path, files: Mapping[str, str]) -> None:
         destination.write_text(content, encoding="utf-8", newline="\n")
     for directory, _, names in os.walk(root, topdown=False):
         for name in names:
-            with (Path(directory) / name).open("rb") as handle:
+            with (Path(directory) / name).open("r+b") as handle:
                 os.fsync(handle.fileno())
+        if os.name == "nt":
+            continue
         descriptor = os.open(directory, os.O_RDONLY)
         try:
             os.fsync(descriptor)
@@ -245,13 +258,16 @@ def _rename_noreplace(source: Path, destination: Path) -> None:
             raise OSError(error, os.strerror(error), destination)
         return
     if os.name == "nt":
-        move_file = ctypes.windll.kernel32.MoveFileW
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        move_file = kernel32.MoveFileW
         move_file.argtypes = [ctypes.c_wchar_p, ctypes.c_wchar_p]
         move_file.restype = ctypes.c_int
         if not move_file(str(source), str(destination)):
             error = ctypes.get_last_error()
             if error in {80, 183}:
                 raise FileExistsError(destination)
-            raise OSError(error, os.strerror(error), destination)
+            raise ctypes.WinError(error)
         return
-    raise RuntimeError(f"atomic no-replace publication is unsupported on {sys.platform}")
+    raise RuntimeError(
+        f"atomic no-replace publication is unsupported on {sys.platform}"
+    )
