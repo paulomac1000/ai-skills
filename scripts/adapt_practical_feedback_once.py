@@ -31,4 +31,20 @@ new = '''replace_once(
 if text.count(old) != 1:
     raise RuntimeError(f"expected one ambiguous quality-target replacement, found {text.count(old)}")
 text = text.replace(old, new, 1)
+
+old = '''replace_once(
+    "CHANGELOG.md",
+    "### Added\\n\\n",
+    "### Added\\n\\n- Added consumer-driven adoption discovery, immutable external consumer canaries, observed upstream-contract validation, and live-backend mutation-safety contracts derived from real MCP migrations.\\n- Added transport-by-capability authorization parity, profile-specific FastMCP consumer evidence, and a stable-version drift gate so changed stable skill contents cannot continue to identify as the previous release.\\n",
+)
+'''
+new = '''replace_once(
+    "CHANGELOG.md",
+    "## 1.3.0 - 2026-08-12\\n\\n### Added\\n\\n",
+    "## 1.3.0 - 2026-08-12\\n\\n### Added\\n\\n- Added consumer-driven adoption discovery, immutable external consumer canaries, observed upstream-contract validation, and live-backend mutation-safety contracts derived from real MCP migrations.\\n- Added transport-by-capability authorization parity, profile-specific FastMCP consumer evidence, and a stable-version drift gate so changed stable skill contents cannot continue to identify as the previous release.\\n",
+)
+'''
+if text.count(old) != 1:
+    raise RuntimeError(f"expected one generic changelog replacement, found {text.count(old)}")
+text = text.replace(old, new, 1)
 path.write_text(text, encoding="utf-8")
