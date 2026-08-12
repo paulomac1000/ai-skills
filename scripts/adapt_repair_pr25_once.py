@@ -54,5 +54,11 @@ for old, new, label in (
         raise RuntimeError(f"temporary repair {label} adapter expected one match, found {count}")
     text = text.replace(old, new, 1)
 
+old_decision_end = '    end = decision.index("}\\n\\n\\nfor _name", start) + 2\n'
+new_decision_end = '    end = decision.index("}\\n\\n\\ndef _load_cases", start) + 2\n'
+if text.count(old_decision_end) != 1:
+    raise RuntimeError("temporary repair decision adapter expected one match")
+text = text.replace(old_decision_end, new_decision_end, 1)
+
 text = text.replace('"--root",', '"--repository-root",')
 path.write_text(text, encoding="utf-8")
