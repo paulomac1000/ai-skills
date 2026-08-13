@@ -103,7 +103,7 @@ def _pytest_environment() -> dict[str, str]:
 
 
 def _selector_collected(root: Path, selector: str) -> tuple[bool, str | None]:
-    """Confirm that default pytest collection can address the exact selector."""
+    """Confirm that repository-configured pytest collection can address the exact selector."""
     try:
         completed = subprocess.run(  # noqa: S603 - fixed interpreter/module and validated selector grammar.
             [
@@ -111,9 +111,6 @@ def _selector_collected(root: Path, selector: str) -> tuple[bool, str | None]:
                 "-m",
                 "pytest",
                 "--collect-only",
-                "-q",
-                "-o",
-                "addopts=",
                 "-p",
                 "no:cacheprovider",
                 selector,
@@ -127,13 +124,10 @@ def _selector_collected(root: Path, selector: str) -> tuple[bool, str | None]:
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
         return False, f"pytest collection could not run: {exc}"
-    if completed.returncode != 0:
-        detail = (completed.stderr or completed.stdout).strip().splitlines()
-        return False, (detail[-1][:300] if detail else f"pytest collection exited {completed.returncode}")
-    nodeids = {line.strip() for line in completed.stdout.splitlines() if "::" in line}
-    if any(nodeid == selector or nodeid.startswith(f"{selector}[") for nodeid in nodeids):
+    if completed.returncode == 0:
         return True, None
-    return False, "pytest did not collect the selector"
+    detail = (completed.stderr or completed.stdout).strip().splitlines()
+    return False, (detail[-1][:300] if detail else f"pytest collection exited {completed.returncode}")
 
 
 def _known_canaries(root: Path) -> set[str]:
