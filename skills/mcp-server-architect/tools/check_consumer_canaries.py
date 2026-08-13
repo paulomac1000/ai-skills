@@ -43,11 +43,22 @@ def _materialize(repository: str, revision: str, target: Path) -> None:
         raise ValueError("consumer canary requires owner/name and a full lowercase commit SHA")
     target.mkdir(parents=True, exist_ok=False)
     _run(["git", "init", "-q"], cwd=target)
-    _run(["git", "-c", "core.hooksPath=/dev/null", "remote", "add", "origin", f"https://github.com/{repository}.git"], cwd=target)
-    _run(["git", "-c", "core.hooksPath=/dev/null", "fetch", "--depth=1", "--no-tags", "origin", revision], cwd=target)
+    _run(
+        ["git", "-c", "core.hooksPath=/dev/null", "remote", "add", "origin", f"https://github.com/{repository}.git"],
+        cwd=target,
+    )
+    _run(
+        ["git", "-c", "core.hooksPath=/dev/null", "fetch", "--depth=1", "--no-tags", "origin", revision],
+        cwd=target,
+    )
     _run(["git", "-c", "core.hooksPath=/dev/null", "checkout", "-q", "--detach", "FETCH_HEAD"], cwd=target)
     completed = subprocess.run(  # noqa: S603
-        ["git", "rev-parse", "HEAD"], cwd=target, check=True, capture_output=True, text=True, timeout=30
+        ["git", "rev-parse", "HEAD"],
+        cwd=target,
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=30,
     )
     if completed.stdout.strip() != revision:
         raise ValueError("materialized consumer revision does not match the canary pin")
@@ -125,12 +136,22 @@ def check_catalog(catalog_path: Path, workspace: Path, *, materialize: bool) -> 
 
         discovery_report = workspace / f"{canary_id}.discovery.json"
         discovery_report.write_text(
-            json.dumps({"proof_level": proof_level, "discovery": discovery}, indent=2, sort_keys=True) + "\n",
+            json.dumps(
+                {"proof_level": proof_level, "discovery": discovery},
+                indent=2,
+                sort_keys=True,
+            )
+            + "\n",
             encoding="utf-8",
         )
         plan_report = workspace / f"{canary_id}.plan.json"
         plan_report.write_text(
-            json.dumps({"proof_level": proof_level, "plan": plan}, indent=2, sort_keys=True) + "\n",
+            json.dumps(
+                {"proof_level": proof_level, "plan": plan},
+                indent=2,
+                sort_keys=True,
+            )
+            + "\n",
             encoding="utf-8",
         )
     return findings

@@ -57,7 +57,9 @@ def validate_claims(path: Path, *, repository_root: Path = ROOT) -> list[str]:
     schema = json.loads(SCHEMA.read_text(encoding="utf-8"))
     schema_findings = [
         f"schema: {'/'.join(str(part) for part in error.absolute_path) or '<root>'}: {error.message}"
-        for error in sorted(Draft202012Validator(schema).iter_errors(document), key=lambda item: list(item.absolute_path))
+        for error in sorted(
+            Draft202012Validator(schema).iter_errors(document), key=lambda item: list(item.absolute_path)
+        )
     ]
     if schema_findings:
         return schema_findings
