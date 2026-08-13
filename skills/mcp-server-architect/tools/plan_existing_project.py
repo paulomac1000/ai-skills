@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import importlib
 import json
 import os
 import re
@@ -20,8 +21,11 @@ for value in (str(ROOT), str(TOOLS)):
     if value not in sys.path:
         sys.path.insert(0, value)
 
-from contracts.rule_applicability import RuleContext, project_applicability
-from inspect_existing_project import inspect_repository
+_inspector_module = importlib.import_module("inspect_existing_project")
+_applicability_module = importlib.import_module("contracts.rule_applicability")
+inspect_repository = _inspector_module.inspect_repository
+RuleContext = _applicability_module.RuleContext
+project_applicability = _applicability_module.project_applicability
 
 LEVELS = {"L1", "L2", "L3", "L4"}
 SDK_PACKAGES = {
@@ -59,7 +63,7 @@ def _sdk_claim(repository_root: Path, discovery: dict[str, Any]) -> dict[str, An
     return {"package": package, "requirement": None, "status": "unknown"}
 
 
-def _context(discovery: dict[str, Any], target_level: str) -> RuleContext:
+def _context(discovery: dict[str, Any], target_level: str) -> Any:
     facts = discovery["facts"]
     profiles = {"mcp"}
     if facts["packaged"]:
@@ -105,9 +109,7 @@ def build_plan(repository_root: Path, *, target_level: str = "L2") -> dict[str, 
 
     parents = [_summary(dict(item)) for item in projection.parent_rules]
     controls = [_summary(dict(item)) for item in projection.child_controls]
-    evidence_types = sorted(
-        {evidence for item in (*parents, *controls) for evidence in item["required_evidence"]}
-    )
+    evidence_types = sorted({evidence for item in (*parents, *controls) for evidence in item["required_evidence"]})
 
     sdk_claim = _sdk_claim(repository_root, discovery)
     next_actions: list[str] = []

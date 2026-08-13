@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import importlib
 import json
 import os
 import sys
@@ -13,7 +14,9 @@ ROOT = Path(__file__).resolve().parents[3]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from contracts.mcp_public_contract import load_contract, render_comparison
+_contract_module = importlib.import_module("contracts.mcp_public_contract")
+load_contract = _contract_module.load_contract
+render_comparison = _contract_module.render_comparison
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import importlib
 import json
 import os
 import subprocess
@@ -14,7 +15,9 @@ ROOT = Path(__file__).resolve().parents[3]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from contracts.mcp_public_contract import normalize_contract, validate_contract
+_contract_module = importlib.import_module("contracts.mcp_public_contract")
+normalize_contract = _contract_module.normalize_contract
+validate_contract = _contract_module.validate_contract
 
 MAX_STDOUT_BYTES = 2 * 1024 * 1024
 PROVIDER_CREDENTIALS = {

@@ -42,7 +42,9 @@ def validate_contract(document: object) -> list[str]:
     validator = Draft202012Validator(_schema())
     findings = [
         f"{'/'.join(str(part) for part in error.absolute_path) or '<root>'}: {error.message}"
-        for error in sorted(validator.iter_errors(document), key=lambda item: tuple(str(part) for part in item.absolute_path))
+        for error in sorted(
+            validator.iter_errors(document), key=lambda item: tuple(str(part) for part in item.absolute_path)
+        )
     ]
     if findings or not isinstance(document, dict):
         return findings
@@ -142,7 +144,9 @@ def _schema_changes(
     else:
         for name in sorted(after_required - before_required):
             if name in before_properties:
-                changes.append(ContractChange("breaking", f"{pointer}/required/{name}", "existing input became required"))
+                changes.append(
+                    ContractChange("breaking", f"{pointer}/required/{name}", "existing input became required")
+                )
         for name in sorted(before_required - after_required):
             changes.append(ContractChange("additive", f"{pointer}/required/{name}", "required input became optional"))
 
