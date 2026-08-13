@@ -113,14 +113,38 @@ def test_untrusted_signals_only_escalate_bound_policy() -> None:
     assert sensitive_then_destructive.sensitive is True
 
 
-def test_boolean_server_trust_is_not_a_public_channel() -> None:
+def test_legacy_trust_call_shapes_are_accepted_but_fail_closed() -> None:
     engine = load_engine()
-    with pytest.raises(TypeError):
-        engine.infer_capability_profile(
-            "inventory.list",
-            {"annotations": {"readOnlyHint": True}},
-            trusted_server=True,
-        )
+    policy = engine.TrustedCapabilityPolicy(engine.Risk.READ, False, False, True)
+    contract = engine.TrustedCapabilityContract(engine.Risk.READ, True)
+
+    profile = engine.infer_capability_profile(
+        "inventory.list",
+        {"annotations": {"readOnlyHint": True}, "idempotent": True},
+        trusted_policy=policy,
+        trusted_contract=contract,
+        trusted_server=True,
+    )
+    assert profile.risk is engine.Risk.UNKNOWN
+    assert profile.idempotent is None
+    assert profile.source == "unknown"
+
+    escalation = engine.infer_capability_profile(
+        "inventory.update",
+        {},
+        trusted_policy=engine.TrustedCapabilityPolicy(engine.Risk.WRITE),
+    )
+    assert escalation.risk is engine.Risk.WRITE
+    assert "legacy-unbound-policy-escalation" in escalation.source
+
+    veto = engine.infer_capability_profile(
+        "inventory.update",
+        {},
+        trusted_contract=engine.TrustedCapabilityContract(engine.Risk.READ, False),
+    )
+    assert veto.risk is engine.Risk.UNKNOWN
+    assert veto.idempotent is False
+
     with pytest.raises(TypeError):
         engine.infer_capability_profile(
             "inventory.list",
@@ -133,6 +157,8 @@ def test_boolean_server_trust_is_not_a_public_channel() -> None:
             {"idempotent": True},
             trusted_contract=True,
         )
+    with pytest.raises(TypeError, match="trusted_server"):
+        engine.infer_capability_profile("inventory.list", {}, trusted_server="yes")
 
 
 def test_read_only_annotation_never_reduces_unknown_risk() -> None:

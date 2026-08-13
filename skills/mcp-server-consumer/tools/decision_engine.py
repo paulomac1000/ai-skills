@@ -4,6 +4,8 @@ The mature response, retry, pagination, and efficiency helpers remain in the
 internal compatibility module. This module owns the public trust boundary:
 discovered metadata can only increase risk or veto a positive claim, while any
 safety-reducing value must be bound to the exact reviewed capability identity.
+Legacy 1.2 call shapes remain accepted but are treated conservatively unless
+an exact identity binding is supplied.
 """
 
 from __future__ import annotations
@@ -104,17 +106,23 @@ class TrustedPolicyBinding:
 
 @dataclass(frozen=True, slots=True)
 class TrustedCapabilityPolicy:
-    """Consumer-owned policy values bound to one reviewed capability identity."""
+    """Consumer policy values; positive trust requires ``binding``.
 
-    binding: TrustedPolicyBinding
+    The field order intentionally preserves the 1.2 constructor shape. An
+    unbound legacy value remains accepted but is treated as untrusted input by
+    :func:`infer_capability_profile` and therefore cannot reduce risk or confer
+    positive idempotency.
+    """
+
     risk: object = None
     requires_confirmation: bool | None = None
     sensitive: bool | None = None
     idempotent: bool | None = None
+    binding: TrustedPolicyBinding | None = None
 
     def __post_init__(self) -> None:
-        if not isinstance(self.binding, TrustedPolicyBinding):
-            raise TypeError("binding must be TrustedPolicyBinding")
+        if self.binding is not None and not isinstance(self.binding, TrustedPolicyBinding):
+            raise TypeError("binding must be TrustedPolicyBinding or None")
         for field_name in (
             "requires_confirmation",
             "sensitive",
@@ -127,15 +135,19 @@ class TrustedCapabilityPolicy:
 
 @dataclass(frozen=True, slots=True)
 class TrustedCapabilityContract:
-    """Reviewed capability facts bound to server, schema, manifest, and target scope."""
+    """Reviewed capability facts; positive trust requires ``binding``.
 
-    binding: TrustedPolicyBinding
+    The legacy 1.2 constructor remains accepted so downstream callers can
+    migrate without a flag day. Unbound values are fail-closed at inference.
+    """
+
     risk: object = None
     idempotent: bool | None = None
+    binding: TrustedPolicyBinding | None = None
 
     def __post_init__(self) -> None:
-        if not isinstance(self.binding, TrustedPolicyBinding):
-            raise TypeError("binding must be TrustedPolicyBinding")
+        if self.binding is not None and not isinstance(self.binding, TrustedPolicyBinding):
+            raise TypeError("binding must be TrustedPolicyBinding or None")
         if self.idempotent is not None and type(self.idempotent) is not bool:
             raise TypeError("idempotent must be boolean or None")
 
@@ -146,10 +158,10 @@ def _validate_binding(
     invoked_name: str,
     field_name: str,
 ) -> None:
-    if value is None:
+    if value is None or value.binding is None:
         return
     if identity is None:
-        raise ValueError(f"identity is required when {field_name} is supplied")
+        raise ValueError(f"identity is required when bound {field_name} is supplied")
     if identity.tool_name != invoked_name:
         raise ValueError(f"{field_name} tool identity does not match invoked capability name")
     if value.binding.identity != identity:
@@ -167,28 +179,29 @@ def infer_capability_profile(
     identity: CapabilityIdentity | None = None,
     trusted_policy: TrustedCapabilityPolicy | None = None,
     trusted_contract: TrustedCapabilityContract | None = None,
+    trusted_server: bool = False,
 ) -> _CapabilityProfileResult:
     """Infer a fail-closed profile using exact, identity-bound trusted values.
 
     Server-discovered values and annotations never reduce risk, confer
     idempotency, or create trust. They may only escalate risk, require
     confirmation, mark confidentiality, or veto an idempotency claim.
+
+    ``trusted_server`` is retained as a 1.2 compatibility keyword only. It is
+    deliberately not a trust channel: setting it to true never turns a remote
+    annotation into a safety-reducing fact.
     """
 
     if not isinstance(name, str):
         raise TypeError("name must be a string")
     if identity is not None and not isinstance(identity, CapabilityIdentity):
         raise TypeError("identity must be CapabilityIdentity or None")
-    if trusted_policy is not None and not isinstance(
-        trusted_policy,
-        TrustedCapabilityPolicy,
-    ):
+    if trusted_policy is not None and not isinstance(trusted_policy, TrustedCapabilityPolicy):
         raise TypeError("trusted_policy must be TrustedCapabilityPolicy or None")
-    if trusted_contract is not None and not isinstance(
-        trusted_contract,
-        TrustedCapabilityContract,
-    ):
+    if trusted_contract is not None and not isinstance(trusted_contract, TrustedCapabilityContract):
         raise TypeError("trusted_contract must be TrustedCapabilityContract or None")
+    if type(trusted_server) is not bool:
+        raise TypeError("trusted_server must be boolean")
     if metadata is None:
         metadata = {}
     elif not isinstance(metadata, Mapping):
@@ -197,20 +210,33 @@ def infer_capability_profile(
     _validate_binding(trusted_policy, identity, name, "trusted_policy")
     _validate_binding(trusted_contract, identity, name, "trusted_contract")
 
-    policy_risk = _LEGACY._risk(trusted_policy.risk) if trusted_policy else Risk.UNKNOWN
-    contract_risk = _LEGACY._risk(trusted_contract.risk) if trusted_contract else Risk.UNKNOWN
+    policy_binding = trusted_policy.binding if trusted_policy is not None else None
+    contract_binding = trusted_contract.binding if trusted_contract is not None else None
+    if trusted_policy is None:
+        policy_risk = Risk.UNKNOWN
+    elif policy_binding is not None:
+        policy_risk = _LEGACY._risk(trusted_policy.risk)
+    else:
+        policy_risk = _LEGACY._untrusted_risk_signal(trusted_policy.risk)
+    if trusted_contract is None:
+        contract_risk = Risk.UNKNOWN
+    elif contract_binding is not None:
+        contract_risk = _LEGACY._risk(trusted_contract.risk)
+    else:
+        contract_risk = _LEGACY._untrusted_risk_signal(trusted_contract.risk)
+
     inferred = _LEGACY._higher_risk(policy_risk, contract_risk)
     source = "unknown"
-    if trusted_policy is not None and policy_risk is not Risk.UNKNOWN:
-        source = _source(
-            source,
-            f"consumer-policy:{trusted_policy.binding.source}",
-        )
-    if trusted_contract is not None and contract_risk is not Risk.UNKNOWN:
-        source = _source(
-            source,
-            f"consumer-contract:{trusted_contract.binding.source}",
-        )
+    if policy_risk is not Risk.UNKNOWN:
+        if policy_binding is not None:
+            source = _source(source, f"consumer-policy:{policy_binding.source}")
+        else:
+            source = _source(source, "legacy-unbound-policy-escalation")
+    if contract_risk is not Risk.UNKNOWN:
+        if contract_binding is not None:
+            source = _source(source, f"consumer-contract:{contract_binding.source}")
+        else:
+            source = _source(source, "legacy-unbound-contract-escalation")
 
     signals = (
         (
@@ -263,8 +289,14 @@ def infer_capability_profile(
         or (trusted_contract is not None and trusted_contract.idempotent is False)
     ):
         idempotent: bool | None = False
-    elif (trusted_policy is not None and trusted_policy.idempotent is True) or (
-        trusted_contract is not None and trusted_contract.idempotent is True
+    elif (
+        trusted_policy is not None
+        and policy_binding is not None
+        and trusted_policy.idempotent is True
+    ) or (
+        trusted_contract is not None
+        and contract_binding is not None
+        and trusted_contract.idempotent is True
     ):
         idempotent = True
     else:

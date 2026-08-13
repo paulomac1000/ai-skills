@@ -20,7 +20,7 @@
 - Made every rendered workflow template pass its declared policy profile and made the repository workflow profile explicit in `.github/workflow-policy.yaml`.
 - Clarified that AFDS `verification` is conditional on operational or normative rigor: governed metadata is canonical, while a `## Verification` section is a fallback only for legacy implicit-v1 documents that have no governed metadata.
 - Clarified the distinction between MCP protocol compatibility allowances, SDK implementation evidence, `ai-skills` transport policy, and controlled project exceptions.
-- Released `mcp-server-consumer` as `2.0.0` because trusted capability policy and contract values are now bound to an exact `CapabilityIdentity`; callers must provide `TrustedPolicyBinding`/`identity`, and the legacy `trusted_server` trust switch is no longer part of the public helper contract.
+- Hardened `mcp-server-consumer` trusted capability values with exact `CapabilityIdentity` bindings while preserving the 1.2 helper call shape: legacy unbound policy/contract inputs and `trusted_server=` remain accepted for migration compatibility, but they are fail-closed and cannot reduce risk or confer positive idempotency.
 
 ## 1.2.0 - 2026-07-28
 
