@@ -14,7 +14,7 @@ import sys
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 
 def _load_legacy() -> Any:
@@ -41,6 +41,15 @@ UserIntent = _LEGACY.UserIntent
 CapabilityProfile = _LEGACY.CapabilityProfile
 ERROR_STRATEGIES = _LEGACY.ERROR_STRATEGIES
 DEFAULT_ERROR_STRATEGY = _LEGACY.DEFAULT_ERROR_STRATEGY
+
+
+class _CapabilityProfileResult(Protocol):
+    risk: object
+    requires_confirmation: bool
+    sensitive: bool
+    idempotent: bool | None
+    source: str
+
 
 choose_initial_detail_params = _LEGACY.choose_initial_detail_params
 evaluate_decision = _LEGACY.evaluate_decision
@@ -158,7 +167,7 @@ def infer_capability_profile(
     identity: CapabilityIdentity | None = None,
     trusted_policy: TrustedCapabilityPolicy | None = None,
     trusted_contract: TrustedCapabilityContract | None = None,
-) -> Any:
+) -> _CapabilityProfileResult:
     """Infer a fail-closed profile using exact, identity-bound trusted values.
 
     Server-discovered values and annotations never reduce risk, confer

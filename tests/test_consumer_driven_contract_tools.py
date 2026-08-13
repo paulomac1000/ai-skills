@@ -135,12 +135,13 @@ def test_contract_capture_uses_exact_probe_and_strips_provider_credentials(
     probe.write_text(
         "import json, os, pathlib, sys\n"
         "doc=json.loads(pathlib.Path(sys.argv[1]).read_text())\n"
-        "if os.environ.get('GITHUB_TOKEN'): doc['server']['name']='credential-leaked'\n"
+        "if os.environ.get('GITHUB_TOKEN') or os.environ.get('AWS_SECRET_ACCESS_KEY'): doc['server']['name']='credential-leaked'\n"
         "print(json.dumps(doc))\n",
         encoding="utf-8",
     )
     output = tmp_path / "captured.json"
     monkeypatch.setenv("GITHUB_TOKEN", "must-not-reach-probe")
+    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "must-not-reach-probe-either")
 
     assert (
         capture.main(

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -33,13 +34,14 @@ class ContractComparison:
     version_satisfies: bool
 
 
-def _schema() -> dict[str, Any]:
-    return json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+@lru_cache(maxsize=1)
+def _validator() -> Draft202012Validator:
+    return Draft202012Validator(json.loads(SCHEMA_PATH.read_text(encoding="utf-8")))
 
 
 def validate_contract(document: object) -> list[str]:
     """Return schema and cross-field findings for one public-contract snapshot."""
-    validator = Draft202012Validator(_schema())
+    validator = _validator()
     findings = [
         f"{'/'.join(str(part) for part in error.absolute_path) or '<root>'}: {error.message}"
         for error in sorted(

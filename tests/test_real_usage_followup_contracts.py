@@ -95,6 +95,10 @@ def test_deployment_observation_rejects_naive_and_reversed_times(tmp_path: Path)
     base["result"]["completed_at"] = "2026-08-13T00:59:00Z"
     path.write_text(yaml.safe_dump(base), encoding="utf-8")
     assert any("must not precede" in finding for finding in validate_observation(path))
+    base["result"]["started_at"] = "2026-08-13T01:00:00"
+    base["result"]["completed_at"] = "2026-08-13T01:01:00Z"
+    path.write_text(yaml.safe_dump(base), encoding="utf-8")
+    assert any("timezone offset" in finding for finding in validate_observation(path))
 
 
 def test_field_feedback_validators_cover_schema_and_load_failures(tmp_path: Path) -> None:

@@ -92,7 +92,7 @@ def test_upstream_contract_rejects_inference_and_embedded_secret_keys(tmp_path: 
     contract["observations"][0]["confidence"] = "observed"
     contract["observations"][0]["api_key"] = "should-never-be-recorded"
     path.write_text(yaml.safe_dump(contract), encoding="utf-8")
-    assert validator.validate_contract(path)
+    assert any("api_key" in finding for finding in validator.validate_contract(path))
     contract["observations"][0].pop("api_key")
     contract["observations"][0]["evidence"] = ["probe api_key=plaintext-secret"]
     path.write_text(yaml.safe_dump(contract), encoding="utf-8")

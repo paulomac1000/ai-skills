@@ -8,7 +8,7 @@ from pathlib import Path
 import yaml
 
 from contracts.validate_atomic_claims import validate_catalog, validate_report
-from contracts.validate_capability_manifest import validate_manifest
+from contracts.validate_capability_manifest import _semantic_findings, validate_manifest
 
 ROOT = Path(__file__).resolve().parents[1]
 CATALOG = ROOT / "contracts/atomic-claim-catalog.yaml"
@@ -123,6 +123,35 @@ def test_write_flags_and_confirmation_are_fail_closed(tmp_path: Path) -> None:
     assert any("approval" in finding for finding in validate_manifest(path))
 
 
+def test_malformed_approval_bindings_do_not_crash_semantic_validation() -> None:
+    manifest = {
+        "operation_kind": "destructive",
+        "active_state": "active",
+        "requires_confirmation": True,
+        "approval": {"binds": [{}]},
+    }
+    assert _semantic_findings(manifest) == ["approval.binds must be a list of strings"]
+
+
+def test_atomic_report_schema_requires_checks_and_structured_residual_risks() -> None:
+    from jsonschema import Draft202012Validator
+
+    schema = json.loads((ROOT / "contracts/atomic-claim-report.schema.json").read_text(encoding="utf-8"))
+    validator = Draft202012Validator(schema)
+    report = {
+        "schema_version": 1,
+        "report_id": "schema-boundary",
+        "repository": {"name": "example/server", "revision": "1" * 40},
+        "skill": "mcp-server-architect",
+        "context": {"target_level": "L1", "profiles": [], "capabilities": []},
+        "checks": [],
+        "residual_risks": ["unowned risk"],
+    }
+    messages = [error.message for error in validator.iter_errors(report)]
+    assert any("non-empty" in message for message in messages)
+    assert any("not of type 'object'" in message for message in messages)
+
+
 def test_shell_boundary_adversarial_matrix_is_normative() -> None:
     reference = (ROOT / "skills/mcp-server-architect/references/principal-and-shell-boundaries.md").read_text(
         encoding="utf-8"
@@ -195,7 +224,7 @@ def test_atomic_report_cannot_pass_by_omitting_child_controls(tmp_path: Path) ->
     path = tmp_path / "atomic-report.yaml"
     path.write_text(yaml.safe_dump(report), encoding="utf-8")
     findings = validate_report(path, repository_root=ROOT)
-    assert any("missing applicable child controls" in finding for finding in findings)
+    assert any(finding.startswith("checks:") for finding in findings)
 
 
 def test_shared_projection_rejects_applicable_child_with_inapplicable_parent() -> None:

@@ -215,9 +215,9 @@ def infer_capability_profile(
     """Infer a fail-closed profile without upgrading untrusted metadata to policy."""
 
     if trusted_policy is not None and not isinstance(trusted_policy, _LegacyTrustedCapabilityPolicy):
-        raise TypeError("trusted_policy must be TrustedCapabilityPolicy or None")
+        raise TypeError("trusted_policy must be _LegacyTrustedCapabilityPolicy or None")
     if trusted_contract is not None and not isinstance(trusted_contract, _LegacyTrustedCapabilityContract):
-        raise TypeError("trusted_contract must be TrustedCapabilityContract or None")
+        raise TypeError("trusted_contract must be _LegacyTrustedCapabilityContract or None")
     if metadata is None:
         metadata = {}
     elif not isinstance(metadata, Mapping):

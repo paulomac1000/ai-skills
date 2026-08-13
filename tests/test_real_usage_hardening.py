@@ -327,7 +327,7 @@ def test_trusted_source_validator_rejects_authority_digest_and_unsafe_paths(tmp_
     try:
         link.symlink_to(outside, target_is_directory=True)
     except OSError:
-        return
+        pytest.skip("symlink creation is unavailable on this platform")
     with pytest.raises(ValueError, match="symlink components"):
         validator._safe_file(repository, "linked/secret.py", "local_path")
 

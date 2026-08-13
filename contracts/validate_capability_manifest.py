@@ -70,10 +70,13 @@ def _semantic_findings(
             findings.append("approval record policy is required for confirmation-protected capabilities")
         else:
             raw_binds = approval.get("binds", [])
-            binds = set(raw_binds) if isinstance(raw_binds, list) else set()
-            missing = sorted(_REQUIRED_APPROVAL_BINDINGS - binds)
-            if missing:
-                findings.append(f"approval.binds is missing {missing}")
+            if isinstance(raw_binds, list) and all(isinstance(binding, str) for binding in raw_binds):
+                binds = set(raw_binds)
+                missing = sorted(_REQUIRED_APPROVAL_BINDINGS - binds)
+                if missing:
+                    findings.append(f"approval.binds is missing {missing}")
+            else:
+                findings.append("approval.binds must be a list of strings")
     return findings
 
 

@@ -20,18 +20,24 @@ normalize_contract = _contract_module.normalize_contract
 validate_contract = _contract_module.validate_contract
 
 MAX_STDOUT_BYTES = 2 * 1024 * 1024
-PROVIDER_CREDENTIALS = {
-    "GITHUB_TOKEN",
-    "GH_TOKEN",
-    "CI_JOB_TOKEN",
-    "SYSTEM_ACCESSTOKEN",
+ALLOWED_ENVIRONMENT = {
+    "COMSPEC",
+    "LANG",
+    "LC_ALL",
+    "LC_CTYPE",
+    "PATH",
+    "PATHEXT",
+    "PYTHONHASHSEED",
+    "SYSTEMROOT",
+    "TEMP",
+    "TMP",
+    "TMPDIR",
+    "WINDIR",
 }
 
 
 def _run_probe(argv: list[str], working_directory: Path, timeout_seconds: int) -> bytes:
-    environment = dict(os.environ)
-    for name in PROVIDER_CREDENTIALS:
-        environment.pop(name, None)
+    environment = {name: value for name, value in os.environ.items() if name in ALLOWED_ENVIRONMENT}
     completed = subprocess.run(  # noqa: S603 - exact argv is supplied by the operator; shell is never used.
         argv,
         cwd=working_directory,

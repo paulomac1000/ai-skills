@@ -84,6 +84,7 @@
         ],
         "type": "object"
       },
+      "minItems": 1,
       "type": "array"
     },
     "context": {
@@ -144,6 +145,33 @@
       "type": "object"
     },
     "residual_risks": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "blocking": {
+            "type": "boolean"
+          },
+          "mitigation": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "owner": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "risk": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "risk",
+          "owner",
+          "mitigation",
+          "blocking"
+        ],
+        "type": "object"
+      },
       "type": "array"
     },
     "schema_version": {
