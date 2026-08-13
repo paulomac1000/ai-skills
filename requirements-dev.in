@@ -7,7 +7,7 @@ pip-audit==2.10.1
 pytest==9.1.1
 pytest-cov==7.1.0
 PyYAML==6.0.3
-ruff==0.16.0
+ruff==0.16.2
 setuptools==83.0.0
 types-jsonschema==4.26.0.20260518
 types-PyYAML==6.0.12.20260724
