@@ -25,8 +25,18 @@ SCHEMA = ROOT / "contracts/consumer-feedback.schema.json"
 SELECTOR = re.compile(r"^(tests/[A-Za-z0-9_.\-/]+\.py)::(test_[A-Za-z0-9_]+)$")
 _FENCE_OPEN = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
 _PYTEST_ENVIRONMENT_ALLOWLIST = {
-    "COMSPEC", "LANG", "LC_ALL", "LC_CTYPE", "PATH", "PATHEXT", "PYTHONHASHSEED",
-    "SYSTEMROOT", "TEMP", "TMP", "TMPDIR", "WINDIR",
+    "COMSPEC",
+    "LANG",
+    "LC_ALL",
+    "LC_CTYPE",
+    "PATH",
+    "PATHEXT",
+    "PYTHONHASHSEED",
+    "SYSTEMROOT",
+    "TEMP",
+    "TMP",
+    "TMPDIR",
+    "WINDIR",
 }
 _PYTEST_COLLECT_SCRIPT = """
 import json
@@ -138,11 +148,7 @@ def _known_canaries(root: Path) -> set[str]:
     entries = raw.get("canaries")
     if not isinstance(entries, list):
         return set()
-    return {
-        str(entry.get("id"))
-        for entry in entries
-        if isinstance(entry, dict) and isinstance(entry.get("id"), str)
-    }
+    return {str(entry.get("id")) for entry in entries if isinstance(entry, dict) and isinstance(entry.get("id"), str)}
 
 
 def validate_registry(path: Path, *, repository_root: Path = ROOT) -> list[str]:
@@ -154,7 +160,9 @@ def validate_registry(path: Path, *, repository_root: Path = ROOT) -> list[str]:
     schema = json.loads(SCHEMA.read_text(encoding="utf-8"))
     schema_findings = [
         f"schema: {'/'.join(str(part) for part in error.absolute_path) or '<root>'}: {error.message}"
-        for error in sorted(Draft202012Validator(schema).iter_errors(document), key=lambda item: list(item.absolute_path))
+        for error in sorted(
+            Draft202012Validator(schema).iter_errors(document), key=lambda item: list(item.absolute_path)
+        )
     ]
     if schema_findings:
         return schema_findings
