@@ -48,16 +48,23 @@ GIT_ENVIRONMENT_ALLOWLIST = {
     "TMPDIR",
     "USERPROFILE",
     "WINDIR",
+    "all_proxy",
     "http_proxy",
     "https_proxy",
     "no_proxy",
 }
+_PROXY_ALIASES = ("all_proxy", "http_proxy", "https_proxy", "no_proxy")
 
 
 def _git_environment() -> dict[str, str]:
     environment = {
         name: value for name, value in os.environ.items() if name in GIT_ENVIRONMENT_ALLOWLIST or name.startswith("LC_")
     }
+    casefolded = {name.casefold(): value for name, value in os.environ.items()}
+    for alias in _PROXY_ALIASES:
+        value = casefolded.get(alias)
+        if value is not None:
+            environment[alias] = value
     environment.update(
         {
             "GIT_TERMINAL_PROMPT": "0",
