@@ -3,6 +3,7 @@ canaries:
   - id: home-automation-fastmcp
     repository: paulomac1000/ha-mcp-readonly
     revision: 4dd4adaec2ac9a3f7b39edb4f208fd53a6e6703c
+    proof_level: source-inspection
     expected:
       facts.language: python
       facts.sdk_profile: python-fastmcp-package
@@ -15,6 +16,7 @@ canaries:
   - id: legacy-financial-official-sdk
     repository: paulomac1000/kontomierz-mcp
     revision: c1030d5e922a4eeae45287295627c88396cf47fa
+    proof_level: source-inspection
     expected:
       facts.language: python
       facts.sdk_profile: python-official-mcp

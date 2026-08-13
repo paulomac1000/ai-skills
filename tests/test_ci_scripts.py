@@ -10,7 +10,7 @@ from types import ModuleType
 
 import pytest
 
-from scripts import quality_targets, select_lock
+from scripts import ci_environment, quality_targets, select_lock
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -19,6 +19,7 @@ def load(path: Path, name: str) -> ModuleType:
     spec = importlib.util.spec_from_file_location(name, path)
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
+    sys.modules.setdefault("ci_environment", ci_environment)
     sys.modules.setdefault("quality_targets", quality_targets)
     sys.modules.setdefault("select_lock", select_lock)
     sys.modules[name] = module
@@ -43,21 +44,9 @@ def test_install_locked_uses_exact_file_hash_enforcement_and_pip_check(monkeypat
     lock.write_text("pytest==9.1.1 --hash=sha256:" + "a" * 64 + "\n", encoding="utf-8")
     calls: list[tuple[list[str], dict[str, object]]] = []
     monkeypatch.setattr(installer, "selected_lock", lambda: lock)
-    monkeypatch.setattr(
-        installer.subprocess,
-        "run",
-        lambda command, **kwargs: calls.append((command, kwargs)),
-    )
+    monkeypatch.setattr(installer.subprocess, "run", lambda command, **kwargs: calls.append((command, kwargs)))
     assert installer.main() == 0
-    assert calls[0][0] == [
-        sys.executable,
-        "-m",
-        "pip",
-        "install",
-        "--require-hashes",
-        "-r",
-        str(lock),
-    ]
+    assert calls[0][0] == [sys.executable, "-m", "pip", "install", "--require-hashes", "-r", str(lock)]
     assert calls[0][1] == {"check": True, "timeout": 900}
     assert calls[1][0] == [sys.executable, "-m", "pip", "check"]
     assert calls[1][1] == {"check": True, "timeout": 120}
@@ -75,11 +64,12 @@ def test_local_ci_runs_every_bounded_gate(monkeypatch, tmp_path: Path) -> None:
     assert any("mypy" in command for command in flattened)
     assert any("bandit" in command for command in flattened)
     assert any("pip_audit" in command and "target.lock" in command for command in flattened)
+    assert any("validate_consumer_feedback.py" in command for command in flattened)
     assert any("coverage run --branch" in command for command in flattened)
     assert sum("coverage report" in command for command in flattened) >= 3
 
 
-def test_local_ci_run_wrapper_is_bounded(monkeypatch) -> None:
+def test_local_ci_run_wrapper_is_bounded_and_environment_isolated(monkeypatch) -> None:
     ci = load(ROOT / "scripts/ci.py", "local_ci_run_contract")
     observed: dict[str, object] = {}
 
@@ -88,12 +78,18 @@ def test_local_ci_run_wrapper_is_bounded(monkeypatch) -> None:
         observed.update(kwargs)
         return subprocess.CompletedProcess(command, 0)
 
+    monkeypatch.setenv("OPENCODE_STACK_LAUNCHED", "1")
+    monkeypatch.setenv("PROJECT_GATE_INPUT", "session-value")
     monkeypatch.setattr(ci.subprocess, "run", fake_run)
     ci.run("python", "-V")
     assert observed["command"] == ("python", "-V")
     assert observed["cwd"] == ROOT
     assert observed["check"] is True
     assert observed["timeout"] == ci.COMMAND_TIMEOUT_SECONDS
+    environment = observed["env"]
+    assert isinstance(environment, dict)
+    assert "OPENCODE_STACK_LAUNCHED" not in environment
+    assert "PROJECT_GATE_INPUT" not in environment
 
 
 def test_local_ci_stops_when_compilation_fails(monkeypatch) -> None:

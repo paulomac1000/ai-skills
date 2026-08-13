@@ -5,7 +5,7 @@ type: reference
 status: active
 rigor: operational
 owners: [repository-maintainers]
-verification: Install the generated hooks in a disposable checkout and verify both success and bounded failure paths.
+verification: Install the generated hooks in a disposable checkout and verify success, bounded failure, and environment-isolation paths.
 ---
 
 # Local quality gates
@@ -13,6 +13,14 @@ verification: Install the generated hooks in a disposable checkout and verify bo
 ## Budget
 
 Pre-commit should normally finish in seconds. It may format changed files, lint changed or cheap project scopes, validate syntax, check secrets with local rules, and validate directly affected documentation. Pre-push may run a bounded parity command such as `python scripts/ci.py` or a focused solution test.
+
+## Environment isolation
+
+A local gate that is used as evidence MUST define what environment it inherits. Session-specific launch markers, temporary feature flags, developer shell state, unrelated application variables, or secrets must not silently change the result of the repository quality command.
+
+Prefer a minimal infrastructure allowlist (`PATH`, home/temp paths, locale, virtual-environment identity, certificate/proxy settings required for the declared gate) plus explicit repository-owned passthroughs. `scripts/ci_environment.py` is the reference implementation used by this repository. Extra variables are opt-in through `AI_SKILLS_CI_PASSTHROUGH`; the control variable itself is not passed to child commands.
+
+When a project intentionally requires an environment variable, name it in the gate contract and test both absence and presence. Do not “fix” a false red by globally inheriting the interactive session. Re-run environment-sensitive failures in the declared clean environment before classifying them as code defects.
 
 ## Prohibited local-hook behavior
 
@@ -77,6 +85,8 @@ Test all of the following in a disposable checkout:
 - a clean pass;
 - a known formatter or lint failure;
 - a known focused-test failure when tests are in scope;
+- an unrelated session variable that must not change the gate result;
+- an explicitly allowed project variable that is passed only through the declared contract;
 - a partially staged file with additional unstaged edits;
 - a filename containing spaces or non-ASCII characters;
 - the timeout path;

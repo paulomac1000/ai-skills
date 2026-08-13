@@ -8,6 +8,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+from ci_environment import build_clean_environment, configured_passthrough
 from quality_targets import BANDIT_PATHS, POLICY_COVERAGE_PATHS, QUALITY_PATHS, TYPE_PATHS
 from select_lock import selected_lock
 
@@ -18,7 +19,8 @@ COMMAND_TIMEOUT_SECONDS = 900
 def run(*command: str) -> None:
     """Run one visible, bounded quality command from the repository root."""
     print("+", " ".join(command), flush=True)
-    subprocess.run(command, cwd=ROOT, check=True, timeout=COMMAND_TIMEOUT_SECONDS)
+    environment = build_clean_environment(extra_allowed=configured_passthrough())
+    subprocess.run(command, cwd=ROOT, env=environment, check=True, timeout=COMMAND_TIMEOUT_SECONDS)
 
 
 def main() -> int:
@@ -41,6 +43,7 @@ def main() -> int:
         "contracts",
         "skills",
     )
+    run(sys.executable, "contracts/validate_consumer_feedback.py")
     run(
         sys.executable,
         "-m",

@@ -5,7 +5,7 @@ type: reference
 status: active
 rigor: operational
 owners: [repository-maintainers]
-verification: Run the consumer-canary CI job against every immutable revision in contracts/consumer-canaries.yaml and review drift before changing normative migration guidance.
+verification: Validate contracts/consumer-feedback.yaml, run the consumer-canary CI job against every immutable revision in contracts/consumer-canaries.yaml, and review drift before changing normative migration guidance.
 ---
 
 # Consumer-driven validation
@@ -14,24 +14,37 @@ verification: Run the consumer-canary CI job against every immutable revision in
 
 Synthetic generators prove a baseline, but they do not prove that an existing repository can be discovered and migrated without false assumptions. Reusable findings from real migrations therefore become one of three artifacts: a standard invariant, an executable validator, or an immutable external consumer canary. New prose without one of those enforcement paths is incomplete remediation.
 
+`contracts/consumer-feedback.yaml` is the lesson ledger. Every accepted field incident records the observed failure mode, the generalized invariant, one canonical owner, and exact `tests/file.py::test_name` regression selectors. `contracts/validate_consumer_feedback.py` rejects stale anchors, missing tests, duplicate incidents, and unknown consumer-canary references. This keeps “lessons learned” from becoming an unaudited prose backlog.
+
 ## Cheap source canary
 
-`check_consumer_canaries.py` fetches exact public commit SHAs, never executes consumer code, and runs the bounded read-only inspector plus the executable adoption planner. The catalog records only facts that discovery must continue to identify correctly. This lane is safe for every pull request and catches regressions in SDK routing, upstream discovery, packaging, external-test discovery, applicability projection, and progressive planning.
+`check_consumer_canaries.py` fetches exact public commit SHAs, never executes consumer code, and runs the bounded read-only inspector plus the executable adoption planner. Every catalog entry declares `proof_level: source-inspection`. The catalog records only facts that discovery must continue to identify correctly. This lane is safe for every pull request and catches regressions in SDK routing, upstream discovery, packaging, external-test discovery, applicability projection, and progressive planning.
+
+A source canary does **not** prove that the consumer starts, that a hook reaches the effective prompt, that an MCP tool executes, or that an integration activates. Those are behavior claims and require a behavior canary.
 
 The canary catalog is intentionally the only repository file allowed to contain the concrete consumer repository names. Those names are regression evidence, not normative examples or domain-specific guidance.
+
+## Behavior canaries
+
+A compatibility or shape probe proves only the property it actually exercised. Field presence, importability, schema compatibility, or a discovered configuration key must never be reported as proof that the runtime uses that field.
+
+A behavior canary exercises the public path in a fresh process/session and records the exact subject/build version, exact argv or public operation, and observed sentinel/result. For durable instruction claims, store that observation in the runtime-probe format consumed by `contracts/validate_operational_claims.py`. A stale version, changed argv, non-fresh context, or mismatched observed value invalidates the claim.
+
+External prerequisites may make a behavior canary unavailable. Record `not executed` or keep the claim unresolved; never promote a source-only or shape-only pass into runtime support.
 
 ## Required validation ladder
 
 Consumer feedback is promoted in this order:
 
-1. reproduce the downstream failure on an immutable consumer revision;
+1. reproduce the downstream failure on an immutable consumer revision or preserve an operator field report with concrete evidence;
 2. reduce it to the smallest reusable fact or boundary;
-3. encode that boundary in a schema, validator, planner rule, or contract-diff rule;
-4. add a repository regression that fails for the historical mistake;
-5. run source-only discovery and planning against the pinned real consumer canary;
-6. require the normal exact-head repository gate before the remediation is accepted.
+3. record it in `contracts/consumer-feedback.yaml` with a canonical owner;
+4. encode that boundary in a schema, validator, planner rule, contract-diff rule, or other executable control;
+5. add an exact regression selector that fails for the historical mistake;
+6. when consumer discovery is involved, run source-only discovery and planning against the pinned real consumer canary;
+7. require the normal exact-head repository gate before the remediation is accepted.
 
-A new normative paragraph without steps 3-5 is incomplete. A synthetic test without an immutable real-consumer canary is useful but does not close a consumer-discovery regression by itself.
+A new normative paragraph without steps 3-5 is incomplete. A synthetic test without an immutable real-consumer canary is useful but does not close a consumer-discovery regression by itself. Conversely, incidents about local-gate environment isolation or runtime instruction drift do not need an artificial MCP consumer canary when the reusable failure can be reproduced directly.
 
 ## Public-contract and SemVer gate
 
@@ -57,4 +70,4 @@ Deployment observations are supplementary execution evidence. They do not grant 
 
 ## Promotion rule
 
-A consumer incident is generalized only after reproducing the actual failure. The preferred loop is `consumer failure -> minimal fact discovery -> generic invariant -> executable check -> consumer canary -> exact-head repository gate`. A bot suggestion or theoretical edge case without a reproduced contract violation does not outrank this loop.
+A consumer incident is generalized only after reproducing the actual failure or preserving a concrete field observation. The preferred loop is `consumer failure -> minimal fact discovery -> feedback ledger -> generic invariant -> executable check -> consumer canary when applicable -> exact-head repository gate`. A bot suggestion or theoretical edge case without a reproduced contract violation does not outrank this loop.

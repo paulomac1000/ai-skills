@@ -1,0 +1,79 @@
+schema_version: 1
+incidents:
+  - id: mcp.upstream-discovery-before-refactor
+    source_kind: external-consumer
+    source_canaries: [legacy-financial-official-sdk]
+    failure_mode: Architecture work proceeded before the real legacy upstream request and response dialect had been observed.
+    generalized_invariant: An uncertain external or legacy backend is observed and recorded before the adapter or public MCP contract is restructured.
+    canonical_owner: skills/mcp-server-architect/references/upstream-contract-discovery.md#entry-gate
+    regression_selectors:
+      - tests/test_practical_consumer_feedback.py::test_inspector_routes_fastmcp_and_requires_upstream_discovery
+      - tests/test_practical_consumer_feedback.py::test_upstream_contract_rejects_inference_and_embedded_secret_keys
+    status: implemented
+
+  - id: mcp.live-mutation-test-safety
+    source_kind: external-consumer
+    source_canaries: [legacy-financial-official-sdk]
+    failure_mode: Ordinary test execution could reach a real mutable backend and cleanup was not resilient to partial success.
+    generalized_invariant: Live mutating tests are excluded by default, require independent opt-ins, delay credentials, and reconcile cleanup.
+    canonical_owner: skills/mcp-server-architect/references/upstream-contract-discovery.md#safe-live-probes
+    regression_selectors:
+      - tests/test_practical_consumer_feedback.py::test_live_backend_policy_requires_two_opt_ins_and_reconciliation
+    status: implemented
+
+  - id: mcp.public-contract-semver
+    source_kind: external-consumer
+    source_canaries: [legacy-financial-official-sdk]
+    failure_mode: A migration changed public MCP behavior while retaining a version that did not communicate the breaking contract change.
+    generalized_invariant: Public MCP contracts are captured from exact artifacts and contract diffs mechanically determine the minimum SemVer bump.
+    canonical_owner: skills/mcp-server-architect/references/consumer-driven-validation.md#public-contract-and-semver-gate
+    regression_selectors:
+      - tests/test_consumer_driven_contract_tools.py::test_public_contract_diff_rejects_minor_for_new_required_input
+      - tests/test_consumer_driven_contract_tools.py::test_public_contract_diff_treats_policy_semantics_as_breaking
+    status: implemented
+
+  - id: cicd.credential-bearing-source-integrity
+    source_kind: external-consumer
+    source_canaries: [home-automation-fastmcp]
+    failure_mode: A credential-bearing evidence collector used an independent immutable revision without the same content-digest authority as the verifier.
+    generalized_invariant: Every executable that receives provider credentials or contributes acceptance evidence is bound by one immutable digest-verified trust inventory.
+    canonical_owner: skills/ci-cd-architect/references/trusted-executable-sources.md#one-trust-inventory
+    regression_selectors:
+      - tests/test_real_usage_hardening.py::test_trusted_source_lock_binds_authority_and_vendored_bytes
+    status: implemented
+
+  - id: agents.runtime-capability-staleness
+    source_kind: field-report
+    failure_mode: Durable agent instructions stated an external runtime capability as verified even though the claim became false in a newer build.
+    generalized_invariant: External runtime capability claims are bound to one exact product or build version and fresh-context probe evidence.
+    canonical_owner: skills/agents-md-architect/references/anti-patterns-and-drift.md#runtime-capability-staleness
+    regression_selectors:
+      - tests/test_field_feedback_regressions.py::test_runtime_capability_claim_is_bound_to_exact_version_argv_and_fresh_context
+    status: implemented
+
+  - id: cicd.local-gate-environment-isolation
+    source_kind: field-report
+    failure_mode: A local quality gate inherited session-specific environment state and reported failures that did not reproduce in a clean execution context.
+    generalized_invariant: Authoritative local quality commands run with an explicit minimal environment contract and opt-in passthrough for project variables.
+    canonical_owner: skills/ci-cd-architect/references/local-quality-gates.md#environment-isolation
+    regression_selectors:
+      - tests/test_field_feedback_regressions.py::test_clean_environment_strips_session_state_and_requires_explicit_passthrough
+    status: implemented
+
+  - id: agents.operational-mirror-drift
+    source_kind: field-report
+    failure_mode: A hand-maintained service registry disagreed with the canonical runtime configuration and caused an audit to reason from stale state.
+    generalized_invariant: Durable operational state is read from one canonical configuration source and any mirrored claim is mechanically checked against it.
+    canonical_owner: skills/agents-md-architect/references/anti-patterns-and-drift.md#hand-maintained-operational-mirrors
+    regression_selectors:
+      - tests/test_field_feedback_regressions.py::test_configuration_state_claim_fails_when_canonical_config_drifts
+    status: implemented
+
+  - id: agents.shape-only-runtime-canary
+    source_kind: field-report
+    failure_mode: A compatibility probe proved only that a field existed while instructions treated that shape check as proof of effective runtime behavior.
+    generalized_invariant: Source and shape canaries declare their limited proof level; behavior claims require fresh-context execution evidence.
+    canonical_owner: skills/mcp-server-architect/references/consumer-driven-validation.md#behavior-canaries
+    regression_selectors:
+      - tests/test_field_feedback_regressions.py::test_real_consumer_canaries_state_their_proof_boundary
+    status: implemented
