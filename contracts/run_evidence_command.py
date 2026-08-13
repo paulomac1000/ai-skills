@@ -166,7 +166,8 @@ def _execute_bounded(
         returncode = process.wait(timeout=5)
     except subprocess.TimeoutExpired:
         _terminate_process_tree(process)
-        returncode = process.poll() if process.poll() is not None else -1
+        polled = process.poll()
+        returncode = -1 if polled is None else polled
         execution_error = _append_error(execution_error, "command process tree did not terminate promptly")
         failure_status = failure_status or 125
 
