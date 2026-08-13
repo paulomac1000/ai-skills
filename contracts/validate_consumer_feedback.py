@@ -141,7 +141,9 @@ def validate_registry(path: Path, *, repository_root: Path = ROOT) -> list[str]:
                 findings.append(f"{incident_id}: regression file could not be parsed: {exc}")
                 continue
             if test_name not in names:
-                findings.append(f"{incident_id}: regression selector does not name an existing top-level test: {raw_selector}")
+                findings.append(
+                    f"{incident_id}: regression selector does not name an existing top-level test: {raw_selector}"
+                )
     return findings
 
 

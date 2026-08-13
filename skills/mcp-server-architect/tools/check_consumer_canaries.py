@@ -46,9 +46,7 @@ GIT_ENVIRONMENT_ALLOWLIST = {
 
 def _git_environment() -> dict[str, str]:
     environment = {
-        name: value
-        for name, value in os.environ.items()
-        if name in GIT_ENVIRONMENT_ALLOWLIST or name.startswith("LC_")
+        name: value for name, value in os.environ.items() if name in GIT_ENVIRONMENT_ALLOWLIST or name.startswith("LC_")
     }
     environment.update(
         {
