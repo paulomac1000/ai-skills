@@ -50,7 +50,9 @@ def test_feedback_selector_respects_repository_pytest_addopts(tmp_path: Path) ->
 
     findings = validate_registry(path, repository_root=tmp_path)
 
-    assert (
+    expected = (
         "field.repository-collection-policy: regression selector is not collectable by pytest: "
         "tests/test_filtered.py::test_filtered"
-    ) in findings
+    )
+    matching = [finding for finding in findings if finding.startswith(expected)]
+    assert len(matching) == 1
