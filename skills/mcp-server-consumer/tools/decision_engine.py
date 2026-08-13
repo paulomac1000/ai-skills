@@ -179,7 +179,7 @@ def infer_capability_profile(
     identity: CapabilityIdentity | None = None,
     trusted_policy: TrustedCapabilityPolicy | None = None,
     trusted_contract: TrustedCapabilityContract | None = None,
-    trusted_server: bool = False,
+    **legacy_options: Any,
 ) -> _CapabilityProfileResult:
     """Infer a fail-closed profile using exact, identity-bound trusted values.
 
@@ -187,11 +187,15 @@ def infer_capability_profile(
     idempotency, or create trust. They may only escalate risk, require
     confirmation, mark confidentiality, or veto an idempotency claim.
 
-    ``trusted_server`` is retained as a 1.2 compatibility keyword only. It is
-    deliberately not a trust channel: setting it to true never turns a remote
-    annotation into a safety-reducing fact.
+    The removed 1.2 ``trusted_server=`` keyword is accepted through the legacy
+    keyword compatibility boundary, but it is deliberately not part of the
+    public signature and never turns remote metadata into trusted input.
     """
 
+    trusted_server = legacy_options.pop("trusted_server", False)
+    if legacy_options:
+        unexpected = ", ".join(sorted(str(name) for name in legacy_options))
+        raise TypeError(f"unexpected keyword argument(s): {unexpected}")
     if not isinstance(name, str):
         raise TypeError("name must be a string")
     if identity is not None and not isinstance(identity, CapabilityIdentity):
