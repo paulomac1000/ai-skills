@@ -135,7 +135,10 @@ required:
 - templates/upstream-contract.yaml.template
 - templates/live-backend-test-policy.yaml.template
 - tools/inspect_existing_project.py
+- tools/plan_existing_project.py
 - tools/check_consumer_canaries.py
+- tools/capture_mcp_contract.py
+- tools/compare_mcp_contracts.py
 - tools/generate_python_server.py
 - tools/generate_dotnet_server.py
 - locks/python-runtime.in

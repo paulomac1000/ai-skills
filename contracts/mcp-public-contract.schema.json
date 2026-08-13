@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/paulomac1000/ai-skills/blob/main/contracts/mcp-public-contract.schema.json",
+  "title": "Observed MCP public contract",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format", "schema_version", "source_revision", "artifact", "server", "sdk", "transports", "authentication", "tools"],
+  "properties": {
+    "format": {"const": "ai-skills-mcp-public-contract"},
+    "schema_version": {"const": 1},
+    "source_revision": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "identity", "digest"],
+      "properties": {
+        "kind": {"enum": ["wheel", "container", "dll", "executable", "other"]},
+        "identity": {"type": "string", "minLength": 1, "maxLength": 512},
+        "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+      }
+    },
+    "server": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1, "maxLength": 128},
+        "version": {"type": "string", "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$"}
+      }
+    },
+    "sdk": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["profile", "version"],
+      "properties": {
+        "profile": {"type": "string", "minLength": 1, "maxLength": 128},
+        "version": {"type": "string", "minLength": 1, "maxLength": 128}
+      }
+    },
+    "transports": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"enum": ["stdio", "streamable_http"]}
+    },
+    "authentication": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["required", "mechanism", "target_selection"],
+      "properties": {
+        "required": {"type": "boolean"},
+        "mechanism": {"type": "string", "minLength": 1, "maxLength": 128},
+        "target_selection": {"type": "string", "minLength": 1, "maxLength": 256}
+      }
+    },
+    "tools": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "version", "input_schema", "error_contract", "pagination", "retry_semantics", "target_selection"],
+        "properties": {
+          "name": {"type": "string", "pattern": "^[A-Za-z0-9_.:-]{1,128}$"},
+          "version": {"type": "string", "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$"},
+          "input_schema": {"type": "object"},
+          "output_schema": {"type": "object"},
+          "error_contract": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 256}},
+          "pagination": {"type": "string", "minLength": 1, "maxLength": 256},
+          "retry_semantics": {"type": "string", "minLength": 1, "maxLength": 256},
+          "target_selection": {"type": "string", "minLength": 1, "maxLength": 256}
+        }
+      }
+    }
+  }
+}

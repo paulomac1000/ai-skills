@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate source-only adoption discovery against exact real-consumer revisions."""
+"""Validate source-only adoption discovery and planning against exact real-consumer revisions."""
 
 from __future__ import annotations
 
@@ -13,15 +13,19 @@ from typing import Any
 
 import yaml
 from inspect_existing_project import inspect_repository
+from plan_existing_project import build_plan
 
 REPOSITORY = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
 FULL_SHA = re.compile(r"[0-9a-f]{40}")
 CANARY_ID = re.compile(r"[a-z0-9][a-z0-9-]{0,63}")
+TARGET_LEVELS = {"L1", "L2", "L3", "L4"}
 
 
 def _run(argv: list[str], *, cwd: Path, timeout: int = 120) -> None:
     environment = dict(os.environ)
     environment.update({"GIT_TERMINAL_PROMPT": "0", "GIT_CONFIG_NOSYSTEM": "1"})
+    for name in ("GITHUB_TOKEN", "GH_TOKEN", "CI_JOB_TOKEN", "SYSTEM_ACCESSTOKEN"):
+        environment.pop(name, None)
     subprocess.run(  # noqa: S603 - fixed git executable and validated repository/SHA inputs.
         argv,
         cwd=cwd,
@@ -100,8 +104,12 @@ def check_catalog(catalog_path: Path, workspace: Path, *, materialize: bool) -> 
         canary_id = str(entry.get("id") or "")
         repository = str(entry.get("repository") or "")
         revision = str(entry.get("revision") or "")
+        target_level = str(entry.get("target_level") or "L2")
         if CANARY_ID.fullmatch(canary_id) is None:
             findings.append(f"canaries[{index}].id is invalid")
+            continue
+        if target_level not in TARGET_LEVELS:
+            findings.append(f"{canary_id}: target_level must be one of {sorted(TARGET_LEVELS)}")
             continue
         if REPOSITORY.fullmatch(repository) is None or FULL_SHA.fullmatch(revision) is None:
             findings.append(f"canaries[{index}] must pin owner/name at an immutable full SHA")
@@ -125,8 +133,20 @@ def check_catalog(catalog_path: Path, workspace: Path, *, materialize: bool) -> 
                 continue
             if observed != expected_value:
                 findings.append(f"{canary_id}: {dotted} expected {expected_value!r}, observed {observed!r}")
-        report = workspace / f"{canary_id}.discovery.json"
-        report.write_text(json.dumps(discovery, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+        plan = build_plan(target, target_level=target_level)
+        if plan.get("format") != "ai-skills-mcp-adoption-plan":
+            findings.append(f"{canary_id}: adoption planner returned an unexpected format")
+        if not plan.get("applicable_rules") or not plan.get("applicable_controls"):
+            findings.append(f"{canary_id}: adoption planner produced an empty applicability projection")
+        if discovery["facts"]["external_upstream"] and discovery["plan"]["upstream_contract"] == "required":
+            if not any("upstream-contract.yaml" in action for action in plan.get("next_actions", [])):
+                findings.append(f"{canary_id}: adoption plan lost the upstream-contract discovery gate")
+
+        discovery_report = workspace / f"{canary_id}.discovery.json"
+        discovery_report.write_text(json.dumps(discovery, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        plan_report = workspace / f"{canary_id}.plan.json"
+        plan_report.write_text(json.dumps(plan, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return findings
 
 
