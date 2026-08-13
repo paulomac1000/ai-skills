@@ -32,32 +32,36 @@ def _git_show(base: str, path: str) -> str | None:
     return completed.stdout if completed.returncode == 0 else None
 
 
+def _git_output(argv: list[str], operation: str) -> str:
+    completed = subprocess.run(  # noqa: S603 - fixed git executable and explicit argv.
+        ["git", *argv],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    if completed.returncode != 0:
+        detail = completed.stderr.strip() or completed.stdout.strip() or "git command failed"
+        raise ValueError(f"{operation}: {detail}")
+    return completed.stdout
+
+
 def _changed_paths(base: str) -> set[str]:
     # CI fetches the immutable base object shallowly. Comparing the two endpoint
     # trees does not require merge-base history and is exactly what this gate needs.
-    completed = subprocess.run(  # noqa: S603
-        ["git", "diff", "--name-only", base, "HEAD"],
-        cwd=ROOT,
-        check=True,
-        capture_output=True,
-        text=True,
-        timeout=30,
-    )
-    return {line.strip() for line in completed.stdout.splitlines() if line.strip()}
+    output = _git_output(["diff", "--name-only", base, "HEAD"], "cannot compare release base")
+    return {line.strip() for line in output.splitlines() if line.strip()}
 
 
 def _base_manifest_paths(base: str) -> set[str]:
-    completed = subprocess.run(  # noqa: S603
-        ["git", "ls-tree", "-r", "--name-only", base, "--", "skills"],
-        cwd=ROOT,
-        check=True,
-        capture_output=True,
-        text=True,
-        timeout=30,
+    output = _git_output(
+        ["ls-tree", "-r", "--name-only", base, "--", "skills"],
+        "cannot enumerate stable skills at release base",
     )
     return {
         line.strip()
-        for line in completed.stdout.splitlines()
+        for line in output.splitlines()
         if line.strip().startswith("skills/") and line.strip().endswith("/manifest.yaml")
     }
 
@@ -70,12 +74,17 @@ def _stable_triplet(value: object, skill_name: str) -> tuple[int, int, int]:
 
 
 def validate_version_bumps(base: str) -> list[str]:
-    changed = _changed_paths(base)
+    try:
+        changed = _changed_paths(base)
+        base_manifests = _base_manifest_paths(base)
+    except (OSError, subprocess.SubprocessError, ValueError) as exc:
+        return [f"release base could not be validated: {exc}"]
     shared_contract_change = any(path.startswith("contracts/") for path in changed)
     findings: list[str] = []
-    for relative in sorted(_base_manifest_paths(base)):
+    for relative in sorted(base_manifests):
         old_text = _git_show(base, relative)
         if old_text is None:
+            findings.append(f"{relative}: base manifest could not be loaded")
             continue
         previous = yaml.safe_load(old_text)
         if not isinstance(previous, dict) or previous.get("maturity") != "stable":

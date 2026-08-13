@@ -16,6 +16,11 @@ import yaml
 from jsonschema import Draft202012Validator
 
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from contracts.confined_io import confined_regular_file  # noqa: E402
+
 SCHEMA = ROOT / "contracts/consumer-feedback.schema.json"
 SELECTOR = re.compile(r"^(tests/[A-Za-z0-9_.\-/]+\.py)::(test_[A-Za-z0-9_]+)$")
 _FENCE_OPEN = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
@@ -33,22 +38,24 @@ _PYTEST_ENVIRONMENT_ALLOWLIST = {
     "TMPDIR",
     "WINDIR",
 }
+_PYTEST_COLLECT_SCRIPT = """
+import json
+import pytest
+import sys
 
+class Capture:
+    def __init__(self):
+        self.nodeids = []
 
-def _safe_file(root: Path, raw: str) -> Path:
-    candidate = Path(raw)
-    if candidate.is_absolute() or "\\" in raw or ".." in candidate.parts:
-        raise ValueError(f"unsafe repository path: {raw}")
-    current = root.resolve(strict=True)
-    for part in candidate.parts:
-        current = current / part
-        if current.is_symlink():
-            raise ValueError(f"repository path contains a symlink: {raw}")
-    resolved = (root / candidate).resolve(strict=True)
-    resolved.relative_to(root.resolve(strict=True))
-    if not resolved.is_file():
-        raise ValueError(f"repository path is not a regular file: {raw}")
-    return resolved
+    def pytest_collection_finish(self, session):
+        self.nodeids = [item.nodeid for item in session.items]
+
+capture = Capture()
+status = pytest.main(["--collect-only", "-p", "no:cacheprovider", *sys.argv[1:]], plugins=[capture])
+print("AI_SKILLS_COLLECTED=" + json.dumps(capture.nodeids, separators=(",", ":")))
+raise SystemExit(status)
+""".strip()
+_COLLECT_PREFIX = "AI_SKILLS_COLLECTED="
 
 
 def _slug(title: str) -> str:
@@ -102,19 +109,13 @@ def _pytest_environment() -> dict[str, str]:
     return environment
 
 
-def _selector_collected(root: Path, selector: str) -> tuple[bool, str | None]:
-    """Confirm that repository-configured pytest collection can address the exact selector."""
+def _collect_nodeids(root: Path, test_files: set[str]) -> tuple[set[str], str | None]:
+    """Collect all referenced modules once under the repository's own pytest configuration."""
+    if not test_files:
+        return set(), None
     try:
-        completed = subprocess.run(  # noqa: S603 - fixed interpreter/module and validated selector grammar.
-            [
-                sys.executable,
-                "-m",
-                "pytest",
-                "--collect-only",
-                "-p",
-                "no:cacheprovider",
-                selector,
-            ],
+        completed = subprocess.run(  # noqa: S603 - fixed interpreter/code and schema-validated repository paths.
+            [sys.executable, "-c", _PYTEST_COLLECT_SCRIPT, *sorted(test_files)],
             cwd=root,
             env=_pytest_environment(),
             check=False,
@@ -123,11 +124,24 @@ def _selector_collected(root: Path, selector: str) -> tuple[bool, str | None]:
             timeout=30,
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
-        return False, f"pytest collection could not run: {exc}"
-    if completed.returncode == 0:
-        return True, None
-    detail = (completed.stderr or completed.stdout).strip().splitlines()
-    return False, (detail[-1][:300] if detail else f"pytest collection exited {completed.returncode}")
+        return set(), f"pytest collection could not run: {exc}"
+    payload_line = next(
+        (line for line in reversed(completed.stdout.splitlines()) if line.startswith(_COLLECT_PREFIX)),
+        None,
+    )
+    if payload_line is None:
+        detail = (completed.stderr or completed.stdout).strip().splitlines()
+        return set(), detail[-1][:300] if detail else f"pytest collection exited {completed.returncode}"
+    try:
+        raw_nodeids = json.loads(payload_line[len(_COLLECT_PREFIX) :])
+    except json.JSONDecodeError as exc:
+        return set(), f"pytest collection returned invalid node ids: {exc}"
+    if completed.returncode != 0:
+        detail = completed.stderr.strip().splitlines()
+        return set(), detail[-1][:300] if detail else f"pytest collection exited {completed.returncode}"
+    if not isinstance(raw_nodeids, list) or not all(isinstance(item, str) for item in raw_nodeids):
+        return set(), "pytest collection returned an invalid node-id payload"
+    return set(raw_nodeids), None
 
 
 def _known_canaries(root: Path) -> set[str]:
@@ -165,7 +179,8 @@ def validate_registry(path: Path, *, repository_root: Path = ROOT) -> list[str]:
     except (OSError, UnicodeDecodeError, yaml.YAMLError) as exc:
         return [f"consumer canary catalog could not be loaded: {exc}"]
     seen: set[str] = set()
-    collection_cache: dict[str, tuple[bool, str | None]] = {}
+    pending_selectors: list[tuple[str, str]] = []
+    test_files: set[str] = set()
     for incident in incidents:
         assert isinstance(incident, dict)
         incident_id = str(incident["id"])
@@ -177,11 +192,12 @@ def validate_registry(path: Path, *, repository_root: Path = ROOT) -> list[str]:
                 findings.append(f"{incident_id}: unknown source canary {canary!r}")
         owner, anchor = str(incident["canonical_owner"]).split("#", 1)
         try:
-            owner_path = _safe_file(root, owner)
-        except (OSError, ValueError) as exc:
+            owner_path = confined_regular_file(root, owner)
+            anchors = _heading_anchors(owner_path)
+        except (OSError, UnicodeDecodeError, ValueError) as exc:
             findings.append(f"{incident_id}: invalid canonical owner: {exc}")
         else:
-            if anchor not in _heading_anchors(owner_path):
+            if anchor not in anchors:
                 findings.append(f"{incident_id}: canonical owner anchor #{anchor} does not exist")
         for raw_selector in incident["regression_selectors"]:
             selector = str(raw_selector)
@@ -191,7 +207,7 @@ def validate_registry(path: Path, *, repository_root: Path = ROOT) -> list[str]:
                 continue
             test_path_raw, test_name = match.groups()
             try:
-                test_path = _safe_file(root, test_path_raw)
+                test_path = confined_regular_file(root, test_path_raw)
             except (OSError, ValueError) as exc:
                 findings.append(f"{incident_id}: invalid regression path: {exc}")
                 continue
@@ -206,13 +222,19 @@ def validate_registry(path: Path, *, repository_root: Path = ROOT) -> list[str]:
                     f"(must be a top-level test): {raw_selector}"
                 )
                 continue
-            if selector not in collection_cache:
-                collection_cache[selector] = _selector_collected(root, selector)
-            collected, detail = collection_cache[selector]
-            if not collected:
-                findings.append(
-                    f"{incident_id}: regression selector is not collectable by pytest: {selector} ({detail})"
-                )
+            pending_selectors.append((incident_id, selector))
+            test_files.add(test_path_raw)
+
+    nodeids, collection_error = _collect_nodeids(root, test_files)
+    if collection_error is not None:
+        for incident_id, selector in pending_selectors:
+            findings.append(
+                f"{incident_id}: regression selector is not collectable by pytest: {selector} ({collection_error})"
+            )
+    else:
+        for incident_id, selector in pending_selectors:
+            if not any(nodeid == selector or nodeid.startswith(f"{selector}[") for nodeid in nodeids):
+                findings.append(f"{incident_id}: regression selector is not collectable by pytest: {selector}")
     return findings
 
 

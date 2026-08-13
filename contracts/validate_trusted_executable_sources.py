@@ -21,6 +21,19 @@ DEFAULT_SCHEMA = Path(__file__).with_name("trusted-executable-sources.schema.jso
 MAX_LOCK_BYTES = 512 * 1024
 MAX_SOURCE_BYTES = 8 * 1024 * 1024
 GITHUB_REPOSITORY = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
+_GIT_ENVIRONMENT_ALLOWLIST = {
+    "COMSPEC",
+    "LANG",
+    "LC_ALL",
+    "LC_CTYPE",
+    "PATH",
+    "PATHEXT",
+    "SYSTEMROOT",
+    "TEMP",
+    "TMP",
+    "TMPDIR",
+    "WINDIR",
+}
 
 
 def _load(path: Path) -> Mapping[str, Any]:
@@ -74,9 +87,27 @@ def _digest(path: Path) -> str:
     return f"sha256:{digest.hexdigest()}"
 
 
+def _git_environment() -> dict[str, str]:
+    environment = {
+        name: value
+        for name, value in os.environ.items()
+        if name in _GIT_ENVIRONMENT_ALLOWLIST or name.startswith("LC_")
+    }
+    environment.update(
+        {
+            "GIT_CONFIG_GLOBAL": os.devnull,
+            "GIT_CONFIG_NOSYSTEM": "1",
+            "GIT_OPTIONAL_LOCKS": "0",
+            "GIT_TERMINAL_PROMPT": "0",
+        }
+    )
+    return environment
+
+
 def _git(root: Path, *args: str) -> str:
     completed = subprocess.run(  # noqa: S603 - fixed git executable and argument vector.
-        ["git", "-C", str(root), *args],
+        ["git", "-c", "core.fsmonitor=false", "-c", "core.pager=cat", "-C", str(root), *args],
+        env=_git_environment(),
         check=False,
         capture_output=True,
         text=True,
@@ -90,7 +121,7 @@ def _git(root: Path, *args: str) -> str:
 
 def _repository_from_remote(value: str) -> str:
     remote = value.strip()
-    prefixes = ("https://github.com/", "http://github.com/", "ssh://git@github.com/")
+    prefixes = ("https://github.com/", "ssh://git@github.com/")
     for prefix in prefixes:
         if remote.startswith(prefix):
             remote = remote[len(prefix) :]
@@ -99,7 +130,7 @@ def _repository_from_remote(value: str) -> str:
         if remote.startswith("git@github.com:"):
             remote = remote[len("git@github.com:") :]
         else:
-            raise ValueError("authority origin must be a GitHub owner/name remote")
+            raise ValueError("authority origin must be a secure GitHub owner/name remote")
     remote = remote.rstrip("/")
     if remote.endswith(".git"):
         remote = remote[:-4]

@@ -115,6 +115,28 @@ def confined_candidate(path: Path, repository_root: Path) -> tuple[Path, Path]:
     return candidate, root
 
 
+def confined_regular_file(repository_root: Path, raw: str) -> Path:
+    """Resolve one POSIX relative repository path without following link-like components."""
+    if not raw or "\\" in raw:
+        raise ValueError(f"unsafe repository path: {raw}")
+    relative = Path(raw)
+    if relative.is_absolute() or any(part in {"", ".", ".."} for part in relative.parts):
+        raise ValueError(f"unsafe repository path: {raw}")
+    root = repository_root.resolve(strict=True)
+    current = root
+    for part in relative.parts:
+        current /= part
+        metadata = os.lstat(current)
+        if is_link_or_reparse(metadata):
+            raise ValueError(f"repository path contains a symlink or reparse point: {raw}")
+    resolved = current.resolve(strict=True)
+    resolved.relative_to(root)
+    metadata = resolved.stat()
+    if not stat.S_ISREG(metadata.st_mode):
+        raise ValueError(f"repository path is not a regular file: {raw}")
+    return resolved
+
+
 def read_utf8_bounded(path: Path, repository_root: Path, max_bytes: int) -> tuple[str, int]:
     """Read one stable regular UTF-8 file using a strict maximum allocation."""
     try:

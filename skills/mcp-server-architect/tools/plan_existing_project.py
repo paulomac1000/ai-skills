@@ -34,6 +34,7 @@ SDK_PACKAGES = {
     "python-fastmcp-package": "fastmcp",
 }
 _WILDCARD_VERSION_COMPONENT = re.compile(r"(?:^|[._+-])[xX](?:$|[._+-])")
+_PIP_INLINE_OPTION = re.compile(r"\s+--[A-Za-z0-9][A-Za-z0-9_-]*(?:=|\s+)")
 
 
 def _is_exact_requirement(requirement: str) -> bool:
@@ -44,6 +45,38 @@ def _is_exact_requirement(requirement: str) -> bool:
         return False
     version = match.group(1)
     return "*" not in version and _WILDCARD_VERSION_COMPONENT.search(version) is None
+
+
+def _logical_requirements(text: str) -> list[str]:
+    """Join pip continuation lines and remove inline installer options from requirement entries."""
+    entries: list[str] = []
+    current: list[str] = []
+    for raw_line in text.splitlines():
+        stripped = raw_line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        continued = stripped.endswith("\\")
+        fragment = stripped[:-1].rstrip() if continued else stripped
+        current.append(fragment)
+        if continued:
+            continue
+        logical = " ".join(current).strip()
+        current = []
+        if not logical or logical.startswith("-"):
+            continue
+        option = _PIP_INLINE_OPTION.search(logical)
+        if option is not None:
+            logical = logical[: option.start()].rstrip()
+        if logical:
+            entries.append(logical)
+    if current:
+        logical = " ".join(current).strip()
+        option = _PIP_INLINE_OPTION.search(logical)
+        if option is not None:
+            logical = logical[: option.start()].rstrip()
+        if logical and not logical.startswith("-"):
+            entries.append(logical)
+    return entries
 
 
 def _dependency_specs(repository_root: Path, document: dict[str, Any]) -> list[str]:
@@ -57,11 +90,8 @@ def _dependency_specs(repository_root: Path, document: dict[str, Any]) -> list[s
         repository_root.glob("requirements*.in")
     ):
         text = _regular_text(candidate)
-        if text is None:
-            continue
-        specs.extend(
-            line.strip() for line in text.splitlines() if line.strip() and not line.lstrip().startswith(("#", "-"))
-        )
+        if text is not None:
+            specs.extend(_logical_requirements(text))
     return specs
 
 
@@ -85,9 +115,8 @@ def _sdk_claim(repository_root: Path, discovery: dict[str, Any]) -> dict[str, An
     requirements: list[str] = []
     for raw in _dependency_specs(repository_root, document):
         match = package_pattern.match(raw)
-        if match is None:
-            continue
-        requirements.append(match.group(1).strip() or "unconstrained")
+        if match is not None:
+            requirements.append(match.group(1).strip() or "unconstrained")
     if not requirements:
         return {"package": package, "requirement": None, "status": "unknown"}
     unique_requirements = list(dict.fromkeys(requirements))

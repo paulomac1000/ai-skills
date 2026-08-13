@@ -45,6 +45,7 @@ BASE_ALLOWED = frozenset(
         "PYTHONHASHSEED",
     }
 )
+_CONTROL_VARIABLE = "AI_SKILLS_CI_PASSTHROUGH"
 
 
 def build_clean_environment(
@@ -54,7 +55,7 @@ def build_clean_environment(
 ) -> dict[str, str]:
     """Return infrastructure variables only, plus explicitly named passthroughs."""
     original = os.environ if source is None else source
-    allowed = BASE_ALLOWED | frozenset(name for name in extra_allowed if name)
+    allowed = BASE_ALLOWED | frozenset(name for name in extra_allowed if name and name != _CONTROL_VARIABLE)
     result = {name: value for name, value in original.items() if name in allowed or name.startswith("LC_")}
     result.setdefault("PYTHONUTF8", "1")
     return result
@@ -63,5 +64,5 @@ def build_clean_environment(
 def configured_passthrough(source: Mapping[str, str] | None = None) -> tuple[str, ...]:
     """Read explicit local-gate passthrough names without passing the control variable itself."""
     original = os.environ if source is None else source
-    raw = original.get("AI_SKILLS_CI_PASSTHROUGH", "")
-    return tuple(sorted({part.strip() for part in raw.split(",") if part.strip()}))
+    raw = original.get(_CONTROL_VARIABLE, "")
+    return tuple(sorted({part.strip() for part in raw.split(",") if part.strip() and part.strip() != _CONTROL_VARIABLE}))

@@ -8,6 +8,7 @@ import hashlib
 import json
 import os
 import re
+import signal
 import subprocess
 import sys
 import threading
@@ -38,6 +39,7 @@ class _CapturedStream:
     data: bytearray = field(default_factory=bytearray)
     bytes_seen: int = 0
     overflow: bool = False
+    error: str | None = None
 
     def observation(self) -> dict[str, Any]:
         payload = bytes(self.data)
@@ -49,7 +51,7 @@ def _drain_stream(
     capture: _CapturedStream,
     *,
     limit: int,
-    overflow_event: threading.Event,
+    abort_event: threading.Event,
 ) -> None:
     try:
         while chunk := source.read(PIPE_READ_BYTES):
@@ -59,9 +61,58 @@ def _drain_stream(
                 capture.data.extend(chunk[:remaining])
             if capture.bytes_seen > limit:
                 capture.overflow = True
-                overflow_event.set()
+                abort_event.set()
+    except (OSError, ValueError) as exc:
+        capture.error = f"{type(exc).__name__}: {exc}"
+        abort_event.set()
     finally:
         source.close()
+
+
+def _spawn_process(argv: list[str], cwd: Path) -> subprocess.Popen[bytes]:
+    if os.name == "nt":
+        return subprocess.Popen(  # noqa: S603 - exact argv; shell is never used.
+            argv,
+            cwd=cwd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            creationflags=getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0),
+        )
+    return subprocess.Popen(  # noqa: S603 - exact argv; shell is never used.
+        argv,
+        cwd=cwd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        start_new_session=True,
+    )
+
+
+def _terminate_process_tree(process: subprocess.Popen[bytes]) -> None:
+    if os.name == "nt":
+        try:
+            subprocess.run(  # noqa: S603,S607 - fixed system utility and numeric PID.
+                ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                check=False,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=5,
+            )
+        except (OSError, subprocess.SubprocessError):
+            pass
+    else:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except OSError:
+            pass
+    if process.poll() is None:
+        try:
+            process.kill()
+        except OSError:
+            pass
+
+
+def _append_error(existing: str | None, message: str) -> str:
+    return f"{existing}; {message}" if existing else message
 
 
 def _execute_bounded(
@@ -71,27 +122,22 @@ def _execute_bounded(
     timeout_seconds: int,
     max_output_bytes: int,
 ) -> tuple[int, _CapturedStream, _CapturedStream, str | None, int | None]:
-    process = subprocess.Popen(  # noqa: S603
-        argv,
-        cwd=cwd,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
+    process = _spawn_process(argv, cwd)
     assert process.stdout is not None and process.stderr is not None
-    overflow_event = threading.Event()
+    abort_event = threading.Event()
     stdout_capture = _CapturedStream()
     stderr_capture = _CapturedStream()
     threads = [
         threading.Thread(
             target=_drain_stream,
             args=(process.stdout, stdout_capture),
-            kwargs={"limit": max_output_bytes, "overflow_event": overflow_event},
+            kwargs={"limit": max_output_bytes, "abort_event": abort_event},
             daemon=True,
         ),
         threading.Thread(
             target=_drain_stream,
             args=(process.stderr, stderr_capture),
-            kwargs={"limit": max_output_bytes, "overflow_event": overflow_event},
+            kwargs={"limit": max_output_bytes, "abort_event": abort_event},
             daemon=True,
         ),
     ]
@@ -101,24 +147,45 @@ def _execute_bounded(
     execution_error: str | None = None
     failure_status: int | None = None
     while process.poll() is None:
-        if overflow_event.wait(timeout=0.02):
-            execution_error = f"command output exceeded {max_output_bytes} bytes per stream"
-            failure_status = 125
-            process.kill()
+        if abort_event.wait(timeout=0.02):
+            if stdout_capture.overflow or stderr_capture.overflow:
+                execution_error = f"command output exceeded {max_output_bytes} bytes per stream"
+                failure_status = 125
+            else:
+                detail = stdout_capture.error or stderr_capture.error or "unknown stream error"
+                execution_error = f"command output capture failed: {detail}"
+                failure_status = 125
+            _terminate_process_tree(process)
             break
         if time.monotonic() >= deadline:
             execution_error = f"command exceeded timeout of {timeout_seconds} seconds"
             failure_status = 124
-            process.kill()
+            _terminate_process_tree(process)
             break
-    returncode = process.wait()
+    try:
+        returncode = process.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        _terminate_process_tree(process)
+        returncode = process.poll() if process.poll() is not None else -1
+        execution_error = _append_error(execution_error, "command process tree did not terminate promptly")
+        failure_status = failure_status or 125
+
     for thread in threads:
         thread.join(timeout=5)
     if any(thread.is_alive() for thread in threads):
-        raise RuntimeError("command output drain did not terminate")
+        _terminate_process_tree(process)
+        for thread in threads:
+            thread.join(timeout=5)
+    if any(thread.is_alive() for thread in threads):
+        execution_error = _append_error(execution_error, "command output drain did not terminate")
+        failure_status = failure_status or 125
     if execution_error is None and (stdout_capture.overflow or stderr_capture.overflow):
         execution_error = f"command output exceeded {max_output_bytes} bytes per stream"
         failure_status = 125
+    if stdout_capture.error or stderr_capture.error:
+        detail = stdout_capture.error or stderr_capture.error or "unknown stream error"
+        execution_error = _append_error(execution_error, f"command output capture failed: {detail}")
+        failure_status = failure_status or 125
     return returncode, stdout_capture, stderr_capture, execution_error, failure_status
 
 

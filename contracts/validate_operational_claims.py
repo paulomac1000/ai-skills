@@ -12,6 +12,8 @@ from typing import Any
 import yaml
 from jsonschema import Draft202012Validator
 
+from contracts.confined_io import confined_regular_file
+
 ROOT = Path(__file__).resolve().parents[1]
 SCHEMA = ROOT / "contracts/operational-claims.schema.json"
 _NON_EXACT_VERSION = re.compile(
@@ -19,22 +21,6 @@ _NON_EXACT_VERSION = re.compile(
     re.IGNORECASE,
 )
 _RANGE_SYNTAX = re.compile(r"(?:^|[\s,])(?:==|!=|~=|>=|<=|>|<)|[?*|]|\s+-\s+")
-
-
-def _safe_file(root: Path, raw: str) -> Path:
-    candidate = Path(raw)
-    if candidate.is_absolute() or "\\" in raw or ".." in candidate.parts:
-        raise ValueError(f"unsafe repository path: {raw}")
-    current = root.resolve(strict=True)
-    for part in candidate.parts:
-        current = current / part
-        if current.is_symlink():
-            raise ValueError(f"repository path contains a symlink: {raw}")
-    resolved = (root / candidate).resolve(strict=True)
-    resolved.relative_to(root.resolve(strict=True))
-    if not resolved.is_file():
-        raise ValueError(f"repository path is not a regular file: {raw}")
-    return resolved
 
 
 def _lookup(document: Any, selector: str) -> Any:
@@ -89,7 +75,7 @@ def validate_claims(path: Path, *, repository_root: Path = ROOT) -> list[str]:
             source = claim["canonical_source"]
             assert isinstance(source, dict)
             try:
-                source_path = _safe_file(root, str(source["path"]))
+                source_path = confined_regular_file(root, str(source["path"]))
                 value = _lookup(_load_structured(source_path, str(source["format"])), str(source["selector"]))
             except (OSError, UnicodeDecodeError, ValueError, KeyError, json.JSONDecodeError, yaml.YAMLError) as exc:
                 findings.append(f"{claim_id}: canonical configuration could not be resolved: {exc}")
@@ -107,7 +93,7 @@ def validate_claims(path: Path, *, repository_root: Path = ROOT) -> list[str]:
         if _is_non_exact_version(version):
             findings.append(f"{claim_id}: runtime capability claims require one exact observed product/build version")
         try:
-            evidence_path = _safe_file(root, str(evidence["path"]))
+            evidence_path = confined_regular_file(root, str(evidence["path"]))
             observation = json.loads(evidence_path.read_text(encoding="utf-8"))
         except (OSError, UnicodeDecodeError, ValueError, json.JSONDecodeError) as exc:
             findings.append(f"{claim_id}: runtime probe evidence could not be loaded: {exc}")
