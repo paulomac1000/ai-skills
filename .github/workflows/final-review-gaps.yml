@@ -1,5 +1,4 @@
 # disposable exact-head repair; deleted by the resulting commit
-# trigger after workflow registration
 name: Final trust evidence review gaps
 
 on:
@@ -9,6 +8,7 @@ on:
     paths:
       - .github/workflows/final-review-gaps.yml
       - scripts/repair_final_review_gaps.py
+      - scripts/adapt_final_review_gaps.py
 
 permissions:
   contents: write
@@ -34,10 +34,12 @@ jobs:
           cache-dependency-path: requirements-dev-linux-x64-py313.lock
       - name: Install reviewed dependency graph
         run: python -m pip install --require-hashes -r requirements-dev-linux-x64-py313.lock
+      - name: Align synthetic authority fixtures
+        run: python scripts/adapt_final_review_gaps.py
       - name: Apply final review fixes
         run: python scripts/repair_final_review_gaps.py
       - name: Remove temporary repair machinery
-        run: git rm -f .github/workflows/final-review-gaps.yml scripts/repair_final_review_gaps.py
+        run: git rm -f .github/workflows/final-review-gaps.yml scripts/repair_final_review_gaps.py scripts/adapt_final_review_gaps.py
       - name: Format and focused regressions
         run: |
           python -m ruff check --fix contracts scripts skills tests
@@ -51,6 +53,7 @@ jobs:
           git diff --check
           test ! -e .github/workflows/final-review-gaps.yml
           test ! -e scripts/repair_final_review_gaps.py
+          test ! -e scripts/adapt_final_review_gaps.py
       - name: Commit and push
         run: |
           git config user.name "github-actions[bot]"
