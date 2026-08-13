@@ -7,6 +7,7 @@ import argparse
 import importlib
 import json
 import os
+import signal
 import subprocess
 import sys
 import threading
@@ -46,9 +47,10 @@ class _CapturedStream:
     data: bytearray = field(default_factory=bytearray)
     bytes_seen: int = 0
     overflow: bool = False
+    error: str | None = None
 
 
-def _drain_stream(source: BinaryIO, capture: _CapturedStream, overflow_event: threading.Event) -> None:
+def _drain_stream(source: BinaryIO, capture: _CapturedStream, abort_event: threading.Event) -> None:
     try:
         while chunk := source.read(PIPE_READ_BYTES):
             capture.bytes_seen += len(chunk)
@@ -57,27 +59,72 @@ def _drain_stream(source: BinaryIO, capture: _CapturedStream, overflow_event: th
                 capture.data.extend(chunk[:remaining])
             if capture.bytes_seen > MAX_PROBE_OUTPUT_BYTES:
                 capture.overflow = True
-                overflow_event.set()
+                abort_event.set()
+    except (OSError, ValueError) as exc:
+        capture.error = f"{type(exc).__name__}: {exc}"
+        abort_event.set()
     finally:
         source.close()
 
 
-def _run_probe(argv: list[str], working_directory: Path, timeout_seconds: int) -> bytes:
-    environment = {name: value for name, value in os.environ.items() if name in ALLOWED_ENVIRONMENT}
-    process = subprocess.Popen(  # noqa: S603 - exact argv is supplied by the operator; shell is never used.
+def _spawn_probe(
+    argv: list[str], working_directory: Path, environment: dict[str, str]
+) -> subprocess.Popen[bytes]:
+    if os.name == "nt":
+        return subprocess.Popen(  # noqa: S603 - exact argv is supplied by the operator; shell is never used.
+            argv,
+            cwd=working_directory,
+            env=environment,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            creationflags=getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0),
+        )
+    return subprocess.Popen(  # noqa: S603 - exact argv is supplied by the operator; shell is never used.
         argv,
         cwd=working_directory,
         env=environment,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
+        start_new_session=True,
     )
+
+
+def _terminate_process_tree(process: subprocess.Popen[bytes], environment: dict[str, str]) -> None:
+    """Best-effort terminate the probe and descendants without invoking a shell."""
+    if os.name == "nt":
+        try:
+            subprocess.run(  # noqa: S603,S607 - fixed Windows system utility and numeric PID.
+                ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                env=environment,
+                check=False,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=5,
+            )
+        except (OSError, subprocess.SubprocessError):
+            pass
+    else:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except OSError:
+            pass
+    if process.poll() is None:
+        try:
+            process.kill()
+        except OSError:
+            pass
+
+
+def _run_probe(argv: list[str], working_directory: Path, timeout_seconds: int) -> bytes:
+    environment = {name: value for name, value in os.environ.items() if name in ALLOWED_ENVIRONMENT}
+    process = _spawn_probe(argv, working_directory, environment)
     assert process.stdout is not None and process.stderr is not None
-    overflow_event = threading.Event()
+    abort_event = threading.Event()
     stdout_capture = _CapturedStream()
     stderr_capture = _CapturedStream()
     threads = [
-        threading.Thread(target=_drain_stream, args=(process.stdout, stdout_capture, overflow_event), daemon=True),
-        threading.Thread(target=_drain_stream, args=(process.stderr, stderr_capture, overflow_event), daemon=True),
+        threading.Thread(target=_drain_stream, args=(process.stdout, stdout_capture, abort_event), daemon=True),
+        threading.Thread(target=_drain_stream, args=(process.stderr, stderr_capture, abort_event), daemon=True),
     ]
     for thread in threads:
         thread.start()
@@ -85,17 +132,34 @@ def _run_probe(argv: list[str], working_directory: Path, timeout_seconds: int) -
     deadline = time.monotonic() + timeout_seconds
     failure: str | None = None
     while process.poll() is None:
-        if overflow_event.wait(timeout=0.02):
-            failure = f"official-client contract probe exceeded {MAX_PROBE_OUTPUT_BYTES} bytes per output stream"
-            process.kill()
+        if abort_event.wait(timeout=0.02):
+            if stdout_capture.overflow or stderr_capture.overflow:
+                failure = f"official-client contract probe exceeded {MAX_PROBE_OUTPUT_BYTES} bytes per output stream"
+            else:
+                detail = stdout_capture.error or stderr_capture.error or "unknown stream error"
+                failure = f"official-client contract probe output capture failed: {detail}"
+            _terminate_process_tree(process, environment)
             break
         if time.monotonic() >= deadline:
             failure = f"official-client contract probe exceeded timeout of {timeout_seconds} seconds"
-            process.kill()
+            _terminate_process_tree(process, environment)
             break
-    returncode = process.wait()
+    try:
+        returncode = process.wait(timeout=5)
+    except subprocess.TimeoutExpired as exc:
+        _terminate_process_tree(process, environment)
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired as second_exc:
+            raise RuntimeError("official-client contract probe process tree did not terminate") from second_exc
+        raise RuntimeError("official-client contract probe process did not terminate promptly") from exc
+
     for thread in threads:
         thread.join(timeout=5)
+    if any(thread.is_alive() for thread in threads):
+        _terminate_process_tree(process, environment)
+        for thread in threads:
+            thread.join(timeout=5)
     if any(thread.is_alive() for thread in threads):
         raise RuntimeError("official-client contract probe output drain did not terminate")
     if stderr_capture.data:
@@ -103,6 +167,9 @@ def _run_probe(argv: list[str], working_directory: Path, timeout_seconds: int) -
         sys.stderr.buffer.flush()
     if failure is None and (stdout_capture.overflow or stderr_capture.overflow):
         failure = f"official-client contract probe exceeded {MAX_PROBE_OUTPUT_BYTES} bytes per output stream"
+    if failure is None and (stdout_capture.error or stderr_capture.error):
+        detail = stdout_capture.error or stderr_capture.error
+        failure = f"official-client contract probe output capture failed: {detail}"
     if failure is not None:
         raise RuntimeError(failure)
     if returncode != 0:

@@ -84,6 +84,15 @@ def _verify_materialized(repository: str, revision: str, target: Path) -> None:
     expected_remote = f"https://github.com/{repository}.git"
     if remote != expected_remote:
         raise ValueError("materialized consumer repository does not match the canary pin")
+    status = _run(
+        ["git", "status", "--porcelain=v1", "--untracked-files=all", "--ignored=matching"],
+        cwd=target,
+        timeout=30,
+    ).stdout
+    if status.strip():
+        raise ValueError(
+            "materialized consumer checkout must be pristine; tracked changes and untracked or ignored files are not allowed"
+        )
 
 
 def _materialize(repository: str, revision: str, target: Path) -> None:

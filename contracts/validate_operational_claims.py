@@ -15,9 +15,10 @@ from jsonschema import Draft202012Validator
 ROOT = Path(__file__).resolve().parents[1]
 SCHEMA = ROOT / "contracts/operational-claims.schema.json"
 _NON_EXACT_VERSION = re.compile(
-    r"(?:^|[._+\-])(?:latest|current|main|master|nightly|x)(?:$|[._+\-])",
+    r"(?:^|[._+\-])(?:latest|current|main|master|nightly|stable|release|edge|canary|rolling|snapshot|dev|development|head|tip|trunk|x)(?:$|[._+\-])",
     re.IGNORECASE,
 )
+_RANGE_SYNTAX = re.compile(r"(?:^|[\s,])(?:==|!=|~=|>=|<=|>|<)|[?*|]|\s+-\s+")
 
 
 def _safe_file(root: Path, raw: str) -> Path:
@@ -53,8 +54,13 @@ def _load_structured(path: Path, format_name: str) -> Any:
 
 
 def _is_non_exact_version(version: str) -> bool:
-    """Reject moving labels and wildcard components while allowing exact opaque build ids."""
-    return _NON_EXACT_VERSION.search(version.strip()) is not None
+    """Reject moving channels, ranges, and wildcards while allowing exact opaque build ids."""
+    stripped = version.strip()
+    return (
+        not stripped
+        or _RANGE_SYNTAX.search(stripped) is not None
+        or _NON_EXACT_VERSION.search(stripped) is not None
+    )
 
 
 def validate_claims(path: Path, *, repository_root: Path = ROOT) -> list[str]:

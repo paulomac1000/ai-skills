@@ -24,6 +24,7 @@ for value in (str(ROOT), str(TOOLS)):
 _inspector_module = importlib.import_module("inspect_existing_project")
 _applicability_module = importlib.import_module("contracts.rule_applicability")
 inspect_repository = _inspector_module.inspect_repository
+_regular_text = _inspector_module._regular_text
 RuleContext = _applicability_module.RuleContext
 project_applicability = _applicability_module.project_applicability
 
@@ -45,35 +46,62 @@ def _is_exact_requirement(requirement: str) -> bool:
     return "*" not in version and _WILDCARD_VERSION_COMPONENT.search(version) is None
 
 
+def _dependency_specs(repository_root: Path, document: dict[str, Any]) -> list[str]:
+    """Return bounded root dependency declarations from the same sources used by discovery."""
+    specs: list[str] = []
+    project = document.get("project") if isinstance(document, dict) else None
+    dependencies = project.get("dependencies") if isinstance(project, dict) else None
+    if isinstance(dependencies, list):
+        specs.extend(raw.strip() for raw in dependencies if isinstance(raw, str) and raw.strip())
+    for candidate in sorted(repository_root.glob("requirements*.txt")) + sorted(
+        repository_root.glob("requirements*.in")
+    ):
+        text = _regular_text(candidate)
+        if text is None:
+            continue
+        specs.extend(
+            line.strip()
+            for line in text.splitlines()
+            if line.strip() and not line.lstrip().startswith(("#", "-"))
+        )
+    return specs
+
+
 def _sdk_claim(repository_root: Path, discovery: dict[str, Any]) -> dict[str, Any]:
     package = SDK_PACKAGES.get(discovery["facts"]["sdk_profile"])
     if package is None:
         return {"package": None, "requirement": None, "status": "unknown"}
+    document: dict[str, Any] = {}
     pyproject = repository_root / "pyproject.toml"
-    if not pyproject.is_file():
-        return {"package": package, "requirement": None, "status": "unknown"}
-    try:
-        document = tomllib.loads(pyproject.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError):
-        return {"package": package, "requirement": None, "status": "unknown"}
-    project = document.get("project") if isinstance(document, dict) else None
-    dependencies = project.get("dependencies") if isinstance(project, dict) else None
-    if not isinstance(dependencies, list):
-        return {"package": package, "requirement": None, "status": "unknown"}
+    if pyproject.is_file():
+        try:
+            loaded = tomllib.loads(pyproject.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError):
+            loaded = {}
+        if isinstance(loaded, dict):
+            document = loaded
     package_pattern = re.compile(
         rf"^\s*{re.escape(package)}(?:\[[^]]+\])?(?=\s*(?:[<>=!~;@]|$))\s*(.*)$",
         re.I,
     )
-    for raw in dependencies:
-        if not isinstance(raw, str):
-            continue
+    requirements: list[str] = []
+    for raw in _dependency_specs(repository_root, document):
         match = package_pattern.match(raw)
         if match is None:
             continue
-        requirement = match.group(1).strip() or "unconstrained"
+        requirements.append(match.group(1).strip() or "unconstrained")
+    if not requirements:
+        return {"package": package, "requirement": None, "status": "unknown"}
+    unique_requirements = list(dict.fromkeys(requirements))
+    if len(unique_requirements) == 1:
+        requirement = unique_requirements[0]
         status = "exact-pin" if _is_exact_requirement(requirement) else "requires-compatibility-evidence"
         return {"package": package, "requirement": requirement, "status": status}
-    return {"package": package, "requirement": None, "status": "unknown"}
+    return {
+        "package": package,
+        "requirement": " | ".join(unique_requirements),
+        "status": "requires-compatibility-evidence",
+    }
 
 
 def _context(discovery: dict[str, Any], target_level: str) -> Any:
