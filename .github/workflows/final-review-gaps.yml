@@ -1,4 +1,5 @@
 # disposable exact-head repair; deleted by the resulting commit
+# trigger after workflow registration
 name: Final trust evidence review gaps
 
 on:
