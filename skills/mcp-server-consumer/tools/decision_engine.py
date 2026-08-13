@@ -289,14 +289,8 @@ def infer_capability_profile(
         or (trusted_contract is not None and trusted_contract.idempotent is False)
     ):
         idempotent: bool | None = False
-    elif (
-        trusted_policy is not None
-        and policy_binding is not None
-        and trusted_policy.idempotent is True
-    ) or (
-        trusted_contract is not None
-        and contract_binding is not None
-        and trusted_contract.idempotent is True
+    elif (trusted_policy is not None and policy_binding is not None and trusted_policy.idempotent is True) or (
+        trusted_contract is not None and contract_binding is not None and trusted_contract.idempotent is True
     ):
         idempotent = True
     else:
