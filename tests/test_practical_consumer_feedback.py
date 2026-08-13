@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -92,6 +93,10 @@ def test_upstream_contract_rejects_inference_and_embedded_secret_keys(tmp_path: 
     contract["observations"][0]["api_key"] = "should-never-be-recorded"
     path.write_text(yaml.safe_dump(contract), encoding="utf-8")
     assert validator.validate_contract(path)
+    contract["observations"][0].pop("api_key")
+    contract["observations"][0]["evidence"] = ["probe api_key=plaintext-secret"]
+    path.write_text(yaml.safe_dump(contract), encoding="utf-8")
+    assert any("secret values" in finding for finding in validator.validate_contract(path))
 
 
 def test_live_backend_policy_requires_two_opt_ins_and_reconciliation(tmp_path: Path) -> None:
@@ -119,7 +124,7 @@ def test_live_backend_policy_requires_two_opt_ins_and_reconciliation(tmp_path: P
     assert validator.validate_policy(path) == []
     valid["mutations"]["independent_opt_ins"] = 1
     path.write_text(yaml.safe_dump(valid), encoding="utf-8")
-    assert validator.validate_policy(path)
+    assert any("independent_opt_ins" in finding for finding in validator.validate_policy(path))
 
 
 def test_real_consumer_canaries_are_immutable_and_source_only() -> None:
@@ -127,8 +132,8 @@ def test_real_consumer_canaries_are_immutable_and_source_only() -> None:
     assert catalog["schema_version"] == 1
     assert len(catalog["canaries"]) >= 2
     for canary in catalog["canaries"]:
-        assert len(canary["revision"]) == 40
-        int(canary["revision"], 16)
+        assert re.fullmatch(r"[0-9a-f]{40}", canary["revision"])
+        assert canary["proof_level"] == "source-inspection"
         assert canary["expected"]["facts.external_upstream"] is True
     checker = (ROOT / "skills/mcp-server-architect/tools/check_consumer_canaries.py").read_text(encoding="utf-8")
     assert "inspect_repository" in checker

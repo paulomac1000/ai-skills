@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
@@ -15,6 +16,10 @@ from jsonschema import Draft202012Validator
 DEFAULT_SCHEMA = Path(__file__).with_name("upstream-contract.schema.json")
 MAX_BYTES = 512 * 1024
 SECRET_KEYS = {"token", "password", "secret", "api_key", "apikey", "credential"}
+SECRET_ASSIGNMENT = re.compile(
+    r"(?i)\b(?:access[_-]?token|api[_-]?key|apikey|password|secret|credential|token)\s*[:=]\s*([^\s,;&]+)"
+)
+SAFE_SECRET_REFERENCES = {"redacted", "<redacted>", "***", "env", "secret-ref"}
 
 
 def _load(path: Path) -> Mapping[str, Any]:
@@ -42,6 +47,12 @@ def _contains_secret_key(value: object) -> bool:
                 return True
     elif isinstance(value, list):
         return any(_contains_secret_key(item) for item in value)
+    elif isinstance(value, str):
+        for match in SECRET_ASSIGNMENT.finditer(value):
+            secret_value = match.group(1).strip().casefold()
+            if secret_value.startswith(("$", "env:", "secret-ref:")) or secret_value in SAFE_SECRET_REFERENCES:
+                continue
+            return True
     return False
 
 

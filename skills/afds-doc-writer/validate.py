@@ -611,10 +611,10 @@ def _validate_links(
     anchor_cache: dict[Path, set[str]] = {}
     for destination in iter_link_destinations(body):
         raw_path, separator, raw_fragment = destination.partition("#")
+        if re.match(r"^[a-z][a-z0-9+.-]*:", raw_path, re.I) or raw_path.startswith("//"):
+            continue
         decoded_path = unquote(raw_path)
         fragment = unquote(raw_fragment) if separator else ""
-        if re.match(r"^[a-z][a-z0-9+.-]*:", decoded_path, re.I) or decoded_path.startswith("//"):
-            continue
         display = unquote(destination)
         resolved_target: Path
         if not decoded_path:

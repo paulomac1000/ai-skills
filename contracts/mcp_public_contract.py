@@ -71,6 +71,19 @@ def load_contract(path: Path) -> dict[str, Any]:
     return document
 
 
+def _normalize_schema(value: Any) -> Any:
+    """Canonicalize order-insensitive JSON Schema collections recursively."""
+    if isinstance(value, dict):
+        normalized = {key: _normalize_schema(child) for key, child in value.items()}
+        required = normalized.get("required")
+        if isinstance(required, list):
+            normalized["required"] = sorted(required)
+        return normalized
+    if isinstance(value, list):
+        return [_normalize_schema(child) for child in value]
+    return value
+
+
 def normalize_contract(document: dict[str, Any]) -> dict[str, Any]:
     """Return a stable JSON representation without changing public semantics."""
     findings = validate_contract(document)
@@ -81,12 +94,8 @@ def normalize_contract(document: dict[str, Any]) -> dict[str, Any]:
     normalized["tools"] = sorted(normalized["tools"], key=lambda item: item["name"])
     for tool in normalized["tools"]:
         tool["error_contract"] = sorted(tool["error_contract"])
-        input_schema = tool.get("input_schema")
-        if isinstance(input_schema, dict) and isinstance(input_schema.get("required"), list):
-            input_schema["required"] = sorted(input_schema["required"])
-        output_schema = tool.get("output_schema")
-        if isinstance(output_schema, dict) and isinstance(output_schema.get("required"), list):
-            output_schema["required"] = sorted(output_schema["required"])
+        tool["input_schema"] = _normalize_schema(tool.get("input_schema", {}))
+        tool["output_schema"] = _normalize_schema(tool.get("output_schema", {}))
     return normalized
 
 
@@ -165,6 +174,8 @@ def _version_allows(baseline: str, candidate: str, required_bump: str) -> bool:
     after = parse_semver(candidate)
     before_triplet = (before.major, before.minor, before.patch)
     after_triplet = (after.major, after.minor, after.patch)
+    if after.prerelease:
+        return False
     if required_bump == "none":
         return after_triplet >= before_triplet
     if after_triplet <= before_triplet:

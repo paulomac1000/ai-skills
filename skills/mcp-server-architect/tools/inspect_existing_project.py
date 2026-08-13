@@ -49,20 +49,26 @@ def _source_corpus(root: Path) -> tuple[str, int, int]:
     chunks: list[str] = []
     total = 0
     files = 0
-    for path in sorted(root.rglob("*")):
-        if files >= MAX_FILES or total >= MAX_TOTAL_BYTES:
-            break
-        if IGNORED_PARTS.intersection(path.parts) or path.suffix.lower() not in TEXT_SUFFIXES:
-            continue
-        text = _regular_text(path)
-        if text is None:
-            continue
-        encoded_size = len(text.encode("utf-8"))
-        if total + encoded_size > MAX_TOTAL_BYTES:
-            break
-        chunks.append(text)
-        total += encoded_size
-        files += 1
+    candidates = 0
+    for directory, names, filenames in os.walk(root, topdown=True, followlinks=False):
+        names[:] = sorted(name for name in names if name not in IGNORED_PARTS)
+        base = Path(directory)
+        for filename in sorted(filenames):
+            candidates += 1
+            if candidates > MAX_FILES * 20 or files >= MAX_FILES or total >= MAX_TOTAL_BYTES:
+                return "\n".join(chunks).casefold(), files, total
+            path = base / filename
+            if path.suffix.lower() not in TEXT_SUFFIXES:
+                continue
+            text = _regular_text(path)
+            if text is None:
+                continue
+            encoded_size = len(text.encode("utf-8"))
+            if total + encoded_size > MAX_TOTAL_BYTES:
+                return "\n".join(chunks).casefold(), files, total
+            chunks.append(text)
+            total += encoded_size
+            files += 1
     return "\n".join(chunks).casefold(), files, total
 
 

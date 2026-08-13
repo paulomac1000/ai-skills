@@ -1,1 +1,954 @@
-{"$defs":{"acceptanceAuthority":{"additionalProperties":false,"properties":{"claim_catalog_repository":{"pattern":"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$","type":"string"},"claim_catalog_revision":{"$ref":"#/$defs/sha"},"verifier_repository":{"pattern":"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$","type":"string"},"verifier_revision":{"$ref":"#/$defs/sha"},"workflow_path":{"pattern":"^[.]github/workflows/[A-Za-z0-9._/-]+[.]ya?ml$","type":"string"}},"required":["verifier_repository","verifier_revision","claim_catalog_repository","claim_catalog_revision","workflow_path"],"type":"object"},"combination":{"additionalProperties":false,"properties":{"architecture":{"enum":["x64","arm64"]},"lane":{"pattern":"^[a-z0-9][a-z0-9-]*$","type":"string"},"operating_system":{"enum":["linux","macos","windows"]},"runtime":{"$ref":"#/$defs/text"},"version":{"$ref":"#/$defs/text"}},"required":["operating_system","architecture","runtime","version","lane"],"type":"object"},"digest":{"pattern":"^sha256:[0-9a-f]{64}$","type":"string"},"evidence":{"additionalProperties":false,"properties":{"artifact_id":{"minimum":1,"type":"integer"},"artifact_name":{"$ref":"#/$defs/text"},"check_run_id":{"minimum":1,"type":"integer"},"event":{"enum":["pull_request","push","workflow_dispatch","workflow_run"]},"job_id":{"minimum":1,"type":"integer"},"job_name":{"$ref":"#/$defs/text"},"lane":{"pattern":"^[a-z0-9][a-z0-9-]*$","type":"string"},"provider":{"const":"github-actions"},"provider_digest":{"$ref":"#/$defs/digest"},"report_digest":{"$ref":"#/$defs/digest"},"report_path":{"pattern":"^(?!/)(?!.*(?:^|/)[.][.]?(?:/|$))(?!.*\\\\)[A-Za-z0-9._/-]+[.]json$","type":"string"},"repository":{"pattern":"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$","type":"string"},"revision":{"$ref":"#/$defs/sha"},"run_id":{"minimum":1,"type":"integer"},"workflow_id":{"minimum":1,"type":"integer"},"workflow_name":{"$ref":"#/$defs/text"},"workflow_path":{"pattern":"^[.]github/workflows/[A-Za-z0-9._/-]+[.]ya?ml$","type":"string"}},"required":["provider","repository","run_id","job_id","check_run_id","revision","workflow_id","workflow_path","workflow_name","event","job_name","lane","artifact_id","artifact_name","provider_digest","report_path","report_digest"],"type":"object"},"identity":{"additionalProperties":false,"properties":{"id":{"minimum":1,"type":"integer"},"login":{"minLength":1,"type":"string"},"provider":{"const":"github"}},"required":["provider","login","id"],"type":"object"},"sha":{"pattern":"^[0-9a-f]{40}$","type":"string"},"text":{"minLength":1,"type":"string"},"transportCheck":{"additionalProperties":false,"allOf":[{"if":{"properties":{"result":{"const":"passed"}}},"then":{"properties":{"evidence":{"$ref":"#/$defs/evidence"}}}},{"if":{"properties":{"result":{"const":"not-applicable"}}},"then":{"properties":{"evidence":{"type":"null"}}}}],"properties":{"evidence":{"oneOf":[{"$ref":"#/$defs/evidence"},{"type":"null"}]},"result":{"enum":["passed","not-applicable","failed","not-run"]}},"required":["result","evidence"],"type":"object"},"verification":{"additionalProperties":false,"properties":{"command":{"$ref":"#/$defs/text"},"evidence":{"$ref":"#/$defs/evidence"},"result":{"enum":["passed","failed","not-run"]},"test_case":{"type":"string","pattern":"^tests/[A-Za-z0-9_./-]+[.]py::test_[A-Za-z0-9_]+$"}},"required":["command","evidence","test_case","result"],"type":"object"}},"$id":"https://github.com/paulomac1000/ai-skills/raw/main/contracts/adoption-assessment.schema.json","$schema":"https://json-schema.org/draft/2020-12/schema","additionalProperties":false,"allOf":[{"if":{"properties":{"decision":{"properties":{"status":{"const":"approve"}}}},"required":["decision"]},"then":{"required":["acceptance_authority"]}}],"properties":{"acceptance_authority":{"$ref":"#/$defs/acceptanceAuthority"},"applicability":{"items":{"additionalProperties":false,"properties":{"implementation":{"items":{"additionalProperties":false,"properties":{"path":{"$ref":"#/$defs/text"},"symbol":{"$ref":"#/$defs/text"}},"required":["path","symbol"],"type":"object"},"type":"array"},"rationale":{"$ref":"#/$defs/text"},"rule_id":{"$ref":"#/$defs/text"},"status":{"enum":["applicable","not-applicable","deferred"]},"verification":{"items":{"$ref":"#/$defs/verification"},"type":"array"},"waiver_id":{"oneOf":[{"minLength":1,"type":"string"},{"type":"null"}]}},"required":["rule_id","status","rationale","implementation","verification","waiver_id"],"type":"object"},"minItems":1,"type":"array"},"artifact_verification":{"additionalProperties":false,"properties":{"artifacts":{"items":{"additionalProperties":false,"properties":{"commands":{"items":{"$ref":"#/$defs/text"},"minItems":1,"type":"array"},"digest":{"$ref":"#/$defs/digest"},"evidence":{"$ref":"#/$defs/evidence"},"identity":{"$ref":"#/$defs/text"},"kind":{"$ref":"#/$defs/text"},"path":{"$ref":"#/$defs/text"},"result":{"enum":["passed","failed","not-run"]}},"required":["kind","identity","path","digest","commands","evidence","result"],"type":"object"},"minItems":1,"type":"array"},"exact_revision":{"$ref":"#/$defs/sha"}},"required":["exact_revision","artifacts"],"type":"object"},"assessment_id":{"$ref":"#/$defs/text"},"behavior":{"additionalProperties":false,"properties":{"intentionally_changed":{"items":{"$ref":"#/$defs/text"},"type":"array"},"preserved":{"items":{"$ref":"#/$defs/text"},"minItems":1,"type":"array"},"removed_legacy":{"items":{"$ref":"#/$defs/text"},"type":"array"}},"required":["preserved","intentionally_changed","removed_legacy"],"type":"object"},"compatibility_claims":{"additionalProperties":false,"properties":{"combinations":{"items":{"$ref":"#/$defs/combination"},"minItems":1,"type":"array","uniqueItems":true}},"required":["combinations"],"type":"object"},"compatibility_results":{"items":{"additionalProperties":false,"properties":{"architecture":{"enum":["x64","arm64"]},"command":{"$ref":"#/$defs/text"},"evidence":{"$ref":"#/$defs/evidence"},"lane":{"pattern":"^[a-z0-9][a-z0-9-]*$","type":"string"},"operating_system":{"enum":["linux","macos","windows"]},"result":{"enum":["passed","failed","not-run"]},"runtime":{"$ref":"#/$defs/text"},"version":{"$ref":"#/$defs/text"}},"required":["operating_system","architecture","runtime","version","lane","command","evidence","result"],"type":"object"},"minItems":1,"type":"array"},"decision":{"additionalProperties":false,"properties":{"rationale":{"$ref":"#/$defs/text"},"reviewer":{"additionalProperties":false,"properties":{"id":{"minimum":1,"type":"integer"},"login":{"$ref":"#/$defs/text"},"provider":{"const":"github"},"pull_request":{"minimum":1,"type":"integer"},"repository":{"pattern":"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$","type":"string"},"review_id":{"minimum":1,"type":"integer"},"revision":{"$ref":"#/$defs/sha"},"state":{"enum":["APPROVED","CHANGES_REQUESTED","COMMENTED","DISMISSED"]}},"required":["provider","repository","pull_request","review_id","login","id","revision","state"],"type":"object"},"status":{"enum":["approve","request-changes","rejected"]}},"required":["status","rationale","reviewer"],"type":"object"},"extensions":{"additionalProperties":false,"properties":{"mcp":{"additionalProperties":false,"properties":{"advertised_transports":{"items":{"enum":["stdio","streamable_http"]},"minItems":1,"type":"array","uniqueItems":true},"official_client_commands":{"items":{"$ref":"#/$defs/text"},"minItems":1,"type":"array"},"profiles":{"items":{"$ref":"#/$defs/text"},"minItems":1,"type":"array"},"target_level":{"enum":["L1","L2","L3","L4"]},"transport_results":{"additionalProperties":false,"properties":{"stdio":{"additionalProperties":false,"properties":{"capability_listing":{"$ref":"#/$defs/transportCheck"},"failure_path":{"$ref":"#/$defs/transportCheck"},"representative_read":{"$ref":"#/$defs/transportCheck"},"write_boundary":{"$ref":"#/$defs/transportCheck"}},"required":["capability_listing","representative_read","failure_path","write_boundary"],"type":"object"},"streamable_http":{"additionalProperties":false,"properties":{"capability_listing":{"$ref":"#/$defs/transportCheck"},"failure_path":{"$ref":"#/$defs/transportCheck"},"representative_read":{"$ref":"#/$defs/transportCheck"},"write_boundary":{"$ref":"#/$defs/transportCheck"}},"required":["capability_listing","representative_read","failure_path","write_boundary"],"type":"object"}},"type":"object"},"capabilities":{"type":"array","items":{"$ref":"#/$defs/text"},"uniqueItems":true}},"required":["target_level","profiles","capabilities","advertised_transports","official_client_commands","transport_results"],"type":"object"}},"type":"object"},"generated_at":{"format":"date-time","type":"string"},"prepared_by":{"items":{"$ref":"#/$defs/identity"},"minItems":1,"type":"array","uniqueItems":true},"repository":{"additionalProperties":false,"properties":{"name":{"pattern":"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$","type":"string"},"revision":{"$ref":"#/$defs/sha"},"source_branch":{"$ref":"#/$defs/text"}},"required":["name","revision","source_branch"],"type":"object"},"residual_risks":{"items":{"additionalProperties":false,"properties":{"blocking":{"type":"boolean"},"mitigation":{"$ref":"#/$defs/text"},"owner":{"$ref":"#/$defs/text"},"risk":{"$ref":"#/$defs/text"}},"required":["risk","owner","mitigation","blocking"],"type":"object"},"type":"array"},"rollback":{"additionalProperties":false,"properties":{"data_recovery":{"items":{"$ref":"#/$defs/text"},"minItems":1,"type":"array"},"procedure":{"items":{"$ref":"#/$defs/text"},"minItems":1,"type":"array"},"trigger_conditions":{"items":{"$ref":"#/$defs/text"},"minItems":1,"type":"array"}},"required":["trigger_conditions","procedure","data_recovery"],"type":"object"},"schema_version":{"const":1},"scope":{"additionalProperties":false,"properties":{"excluded":{"items":{"$ref":"#/$defs/text"},"type":"array"},"exclusion_rationale":{"items":{"$ref":"#/$defs/text"},"type":"array"},"included":{"items":{"$ref":"#/$defs/text"},"minItems":1,"type":"array"}},"required":["included","excluded","exclusion_rationale"],"type":"object"},"skill":{"additionalProperties":false,"properties":{"maturity":{"enum":["experimental","release-candidate","stable","deprecated"]},"name":{"pattern":"^[a-z0-9][a-z0-9-]*$","type":"string"},"version":{"$ref":"#/$defs/text"}},"required":["name","version","maturity"],"type":"object"},"verification_mode":{"enum":["structural-attestation","provider-backed"]},"waivers":{"items":{"additionalProperties":false,"properties":{"compensating_controls":{"items":{"$ref":"#/$defs/text"},"minItems":1,"type":"array"},"expires_at":{"format":"date","type":"string"},"owner":{"$ref":"#/$defs/text"},"rationale":{"$ref":"#/$defs/text"},"rule_id":{"$ref":"#/$defs/text"},"waiver_id":{"$ref":"#/$defs/text"}},"required":["waiver_id","rule_id","owner","rationale","compensating_controls","expires_at"],"type":"object"},"type":"array"}},"required":["schema_version","verification_mode","assessment_id","generated_at","prepared_by","repository","skill","scope","compatibility_claims","applicability","behavior","waivers","artifact_verification","compatibility_results","extensions","rollback","residual_risks","decision"],"title":"AI Skills adoption assessment","type":"object"}
+{
+  "$defs": {
+    "acceptanceAuthority": {
+      "additionalProperties": false,
+      "properties": {
+        "claim_catalog_repository": {
+          "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$",
+          "type": "string"
+        },
+        "claim_catalog_revision": {
+          "$ref": "#/$defs/sha"
+        },
+        "verifier_repository": {
+          "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$",
+          "type": "string"
+        },
+        "verifier_revision": {
+          "$ref": "#/$defs/sha"
+        },
+        "workflow_path": {
+          "pattern": "^[.]github/workflows/[A-Za-z0-9._/-]+[.]ya?ml$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "verifier_repository",
+        "verifier_revision",
+        "claim_catalog_repository",
+        "claim_catalog_revision",
+        "workflow_path"
+      ],
+      "type": "object"
+    },
+    "combination": {
+      "additionalProperties": false,
+      "properties": {
+        "architecture": {
+          "enum": [
+            "x64",
+            "arm64"
+          ]
+        },
+        "lane": {
+          "pattern": "^[a-z0-9][a-z0-9-]*$",
+          "type": "string"
+        },
+        "operating_system": {
+          "enum": [
+            "linux",
+            "macos",
+            "windows"
+          ]
+        },
+        "runtime": {
+          "$ref": "#/$defs/text"
+        },
+        "version": {
+          "$ref": "#/$defs/text"
+        }
+      },
+      "required": [
+        "operating_system",
+        "architecture",
+        "runtime",
+        "version",
+        "lane"
+      ],
+      "type": "object"
+    },
+    "digest": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "evidence": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact_id": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "artifact_name": {
+          "$ref": "#/$defs/text"
+        },
+        "check_run_id": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "event": {
+          "enum": [
+            "pull_request",
+            "push",
+            "workflow_dispatch",
+            "workflow_run"
+          ]
+        },
+        "job_id": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "job_name": {
+          "$ref": "#/$defs/text"
+        },
+        "lane": {
+          "pattern": "^[a-z0-9][a-z0-9-]*$",
+          "type": "string"
+        },
+        "provider": {
+          "const": "github-actions"
+        },
+        "provider_digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "report_digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "report_path": {
+          "pattern": "^(?!/)(?!.*(?:^|/)[.][.]?(?:/|$))(?!.*\\\\)[A-Za-z0-9._/-]+[.]json$",
+          "type": "string"
+        },
+        "repository": {
+          "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$",
+          "type": "string"
+        },
+        "revision": {
+          "$ref": "#/$defs/sha"
+        },
+        "run_id": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "workflow_id": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "workflow_name": {
+          "$ref": "#/$defs/text"
+        },
+        "workflow_path": {
+          "pattern": "^[.]github/workflows/[A-Za-z0-9._/-]+[.]ya?ml$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "provider",
+        "repository",
+        "run_id",
+        "job_id",
+        "check_run_id",
+        "revision",
+        "workflow_id",
+        "workflow_path",
+        "workflow_name",
+        "event",
+        "job_name",
+        "lane",
+        "artifact_id",
+        "artifact_name",
+        "provider_digest",
+        "report_path",
+        "report_digest"
+      ],
+      "type": "object"
+    },
+    "identity": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "login": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "provider": {
+          "const": "github"
+        }
+      },
+      "required": [
+        "provider",
+        "login",
+        "id"
+      ],
+      "type": "object"
+    },
+    "sha": {
+      "pattern": "^[0-9a-f]{40}$",
+      "type": "string"
+    },
+    "text": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "transportCheck": {
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "result": {
+                "const": "passed"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "evidence": {
+                "$ref": "#/$defs/evidence"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "result": {
+                "const": "not-applicable"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "evidence": {
+                "type": "null"
+              }
+            }
+          }
+        }
+      ],
+      "properties": {
+        "evidence": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/evidence"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "result": {
+          "enum": [
+            "passed",
+            "not-applicable",
+            "failed",
+            "not-run"
+          ]
+        }
+      },
+      "required": [
+        "result",
+        "evidence"
+      ],
+      "type": "object"
+    },
+    "verification": {
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "$ref": "#/$defs/text"
+        },
+        "evidence": {
+          "$ref": "#/$defs/evidence"
+        },
+        "result": {
+          "enum": [
+            "passed",
+            "failed",
+            "not-run"
+          ]
+        },
+        "test_case": {
+          "pattern": "^(?!.*(?:^|/)[.][.](?:/|$))tests/[A-Za-z0-9_./-]+[.]py::test_[A-Za-z0-9_]+$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "command",
+        "evidence",
+        "test_case",
+        "result"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "https://github.com/paulomac1000/ai-skills/raw/main/contracts/adoption-assessment.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "decision": {
+            "properties": {
+              "status": {
+                "const": "approve"
+              }
+            }
+          }
+        },
+        "required": [
+          "decision"
+        ]
+      },
+      "then": {
+        "required": [
+          "acceptance_authority"
+        ]
+      }
+    }
+  ],
+  "properties": {
+    "acceptance_authority": {
+      "$ref": "#/$defs/acceptanceAuthority"
+    },
+    "applicability": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "implementation": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "path": {
+                  "$ref": "#/$defs/text"
+                },
+                "symbol": {
+                  "$ref": "#/$defs/text"
+                }
+              },
+              "required": [
+                "path",
+                "symbol"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "rationale": {
+            "$ref": "#/$defs/text"
+          },
+          "rule_id": {
+            "$ref": "#/$defs/text"
+          },
+          "status": {
+            "enum": [
+              "applicable",
+              "not-applicable",
+              "deferred"
+            ]
+          },
+          "verification": {
+            "items": {
+              "$ref": "#/$defs/verification"
+            },
+            "type": "array"
+          },
+          "waiver_id": {
+            "oneOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "rule_id",
+          "status",
+          "rationale",
+          "implementation",
+          "verification",
+          "waiver_id"
+        ],
+        "type": "object"
+      },
+      "minItems": 1,
+      "type": "array"
+    },
+    "artifact_verification": {
+      "additionalProperties": false,
+      "properties": {
+        "artifacts": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "commands": {
+                "items": {
+                  "$ref": "#/$defs/text"
+                },
+                "minItems": 1,
+                "type": "array"
+              },
+              "digest": {
+                "$ref": "#/$defs/digest"
+              },
+              "evidence": {
+                "$ref": "#/$defs/evidence"
+              },
+              "identity": {
+                "$ref": "#/$defs/text"
+              },
+              "kind": {
+                "$ref": "#/$defs/text"
+              },
+              "path": {
+                "$ref": "#/$defs/text"
+              },
+              "result": {
+                "enum": [
+                  "passed",
+                  "failed",
+                  "not-run"
+                ]
+              }
+            },
+            "required": [
+              "kind",
+              "identity",
+              "path",
+              "digest",
+              "commands",
+              "evidence",
+              "result"
+            ],
+            "type": "object"
+          },
+          "minItems": 1,
+          "type": "array"
+        },
+        "exact_revision": {
+          "$ref": "#/$defs/sha"
+        }
+      },
+      "required": [
+        "exact_revision",
+        "artifacts"
+      ],
+      "type": "object"
+    },
+    "assessment_id": {
+      "$ref": "#/$defs/text"
+    },
+    "behavior": {
+      "additionalProperties": false,
+      "properties": {
+        "intentionally_changed": {
+          "items": {
+            "$ref": "#/$defs/text"
+          },
+          "type": "array"
+        },
+        "preserved": {
+          "items": {
+            "$ref": "#/$defs/text"
+          },
+          "minItems": 1,
+          "type": "array"
+        },
+        "removed_legacy": {
+          "items": {
+            "$ref": "#/$defs/text"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "preserved",
+        "intentionally_changed",
+        "removed_legacy"
+      ],
+      "type": "object"
+    },
+    "compatibility_claims": {
+      "additionalProperties": false,
+      "properties": {
+        "combinations": {
+          "items": {
+            "$ref": "#/$defs/combination"
+          },
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "combinations"
+      ],
+      "type": "object"
+    },
+    "compatibility_results": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "architecture": {
+            "enum": [
+              "x64",
+              "arm64"
+            ]
+          },
+          "command": {
+            "$ref": "#/$defs/text"
+          },
+          "evidence": {
+            "$ref": "#/$defs/evidence"
+          },
+          "lane": {
+            "pattern": "^[a-z0-9][a-z0-9-]*$",
+            "type": "string"
+          },
+          "operating_system": {
+            "enum": [
+              "linux",
+              "macos",
+              "windows"
+            ]
+          },
+          "result": {
+            "enum": [
+              "passed",
+              "failed",
+              "not-run"
+            ]
+          },
+          "runtime": {
+            "$ref": "#/$defs/text"
+          },
+          "version": {
+            "$ref": "#/$defs/text"
+          }
+        },
+        "required": [
+          "operating_system",
+          "architecture",
+          "runtime",
+          "version",
+          "lane",
+          "command",
+          "evidence",
+          "result"
+        ],
+        "type": "object"
+      },
+      "minItems": 1,
+      "type": "array"
+    },
+    "decision": {
+      "additionalProperties": false,
+      "properties": {
+        "rationale": {
+          "$ref": "#/$defs/text"
+        },
+        "reviewer": {
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "minimum": 1,
+              "type": "integer"
+            },
+            "login": {
+              "$ref": "#/$defs/text"
+            },
+            "provider": {
+              "const": "github"
+            },
+            "pull_request": {
+              "minimum": 1,
+              "type": "integer"
+            },
+            "repository": {
+              "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$",
+              "type": "string"
+            },
+            "review_id": {
+              "minimum": 1,
+              "type": "integer"
+            },
+            "revision": {
+              "$ref": "#/$defs/sha"
+            },
+            "state": {
+              "enum": [
+                "APPROVED",
+                "CHANGES_REQUESTED",
+                "COMMENTED",
+                "DISMISSED"
+              ]
+            }
+          },
+          "required": [
+            "provider",
+            "repository",
+            "pull_request",
+            "review_id",
+            "login",
+            "id",
+            "revision",
+            "state"
+          ],
+          "type": "object"
+        },
+        "status": {
+          "enum": [
+            "approve",
+            "request-changes",
+            "rejected"
+          ]
+        }
+      },
+      "required": [
+        "status",
+        "rationale",
+        "reviewer"
+      ],
+      "type": "object"
+    },
+    "extensions": {
+      "additionalProperties": false,
+      "properties": {
+        "mcp": {
+          "additionalProperties": false,
+          "properties": {
+            "advertised_transports": {
+              "items": {
+                "enum": [
+                  "stdio",
+                  "streamable_http"
+                ]
+              },
+              "minItems": 1,
+              "type": "array",
+              "uniqueItems": true
+            },
+            "capabilities": {
+              "items": {
+                "$ref": "#/$defs/text"
+              },
+              "type": "array",
+              "uniqueItems": true
+            },
+            "official_client_commands": {
+              "items": {
+                "$ref": "#/$defs/text"
+              },
+              "minItems": 1,
+              "type": "array"
+            },
+            "profiles": {
+              "items": {
+                "$ref": "#/$defs/text"
+              },
+              "minItems": 1,
+              "type": "array"
+            },
+            "target_level": {
+              "enum": [
+                "L1",
+                "L2",
+                "L3",
+                "L4"
+              ]
+            },
+            "transport_results": {
+              "additionalProperties": false,
+              "properties": {
+                "stdio": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "capability_listing": {
+                      "$ref": "#/$defs/transportCheck"
+                    },
+                    "failure_path": {
+                      "$ref": "#/$defs/transportCheck"
+                    },
+                    "representative_read": {
+                      "$ref": "#/$defs/transportCheck"
+                    },
+                    "write_boundary": {
+                      "$ref": "#/$defs/transportCheck"
+                    }
+                  },
+                  "required": [
+                    "capability_listing",
+                    "representative_read",
+                    "failure_path",
+                    "write_boundary"
+                  ],
+                  "type": "object"
+                },
+                "streamable_http": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "capability_listing": {
+                      "$ref": "#/$defs/transportCheck"
+                    },
+                    "failure_path": {
+                      "$ref": "#/$defs/transportCheck"
+                    },
+                    "representative_read": {
+                      "$ref": "#/$defs/transportCheck"
+                    },
+                    "write_boundary": {
+                      "$ref": "#/$defs/transportCheck"
+                    }
+                  },
+                  "required": [
+                    "capability_listing",
+                    "representative_read",
+                    "failure_path",
+                    "write_boundary"
+                  ],
+                  "type": "object"
+                }
+              },
+              "type": "object"
+            }
+          },
+          "required": [
+            "target_level",
+            "profiles",
+            "capabilities",
+            "advertised_transports",
+            "official_client_commands",
+            "transport_results"
+          ],
+          "type": "object"
+        }
+      },
+      "type": "object"
+    },
+    "generated_at": {
+      "format": "date-time",
+      "type": "string"
+    },
+    "prepared_by": {
+      "items": {
+        "$ref": "#/$defs/identity"
+      },
+      "minItems": 1,
+      "type": "array",
+      "uniqueItems": true
+    },
+    "repository": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$",
+          "type": "string"
+        },
+        "revision": {
+          "$ref": "#/$defs/sha"
+        },
+        "source_branch": {
+          "$ref": "#/$defs/text"
+        }
+      },
+      "required": [
+        "name",
+        "revision",
+        "source_branch"
+      ],
+      "type": "object"
+    },
+    "residual_risks": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "blocking": {
+            "type": "boolean"
+          },
+          "mitigation": {
+            "$ref": "#/$defs/text"
+          },
+          "owner": {
+            "$ref": "#/$defs/text"
+          },
+          "risk": {
+            "$ref": "#/$defs/text"
+          }
+        },
+        "required": [
+          "risk",
+          "owner",
+          "mitigation",
+          "blocking"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "rollback": {
+      "additionalProperties": false,
+      "properties": {
+        "data_recovery": {
+          "items": {
+            "$ref": "#/$defs/text"
+          },
+          "minItems": 1,
+          "type": "array"
+        },
+        "procedure": {
+          "items": {
+            "$ref": "#/$defs/text"
+          },
+          "minItems": 1,
+          "type": "array"
+        },
+        "trigger_conditions": {
+          "items": {
+            "$ref": "#/$defs/text"
+          },
+          "minItems": 1,
+          "type": "array"
+        }
+      },
+      "required": [
+        "trigger_conditions",
+        "procedure",
+        "data_recovery"
+      ],
+      "type": "object"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "scope": {
+      "additionalProperties": false,
+      "properties": {
+        "excluded": {
+          "items": {
+            "$ref": "#/$defs/text"
+          },
+          "type": "array"
+        },
+        "exclusion_rationale": {
+          "items": {
+            "$ref": "#/$defs/text"
+          },
+          "type": "array"
+        },
+        "included": {
+          "items": {
+            "$ref": "#/$defs/text"
+          },
+          "minItems": 1,
+          "type": "array"
+        }
+      },
+      "required": [
+        "included",
+        "excluded",
+        "exclusion_rationale"
+      ],
+      "type": "object"
+    },
+    "skill": {
+      "additionalProperties": false,
+      "properties": {
+        "maturity": {
+          "enum": [
+            "experimental",
+            "release-candidate",
+            "stable",
+            "deprecated"
+          ]
+        },
+        "name": {
+          "pattern": "^[a-z0-9][a-z0-9-]*$",
+          "type": "string"
+        },
+        "version": {
+          "$ref": "#/$defs/text"
+        }
+      },
+      "required": [
+        "name",
+        "version",
+        "maturity"
+      ],
+      "type": "object"
+    },
+    "verification_mode": {
+      "enum": [
+        "structural-attestation",
+        "provider-backed"
+      ]
+    },
+    "waivers": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "compensating_controls": {
+            "items": {
+              "$ref": "#/$defs/text"
+            },
+            "minItems": 1,
+            "type": "array"
+          },
+          "expires_at": {
+            "format": "date",
+            "type": "string"
+          },
+          "owner": {
+            "$ref": "#/$defs/text"
+          },
+          "rationale": {
+            "$ref": "#/$defs/text"
+          },
+          "rule_id": {
+            "$ref": "#/$defs/text"
+          },
+          "waiver_id": {
+            "$ref": "#/$defs/text"
+          }
+        },
+        "required": [
+          "waiver_id",
+          "rule_id",
+          "owner",
+          "rationale",
+          "compensating_controls",
+          "expires_at"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "schema_version",
+    "verification_mode",
+    "assessment_id",
+    "generated_at",
+    "prepared_by",
+    "repository",
+    "skill",
+    "scope",
+    "compatibility_claims",
+    "applicability",
+    "behavior",
+    "waivers",
+    "artifact_verification",
+    "compatibility_results",
+    "extensions",
+    "rollback",
+    "residual_risks",
+    "decision"
+  ],
+  "title": "AI Skills adoption assessment",
+  "type": "object"
+}

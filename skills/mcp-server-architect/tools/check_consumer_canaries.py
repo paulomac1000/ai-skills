@@ -106,12 +106,16 @@ def check_catalog(catalog_path: Path, workspace: Path, *, materialize: bool) -> 
             findings.append(f"canaries[{index}] must pin owner/name at an immutable full SHA")
             continue
         target = workspace / canary_id
-        if not target.exists():
-            if not materialize:
-                findings.append(f"{canary_id}: workspace is missing")
-                continue
-            _materialize(repository, revision, target)
-        discovery = inspect_repository(target)
+        try:
+            if not target.exists():
+                if not materialize:
+                    findings.append(f"{canary_id}: workspace is missing")
+                    continue
+                _materialize(repository, revision, target)
+            discovery = inspect_repository(target)
+        except (OSError, ValueError, subprocess.SubprocessError) as exc:
+            findings.append(f"{canary_id}: consumer materialization/inspection failed: {exc}")
+            continue
         expected = entry.get("expected")
         if not isinstance(expected, dict) or not expected:
             findings.append(f"{canary_id}: expected facts are missing")

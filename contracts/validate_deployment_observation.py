@@ -52,12 +52,17 @@ def validate_observation(path: Path, schema_path: Path = DEFAULT_SCHEMA) -> list
         completed = result.get("completed_at")
         if isinstance(started, str) and isinstance(completed, str):
             try:
-                started_at = datetime.fromisoformat(started.replace("Z", "+00:00"))
-                completed_at = datetime.fromisoformat(completed.replace("Z", "+00:00"))
-            except ValueError:
-                return findings
-            if completed_at < started_at:
-                findings.append("result.completed_at must not precede result.started_at")
+                started_text = started[:-1] + "+00:00" if started.endswith("Z") else started
+                completed_text = completed[:-1] + "+00:00" if completed.endswith("Z") else completed
+                started_at = datetime.fromisoformat(started_text)
+                completed_at = datetime.fromisoformat(completed_text)
+            except ValueError as exc:
+                findings.append(f"result timestamps must be valid ISO 8601 date-times: {exc}")
+            else:
+                if started_at.tzinfo is None or completed_at.tzinfo is None:
+                    findings.append("result timestamps must include a timezone offset")
+                elif completed_at < started_at:
+                    findings.append("result.completed_at must not precede result.started_at")
     return findings
 
 

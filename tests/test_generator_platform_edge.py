@@ -21,9 +21,7 @@ def _load(name: str, relative: str):
     return module
 
 
-def test_atomic_publication_rejects_unsupported_platform(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_atomic_publication_rejects_unsupported_platform(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     implementation = _load(
         "generator_platform_edge_impl",
         "skills/mcp-server-architect/tools/generate_python_server_impl.py",
@@ -38,9 +36,7 @@ def test_atomic_publication_rejects_unsupported_platform(
         implementation._rename_noreplace(source, destination)
 
 
-def test_atomic_publication_exercises_macos_no_replace_adapter(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_atomic_publication_exercises_macos_no_replace_adapter(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     implementation = _load(
         "generator_platform_edge_macos_impl",
         "skills/mcp-server-architect/tools/generate_python_server_impl.py",

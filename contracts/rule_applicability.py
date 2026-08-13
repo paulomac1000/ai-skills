@@ -157,11 +157,13 @@ def project_applicability(
     parents = tuple(expected_rules(parent_catalog, skill_name, context))
     parent_ids = {str(rule["id"]) for rule in parents}
     raw_controls = child_catalog.get("controls", [])
-    if not isinstance(raw_controls, Sequence):
-        raise ValueError("atomic child-control catalog has no controls")
+    if not isinstance(raw_controls, list):
+        raise ValueError("atomic child-control catalog controls must be a list")
     children: list[Mapping[str, Any]] = []
     for raw in raw_controls:
-        if not isinstance(raw, Mapping) or raw.get("skill") != skill_name:
+        if not isinstance(raw, Mapping):
+            raise ValueError("atomic child control must be an object")
+        if raw.get("skill") != skill_name:
             continue
         parent_id = raw.get("parent_rule_id")
         control_id = raw.get("id")
