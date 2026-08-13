@@ -5,13 +5,19 @@ from __future__ import annotations
 
 import argparse
 import subprocess
+import sys
 from pathlib import Path
 
 import yaml
 
-from contracts.semver import parse_semver
-
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    # ``python scripts/check_release_version.py`` places only ``scripts/`` on
+    # sys.path. The exact CI command must be able to import repository contracts
+    # without relying on the caller's PYTHONPATH or current working directory.
+    sys.path.insert(0, str(ROOT))
+
+from contracts.semver import parse_semver  # noqa: E402
 
 
 def _git_show(base: str, path: str) -> str | None:
