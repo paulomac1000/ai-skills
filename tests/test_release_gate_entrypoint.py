@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -18,6 +19,8 @@ def test_release_gate_runs_as_script_without_pythonpath(tmp_path: Path) -> None:
         text=True,
         timeout=30,
     ).stdout.strip()
+    environment = dict(os.environ)
+    environment.pop("PYTHONPATH", None)
     completed = subprocess.run(
         [sys.executable, str(ROOT / "scripts/check_release_version.py"), "--base", head],
         cwd=tmp_path,
@@ -25,6 +28,6 @@ def test_release_gate_runs_as_script_without_pythonpath(tmp_path: Path) -> None:
         capture_output=True,
         text=True,
         timeout=30,
-        env={"PATH": __import__("os").environ.get("PATH", "")},
+        env=environment,
     )
     assert completed.returncode == 0, completed.stderr or completed.stdout
