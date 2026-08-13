@@ -6,15 +6,21 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import sys
 from pathlib import Path
 from typing import Any
 
 import yaml
 from jsonschema import Draft202012Validator
 
-from contracts.confined_io import confined_regular_file
-
 ROOT = Path(__file__).resolve().parents[1]
+CONTRACTS = ROOT / "contracts"
+for value in (str(ROOT), str(CONTRACTS)):
+    if value not in sys.path:
+        sys.path.insert(0, value)
+
+from confined_io import confined_regular_file  # noqa: E402
+
 SCHEMA = ROOT / "contracts/operational-claims.schema.json"
 _NON_EXACT_VERSION = re.compile(
     r"(?:^|[._+\-])(?:latest|current|main|master|nightly|stable|release|edge|canary|rolling|snapshot|dev|development|head|tip|trunk|x)(?:$|[._+\-])",

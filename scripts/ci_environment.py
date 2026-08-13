@@ -65,4 +65,6 @@ def configured_passthrough(source: Mapping[str, str] | None = None) -> tuple[str
     """Read explicit local-gate passthrough names without passing the control variable itself."""
     original = os.environ if source is None else source
     raw = original.get(_CONTROL_VARIABLE, "")
-    return tuple(sorted({part.strip() for part in raw.split(",") if part.strip() and part.strip() != _CONTROL_VARIABLE}))
+    return tuple(
+        sorted({part.strip() for part in raw.split(",") if part.strip() and part.strip() != _CONTROL_VARIABLE})
+    )

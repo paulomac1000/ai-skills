@@ -16,10 +16,12 @@ import yaml
 from jsonschema import Draft202012Validator
 
 ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+CONTRACTS = ROOT / "contracts"
+for value in (str(ROOT), str(CONTRACTS)):
+    if value not in sys.path:
+        sys.path.insert(0, value)
 
-from contracts.confined_io import confined_regular_file  # noqa: E402
+from confined_io import confined_regular_file  # noqa: E402
 
 SCHEMA = ROOT / "contracts/consumer-feedback.schema.json"
 SELECTOR = re.compile(r"^(tests/[A-Za-z0-9_.\-/]+\.py)::(test_[A-Za-z0-9_]+)$")
