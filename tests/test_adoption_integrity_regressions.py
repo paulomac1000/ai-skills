@@ -116,6 +116,7 @@ def test_canary_planner_failure_is_reported_per_consumer(tmp_path: Path, monkeyp
     checkout = workspace / "consumer-fixture"
     revision = _checkout(checkout)
     catalog = _canary_catalog(tmp_path / "canaries.yaml", revision=revision)
+    monkeypatch.setattr(checker, "_verify_materialized", lambda *_args: None)
     monkeypatch.setattr(checker, "inspect_repository", lambda _path: {"facts": {"external_upstream": False}})
 
     def fail_plan(_path: Path, *, target_level: str) -> dict:

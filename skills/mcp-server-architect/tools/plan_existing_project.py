@@ -59,7 +59,9 @@ def _dependency_specs(repository_root: Path, document: dict[str, Any]) -> list[s
         text = _regular_text(candidate)
         if text is None:
             continue
-        specs.extend(line.strip() for line in text.splitlines() if line.strip() and not line.lstrip().startswith(("#", "-")))
+        specs.extend(
+            line.strip() for line in text.splitlines() if line.strip() and not line.lstrip().startswith(("#", "-"))
+        )
     return specs
 
 
