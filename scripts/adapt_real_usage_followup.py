@@ -6,6 +6,6 @@ path = Path("scripts/repair_real_usage_followup.py")
 text = path.read_text(encoding="utf-8")
 old = '("properties", "results", "items", "properties", "test_case")'
 new = '("properties", "checks", "items", "properties", "test_case")'
-if text.count(old) != 1:
-    raise SystemExit("repair adapter expected one atomic schema path")
-path.write_text(text.replace(old, new, 1), encoding="utf-8")
+if text.count(old) != 2:
+    raise SystemExit("repair adapter expected two atomic schema paths")
+path.write_text(text.replace(old, new), encoding="utf-8")
