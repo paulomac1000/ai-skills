@@ -164,7 +164,7 @@ def test_feedback_selector_must_name_top_level_test_and_owner_heading_must_not_b
     path.write_text(yaml.safe_dump(registry), encoding="utf-8")
     findings = validate_registry(path, repository_root=tmp_path)
     assert any("canonical owner anchor #fake-owner does not exist" in finding for finding in findings)
-    assert any("does not name an existing top-level test" in finding for finding in findings)
+    assert any("must be a top-level test" in finding for finding in findings)
 
 
 def test_runtime_version_exactness_rejects_moving_tokens_without_substring_false_positives() -> None:
