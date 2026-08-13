@@ -1,3 +1,4 @@
+# trigger registered workflow after initial branch-only creation
 name: Apply real-usage review followups
 
 on:
