@@ -7,6 +7,7 @@ import argparse
 import json
 import os
 import re
+import stat
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -20,22 +21,71 @@ FULL_SHA = re.compile(r"[0-9a-f]{40}")
 CANARY_ID = re.compile(r"[a-z0-9][a-z0-9-]{0,63}")
 TARGET_LEVELS = {"L1", "L2", "L3", "L4"}
 PROOF_LEVEL = "source-inspection"
+GIT_ENVIRONMENT_ALLOWLIST = {
+    "ALL_PROXY",
+    "COMSPEC",
+    "CURL_CA_BUNDLE",
+    "GIT_SSL_CAINFO",
+    "HTTPS_PROXY",
+    "HTTP_PROXY",
+    "LANG",
+    "LC_ALL",
+    "LC_CTYPE",
+    "NO_PROXY",
+    "PATH",
+    "PATHEXT",
+    "SSL_CERT_DIR",
+    "SSL_CERT_FILE",
+    "SYSTEMROOT",
+    "TEMP",
+    "TMP",
+    "TMPDIR",
+    "WINDIR",
+}
 
 
-def _run(argv: list[str], *, cwd: Path, timeout: int = 120) -> None:
-    environment = dict(os.environ)
-    environment.update({"GIT_TERMINAL_PROMPT": "0", "GIT_CONFIG_NOSYSTEM": "1"})
-    for name in ("GITHUB_TOKEN", "GH_TOKEN", "CI_JOB_TOKEN", "SYSTEM_ACCESSTOKEN"):
-        environment.pop(name, None)
-    subprocess.run(  # noqa: S603 - fixed git executable and validated repository/SHA inputs.
+def _git_environment() -> dict[str, str]:
+    environment = {
+        name: value
+        for name, value in os.environ.items()
+        if name in GIT_ENVIRONMENT_ALLOWLIST or name.startswith("LC_")
+    }
+    environment.update(
+        {
+            "GIT_TERMINAL_PROMPT": "0",
+            "GIT_CONFIG_NOSYSTEM": "1",
+            "GIT_CONFIG_GLOBAL": os.devnull,
+        }
+    )
+    return environment
+
+
+def _run(argv: list[str], *, cwd: Path, timeout: int = 120) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(  # noqa: S603 - fixed git executable and validated repository/SHA inputs.
         argv,
         cwd=cwd,
-        env=environment,
+        env=_git_environment(),
         check=True,
         capture_output=True,
         text=True,
         timeout=timeout,
     )
+
+
+def _verify_materialized(repository: str, revision: str, target: Path) -> None:
+    try:
+        metadata = target.lstat()
+    except OSError as exc:
+        raise ValueError("materialized consumer checkout is missing") from exc
+    if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISDIR(metadata.st_mode):
+        raise ValueError("materialized consumer checkout must be a real directory, not a symlink")
+    head = _run(["git", "rev-parse", "HEAD"], cwd=target, timeout=30).stdout.strip()
+    if head != revision:
+        raise ValueError("materialized consumer revision does not match the canary pin")
+    remote = _run(["git", "remote", "get-url", "origin"], cwd=target, timeout=30).stdout.strip()
+    expected_remote = f"https://github.com/{repository}.git"
+    if remote != expected_remote:
+        raise ValueError("materialized consumer repository does not match the canary pin")
 
 
 def _materialize(repository: str, revision: str, target: Path) -> None:
@@ -52,16 +102,7 @@ def _materialize(repository: str, revision: str, target: Path) -> None:
         cwd=target,
     )
     _run(["git", "-c", "core.hooksPath=/dev/null", "checkout", "-q", "--detach", "FETCH_HEAD"], cwd=target)
-    completed = subprocess.run(  # noqa: S603
-        ["git", "rev-parse", "HEAD"],
-        cwd=target,
-        check=True,
-        capture_output=True,
-        text=True,
-        timeout=30,
-    )
-    if completed.stdout.strip() != revision:
-        raise ValueError("materialized consumer revision does not match the canary pin")
+    _verify_materialized(repository, revision, target)
 
 
 def _lookup(document: dict[str, Any], dotted: str) -> Any:
@@ -112,9 +153,11 @@ def check_catalog(catalog_path: Path, workspace: Path, *, materialize: bool) -> 
                     findings.append(f"{canary_id}: workspace is missing")
                     continue
                 _materialize(repository, revision, target)
+            _verify_materialized(repository, revision, target)
             discovery = inspect_repository(target)
-        except (OSError, ValueError, subprocess.SubprocessError) as exc:
-            findings.append(f"{canary_id}: consumer materialization/inspection failed: {exc}")
+            plan = build_plan(target, target_level=target_level)
+        except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError, yaml.YAMLError) as exc:
+            findings.append(f"{canary_id}: consumer materialization/inspection/planning failed: {exc}")
             continue
         expected = entry.get("expected")
         if not isinstance(expected, dict) or not expected:
@@ -129,7 +172,6 @@ def check_catalog(catalog_path: Path, workspace: Path, *, materialize: bool) -> 
             if observed != expected_value:
                 findings.append(f"{canary_id}: {dotted} expected {expected_value!r}, observed {observed!r}")
 
-        plan = build_plan(target, target_level=target_level)
         if plan.get("format") != "ai-skills-mcp-adoption-plan":
             findings.append(f"{canary_id}: adoption planner returned an unexpected format")
         if not plan.get("applicable_rules") or not plan.get("applicable_controls"):

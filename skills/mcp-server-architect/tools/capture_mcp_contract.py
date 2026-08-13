@@ -9,7 +9,11 @@ import json
 import os
 import subprocess
 import sys
+import threading
+import time
+from dataclasses import dataclass, field
 from pathlib import Path
+from typing import BinaryIO
 
 ROOT = Path(__file__).resolve().parents[3]
 if str(ROOT) not in sys.path:
@@ -19,7 +23,8 @@ _contract_module = importlib.import_module("contracts.mcp_public_contract")
 normalize_contract = _contract_module.normalize_contract
 validate_contract = _contract_module.validate_contract
 
-MAX_STDOUT_BYTES = 2 * 1024 * 1024
+MAX_PROBE_OUTPUT_BYTES = 2 * 1024 * 1024
+PIPE_READ_BYTES = 64 * 1024
 ALLOWED_ENVIRONMENT = {
     "COMSPEC",
     "LANG",
@@ -36,23 +41,73 @@ ALLOWED_ENVIRONMENT = {
 }
 
 
+@dataclass(slots=True)
+class _CapturedStream:
+    data: bytearray = field(default_factory=bytearray)
+    bytes_seen: int = 0
+    overflow: bool = False
+
+
+def _drain_stream(source: BinaryIO, capture: _CapturedStream, overflow_event: threading.Event) -> None:
+    try:
+        while chunk := source.read(PIPE_READ_BYTES):
+            capture.bytes_seen += len(chunk)
+            remaining = max(0, MAX_PROBE_OUTPUT_BYTES - len(capture.data))
+            if remaining:
+                capture.data.extend(chunk[:remaining])
+            if capture.bytes_seen > MAX_PROBE_OUTPUT_BYTES:
+                capture.overflow = True
+                overflow_event.set()
+    finally:
+        source.close()
+
+
 def _run_probe(argv: list[str], working_directory: Path, timeout_seconds: int) -> bytes:
     environment = {name: value for name, value in os.environ.items() if name in ALLOWED_ENVIRONMENT}
-    completed = subprocess.run(  # noqa: S603 - exact argv is supplied by the operator; shell is never used.
+    process = subprocess.Popen(  # noqa: S603 - exact argv is supplied by the operator; shell is never used.
         argv,
         cwd=working_directory,
         env=environment,
-        check=False,
-        capture_output=True,
-        timeout=timeout_seconds,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
     )
-    if completed.stderr:
-        sys.stderr.buffer.write(completed.stderr)
-    if completed.returncode != 0:
-        raise RuntimeError(f"official-client contract probe failed with exit code {completed.returncode}")
-    if len(completed.stdout) > MAX_STDOUT_BYTES:
-        raise RuntimeError("official-client contract probe exceeded the bounded stdout budget")
-    return completed.stdout
+    assert process.stdout is not None and process.stderr is not None
+    overflow_event = threading.Event()
+    stdout_capture = _CapturedStream()
+    stderr_capture = _CapturedStream()
+    threads = [
+        threading.Thread(target=_drain_stream, args=(process.stdout, stdout_capture, overflow_event), daemon=True),
+        threading.Thread(target=_drain_stream, args=(process.stderr, stderr_capture, overflow_event), daemon=True),
+    ]
+    for thread in threads:
+        thread.start()
+
+    deadline = time.monotonic() + timeout_seconds
+    failure: str | None = None
+    while process.poll() is None:
+        if overflow_event.wait(timeout=0.02):
+            failure = f"official-client contract probe exceeded {MAX_PROBE_OUTPUT_BYTES} bytes per output stream"
+            process.kill()
+            break
+        if time.monotonic() >= deadline:
+            failure = f"official-client contract probe exceeded timeout of {timeout_seconds} seconds"
+            process.kill()
+            break
+    returncode = process.wait()
+    for thread in threads:
+        thread.join(timeout=5)
+    if any(thread.is_alive() for thread in threads):
+        raise RuntimeError("official-client contract probe output drain did not terminate")
+    if stderr_capture.data:
+        sys.stderr.buffer.write(stderr_capture.data)
+        sys.stderr.buffer.flush()
+    if failure is None and (stdout_capture.overflow or stderr_capture.overflow):
+        failure = f"official-client contract probe exceeded {MAX_PROBE_OUTPUT_BYTES} bytes per output stream"
+    if failure is not None:
+        raise RuntimeError(failure)
+    if returncode != 0:
+        raise RuntimeError(f"official-client contract probe failed with exit code {returncode}")
+    return bytes(stdout_capture.data)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -81,7 +136,7 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         document = json.loads(_run_probe(command, working_directory, args.timeout_seconds))
-    except (json.JSONDecodeError, RuntimeError, subprocess.TimeoutExpired) as exc:
+    except (json.JSONDecodeError, RuntimeError) as exc:
         parser.error(str(exc))
     findings = validate_contract(document)
     if findings:
@@ -93,11 +148,13 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("captured artifact digest does not match --expected-artifact-digest")
 
     canonical = normalize_contract(document)
-    args.output.write_text(
-        json.dumps(canonical, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-        newline="\n",
-    )
+    try:
+        with args.output.open("x", encoding="utf-8", newline="\n") as destination:
+            destination.write(json.dumps(canonical, indent=2, sort_keys=True) + "\n")
+    except FileExistsError:
+        parser.error("output already exists; refusing to overwrite")
+    except OSError as exc:
+        parser.error(f"cannot write output: {exc}")
     return 0
 
 

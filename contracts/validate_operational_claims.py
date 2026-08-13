@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -13,7 +14,10 @@ from jsonschema import Draft202012Validator
 
 ROOT = Path(__file__).resolve().parents[1]
 SCHEMA = ROOT / "contracts/operational-claims.schema.json"
-RANGE_MARKERS = ("<", ">", "*", " latest", "current", "main", "master")
+_NON_EXACT_VERSION = re.compile(
+    r"(?:^|[._+\-])(?:latest|current|main|master|nightly|x)(?:$|[._+\-])",
+    re.IGNORECASE,
+)
 
 
 def _safe_file(root: Path, raw: str) -> Path:
@@ -46,6 +50,11 @@ def _load_structured(path: Path, format_name: str) -> Any:
     if format_name == "json":
         return json.loads(text)
     return yaml.safe_load(text)
+
+
+def _is_non_exact_version(version: str) -> bool:
+    """Reject moving labels and wildcard components while allowing exact opaque build ids."""
+    return _NON_EXACT_VERSION.search(version.strip()) is not None
 
 
 def validate_claims(path: Path, *, repository_root: Path = ROOT) -> list[str]:
@@ -93,8 +102,7 @@ def validate_claims(path: Path, *, repository_root: Path = ROOT) -> list[str]:
         evidence = claim["probe_evidence"]
         assert isinstance(subject, dict) and isinstance(evidence, dict)
         version = str(subject["version"])
-        lowered = f" {version.casefold()}"
-        if any(marker in lowered for marker in RANGE_MARKERS):
+        if _is_non_exact_version(version):
             findings.append(f"{claim_id}: runtime capability claims require one exact observed product/build version")
         try:
             evidence_path = _safe_file(root, str(evidence["path"]))

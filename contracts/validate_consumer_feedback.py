@@ -15,6 +15,7 @@ from jsonschema import Draft202012Validator
 ROOT = Path(__file__).resolve().parents[1]
 SCHEMA = ROOT / "contracts/consumer-feedback.schema.json"
 SELECTOR = re.compile(r"^(tests/[A-Za-z0-9_.\-/]+\.py)::(test_[A-Za-z0-9_]+)$")
+_FENCE = re.compile(r"^\s*(`{3,}|~{3,})")
 
 
 def _safe_file(root: Path, raw: str) -> Path:
@@ -39,7 +40,22 @@ def _slug(title: str) -> str:
 
 def _heading_anchors(path: Path) -> set[str]:
     anchors: set[str] = set()
+    fence_character: str | None = None
+    fence_length = 0
     for line in path.read_text(encoding="utf-8").splitlines():
+        fence = _FENCE.match(line)
+        if fence is not None:
+            marker = fence.group(1)
+            if fence_character is None:
+                fence_character = marker[0]
+                fence_length = len(marker)
+                continue
+            if marker[0] == fence_character and len(marker) >= fence_length:
+                fence_character = None
+                fence_length = 0
+                continue
+        if fence_character is not None:
+            continue
         match = re.match(r"^#{1,6}\s+(.+?)\s*$", line)
         if match:
             anchors.add(_slug(match.group(1)))
@@ -47,10 +63,11 @@ def _heading_anchors(path: Path) -> set[str]:
 
 
 def _test_names(path: Path) -> set[str]:
+    """Return pytest selectors addressable as ``file.py::test_name``."""
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     return {
         node.name
-        for node in ast.walk(tree)
+        for node in tree.body
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name.startswith("test_")
     }
 
@@ -85,7 +102,10 @@ def validate_registry(path: Path, *, repository_root: Path = ROOT) -> list[str]:
     incidents = document["incidents"]
     assert isinstance(incidents, list)
     findings: list[str] = []
-    known_canaries = _known_canaries(root)
+    try:
+        known_canaries = _known_canaries(root)
+    except (OSError, UnicodeDecodeError, yaml.YAMLError) as exc:
+        return [f"consumer canary catalog could not be loaded: {exc}"]
     seen: set[str] = set()
     for incident in incidents:
         assert isinstance(incident, dict)
@@ -121,7 +141,7 @@ def validate_registry(path: Path, *, repository_root: Path = ROOT) -> list[str]:
                 findings.append(f"{incident_id}: regression file could not be parsed: {exc}")
                 continue
             if test_name not in names:
-                findings.append(f"{incident_id}: regression selector does not name an existing test: {raw_selector}")
+                findings.append(f"{incident_id}: regression selector does not name an existing top-level test: {raw_selector}")
     return findings
 
 

@@ -32,6 +32,17 @@ SDK_PACKAGES = {
     "python-official-mcp": "mcp",
     "python-fastmcp-package": "fastmcp",
 }
+_WILDCARD_VERSION_COMPONENT = re.compile(r"(?:^|[._+-])[xX](?:$|[._+-])")
+
+
+def _is_exact_requirement(requirement: str) -> bool:
+    """Return true only for one concrete ``==`` package version, not a wildcard/range."""
+    requirement_part = requirement.split(";", 1)[0].strip()
+    match = re.fullmatch(r"==\s*([^,;\s]+)", requirement_part)
+    if match is None:
+        return False
+    version = match.group(1)
+    return "*" not in version and _WILDCARD_VERSION_COMPONENT.search(version) is None
 
 
 def _sdk_claim(repository_root: Path, discovery: dict[str, Any]) -> dict[str, Any]:
@@ -49,8 +60,10 @@ def _sdk_claim(repository_root: Path, discovery: dict[str, Any]) -> dict[str, An
     dependencies = project.get("dependencies") if isinstance(project, dict) else None
     if not isinstance(dependencies, list):
         return {"package": package, "requirement": None, "status": "unknown"}
-    package_pattern = re.compile(rf"^\s*{re.escape(package)}(?:\[[^]]+\])?\s*(.*)$", re.I)
-    exact_pattern = re.compile(r"^==\s*[^,;\s]+(?:\s*;.*)?$")
+    package_pattern = re.compile(
+        rf"^\s*{re.escape(package)}(?:\[[^]]+\])?(?=\s*(?:[<>=!~;@]|$))\s*(.*)$",
+        re.I,
+    )
     for raw in dependencies:
         if not isinstance(raw, str):
             continue
@@ -58,7 +71,7 @@ def _sdk_claim(repository_root: Path, discovery: dict[str, Any]) -> dict[str, An
         if match is None:
             continue
         requirement = match.group(1).strip() or "unconstrained"
-        status = "exact-pin" if exact_pattern.fullmatch(requirement) else "requires-compatibility-evidence"
+        status = "exact-pin" if _is_exact_requirement(requirement) else "requires-compatibility-evidence"
         return {"package": package, "requirement": requirement, "status": status}
     return {"package": package, "requirement": None, "status": "unknown"}
 
