@@ -6,6 +6,7 @@ import errno
 import hashlib
 import importlib.util
 import json
+import subprocess
 import sys
 from pathlib import Path
 
@@ -16,6 +17,27 @@ from contracts.run_evidence_command import main as run_evidence_command
 from contracts.validate_trusted_executable_sources import validate_lock
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def _init_authority_checkout(path: Path, repository: str = "owner/trusted") -> str:
+    subprocess.run(["git", "init", "-q", str(path)], check=True, timeout=30)
+    subprocess.run(["git", "-C", str(path), "config", "user.name", "Test"], check=True, timeout=30)
+    subprocess.run(["git", "-C", str(path), "config", "user.email", "test@example.invalid"], check=True, timeout=30)
+    subprocess.run(
+        ["git", "-C", str(path), "remote", "add", "origin", f"https://github.com/{repository}.git"],
+        check=True,
+        timeout=30,
+    )
+    subprocess.run(["git", "-C", str(path), "add", "-A"], check=True, timeout=30)
+    subprocess.run(["git", "-C", str(path), "commit", "-q", "-m", "fixture"], check=True, timeout=30)
+    completed = subprocess.run(
+        ["git", "-C", str(path), "rev-parse", "HEAD"],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    return completed.stdout.strip()
 
 
 def _load(name: str, path: Path):
@@ -130,6 +152,7 @@ def test_trusted_source_lock_binds_authority_and_vendored_bytes(tmp_path: Path) 
     content = b"print('trusted')\n"
     (repository / "scripts/vendor/collector.py").write_bytes(content)
     (authority / "tools/collector.py").write_bytes(content)
+    authority_revision = _init_authority_checkout(authority)
     digest = "sha256:" + hashlib.sha256(content).hexdigest()
     lock = {
         "schema_version": 1,
@@ -138,7 +161,7 @@ def test_trusted_source_lock_binds_authority_and_vendored_bytes(tmp_path: Path) 
                 "id": "collector",
                 "role": "evidence-collector",
                 "repository": "owner/trusted",
-                "revision": "a" * 40,
+                "revision": authority_revision,
                 "credential_access": "read-only-provider",
                 "files": [
                     {
@@ -209,7 +232,7 @@ def test_trusted_source_validator_rejects_duplicate_unknown_and_missing_authorit
                 "id": "collector",
                 "role": "evidence-collector",
                 "repository": "owner/trusted",
-                "revision": "a" * 40,
+                "revision": "d" * 40,
                 "credential_access": "read-only-provider",
                 "files": [
                     {
@@ -223,7 +246,7 @@ def test_trusted_source_validator_rejects_duplicate_unknown_and_missing_authorit
                 "id": "collector",
                 "role": "vendored-validator",
                 "repository": "owner/trusted",
-                "revision": "a" * 40,
+                "revision": "d" * 40,
                 "credential_access": "none",
                 "files": [{"authority_path": "authority.py", "sha256": digest}],
             },
@@ -251,6 +274,7 @@ def test_trusted_source_validator_rejects_authority_digest_and_unsafe_paths(tmp_
     local = repository / "vendor.py"
     local.write_bytes(b"trusted\n")
     (authority / "authority.py").write_bytes(b"different\n")
+    authority_revision = _init_authority_checkout(authority)
     digest = "sha256:" + hashlib.sha256(b"trusted\n").hexdigest()
     lock = {
         "schema_version": 1,
@@ -259,7 +283,7 @@ def test_trusted_source_validator_rejects_authority_digest_and_unsafe_paths(tmp_
                 "id": "validator",
                 "role": "vendored-validator",
                 "repository": "owner/trusted",
-                "revision": "b" * 40,
+                "revision": authority_revision,
                 "credential_access": "none",
                 "files": [
                     {

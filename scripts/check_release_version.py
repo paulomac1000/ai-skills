@@ -9,6 +9,8 @@ from pathlib import Path
 
 import yaml
 
+from contracts.semver import parse_semver
+
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -38,25 +40,62 @@ def _changed_paths(base: str) -> set[str]:
     return {line.strip() for line in completed.stdout.splitlines() if line.strip()}
 
 
+def _base_manifest_paths(base: str) -> set[str]:
+    completed = subprocess.run(  # noqa: S603
+        ["git", "ls-tree", "-r", "--name-only", base, "--", "skills"],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    return {
+        line.strip()
+        for line in completed.stdout.splitlines()
+        if line.strip().startswith("skills/") and line.strip().endswith("/manifest.yaml")
+    }
+
+
+def _stable_triplet(value: object, skill_name: str) -> tuple[int, int, int]:
+    parsed = parse_semver(value)
+    if parsed.prerelease:
+        raise ValueError(f"{skill_name}: stable skill version must not be a prerelease")
+    return parsed.major, parsed.minor, parsed.patch
+
+
 def validate_version_bumps(base: str) -> list[str]:
     changed = _changed_paths(base)
     shared_contract_change = any(path.startswith("contracts/") for path in changed)
     findings: list[str] = []
-    for manifest_path in sorted((ROOT / "skills").glob("*/manifest.yaml")):
-        relative = manifest_path.relative_to(ROOT).as_posix()
-        current = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
-        if not isinstance(current, dict) or current.get("maturity") != "stable":
-            continue
+    for relative in sorted(_base_manifest_paths(base)):
         old_text = _git_show(base, relative)
         if old_text is None:
             continue
         previous = yaml.safe_load(old_text)
-        if not isinstance(previous, dict):
+        if not isinstance(previous, dict) or previous.get("maturity") != "stable":
             continue
-        skill_prefix = f"skills/{manifest_path.parent.name}/"
+        skill_name = Path(relative).parent.name
+        current_path = ROOT / relative
+        if not current_path.is_file():
+            findings.append(f"{skill_name}: previously stable skill manifest was removed")
+            continue
+        current = yaml.safe_load(current_path.read_text(encoding="utf-8"))
+        if not isinstance(current, dict) or current.get("maturity") != "stable":
+            findings.append(f"{skill_name}: previously stable skill cannot be downgraded from stable maturity")
+            continue
+        try:
+            previous_version = _stable_triplet(previous.get("version"), skill_name)
+            current_version = _stable_triplet(current.get("version"), skill_name)
+        except ValueError as exc:
+            findings.append(str(exc))
+            continue
+        if current_version < previous_version:
+            findings.append(f"{skill_name}: stable skill version must not decrease")
+            continue
+        skill_prefix = f"skills/{skill_name}/"
         semantic_change = shared_contract_change or any(path.startswith(skill_prefix) for path in changed)
-        if semantic_change and current.get("version") == previous.get("version"):
-            findings.append(f"{manifest_path.parent.name}: stable shipped content changed without a skill version bump")
+        if semantic_change and current_version <= previous_version:
+            findings.append(f"{skill_name}: stable shipped content changed without increasing the skill version")
     return findings
 
 

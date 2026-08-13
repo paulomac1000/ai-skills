@@ -10,13 +10,19 @@ import os
 import re
 import subprocess
 import sys
-import tempfile
+import threading
+import time
 import xml.etree.ElementTree as ET
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, BinaryIO
 
 EXECUTION_ID = re.compile(r"[a-z0-9][a-z0-9-]{0,63}")
 READ_CHUNK_BYTES = 1024 * 1024
+PIPE_READ_BYTES = 64 * 1024
+MAX_CAPTURE_BYTES = 8 * 1024 * 1024
+DEFAULT_TIMEOUT_SECONDS = 900
+MAX_TIMEOUT_SECONDS = 3600
 
 
 def _digest(path: Path) -> str:
@@ -27,22 +33,97 @@ def _digest(path: Path) -> str:
     return f"sha256:{digest.hexdigest()}"
 
 
-def _stream_observation(source: BinaryIO) -> dict[str, Any]:
-    source.flush()
-    source.seek(0)
-    digest = hashlib.sha256()
-    size = 0
-    while chunk := source.read(READ_CHUNK_BYTES):
-        digest.update(chunk)
-        size += len(chunk)
-    source.seek(0)
-    return {"digest": f"sha256:{digest.hexdigest()}", "bytes": size}
+@dataclass(slots=True)
+class _CapturedStream:
+    data: bytearray = field(default_factory=bytearray)
+    bytes_seen: int = 0
+    overflow: bool = False
+
+    def observation(self) -> dict[str, Any]:
+        payload = bytes(self.data)
+        return {"digest": f"sha256:{hashlib.sha256(payload).hexdigest()}", "bytes": len(payload)}
 
 
-def _replay(source: BinaryIO, destination: BinaryIO) -> None:
-    source.seek(0)
-    while chunk := source.read(READ_CHUNK_BYTES):
-        destination.write(chunk)
+def _drain_stream(
+    source: BinaryIO,
+    capture: _CapturedStream,
+    *,
+    limit: int,
+    overflow_event: threading.Event,
+) -> None:
+    try:
+        while chunk := source.read(PIPE_READ_BYTES):
+            capture.bytes_seen += len(chunk)
+            remaining = max(0, limit - len(capture.data))
+            if remaining:
+                capture.data.extend(chunk[:remaining])
+            if capture.bytes_seen > limit:
+                capture.overflow = True
+                overflow_event.set()
+    finally:
+        source.close()
+
+
+def _execute_bounded(
+    argv: list[str],
+    *,
+    cwd: Path,
+    timeout_seconds: int,
+    max_output_bytes: int,
+) -> tuple[int, _CapturedStream, _CapturedStream, str | None, int | None]:
+    process = subprocess.Popen(  # noqa: S603
+        argv,
+        cwd=cwd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    assert process.stdout is not None and process.stderr is not None
+    overflow_event = threading.Event()
+    stdout_capture = _CapturedStream()
+    stderr_capture = _CapturedStream()
+    threads = [
+        threading.Thread(
+            target=_drain_stream,
+            args=(process.stdout, stdout_capture),
+            kwargs={"limit": max_output_bytes, "overflow_event": overflow_event},
+            daemon=True,
+        ),
+        threading.Thread(
+            target=_drain_stream,
+            args=(process.stderr, stderr_capture),
+            kwargs={"limit": max_output_bytes, "overflow_event": overflow_event},
+            daemon=True,
+        ),
+    ]
+    for thread in threads:
+        thread.start()
+    deadline = time.monotonic() + timeout_seconds
+    execution_error: str | None = None
+    failure_status: int | None = None
+    while process.poll() is None:
+        if overflow_event.wait(timeout=0.02):
+            execution_error = f"command output exceeded {max_output_bytes} bytes per stream"
+            failure_status = 125
+            process.kill()
+            break
+        if time.monotonic() >= deadline:
+            execution_error = f"command exceeded timeout of {timeout_seconds} seconds"
+            failure_status = 124
+            process.kill()
+            break
+    returncode = process.wait()
+    for thread in threads:
+        thread.join(timeout=5)
+    if any(thread.is_alive() for thread in threads):
+        raise RuntimeError("command output drain did not terminate")
+    if execution_error is None and (stdout_capture.overflow or stderr_capture.overflow):
+        execution_error = f"command output exceeded {max_output_bytes} bytes per stream"
+        failure_status = 125
+    return returncode, stdout_capture, stderr_capture, execution_error, failure_status
+
+
+def _replay(capture: _CapturedStream, destination: BinaryIO) -> None:
+    destination.write(capture.data)
     destination.flush()
 
 
@@ -138,6 +219,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--working-directory", type=Path, default=Path("."))
     parser.add_argument("--result-file", action="append", type=Path, default=[])
     parser.add_argument("--artifact-file", action="append", type=Path, default=[])
+    parser.add_argument("--timeout-seconds", type=int, default=DEFAULT_TIMEOUT_SECONDS)
+    parser.add_argument("--max-output-bytes", type=int, default=MAX_CAPTURE_BYTES)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("argv", nargs=argparse.REMAINDER)
     return parser
@@ -155,23 +238,25 @@ def main(raw_args: list[str] | None = None) -> int:
         raise ValueError("an exact non-empty argv is required after --")
     repository_root = Path.cwd().resolve(strict=True)
     working_directory, working_directory_text = _safe_working_directory(args.working_directory, repository_root)
+    if not 0 < args.timeout_seconds <= MAX_TIMEOUT_SECONDS:
+        raise ValueError(f"timeout_seconds must be between 1 and {MAX_TIMEOUT_SECONDS}")
+    if not 0 < args.max_output_bytes <= MAX_CAPTURE_BYTES:
+        raise ValueError(f"max_output_bytes must be between 1 and {MAX_CAPTURE_BYTES}")
 
-    with tempfile.TemporaryFile() as stdout_capture, tempfile.TemporaryFile() as stderr_capture:
-        completed = subprocess.run(  # noqa: S603
-            argv,
-            cwd=working_directory,
-            check=False,
-            stdout=stdout_capture,
-            stderr=stderr_capture,
-        )
-        stdout_observation = _stream_observation(stdout_capture)
-        stderr_observation = _stream_observation(stderr_capture)
-        _replay(stdout_capture, sys.stdout.buffer)
-        _replay(stderr_capture, sys.stderr.buffer)
+    returncode, stdout_capture, stderr_capture, execution_error, failure_status = _execute_bounded(
+        argv,
+        cwd=working_directory,
+        timeout_seconds=args.timeout_seconds,
+        max_output_bytes=args.max_output_bytes,
+    )
+    stdout_observation = stdout_capture.observation()
+    stderr_observation = stderr_capture.observation()
+    _replay(stdout_capture, sys.stdout.buffer)
+    _replay(stderr_capture, sys.stderr.buffer)
 
     results: list[dict[str, Any]] = []
     artifacts: list[dict[str, Any]] = []
-    validation_error: str | None = None
+    validation_errors = [execution_error] if execution_error is not None else []
     try:
         for raw_path in args.result_file:
             path, relative = _safe_relative(raw_path, working_directory, "result_file")
@@ -195,7 +280,8 @@ def main(raw_args: list[str] | None = None) -> int:
                 }
             )
     except (OSError, ValueError) as exc:
-        validation_error = str(exc)
+        validation_errors.append(str(exc))
+    validation_error = "; ".join(validation_errors) if validation_errors else None
 
     record: dict[str, Any] = {
         "format": "ai-skills-execution-record",
@@ -203,7 +289,7 @@ def main(raw_args: list[str] | None = None) -> int:
         "argv": argv,
         "working_directory": working_directory_text,
         "command_digest": _command_digest(argv, working_directory_text),
-        "exit_status": completed.returncode,
+        "exit_status": returncode,
         "command_result": {
             "kind": "command-result",
             "stdout": stdout_observation,
@@ -220,8 +306,10 @@ def main(raw_args: list[str] | None = None) -> int:
         encoding="utf-8",
         newline="\n",
     )
-    if completed.returncode != 0:
-        return completed.returncode
+    if failure_status is not None:
+        return failure_status
+    if returncode != 0:
+        return returncode
     if validation_error is not None:
         raise ValueError(validation_error)
     return 0
