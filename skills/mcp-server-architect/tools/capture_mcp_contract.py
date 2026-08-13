@@ -67,9 +67,7 @@ def _drain_stream(source: BinaryIO, capture: _CapturedStream, abort_event: threa
         source.close()
 
 
-def _spawn_probe(
-    argv: list[str], working_directory: Path, environment: dict[str, str]
-) -> subprocess.Popen[bytes]:
+def _spawn_probe(argv: list[str], working_directory: Path, environment: dict[str, str]) -> subprocess.Popen[bytes]:
     if os.name == "nt":
         return subprocess.Popen(  # noqa: S603 - exact argv is supplied by the operator; shell is never used.
             argv,
@@ -168,7 +166,7 @@ def _run_probe(argv: list[str], working_directory: Path, timeout_seconds: int) -
     if failure is None and (stdout_capture.overflow or stderr_capture.overflow):
         failure = f"official-client contract probe exceeded {MAX_PROBE_OUTPUT_BYTES} bytes per output stream"
     if failure is None and (stdout_capture.error or stderr_capture.error):
-        detail = stdout_capture.error or stderr_capture.error
+        detail = stdout_capture.error or stderr_capture.error or "unknown stream error"
         failure = f"official-client contract probe output capture failed: {detail}"
     if failure is not None:
         raise RuntimeError(failure)

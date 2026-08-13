@@ -56,11 +56,7 @@ def _load_structured(path: Path, format_name: str) -> Any:
 def _is_non_exact_version(version: str) -> bool:
     """Reject moving channels, ranges, and wildcards while allowing exact opaque build ids."""
     stripped = version.strip()
-    return (
-        not stripped
-        or _RANGE_SYNTAX.search(stripped) is not None
-        or _NON_EXACT_VERSION.search(stripped) is not None
-    )
+    return not stripped or _RANGE_SYNTAX.search(stripped) is not None or _NON_EXACT_VERSION.search(stripped) is not None
 
 
 def validate_claims(path: Path, *, repository_root: Path = ROOT) -> list[str]:

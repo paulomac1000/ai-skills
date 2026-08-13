@@ -106,7 +106,18 @@ def _selector_collected(root: Path, selector: str) -> tuple[bool, str | None]:
     """Confirm that default pytest collection can address the exact selector."""
     try:
         completed = subprocess.run(  # noqa: S603 - fixed interpreter/module and validated selector grammar.
-            [sys.executable, "-m", "pytest", "--collect-only", "-q", "-p", "no:cacheprovider", selector],
+            [
+                sys.executable,
+                "-m",
+                "pytest",
+                "--collect-only",
+                "-q",
+                "-o",
+                "addopts=",
+                "-p",
+                "no:cacheprovider",
+                selector,
+            ],
             cwd=root,
             env=_pytest_environment(),
             check=False,
@@ -205,7 +216,9 @@ def validate_registry(path: Path, *, repository_root: Path = ROOT) -> list[str]:
                 collection_cache[selector] = _selector_collected(root, selector)
             collected, detail = collection_cache[selector]
             if not collected:
-                findings.append(f"{incident_id}: regression selector is not collectable by pytest: {selector} ({detail})")
+                findings.append(
+                    f"{incident_id}: regression selector is not collectable by pytest: {selector} ({detail})"
+                )
     return findings
 
 
