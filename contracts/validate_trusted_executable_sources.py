@@ -156,6 +156,20 @@ def _verify_authority_identity(root: Path, repository: str, revision: str) -> No
         )
 
 
+def _authority_file(root: Path, raw: str) -> Path:
+    """Return a trusted file only when the working-tree bytes are the tracked HEAD bytes."""
+    candidate = _safe_file(root, raw, "authority_path")
+    try:
+        tracked = _git(root, "ls-files", "--error-unmatch", "--", raw)
+    except ValueError as exc:
+        raise ValueError(f"authority_path must be tracked at the locked revision: {raw}") from exc
+    if tracked != raw:
+        raise ValueError(f"authority_path must resolve to exactly one tracked file: {raw}")
+    if _git(root, "status", "--porcelain=v1", "--untracked-files=all", "--", raw):
+        raise ValueError(f"authority_path must be clean at the locked revision: {raw}")
+    return candidate
+
+
 def _authority_roots(values: Sequence[str]) -> dict[str, Path]:
     roots: dict[str, Path] = {}
     for raw in values:
@@ -241,11 +255,7 @@ def validate_lock(
                         )
             if authority_root is not None and authority_identity_valid:
                 try:
-                    authority = _safe_file(
-                        authority_root,
-                        str(raw_file["authority_path"]),
-                        "authority_path",
-                    )
+                    authority = _authority_file(authority_root, str(raw_file["authority_path"]))
                 except ValueError as exc:
                     findings.append(f"sources.{index}.files.{file_index}: {exc}")
                 else:

@@ -18,8 +18,9 @@
 - Reworked the container and NuGet publish templates so unprivileged validation builds and tests closed artifacts while protected publishers verify and publish them without checking out or executing candidate source.
 - Replaced mutable runner labels across all workflow templates, short-SHA artifact identity, post-checkout authenticated fetches, and `docker push --all-tags` with concrete runners, full source SHAs, checksums, explicit tags, and registry digest capture.
 - Made every rendered workflow template pass its declared policy profile and made the repository workflow profile explicit in `.github/workflow-policy.yaml`.
-- Clarified that AFDS `verification` is conditional on operational or normative rigor and may be supplied through metadata or a verification section.
+- Clarified that AFDS `verification` is conditional on operational or normative rigor: governed metadata is canonical, while a `## Verification` section is a fallback only for legacy implicit-v1 documents that have no governed metadata.
 - Clarified the distinction between MCP protocol compatibility allowances, SDK implementation evidence, `ai-skills` transport policy, and controlled project exceptions.
+- Released `mcp-server-consumer` as `2.0.0` because trusted capability policy and contract values are now bound to an exact `CapabilityIdentity`; callers must provide `TrustedPolicyBinding`/`identity`, and the legacy `trusted_server` trust switch is no longer part of the public helper contract.
 
 ## 1.2.0 - 2026-07-28
 
