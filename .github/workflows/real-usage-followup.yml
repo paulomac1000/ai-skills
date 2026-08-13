@@ -50,7 +50,6 @@ jobs:
             tests/test_field_feedback_regressions.py \
             tests/test_practical_consumer_feedback.py \
             tests/test_consumer_driven_contract_tools.py \
-            tests/test_deployment_observation_contract.py \
             tests/test_atomic_claim_contract.py \
             tests/test_adoption_contract.py
       - name: Run full local gate
