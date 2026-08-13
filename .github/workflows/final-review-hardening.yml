@@ -9,6 +9,7 @@ on:
       - .github/workflows/final-review-hardening.yml
       - scripts/apply_final_review_hardening.py
       - scripts/apply_final_review_hardening_extra.py
+      - scripts/apply_final_review_type_fix.py
 
 permissions:
   contents: write
@@ -38,8 +39,9 @@ jobs:
         run: |
           python scripts/apply_final_review_hardening.py
           python scripts/apply_final_review_hardening_extra.py
+          python scripts/apply_final_review_type_fix.py
       - name: Remove temporary repair machinery
-        run: git rm -f .github/workflows/final-review-hardening.yml scripts/apply_final_review_hardening.py scripts/apply_final_review_hardening_extra.py
+        run: git rm -f .github/workflows/final-review-hardening.yml scripts/apply_final_review_hardening.py scripts/apply_final_review_hardening_extra.py scripts/apply_final_review_type_fix.py
       - name: Format and focused regressions
         run: |
           python -m ruff check --fix contracts scripts skills tests
@@ -60,6 +62,7 @@ jobs:
           test ! -e .github/workflows/final-review-hardening.yml
           test ! -e scripts/apply_final_review_hardening.py
           test ! -e scripts/apply_final_review_hardening_extra.py
+          test ! -e scripts/apply_final_review_type_fix.py
       - name: Commit and push
         run: |
           git config user.name "github-actions[bot]"
