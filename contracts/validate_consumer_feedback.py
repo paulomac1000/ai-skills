@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import importlib
 import json
 import os
 import re
@@ -16,29 +17,16 @@ import yaml
 from jsonschema import Draft202012Validator
 
 ROOT = Path(__file__).resolve().parents[1]
-CONTRACTS = ROOT / "contracts"
-for value in (str(ROOT), str(CONTRACTS)):
-    if value not in sys.path:
-        sys.path.insert(0, value)
-
-from confined_io import confined_regular_file  # noqa: E402
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+confined_regular_file = importlib.import_module("contracts.confined_io").confined_regular_file
 
 SCHEMA = ROOT / "contracts/consumer-feedback.schema.json"
 SELECTOR = re.compile(r"^(tests/[A-Za-z0-9_.\-/]+\.py)::(test_[A-Za-z0-9_]+)$")
 _FENCE_OPEN = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
 _PYTEST_ENVIRONMENT_ALLOWLIST = {
-    "COMSPEC",
-    "LANG",
-    "LC_ALL",
-    "LC_CTYPE",
-    "PATH",
-    "PATHEXT",
-    "PYTHONHASHSEED",
-    "SYSTEMROOT",
-    "TEMP",
-    "TMP",
-    "TMPDIR",
-    "WINDIR",
+    "COMSPEC", "LANG", "LC_ALL", "LC_CTYPE", "PATH", "PATHEXT", "PYTHONHASHSEED",
+    "SYSTEMROOT", "TEMP", "TMP", "TMPDIR", "WINDIR",
 }
 _PYTEST_COLLECT_SCRIPT = """
 import json
@@ -92,7 +80,6 @@ def _heading_anchors(path: Path) -> set[str]:
 
 
 def _test_names(path: Path) -> set[str]:
-    """Return source-level candidates for ``file.py::test_name`` selectors."""
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     return {
         node.name
@@ -112,11 +99,10 @@ def _pytest_environment() -> dict[str, str]:
 
 
 def _collect_nodeids(root: Path, test_files: set[str]) -> tuple[set[str], str | None]:
-    """Collect all referenced modules once under the repository's own pytest configuration."""
     if not test_files:
         return set(), None
     try:
-        completed = subprocess.run(  # noqa: S603 - fixed interpreter/code and schema-validated repository paths.
+        completed = subprocess.run(  # noqa: S603
             [sys.executable, "-c", _PYTEST_COLLECT_SCRIPT, *sorted(test_files)],
             cwd=root,
             env=_pytest_environment(),
@@ -128,8 +114,7 @@ def _collect_nodeids(root: Path, test_files: set[str]) -> tuple[set[str], str | 
     except (OSError, subprocess.TimeoutExpired) as exc:
         return set(), f"pytest collection could not run: {exc}"
     payload_line = next(
-        (line for line in reversed(completed.stdout.splitlines()) if line.startswith(_COLLECT_PREFIX)),
-        None,
+        (line for line in reversed(completed.stdout.splitlines()) if line.startswith(_COLLECT_PREFIX)), None
     )
     if payload_line is None:
         detail = (completed.stderr or completed.stdout).strip().splitlines()
@@ -147,14 +132,17 @@ def _collect_nodeids(root: Path, test_files: set[str]) -> tuple[set[str], str | 
 
 
 def _known_canaries(root: Path) -> set[str]:
-    path = root / "contracts/consumer-canaries.yaml"
-    raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+    raw = yaml.safe_load((root / "contracts/consumer-canaries.yaml").read_text(encoding="utf-8"))
     if not isinstance(raw, dict):
         return set()
     entries = raw.get("canaries")
     if not isinstance(entries, list):
         return set()
-    return {str(entry.get("id")) for entry in entries if isinstance(entry, dict) and isinstance(entry.get("id"), str)}
+    return {
+        str(entry.get("id"))
+        for entry in entries
+        if isinstance(entry, dict) and isinstance(entry.get("id"), str)
+    }
 
 
 def validate_registry(path: Path, *, repository_root: Path = ROOT) -> list[str]:
@@ -166,9 +154,7 @@ def validate_registry(path: Path, *, repository_root: Path = ROOT) -> list[str]:
     schema = json.loads(SCHEMA.read_text(encoding="utf-8"))
     schema_findings = [
         f"schema: {'/'.join(str(part) for part in error.absolute_path) or '<root>'}: {error.message}"
-        for error in sorted(
-            Draft202012Validator(schema).iter_errors(document), key=lambda item: list(item.absolute_path)
-        )
+        for error in sorted(Draft202012Validator(schema).iter_errors(document), key=lambda item: list(item.absolute_path))
     ]
     if schema_findings:
         return schema_findings

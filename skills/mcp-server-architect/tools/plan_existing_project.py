@@ -35,6 +35,7 @@ SDK_PACKAGES = {
 }
 _WILDCARD_VERSION_COMPONENT = re.compile(r"(?:^|[._+-])[xX](?:$|[._+-])")
 _PIP_INLINE_OPTION = re.compile(r"\s+--[A-Za-z0-9][A-Za-z0-9_-]*(?:=|\s+)")
+_INLINE_COMMENT = re.compile(r"\s+#.*$")
 
 
 def _is_exact_requirement(requirement: str) -> bool:
@@ -47,8 +48,20 @@ def _is_exact_requirement(requirement: str) -> bool:
     return "*" not in version and _WILDCARD_VERSION_COMPONENT.search(version) is None
 
 
+def _finalize_requirement(fragments: list[str]) -> str | None:
+    """Normalize one logical pip requirement without treating comments/options as the version claim."""
+    logical = " ".join(fragments).strip()
+    logical = _INLINE_COMMENT.sub("", logical).strip()
+    if not logical or logical.startswith("-"):
+        return None
+    option = _PIP_INLINE_OPTION.search(logical)
+    if option is not None:
+        logical = logical[: option.start()].rstrip()
+    return logical or None
+
+
 def _logical_requirements(text: str) -> list[str]:
-    """Join pip continuation lines and remove inline installer options from requirement entries."""
+    """Join pip continuation lines and normalize requirement entries once."""
     entries: list[str] = []
     current: list[str] = []
     for raw_line in text.splitlines():
@@ -56,25 +69,16 @@ def _logical_requirements(text: str) -> list[str]:
         if not stripped or stripped.startswith("#"):
             continue
         continued = stripped.endswith("\\")
-        fragment = stripped[:-1].rstrip() if continued else stripped
-        current.append(fragment)
+        current.append(stripped[:-1].rstrip() if continued else stripped)
         if continued:
             continue
-        logical = " ".join(current).strip()
+        logical = _finalize_requirement(current)
         current = []
-        if not logical or logical.startswith("-"):
-            continue
-        option = _PIP_INLINE_OPTION.search(logical)
-        if option is not None:
-            logical = logical[: option.start()].rstrip()
-        if logical:
+        if logical is not None:
             entries.append(logical)
     if current:
-        logical = " ".join(current).strip()
-        option = _PIP_INLINE_OPTION.search(logical)
-        if option is not None:
-            logical = logical[: option.start()].rstrip()
-        if logical and not logical.startswith("-"):
+        logical = _finalize_requirement(current)
+        if logical is not None:
             entries.append(logical)
     return entries
 

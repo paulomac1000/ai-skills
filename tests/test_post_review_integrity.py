@@ -7,6 +7,7 @@ import json
 import os
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -130,30 +131,14 @@ def test_ci_passthrough_cannot_reintroduce_its_control_variable() -> None:
 def test_canary_git_environment_keeps_windows_roots_and_lowercase_proxies(monkeypatch: pytest.MonkeyPatch) -> None:
     checker = _load("consumer_canary_environment", TOOLS / "check_consumer_canaries.py")
     for name in (
-        "USERPROFILE",
-        "HOMEDRIVE",
-        "HOMEPATH",
-        "APPDATA",
-        "LOCALAPPDATA",
-        "PROGRAMDATA",
-        "SYSTEMDRIVE",
-        "https_proxy",
-        "http_proxy",
-        "no_proxy",
+        "USERPROFILE", "HOMEDRIVE", "HOMEPATH", "APPDATA", "LOCALAPPDATA", "PROGRAMDATA", "SYSTEMDRIVE",
+        "https_proxy", "http_proxy", "no_proxy",
     ):
         monkeypatch.setenv(name, f"value-{name}")
     environment = checker._git_environment()
     for name in (
-        "USERPROFILE",
-        "HOMEDRIVE",
-        "HOMEPATH",
-        "APPDATA",
-        "LOCALAPPDATA",
-        "PROGRAMDATA",
-        "SYSTEMDRIVE",
-        "https_proxy",
-        "http_proxy",
-        "no_proxy",
+        "USERPROFILE", "HOMEDRIVE", "HOMEPATH", "APPDATA", "LOCALAPPDATA", "PROGRAMDATA", "SYSTEMDRIVE",
+        "https_proxy", "http_proxy", "no_proxy",
     ):
         assert environment[name] == f"value-{name}"
 
@@ -167,6 +152,12 @@ def test_hashed_requirement_continuations_preserve_exact_sdk_pin() -> None:
     assert planner._is_exact_requirement("==2.0.0") is True
 
 
+def test_requirement_inline_comment_and_dangling_continuation_are_normalized_once() -> None:
+    planner = _load("adoption_planner_inline_comments", TOOLS / "plan_existing_project.py")
+    assert planner._logical_requirements("mcp==2.0.0  # pinned exact version\n") == ["mcp==2.0.0"]
+    assert planner._logical_requirements("mcp==2.0.0 \\\n    --hash=sha256:111 \\\n") == ["mcp==2.0.0"]
+
+
 def test_evidence_timeout_kills_descendant_and_still_writes_record(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -175,31 +166,43 @@ def test_evidence_timeout_kills_descendant_and_still_writes_record(
     script = tmp_path / "spawn_child.py"
     script.write_text(
         "import pathlib, subprocess, sys, time\n"
-        "child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])\n"
-        "pathlib.Path(sys.argv[1]).write_text(str(child.pid), encoding='utf-8')\n"
+        "child = subprocess.Popen([sys.executable, '-c', "
+        "'import os, pathlib, sys, time; pathlib.Path(sys.argv[1]).write_text(str(os.getpid()), encoding=\"utf-8\"); time.sleep(60)', sys.argv[1]])\n"
+        "deadline = time.monotonic() + 2\n"
+        "while not pathlib.Path(sys.argv[1]).exists() and time.monotonic() < deadline: time.sleep(0.01)\n"
         "time.sleep(60)\n",
         encoding="utf-8",
     )
     output = tmp_path / "execution.json"
-    status = run_evidence_command(
-        [
-            "--execution-id",
-            "process-tree-timeout",
-            "--timeout-seconds",
-            "1",
-            "--output",
-            str(output),
-            "--",
-            sys.executable,
-            str(script),
-            str(child_pid),
-        ]
-    )
-    assert status == 124
+    result: dict[str, int] = {}
+    failure: list[BaseException] = []
+
+    def invoke() -> None:
+        try:
+            result["status"] = run_evidence_command(
+                [
+                    "--execution-id", "process-tree-timeout",
+                    "--timeout-seconds", "4",
+                    "--output", str(output),
+                    "--", sys.executable, str(script), str(child_pid),
+                ]
+            )
+        except BaseException as exc:  # pragma: no cover - surfaced by the assertion below
+            failure.append(exc)
+
+    runner = threading.Thread(target=invoke)
+    runner.start()
+    ready_deadline = time.monotonic() + 3
+    while not child_pid.is_file() and time.monotonic() < ready_deadline:
+        time.sleep(0.02)
+    assert child_pid.is_file(), "descendant did not publish readiness before the evidence timeout"
+    pid = int(child_pid.read_text(encoding="utf-8"))
+    runner.join(timeout=10)
+    assert not runner.is_alive(), "evidence command did not return after its timeout"
+    assert failure == []
+    assert result["status"] == 124
     record = json.loads(output.read_text(encoding="utf-8"))
     assert "exceeded timeout" in record["validation_error"]
-    assert child_pid.is_file()
-    pid = int(child_pid.read_text(encoding="utf-8"))
     deadline = time.monotonic() + 5
     while _pid_alive(pid) and time.monotonic() < deadline:
         time.sleep(0.05)
