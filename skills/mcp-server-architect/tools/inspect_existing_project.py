@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import posixpath
 import re
 import shlex
 import stat
@@ -38,22 +39,28 @@ IGNORED_PARTS = {
 }
 TEXT_SUFFIXES = {".py", ".toml", ".txt", ".ini", ".yaml", ".yml", ".md", ".json"}
 HTTP_DEPENDENCIES = {"requests", "httpx", "aiohttp", "urllib3"}
+_PREBUILT_CONTAINER_DIRS = frozenset({"dist", "build", "out", "publish", "artifacts"})
 _PREBUILT_CONTAINER_COPY = re.compile(
     r"^\s*(?:COPY|ADD)\b[^\n]*\b(?:dist|build|out|publish|artifacts)/",
     re.IGNORECASE | re.MULTILINE,
 )
+_COPY_INSTRUCTION = re.compile(r"^(?:COPY|ADD)\b\s*(.*)$", re.IGNORECASE)
 _SOURCE_REVISION_ARG = re.compile(
     r"^\s*ARG\s+([A-Za-z_][A-Za-z0-9_]*)",
     re.IGNORECASE | re.MULTILINE,
 )
 _SOURCE_REVISION_FILE = re.compile(r"\bSOURCE[_-](?:REVISION|SHA)\b", re.IGNORECASE)
 _SOURCE_REVISION_READ = re.compile(
-    r"(?P<quote>['\"]?)\$\(\s*cat\s+[^)]*\bSOURCE[_-](?:REVISION|SHA)\b[^)]*\)(?P=quote)",
+    r"(?P<quote>['\"]?)\$\(\s*cat\s+(?P<path>[^)\s'\"]*SOURCE[_-](?:REVISION|SHA))\s*\)(?P=quote)",
+    re.IGNORECASE,
+)
+_SOURCE_REVISION_WRITE = re.compile(
+    r"(?:>{1,2}\s*[^\s;&|]*SOURCE[_-](?:REVISION|SHA)\b|"
+    r"\b(?:touch|tee|cp|mv)\b[^;&|]*\bSOURCE[_-](?:REVISION|SHA)\b)",
     re.IGNORECASE,
 )
 _RUN_INSTRUCTION = re.compile(r"^RUN\b\s*(.*)$", re.IGNORECASE)
 _SOURCE_CHECK_COMMAND = re.compile(r"(?:\btest\b|^\s*\[\[?)", re.IGNORECASE)
-_SHELL_COMMAND_BOUNDARY = re.compile(r"\s*(?:&&|\|\||;)\s*")
 _EQUALITY_OPERATOR = r"(?<![!<>=])(?:==|=)(?!=)"
 
 
@@ -209,34 +216,119 @@ def _docker_instructions(text: str) -> list[str]:
     return instructions
 
 
-def _source_revision_equality(command: str, source_arg: str) -> bool:
-    """Recognize an explicit equality between copied revision-file contents and one build argument."""
-    argument = rf"(?P<arg_quote>['\"]?)\$(?:\{{{re.escape(source_arg)}\}}|{re.escape(source_arg)}\b)(?P=arg_quote)"
-    revision_read = _SOURCE_REVISION_READ.pattern
-    patterns = (
-        rf"{revision_read}\s*{_EQUALITY_OPERATOR}\s*{argument}",
-        rf"{argument}\s*{_EQUALITY_OPERATOR}\s*{revision_read}",
+def _container_path(value: str) -> str | None:
+    """Normalize one static absolute container path, rejecting dynamic destinations."""
+    if not value.startswith("/") or "$" in value:
+        return None
+    return posixpath.normpath(value)
+
+
+def _prebuilt_copy_destinations(text: str) -> set[str]:
+    """Return statically provable destinations of simple prebuilt-artifact COPY/ADD instructions."""
+    destinations: set[str] = set()
+    for instruction in _docker_instructions(text):
+        match = _COPY_INSTRUCTION.match(instruction)
+        if match is None:
+            continue
+        payload = match.group(1).strip()
+        if not payload or payload.startswith("["):
+            continue
+        try:
+            tokens = shlex.split(payload)
+        except ValueError:
+            continue
+        while tokens and tokens[0].startswith("--"):
+            tokens.pop(0)
+        if len(tokens) != 2:
+            continue
+        source, destination = tokens
+        source_parts = {part.casefold() for part in source.replace("\\", "/").split("/") if part}
+        if not source_parts.intersection(_PREBUILT_CONTAINER_DIRS):
+            continue
+        normalized = _container_path(destination)
+        if normalized is not None:
+            destinations.add(normalized)
+    return destinations
+
+
+def _revision_read_is_from_artifact(path: str, cwd: str | None, destinations: set[str]) -> bool:
+    """Require the revision file read to resolve directly under a copied artifact destination."""
+    if path.startswith("/"):
+        resolved = posixpath.normpath(path)
+    elif cwd is not None:
+        resolved = posixpath.normpath(posixpath.join(cwd, path))
+    else:
+        return False
+    return any(
+        resolved in {posixpath.join(destination, "SOURCE_REVISION"), posixpath.join(destination, "SOURCE_SHA")}
+        for destination in destinations
     )
-    return any(re.search(pattern, command, re.IGNORECASE) is not None for pattern in patterns)
+
+
+def _source_revision_equality(
+    command: str,
+    source_arg: str,
+    *,
+    cwd: str | None,
+    artifact_destinations: set[str],
+) -> bool:
+    """Recognize an equality between copied artifact revision bytes and one expected build argument."""
+    argument = rf"(?P<arg_quote>['\"]?)\$(?:\{{{re.escape(source_arg)}\}}|{re.escape(source_arg)}\b)(?P=arg_quote)"
+    for revision_match in _SOURCE_REVISION_READ.finditer(command):
+        if not _revision_read_is_from_artifact(revision_match.group("path"), cwd, artifact_destinations):
+            continue
+        revision_read = re.escape(revision_match.group(0))
+        patterns = (
+            rf"{revision_read}\s*{_EQUALITY_OPERATOR}\s*{argument}",
+            rf"{argument}\s*{_EQUALITY_OPERATOR}\s*{revision_read}",
+        )
+        if any(re.search(pattern, command, re.IGNORECASE) is not None for pattern in patterns):
+            return True
+    return False
 
 
 def _source_revision_binding_signal(text: str, revision_args: list[str]) -> bool:
-    """Require one executable equality to bind copied artifact revision bytes to the expected source argument."""
+    """Require a fail-closed equality that binds copied artifact revision bytes to the expected source argument."""
     source_args = [
         name
         for name in revision_args
         if "source" in name.casefold() and ("revision" in name.casefold() or "sha" in name.casefold())
     ]
-    if not source_args:
+    artifact_destinations = _prebuilt_copy_destinations(text)
+    if not source_args or not artifact_destinations:
         return False
     for instruction in _docker_instructions(text):
         run = _RUN_INSTRUCTION.match(instruction)
         if run is None:
             continue
-        for command in _SHELL_COMMAND_BOUNDARY.split(run.group(1)):
+        body = run.group(1).strip()
+        if not body or "||" in body or ";" in body or re.search(r"(?<!\|)\|(?!\|)", body):
+            continue
+        if _SOURCE_REVISION_WRITE.search(body) is not None:
+            continue
+        cwd: str | None = None
+        for command in re.split(r"\s*&&\s*", body):
+            command = command.strip()
+            if not command or command.startswith("!"):
+                continue
+            try:
+                tokens = shlex.split(command)
+            except ValueError:
+                continue
+            if len(tokens) == 2 and tokens[0] == "cd":
+                cwd = _container_path(tokens[1])
+                continue
             if _SOURCE_CHECK_COMMAND.search(command) is None or _SOURCE_REVISION_FILE.search(command) is None:
                 continue
-            if any(_source_revision_equality(command, name) for name in source_args):
+            if any(
+                _source_revision_equality(
+                    command,
+                    name,
+                    cwd=cwd,
+                    artifact_destinations=artifact_destinations,
+                )
+                for name in source_args
+            ):
                 return True
     return False
 
