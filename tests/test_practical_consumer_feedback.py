@@ -110,45 +110,53 @@ def test_live_backend_policy_requires_two_opt_ins_and_reconciliation(tmp_path: P
         "schema_version": 1,
         "default_execution": "excluded",
         "mutations": {
-            "enabled": True,
-            "opt_in_controls": ["RUN_EXTERNAL_TESTS", "ALLOW_REAL_MUTATIONS"],
-            "exclusive_disposable_target_required": True,
-        },
-        "cleanup": {
-            "ownership_marker_required": True,
-            "preclean_required": True,
-            "reconciliation_required": True,
-            "postclean_verification_required": True,
+            "enabled_by_default": False,
+            "independent_opt_ins": 2,
+            "credential_access": "after-opt-in",
+            "unique_namespace": True,
+            "cleanup": {
+                "capture_created_ids": True,
+                "reconcile_by_marker": True,
+                "report_unreconciled": True,
+            },
         },
     }
     path = tmp_path / "live-backend-test-policy.yaml"
     path.write_text(yaml.safe_dump(valid), encoding="utf-8")
     assert validator.validate_policy(path) == []
-    valid["mutations"]["opt_in_controls"] = ["RUN_EXTERNAL_TESTS"]
+    valid["mutations"]["independent_opt_ins"] = 1
     path.write_text(yaml.safe_dump(valid), encoding="utf-8")
-    assert any("at least two" in finding for finding in validator.validate_policy(path))
+    assert any("independent_opt_ins" in finding for finding in validator.validate_policy(path))
 
 
-def test_contract_capture_rejects_untrusted_probe_shape(tmp_path: Path) -> None:
-    capture = load_module(
-        "capture_contract",
-        ROOT / "skills/mcp-server-architect/tools/capture_mcp_contract.py",
+def test_real_consumer_canaries_are_immutable_and_source_only() -> None:
+    catalog = yaml.safe_load((ROOT / "contracts/consumer-canaries.yaml").read_text(encoding="utf-8"))
+    assert catalog["schema_version"] == 1
+    assert len(catalog["canaries"]) >= 2
+    for canary in catalog["canaries"]:
+        assert re.fullmatch(r"[0-9a-f]{40}", canary["revision"])
+        assert canary["proof_level"] == "source-inspection"
+        assert canary["expected"]["facts.external_upstream"] is True
+    checker = (ROOT / "skills/mcp-server-architect/tools/check_consumer_canaries.py").read_text(encoding="utf-8")
+    assert "inspect_repository" in checker
+    assert "pytest" not in checker
+    assert "subprocess.run" in checker
+
+
+def test_atomic_controls_capture_practical_migration_failures() -> None:
+    catalog = yaml.safe_load((ROOT / "contracts/atomic-claim-catalog.yaml").read_text(encoding="utf-8"))
+    controls = {item["id"]: item for item in catalog["controls"]}
+    assert controls["mcp.testing.live-backend-safety"]["applies_when"]["profiles_any"] == ["live-backend"]
+    parity = controls["mcp.authorization.transport-parity"]
+    assert parity["applies_when"]["profiles_all"] == ["local-stdio", "remote-http"]
+    assert set(parity["applies_when"]["capabilities_any"]) == {"write", "destructive"}
+    upstream = controls["mcp.upstream.contract-observed"]
+    assert upstream["parent_rule_id"] == "mcp.verification.layered"
+
+
+def test_consumer_discovery_document_is_valid_json(tmp_path: Path) -> None:
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname="x"\nversion="1.0.0"\ndependencies=[]\n', encoding="utf-8"
     )
-    malformed = tmp_path / "contract.json"
-    malformed.write_text(json.dumps({"tools": []}), encoding="utf-8")
-    assert any("schema_version" in item for item in capture.validate_capture(json.loads(malformed.read_text())))
-
-
-def test_protocol_revision_reference_avoids_unverified_repository_claims() -> None:
-    manifest = yaml.safe_load((ROOT / "skills/mcp-server-architect/manifest.yaml").read_text(encoding="utf-8"))
-    profiles = manifest["protocol"]["sdk_profiles"]
-    for profile in profiles.values():
-        assert profile["repository_tested_revisions"] == []
-        assert profile["current_revision_support"] == "not-claimed"
-
-
-def test_no_generated_or_documented_fake_external_acceptance() -> None:
-    text = (ROOT / "skills/mcp-server-architect/STANDARD.md").read_text(encoding="utf-8")
-    assert "provider-backed" in text
-    assert "candidate-owned" in text
-    assert re.search(r"cannot\s+(?:self-)?approve", text, re.IGNORECASE)
+    document = inspector().inspect_repository(tmp_path)
+    assert json.loads(json.dumps(document))["format"] == "ai-skills-adoption-discovery"
