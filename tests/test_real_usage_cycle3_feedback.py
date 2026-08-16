@@ -164,7 +164,7 @@ def test_adoption_plan_surfaces_prebuilt_container_source_binding_action(tmp_pat
     assert any("fail closed when local artifacts are stale" in item for item in plan["next_actions"])
 
 
-def test_existing_upstream_contract_remains_unvalidated_until_validator_runs(tmp_path: Path) -> None:
+def test_invalid_upstream_contract_is_not_marked_verified(tmp_path: Path) -> None:
     inspector = _load(TOOLS / "inspect_existing_project.py", "cycle3_inspector_upstream_contract")
     _write_project(tmp_path, addopts='-m "not external"')
     (tmp_path / "client.py").write_text("result = httpx.get(url)\n", encoding="utf-8")
@@ -175,12 +175,14 @@ def test_existing_upstream_contract_remains_unvalidated_until_validator_runs(tmp
     plan = planner.build_plan(tmp_path)
 
     assert discovery["facts"]["external_upstream"] is True
-    assert discovery["plan"]["upstream_contract"] == "present-unvalidated"
-    assert any("present but unvalidated" in item for item in discovery["unknowns"])
-    assert any("--require-observed" in item for item in plan["next_actions"])
+    assert discovery["facts"]["upstream_contract_present"] is True
+    assert discovery["facts"]["upstream_contract_valid"] is False
+    assert discovery["plan"]["upstream_contract"] == "invalid"
+    assert any("failed trusted observed-contract validation" in item for item in discovery["unknowns"])
+    assert any("repair upstream-contract.yaml" in item for item in plan["next_actions"])
 
 
-def test_existing_live_policy_remains_unvalidated_until_validator_runs(tmp_path: Path) -> None:
+def test_invalid_live_policy_is_not_marked_declared(tmp_path: Path) -> None:
     inspector = _load(TOOLS / "inspect_existing_project.py", "cycle3_inspector_live_policy")
     _write_project(tmp_path, addopts='-m "not external"')
     (tmp_path / "live-backend-test-policy.yaml").write_text("not: [valid", encoding="utf-8")
@@ -190,6 +192,8 @@ def test_existing_live_policy_remains_unvalidated_until_validator_runs(tmp_path:
     plan = planner.build_plan(tmp_path)
 
     assert discovery["facts"]["external_tests"] is True
-    assert discovery["plan"]["live_backend_safety"] == "present-unvalidated"
-    assert any("present but unvalidated" in item for item in discovery["unknowns"])
-    assert any("validate existing live-backend-test-policy.yaml" in item for item in plan["next_actions"])
+    assert discovery["facts"]["live_backend_policy_present"] is True
+    assert discovery["facts"]["live_backend_policy_valid"] is False
+    assert discovery["plan"]["live_backend_safety"] == "invalid"
+    assert any("failed trusted validation" in item for item in discovery["unknowns"])
+    assert any("repair live-backend-test-policy.yaml" in item for item in plan["next_actions"])
