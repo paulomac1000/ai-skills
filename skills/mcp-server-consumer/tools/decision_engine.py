@@ -391,10 +391,9 @@ def infer_capability_profile(
     )
     sensitive = explicit_sensitive or sensitive_signal
     if explicit_sensitive:
-        previous = inferred
         inferred = _higher_risk(inferred, Risk.SENSITIVE)
-        if inferred is not previous:
-            source = _append_source(source, "sensitive")
+    if sensitive:
+        source = _append_source(source, "sensitive")
 
     requires_confirmation = (
         metadata.get("requiresConfirmation") is True
