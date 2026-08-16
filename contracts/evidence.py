@@ -304,17 +304,13 @@ class GitHubEvidenceVerifier:
         if not isinstance(claims, list):
             return False
         expected_test_case = expected_claim.get("test_case")
-        expected_fields = {
-            key: value for key, value in expected_claim.items() if key != "test_case"
-        }
+        expected_fields = {key: value for key, value in expected_claim.items() if key != "test_case"}
         for claim in claims:
             if not isinstance(claim, Mapping):
                 continue
             if not all(claim.get(key) == value for key, value in expected_fields.items()):
                 continue
-            if expected_test_case is None or GitHubEvidenceVerifier._claim_binds_test_case(
-                claim, expected_test_case
-            ):
+            if expected_test_case is None or GitHubEvidenceVerifier._claim_binds_test_case(claim, expected_test_case):
                 return True
         return False
 
