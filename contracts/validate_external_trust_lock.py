@@ -40,8 +40,6 @@ def validate_external_lock(
         document = trusted_sources._load(lock_path)
     except (OSError, UnicodeDecodeError, ValueError) as exc:
         return [str(exc)]
-    if not isinstance(document, Mapping):
-        return ["candidate trust lock must contain a mapping"]
     raw_sources = document.get("sources")
     if not isinstance(raw_sources, list):
         return ["candidate trust lock has no sources list"]
