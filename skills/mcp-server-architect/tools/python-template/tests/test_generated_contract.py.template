@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import base64
+import hashlib
+import hmac
 import json
+import time
 from importlib.resources import files
 
 import pytest
@@ -10,8 +14,50 @@ from mcp import Client
 
 from __PACKAGE__.kernel import describe_capabilities, list_items, put_item
 from __PACKAGE__.manifest import MANIFESTS
-from __PACKAGE__.security import BearerAuthMiddleware
+from __PACKAGE__.security import BearerAuthMiddleware, current_principal
 from __PACKAGE__.server import mcp
+
+
+def _approval_record(
+    *,
+    item_id: str,
+    value: str,
+    expected_version: int,
+    nonce: str,
+    key: bytes,
+) -> str:
+    arguments = {
+        "item_id": item_id,
+        "value": value,
+        "expected_version": expected_version,
+    }
+    arguments_digest = hashlib.sha256(
+        json.dumps(
+            arguments,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+    ).hexdigest()
+    payload = json.dumps(
+        {
+            "principal": current_principal(),
+            "capability": "put_item",
+            "target": item_id,
+            "arguments_digest": arguments_digest,
+            "expires_at": int(time.time()) + 60,
+            "nonce": nonce,
+        },
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    signature = hmac.new(key, payload, hashlib.sha256).digest()
+
+    def encode(value: bytes) -> str:
+        return base64.urlsafe_b64encode(value).rstrip(b"=").decode("ascii")
+
+    return f"{encode(payload)}.{encode(signature)}"
 
 
 def test_manifest_catalog_matches_registered_tools() -> None:
@@ -39,6 +85,48 @@ def test_final_payload_contains_provenance_and_respects_bound() -> None:
 def test_write_is_fail_closed_without_server_approval() -> None:
     with pytest.raises(PermissionError, match="disabled"):
         put_item("item", "value", "invalid")
+
+
+def test_write_rejects_stale_expected_version(monkeypatch: pytest.MonkeyPatch) -> None:
+    key = b"k" * 32
+    monkeypatch.setenv("MCP_ENABLE_WRITES", "1")
+    monkeypatch.setenv("MCP_APPROVAL_HMAC_KEY", key.decode("ascii"))
+    item_id = "optimistic-conflict-item"
+
+    initial = _approval_record(
+        item_id=item_id,
+        value="first",
+        expected_version=0,
+        nonce="initial-approval-0001",
+        key=key,
+    )
+    first = put_item(item_id, "first", initial, expected_version=0)
+    assert first["version"] == 1
+
+    stale = _approval_record(
+        item_id=item_id,
+        value="stale",
+        expected_version=0,
+        nonce="stale-approval-00002",
+        key=key,
+    )
+    with pytest.raises(RuntimeError, match="version conflict"):
+        put_item(item_id, "stale", stale, expected_version=0)
+
+    fresh = _approval_record(
+        item_id=item_id,
+        value="second",
+        expected_version=1,
+        nonce="fresh-approval-00002",
+        key=key,
+    )
+    second = put_item(item_id, "second", fresh, expected_version=1)
+    assert second["version"] == 2
+    assert {
+        "item_id": item_id,
+        "value": "second",
+        "version": 2,
+    } in list_items(limit=100)["items"]
 
 
 @pytest.mark.parametrize(
