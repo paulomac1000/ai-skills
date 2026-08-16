@@ -216,15 +216,21 @@ def test_provider_preflight_preserves_permission_failure_as_unverifiable(tmp_pat
     assert any(finding.state == "unverifiable" and "HTTP 403" in finding.message for finding in findings)
 
 
-def test_materialized_acceptance_workflow_binds_authority_outside_candidate() -> None:
+def test_materialized_acceptance_workflow_requires_authority_owned_caller() -> None:
     workflow = (ROOT / ".github/workflows/consumer-acceptance.yml").read_text(encoding="utf-8")
+    dispatcher = (ROOT / ".github/workflows/consumer-acceptance-dispatch.yml").read_text(encoding="utf-8")
 
+    assert "${{ github.repository }}" in workflow
+    assert "${{ github.sha }}" in workflow
+    assert "${{ github.ref_protected }}" in workflow
     assert "${{ job.workflow_repository }}" in workflow
     assert "${{ job.workflow_sha }}" in workflow
-    assert "${{ job.workflow_ref }}" in workflow
-    assert '"$AUTHORITY_REF" != *@"$AUTHORITY_SHA"' in workflow
+    assert "${{ job.workflow_file_path }}" in workflow
+    assert "provider-backed acceptance must be orchestrated by the authority repository" in workflow
     assert "contracts/validate_external_trust_lock.py" in workflow
     assert "contracts/validate_external_adoption.py" in workflow
     assert "check_github_provider_controls.py" in workflow
     assert "--expected-repository \"$AUTHORITY_REPOSITORY\"" in workflow
     assert "--expected-revision \"$AUTHORITY_SHA\"" in workflow
+    assert "uses: ./.github/workflows/consumer-acceptance.yml" in dispatcher
+    assert "AI_SKILLS_CONSUMER_READ_TOKEN" in dispatcher
