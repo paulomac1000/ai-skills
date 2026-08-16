@@ -87,6 +87,28 @@ def test_prebuilt_container_without_source_binding_is_an_explicit_adoption_gap(t
     assert any("stale local artifacts" in item for item in discovery["unknowns"])
 
 
+def test_unrelated_source_revision_checks_do_not_fake_container_binding(tmp_path: Path) -> None:
+    inspector = _load(TOOLS / "inspect_existing_project.py", "cycle3_inspector_container_decoupled")
+    _write_project(tmp_path, addopts='-m "not external"')
+    (tmp_path / "Dockerfile").write_text(
+        "FROM python:3.12-slim\n"
+        "ARG EXPECTED_SOURCE_REVISION\n"
+        "COPY dist/ /tmp/dist/\n"
+        "RUN test -f /tmp/dist/SOURCE_REVISION\n"
+        "RUN test -n \"$EXPECTED_SOURCE_REVISION\"\n"
+        "RUN sha256sum --check /tmp/dist/SHA256SUMS\n",
+        encoding="utf-8",
+    )
+
+    discovery = inspector.inspect_repository(tmp_path)
+
+    assert discovery["facts"]["container_build"] == {
+        "prebuilt_artifact_copy": True,
+        "source_revision_binding_signal": False,
+    }
+    assert discovery["plan"]["container_artifact_binding"] == "needs-binding"
+
+
 def test_source_bound_prebuilt_container_clears_stale_artifact_gap(tmp_path: Path) -> None:
     inspector = _load(TOOLS / "inspect_existing_project.py", "cycle3_inspector_container_bound")
     _write_project(tmp_path, addopts='-m "not external"')
