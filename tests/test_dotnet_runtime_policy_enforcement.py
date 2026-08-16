@@ -25,7 +25,7 @@ def test_dotnet_runtime_enforces_exported_concurrency_and_queue_limits() -> None
 
     assert "manifest.ConcurrentSafe ? 32 : 1" in canonical
     assert "manifest.ConcurrentSafe ? 64 : 0" in canonical
-    assert "new SemaphoreSlim(limit, limit)" in gate
+    assert "SemaphoreSlim Semaphore { get; } = new(limit, limit)" in gate
     assert "entry.Waiting >= entry.QueueLimit" in gate
     assert '"CONCURRENCY_QUEUE_FULL"' in gate
     assert "operationGate.EnterAsync(" in kernel
