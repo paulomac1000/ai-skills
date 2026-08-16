@@ -185,10 +185,18 @@ def build_plan(repository_root: Path, *, target_level: str = "L2") -> dict[str, 
 
     sdk_claim = _sdk_claim(repository_root, discovery)
     next_actions: list[str] = []
-    if discovery["plan"]["upstream_contract"] == "required":
+    upstream_status = discovery["plan"]["upstream_contract"]
+    if upstream_status == "required":
         next_actions.append("observe and validate upstream-contract.yaml before adapter refactoring")
-    if discovery["plan"]["live_backend_safety"] == "needs-policy":
+    elif upstream_status == "present-unvalidated":
+        next_actions.append(
+            "validate existing upstream-contract.yaml with --require-observed before adapter refactoring"
+        )
+    live_status = discovery["plan"]["live_backend_safety"]
+    if live_status == "needs-policy":
         next_actions.append("define and validate live-backend-test-policy.yaml before any live mutation")
+    elif live_status == "present-unvalidated":
+        next_actions.append("validate existing live-backend-test-policy.yaml before any live mutation")
     if discovery["plan"].get("container_artifact_binding") == "needs-binding":
         next_actions.append(
             "bind prebuilt container inputs to the exact source revision and fail closed when local artifacts are stale"
