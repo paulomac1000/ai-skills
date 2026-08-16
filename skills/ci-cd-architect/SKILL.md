@@ -50,7 +50,7 @@ If GitHub creates a failed job with no assigned runner, no executed steps, and n
 
 Before claiming that this skill has been adopted or a migration is complete:
 
-1. Read the repository-root `contracts/adoption-assessment.yaml.template`, `contracts/rule-catalog.yaml`, compatibility matrix, selected skill manifest, and `references/provider-trust-bootstrap.md`.
+1. Read the repository-root `contracts/adoption-assessment.yaml.template`, `contracts/rule-catalog.yaml`, canonical shared validator `contracts/validate_adoption.py`, compatibility matrix, selected skill manifest, and `references/provider-trust-bootstrap.md`.
 2. Create one assessment bound to the exact SHA and classify every stable rule as applicable, not applicable, or deferred with an owned waiver.
 3. Bind each passed claim to a machine result file and passed test-case identity; a green job, badge, screenshot, queued job, or hand-written `passed` value is not evidence.
 4. Run `tools/check_github_provider_controls.py` from the trusted authority checkout. Static workflow YAML cannot prove that a branch is protected or an environment exists. `MISCONFIGURED` and `UNVERIFIABLE` both block final adoption, but they are different diagnoses.

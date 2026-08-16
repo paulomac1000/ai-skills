@@ -196,7 +196,7 @@ def test_other_language_requires_markers_in_strict_mode(tmp_path: Path) -> None:
     )
 
 
-def test_directory_reference_is_rejected(tmp_path: Path) -> None:
+def test_directory_reference_is_accepted(tmp_path: Path) -> None:
     (tmp_path / "docs").mkdir()
     path = write(
         tmp_path,
@@ -214,7 +214,8 @@ These instructions apply.
 Read `docs/` for architecture.
 """,
     )
-    assert "links.not-file" in codes(validator.validate_path(path, "application", tmp_path))
+    link_codes = {code for code in codes(validator.validate_path(path, "application", tmp_path)) if code.startswith("links.")}
+    assert link_codes == set()
 
 
 def test_invalid_utf8_and_size_are_findings(tmp_path: Path) -> None:
