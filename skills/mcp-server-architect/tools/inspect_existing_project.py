@@ -39,7 +39,9 @@ _SOURCE_REVISION_ARG = re.compile(
     re.IGNORECASE | re.MULTILINE,
 )
 _SOURCE_REVISION_FILE = re.compile(r"\bSOURCE[_-](?:REVISION|SHA)\b", re.IGNORECASE)
-_RUN_SOURCE_CHECK = re.compile(r"^\s*RUN\b[^\n]*(?:\btest\b|\bcmp\b)", re.IGNORECASE | re.MULTILINE)
+_RUN_INSTRUCTION = re.compile(r"^RUN\b\s*(.*)$", re.IGNORECASE)
+_SOURCE_CHECK_COMMAND = re.compile(r"\b(?:test|cmp)\b", re.IGNORECASE)
+_SHELL_COMMAND_BOUNDARY = re.compile(r"\s*(?:&&|\|\||;)\s*")
 
 
 def _regular_text(path: Path) -> str | None:
@@ -175,6 +177,48 @@ def _external_tests_default_excluded(project: dict[str, Any]) -> bool:
     return False
 
 
+def _docker_instructions(text: str) -> list[str]:
+    """Return bounded logical Dockerfile instructions with continuations joined."""
+    instructions: list[str] = []
+    current: list[str] = []
+    for raw_line in text.splitlines():
+        stripped = raw_line.strip()
+        if not stripped or (not current and stripped.startswith("#")):
+            continue
+        continued = stripped.endswith("\\")
+        current.append(stripped[:-1].rstrip() if continued else stripped)
+        if continued:
+            continue
+        instructions.append(" ".join(current))
+        current = []
+    if current:
+        instructions.append(" ".join(current))
+    return instructions
+
+
+def _source_revision_binding_signal(text: str, revision_args: list[str]) -> bool:
+    """Require one comparison command to bind an artifact revision to the expected source argument."""
+    source_args = [
+        name
+        for name in revision_args
+        if "source" in name.casefold() and ("revision" in name.casefold() or "sha" in name.casefold())
+    ]
+    if not source_args:
+        return False
+    for instruction in _docker_instructions(text):
+        run = _RUN_INSTRUCTION.match(instruction)
+        if run is None:
+            continue
+        for command in _SHELL_COMMAND_BOUNDARY.split(run.group(1)):
+            if _SOURCE_CHECK_COMMAND.search(command) is None or _SOURCE_REVISION_FILE.search(command) is None:
+                continue
+            for name in source_args:
+                reference = re.compile(rf"\$(?:\{{{re.escape(name)}\}}|{re.escape(name)}\b)")
+                if reference.search(command) is not None:
+                    return True
+    return False
+
+
 def _container_build_facts(root: Path) -> dict[str, bool]:
     """Record bounded source-binding signals for root container build definitions."""
     texts = [text for name in ("Dockerfile", "Containerfile") if (text := _regular_text(root / name)) is not None]
@@ -183,16 +227,7 @@ def _container_build_facts(root: Path) -> dict[str, bool]:
     combined = "\n".join(texts)
     prebuilt_copy = _PREBUILT_CONTAINER_COPY.search(combined) is not None
     revision_args = _SOURCE_REVISION_ARG.findall(combined)
-    source_arg = any(
-        "source" in name.casefold() and ("revision" in name.casefold() or "sha" in name.casefold())
-        for name in revision_args
-    )
-    source_binding = bool(
-        prebuilt_copy
-        and source_arg
-        and _SOURCE_REVISION_FILE.search(combined)
-        and _RUN_SOURCE_CHECK.search(combined)
-    )
+    source_binding = prebuilt_copy and _source_revision_binding_signal(combined, revision_args)
     return {
         "prebuilt_artifact_copy": prebuilt_copy,
         "source_revision_binding_signal": source_binding,
