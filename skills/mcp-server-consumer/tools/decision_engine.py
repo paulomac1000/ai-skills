@@ -12,11 +12,11 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 from typing import Any, Protocol
 
 
-class Risk(str, Enum):
+class Risk(StrEnum):
     UNKNOWN = "UNKNOWN"
     READ = "READ"
     WRITE = "WRITE"
@@ -25,20 +25,20 @@ class Risk(str, Enum):
     DANGEROUS = "DANGEROUS"
 
 
-class Decision(str, Enum):
+class Decision(StrEnum):
     INVOKE = "invoke"
     CONFIRM_THEN_INVOKE = "confirm_then_invoke"
     REJECT = "reject"
     DEFER = "defer"
 
 
-class UserIntent(str, Enum):
+class UserIntent(StrEnum):
     NORMAL = "normal"
     CONFIRMED_WORKFLOW = "confirmed_workflow"
     EXPLICIT_BY_NAME = "explicit_by_name"
 
 
-class ErrorAction(str, Enum):
+class ErrorAction(StrEnum):
     RETRY = "retry"
     SURFACE = "surface"
     REAUTHENTICATE = "reauthenticate"
@@ -361,12 +361,7 @@ def handle_response(response: Mapping[str, Any] | Any) -> ResponseResult:
         if type(retryable) is not bool:
             return _contract_violation("error.retryable must be boolean")
         normalized = code.strip().upper()
-        return ResponseResult(
-            ok=False,
-            error=message,
-            retryable=retryable,
-            error_code=normalized,
-        )
+        return ResponseResult(ok=False, error=message, retryable=retryable, error_code=normalized)
     extracted = _extract_structured_response(response)
     if isinstance(extracted, ResponseResult):
         return extracted
@@ -408,9 +403,7 @@ def select_efficient_tool(
 
 
 def choose_initial_detail_params(tool_schema: Mapping[str, Any] | None) -> dict[str, Any]:
-    if tool_schema is None:
-        return {}
-    if not isinstance(tool_schema, Mapping):
+    if tool_schema is None or not isinstance(tool_schema, Mapping):
         return {}
     input_schema = tool_schema.get("inputSchema", {})
     if not isinstance(input_schema, Mapping):
