@@ -39,7 +39,7 @@ Authoritative values arrive through immutable consumer-owned objects:
 - `TrustedCapabilityPolicy` carries local policy values under that binding;
 - `TrustedCapabilityContract` carries separately reviewed contract values under that binding.
 
-Supplying policy or contract values without the exact observed identity is an error. Any mismatch in server identity, tool name, schema hash, manifest version, or target scope is an error rather than a warning or fallback. A boolean can never upgrade fields from the untrusted metadata map.
+Conforming callers bind policy and contract values to the exact observed identity. For migration compatibility, the reference helper still accepts the 1.2 unbound policy/contract constructor shapes and `trusted_server=` keyword, but these legacy inputs are not authoritative: they may only raise risk, require confirmation, mark confidentiality, or veto positive replay safety. They cannot classify unknown risk as read-only or establish positive idempotency. A bound trusted value without the exact observed identity, or any mismatch in server identity, tool name, schema hash, manifest version, or target scope, is an error rather than a warning or fallback. A boolean can never upgrade fields from the untrusted metadata map.
 
 ## Monotonic classification
 
