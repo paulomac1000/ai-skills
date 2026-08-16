@@ -1,4 +1,4 @@
-"""Prebuilt container source binding requires an executable equality comparison."""
+"""Prebuilt container source binding requires a fail-closed artifact-bound equality comparison."""
 
 from __future__ import annotations
 
@@ -50,6 +50,21 @@ def test_revision_file_contents_must_equal_expected_build_argument() -> None:
     )
 
 
+def test_revision_file_can_be_read_relative_to_copied_artifact_directory() -> None:
+    inspector = _inspector()
+    dockerfile = (
+        "FROM python:3.12-slim\n"
+        "ARG EXPECTED_SOURCE_REVISION\n"
+        "COPY dist/ /tmp/dist/\n"
+        'RUN cd /tmp/dist && sha256sum --check SHA256SUMS && test "$(cat SOURCE_REVISION)" = "$EXPECTED_SOURCE_REVISION"\n'
+    )
+
+    assert inspector._source_revision_binding_signal(
+        dockerfile,
+        ["EXPECTED_SOURCE_REVISION"],
+    )
+
+
 def test_inequality_does_not_count_as_source_binding() -> None:
     inspector = _inspector()
     dockerfile = (
@@ -60,6 +75,83 @@ def test_inequality_does_not_count_as_source_binding() -> None:
     )
 
     assert not inspector._source_revision_binding_signal(
+        dockerfile,
+        ["EXPECTED_SOURCE_REVISION"],
+    )
+
+
+def test_unrelated_revision_file_does_not_bind_copied_artifact() -> None:
+    inspector = _inspector()
+    dockerfile = (
+        "FROM python:3.12-slim\n"
+        "ARG EXPECTED_SOURCE_REVISION\n"
+        "COPY dist/ /app/artifact/\n"
+        'RUN echo "$EXPECTED_SOURCE_REVISION" > /tmp/SOURCE_REVISION\n'
+        'RUN test "$(cat /tmp/SOURCE_REVISION)" = "$EXPECTED_SOURCE_REVISION"\n'
+    )
+
+    assert not inspector._source_revision_binding_signal(
+        dockerfile,
+        ["EXPECTED_SOURCE_REVISION"],
+    )
+
+
+def test_overwriting_copied_revision_file_does_not_count_as_binding() -> None:
+    inspector = _inspector()
+    dockerfile = (
+        "FROM python:3.12-slim\n"
+        "ARG EXPECTED_SOURCE_REVISION\n"
+        "COPY dist/ /tmp/dist/\n"
+        'RUN echo "$EXPECTED_SOURCE_REVISION" > /tmp/dist/SOURCE_REVISION\n'
+        'RUN test "$(cat /tmp/dist/SOURCE_REVISION)" = "$EXPECTED_SOURCE_REVISION"\n'
+    )
+
+    assert not inspector._source_revision_binding_signal(
+        dockerfile,
+        ["EXPECTED_SOURCE_REVISION"],
+    )
+
+
+def test_neutralized_revision_comparison_does_not_gate_build() -> None:
+    inspector = _inspector()
+    dockerfile = (
+        "FROM python:3.12-slim\n"
+        "ARG EXPECTED_SOURCE_REVISION\n"
+        "COPY dist/ /tmp/dist/\n"
+        'RUN test "$(cat /tmp/dist/SOURCE_REVISION)" = "$EXPECTED_SOURCE_REVISION" || true\n'
+    )
+
+    assert not inspector._source_revision_binding_signal(
+        dockerfile,
+        ["EXPECTED_SOURCE_REVISION"],
+    )
+
+
+def test_semicolon_after_revision_comparison_does_not_gate_build() -> None:
+    inspector = _inspector()
+    dockerfile = (
+        "FROM python:3.12-slim\n"
+        "ARG EXPECTED_SOURCE_REVISION\n"
+        "COPY dist/ /tmp/dist/\n"
+        'RUN test "$(cat /tmp/dist/SOURCE_REVISION)" = "$EXPECTED_SOURCE_REVISION"; echo done\n'
+    )
+
+    assert not inspector._source_revision_binding_signal(
+        dockerfile,
+        ["EXPECTED_SOURCE_REVISION"],
+    )
+
+
+def test_and_chain_after_revision_comparison_remains_fail_closed() -> None:
+    inspector = _inspector()
+    dockerfile = (
+        "FROM python:3.12-slim\n"
+        "ARG EXPECTED_SOURCE_REVISION\n"
+        "COPY dist/ /tmp/dist/\n"
+        'RUN test "$(cat /tmp/dist/SOURCE_REVISION)" = "$EXPECTED_SOURCE_REVISION" && echo done\n'
+    )
+
+    assert inspector._source_revision_binding_signal(
         dockerfile,
         ["EXPECTED_SOURCE_REVISION"],
     )
