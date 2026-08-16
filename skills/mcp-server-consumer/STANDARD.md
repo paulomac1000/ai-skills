@@ -42,7 +42,9 @@ Safety-reducing values come only from consumer-owned typed objects bound to an e
 - optional target scope;
 - immutable reviewed policy-source digest.
 
-`TrustedCapabilityPolicy` and `TrustedCapabilityContract` require that binding. The caller supplies the exact observed `CapabilityIdentity`; any mismatch fails closed. There is no boolean `trusted_server` or equivalent upgrade channel. Trusting a server connection does not trust every annotation or policy value emitted by that server.
+`TrustedCapabilityPolicy` and `TrustedCapabilityContract` require that binding. The caller supplies the exact observed `CapabilityIdentity`; any mismatch fails closed. There is no boolean `trusted_server` or equivalent authority-upgrade channel. Trusting a server connection does not trust every annotation or policy value emitted by that server.
+
+For migration compatibility only, the bundled reference helper may still accept the 1.2 unbound policy/contract constructor shapes and `trusted_server=` keyword. Those legacy inputs are treated as untrusted at the compatibility boundary: they may only escalate risk, require confirmation, mark confidentiality, or veto positive replay safety. They never establish read-only safety or positive idempotency. New conforming integrations use exact identity bindings.
 
 Unknown remains unknown and defers rather than invokes. See [Risk and trust](references/risk-and-trust.md).
 
