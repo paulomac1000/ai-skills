@@ -259,16 +259,64 @@ class GitHubEvidenceVerifier:
             raise
 
     @staticmethod
+    def _junit_identity_for_test_case(value: object) -> str | None:
+        """Translate one validated pytest node id into its default JUnit identity."""
+        if not isinstance(value, str):
+            return None
+        path, separator, function_name = value.partition("::")
+        if not separator or not path.startswith("tests/") or not path.endswith(".py"):
+            return None
+        if not function_name.startswith("test_") or "::" in function_name:
+            return None
+        parts = path[:-3].split("/")
+        if any(not part or part in {".", ".."} for part in parts):
+            return None
+        return f"{'.'.join(parts)}::{function_name}"
+
+    @staticmethod
+    def _claim_binds_test_case(claim: Mapping[str, Any], test_case: object) -> bool:
+        expected_identity = GitHubEvidenceVerifier._junit_identity_for_test_case(test_case)
+        if expected_identity is None:
+            return False
+        bindings = claim.get("result_bindings")
+        if not isinstance(bindings, list):
+            return False
+        for binding in bindings:
+            if not isinstance(binding, Mapping):
+                continue
+            tests = binding.get("test_cases")
+            if not isinstance(tests, list):
+                continue
+            if any(
+                isinstance(test, Mapping)
+                and test.get("identity") == expected_identity
+                and test.get("status") == "passed"
+                for test in tests
+            ):
+                return True
+        return False
+
+    @staticmethod
     def _claim_matches(report: Mapping[str, Any], expected_claim: object) -> bool:
         if not isinstance(expected_claim, Mapping):
             return False
         claims = report.get("claims")
         if not isinstance(claims, list):
             return False
-        return any(
-            isinstance(claim, Mapping) and all(claim.get(key) == value for key, value in expected_claim.items())
-            for claim in claims
-        )
+        expected_test_case = expected_claim.get("test_case")
+        expected_fields = {
+            key: value for key, value in expected_claim.items() if key != "test_case"
+        }
+        for claim in claims:
+            if not isinstance(claim, Mapping):
+                continue
+            if not all(claim.get(key) == value for key, value in expected_fields.items()):
+                continue
+            if expected_test_case is None or GitHubEvidenceVerifier._claim_binds_test_case(
+                claim, expected_test_case
+            ):
+                return True
+        return False
 
     @staticmethod
     def _junit_cases(payload: bytes) -> dict[str, str]:
