@@ -17,6 +17,7 @@ from .manifest import MANIFESTS
 from .security import current_principal
 
 _ITEMS: dict[str, str] = {}
+_ITEM_VERSIONS: dict[str, int] = {}
 _LOCK = threading.RLock()
 _CONSUMED_APPROVALS: dict[str, dict[str, int]] = {}
 _APPROVAL_PRINCIPAL_EXPIRY: dict[str, int] = {}
@@ -66,7 +67,11 @@ def list_items(limit: int = 25) -> dict[str, Any]:
     with _LOCK:
         selected = heapq.nsmallest(limit, _ITEMS.items(), key=lambda item: item[0])
         items = [
-            {"item_id": item_id, "value": value}
+            {
+                "item_id": item_id,
+                "value": value,
+                "version": _ITEM_VERSIONS[item_id],
+            }
             for item_id, value in selected
         ]
     return _bounded_payload("list_items", {"items": items, "count": len(items)})
@@ -93,7 +98,12 @@ def _approval_key() -> bytes:
     return key
 
 
-def _consume_approval(item_id: str, value: str, record: str) -> None:
+def _consume_approval(
+    item_id: str,
+    value: str,
+    expected_version: int,
+    record: str,
+) -> None:
     if os.environ.get("MCP_ENABLE_WRITES") != "1":
         raise PermissionError("write operations are disabled")
     try:
@@ -113,7 +123,13 @@ def _consume_approval(item_id: str, value: str, record: str) -> None:
         raise PermissionError("approval record is invalid")
 
     arguments_digest = hashlib.sha256(
-        _canonical_bytes({"item_id": item_id, "value": value})
+        _canonical_bytes(
+            {
+                "item_id": item_id,
+                "value": value,
+                "expected_version": expected_version,
+            }
+        )
     ).hexdigest()
     principal = current_principal()
     expected_claims = {
@@ -175,14 +191,31 @@ def _consume_approval(item_id: str, value: str, record: str) -> None:
         )
 
 
-def put_item(item_id: str, value: str, approval_record: str) -> dict[str, Any]:
+def put_item(
+    item_id: str,
+    value: str,
+    approval_record: str,
+    expected_version: int = 0,
+) -> dict[str, Any]:
     if not isinstance(item_id, str) or not 1 <= len(item_id) <= 128:
         raise ValueError("item_id must be 1-128 characters")
     if not isinstance(value, str) or len(value.encode("utf-8")) > 4096:
         raise ValueError("value must be at most 4096 UTF-8 bytes")
-    _consume_approval(item_id, value, approval_record)
+    if type(expected_version) is not int or expected_version < 0:
+        raise ValueError("expected_version must be a non-negative integer")
+    _consume_approval(item_id, value, expected_version, approval_record)
     with _LOCK:
+        current_version = _ITEM_VERSIONS.get(item_id, 0)
+        if current_version != expected_version:
+            raise RuntimeError(
+                f"item version conflict: expected {expected_version}, current {current_version}"
+            )
         if item_id not in _ITEMS and len(_ITEMS) >= _MAX_ITEMS:
             raise RuntimeError(f"item store is at capacity ({_MAX_ITEMS})")
+        next_version = current_version + 1
         _ITEMS[item_id] = value
-    return _bounded_payload("put_item", {"item_id": item_id, "updated": True})
+        _ITEM_VERSIONS[item_id] = next_version
+    return _bounded_payload(
+        "put_item",
+        {"item_id": item_id, "updated": True, "version": next_version},
+    )
