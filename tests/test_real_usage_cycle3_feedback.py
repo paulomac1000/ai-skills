@@ -109,6 +109,30 @@ def test_unrelated_source_revision_checks_do_not_fake_container_binding(tmp_path
     assert discovery["plan"]["container_artifact_binding"] == "needs-binding"
 
 
+def test_source_binding_does_not_transfer_between_container_definitions(tmp_path: Path) -> None:
+    inspector = _load(TOOLS / "inspect_existing_project.py", "cycle3_inspector_container_split")
+    _write_project(tmp_path, addopts='-m "not external"')
+    (tmp_path / "Dockerfile").write_text(
+        "FROM python:3.12-slim\nCOPY dist/ /tmp/dist/\nRUN sha256sum --check /tmp/dist/SHA256SUMS\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "Containerfile").write_text(
+        "FROM python:3.12-slim\n"
+        "ARG EXPECTED_SOURCE_REVISION\n"
+        "COPY src/ /tmp/src/\n"
+        "RUN test \"$(cat /tmp/src/SOURCE_REVISION)\" = \"$EXPECTED_SOURCE_REVISION\"\n",
+        encoding="utf-8",
+    )
+
+    discovery = inspector.inspect_repository(tmp_path)
+
+    assert discovery["facts"]["container_build"] == {
+        "prebuilt_artifact_copy": True,
+        "source_revision_binding_signal": False,
+    }
+    assert discovery["plan"]["container_artifact_binding"] == "needs-binding"
+
+
 def test_source_bound_prebuilt_container_clears_stale_artifact_gap(tmp_path: Path) -> None:
     inspector = _load(TOOLS / "inspect_existing_project.py", "cycle3_inspector_container_bound")
     _write_project(tmp_path, addopts='-m "not external"')
