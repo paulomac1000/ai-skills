@@ -16,6 +16,7 @@ var dll = Path.GetFullPath(args[0]);
 if (!File.Exists(dll)) throw new FileNotFoundException("Server DLL not found.", dll);
 
 await VerifyApprovalContractAsync();
+await VerifyConcurrencyContractAsync();
 
 if (args.Length == 2)
     await RunHttpAsync(dll);
@@ -124,7 +125,6 @@ static async Task RunHttpCaseAsync(string dll, bool writesEnabled, string expect
     }
 }
 
-
 static async Task VerifyUnauthorizedAsync(HttpClient client, string endpoint, string? authorization)
 {
     using var request = new HttpRequestMessage(HttpMethod.Get, endpoint);
@@ -232,7 +232,6 @@ static void AssertString(JsonElement manifest, string propertyName, string expec
             $"Manifest property {propertyName} must equal {expected}; received {manifest}.");
 }
 
-
 static async Task VerifyApprovalContractAsync()
 {
     var approvals = new ApprovalRegistry(TimeProvider.System);
@@ -245,7 +244,11 @@ static async Task VerifyApprovalContractAsync()
     var approved = Principal("approved-principal");
 
     var token = approvals.Issue(
-        "approved-principal", CapabilityNames.PutItem, "inventory", "gamma");
+        "approved-principal",
+        CapabilityNames.PutItem,
+        "inventory",
+        "gamma",
+        ApprovalArguments.PutItemDigest("gamma", "Gamma", 0));
     var item = await kernel.PutAsync(
         approved, "gamma", "Gamma", 0, token, CancellationToken.None);
     if (item.Version != 1 || item.ItemId != "gamma")
@@ -255,14 +258,59 @@ static async Task VerifyApprovalContractAsync()
         approved, "gamma", "Gamma replay", 1, token, CancellationToken.None).AsTask());
 
     var principalBound = approvals.Issue(
-        "approved-principal", CapabilityNames.PutItem, "inventory", "delta");
+        "approved-principal",
+        CapabilityNames.PutItem,
+        "inventory",
+        "delta",
+        ApprovalArguments.PutItemDigest("delta", "Delta", 0));
     await ExpectApprovalFailureAsync(() => kernel.PutAsync(
         Principal("other-principal"), "delta", "Delta", 0, principalBound, CancellationToken.None).AsTask());
 
     var resourceBound = approvals.Issue(
-        "approved-principal", CapabilityNames.PutItem, "inventory", "epsilon");
+        "approved-principal",
+        CapabilityNames.PutItem,
+        "inventory",
+        "epsilon",
+        ApprovalArguments.PutItemDigest("epsilon", "Epsilon", 0));
     await ExpectApprovalFailureAsync(() => kernel.PutAsync(
         approved, "zeta", "Zeta", 0, resourceBound, CancellationToken.None).AsTask());
+
+    var nameBound = approvals.Issue(
+        "approved-principal",
+        CapabilityNames.PutItem,
+        "inventory",
+        "theta",
+        ApprovalArguments.PutItemDigest("theta", "Theta", 0));
+    await ExpectApprovalFailureAsync(() => kernel.PutAsync(
+        approved, "theta", "Changed", 0, nameBound, CancellationToken.None).AsTask());
+
+    var versionBound = approvals.Issue(
+        "approved-principal",
+        CapabilityNames.PutItem,
+        "inventory",
+        "iota",
+        ApprovalArguments.PutItemDigest("iota", "Iota", 0));
+    await ExpectApprovalFailureAsync(() => kernel.PutAsync(
+        approved, "iota", "Iota", 1, versionBound, CancellationToken.None).AsTask());
+}
+
+static async Task VerifyConcurrencyContractAsync()
+{
+    var gate = new KeyedOperationGate();
+    await using var strict = await gate.EnterAsync("strict", 1, 0, CancellationToken.None);
+    await ExpectConcurrencyFailureAsync(
+        () => gate.EnterAsync("strict", 1, 0, CancellationToken.None).AsTask(),
+        "CONCURRENCY_QUEUE_FULL");
+
+    await using var first = await gate.EnterAsync("bounded", 2, 1, CancellationToken.None);
+    await using var second = await gate.EnterAsync("bounded", 2, 1, CancellationToken.None);
+    var queuedTask = gate.EnterAsync("bounded", 2, 1, CancellationToken.None).AsTask();
+    await Task.Delay(50);
+    await ExpectConcurrencyFailureAsync(
+        () => gate.EnterAsync("bounded", 2, 1, CancellationToken.None).AsTask(),
+        "CONCURRENCY_QUEUE_FULL");
+    await first.DisposeAsync();
+    await using var queued = await queuedTask.WaitAsync(TimeSpan.FromSeconds(2));
 }
 
 static ClaimsPrincipal Principal(string id) => new(new ClaimsIdentity(
@@ -284,4 +332,17 @@ static async Task ExpectApprovalFailureAsync(Func<Task> operation)
         return;
     }
     throw new InvalidOperationException("Approval binding or one-time replay was not rejected.");
+}
+
+static async Task ExpectConcurrencyFailureAsync(Func<Task> operation, string expectedCode)
+{
+    try
+    {
+        await operation();
+    }
+    catch (McpOperationException exception) when (string.Equals(exception.Code, expectedCode, StringComparison.Ordinal))
+    {
+        return;
+    }
+    throw new InvalidOperationException($"Expected concurrency failure {expectedCode} was not observed.");
 }
