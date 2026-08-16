@@ -19,11 +19,13 @@ The decision engine emits one or more stable provenance values joined with `+`:
 
 - `consumer-policy:<immutable-source>`: identity-bound consumer policy supplied an authoritative risk;
 - `consumer-contract:<immutable-source>`: an identity-bound reviewed contract supplied an authoritative risk;
+- `legacy-unbound-policy-escalation`: a compatibility-only 1.2 policy object raised risk conservatively without creating authority;
+- `legacy-unbound-contract-escalation`: a compatibility-only 1.2 contract object raised risk conservatively without creating authority;
 - `untrusted-risk-escalation`: discovered metadata raised classification conservatively;
 - `side-effect-escalation`: canonical or compatibility side-effect metadata raised risk conservatively;
 - `name-prefix-escalation`: a public capability-name prefix raised classification conservatively;
 - `untrusted-annotation-escalation`: an untrusted destructive annotation raised classification;
-- `sensitive`: policy or discovered metadata conservatively raised confidentiality risk;
+- `sensitive`: the resulting profile carries confidentiality risk, whether that signal came from policy or discovered metadata and even when a stronger side-effect risk remains the ordered risk value;
 - `unknown`: no authoritative or conservative signal classified the capability.
 
 There is no `trusted-annotation` provenance. Server identity alone does not make annotations authoritative. Every new provenance value requires a documented contract and regression test. Policy and audit consumers must not infer authority from a string the server can supply.
