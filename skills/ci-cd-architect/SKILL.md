@@ -55,7 +55,7 @@ Before claiming that this skill has been adopted or a migration is complete:
 3. Bind each passed claim to a machine result file and passed test-case identity; a green job, badge, screenshot, queued job, or hand-written `passed` value is not evidence.
 4. Run `tools/check_github_provider_controls.py` from the trusted authority checkout. Static workflow YAML cannot prove that a branch is protected or an environment exists. `MISCONFIGURED` and `UNVERIFIABLE` both block final adoption, but they are different diagnoses.
 5. Use `verification_mode: provider-backed` only with the currently supported GitHub.com and GitHub Actions verifier. Other CI providers remain structural attestations until a reviewed adapter exists and cannot satisfy an approval gate.
-6. Configure the authority read token, then dispatch `consumer-acceptance-dispatch.yml` from a protected authority ref for the exact candidate repository/SHA.
+6. Configure `AI_SKILLS_CONSUMER_READ_TOKEN` only for read-only access to the candidate repository. It MUST NOT be used to dispatch `consumer-acceptance-dispatch.yml`. Dispatch that authority-owned workflow from a protected authority ref for the exact candidate repository/SHA using an administrator action or a separate narrowly scoped credential that is permitted to invoke Actions workflow dispatch but is not exposed to candidate code.
 7. Require an independent review bound to the exact SHA. The reviewer must not be the PR author, a commit author or committer, or an actor that produced the referenced evidence.
 8. Report one migration state: `structurally-conformant`, `provider-preflight-blocked`, `provider-validation-pending`, `independent-review-pending`, or `adopted`.
 
