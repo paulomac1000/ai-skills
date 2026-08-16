@@ -322,9 +322,7 @@ def inspect_repository(repository_root: Path) -> dict[str, Any]:
         live_status = "declared" if live_policy else "needs-policy"
     artifact_binding_status = "not-applicable"
     if containerized and container_build["prebuilt_artifact_copy"]:
-        artifact_binding_status = (
-            "declared" if container_build["source_revision_binding_signal"] else "needs-binding"
-        )
+        artifact_binding_status = "declared" if container_build["source_revision_binding_signal"] else "needs-binding"
 
     unknowns: list[str] = []
     if sdk_profile == "unknown":
