@@ -1,5 +1,6 @@
-using System.Collections.Concurrent;
 using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
 
 namespace __NAMESPACE__.Mcp.Server;
 
@@ -9,19 +10,38 @@ public sealed record ApprovalRecord(
     string Capability,
     string Target,
     string Resource,
+    string ArgumentsDigest,
     DateTimeOffset ExpiresAt);
+
+public static class ApprovalArguments
+{
+    public static string PutItemDigest(string itemId, string name, int expectedVersion)
+    {
+        using var stream = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(stream))
+        {
+            writer.WriteStartObject();
+            writer.WriteNumber("expectedVersion", expectedVersion);
+            writer.WriteString("itemId", itemId);
+            writer.WriteString("name", name);
+            writer.WriteEndObject();
+        }
+        return "sha256:" + Convert.ToHexString(SHA256.HashData(stream.ToArray())).ToLowerInvariant();
+    }
+}
 
 public sealed class ApprovalRegistry(TimeProvider clock)
 {
     private const int MaximumRecords = 1_024;
-    private readonly ConcurrentDictionary<string, ApprovalRecord> _records = new(StringComparer.Ordinal);
-    private readonly object _issueGate = new();
+    private readonly Dictionary<string, ApprovalRecord> _records = new(StringComparer.Ordinal);
+    private readonly object _gate = new();
 
     public string Issue(
         string principal,
         string capability,
         string target,
         string resource,
+        string argumentsDigest,
         TimeSpan? lifetime = null)
     {
         var effectiveLifetime = lifetime ?? TimeSpan.FromMinutes(5);
@@ -29,8 +49,10 @@ public sealed class ApprovalRegistry(TimeProvider clock)
             throw new ArgumentOutOfRangeException(nameof(lifetime));
         if (new[] { principal, capability, target, resource }.Any(string.IsNullOrWhiteSpace))
             throw new ArgumentException("approval bindings must be non-empty");
+        if (!IsCanonicalDigest(argumentsDigest))
+            throw new ArgumentException("argumentsDigest must be a lowercase sha256 digest", nameof(argumentsDigest));
 
-        lock (_issueGate)
+        lock (_gate)
         {
             SweepExpired();
             if (_records.Count >= MaximumRecords)
@@ -40,29 +62,53 @@ public sealed class ApprovalRegistry(TimeProvider clock)
             {
                 var token = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
                 var record = new ApprovalRecord(
-                    token, principal, capability, target, resource,
+                    token,
+                    principal,
+                    capability,
+                    target,
+                    resource,
+                    argumentsDigest,
                     clock.GetUtcNow().Add(effectiveLifetime));
                 if (_records.TryAdd(token, record)) return token;
             }
         }
     }
 
-    public bool Consume(string token, string principal, string capability, string target, string resource)
+    public bool Consume(
+        string token,
+        string principal,
+        string capability,
+        string target,
+        string resource,
+        string argumentsDigest)
     {
-        if (!_records.TryRemove(token, out var record)) return false;
+        ApprovalRecord? record;
+        lock (_gate)
+        {
+            if (!_records.Remove(token, out record)) return false;
+        }
         return record.ExpiresAt > clock.GetUtcNow()
-            && CryptographicOperations.FixedTimeEquals(
-                System.Text.Encoding.UTF8.GetBytes(record.Principal),
-                System.Text.Encoding.UTF8.GetBytes(principal))
+            && FixedTimeEquals(record.Principal, principal)
             && record.Capability == capability
             && record.Target == target
-            && record.Resource == resource;
+            && record.Resource == resource
+            && FixedTimeEquals(record.ArgumentsDigest, argumentsDigest);
     }
+
+    private static bool FixedTimeEquals(string left, string right) =>
+        CryptographicOperations.FixedTimeEquals(
+            Encoding.UTF8.GetBytes(left),
+            Encoding.UTF8.GetBytes(right));
+
+    private static bool IsCanonicalDigest(string value) =>
+        value.Length == 71
+        && value.StartsWith("sha256:", StringComparison.Ordinal)
+        && value.AsSpan(7).IndexOfAnyExcept("0123456789abcdef") < 0;
 
     private void SweepExpired()
     {
         var now = clock.GetUtcNow();
-        foreach (var pair in _records)
-            if (pair.Value.ExpiresAt <= now) _records.TryRemove(pair.Key, out _);
+        foreach (var pair in _records.Where(pair => pair.Value.ExpiresAt <= now).ToArray())
+            _records.Remove(pair.Key);
     }
 }
