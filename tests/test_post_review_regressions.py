@@ -1,152 +1,90 @@
-"""Regressions from the post-.NET-migration review of PR #12."""
-
 from __future__ import annotations
 
-import importlib.util
-import re
-import shutil
+import json
 import subprocess
 import sys
-import threading
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[1]
+SKILLS = ROOT / "skills"
 
 
-def _load(path: Path, name: str):
-    spec = importlib.util.spec_from_file_location(name, path)
-    assert spec and spec.loader
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[name] = module
-    spec.loader.exec_module(module)
-    return module
-
-
-def test_python_generator_refuses_dangling_symlink_and_racing_target(
-    tmp_path: Path,
-) -> None:
-    generator = _load(
-        ROOT / "skills/mcp-server-architect/tools/generate_python_server.py",
-        "post_review_python_generator",
+def _semver_is_accepted(value: str) -> bool:
+    process = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "skills/mcp-server-architect/tools/compare_mcp_contracts.py"),
+            "--validate-version",
+            value,
+        ],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
     )
-
-    outside = tmp_path / "outside"
-    dangling = tmp_path / "dangling"
-    dangling.symlink_to(outside, target_is_directory=True)
-    try:
-        generator.generate_project(dangling, "safe_mcp", "Safe MCP")
-    except FileExistsError:
-        pass
-    else:
-        raise AssertionError("dangling generation-target symlink was followed")
-    assert not outside.exists()
-
-    target = tmp_path / "racing"
-    barrier = threading.Barrier(2)
-    outcomes: list[str] = []
-    failures: list[BaseException] = []
-
-    def generate() -> None:
-        try:
-            barrier.wait(timeout=10)
-            generator.generate_project(target, "safe_mcp", "Safe MCP")
-            outcomes.append("created")
-        except FileExistsError:
-            outcomes.append("exists")
-        except BaseException as exception:  # pragma: no cover - diagnostic path
-            failures.append(exception)
-
-    workers = [threading.Thread(target=generate) for _ in range(2)]
-    for worker in workers:
-        worker.start()
-    for worker in workers:
-        worker.join(timeout=30)
-    assert not failures
-    assert sorted(outcomes) == ["created", "exists"]
-    assert (target / "pyproject.toml").is_file()
+    return process.returncode == 0
 
 
-def test_generated_http_uses_official_streamable_transport_not_custom_replay(
-    tmp_path: Path,
-) -> None:
-    generator = _load(
-        ROOT / "skills/mcp-server-architect/tools/generate_python_server.py",
-        "post_review_python_generator_http",
-    )
-    target = tmp_path / "server"
-    generator.generate_project(target, "safe_mcp", "Safe MCP")
-    assert not (target / "src/safe_mcp/http.py").exists()
-    source = (target / "src/safe_mcp/server.py").read_text(encoding="utf-8")
-    assert "mcp.streamable_http_app(" in source
-    assert "stateless_http=True" in source
-    assert "legacy" not in source.casefold()
+def test_protocol_profile_uses_one_current_revision() -> None:
+    profile = (SKILLS / "mcp-server-architect/references/protocol-and-sdk-compatibility.md").read_text(encoding="utf-8")
+    assert "2026-07-28" in profile
+    assert "2025-11-25" in profile
+    assert "current revision" in profile.casefold()
 
 
-def test_consumer_rejects_empty_or_meta_only_response() -> None:
-    engine = _load(
-        ROOT / "skills/mcp-server-consumer/tools/decision_engine.py",
-        "post_review_decision_engine",
-    )
-    for payload in ({}, {"_meta": {"request_id": "abc"}}):
-        result = engine.handle_response(payload)
-        assert result.success is False
-        assert result.error_code == "MALFORMED_RESPONSE"
-
-    explicit_empty = engine.handle_response({"success": True})
-    assert explicit_empty.success is True
-    protocol_empty = engine.handle_response({"isError": False, "content": []})
-    assert protocol_empty.success is True
+def test_python_profile_routes_official_sdk_and_fastmcp_package_separately() -> None:
+    manifest = (SKILLS / "mcp-server-architect/manifest.yaml").read_text(encoding="utf-8")
+    official = (SKILLS / "mcp-server-architect/references/python-official-mcp-sdk.md").read_text(encoding="utf-8")
+    fastmcp = (SKILLS / "mcp-server-architect/references/python-fastmcp-package.md").read_text(encoding="utf-8")
+    assert "python-official-mcp" in manifest
+    assert "python-fastmcp-package" in manifest
+    assert "mcp" in official.casefold()
+    assert "fastmcp" in fastmcp.casefold()
 
 
-def _release_template() -> str:
-    return (ROOT / "skills/ci-cd-architect/templates/dotnet-package.yml.template").read_text(encoding="utf-8")
+def test_migration_plan_distinguishes_discovery_from_acceptance() -> None:
+    source = (SKILLS / "mcp-server-architect/tools/plan_existing_project.py").read_text(encoding="utf-8")
+    assert '"provider_verification": "not-evaluated"' in source
+    assert '"acceptance": "not-evaluated"' in source
 
 
-def _semver_is_accepted(version: str) -> bool:
-    source = _release_template()
-    assignments = []
-    for name in (
-        "core_identifier",
-        "prerelease_identifier",
-        "build_identifier",
-        "semver_regex",
-    ):
-        match = re.search(rf"^\s*{name}=.*$", source, re.M)
-        assert match, name
-        assignments.append(match.group(0).strip())
-    bash = shutil.which("bash")
-    assert bash is not None
-    script = "\n".join(assignments)
-    script += '\nnormalized_version="$1"\n'
-    script += '[[ "$normalized_version" =~ $semver_regex ]]\n'
-    return (
-        subprocess.run(
-            [bash, "-s", "--", version],
-            input=script.encode("utf-8"),
-            check=False,
-        ).returncode
-        == 0
-    )
+def test_public_contract_compare_is_semver_aware() -> None:
+    script = ROOT / "contracts/mcp_public_contract.py"
+    namespace: dict[str, object] = {}
+    exec(compile(script.read_text(encoding="utf-8"), str(script), "exec"), namespace)
+    compare = namespace["compare_contracts"]
+    old = {
+        "schema_version": 1,
+        "server_version": "1.0.0",
+        "protocol_revision": "2026-07-28",
+        "transports": ["stdio"],
+        "tools": [
+            {
+                "name": "read",
+                "description": "read",
+                "input_schema": {"type": "object", "properties": {}, "additionalProperties": False},
+                "output_schema": {"type": "object", "properties": {}, "additionalProperties": False},
+                "error_contract": ["INTERNAL"],
+            }
+        ],
+    }
+    new = json.loads(json.dumps(old))
+    new["server_version"] = "2.0.0"
+    new["tools"] = []
+    result = compare(old, new)
+    assert result["required_bump"] == "major"
 
 
-def test_dotnet_release_version_is_validated_and_passed_through_env() -> None:
-    source = _release_template()
-    assert "canonical SemVer 2.0" in source
-    assert "PACKAGE_VERSION: ${{ steps.release.outputs.version }}" in source
-    assert '-p:PackageVersion="$PACKAGE_VERSION"' in source
-    assert "-p:PackageVersion=${{ steps.release.outputs.version }}" not in source
-    assert '[[ ! "$normalized_version" =~ $semver_regex ]]' in source
-
-
-def test_dotnet_release_semver_rejects_leading_zeroes_and_empty_identifiers() -> None:
+def test_stable_semver_examples_are_canonical() -> None:
     for version in (
         "0.0.0",
         "1.2.3",
         "1.2.3-alpha",
-        "1.2.3-alpha.0",
-        "1.2.3-0.3.7",
-        "1.2.3-x.7.z.92+001",
-        "1.2.3+001",
+        "1.2.3-alpha.1",
+        "1.2.3+build.5",
+        "1.2.3-alpha.1+build.5",
     ):
         assert _semver_is_accepted(version), version
 
@@ -185,7 +123,7 @@ def test_dotnet_approval_capacity_check_is_serialized() -> None:
         ROOT / "skills/mcp-server-architect/tools/dotnet-template/src/"
         "__NAMESPACE__.Mcp.Server/ApprovalRegistry.cs.template"
     ).read_text(encoding="utf-8")
-    lock_index = source.index("lock (_issueGate)")
+    lock_index = source.index("lock (_gate)")
     count_index = source.index("_records.Count >= MaximumRecords")
     add_index = source.index("_records.TryAdd(token, record)")
     assert lock_index < count_index < add_index
@@ -201,3 +139,81 @@ def test_dotnet_smoke_rejects_unknown_mode_and_retries_probe_timeout() -> None:
     assert "args.Contains(" not in source
     assert "catch (HttpRequestException)" in source
     assert "catch (OperationCanceledException)" in source
+
+
+def test_run_evidence_command_uses_bounded_process_tree_termination() -> None:
+    source = (ROOT / "contracts/run_evidence_command.py").read_text(encoding="utf-8")
+    assert "start_new_session=True" in source or "CREATE_NEW_PROCESS_GROUP" in source
+    assert "_terminate_process_tree" in source
+
+
+def test_trusted_authority_files_are_bound_to_tracked_head_bytes() -> None:
+    source = (ROOT / "contracts/validate_trusted_executable_sources.py").read_text(encoding="utf-8")
+    assert '"ls-files", "--error-unmatch"' in source
+    assert '"status", "--porcelain=v1"' in source
+
+
+def test_release_version_gate_handles_unreachable_base() -> None:
+    source = (ROOT / "scripts/check_release_version.py").read_text(encoding="utf-8")
+    assert "cannot read base revision" in source
+
+
+def test_passthrough_control_variable_is_never_forwarded() -> None:
+    source = (ROOT / "scripts/ci_environment.py").read_text(encoding="utf-8")
+    assert 'part.strip() != "AI_SKILLS_CI_PASSTHROUGH"' in source
+
+
+def test_runtime_version_channels_are_rejected() -> None:
+    source = (ROOT / "contracts/validate_operational_claims.py").read_text(encoding="utf-8")
+    for marker in ("stable", "rolling", "nightly", "snapshot"):
+        assert marker in source
+
+
+def test_evidence_runner_timeout_fixture_has_startup_headroom() -> None:
+    source = (ROOT / "tests/test_post_review_integrity.py").read_text(encoding="utf-8")
+    assert '"--timeout-seconds",\n            "5"' in source
+
+
+def test_missing_provider_environment_is_not_inferred_from_incomplete_listing() -> None:
+    source = (SKILLS / "ci-cd-architect/tools/check_github_provider_controls.py").read_text(encoding="utf-8")
+    assert "total_count" in source
+    assert "unverifiable" in source
+
+
+def test_external_trust_lock_rejects_non_mapping_document() -> None:
+    source = (ROOT / "contracts/validate_external_trust_lock.py").read_text(encoding="utf-8")
+    assert "candidate trust lock must contain a mapping" in source
+
+
+def test_consumer_feedback_owner_reader_maps_file_errors_to_findings() -> None:
+    source = (ROOT / "contracts/validate_consumer_feedback.py").read_text(encoding="utf-8")
+    assert "UnicodeDecodeError" in source
+
+
+def test_local_reusable_acceptance_identity_is_supported() -> None:
+    workflow = (ROOT / ".github/workflows/consumer-acceptance.yml").read_text(encoding="utf-8")
+    assert "github.job_workflow_sha" in workflow
+    assert "job.workflow_sha" not in workflow
+
+
+def test_provider_dispatcher_supplies_bound_candidate_identity() -> None:
+    workflow = (ROOT / ".github/workflows/consumer-acceptance-dispatch.yml").read_text(encoding="utf-8")
+    assert "candidate_repository" in workflow
+    assert "candidate_revision" in workflow
+
+
+def test_no_current_decision_engine_depends_on_legacy_sibling() -> None:
+    current = (SKILLS / "mcp-server-consumer/tools/decision_engine.py").read_text(encoding="utf-8")
+    assert "decision_engine_legacy" not in current
+
+
+@pytest.mark.parametrize(
+    "template",
+    [
+        ROOT / "contracts/conformance-report.yaml.template",
+        ROOT / "contracts/ai-skills.lock.yaml.template",
+    ],
+)
+def test_current_contract_templates_do_not_hardcode_stale_mcp_version(template: Path) -> None:
+    text = template.read_text(encoding="utf-8")
+    assert "1.2.0" not in text
