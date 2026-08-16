@@ -1,28 +1,20 @@
-"""Deterministic MCP consumer policy decisions with identity-bound trust.
+"""Pure MCP consumer decisions with identity-bound trusted policy values.
 
-This module is intentionally self-contained. Discovered server metadata can only
-increase risk or veto positive claims. Any safety-reducing policy value must be
-bound to the exact reviewed capability identity. Legacy constructor/keyword
-call shapes remain accepted conservatively at the public boundary, but there is
-only one current decision-engine implementation.
+The module performs no network or protocol I/O and is intentionally
+self-contained. Discovered server metadata is always untrusted: it may only
+increase risk, require confirmation, mark confidentiality, or veto a positive
+claim. Safety-reducing policy values and positive idempotency require an exact
+consumer-owned capability identity binding.
 """
 
 from __future__ import annotations
 
+import math
 import re
-from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from collections.abc import Iterable, Mapping, Sequence
+from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any, Protocol
-
-
-class Risk(StrEnum):
-    UNKNOWN = "UNKNOWN"
-    READ = "READ"
-    WRITE = "WRITE"
-    SENSITIVE = "SENSITIVE"
-    DESTRUCTIVE = "DESTRUCTIVE"
-    DANGEROUS = "DANGEROUS"
 
 
 class Decision(StrEnum):
@@ -32,427 +24,39 @@ class Decision(StrEnum):
     DEFER = "defer"
 
 
-class UserIntent(StrEnum):
-    NORMAL = "normal"
-    CONFIRMED_WORKFLOW = "confirmed_workflow"
-    EXPLICIT_BY_NAME = "explicit_by_name"
-
-
 class ErrorAction(StrEnum):
     RETRY = "retry"
-    SURFACE = "surface"
-    REAUTHENTICATE = "reauthenticate"
-    DEFER = "defer"
+    RETRY_AFTER_READ = "retry_after_read"
+    ESCALATE = "escalate"
+
+
+class Risk(StrEnum):
+    READ = "READ"
+    WRITE = "WRITE"
+    DESTRUCTIVE = "DESTRUCTIVE"
+    DANGEROUS = "DANGEROUS"
+    SENSITIVE = "SENSITIVE"
+    UNKNOWN = "UNKNOWN"
+
+
+class UserIntent(StrEnum):
+    GENERAL = "general"
+    CONFIRMED_WORKFLOW = "confirmed_workflow"
+    EXPLICIT_BY_NAME = "explicit_by_name"
+    NOT_EXPLICIT = "not_explicit"
 
 
 @dataclass(frozen=True)
 class CapabilityProfile:
     risk: Risk
-    requires_confirmation: bool
-    sensitive: bool
-    idempotent: bool | None
-    source: str
+    requires_confirmation: bool = False
+    sensitive: bool = False
+    idempotent: bool | None = None
+    source: str = "unknown"
 
 
-@dataclass(frozen=True)
-class ResponseResult:
-    ok: bool
-    data: Any = None
-    error: str | None = None
-    retryable: bool = False
-    error_code: str | None = None
-    next_token: str | None = None
-    total_count: int | None = None
-
-
-@dataclass(frozen=True)
-class ErrorStrategy:
-    action: ErrorAction
-    max_retries: int
-    backoff_seconds: tuple[int, ...]
-
-
-@dataclass(frozen=True)
-class PaginationDecision:
-    continue_fetching: bool
-    next_token: str | None
-    reason: str
-
-
-ERROR_STRATEGIES: dict[str, ErrorStrategy] = {
-    "AUTH_FAILED": ErrorStrategy(ErrorAction.REAUTHENTICATE, 0, ()),
-    "AUTH_EXPIRED": ErrorStrategy(ErrorAction.REAUTHENTICATE, 0, ()),
-    "UNAUTHORIZED": ErrorStrategy(ErrorAction.REAUTHENTICATE, 0, ()),
-    "RATE_LIMITED": ErrorStrategy(ErrorAction.RETRY, 3, (2, 5, 10)),
-    "TIMEOUT": ErrorStrategy(ErrorAction.RETRY, 2, (1, 3)),
-    "NETWORK_ERROR": ErrorStrategy(ErrorAction.RETRY, 2, (1, 3)),
-    "BACKEND_UNAVAILABLE": ErrorStrategy(ErrorAction.RETRY, 2, (2, 5)),
-    "VALIDATION_ERROR": ErrorStrategy(ErrorAction.SURFACE, 0, ()),
-    "NOT_FOUND": ErrorStrategy(ErrorAction.SURFACE, 0, ()),
-    "CONFLICT": ErrorStrategy(ErrorAction.SURFACE, 0, ()),
-    "PERMISSION_DENIED": ErrorStrategy(ErrorAction.SURFACE, 0, ()),
-    "UNKNOWN": ErrorStrategy(ErrorAction.DEFER, 0, ()),
-}
-DEFAULT_ERROR_STRATEGY = ErrorStrategy(ErrorAction.DEFER, 0, ())
-
-_RISK_RANK = {
-    Risk.UNKNOWN: 0,
-    Risk.READ: 1,
-    Risk.WRITE: 2,
-    Risk.SENSITIVE: 3,
-    Risk.DESTRUCTIVE: 4,
-    Risk.DANGEROUS: 5,
-}
-_MISSING = object()
-_INVALID = object()
 _DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 _POLICY_SOURCE = re.compile(r"^[a-z][a-z0-9-]*:sha256:[0-9a-f]{64}$")
-
-
-class _CapabilityProfileResult(Protocol):
-    risk: object
-    requires_confirmation: bool
-    sensitive: bool
-    idempotent: bool | None
-    source: str
-
-
-def _risk(value: Any) -> Risk:
-    if isinstance(value, Risk):
-        return value
-    if not isinstance(value, str):
-        return Risk.UNKNOWN
-    try:
-        return Risk(value.strip().upper())
-    except ValueError:
-        return Risk.UNKNOWN
-
-
-def _intent(value: Any) -> UserIntent:
-    if isinstance(value, UserIntent):
-        return value
-    if not isinstance(value, str):
-        return UserIntent.NORMAL
-    try:
-        return UserIntent(value.strip().lower())
-    except ValueError:
-        return UserIntent.NORMAL
-
-
-def _higher_risk(left: Risk, right: Risk) -> Risk:
-    return right if _RISK_RANK[right] > _RISK_RANK[left] else left
-
-
-def evaluate_decision(
-    risk: str | Risk,
-    requires_confirmation: bool,
-    user_intent: str | UserIntent,
-) -> Decision:
-    normalized, intent = _risk(risk), _intent(user_intent)
-    if normalized is Risk.UNKNOWN:
-        return Decision.DEFER
-    if normalized is Risk.READ:
-        return Decision.CONFIRM_THEN_INVOKE if requires_confirmation else Decision.INVOKE
-    if normalized in {Risk.WRITE, Risk.SENSITIVE}:
-        if requires_confirmation:
-            return Decision.CONFIRM_THEN_INVOKE
-        return Decision.INVOKE if intent is UserIntent.CONFIRMED_WORKFLOW else Decision.CONFIRM_THEN_INVOKE
-    if normalized is Risk.DESTRUCTIVE:
-        return Decision.CONFIRM_THEN_INVOKE
-    if normalized is Risk.DANGEROUS:
-        return Decision.CONFIRM_THEN_INVOKE if intent is UserIntent.EXPLICIT_BY_NAME else Decision.REJECT
-    return Decision.DEFER
-
-
-def _untrusted_risk_signal(value: Any) -> Risk:
-    normalized = _risk(value)
-    return normalized if normalized in {Risk.WRITE, Risk.SENSITIVE, Risk.DESTRUCTIVE, Risk.DANGEROUS} else Risk.UNKNOWN
-
-
-def _untrusted_side_effect_signal(metadata: Mapping[str, Any]) -> Risk:
-    inferred = Risk.UNKNOWN
-    for key in ("sideEffects", "side_effects"):
-        value = metadata.get(key, _MISSING)
-        if not isinstance(value, str):
-            continue
-        candidate = {"write": Risk.WRITE, "destructive": Risk.DESTRUCTIVE}.get(
-            value.strip().lower(), Risk.UNKNOWN
-        )
-        inferred = _higher_risk(inferred, candidate)
-    return inferred
-
-
-def _prefixed_risk(name: Any) -> Risk:
-    if not isinstance(name, str):
-        return Risk.UNKNOWN
-    upper_name = name.strip().upper()
-    for candidate in (Risk.DANGEROUS, Risk.DESTRUCTIVE, Risk.SENSITIVE, Risk.WRITE):
-        if upper_name.startswith(f"[{candidate.value}]"):
-            return candidate
-    return Risk.UNKNOWN
-
-
-def _append_source(source: str, addition: str) -> str:
-    if source == "unknown":
-        return addition
-    return source if addition in source.split("+") else f"{source}+{addition}"
-
-
-def _alias_value(mapping: Mapping[str, Any], camel: str, snake: str) -> Any:
-    camel_value = mapping.get(camel, _MISSING)
-    snake_value = mapping.get(snake, _MISSING)
-    if camel_value is not _MISSING and snake_value is not _MISSING and camel_value != snake_value:
-        return _INVALID
-    return camel_value if camel_value is not _MISSING else snake_value
-
-
-def _retry_conditions(manifest: Mapping[str, Any] | None) -> Mapping[str, Any] | object | None:
-    if manifest is None:
-        return None
-    value = _alias_value(manifest, "retryConditions", "retry_conditions")
-    if value is _MISSING:
-        return None
-    return value if isinstance(value, Mapping) else _INVALID
-
-
-def _explicit_retry_veto(manifest: Mapping[str, Any] | None) -> bool:
-    if manifest is None:
-        return False
-    top = manifest.get("retryable", _MISSING)
-    if top is not _MISSING and type(top) is not bool:
-        return True
-    conditions = _retry_conditions(manifest)
-    if conditions is _INVALID:
-        return True
-    if top is True and conditions is None:
-        return True
-    if isinstance(conditions, Mapping):
-        nested = conditions.get("retryable", _MISSING)
-        if type(nested) is not bool:
-            return True
-        if top is _MISSING or top is not nested:
-            return True
-        if nested is False:
-            return True
-    return top is False
-
-
-def get_error_strategy(error_code: str) -> ErrorStrategy:
-    if not isinstance(error_code, str):
-        return DEFAULT_ERROR_STRATEGY
-    return ERROR_STRATEGIES.get(error_code.strip().upper(), DEFAULT_ERROR_STRATEGY)
-
-
-def _manifest_retryable(error_code: str, manifest: Mapping[str, Any] | None) -> bool:
-    if manifest is None:
-        return False
-    conditions = _retry_conditions(manifest)
-    if not isinstance(conditions, Mapping) or conditions is _INVALID:
-        return False
-    if conditions.get("retryable") is not True:
-        return False
-    raw_codes = _alias_value(conditions, "errorCodes", "error_codes")
-    if not isinstance(raw_codes, Sequence) or isinstance(raw_codes, str):
-        return False
-    normalized_codes: set[str] = set()
-    for value in raw_codes:
-        if not isinstance(value, str) or not value.strip():
-            return False
-        normalized_codes.add(value.strip().upper())
-    return error_code in normalized_codes
-
-
-def _declared_idempotent(idempotent: bool | None, manifest: Mapping[str, Any] | None) -> bool:
-    if manifest is None:
-        return False
-    manifest_idempotent = manifest.get("idempotent", _MISSING)
-    if type(manifest_idempotent) is not bool or manifest_idempotent is not True:
-        return False
-    return idempotent is True
-
-
-def should_retry(
-    error_code: str,
-    attempt: int,
-    idempotent: bool | None = None,
-    manifest: Mapping[str, Any] | None = None,
-) -> bool:
-    if not isinstance(error_code, str) or not isinstance(attempt, int) or isinstance(attempt, bool) or attempt < 0:
-        return False
-    if idempotent is not None and type(idempotent) is not bool:
-        return False
-    if manifest is not None and not isinstance(manifest, Mapping):
-        return False
-    if _explicit_retry_veto(manifest):
-        return False
-    normalized = error_code.strip().upper()
-    if not normalized:
-        return False
-    strategy = get_error_strategy(normalized)
-    if strategy.action is not ErrorAction.RETRY or attempt >= strategy.max_retries:
-        return False
-    return _declared_idempotent(idempotent, manifest) and _manifest_retryable(normalized, manifest)
-
-
-def _is_invalid_mapping(value: Any) -> bool:
-    return not isinstance(value, Mapping)
-
-
-def _contract_violation(message: str, error_code: str = "CONTRACT_VIOLATION") -> ResponseResult:
-    return ResponseResult(ok=False, error=message, retryable=False, error_code=error_code)
-
-
-def _parse_nonnegative_int(value: Any) -> int | None | object:
-    if value is _MISSING:
-        return None
-    if type(value) is int and value >= 0:
-        return value
-    return _INVALID
-
-
-def _normalize_next_token(value: Any) -> str | None | object:
-    if value is _MISSING or value is None:
-        return None
-    if isinstance(value, str) and value.strip():
-        return value.strip()
-    return _INVALID
-
-
-def _extract_structured_response(response: Mapping[str, Any]) -> tuple[Any, str | None, int | None] | ResponseResult:
-    structured = response.get("structuredContent", _MISSING)
-    if structured is _MISSING:
-        return response.get("content"), None, None
-    if not isinstance(structured, Mapping):
-        return _contract_violation("structuredContent must be an object")
-    data = structured.get("data", structured)
-    next_token_value = _alias_value(structured, "nextPageToken", "next_page_token")
-    next_token = _normalize_next_token(next_token_value)
-    if next_token is _INVALID:
-        return _contract_violation("nextPageToken must be a non-empty string or null")
-    total_value = _alias_value(structured, "totalCount", "total_count")
-    total_count = _parse_nonnegative_int(total_value)
-    if total_count is _INVALID:
-        return _contract_violation("totalCount must be a non-negative integer")
-    return data, next_token, total_count
-
-
-def handle_response(response: Mapping[str, Any] | Any) -> ResponseResult:
-    if _is_invalid_mapping(response):
-        return _contract_violation("response must be an object")
-    assert isinstance(response, Mapping)
-    if type(response.get("isError", False)) is not bool:
-        return _contract_violation("isError must be boolean when present")
-    if response.get("isError") is True:
-        structured = response.get("structuredContent")
-        if structured is None:
-            return _contract_violation("error response is missing structuredContent")
-        if not isinstance(structured, Mapping):
-            return _contract_violation("error structuredContent must be an object")
-        error = structured.get("error")
-        if not isinstance(error, Mapping):
-            return _contract_violation("error response is missing structuredContent.error")
-        code = error.get("code")
-        message = error.get("message")
-        retryable = error.get("retryable")
-        if not isinstance(code, str) or not code.strip():
-            return _contract_violation("error.code must be a non-empty string")
-        if not isinstance(message, str) or not message.strip():
-            return _contract_violation("error.message must be a non-empty string")
-        if type(retryable) is not bool:
-            return _contract_violation("error.retryable must be boolean")
-        normalized = code.strip().upper()
-        return ResponseResult(ok=False, error=message, retryable=retryable, error_code=normalized)
-    extracted = _extract_structured_response(response)
-    if isinstance(extracted, ResponseResult):
-        return extracted
-    data, next_token, total_count = extracted
-    return ResponseResult(ok=True, data=data, next_token=next_token, total_count=total_count)
-
-
-def select_efficient_tool(
-    tools: Sequence[Mapping[str, Any]],
-    required_fields: Sequence[str],
-) -> Mapping[str, Any] | None:
-    if isinstance(tools, (str, bytes)) or isinstance(required_fields, (str, bytes)):
-        return None
-    required: set[str] = set()
-    for field in required_fields:
-        if not isinstance(field, str) or not field:
-            return None
-        required.add(field)
-    candidates: list[tuple[int, int, Mapping[str, Any]]] = []
-    for tool in tools:
-        if not isinstance(tool, Mapping):
-            continue
-        name = tool.get("name")
-        if not isinstance(name, str) or not name:
-            continue
-        output_schema = tool.get("outputSchema", {})
-        if not isinstance(output_schema, Mapping):
-            continue
-        properties = output_schema.get("properties", {})
-        if not isinstance(properties, Mapping):
-            continue
-        available = {key for key in properties if isinstance(key, str)}
-        if required <= available:
-            candidates.append((len(available), len(name), tool))
-    if not candidates:
-        return None
-    candidates.sort(key=lambda item: (item[0], item[1], str(item[2].get("name", ""))))
-    return candidates[0][2]
-
-
-def choose_initial_detail_params(tool_schema: Mapping[str, Any] | None) -> dict[str, Any]:
-    if tool_schema is None or not isinstance(tool_schema, Mapping):
-        return {}
-    input_schema = tool_schema.get("inputSchema", {})
-    if not isinstance(input_schema, Mapping):
-        return {}
-    properties = input_schema.get("properties", {})
-    if not isinstance(properties, Mapping):
-        return {}
-    result: dict[str, Any] = {}
-    if "summary" in properties:
-        result["summary"] = True
-    if "detail" in properties:
-        detail = properties["detail"]
-        if isinstance(detail, Mapping):
-            enum = detail.get("enum")
-            if isinstance(enum, Sequence) and not isinstance(enum, str) and "summary" in enum:
-                result["detail"] = "summary"
-    if "fields" in properties:
-        field_schema = properties["fields"]
-        if isinstance(field_schema, Mapping):
-            default = field_schema.get("default")
-            if isinstance(default, Sequence) and not isinstance(default, str):
-                result["fields"] = list(default)
-    return result
-
-
-def get_pagination_decision(
-    response: ResponseResult,
-    pages_fetched: int,
-    items_fetched: int,
-    *,
-    max_pages: int = 10,
-    max_items: int = 1000,
-) -> PaginationDecision:
-    if not isinstance(response, ResponseResult):
-        return PaginationDecision(False, None, "invalid-response")
-    values = (pages_fetched, items_fetched, max_pages, max_items)
-    if any(not isinstance(value, int) or isinstance(value, bool) or value < 0 for value in values):
-        return PaginationDecision(False, None, "invalid-bounds")
-    if max_pages == 0 or max_items == 0:
-        return PaginationDecision(False, None, "limit-reached")
-    if not response.ok:
-        return PaginationDecision(False, None, "response-error")
-    if response.next_token is None:
-        return PaginationDecision(False, None, "no-next-token")
-    if pages_fetched >= max_pages or items_fetched >= max_items:
-        return PaginationDecision(False, None, "limit-reached")
-    if response.total_count is not None and items_fetched >= response.total_count:
-        return PaginationDecision(False, None, "total-count-reached")
-    return PaginationDecision(True, response.next_token, "next-page")
 
 
 def _nonempty(value: str, field_name: str, maximum: int = 512) -> None:
@@ -496,7 +100,12 @@ class TrustedPolicyBinding:
 
 @dataclass(frozen=True, slots=True)
 class TrustedCapabilityPolicy:
-    """Consumer policy values; positive trust requires ``binding``."""
+    """Consumer policy values; positive trust requires ``binding``.
+
+    The field order preserves the 1.2 constructor shape. Unbound values remain
+    accepted for migration, but inference treats them as untrusted and they can
+    never reduce risk or confer positive idempotency.
+    """
 
     risk: object = None
     requires_confirmation: bool | None = None
@@ -515,7 +124,11 @@ class TrustedCapabilityPolicy:
 
 @dataclass(frozen=True, slots=True)
 class TrustedCapabilityContract:
-    """Reviewed capability facts; positive trust requires ``binding``."""
+    """Reviewed capability facts; positive trust requires ``binding``.
+
+    The legacy constructor shape remains accepted so downstream callers can
+    migrate without a flag day; unbound values remain fail-closed at inference.
+    """
 
     risk: object = None
     idempotent: bool | None = None
@@ -526,6 +139,147 @@ class TrustedCapabilityContract:
             raise TypeError("binding must be TrustedPolicyBinding or None")
         if self.idempotent is not None and type(self.idempotent) is not bool:
             raise TypeError("idempotent must be boolean or None")
+
+
+@dataclass(frozen=True)
+class ErrorStrategy:
+    retryable: bool
+    max_retries: int
+    action: ErrorAction
+
+
+@dataclass(frozen=True)
+class ResponseResult:
+    success: bool
+    data: Any = None
+    meta: Mapping[str, Any] = field(default_factory=dict)
+    error_code: str | None = None
+    error_message: str | None = None
+    retryable: bool | None = None
+    correlation_id: str | None = None
+
+
+@dataclass(frozen=True)
+class PaginationDecision:
+    continue_paging: bool
+    cursor: str | None = None
+    offset: int | None = None
+    reason: str = ""
+
+
+class _CapabilityProfileResult(Protocol):
+    risk: object
+    requires_confirmation: bool
+    sensitive: bool
+    idempotent: bool | None
+    source: str
+
+
+ERROR_STRATEGIES = {
+    "TIMEOUT": ErrorStrategy(True, 2, ErrorAction.RETRY),
+    "RATE_LIMITED": ErrorStrategy(True, 2, ErrorAction.RETRY),
+    "UNAVAILABLE": ErrorStrategy(True, 2, ErrorAction.RETRY),
+    "UPSTREAM_ERROR": ErrorStrategy(True, 1, ErrorAction.RETRY),
+    "CONFLICT": ErrorStrategy(True, 1, ErrorAction.RETRY_AFTER_READ),
+    "VALIDATION_FAILED": ErrorStrategy(False, 0, ErrorAction.ESCALATE),
+    "AUTHENTICATION_FAILED": ErrorStrategy(False, 0, ErrorAction.ESCALATE),
+    "AUTHORIZATION_FAILED": ErrorStrategy(False, 0, ErrorAction.ESCALATE),
+    "NOT_FOUND": ErrorStrategy(False, 0, ErrorAction.ESCALATE),
+    "UNSUPPORTED": ErrorStrategy(False, 0, ErrorAction.ESCALATE),
+    "CANCELLED": ErrorStrategy(False, 0, ErrorAction.ESCALATE),
+    "INTERNAL_ERROR": ErrorStrategy(False, 0, ErrorAction.ESCALATE),
+}
+DEFAULT_ERROR_STRATEGY = ErrorStrategy(False, 0, ErrorAction.ESCALATE)
+_RISK_SEVERITY = {
+    Risk.UNKNOWN: 0,
+    Risk.READ: 1,
+    Risk.WRITE: 2,
+    Risk.SENSITIVE: 3,
+    Risk.DESTRUCTIVE: 4,
+    Risk.DANGEROUS: 5,
+}
+_MISSING = object()
+_INVALID = object()
+_ANNOTATION_ROLES = frozenset({"user", "assistant"})
+
+
+def _risk(value: object) -> Risk:
+    if isinstance(value, Risk):
+        return value
+    if not isinstance(value, str):
+        return Risk.UNKNOWN
+    try:
+        return Risk(value.upper())
+    except ValueError:
+        return Risk.UNKNOWN
+
+
+def _higher_risk(current: Risk, candidate: Risk) -> Risk:
+    return candidate if _RISK_SEVERITY[candidate] > _RISK_SEVERITY[current] else current
+
+
+def _intent(value: str | UserIntent) -> UserIntent:
+    if isinstance(value, UserIntent):
+        return value
+    try:
+        return UserIntent(value)
+    except (TypeError, ValueError):
+        return UserIntent.NOT_EXPLICIT
+
+
+def evaluate_decision(
+    risk: str | Risk,
+    requires_confirmation: bool,
+    user_intent: str | UserIntent,
+) -> Decision:
+    normalized, intent = _risk(risk), _intent(user_intent)
+    if normalized is Risk.UNKNOWN:
+        return Decision.DEFER
+    if normalized is Risk.READ:
+        return Decision.CONFIRM_THEN_INVOKE if requires_confirmation else Decision.INVOKE
+    if normalized in {Risk.WRITE, Risk.SENSITIVE}:
+        if requires_confirmation:
+            return Decision.CONFIRM_THEN_INVOKE
+        return Decision.INVOKE if intent is UserIntent.CONFIRMED_WORKFLOW else Decision.CONFIRM_THEN_INVOKE
+    if normalized is Risk.DESTRUCTIVE:
+        return Decision.CONFIRM_THEN_INVOKE
+    if normalized is Risk.DANGEROUS:
+        return Decision.CONFIRM_THEN_INVOKE if intent is UserIntent.EXPLICIT_BY_NAME else Decision.REJECT
+    return Decision.DEFER
+
+
+def _untrusted_risk_signal(value: Any) -> Risk:
+    normalized = _risk(value)
+    return normalized if normalized in {Risk.WRITE, Risk.SENSITIVE, Risk.DESTRUCTIVE, Risk.DANGEROUS} else Risk.UNKNOWN
+
+
+def _untrusted_side_effect_signal(metadata: Mapping[str, Any]) -> Risk:
+    """Project canonical and compatibility side-effect fields monotonically into risk."""
+
+    inferred = Risk.UNKNOWN
+    for key in ("sideEffects", "side_effects"):
+        value = metadata.get(key, _MISSING)
+        if not isinstance(value, str):
+            continue
+        candidate = {"write": Risk.WRITE, "destructive": Risk.DESTRUCTIVE}.get(value.strip().lower(), Risk.UNKNOWN)
+        inferred = _higher_risk(inferred, candidate)
+    return inferred
+
+
+def _prefixed_risk(name: Any) -> Risk:
+    if not isinstance(name, str):
+        return Risk.UNKNOWN
+    upper_name = name.strip().upper()
+    for candidate in (Risk.DANGEROUS, Risk.DESTRUCTIVE, Risk.SENSITIVE, Risk.WRITE):
+        if upper_name.startswith(f"[{candidate.value}]"):
+            return candidate
+    return Risk.UNKNOWN
+
+
+def _append_source(source: str, addition: str) -> str:
+    if source == "unknown":
+        return addition
+    return source if addition in source.split("+") else f"{source}+{addition}"
 
 
 def _validate_binding(
@@ -555,9 +309,12 @@ def infer_capability_profile(
 ) -> _CapabilityProfileResult:
     """Infer a fail-closed profile using exact, identity-bound trusted values.
 
-    The removed 1.2 ``trusted_server=`` keyword remains accepted through the
-    compatibility keyword boundary, but it never turns remote metadata into
-    trusted input.
+    Server-discovered values and annotations never reduce risk, confer
+    idempotency, or create trust. They may only escalate risk, require
+    confirmation, mark confidentiality, or veto an idempotency claim.
+
+    The removed 1.2 ``trusted_server=`` keyword remains accepted at the
+    compatibility boundary, but never turns remote metadata into trusted input.
     """
 
     trusted_server = legacy_options.pop("trusted_server", False)
@@ -610,10 +367,13 @@ def infer_capability_profile(
         else:
             source = _append_source(source, "legacy-unbound-contract-escalation")
 
+    untrusted_risk = _untrusted_risk_signal(metadata.get("risk"))
+    side_effect_risk = _untrusted_side_effect_signal(metadata)
+    prefix_risk = _prefixed_risk(name)
     signals = (
-        (_untrusted_risk_signal(metadata.get("risk")), "untrusted-risk-escalation"),
-        (_untrusted_side_effect_signal(metadata), "side-effect-escalation"),
-        (_prefixed_risk(name), "name-prefix-escalation"),
+        (untrusted_risk, "untrusted-risk-escalation"),
+        (side_effect_risk, "side-effect-escalation"),
+        (prefix_risk, "name-prefix-escalation"),
     )
     for candidate, label in signals:
         previous = inferred
@@ -634,9 +394,11 @@ def infer_capability_profile(
     sensitive_signal = (
         policy_risk is Risk.SENSITIVE
         or contract_risk is Risk.SENSITIVE
-        or any(candidate is Risk.SENSITIVE for candidate, _label in signals)
+        or untrusted_risk is Risk.SENSITIVE
+        or side_effect_risk is Risk.SENSITIVE
+        or prefix_risk is Risk.SENSITIVE
     )
-    sensitive = explicit_sensitive or sensitive_signal or inferred is Risk.SENSITIVE
+    sensitive = explicit_sensitive or sensitive_signal
     if explicit_sensitive:
         previous = inferred
         inferred = _higher_risk(inferred, Risk.SENSITIVE)
@@ -663,6 +425,517 @@ def infer_capability_profile(
         idempotent = None
 
     return CapabilityProfile(inferred, requires_confirmation, sensitive, idempotent, source)
+
+
+def _alias_value(mapping: Mapping[str, Any], camel: str, snake: str) -> Any:
+    """Read one canonical/compatibility alias and reject contradictory duplicates."""
+
+    camel_value = mapping.get(camel, _MISSING)
+    snake_value = mapping.get(snake, _MISSING)
+    if camel_value is not _MISSING and snake_value is not _MISSING and camel_value != snake_value:
+        return _INVALID
+    return camel_value if camel_value is not _MISSING else snake_value
+
+
+def _retry_conditions(manifest: Mapping[str, Any] | None) -> Mapping[str, Any] | object | None:
+    if manifest is None:
+        return None
+    value = _alias_value(manifest, "retryConditions", "retry_conditions")
+    if value is _MISSING:
+        return None
+    return value if isinstance(value, Mapping) else _INVALID
+
+
+def _explicit_retry_veto(manifest: Mapping[str, Any] | None) -> bool:
+    if manifest is None:
+        return False
+    top = manifest.get("retryable", _MISSING)
+    if top is not _MISSING and type(top) is not bool:
+        return True
+    conditions = _retry_conditions(manifest)
+    if conditions is _INVALID:
+        return True
+    if top is True and conditions is None:
+        return True
+    if isinstance(conditions, Mapping):
+        nested = conditions.get("retryable", _MISSING)
+        if type(nested) is not bool:
+            return True
+        if top is _MISSING or top is not nested:
+            return True
+        if nested is False:
+            return True
+    return top is False
+
+
+def get_error_strategy(
+    error_code: str | None,
+    manifest: object = None,
+) -> ErrorStrategy:
+    strategy = ERROR_STRATEGIES.get((error_code or "").upper(), DEFAULT_ERROR_STRATEGY)
+    if manifest is not None and not isinstance(manifest, Mapping):
+        return DEFAULT_ERROR_STRATEGY
+    return DEFAULT_ERROR_STRATEGY if _explicit_retry_veto(manifest) else strategy
+
+
+def _nested_retry_permits(
+    conditions: Mapping[str, Any],
+    *,
+    error_code: str | None,
+    attempt: int,
+    reconciliation_completed: bool,
+) -> bool:
+    eligible = _alias_value(conditions, "eligibleErrors", "eligible_errors")
+    if (
+        not isinstance(eligible, Sequence)
+        or isinstance(eligible, (str, bytes, bytearray))
+        or not eligible
+        or any(not isinstance(value, str) or not value for value in eligible)
+    ):
+        return False
+    normalized_error = (error_code or "").upper()
+    if normalized_error not in {value.upper() for value in eligible}:
+        return False
+
+    max_attempts = _alias_value(conditions, "maxAttempts", "max_attempts")
+    if type(max_attempts) is not int or max_attempts < 1:
+        return False
+    if attempt + 1 >= max_attempts:
+        return False
+
+    backoff = _alias_value(conditions, "backoffMilliseconds", "backoff_milliseconds")
+    if type(backoff) is not int or backoff <= 0:
+        return False
+
+    reconciliation = _alias_value(conditions, "requiresReconciliation", "requires_reconciliation")
+    if type(reconciliation) is not bool:
+        return False
+    if reconciliation and not reconciliation_completed:
+        return False
+    return True
+
+
+def should_retry(
+    *,
+    error_code: str | None,
+    attempt: object,
+    operation_idempotent: object,
+    manifest: object = None,
+    response_retryable: object = None,
+    precondition_refreshed: object = False,
+    reconciliation_completed: object = False,
+) -> bool:
+    if (
+        type(attempt) is not int
+        or attempt < 0
+        or type(operation_idempotent) is not bool
+        or type(precondition_refreshed) is not bool
+        or type(reconciliation_completed) is not bool
+    ):
+        return False
+    if manifest is not None and not isinstance(manifest, Mapping):
+        return False
+    if response_retryable is not None and type(response_retryable) is not bool:
+        return False
+
+    strategy = get_error_strategy(error_code, manifest)
+    if not strategy.retryable or attempt >= strategy.max_retries:
+        return False
+    if strategy.action is ErrorAction.RETRY_AFTER_READ and not precondition_refreshed:
+        return False
+    if response_retryable is False:
+        return False
+
+    manifest_retryable = manifest.get("retryable") if manifest is not None else None
+    if manifest_retryable is not None and type(manifest_retryable) is not bool:
+        return False
+    if manifest_retryable is False:
+        return False
+
+    conditions = _retry_conditions(manifest)
+    if conditions is _INVALID:
+        return False
+    if manifest_retryable is True and conditions is None:
+        return False
+    if isinstance(conditions, Mapping):
+        nested_retryable = conditions.get("retryable", _MISSING)
+        if type(nested_retryable) is not bool:
+            return False
+        if manifest_retryable is None or nested_retryable is not manifest_retryable:
+            return False
+        if not nested_retryable or not _nested_retry_permits(
+            conditions,
+            error_code=error_code,
+            attempt=int(attempt),
+            reconciliation_completed=bool(reconciliation_completed),
+        ):
+            return False
+
+    if manifest_retryable is not True and response_retryable is not True:
+        return False
+    return operation_idempotent is True
+
+
+def _extract_protocol_error(response: Mapping[str, Any]) -> tuple[str, str]:
+    structured = response.get("structuredContent")
+    if isinstance(structured, Mapping):
+        code = structured.get("code")
+        message = structured.get("message") or structured.get("error")
+        if isinstance(code, str) or isinstance(message, str):
+            return str(code or "MCP_TOOL_ERROR"), str(message or code or "MCP tool failed")
+    content = response.get("content")
+    if isinstance(content, Sequence) and not isinstance(content, (str, bytes, bytearray)):
+        messages: list[str] = []
+        for item in content:
+            if isinstance(item, Mapping):
+                item_text = item.get("text")
+                if isinstance(item_text, str):
+                    messages.append(item_text)
+        if messages:
+            return "MCP_TOOL_ERROR", "\n".join(messages)
+    if isinstance(content, str) and content:
+        return "MCP_TOOL_ERROR", content
+    return "MCP_TOOL_ERROR", "MCP tool failed"
+
+
+def _failure(
+    code: str,
+    message: str,
+    meta: Mapping[str, Any],
+    correlation: str | None,
+    retryable: bool | None = None,
+) -> ResponseResult:
+    return ResponseResult(
+        False,
+        meta=meta,
+        error_code=code,
+        error_message=message,
+        retryable=retryable,
+        correlation_id=correlation,
+    )
+
+
+def _legacy_failure(
+    *,
+    error: Any,
+    meta: Mapping[str, Any],
+    correlation_id: str | None,
+) -> ResponseResult:
+    if isinstance(error, str) and error.strip():
+        message = error.strip()
+    elif error is None:
+        message = "Tool reported failure without structured error details"
+    else:
+        message = "Tool reported a malformed legacy error payload"
+    return _failure("LEGACY_ERROR", message, meta, correlation_id)
+
+
+def _optional_mapping(value: Mapping[str, Any], key: str) -> bool:
+    candidate = value.get(key)
+    return key not in value or candidate is None or isinstance(candidate, Mapping)
+
+
+def _optional_string(value: Mapping[str, Any], key: str) -> bool:
+    candidate = value.get(key)
+    return key not in value or candidate is None or isinstance(candidate, str)
+
+
+def _valid_annotations(value: Any) -> bool:
+    if not isinstance(value, Mapping):
+        return False
+    if "audience" in value and value.get("audience") is not None:
+        audience = value.get("audience")
+        if (
+            not isinstance(audience, Sequence)
+            or isinstance(audience, (str, bytes, bytearray))
+            or any(type(role) is not str or role not in _ANNOTATION_ROLES for role in audience)
+        ):
+            return False
+    if "priority" in value and value.get("priority") is not None:
+        priority = value.get("priority")
+        if isinstance(priority, bool) or not isinstance(priority, (int, float)):
+            return False
+        if isinstance(priority, float) and not math.isfinite(priority):
+            return False
+        if not 0 <= priority <= 1:
+            return False
+    if "lastModified" in value and value.get("lastModified") is not None:
+        last_modified = value.get("lastModified")
+        if not isinstance(last_modified, str) or not last_modified.strip():
+            return False
+    return True
+
+
+def _optional_annotations(value: Mapping[str, Any]) -> bool:
+    annotations = value.get("annotations")
+    return "annotations" not in value or annotations is None or _valid_annotations(annotations)
+
+
+def _valid_resource_contents(value: Any) -> bool:
+    if not isinstance(value, Mapping):
+        return False
+    uri = value.get("uri")
+    if not isinstance(uri, str) or not uri:
+        return False
+    if not _optional_string(value, "mimeType") or not _optional_mapping(value, "_meta"):
+        return False
+    has_text = "text" in value
+    has_blob = "blob" in value
+    if has_text == has_blob:
+        return False
+    return isinstance(value.get("text" if has_text else "blob"), str)
+
+
+def _valid_content_block(value: Any) -> bool:
+    if not isinstance(value, Mapping):
+        return False
+    if not _optional_annotations(value) or not _optional_mapping(value, "_meta"):
+        return False
+    block_type = value.get("type")
+    if block_type == "text":
+        return isinstance(value.get("text"), str)
+    if block_type in {"image", "audio"}:
+        return (
+            isinstance(value.get("data"), str)
+            and bool(value.get("data"))
+            and isinstance(value.get("mimeType"), str)
+            and bool(value.get("mimeType"))
+        )
+    if block_type == "resource_link":
+        if not isinstance(value.get("uri"), str) or not value.get("uri"):
+            return False
+        if not isinstance(value.get("name"), str) or not value.get("name"):
+            return False
+        if any(not _optional_string(value, key) for key in ("title", "description", "mimeType")):
+            return False
+        size = value.get("size")
+        return "size" not in value or size is None or (type(size) is int and size >= 0)
+    if block_type == "resource":
+        return _valid_resource_contents(value.get("resource"))
+    return False
+
+
+def _valid_content_payload(value: Any) -> bool:
+    if isinstance(value, str):
+        return True
+    if not isinstance(value, Sequence) or isinstance(value, (bytes, bytearray)):
+        return False
+    return all(_valid_content_block(item) for item in value)
+
+
+def handle_response(response: object) -> ResponseResult:
+    """Normalize explicit protocol/legacy shapes and reject malformed success payloads."""
+
+    if not isinstance(response, Mapping):
+        return _failure("MALFORMED_RESPONSE", "Tool response must be an object", {}, None)
+    meta_value = response.get("_meta")
+    if "_meta" in response and meta_value is not None and not isinstance(meta_value, Mapping):
+        return _failure("MALFORMED_RESPONSE", "MCP _meta must be an object or null", {}, None)
+    meta = meta_value if isinstance(meta_value, Mapping) else {}
+    response_retryable = response.get("retryable", _MISSING)
+    if response_retryable is not _MISSING and response_retryable is not None and type(response_retryable) is not bool:
+        return _failure("MALFORMED_RESPONSE", "MCP retryable marker must be a boolean or null", meta, None)
+    correlation_id = meta.get("correlation_id") or meta.get("request_id")
+    correlation = str(correlation_id) if correlation_id is not None else None
+
+    error = response.get("error")
+    if isinstance(error, Mapping):
+        nested_retryable = error.get("retryable", _MISSING)
+        if nested_retryable is not _MISSING and nested_retryable is not None and type(nested_retryable) is not bool:
+            return _failure(
+                "MALFORMED_RESPONSE",
+                "Structured error retryable marker must be a boolean or null",
+                meta,
+                correlation,
+            )
+        return _failure(
+            str(error.get("code") or "UNKNOWN"),
+            str(error.get("message") or "Tool failed"),
+            meta,
+            correlation,
+            nested_retryable if type(nested_retryable) is bool else None,
+        )
+    if response.get("isError") is True:
+        structured = response.get("structuredContent")
+        if "structuredContent" in response and structured is not None and not isinstance(structured, Mapping):
+            return _failure(
+                "MALFORMED_RESPONSE",
+                "MCP structuredContent must be an object or null",
+                meta,
+                correlation,
+            )
+        if "content" in response and not _valid_content_payload(response.get("content")):
+            return _failure(
+                "MALFORMED_RESPONSE",
+                "MCP content must be text or a sequence of valid MCP content blocks",
+                meta,
+                correlation,
+            )
+        code, message = _extract_protocol_error(response)
+        return _failure(
+            code,
+            message,
+            meta,
+            correlation,
+            response_retryable if type(response_retryable) is bool else None,
+        )
+    if "error" in response:
+        return _legacy_failure(error=error, meta=meta, correlation_id=correlation)
+    if "isError" in response and type(response.get("isError")) is not bool:
+        return _failure("MALFORMED_RESPONSE", "MCP isError marker must be a boolean", meta, correlation)
+
+    success_marker = response.get("success")
+    if success_marker is False:
+        return _legacy_failure(error=None, meta=meta, correlation_id=correlation)
+    if "success" in response and type(success_marker) is not bool:
+        return _failure("MALFORMED_RESPONSE", "Legacy success marker must be a boolean", meta, correlation)
+
+    structured = response.get("structuredContent")
+    structured_present = "structuredContent" in response and structured is not None
+    content_present = "content" in response
+    if structured_present and not isinstance(structured, Mapping):
+        return _failure(
+            "MALFORMED_RESPONSE",
+            "MCP structuredContent must be an object or null",
+            meta,
+            correlation,
+        )
+    if content_present and not _valid_content_payload(response.get("content")):
+        return _failure(
+            "MALFORMED_RESPONSE",
+            "MCP content must be text or a sequence of valid MCP content blocks",
+            meta,
+            correlation,
+        )
+
+    payload_keys = [
+        key
+        for key, present in (
+            ("structuredContent", structured_present),
+            ("data", "data" in response),
+            ("content", content_present),
+        )
+        if present
+    ]
+    explicit_legacy_success = success_marker is True
+    explicit_protocol_success = response.get("isError") is False and (structured_present or content_present)
+    recognized_payload_success = bool(payload_keys)
+    if not (explicit_legacy_success or explicit_protocol_success or recognized_payload_success):
+        return _failure(
+            "MALFORMED_RESPONSE",
+            "Tool response has no recognized success or error shape",
+            meta,
+            correlation,
+        )
+    data = structured if structured_present else response.get("data", response.get("content"))
+    return ResponseResult(True, data=data, meta=meta, correlation_id=correlation)
+
+
+def select_efficient_tool(
+    tools: Iterable[object],
+    *,
+    required_capabilities: Iterable[object],
+    prefer_batch: bool = False,
+) -> Mapping[str, Any] | None:
+    try:
+        required_values = tuple(required_capabilities)
+    except TypeError:
+        return None
+    if not required_values or any(not isinstance(value, str) or not value for value in required_values):
+        return None
+    required = set(required_values)
+    candidates = []
+    for tool in tools:
+        if not isinstance(tool, Mapping):
+            continue
+        raw_declared = tool.get("capabilities")
+        if not isinstance(raw_declared, Sequence) or isinstance(raw_declared, (str, bytes, bytearray)):
+            continue
+        if any(not isinstance(value, str) or not value for value in raw_declared):
+            continue
+        declared = set(raw_declared)
+        if required.issubset(declared):
+            candidates.append(
+                (
+                    len(declared - required),
+                    0 if bool(tool.get("batch")) == prefer_batch else 1,
+                    str(tool.get("name") or ""),
+                    tool,
+                )
+            )
+    if not candidates:
+        return None
+    candidates.sort(key=lambda item: item[:3])
+    return candidates[0][3]
+
+
+def _schema_accepts_true(schema: Any) -> bool:
+    if not isinstance(schema, Mapping):
+        return False
+    if "const" in schema:
+        return schema.get("const") is True
+    enum = schema.get("enum")
+    if isinstance(enum, Sequence) and not isinstance(enum, (str, bytes, bytearray)):
+        return any(type(value) is bool and value is True for value in enum)
+    schema_type = schema.get("type")
+    return schema_type == "boolean" or (
+        isinstance(schema_type, Sequence)
+        and not isinstance(schema_type, (str, bytes, bytearray))
+        and "boolean" in schema_type
+    )
+
+
+def choose_initial_detail_params(input_schema: object) -> dict[str, Any]:
+    if not isinstance(input_schema, Mapping):
+        return {}
+    properties = input_schema.get("properties")
+    if not isinstance(properties, Mapping):
+        return {}
+    detail = properties.get("detail_level")
+    if isinstance(detail, Mapping):
+        enum = detail.get("enum")
+        if isinstance(enum, Sequence) and not isinstance(enum, (str, bytes, bytearray)) and "summary" in enum:
+            return {"detail_level": "summary"}
+    for flag in ("compact", "summary"):
+        if _schema_accepts_true(properties.get(flag)):
+            return {flag: True}
+    return {}
+
+
+def get_pagination_decision(
+    meta: object,
+    *,
+    outcome_satisfied: object,
+    pages_seen: object,
+    max_pages: object,
+) -> PaginationDecision:
+    if not isinstance(meta, Mapping):
+        return PaginationDecision(False, reason="invalid pagination metadata")
+    if (
+        type(outcome_satisfied) is not bool
+        or type(pages_seen) is not int
+        or type(max_pages) is not int
+        or pages_seen < 0
+        or max_pages <= 0
+    ):
+        return PaginationDecision(False, reason="invalid pagination bounds")
+    if outcome_satisfied:
+        return PaginationDecision(False, reason="outcome already satisfied")
+    if pages_seen >= max_pages:
+        return PaginationDecision(False, reason="page limit reached")
+    if "has_more" in meta:
+        has_more = meta.get("has_more")
+        if type(has_more) is not bool:
+            return PaginationDecision(False, reason="invalid has_more marker")
+        if has_more is False:
+            return PaginationDecision(False, reason="server marked final page")
+    cursor = meta.get("next_cursor")
+    if isinstance(cursor, str) and cursor:
+        return PaginationDecision(True, cursor=cursor, reason="next cursor available")
+    offset = meta.get("next_offset")
+    if type(offset) is int and offset >= 0:
+        return PaginationDecision(True, offset=offset, reason="next offset available")
+    return PaginationDecision(False, reason="no contract-valid continuation token")
 
 
 __all__ = [
