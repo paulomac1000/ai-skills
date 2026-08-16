@@ -24,16 +24,12 @@ def test_decision_engine_imports_when_distributed_without_sibling_modules(tmp_pa
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
 
-    assert module.evaluate_decision("READ", False, "normal") is module.Decision.INVOKE
+    assert module.evaluate_decision("READ", False, "general") is module.Decision.INVOKE
     assert module.should_retry(
-        "TIMEOUT",
-        0,
-        idempotent=True,
-        manifest={
-            "idempotent": True,
-            "retryable": True,
-            "retryConditions": {"retryable": True, "errorCodes": ["TIMEOUT"]},
-        },
+        error_code="TIMEOUT",
+        attempt=0,
+        operation_idempotent=True,
+        response_retryable=True,
     )
 
 
