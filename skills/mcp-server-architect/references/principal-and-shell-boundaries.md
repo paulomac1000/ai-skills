@@ -1,15 +1,14 @@
 ---
+afds_schema_version: 2
 description: Defines process-derived local principals, mandatory remote authentication, confirmation enforcement, and adversarial shell-boundary testing.
 doc_id: reference.mcp.principal-and-shell-boundaries
 type: reference
 status: active
 rigor: normative
-owners:
-  - MCP maintainers
-  - Security maintainers
+owners: [MCP maintainers, Security maintainers]
 verification:
-  method: ci-job
-  command: python -m pytest tests/test_mcp_security_boundaries.py
+  kind: command
+  value: Run `python -m pytest tests/test_mcp_generator.py tests/test_generator_platform_contracts.py` and retain boundary-specific adversarial evidence for every generated or assessed shell/subprocess capability.
 ---
 # Principal and shell boundaries
 
