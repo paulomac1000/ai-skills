@@ -14,7 +14,7 @@ import re
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Any, Protocol
+from typing import Any
 
 
 class Decision(StrEnum):
@@ -167,14 +167,6 @@ class PaginationDecision:
     reason: str = ""
 
 
-class _CapabilityProfileResult(Protocol):
-    risk: object
-    requires_confirmation: bool
-    sensitive: bool
-    idempotent: bool | None
-    source: str
-
-
 ERROR_STRATEGIES = {
     "TIMEOUT": ErrorStrategy(True, 2, ErrorAction.RETRY),
     "RATE_LIMITED": ErrorStrategy(True, 2, ErrorAction.RETRY),
@@ -245,7 +237,6 @@ def evaluate_decision(
         return Decision.CONFIRM_THEN_INVOKE
     if normalized is Risk.DANGEROUS:
         return Decision.CONFIRM_THEN_INVOKE if intent is UserIntent.EXPLICIT_BY_NAME else Decision.REJECT
-    return Decision.DEFER
 
 
 def _untrusted_risk_signal(value: Any) -> Risk:
@@ -306,7 +297,7 @@ def infer_capability_profile(
     trusted_policy: TrustedCapabilityPolicy | None = None,
     trusted_contract: TrustedCapabilityContract | None = None,
     **legacy_options: Any,
-) -> _CapabilityProfileResult:
+) -> CapabilityProfile:
     """Infer a fail-closed profile using exact, identity-bound trusted values.
 
     Server-discovered values and annotations never reduce risk, confer
