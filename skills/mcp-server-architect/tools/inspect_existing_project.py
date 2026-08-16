@@ -316,10 +316,10 @@ def inspect_repository(repository_root: Path) -> dict[str, Any]:
 
     upstream_status = "not-applicable"
     if has_external_upstream:
-        upstream_status = "verified" if upstream_contract else "required"
+        upstream_status = "present-unvalidated" if upstream_contract else "required"
     live_status = "not-applicable"
     if has_external_tests:
-        live_status = "declared" if live_policy else "needs-policy"
+        live_status = "present-unvalidated" if live_policy else "needs-policy"
     artifact_binding_status = "not-applicable"
     if containerized and container_build["prebuilt_artifact_copy"]:
         artifact_binding_status = "declared" if container_build["source_revision_binding_signal"] else "needs-binding"
@@ -329,10 +329,18 @@ def inspect_repository(repository_root: Path) -> dict[str, Any]:
         unknowns.append("MCP SDK package identity was not resolved from package metadata")
     if has_external_upstream and not upstream_contract:
         unknowns.append("external upstream contract is unobserved; probe the real boundary before adapter refactoring")
+    elif has_external_upstream:
+        unknowns.append(
+            "upstream contract is present but unvalidated by discovery; require observed-contract validation before clearing the gate"
+        )
     if has_external_tests and not external_default_excluded:
         unknowns.append("external tests are not proven deselected by the structured default pytest addopts")
     if has_external_tests and not live_policy:
         unknowns.append("live-backend safety policy is missing")
+    elif has_external_tests:
+        unknowns.append(
+            "live-backend safety policy is present but unvalidated by discovery; validate it before clearing the gate"
+        )
     if artifact_binding_status == "needs-binding":
         unknowns.append(
             "container build copies prebuilt artifacts without a source-revision binding signal; stale local artifacts may be packaged"
