@@ -366,7 +366,9 @@ def inspect_repository(repository_root: Path) -> dict[str, Any]:
     if has_external_tests and not live_policy:
         unknowns.append("live-backend safety policy is missing")
     elif has_external_tests and live_policy_findings:
-        unknowns.append(f"live-backend safety policy failed trusted validation ({len(live_policy_findings)} finding(s))")
+        unknowns.append(
+            f"live-backend safety policy failed trusted validation ({len(live_policy_findings)} finding(s))"
+        )
     if artifact_binding_status == "needs-binding":
         unknowns.append(
             "container build copies prebuilt artifacts without a source-revision binding signal; stale local artifacts may be packaged"
