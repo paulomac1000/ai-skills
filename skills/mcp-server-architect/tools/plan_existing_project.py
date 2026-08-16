@@ -194,7 +194,9 @@ def build_plan(repository_root: Path, *, target_level: str = "L2") -> dict[str, 
     if live_status == "needs-policy":
         next_actions.append("define and validate live-backend-test-policy.yaml before any live mutation")
     elif live_status == "invalid":
-        next_actions.append("repair live-backend-test-policy.yaml until trusted validation passes before any live mutation")
+        next_actions.append(
+            "repair live-backend-test-policy.yaml until trusted validation passes before any live mutation"
+        )
     if discovery["plan"].get("container_artifact_binding") == "needs-binding":
         next_actions.append(
             "bind prebuilt container inputs to the exact source revision and fail closed when local artifacts are stale"
