@@ -4,8 +4,12 @@ name: Consumer acceptance authority
 on:
   workflow_call:
     inputs:
+      candidate_repository:
+        description: GitHub owner/name repository to assess.
+        required: true
+        type: string
       candidate_sha:
-        description: Full lowercase SHA of the caller revision to assess.
+        description: Full lowercase SHA of the candidate revision to assess.
         required: true
         type: string
       assessment_path:
@@ -18,10 +22,15 @@ on:
         required: false
         default: trusted-executable-sources.lock.yaml
         type: string
-    secrets:
-      provider_admin_token:
-        description: Optional read-only token with broader provider-control visibility.
+      required_check:
+        description: Optional provider status-check identity selected by the authority caller.
         required: false
+        default: ''
+        type: string
+    secrets:
+      consumer_read_token:
+        description: Authority-owned read token for candidate contents, Actions, pull requests, and provider controls.
+        required: true
 
 permissions:
   contents: read
@@ -29,7 +38,7 @@ permissions:
   pull-requests: read
 
 concurrency:
-  group: consumer-acceptance-${{ github.repository }}-${{ inputs.candidate_sha }}
+  group: consumer-acceptance-${{ inputs.candidate_repository }}-${{ inputs.candidate_sha }}
   cancel-in-progress: true
 
 jobs:
@@ -37,31 +46,53 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
-      - name: Validate immutable candidate and authority identities
+      - name: Validate authority-owned orchestration and candidate identity
         shell: bash
         env:
-          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          CALLER_REPOSITORY: ${{ github.repository }}
+          CALLER_SHA: ${{ github.sha }}
+          CALLER_REF_PROTECTED: ${{ github.ref_protected }}
+          AUTHORITY_REPOSITORY: ${{ job.workflow_repository }}
           AUTHORITY_SHA: ${{ job.workflow_sha }}
-          AUTHORITY_REF: ${{ job.workflow_ref }}
+          CANDIDATE_REPOSITORY: ${{ inputs.candidate_repository }}
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          CONSUMER_READ_TOKEN: ${{ secrets.consumer_read_token }}
         run: |
           set -euo pipefail
-          if [[ ! "$CANDIDATE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
-            echo "candidate_sha must be a full lowercase commit SHA" >&2
+          if [[ "$CALLER_REPOSITORY" != "$AUTHORITY_REPOSITORY" ]]; then
+            echo "provider-backed acceptance must be orchestrated by the authority repository, not the candidate" >&2
+            exit 1
+          fi
+          if [[ "$CALLER_SHA" != "$AUTHORITY_SHA" ]]; then
+            echo "authority caller and reusable workflow must execute from the same immutable commit" >&2
+            exit 1
+          fi
+          if [[ "$CALLER_REF_PROTECTED" != "true" ]]; then
+            echo "authority orchestration must run from a provider-protected ref" >&2
             exit 1
           fi
           if [[ ! "$AUTHORITY_SHA" =~ ^[0-9a-f]{40}$ ]]; then
             echo "reusable workflow authority did not expose a full immutable SHA" >&2
             exit 1
           fi
-          if [[ "$AUTHORITY_REF" != *@"$AUTHORITY_SHA" ]]; then
-            echo "provider-backed acceptance requires the caller to pin this reusable workflow by its full SHA" >&2
+          if [[ ! "$CANDIDATE_REPOSITORY" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]; then
+            echo "candidate_repository must use GitHub owner/name syntax" >&2
+            exit 1
+          fi
+          if [[ ! "$CANDIDATE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "candidate_sha must be a full lowercase commit SHA" >&2
+            exit 1
+          fi
+          if [[ -z "$CONSUMER_READ_TOKEN" ]]; then
+            echo "consumer_read_token is required for provider-backed acceptance" >&2
             exit 1
           fi
       - name: Checkout exact candidate revision
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          repository: ${{ github.repository }}
+          repository: ${{ inputs.candidate_repository }}
           ref: ${{ inputs.candidate_sha }}
+          token: ${{ secrets.consumer_read_token }}
           path: candidate
           persist-credentials: false
           fetch-depth: 1
@@ -112,12 +143,16 @@ jobs:
       - name: Verify provider-side branch and release-environment controls
         shell: bash
         env:
-          AI_SKILLS_PROVIDER_TOKEN: ${{ secrets.provider_admin_token || github.token }}
+          AI_SKILLS_PROVIDER_TOKEN: ${{ secrets.consumer_read_token }}
+          CANDIDATE_REPOSITORY: ${{ inputs.candidate_repository }}
+          REQUIRED_CHECK: ${{ inputs.required_check }}
         run: |
           set -euo pipefail
-          python authority/skills/ci-cd-architect/tools/check_github_provider_controls.py candidate \
-            --repository "$GITHUB_REPOSITORY" \
-            --token-env AI_SKILLS_PROVIDER_TOKEN
+          args=(candidate --repository "$CANDIDATE_REPOSITORY" --token-env AI_SKILLS_PROVIDER_TOKEN)
+          if [[ -n "$REQUIRED_CHECK" ]]; then
+            args+=(--required-check "$REQUIRED_CHECK")
+          fi
+          python authority/skills/ci-cd-architect/tools/check_github_provider_controls.py "${args[@]}"
       - name: Verify provider-backed adoption and independent review
         shell: bash
         env:
@@ -125,7 +160,7 @@ jobs:
           AUTHORITY_REPOSITORY: ${{ job.workflow_repository }}
           AUTHORITY_SHA: ${{ job.workflow_sha }}
           AUTHORITY_WORKFLOW_PATH: ${{ job.workflow_file_path }}
-          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ secrets.consumer_read_token }}
         run: |
           set -euo pipefail
           python authority/contracts/validate_external_adoption.py "$ASSESSMENT_PATH" \
