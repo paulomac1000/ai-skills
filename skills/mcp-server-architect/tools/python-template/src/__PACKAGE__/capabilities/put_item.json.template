@@ -2,7 +2,7 @@
   "schema_version": 1,
   "id": "put_item",
   "name": "Put item",
-  "description": "Writes one item only after a server-verifiable approval record is consumed.",
+  "description": "Writes one item only after a server-verifiable approval record is consumed and the expected item version still matches.",
   "operation_kind": "write",
   "risk": "high",
   "determinism": "environment-dependent",
