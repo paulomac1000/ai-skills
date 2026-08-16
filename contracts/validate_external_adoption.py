@@ -20,6 +20,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 import validate_adoption as adoption  # noqa: E402
+import validate_trusted_executable_sources as trusted_sources  # noqa: E402
 from confined_io import confined_regular_file  # noqa: E402
 from evidence import GitHubEvidenceVerifier  # noqa: E402
 
@@ -28,8 +29,7 @@ GITHUB_REPOSITORY = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 MAX_DOCUMENT_BYTES = 2 * 1024 * 1024
 
 
-def _load_mapping(root: Path, relative: str, *, json_only: bool = False) -> Mapping[str, Any]:
-    path = confined_regular_file(root, relative)
+def _parse_mapping(path: Path, relative: str, *, json_only: bool = False) -> Mapping[str, Any]:
     if path.stat().st_size > MAX_DOCUMENT_BYTES:
         raise ValueError(f"input exceeds {MAX_DOCUMENT_BYTES} bytes: {relative}")
     text = path.read_text(encoding="utf-8")
@@ -37,6 +37,15 @@ def _load_mapping(root: Path, relative: str, *, json_only: bool = False) -> Mapp
     if not isinstance(value, Mapping):
         raise ValueError(f"input must contain a mapping: {relative}")
     return value
+
+
+def _load_mapping(root: Path, relative: str, *, json_only: bool = False) -> Mapping[str, Any]:
+    return _parse_mapping(confined_regular_file(root, relative), relative, json_only=json_only)
+
+
+def _load_authority_mapping(root: Path, relative: str, *, json_only: bool = False) -> Mapping[str, Any]:
+    """Load policy only from tracked, clean bytes in the verified authority checkout."""
+    return _parse_mapping(trusted_sources._authority_file(root, relative), relative, json_only=json_only)
 
 
 def _external_authority(repository: str, revision: str, workflow_path: str) -> dict[str, str]:
@@ -77,9 +86,20 @@ def validate_external_adoption(
             )
         ]
 
-    catalog = _load_mapping(authority_root, "contracts/rule-catalog.yaml")
-    atomic_catalog = _load_mapping(authority_root, "contracts/atomic-claim-catalog.yaml")
-    schema = _load_mapping(authority_root, "contracts/adoption-assessment.schema.json", json_only=True)
+    # The authority checkout must be independently identified before any policy bytes
+    # from it can influence the adoption decision. Each policy file is then required
+    # to be tracked and clean at that locked revision.
+    trusted_sources._verify_authority_identity(authority_root, authority_repository, authority_revision)
+    catalog = _load_authority_mapping(authority_root, "contracts/rule-catalog.yaml")
+    atomic_catalog = _load_authority_mapping(authority_root, "contracts/atomic-claim-catalog.yaml")
+    schema = _load_authority_mapping(authority_root, "contracts/adoption-assessment.schema.json", json_only=True)
+
+    skill = assessment.get("skill")
+    if isinstance(skill, Mapping):
+        skill_name = skill.get("name")
+        if isinstance(skill_name, str) and skill_name:
+            trusted_sources._authority_file(authority_root, f"skills/{skill_name}/manifest.yaml")
+
     skills_root = authority_root / "skills"
     verifier = GitHubEvidenceVerifier(token)
     verifier.acceptance_authority = expected
