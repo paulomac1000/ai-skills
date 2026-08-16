@@ -1,4 +1,4 @@
-"""Regressions promoted from the third real kontomierz-mcp deployment cycle."""
+"""Regressions promoted from a third real MCP deployment cycle."""
 
 from __future__ import annotations
 
