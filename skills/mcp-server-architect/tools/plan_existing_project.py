@@ -189,6 +189,10 @@ def build_plan(repository_root: Path, *, target_level: str = "L2") -> dict[str, 
         next_actions.append("observe and validate upstream-contract.yaml before adapter refactoring")
     if discovery["plan"]["live_backend_safety"] == "needs-policy":
         next_actions.append("define and validate live-backend-test-policy.yaml before any live mutation")
+    if discovery["plan"].get("container_artifact_binding") == "needs-binding":
+        next_actions.append(
+            "bind prebuilt container inputs to the exact source revision and fail closed when local artifacts are stale"
+        )
     if sdk_claim["status"] == "requires-compatibility-evidence":
         next_actions.append(
             "narrow the SDK claim to an exact tested version or add compatibility lanes covering the claimed range"
