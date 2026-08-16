@@ -295,16 +295,19 @@ def _source_revision_binding_signal(text: str, revision_args: list[str]) -> bool
         if "source" in name.casefold() and ("revision" in name.casefold() or "sha" in name.casefold())
     ]
     artifact_destinations = _prebuilt_copy_destinations(text)
+    instructions = _docker_instructions(text)
     if not source_args or not artifact_destinations:
         return False
-    for instruction in _docker_instructions(text):
+    for instruction in instructions:
+        run = _RUN_INSTRUCTION.match(instruction)
+        if run is not None and _SOURCE_REVISION_WRITE.search(run.group(1)) is not None:
+            return False
+    for instruction in instructions:
         run = _RUN_INSTRUCTION.match(instruction)
         if run is None:
             continue
         body = run.group(1).strip()
         if not body or "||" in body or ";" in body or re.search(r"(?<!\|)\|(?!\|)", body):
-            continue
-        if _SOURCE_REVISION_WRITE.search(body) is not None:
             continue
         cwd: str | None = None
         for command in re.split(r"\s*&&\s*", body):
