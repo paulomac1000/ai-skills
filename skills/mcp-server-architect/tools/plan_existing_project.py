@@ -34,7 +34,7 @@ SDK_PACKAGES = {
     "python-fastmcp-package": "fastmcp",
 }
 _WILDCARD_VERSION_COMPONENT = re.compile(r"(?:^|[._+-])[xX](?:$|[._+-])")
-_PIP_INLINE_OPTION = re.compile(r"\s+--[A-Za-z0-9][A-Za-z0-9_-]*(?:=|\s+|$)")
+_PIP_INLINE_OPTION = re.compile(r"\s+--[A-Za-z0-9][A-Za-z0-9_-]*(?:=|\s+)")
 _INLINE_COMMENT = re.compile(r"\s+#.*$")
 
 
