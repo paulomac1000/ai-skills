@@ -31,6 +31,8 @@ import check_github_actions_policy_impl as workflow_impl  # noqa: E402
 API_VERSION = "2026-03-10"
 GITHUB_REPOSITORY = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 MAX_RESPONSE_BYTES = 2 * 1024 * 1024
+ENVIRONMENT_PAGE_SIZE = 100
+MAX_ENVIRONMENT_PAGES = 100
 
 
 @dataclass(frozen=True)
@@ -159,6 +161,70 @@ def _status_check_names(protection: Mapping[str, Any]) -> set[str]:
     return names
 
 
+def _repository_environment_names(
+    encoded_repository: str,
+    client: GitHubClient,
+) -> tuple[set[str] | None, list[ProviderFinding]]:
+    """List every environment or fail unverifiable when pagination cannot be proven complete."""
+    available: set[str] = set()
+    observed_count = 0
+    expected_total: int | None = None
+
+    for page in range(1, MAX_ENVIRONMENT_PAGES + 1):
+        query = f"?per_page={ENVIRONMENT_PAGE_SIZE}"
+        if page > 1:
+            query += f"&page={page}"
+        status, document, detail = client.get(f"/repos/{encoded_repository}/environments{query}")
+        if status != 200 or not isinstance(document, Mapping):
+            return None, [_provider_error(f"repository environments page {page}", status, detail)]
+
+        raw_environments = document.get("environments")
+        if not isinstance(raw_environments, list):
+            return None, [ProviderFinding("unverifiable", "GitHub environments response has no environments list")]
+
+        if page == 1 and "total_count" in document:
+            raw_total = document.get("total_count")
+            if type(raw_total) is not int or raw_total < 0:
+                return None, [
+                    ProviderFinding("unverifiable", "GitHub environments response has an invalid total_count")
+                ]
+            expected_total = raw_total
+
+        observed_count += len(raw_environments)
+        available.update(
+            str(item["name"])
+            for item in raw_environments
+            if isinstance(item, Mapping) and isinstance(item.get("name"), str)
+        )
+
+        if expected_total is not None:
+            if observed_count > expected_total:
+                return None, [
+                    ProviderFinding(
+                        "unverifiable",
+                        "GitHub environments pagination returned more records than total_count",
+                    )
+                ]
+            if observed_count == expected_total:
+                return available, []
+            if not raw_environments:
+                return None, [
+                    ProviderFinding(
+                        "unverifiable",
+                        "GitHub environments pagination ended before total_count was reached",
+                    )
+                ]
+        elif len(raw_environments) < ENVIRONMENT_PAGE_SIZE:
+            return available, []
+
+    return None, [
+        ProviderFinding(
+            "unverifiable",
+            f"GitHub environments pagination exceeds the bounded {MAX_ENVIRONMENT_PAGES}-page preflight limit",
+        )
+    ]
+
+
 def check_provider_controls(
     repository_root: Path,
     repository: str,
@@ -210,19 +276,10 @@ def check_provider_controls(
     environments, discovery_findings = _release_environments(repository_root)
     findings.extend(discovery_findings)
     if environments:
-        status, environment_list, detail = client.get(f"/repos/{encoded_repository}/environments?per_page=100")
-        if status != 200 or not isinstance(environment_list, Mapping):
-            findings.append(_provider_error("repository environments", status, detail))
+        available, environment_findings = _repository_environment_names(encoded_repository, client)
+        findings.extend(environment_findings)
+        if available is None:
             return findings
-        raw_environments = environment_list.get("environments")
-        if not isinstance(raw_environments, list):
-            findings.append(ProviderFinding("unverifiable", "GitHub environments response has no environments list"))
-            return findings
-        available = {
-            str(item["name"])
-            for item in raw_environments
-            if isinstance(item, Mapping) and isinstance(item.get("name"), str)
-        }
         for name in sorted(environments):
             if name not in available:
                 findings.append(
