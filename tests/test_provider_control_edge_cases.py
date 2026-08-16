@@ -57,6 +57,13 @@ def _repository(root: Path, *, release_environment: str | None = None) -> None:
     (root / ".github/workflow-policy.yaml").write_text(policy, encoding="utf-8")
 
 
+def _base_provider_responses() -> dict[str, tuple[int, object | None, str]]:
+    return {
+        "/repos/acme/project": (200, {"default_branch": "main"}, ""),
+        "/repos/acme/project/branches/main": (200, {"protected": True}, ""),
+    }
+
+
 def test_provider_rejects_invalid_repository_identity(tmp_path: Path) -> None:
     _repository(tmp_path)
     findings = PROVIDER.check_provider_controls(tmp_path, "not-a-repository", FakeClient({}))
@@ -87,25 +94,13 @@ def test_provider_requires_observable_default_branch(tmp_path: Path) -> None:
 
 def test_provider_accepts_protected_branch_without_release_environment(tmp_path: Path) -> None:
     _repository(tmp_path)
-    findings = PROVIDER.check_provider_controls(
-        tmp_path,
-        "acme/project",
-        FakeClient(
-            {
-                "/repos/acme/project": (200, {"default_branch": "main"}, ""),
-                "/repos/acme/project/branches/main": (200, {"protected": True}, ""),
-            }
-        ),
-    )
+    findings = PROVIDER.check_provider_controls(tmp_path, "acme/project", FakeClient(_base_provider_responses()))
     assert findings == []
 
 
 def test_provider_checks_authority_selected_required_status_check(tmp_path: Path) -> None:
     _repository(tmp_path)
-    base = {
-        "/repos/acme/project": (200, {"default_branch": "main"}, ""),
-        "/repos/acme/project/branches/main": (200, {"protected": True}, ""),
-    }
+    base = _base_provider_responses()
     missing = PROVIDER.check_provider_controls(
         tmp_path,
         "acme/project",
@@ -148,13 +143,83 @@ def test_provider_preserves_malformed_environment_listing_as_unverifiable(tmp_pa
         "acme/project",
         FakeClient(
             {
-                "/repos/acme/project": (200, {"default_branch": "main"}, ""),
-                "/repos/acme/project/branches/main": (200, {"protected": True}, ""),
+                **_base_provider_responses(),
                 "/repos/acme/project/environments?per_page=100": (200, {"environments": "bad"}, ""),
             }
         ),
     )
     assert any(item.state == "unverifiable" and "no environments list" in item.message for item in findings)
+
+
+def test_provider_rejects_invalid_environment_total_count(tmp_path: Path) -> None:
+    _repository(tmp_path, release_environment="release")
+    findings = PROVIDER.check_provider_controls(
+        tmp_path,
+        "acme/project",
+        FakeClient(
+            {
+                **_base_provider_responses(),
+                "/repos/acme/project/environments?per_page=100": (
+                    200,
+                    {"total_count": True, "environments": []},
+                    "",
+                ),
+            }
+        ),
+    )
+    assert any(item.state == "unverifiable" and "invalid total_count" in item.message for item in findings)
+
+
+def test_provider_finds_release_environment_on_second_page(tmp_path: Path) -> None:
+    _repository(tmp_path, release_environment="release")
+    first_page = [{"name": f"environment-{index}"} for index in range(100)]
+    findings = PROVIDER.check_provider_controls(
+        tmp_path,
+        "acme/project",
+        FakeClient(
+            {
+                **_base_provider_responses(),
+                "/repos/acme/project/environments?per_page=100": (
+                    200,
+                    {"total_count": 101, "environments": first_page},
+                    "",
+                ),
+                "/repos/acme/project/environments?per_page=100&page=2": (
+                    200,
+                    {"total_count": 101, "environments": [{"name": "release"}]},
+                    "",
+                ),
+                "/repos/acme/project/environments/release": (
+                    200,
+                    {"protection_rules": [{"type": "required_reviewers"}], "deployment_branch_policy": None},
+                    "",
+                ),
+            }
+        ),
+    )
+    assert findings == []
+
+
+def test_provider_marks_incomplete_environment_pagination_unverifiable(tmp_path: Path) -> None:
+    _repository(tmp_path, release_environment="release")
+    first_page = [{"name": f"environment-{index}"} for index in range(100)]
+    findings = PROVIDER.check_provider_controls(
+        tmp_path,
+        "acme/project",
+        FakeClient(
+            {
+                **_base_provider_responses(),
+                "/repos/acme/project/environments?per_page=100": (
+                    200,
+                    {"total_count": 101, "environments": first_page},
+                    "",
+                ),
+                "/repos/acme/project/environments?per_page=100&page=2": (403, None, "forbidden"),
+            }
+        ),
+    )
+    assert any(item.state == "unverifiable" and "environments page 2" in item.message for item in findings)
+    assert not any(item.state == "misconfigured" and "does not exist" in item.message for item in findings)
 
 
 def test_provider_preserves_environment_permission_failure_as_unverifiable(tmp_path: Path) -> None:
@@ -164,8 +229,7 @@ def test_provider_preserves_environment_permission_failure_as_unverifiable(tmp_p
         "acme/project",
         FakeClient(
             {
-                "/repos/acme/project": (200, {"default_branch": "main"}, ""),
-                "/repos/acme/project/branches/main": (200, {"protected": True}, ""),
+                **_base_provider_responses(),
                 "/repos/acme/project/environments?per_page=100": (200, {"environments": [{"name": "release"}]}, ""),
                 "/repos/acme/project/environments/release": (403, None, "forbidden"),
             }
@@ -181,8 +245,7 @@ def test_provider_rejects_unprotected_release_environment(tmp_path: Path) -> Non
         "acme/project",
         FakeClient(
             {
-                "/repos/acme/project": (200, {"default_branch": "main"}, ""),
-                "/repos/acme/project/branches/main": (200, {"protected": True}, ""),
+                **_base_provider_responses(),
                 "/repos/acme/project/environments?per_page=100": (200, {"environments": [{"name": "release"}]}, ""),
                 "/repos/acme/project/environments/release": (
                     200,
@@ -198,8 +261,7 @@ def test_provider_rejects_unprotected_release_environment(tmp_path: Path) -> Non
 def test_provider_verifies_custom_deployment_branch_policy(tmp_path: Path) -> None:
     _repository(tmp_path, release_environment="release")
     common = {
-        "/repos/acme/project": (200, {"default_branch": "main"}, ""),
-        "/repos/acme/project/branches/main": (200, {"protected": True}, ""),
+        **_base_provider_responses(),
         "/repos/acme/project/environments?per_page=100": (200, {"environments": [{"name": "release"}]}, ""),
         "/repos/acme/project/environments/release": (
             200,
