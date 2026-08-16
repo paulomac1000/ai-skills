@@ -100,10 +100,17 @@ public sealed class ApprovalRegistry(TimeProvider clock)
             Encoding.UTF8.GetBytes(left),
             Encoding.UTF8.GetBytes(right));
 
-    private static bool IsCanonicalDigest(string value) =>
-        value.Length == 71
-        && value.StartsWith("sha256:", StringComparison.Ordinal)
-        && value.AsSpan(7).IndexOfAnyExcept("0123456789abcdef") < 0;
+    private static bool IsCanonicalDigest(string value)
+    {
+        if (value.Length != 71 || !value.StartsWith("sha256:", StringComparison.Ordinal))
+            return false;
+        foreach (var character in value.AsSpan(7))
+        {
+            if (character is not (>= '0' and <= '9') and not (>= 'a' and <= 'f'))
+                return false;
+        }
+        return true;
+    }
 
     private void SweepExpired()
     {
