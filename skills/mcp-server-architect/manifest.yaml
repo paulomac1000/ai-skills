@@ -1,6 +1,6 @@
 schema_version: 1
 name: mcp-server-architect
-version: 1.3.0
+version: 1.3.1
 maturity: stable
 skill_format: ai-skills/v1
 normative_entrypoint: STANDARD.md
@@ -100,7 +100,7 @@ protocol:
       verified_baseline_versions: []
       repository_tested_revisions: []
       current_revision_support: not-claimed
-      verification_required: Existing projects require exact package, middleware, auth-context, mounted-state, transport, and artifact evidence; mixed or unresolved SDK ownership is unsupported-sdk-profile.
+      verification_required: Existing projects require exact package, middleware, auth-context, mounted-state, transport, artifact evidence; mixed or unresolved SDK ownership is unsupported-sdk-profile.
     dotnet-official-mcp:
       distribution: ModelContextProtocol
       import_namespace: ModelContextProtocol
