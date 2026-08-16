@@ -1,0 +1,136 @@
+# ai-skills-policy-profile: trusted-ci
+name: Consumer acceptance authority
+
+on:
+  workflow_call:
+    inputs:
+      candidate_sha:
+        description: Full lowercase SHA of the caller revision to assess.
+        required: true
+        type: string
+      assessment_path:
+        description: Repository-relative adoption assessment path.
+        required: false
+        default: adoption-assessment.yaml
+        type: string
+      trust_lock_path:
+        description: Repository-relative trusted executable source lock path.
+        required: false
+        default: trusted-executable-sources.lock.yaml
+        type: string
+    secrets:
+      provider_admin_token:
+        description: Optional read-only token with broader provider-control visibility.
+        required: false
+
+permissions:
+  contents: read
+  actions: read
+  pull-requests: read
+
+concurrency:
+  group: consumer-acceptance-${{ github.repository }}-${{ inputs.candidate_sha }}
+  cancel-in-progress: true
+
+jobs:
+  accept:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Validate immutable candidate and authority identities
+        shell: bash
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          AUTHORITY_SHA: ${{ job.workflow_sha }}
+          AUTHORITY_REF: ${{ job.workflow_ref }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$CANDIDATE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "candidate_sha must be a full lowercase commit SHA" >&2
+            exit 1
+          fi
+          if [[ ! "$AUTHORITY_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "reusable workflow authority did not expose a full immutable SHA" >&2
+            exit 1
+          fi
+          if [[ "$AUTHORITY_REF" != *@"$AUTHORITY_SHA" ]]; then
+            echo "provider-backed acceptance requires the caller to pin this reusable workflow by its full SHA" >&2
+            exit 1
+          fi
+      - name: Checkout exact candidate revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6.0.2
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ inputs.candidate_sha }}
+          path: candidate
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Checkout acceptance authority revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6.0.2
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: authority
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Verify both immutable checkouts
+        shell: bash
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          AUTHORITY_SHA: ${{ job.workflow_sha }}
+        run: |
+          set -euo pipefail
+          test "$(git -C candidate rev-parse HEAD)" = "$CANDIDATE_SHA"
+          test "$(git -C authority rev-parse HEAD)" = "$AUTHORITY_SHA"
+      - name: Set up authority runtime
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v6.1.0
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: authority/requirements-dev-linux-x64-py312.lock
+      - name: Install authority dependency graph
+        working-directory: authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/install_locked.py
+      - name: Bind candidate trust declaration to external authority
+        shell: bash
+        env:
+          TRUST_LOCK_PATH: ${{ inputs.trust_lock_path }}
+          AUTHORITY_REPOSITORY: ${{ job.workflow_repository }}
+          AUTHORITY_SHA: ${{ job.workflow_sha }}
+        run: |
+          set -euo pipefail
+          python authority/contracts/validate_external_trust_lock.py "$TRUST_LOCK_PATH" \
+            --candidate-root candidate \
+            --authority-root authority \
+            --expected-repository "$AUTHORITY_REPOSITORY" \
+            --expected-revision "$AUTHORITY_SHA" \
+            --require-authority-path contracts/validate_external_adoption.py \
+            --require-authority-path skills/ci-cd-architect/tools/check_github_provider_controls.py
+      - name: Verify provider-side branch and release-environment controls
+        shell: bash
+        env:
+          AI_SKILLS_PROVIDER_TOKEN: ${{ secrets.provider_admin_token || github.token }}
+        run: |
+          set -euo pipefail
+          python authority/skills/ci-cd-architect/tools/check_github_provider_controls.py candidate \
+            --repository "$GITHUB_REPOSITORY" \
+            --token-env AI_SKILLS_PROVIDER_TOKEN
+      - name: Verify provider-backed adoption and independent review
+        shell: bash
+        env:
+          ASSESSMENT_PATH: ${{ inputs.assessment_path }}
+          AUTHORITY_REPOSITORY: ${{ job.workflow_repository }}
+          AUTHORITY_SHA: ${{ job.workflow_sha }}
+          AUTHORITY_WORKFLOW_PATH: ${{ job.workflow_file_path }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python authority/contracts/validate_external_adoption.py "$ASSESSMENT_PATH" \
+            --candidate-root candidate \
+            --authority-root authority \
+            --authority-repository "$AUTHORITY_REPOSITORY" \
+            --authority-revision "$AUTHORITY_SHA" \
+            --authority-workflow-path "$AUTHORITY_WORKFLOW_PATH"

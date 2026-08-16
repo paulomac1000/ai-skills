@@ -64,6 +64,7 @@ required:
 - references/anti-patterns-and-drift.md
 - references/lifecycle-and-evidence.md
 - references/instruction-precedence-and-platforms.md
+- references/migration-and-upgrade.md
 - templates/AGENTS.md.template
 - templates/nested-AGENTS.md.template
 - tools/discover_repository.py

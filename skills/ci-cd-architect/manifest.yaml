@@ -60,6 +60,7 @@ required:
 - references/protected-release-workflows.md
 - references/trusted-auditor-bootstrap.md
 - references/trusted-executable-sources.md
+- references/provider-trust-bootstrap.md
 - references/finding-triage.md
 - references/on-demand-ci.md
 - templates/publish.yml.template
@@ -70,6 +71,9 @@ required:
 - tools/check_github_actions_policy_impl.py
 - tools/check_ci_execution_policy.py
 - tools/check_consumer_trust_hygiene.py
+- tools/check_github_provider_controls.py
+- tools/classify_github_run_evidence.py
+- tools/generate_trusted_executable_sources.py
 categories:
 - core
 - references

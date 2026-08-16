@@ -94,7 +94,12 @@ def check_repository(root: Path) -> list[str]:
     revisions = sorted(set(TRUSTED_REVISION.findall(combined)))
     if revisions and not trusted_lock:
         findings.append(
-            "hardcoded trusted auditor/collector/validator revision exists outside a trusted executable source lock"
+            "hardcoded trusted auditor/collector/validator revision exists outside the canonical trust declaration. "
+            "For candidate-owned structural CI, move immutable executable provenance into "
+            "trusted-executable-sources.lock.yaml and keep the evidence explicitly diagnostic. For provider-backed "
+            "approval, pin the external reusable acceptance workflow outside the candidate and compare the candidate "
+            "lock with that externally supplied authority; moving a SHA into a candidate-owned lock alone is not a "
+            "trust bootstrap."
         )
     return findings
 

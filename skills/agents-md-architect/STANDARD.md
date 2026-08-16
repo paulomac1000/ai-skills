@@ -26,11 +26,13 @@ Conflicts fail closed. Identify the competing sources and canonical owner; do no
 
 Instructions are derived from repository evidence. Before creating or materially changing them, inspect applicable manifests, build files, task runners, CI workflows, test entry points, architecture decisions, generated-file ownership, security boundaries, data locations, release procedures, and existing agent instructions.
 
-Treat the repository root, input instruction files, referenced paths, and symlinks as untrusted. Static tools must verify confinement before reading, must not follow instruction-file or referenced-file symlinks, must require repository references to resolve to regular files, and must never execute commands discovered from repository content. Invalid UTF-8, oversized files, and oversized instruction trees fail with stable findings rather than tracebacks.
+Treat the repository root, input instruction files, referenced paths, and symlinks as untrusted. Static tools must verify confinement before reading and must not follow instruction-file or reference symlinks. Concrete file references must resolve to regular files; concrete directory references may resolve to real directories for routing or layout; path patterns, globs, and placeholders are validated lexically rather than required to exist literally. A canonical owner remains a concrete named file or other explicit durable owner, never a directory or pattern. Invalid UTF-8, oversized files, and oversized instruction trees fail with stable findings rather than tracebacks.
 
 Discovery must not treat every directory name as universal build output. In particular, root `bin/` scripts and language entry points remain discoverable; ecosystem-specific output such as `.NET` project `bin/` and `obj/` directories may be ignored only with project evidence.
 
 Commands must exist on the assessed revision. Unless a command explicitly selects or changes directories, interpret it from the directory containing the applicable `AGENTS.md`. Evidence derived from directory-scoped task definitions must remain bound to the directory containing that definition, and discovered entry points must preserve exact `argv` boundaries. Run representative commands when the environment permits; otherwise label them located-but-unexecuted or unverified and name the missing evidence. Static path discovery is not proof that an exact command ran or that it matches hosted CI. Incident-derived guards belong here only when the failure can recur and is not already eliminated by code or automation.
+
+When upgrading an existing adoption, compare the old and target normative standard, rule catalog, validator behavior, evidence contract, templates, and references before editing prose. A version change alone is not a reason to rewrite a useful canonical `AGENTS.md`. Preserve compliant repository-specific instructions and make targeted integration or evidence changes unless the normative contract or repository boundaries actually changed. Follow `references/migration-and-upgrade.md`.
 
 ## Operating modes and profiles
 
@@ -73,7 +75,7 @@ Commands requiring credentials, external systems, destructive access, payment, o
 
 The root file contains rules needed for most tasks: scope, precedence, core modes, critical boundaries, command entry points, completion criteria, and task routing. Specialized procedures, incident histories, exhaustive maps, and long examples load on demand.
 
-Every reference states when to read it and what decision it owns. Repository references resolve to confined, regular, non-symlink files. Do not use a directory as a substitute for a named canonical owner. Do not duplicate README content, linter configuration, full CI definitions, complete architecture documents, current inventories, or skill catalogs.
+Every reference states when to read it and what decision it owns. Concrete repository file references resolve to confined, regular, non-symlink files; concrete directory references may resolve to confined, non-symlink directories when the route itself is the useful target. Patterns and placeholders describe families of paths and are not tested as literal files. Do not use a directory or pattern as a substitute for a named canonical owner. Do not duplicate README content, linter configuration, full CI definitions, complete architecture documents, current inventories, or skill catalogs.
 
 Context budgets are review thresholds, not quality scores. The effective threshold is the larger of the selected layout and domain-profile budgets:
 
@@ -107,14 +109,14 @@ Reject context bloat, skill leakage, lint leakage, blind references, generated-f
 
 Reject brittle consent parsers, instructions that weaken tests to obtain green results, and statements equating mock coverage with real integration behavior. Keep incident narratives in incident documents and retain only the durable guard in the instruction system.
 
-Review the instruction tree when build entry points, architecture boundaries, data flows, CI gates, repository layout, ownership, document language, or supported agent platforms change. Structural validation is not proof that every factual claim remains current.
+Review the instruction tree when build entry points, architecture boundaries, data flows, CI gates, repository layout, ownership, document language, or supported agent platforms change. Structural validation is not proof that every factual claim remains current. If a validator upgrade is the only source of churn, distinguish a real contract change from a parser limitation before making the document less natural or less precise.
 
 ## Definition of done
 
 An instruction change is complete only when:
 
 1. scope, platform behavior, precedence, operating modes, layout, domain profile, document language, and canonical owners are unambiguous;
-2. input files and referenced paths are confined, regular, non-symlink repository files within bounded size limits;
+2. input files and concrete repository references are confined and non-symlinked, concrete file references resolve to regular files, concrete directory references resolve to directories, and path-pattern references remain lexically confined within bounded size limits;
 3. commands and references resolve on the exact revision and are labeled as executed, located-but-unexecuted, unverified, or missing;
 4. nested files contain material local differences without contradictory duplication while retaining domain-specific safety requirements;
 5. safety and data boundaries match implementation and deployment configuration;

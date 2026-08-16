@@ -318,7 +318,7 @@ def _validate_document(
         else:
             try:
                 exists = resolved.exists()
-                regular = resolved.is_file() if exists else False
+                supported = (resolved.is_file() or resolved.is_dir()) if exists else False
             except (OSError, RuntimeError):
                 findings.append(
                     Finding(
@@ -340,14 +340,14 @@ def _validate_document(
                         f"Referenced path does not exist: {target}",
                     )
                 )
-            elif not regular:
+            elif not supported:
                 findings.append(
                     Finding(
                         str(path),
                         "error",
-                        "links.not-file",
+                        "links.unsupported-type",
                         line_number,
-                        f"Reference must resolve to a regular file: {target}",
+                        f"Reference must resolve to a regular file or directory: {target}",
                     )
                 )
 
