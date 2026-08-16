@@ -47,9 +47,14 @@ _SOURCE_REVISION_ARG = re.compile(
     re.IGNORECASE | re.MULTILINE,
 )
 _SOURCE_REVISION_FILE = re.compile(r"\bSOURCE[_-](?:REVISION|SHA)\b", re.IGNORECASE)
+_SOURCE_REVISION_READ = re.compile(
+    r"(?P<quote>['\"]?)\$\(\s*cat\s+[^)]*\bSOURCE[_-](?:REVISION|SHA)\b[^)]*\)(?P=quote)",
+    re.IGNORECASE,
+)
 _RUN_INSTRUCTION = re.compile(r"^RUN\b\s*(.*)$", re.IGNORECASE)
-_SOURCE_CHECK_COMMAND = re.compile(r"\b(?:test|cmp)\b", re.IGNORECASE)
+_SOURCE_CHECK_COMMAND = re.compile(r"(?:\btest\b|^\s*\[\[?)", re.IGNORECASE)
 _SHELL_COMMAND_BOUNDARY = re.compile(r"\s*(?:&&|\|\||;)\s*")
+_EQUALITY_OPERATOR = r"(?<![!<>=])(?:==|=)(?!=)"
 
 
 def _regular_text(path: Path) -> str | None:
@@ -204,8 +209,19 @@ def _docker_instructions(text: str) -> list[str]:
     return instructions
 
 
+def _source_revision_equality(command: str, source_arg: str) -> bool:
+    """Recognize an explicit equality between copied revision-file contents and one build argument."""
+    argument = rf"(?P<arg_quote>['\"]?)\$(?:\{{{re.escape(source_arg)}\}}|{re.escape(source_arg)}\b)(?P=arg_quote)"
+    revision_read = _SOURCE_REVISION_READ.pattern
+    patterns = (
+        rf"{revision_read}\s*{_EQUALITY_OPERATOR}\s*{argument}",
+        rf"{argument}\s*{_EQUALITY_OPERATOR}\s*{revision_read}",
+    )
+    return any(re.search(pattern, command, re.IGNORECASE) is not None for pattern in patterns)
+
+
 def _source_revision_binding_signal(text: str, revision_args: list[str]) -> bool:
-    """Require one comparison command to bind an artifact revision to the expected source argument."""
+    """Require one executable equality to bind copied artifact revision bytes to the expected source argument."""
     source_args = [
         name
         for name in revision_args
@@ -220,10 +236,8 @@ def _source_revision_binding_signal(text: str, revision_args: list[str]) -> bool
         for command in _SHELL_COMMAND_BOUNDARY.split(run.group(1)):
             if _SOURCE_CHECK_COMMAND.search(command) is None or _SOURCE_REVISION_FILE.search(command) is None:
                 continue
-            for name in source_args:
-                reference = re.compile(rf"\$(?:\{{{re.escape(name)}\}}|{re.escape(name)}\b)")
-                if reference.search(command) is not None:
-                    return True
+            if any(_source_revision_equality(command, name) for name in source_args):
+                return True
     return False
 
 
