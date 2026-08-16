@@ -220,14 +220,18 @@ def _source_revision_binding_signal(text: str, revision_args: list[str]) -> bool
 
 
 def _container_build_facts(root: Path) -> dict[str, bool]:
-    """Record bounded source-binding signals for root container build definitions."""
+    """Require every root build definition that copies prebuilt artifacts to bind them to source."""
     texts = [text for name in ("Dockerfile", "Containerfile") if (text := _regular_text(root / name)) is not None]
     if not texts:
         return {"prebuilt_artifact_copy": False, "source_revision_binding_signal": False}
-    combined = "\n".join(texts)
-    prebuilt_copy = _PREBUILT_CONTAINER_COPY.search(combined) is not None
-    revision_args = _SOURCE_REVISION_ARG.findall(combined)
-    source_binding = prebuilt_copy and _source_revision_binding_signal(combined, revision_args)
+    per_definition: list[tuple[bool, bool]] = []
+    for text in texts:
+        prebuilt = _PREBUILT_CONTAINER_COPY.search(text) is not None
+        revision_args = _SOURCE_REVISION_ARG.findall(text)
+        bound = prebuilt and _source_revision_binding_signal(text, revision_args)
+        per_definition.append((prebuilt, bound))
+    prebuilt_copy = any(prebuilt for prebuilt, _ in per_definition)
+    source_binding = prebuilt_copy and all(not prebuilt or bound for prebuilt, bound in per_definition)
     return {
         "prebuilt_artifact_copy": prebuilt_copy,
         "source_revision_binding_signal": source_binding,
