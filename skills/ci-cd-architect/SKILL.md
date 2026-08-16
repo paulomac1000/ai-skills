@@ -26,11 +26,11 @@ Read `STANDARD.md`, then choose profiles using `references/template-selection.md
 
 For GitHub Actions trust-policy checks, run `tools/check_github_actions_policy.py` from a trusted immutable checkout and pass the candidate repository root as its argument. For workflows marked `# ai-skills-execution-policy: on-demand`, additionally run `tools/check_ci_execution_policy.py`. Trust policy governs permissions and secrets; execution policy governs when hosted jobs are allowed to start. Neither replaces provider-control verification.
 
-A pull request must not provide the authoritative copy of the auditor or orchestration that approves the same pull request. A candidate-owned workflow may execute an immutable external verifier for structural diagnostics, but candidate control over the authority SHA, arguments, credentials, or timing means that result is not provider-backed acceptance.
+A pull request must not provide the authoritative copy of the auditor or orchestration that approves the same pull request. A candidate-owned workflow may execute an immutable external verifier for structural diagnostics, but candidate control over the authority SHA, arguments, credentials, required check, or timing means that result is not provider-backed acceptance.
 
-For provider-backed GitHub.com acceptance, call the materialized `.github/workflows/consumer-acceptance.yml` from the authority repository by a full commit SHA. The called workflow binds its own authority identity independently, checks out the exact candidate SHA, requires candidate-lock equality with that external authority, runs provider-control preflight, and validates exact-SHA provider evidence plus independent review. `templates/trusted-workflow-audit.yml.template` remains an architecture seed for other authority deployments; a `.template` file is never itself a callable acceptance workflow.
+For provider-backed GitHub.com acceptance, start `.github/workflows/consumer-acceptance-dispatch.yml` in the **authority repository** from a provider-protected ref. The dispatcher calls the materialized local reusable `.github/workflows/consumer-acceptance.yml` from the same authority commit. The reusable workflow rejects cross-repository candidate-owned callers, requires caller repository/SHA equality with its provider-reported workflow repository/SHA, checks the protected-ref signal, checks out the exact candidate SHA with an authority-owned read token, requires candidate-lock equality with that external authority, runs provider-control preflight, and validates exact-SHA provider evidence plus independent review. A candidate repository does not invoke this reusable workflow as its own provider-backed gate. `templates/trusted-workflow-audit.yml.template` remains an architecture seed for other authority deployments; a `.template` file is never itself a callable acceptance workflow.
 
-Generate trusted executable locks from the immutable authority checkout with `tools/generate_trusted_executable_sources.py`. The candidate lock is only a declaration of expected authority; it cannot bootstrap its own trust. Provider-backed validation uses `contracts/validate_external_trust_lock.py` to compare it with authority coordinates supplied by the reusable workflow.
+Generate trusted executable locks from the immutable authority checkout with `tools/generate_trusted_executable_sources.py`. The candidate lock is only a declaration of expected authority; it cannot bootstrap its own trust. Provider-backed validation uses `contracts/validate_external_trust_lock.py` to compare it with authority coordinates established by the authority-owned workflow.
 
 ## Cost-aware CI operating rule
 
@@ -55,11 +55,11 @@ Before claiming that this skill has been adopted or a migration is complete:
 3. Bind each passed claim to a machine result file and passed test-case identity; a green job, badge, screenshot, queued job, or hand-written `passed` value is not evidence.
 4. Run `tools/check_github_provider_controls.py` from the trusted authority checkout. Static workflow YAML cannot prove that a branch is protected or an environment exists. `MISCONFIGURED` and `UNVERIFIABLE` both block final adoption, but they are different diagnoses.
 5. Use `verification_mode: provider-backed` only with the currently supported GitHub.com and GitHub Actions verifier. Other CI providers remain structural attestations until a reviewed adapter exists and cannot satisfy an approval gate.
-6. Run the externally pinned consumer-acceptance reusable workflow, which performs external trust-lock binding and `contracts/validate_external_adoption.py` with read-only provider credentials.
+6. Configure the authority repository's `AI_SKILLS_CONSUMER_READ_TOKEN` with only the candidate repositories and read surfaces needed for candidate checkout, Actions evidence, pull-request/review evidence, environments, and branch-protection inspection. Dispatch `consumer-acceptance-dispatch.yml` from a protected authority ref for the exact candidate repository/SHA.
 7. Require an independent review bound to the exact SHA. The reviewer must not be the PR author, a commit author or committer, or an actor that produced the referenced evidence.
 8. Report one migration state: `structurally-conformant`, `provider-preflight-blocked`, `provider-validation-pending`, `independent-review-pending`, or `adopted`.
 
-If repository changes are complete but provider administration is unavailable, do not simulate protection in YAML. Leave the repository fail closed, report `provider-preflight-blocked`, and provide an external-admin checklist with the exact branch/environment/check configuration that must be changed and reverified.
+If repository changes are complete but provider administration is unavailable, do not simulate protection in YAML. Leave the repository fail closed, report `provider-preflight-blocked`, and provide an external-admin checklist with the exact authority ref/secret plus candidate branch/environment/check configuration that must be changed and reverified.
 
 Generated templates and examples are architecture seeds, not production acceptance. Apply the relevant CI/CD trust and execution policies, verify the exact deployment artifact, record rollback and residual risk, and retain provider evidence long enough for the stated decision lifetime.
 
@@ -73,7 +73,7 @@ Generated templates and examples are architecture seeds, not production acceptan
 - Do not hide required release jobs behind unreachable event conditions.
 - Do not require expensive automatic PR workflows by habit when the repository intentionally uses the governed on-demand policy.
 - Do not treat provider quota failure, an unassigned runner, or a job with zero executed steps as a successful acceptance gate.
-- Do not treat a candidate-owned trust lock, verifier checkout, or workflow as the root of provider-backed trust.
+- Do not treat a candidate-owned trust lock, verifier checkout, or workflow invocation as the root of provider-backed trust.
 - Do not claim an environment or branch is protected solely because repository YAML names it.
 
-The assessed revision MUST NOT supply the authoritative verifier, claim catalog, authority pin, or acceptance orchestration used to approve itself; candidate-local validation is diagnostic and final acceptance requires immutable external authority coordinates plus provider-side evidence.
+The assessed revision MUST NOT supply the authoritative verifier, claim catalog, authority pin, provider credentials, required-check identity, or acceptance orchestration used to approve itself; candidate-local validation is diagnostic and final acceptance requires protected external orchestration plus provider-side evidence.
