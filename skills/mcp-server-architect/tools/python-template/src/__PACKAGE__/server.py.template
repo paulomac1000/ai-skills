@@ -30,9 +30,14 @@ def list_items(limit: int = 25) -> dict[str, object]:
 
 
 @mcp.tool()
-def put_item(item_id: str, value: str, approval_record: str) -> dict[str, object]:
-    """Write one item only with an enabled server-side approval authority."""
-    return invoke_put_item(item_id, value, approval_record)
+def put_item(
+    item_id: str,
+    value: str,
+    approval_record: str,
+    expected_version: int = 0,
+) -> dict[str, object]:
+    """Write one item with an approval bound to its optimistic version precondition."""
+    return invoke_put_item(item_id, value, approval_record, expected_version)
 
 
 @mcp.custom_route("/health/live", methods=["GET"])
