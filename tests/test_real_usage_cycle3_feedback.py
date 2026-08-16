@@ -87,24 +87,32 @@ def test_prebuilt_container_without_source_binding_is_an_explicit_adoption_gap(t
     assert any("stale local artifacts" in item for item in discovery["unknowns"])
 
 
-def test_source_bound_prebuilt_container_clears_stale_artifact_gap_and_plan_surfaces_fix(tmp_path: Path) -> None:
+def test_source_bound_prebuilt_container_clears_stale_artifact_gap(tmp_path: Path) -> None:
     inspector = _load(TOOLS / "inspect_existing_project.py", "cycle3_inspector_container_bound")
-    planner = _load(TOOLS / "plan_existing_project.py", "cycle3_planner")
     _write_project(tmp_path, addopts='-m "not external"')
     (tmp_path / "Dockerfile").write_text(
         "FROM python:3.12-slim\n"
         "ARG EXPECTED_SOURCE_REVISION\n"
         "COPY dist/ /tmp/dist/\n"
-        "RUN test -n \"$EXPECTED_SOURCE_REVISION\" \\\n"
-        "    && test \"$(cat /tmp/dist/SOURCE_REVISION)\" = \"$EXPECTED_SOURCE_REVISION\" \\\n"
-        "    && sha256sum --check /tmp/dist/SHA256SUMS\n",
+        "RUN test -n \"$EXPECTED_SOURCE_REVISION\" && test \"$(cat /tmp/dist/SOURCE_REVISION)\" = \"$EXPECTED_SOURCE_REVISION\" && sha256sum --check /tmp/dist/SHA256SUMS\n",
         encoding="utf-8",
     )
 
     discovery = inspector.inspect_repository(tmp_path)
-    plan = planner.build_plan(tmp_path)
 
     assert discovery["facts"]["container_build"]["source_revision_binding_signal"] is True
     assert discovery["plan"]["container_artifact_binding"] == "declared"
     assert not any("stale local artifacts" in item for item in discovery["unknowns"])
-    assert not any("fail closed when local artifacts are stale" in item for item in plan["next_actions"])
+
+
+def test_adoption_plan_surfaces_prebuilt_container_source_binding_action(tmp_path: Path) -> None:
+    _write_project(tmp_path, addopts='-m "not external"')
+    (tmp_path / "Dockerfile").write_text(
+        "FROM python:3.12-slim\nCOPY dist/ /tmp/dist/\nRUN sha256sum --check /tmp/dist/SHA256SUMS\n",
+        encoding="utf-8",
+    )
+    planner = _load(TOOLS / "plan_existing_project.py", "cycle3_planner")
+
+    plan = planner.build_plan(tmp_path)
+
+    assert any("fail closed when local artifacts are stale" in item for item in plan["next_actions"])
