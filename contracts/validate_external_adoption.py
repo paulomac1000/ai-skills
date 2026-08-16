@@ -19,9 +19,9 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+import validate_adoption as adoption  # noqa: E402
 from confined_io import confined_regular_file  # noqa: E402
 from evidence import GitHubEvidenceVerifier  # noqa: E402
-import validate_adoption as adoption  # noqa: E402
 
 FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
 GITHUB_REPOSITORY = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")

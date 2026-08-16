@@ -188,7 +188,9 @@ def check_provider_controls(
     if status != 200 or not isinstance(branch_document, Mapping):
         findings.append(_provider_error(f"default branch {branch!r}", status, detail))
     elif branch_document.get("protected") is not True:
-        findings.append(ProviderFinding("misconfigured", f"default branch {branch!r} is not protected by provider policy"))
+        findings.append(
+            ProviderFinding("misconfigured", f"default branch {branch!r} is not protected by provider policy")
+        )
 
     required = {item for item in required_checks if item}
     if required:
@@ -223,7 +225,9 @@ def check_provider_controls(
         }
         for name in sorted(environments):
             if name not in available:
-                findings.append(ProviderFinding("misconfigured", f"declared release environment {name!r} does not exist"))
+                findings.append(
+                    ProviderFinding("misconfigured", f"declared release environment {name!r} does not exist")
+                )
                 continue
             encoded_name = urllib.parse.quote(name, safe="")
             env_status, environment, env_detail = client.get(f"/repos/{encoded_repository}/environments/{encoded_name}")
@@ -240,7 +244,9 @@ def check_provider_controls(
                     f"/repos/{encoded_repository}/environments/{encoded_name}/deployment-branch-policies?per_page=100"
                 )
                 if policy_status != 200 or not isinstance(policies, Mapping):
-                    findings.append(_provider_error(f"deployment branch policy for {name!r}", policy_status, policy_detail))
+                    findings.append(
+                        _provider_error(f"deployment branch policy for {name!r}", policy_status, policy_detail)
+                    )
                     continue
                 total_count = policies.get("total_count")
                 if not isinstance(total_count, int) or isinstance(total_count, bool):
