@@ -162,3 +162,34 @@ def test_adoption_plan_surfaces_prebuilt_container_source_binding_action(tmp_pat
     plan = planner.build_plan(tmp_path)
 
     assert any("fail closed when local artifacts are stale" in item for item in plan["next_actions"])
+
+
+def test_existing_upstream_contract_remains_unvalidated_until_validator_runs(tmp_path: Path) -> None:
+    inspector = _load(TOOLS / "inspect_existing_project.py", "cycle3_inspector_upstream_contract")
+    _write_project(tmp_path, addopts='-m "not external"')
+    (tmp_path / "client.py").write_text("result = httpx.get(url)\n", encoding="utf-8")
+    (tmp_path / "upstream-contract.yaml").write_text("not: [valid", encoding="utf-8")
+
+    discovery = inspector.inspect_repository(tmp_path)
+    planner = _load(TOOLS / "plan_existing_project.py", "cycle3_planner_upstream_contract")
+    plan = planner.build_plan(tmp_path)
+
+    assert discovery["facts"]["external_upstream"] is True
+    assert discovery["plan"]["upstream_contract"] == "present-unvalidated"
+    assert any("present but unvalidated" in item for item in discovery["unknowns"])
+    assert any("--require-observed" in item for item in plan["next_actions"])
+
+
+def test_existing_live_policy_remains_unvalidated_until_validator_runs(tmp_path: Path) -> None:
+    inspector = _load(TOOLS / "inspect_existing_project.py", "cycle3_inspector_live_policy")
+    _write_project(tmp_path, addopts='-m "not external"')
+    (tmp_path / "live-backend-test-policy.yaml").write_text("not: [valid", encoding="utf-8")
+
+    discovery = inspector.inspect_repository(tmp_path)
+    planner = _load(TOOLS / "plan_existing_project.py", "cycle3_planner_live_policy")
+    plan = planner.build_plan(tmp_path)
+
+    assert discovery["facts"]["external_tests"] is True
+    assert discovery["plan"]["live_backend_safety"] == "present-unvalidated"
+    assert any("present but unvalidated" in item for item in discovery["unknowns"])
+    assert any("validate existing live-backend-test-policy.yaml" in item for item in plan["next_actions"])
