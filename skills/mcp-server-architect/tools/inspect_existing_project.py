@@ -9,9 +9,17 @@ import os
 import re
 import shlex
 import stat
+import sys
 import tomllib
 from pathlib import Path
 from typing import Any
+
+ROOT = Path(__file__).resolve().parents[3]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from contracts.validate_live_backend_test_policy import validate_policy as validate_live_backend_policy  # noqa: E402
+from contracts.validate_upstream_contract import validate_contract as validate_upstream_contract  # noqa: E402
 
 MAX_FILES = 600
 MAX_FILE_BYTES = 512 * 1024
@@ -261,8 +269,16 @@ def inspect_repository(repository_root: Path) -> dict[str, Any]:
         marker in corpus for marker in ("pytest.mark.external", '"external:"', "'external:'")
     )
     external_default_excluded = _external_tests_default_excluded(project)
-    upstream_contract = (root / "upstream-contract.yaml").is_file()
-    live_policy = (root / "live-backend-test-policy.yaml").is_file()
+    upstream_contract_path = root / "upstream-contract.yaml"
+    live_policy_path = root / "live-backend-test-policy.yaml"
+    upstream_contract = upstream_contract_path.is_file()
+    live_policy = live_policy_path.is_file()
+    upstream_contract_findings = (
+        validate_upstream_contract(upstream_contract_path, require_observed=True) if upstream_contract else []
+    )
+    live_policy_findings = validate_live_backend_policy(live_policy_path) if live_policy else []
+    upstream_contract_valid = upstream_contract and not upstream_contract_findings
+    live_policy_valid = live_policy and not live_policy_findings
     has_stdio = "stdio" in corpus
     has_streamable_http = any(marker in corpus for marker in ("streamable_http", "streamable-http"))
     has_legacy_sse = any(marker in corpus for marker in ("/sse", "legacy sse", "http+sse"))
@@ -302,7 +318,9 @@ def inspect_repository(repository_root: Path) -> dict[str, Any]:
         "external_tests": has_external_tests,
         "external_tests_default_excluded": external_default_excluded,
         "upstream_contract_present": upstream_contract,
+        "upstream_contract_valid": upstream_contract_valid,
         "live_backend_policy_present": live_policy,
+        "live_backend_policy_valid": live_policy_valid,
         "transports": {
             "stdio": has_stdio,
             "streamable_http": has_streamable_http,
@@ -316,10 +334,20 @@ def inspect_repository(repository_root: Path) -> dict[str, Any]:
 
     upstream_status = "not-applicable"
     if has_external_upstream:
-        upstream_status = "present-unvalidated" if upstream_contract else "required"
+        if not upstream_contract:
+            upstream_status = "required"
+        elif upstream_contract_valid:
+            upstream_status = "verified"
+        else:
+            upstream_status = "invalid"
     live_status = "not-applicable"
     if has_external_tests:
-        live_status = "present-unvalidated" if live_policy else "needs-policy"
+        if not live_policy:
+            live_status = "needs-policy"
+        elif live_policy_valid:
+            live_status = "declared"
+        else:
+            live_status = "invalid"
     artifact_binding_status = "not-applicable"
     if containerized and container_build["prebuilt_artifact_copy"]:
         artifact_binding_status = "declared" if container_build["source_revision_binding_signal"] else "needs-binding"
@@ -329,18 +357,16 @@ def inspect_repository(repository_root: Path) -> dict[str, Any]:
         unknowns.append("MCP SDK package identity was not resolved from package metadata")
     if has_external_upstream and not upstream_contract:
         unknowns.append("external upstream contract is unobserved; probe the real boundary before adapter refactoring")
-    elif has_external_upstream:
+    elif has_external_upstream and upstream_contract_findings:
         unknowns.append(
-            "upstream contract is present but unvalidated by discovery; require observed-contract validation before clearing the gate"
+            f"upstream contract failed trusted observed-contract validation ({len(upstream_contract_findings)} finding(s))"
         )
     if has_external_tests and not external_default_excluded:
         unknowns.append("external tests are not proven deselected by the structured default pytest addopts")
     if has_external_tests and not live_policy:
         unknowns.append("live-backend safety policy is missing")
-    elif has_external_tests:
-        unknowns.append(
-            "live-backend safety policy is present but unvalidated by discovery; validate it before clearing the gate"
-        )
+    elif has_external_tests and live_policy_findings:
+        unknowns.append(f"live-backend safety policy failed trusted validation ({len(live_policy_findings)} finding(s))")
     if artifact_binding_status == "needs-binding":
         unknowns.append(
             "container build copies prebuilt artifacts without a source-revision binding signal; stale local artifacts may be packaged"
