@@ -93,6 +93,10 @@ def test_external_binding_rejects_missing_or_malformed_lock(tmp_path: Path) -> N
     malformed.write_text("- not\n- an\n- object\n", encoding="utf-8")
     assert _validate(malformed.name, tmp_path, authority) == ["trusted source lock root must be an object"]
 
+    scalar = tmp_path / "scalar.yaml"
+    scalar.write_text("plain-scalar\n", encoding="utf-8")
+    assert _validate(scalar.name, tmp_path, authority) == ["trusted source lock root must be an object"]
+
 
 def test_external_binding_requires_sources_list_and_unique_source(tmp_path: Path) -> None:
     authority = tmp_path / "authority"
