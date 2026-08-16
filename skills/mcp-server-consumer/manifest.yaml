@@ -50,6 +50,7 @@ deprecation:
 required:
 - SKILL.md
 - STANDARD.md
+- tools/decision_engine.py
 categories:
 - core
 - references
