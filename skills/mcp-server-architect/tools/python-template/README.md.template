@@ -8,6 +8,7 @@ Generated from the canonical `ai-skills` Python MCP server template. The project
 - Streamable HTTP binds only to loopback and requires `MCP_HTTP_BEARER_TOKEN` with at least 32 visible ASCII bytes.
 - Remote deployment is not production-ready until the development bearer is replaced by a real identity provider and resource authorization.
 - Writes are disabled unless `MCP_ENABLE_WRITES=1` and a server-verifiable, one-use HMAC approval record binds principal, capability, target, normalized arguments, expiry, and nonce.
+- `put_item` uses optimistic concurrency: `expected_version=0` creates an absent item, successful writes return the next version, listings expose the current version, and updates must provide that version. The approval arguments digest includes `expected_version`, so a stale precondition cannot be detached from its approval.
 - The capability manifests in `src/__PACKAGE__/capabilities` are validated against the copied canonical schema at import time.
 
 ## Local stdio
