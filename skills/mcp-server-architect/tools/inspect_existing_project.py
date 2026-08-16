@@ -6,6 +6,8 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
+import shlex
 import stat
 import tomllib
 from pathlib import Path
@@ -28,6 +30,16 @@ IGNORED_PARTS = {
 }
 TEXT_SUFFIXES = {".py", ".toml", ".txt", ".ini", ".yaml", ".yml", ".md", ".json"}
 HTTP_DEPENDENCIES = {"requests", "httpx", "aiohttp", "urllib3"}
+_PREBUILT_CONTAINER_COPY = re.compile(
+    r"^\s*(?:COPY|ADD)\b[^\n]*\b(?:dist|build|out|publish|artifacts)/",
+    re.IGNORECASE | re.MULTILINE,
+)
+_SOURCE_REVISION_ARG = re.compile(
+    r"^\s*ARG\s+([A-Za-z_][A-Za-z0-9_]*)",
+    re.IGNORECASE | re.MULTILINE,
+)
+_SOURCE_REVISION_FILE = re.compile(r"\bSOURCE[_-](?:REVISION|SHA)\b", re.IGNORECASE)
+_RUN_SOURCE_CHECK = re.compile(r"^\s*RUN\b[^\n]*(?:\btest\b|\bcmp\b)", re.IGNORECASE | re.MULTILINE)
 
 
 def _regular_text(path: Path) -> str | None:
@@ -122,6 +134,71 @@ def _project_version(project: dict[str, Any]) -> str | None:
     return value.strip() if isinstance(value, str) and value.strip() else None
 
 
+def _pytest_addopts(project: dict[str, Any]) -> list[str]:
+    """Return parsed pytest addopts from the structured pyproject configuration only."""
+    tool = project.get("tool")
+    pytest = tool.get("pytest") if isinstance(tool, dict) else None
+    ini_options = pytest.get("ini_options") if isinstance(pytest, dict) else None
+    raw = ini_options.get("addopts") if isinstance(ini_options, dict) else None
+    fragments: list[str]
+    if isinstance(raw, str):
+        fragments = [raw]
+    elif isinstance(raw, list) and all(isinstance(item, str) for item in raw):
+        fragments = list(raw)
+    else:
+        return []
+    tokens: list[str] = []
+    try:
+        for fragment in fragments:
+            tokens.extend(shlex.split(fragment))
+    except ValueError:
+        return []
+    return tokens
+
+
+def _marker_expression_excludes_external(expression: str) -> bool:
+    """Conservatively prove that a pytest marker expression excludes every external test."""
+    normalized = " ".join(expression.casefold().split())
+    if re.search(r"\bor\b", normalized):
+        return False
+    return re.search(r"\bnot\s+external\b", normalized) is not None
+
+
+def _external_tests_default_excluded(project: dict[str, Any]) -> bool:
+    tokens = _pytest_addopts(project)
+    for index, token in enumerate(tokens):
+        if token == "-m" and index + 1 < len(tokens):
+            if _marker_expression_excludes_external(tokens[index + 1]):
+                return True
+        elif token.startswith("-m=") and _marker_expression_excludes_external(token[3:]):
+            return True
+    return False
+
+
+def _container_build_facts(root: Path) -> dict[str, bool]:
+    """Record bounded source-binding signals for root container build definitions."""
+    texts = [text for name in ("Dockerfile", "Containerfile") if (text := _regular_text(root / name)) is not None]
+    if not texts:
+        return {"prebuilt_artifact_copy": False, "source_revision_binding_signal": False}
+    combined = "\n".join(texts)
+    prebuilt_copy = _PREBUILT_CONTAINER_COPY.search(combined) is not None
+    revision_args = _SOURCE_REVISION_ARG.findall(combined)
+    source_arg = any(
+        "source" in name.casefold() and ("revision" in name.casefold() or "sha" in name.casefold())
+        for name in revision_args
+    )
+    source_binding = bool(
+        prebuilt_copy
+        and source_arg
+        and _SOURCE_REVISION_FILE.search(combined)
+        and _RUN_SOURCE_CHECK.search(combined)
+    )
+    return {
+        "prebuilt_artifact_copy": prebuilt_copy,
+        "source_revision_binding_signal": source_binding,
+    }
+
+
 def inspect_repository(repository_root: Path) -> dict[str, Any]:
     """Return bounded source-derived facts and a progressive adoption plan."""
     root = repository_root.resolve(strict=True)
@@ -144,8 +221,7 @@ def inspect_repository(repository_root: Path) -> dict[str, Any]:
     has_external_tests = (root / "tests/external").is_dir() or any(
         marker in corpus for marker in ("pytest.mark.external", '"external:"', "'external:'")
     )
-    pyproject_text = _regular_text(root / "pyproject.toml") or ""
-    external_default_excluded = "not external" in pyproject_text.casefold()
+    external_default_excluded = _external_tests_default_excluded(project)
     upstream_contract = (root / "upstream-contract.yaml").is_file()
     live_policy = (root / "live-backend-test-policy.yaml").is_file()
     has_stdio = "stdio" in corpus
@@ -172,13 +248,16 @@ def inspect_repository(repository_root: Path) -> dict[str, Any]:
             "put_",
         )
     )
+    containerized = any((root / name).is_file() for name in ("Dockerfile", "Containerfile"))
+    container_build = _container_build_facts(root)
 
     facts: dict[str, Any] = {
         "language": "python" if project else "unknown",
         "sdk_profile": sdk_profile,
         "project_version": _project_version(project),
         "packaged": bool(project),
-        "containerized": any((root / name).is_file() for name in ("Dockerfile", "Containerfile")),
+        "containerized": containerized,
+        "container_build": container_build,
         "github_actions": (root / ".github/workflows").is_dir(),
         "external_upstream": has_external_upstream,
         "external_tests": has_external_tests,
@@ -202,6 +281,11 @@ def inspect_repository(repository_root: Path) -> dict[str, Any]:
     live_status = "not-applicable"
     if has_external_tests:
         live_status = "declared" if live_policy else "needs-policy"
+    artifact_binding_status = "not-applicable"
+    if containerized and container_build["prebuilt_artifact_copy"]:
+        artifact_binding_status = (
+            "declared" if container_build["source_revision_binding_signal"] else "needs-binding"
+        )
 
     unknowns: list[str] = []
     if sdk_profile == "unknown":
@@ -209,9 +293,13 @@ def inspect_repository(repository_root: Path) -> dict[str, Any]:
     if has_external_upstream and not upstream_contract:
         unknowns.append("external upstream contract is unobserved; probe the real boundary before adapter refactoring")
     if has_external_tests and not external_default_excluded:
-        unknowns.append("external tests are not visibly deselected by default")
+        unknowns.append("external tests are not proven deselected by the structured default pytest addopts")
     if has_external_tests and not live_policy:
         unknowns.append("live-backend safety policy is missing")
+    if artifact_binding_status == "needs-binding":
+        unknowns.append(
+            "container build copies prebuilt artifacts without a source-revision binding signal; stale local artifacts may be packaged"
+        )
 
     routes = ["STANDARD.md", "references/testing-strategy.md"]
     if sdk_profile == "python-fastmcp-package":
@@ -229,6 +317,7 @@ def inspect_repository(repository_root: Path) -> dict[str, Any]:
             "discovery": "complete",
             "upstream_contract": upstream_status,
             "live_backend_safety": live_status,
+            "container_artifact_binding": artifact_binding_status,
             "implementation": "not-evaluated",
             "local_verification": "not-evaluated",
             "provider_verification": "not-evaluated",
