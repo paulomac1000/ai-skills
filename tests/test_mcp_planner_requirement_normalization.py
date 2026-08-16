@@ -32,11 +32,19 @@ def _claim(tmp_path: Path, requirement: str) -> dict[str, object]:
     )
 
 
-def test_bare_trailing_pip_option_does_not_hide_exact_sdk_pin(tmp_path: Path) -> None:
-    assert _claim(tmp_path, "mcp==2.0.0 --no-binary") == {
+def test_trailing_pip_option_with_argument_does_not_hide_exact_sdk_pin(tmp_path: Path) -> None:
+    assert _claim(tmp_path, "mcp==2.0.0 --no-binary mcp") == {
         "package": "mcp",
         "requirement": "==2.0.0",
         "status": "exact-pin",
+    }
+
+
+def test_malformed_bare_pip_option_is_not_classified_as_exact_pin(tmp_path: Path) -> None:
+    assert _claim(tmp_path, "mcp==2.0.0 --no-binary") == {
+        "package": "mcp",
+        "requirement": "==2.0.0 --no-binary",
+        "status": "requires-compatibility-evidence",
     }
 
 
