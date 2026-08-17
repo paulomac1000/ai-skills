@@ -443,7 +443,9 @@ def _validate_implementation(
         return
     if implementation_payloads is not None:
         if path_text not in implementation_payloads:
-            findings.append(Finding(f"{location}.path", "implementation bytes were not captured by the trusted preflight"))
+            findings.append(
+                Finding(f"{location}.path", "implementation bytes were not captured by the trusted preflight")
+            )
             return
         content = implementation_payloads[path_text]
         if symbol and symbol not in content:
