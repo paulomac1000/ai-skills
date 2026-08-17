@@ -297,14 +297,14 @@ def _normalized_copy_source(source: str) -> str | None:
 
 
 def _prebuilt_source_root(source: str) -> str | None:
-    """Return the lexical build-context root that owns one copied prebuilt artifact path."""
+    """Return the case-preserving lexical build-context root that owns one copied prebuilt artifact path."""
     normalized = _normalized_copy_source(source)
     if normalized is None:
         return None
     parts = normalized.split("/")
     for index, part in enumerate(parts):
         if part.casefold() in _PREBUILT_CONTAINER_DIRS:
-            return "/".join(parts[: index + 1]).casefold()
+            return "/".join(parts[: index + 1])
     return None
 
 
@@ -314,7 +314,7 @@ def _artifact_destination(source: str, destination: str, source_root: str) -> st
     normalized_source = _normalized_copy_source(source)
     if normalized_destination is None or normalized_source is None:
         return None
-    if normalized_source.casefold() == source_root or destination.endswith("/"):
+    if normalized_source == source_root or destination.endswith("/"):
         return normalized_destination
     return posixpath.dirname(normalized_destination) or "/"
 
@@ -452,10 +452,12 @@ def _stage_source_revision_binding_state(
 
                 if source_root is None:
                     continue
-                artifact_destination = _artifact_destination(source, destination, source_root)
-                if source_is_revision_metadata or artifact_destination is None:
+                if source_is_revision_metadata:
                     continue
                 prebuilt_copy = True
+                artifact_destination = _artifact_destination(source, destination, source_root)
+                if artifact_destination is None:
+                    continue
                 for existing_artifact in artifacts:
                     if (
                         existing_artifact.destination == artifact_destination
@@ -480,7 +482,7 @@ def _stage_source_revision_binding_state(
                     )
                     artifacts.append(matching_artifact)
                 matching_artifact.bound = False
-                if normalized_source is not None and normalized_source.casefold() == source_root:
+                if normalized_source is not None and normalized_source == source_root:
                     for name in _REVISION_METADATA_NAMES:
                         revision_provenance[posixpath.join(artifact_destination, name)] = source_root
             continue
