@@ -154,7 +154,9 @@ def _verify_authority_identity(root: Path, repository: str, revision: str) -> No
         raise ValueError(
             f"authority checkout repository {actual_repository!r} does not match locked repository {repository!r}"
         )
-    if _git(root, "status", "--porcelain=v1", "--untracked-files=all"):
+    if _git(root, "status", "--porcelain=v1", "--untracked-files=all") or _git(
+        root, "ls-files", "--others", "--ignored", "--exclude-standard"
+    ):
         raise ValueError("authority checkout must be pristine at the locked revision")
 
 
