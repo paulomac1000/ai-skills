@@ -142,6 +142,51 @@ def test_semicolon_after_revision_comparison_does_not_gate_build() -> None:
     )
 
 
+def test_negated_equality_does_not_count_as_source_binding() -> None:
+    inspector = _inspector()
+    dockerfile = (
+        "FROM python:3.12-slim\n"
+        "ARG EXPECTED_SOURCE_REVISION\n"
+        "COPY dist/ /tmp/dist/\n"
+        'RUN test ! "$(cat /tmp/dist/SOURCE_REVISION)" = "$EXPECTED_SOURCE_REVISION"\n'
+    )
+
+    assert not inspector._source_revision_binding_signal(
+        dockerfile,
+        ["EXPECTED_SOURCE_REVISION"],
+    )
+
+
+def test_compound_or_predicate_does_not_count_as_source_binding() -> None:
+    inspector = _inspector()
+    dockerfile = (
+        "FROM python:3.12-slim\n"
+        "ARG EXPECTED_SOURCE_REVISION\n"
+        "COPY dist/ /tmp/dist/\n"
+        'RUN test "$(cat /tmp/dist/SOURCE_REVISION)" = "$EXPECTED_SOURCE_REVISION" -o 1 = 1\n'
+    )
+
+    assert not inspector._source_revision_binding_signal(
+        dockerfile,
+        ["EXPECTED_SOURCE_REVISION"],
+    )
+
+
+def test_bracket_negation_does_not_count_as_source_binding() -> None:
+    inspector = _inspector()
+    dockerfile = (
+        "FROM python:3.12-slim\n"
+        "ARG EXPECTED_SOURCE_REVISION\n"
+        "COPY dist/ /tmp/dist/\n"
+        'RUN [ ! "$(cat /tmp/dist/SOURCE_REVISION)" = "$EXPECTED_SOURCE_REVISION" ]\n'
+    )
+
+    assert not inspector._source_revision_binding_signal(
+        dockerfile,
+        ["EXPECTED_SOURCE_REVISION"],
+    )
+
+
 def test_and_chain_after_revision_comparison_remains_fail_closed() -> None:
     inspector = _inspector()
     dockerfile = (
