@@ -349,6 +349,17 @@ def _expected_revision_paths(artifact: _PrebuiltArtifactBinding) -> set[str]:
     return {posixpath.join(artifact.destination, name) for name in _REVISION_METADATA_NAMES}
 
 
+def _invalidate_revision_provenance(
+    artifacts: list[_PrebuiltArtifactBinding],
+    revision_provenance: dict[str, str],
+) -> None:
+    """Fail closed once revision metadata is explicitly touched outside the accepted equality check."""
+    revision_provenance.clear()
+    for artifact in artifacts:
+        artifact.bound = False
+        artifact.tainted = True
+
+
 def _resolved_revision_read(path: str, cwd: str | None) -> str | None:
     if path.startswith("/"):
         return posixpath.normpath(path)
@@ -492,10 +503,7 @@ def _stage_source_revision_binding_state(
             continue
         body = run.group(1).strip()
         if _SOURCE_REVISION_WRITE.search(body) is not None:
-            revision_provenance.clear()
-            for artifact in artifacts:
-                artifact.bound = False
-                artifact.tainted = True
+            _invalidate_revision_provenance(artifacts, revision_provenance)
             continue
         if (
             not body
@@ -517,7 +525,11 @@ def _stage_source_revision_binding_state(
             if len(tokens) == 2 and tokens[0] == "cd":
                 cwd = _container_path(tokens[1])
                 continue
-            if not _is_simple_equality_check(tokens):
+            simple_equality = _is_simple_equality_check(tokens)
+            if _SOURCE_REVISION_FILE.search(command) is not None and not simple_equality:
+                _invalidate_revision_provenance(artifacts, revision_provenance)
+                break
+            if not simple_equality:
                 continue
             if _SOURCE_CHECK_COMMAND.search(command) is None or _SOURCE_REVISION_FILE.search(command) is None:
                 continue
