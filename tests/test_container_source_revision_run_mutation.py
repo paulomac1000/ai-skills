@@ -83,3 +83,19 @@ def test_dynamic_revision_path_rewrite_cannot_bootstrap_binding() -> None:
         dockerfile,
         ["EXPECTED_SOURCE_REVISION"],
     ) == (True, False)
+
+
+def test_artifact_supplied_safe_basename_executable_taints_provenance() -> None:
+    inspector = _inspector()
+    dockerfile = (
+        "FROM python:3.12-slim\n"
+        "ARG EXPECTED_SOURCE_REVISION\n"
+        "COPY dist/ /tmp/dist/\n"
+        "RUN /tmp/dist/cat\n"
+        'RUN test "$(cat /tmp/dist/SOURCE_REVISION)" = "$EXPECTED_SOURCE_REVISION"\n'
+    )
+
+    assert inspector._source_revision_binding_state(
+        dockerfile,
+        ["EXPECTED_SOURCE_REVISION"],
+    ) == (True, False)
