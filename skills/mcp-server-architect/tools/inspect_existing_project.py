@@ -505,13 +505,18 @@ def _stage_source_revision_binding_state(
         if _SOURCE_REVISION_WRITE.search(body) is not None:
             _invalidate_revision_provenance(artifacts, revision_provenance)
             continue
-        if (
-            not body
-            or "||" in body
-            or ";" in body
-            or re.search(r"(?<!\|)\|(?!\|)", body)
-            or re.search(r"(?<!&)&(?!&)", body)
-        ):
+        unsafe_control_flow = bool(
+            body
+            and (
+                "||" in body
+                or ";" in body
+                or re.search(r"(?<!\|)\|(?!\|)", body)
+                or re.search(r"(?<!&)&(?!&)", body)
+            )
+        )
+        if not body or unsafe_control_flow:
+            if unsafe_control_flow and _SOURCE_REVISION_FILE.search(body) is not None:
+                _invalidate_revision_provenance(artifacts, revision_provenance)
             continue
         cwd: str | None = None
         for command in re.split(r"\s*&&\s*", body):
