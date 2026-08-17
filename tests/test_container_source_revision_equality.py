@@ -128,6 +128,54 @@ def test_unrelated_copy_cannot_supply_artifact_revision_metadata() -> None:
     )
 
 
+def test_renamed_unrelated_file_cannot_supply_artifact_revision_metadata() -> None:
+    inspector = _inspector()
+    dockerfile = (
+        "FROM python:3.12-slim\n"
+        "ARG EXPECTED_SOURCE_REVISION\n"
+        "COPY dist/ /tmp/dist/\n"
+        "COPY metadata/revision.txt /tmp/dist/SOURCE_REVISION\n"
+        'RUN test "$(cat /tmp/dist/SOURCE_REVISION)" = "$EXPECTED_SOURCE_REVISION"\n'
+    )
+
+    assert not inspector._source_revision_binding_signal(
+        dockerfile,
+        ["EXPECTED_SOURCE_REVISION"],
+    )
+
+
+def test_renamed_file_from_same_prebuilt_root_is_not_revision_metadata() -> None:
+    inspector = _inspector()
+    dockerfile = (
+        "FROM python:3.12-slim\n"
+        "ARG EXPECTED_SOURCE_REVISION\n"
+        "COPY dist/server.whl /tmp/dist/\n"
+        "COPY dist/revision.txt /tmp/dist/SOURCE_REVISION\n"
+        'RUN test "$(cat /tmp/dist/SOURCE_REVISION)" = "$EXPECTED_SOURCE_REVISION"\n'
+    )
+
+    assert not inspector._source_revision_binding_signal(
+        dockerfile,
+        ["EXPECTED_SOURCE_REVISION"],
+    )
+
+
+def test_unrelated_copy_over_artifact_bytes_taints_source_binding() -> None:
+    inspector = _inspector()
+    dockerfile = (
+        "FROM python:3.12-slim\n"
+        "ARG EXPECTED_SOURCE_REVISION\n"
+        "COPY dist/ /tmp/dist/\n"
+        "COPY metadata/server.whl /tmp/dist/server.whl\n"
+        'RUN test "$(cat /tmp/dist/SOURCE_REVISION)" = "$EXPECTED_SOURCE_REVISION"\n'
+    )
+
+    assert not inspector._source_revision_binding_signal(
+        dockerfile,
+        ["EXPECTED_SOURCE_REVISION"],
+    )
+
+
 def test_matching_prebuilt_copy_can_supply_artifact_revision_metadata() -> None:
     inspector = _inspector()
     dockerfile = (
@@ -135,6 +183,21 @@ def test_matching_prebuilt_copy_can_supply_artifact_revision_metadata() -> None:
         "ARG EXPECTED_SOURCE_REVISION\n"
         "COPY dist/server.whl /tmp/dist/\n"
         "COPY dist/SOURCE_REVISION /tmp/dist/SOURCE_REVISION\n"
+        'RUN test "$(cat /tmp/dist/SOURCE_REVISION)" = "$EXPECTED_SOURCE_REVISION"\n'
+    )
+
+    assert inspector._source_revision_binding_signal(
+        dockerfile,
+        ["EXPECTED_SOURCE_REVISION"],
+    )
+
+
+def test_multiple_copy_sources_are_all_inspected_for_prebuilt_binding() -> None:
+    inspector = _inspector()
+    dockerfile = (
+        "FROM python:3.12-slim\n"
+        "ARG EXPECTED_SOURCE_REVISION\n"
+        "COPY dist/server.whl dist/SOURCE_REVISION /tmp/dist/\n"
         'RUN test "$(cat /tmp/dist/SOURCE_REVISION)" = "$EXPECTED_SOURCE_REVISION"\n'
     )
 
@@ -216,6 +279,21 @@ def test_semicolon_after_revision_comparison_does_not_gate_build() -> None:
         "ARG EXPECTED_SOURCE_REVISION\n"
         "COPY dist/ /tmp/dist/\n"
         'RUN test "$(cat /tmp/dist/SOURCE_REVISION)" = "$EXPECTED_SOURCE_REVISION"; echo done\n'
+    )
+
+    assert not inspector._source_revision_binding_signal(
+        dockerfile,
+        ["EXPECTED_SOURCE_REVISION"],
+    )
+
+
+def test_backgrounded_revision_comparison_does_not_gate_build() -> None:
+    inspector = _inspector()
+    dockerfile = (
+        "FROM python:3.12-slim\n"
+        "ARG EXPECTED_SOURCE_REVISION\n"
+        "COPY dist/ /tmp/dist/\n"
+        'RUN test "$(cat /tmp/dist/SOURCE_REVISION)" = "$EXPECTED_SOURCE_REVISION" & echo done\n'
     )
 
     assert not inspector._source_revision_binding_signal(
