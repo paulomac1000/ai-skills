@@ -82,17 +82,23 @@ public sealed class ApprovalRegistry(TimeProvider clock)
         string resource,
         string argumentsDigest)
     {
-        ApprovalRecord? record;
         lock (_gate)
         {
-            if (!_records.Remove(token, out record)) return false;
+            if (!_records.TryGetValue(token, out var record)) return false;
+            if (record.ExpiresAt <= clock.GetUtcNow())
+            {
+                _records.Remove(token);
+                return false;
+            }
+            if (!FixedTimeEquals(record.Principal, principal)
+                || record.Capability != capability
+                || record.Target != target
+                || record.Resource != resource
+                || !FixedTimeEquals(record.ArgumentsDigest, argumentsDigest))
+                return false;
+
+            return _records.Remove(token);
         }
-        return record.ExpiresAt > clock.GetUtcNow()
-            && FixedTimeEquals(record.Principal, principal)
-            && record.Capability == capability
-            && record.Target == target
-            && record.Resource == resource
-            && FixedTimeEquals(record.ArgumentsDigest, argumentsDigest);
     }
 
     private static bool FixedTimeEquals(string left, string right) =>
