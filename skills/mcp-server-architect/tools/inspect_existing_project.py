@@ -59,6 +59,7 @@ _SOURCE_REVISION_WRITE = re.compile(
     re.IGNORECASE,
 )
 _WORKDIR_INSTRUCTION = re.compile(r"^WORKDIR\b\s*(.*)$", re.IGNORECASE)
+_SHELL_INSTRUCTION = re.compile(r"^SHELL\b", re.IGNORECASE)
 _RUN_INSTRUCTION = re.compile(r"^RUN\b\s*(.*)$", re.IGNORECASE)
 _SOURCE_CHECK_COMMAND = re.compile(r"(?:\btest\b|^\s*\[\[?)", re.IGNORECASE)
 _EQUALITY_OPERATOR = r"(?<![!<>=])(?:==|=)(?!=)"
@@ -456,6 +457,7 @@ def _stage_source_revision_binding_state(
     revision_provenance: dict[str, str] = {}
     prebuilt_copy = False
     workdir: str | None = None
+    run_shell_trusted = True
 
     for instruction in instructions:
         argument = _ARG_INSTRUCTION.match(instruction)
@@ -466,6 +468,13 @@ def _stage_source_revision_binding_state(
         workdir_instruction = _WORKDIR_INSTRUCTION.match(instruction)
         if workdir_instruction is not None:
             workdir = _resolved_container_directory(workdir_instruction.group(1).strip(), workdir)
+            continue
+
+        if _SHELL_INSTRUCTION.match(instruction) is not None:
+            # The inspector cannot prove the identity or semantics of a custom shell
+            # from Dockerfile text alone. Preserve earlier binding evidence, but do
+            # not trust any subsequent RUN to establish or preserve provenance.
+            run_shell_trusted = False
             continue
 
         parsed_copy = _parse_copy_instruction(instruction)
@@ -545,6 +554,10 @@ def _stage_source_revision_binding_state(
 
         run = _RUN_INSTRUCTION.match(instruction)
         if run is None:
+            continue
+        if not run_shell_trusted:
+            if artifacts:
+                _invalidate_revision_provenance(artifacts, revision_provenance)
             continue
         body = run.group(1).strip()
         if _SOURCE_REVISION_WRITE.search(body) is not None:
