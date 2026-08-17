@@ -140,7 +140,7 @@ def test_source_bound_prebuilt_container_clears_stale_artifact_gap(tmp_path: Pat
         "FROM python:3.12-slim\n"
         "ARG EXPECTED_SOURCE_REVISION\n"
         "COPY dist/ /tmp/dist/\n"
-        "RUN test -n \"$EXPECTED_SOURCE_REVISION\" && test \"$(cat /tmp/dist/SOURCE_REVISION)\" = \"$EXPECTED_SOURCE_REVISION\" && sha256sum --check /tmp/dist/SHA256SUMS\n",
+        "RUN test -n \"$EXPECTED_SOURCE_REVISION\" && test \"$(cat /tmp/dist/SOURCE_REVISION)\" = \"$EXPECTED_SOURCE_REVISION\"\n",
         encoding="utf-8",
     )
 
