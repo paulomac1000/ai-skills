@@ -247,6 +247,17 @@ def _container_path(value: str) -> str | None:
     return posixpath.normpath(value)
 
 
+def _resolved_copy_destination(value: str, workdir: str | None) -> str | None:
+    """Resolve a static COPY/ADD destination without guessing an inherited base-image WORKDIR."""
+    if "$" in value:
+        return None
+    if value.startswith("/"):
+        return posixpath.normpath(value)
+    if workdir is None:
+        return None
+    return posixpath.normpath(posixpath.join(workdir, value))
+
+
 def _resolved_container_directory(value: str, current: str | None) -> str | None:
     """Resolve one simple static WORKDIR/cd path without guessing inherited or dynamic state."""
     if not value or "$" in value or any(character.isspace() for character in value):
@@ -323,24 +334,24 @@ def _prebuilt_source_root(source: str) -> str | None:
     return None
 
 
-def _artifact_destination(source: str, destination: str, source_root: str) -> str | None:
+def _artifact_destination(source: str, destination: str, source_root: str, workdir: str | None) -> str | None:
     """Return the container directory whose copied artifact bytes share one revision marker."""
-    normalized_destination = _container_path(destination)
+    normalized_destination = _resolved_copy_destination(destination, workdir)
     normalized_source = _normalized_copy_source(source)
     if normalized_destination is None or normalized_source is None:
         return None
-    if normalized_source == source_root or destination.endswith("/"):
+    if normalized_source == source_root or destination.endswith("/") or destination in {".", "./"}:
         return normalized_destination
     return posixpath.dirname(normalized_destination) or "/"
 
 
-def _copy_target(source: str, destination: str) -> str | None:
+def _copy_target(source: str, destination: str, workdir: str | None) -> str | None:
     """Return the exact target of a simple file COPY when statically provable."""
-    normalized_destination = _container_path(destination)
+    normalized_destination = _resolved_copy_destination(destination, workdir)
     normalized_source = _normalized_copy_source(source)
     if normalized_destination is None or normalized_source is None:
         return None
-    if destination.endswith("/"):
+    if destination.endswith("/") or destination in {".", "./"}:
         return posixpath.join(normalized_destination, posixpath.basename(normalized_source))
     return normalized_destination
 
@@ -462,7 +473,7 @@ def _stage_source_revision_binding_state(
             sources, destination, from_stage = parsed_copy
             for source in sources:
                 normalized_source = _normalized_copy_source(source)
-                normalized_destination = _container_path(destination)
+                normalized_destination = _resolved_copy_destination(destination, workdir)
                 source_root = None if from_stage else _prebuilt_source_root(source)
                 source_name = (
                     posixpath.basename(normalized_source).replace("-", "_").upper()
@@ -470,7 +481,7 @@ def _stage_source_revision_binding_state(
                     else ""
                 )
                 source_is_revision_metadata = source_name in _REVISION_METADATA_NAMES
-                target = _copy_target(source, destination)
+                target = _copy_target(source, destination, workdir)
                 target_name = posixpath.basename(target).replace("-", "_").upper() if target is not None else ""
                 target_is_revision_metadata = target_name in _REVISION_METADATA_NAMES
                 impact_path = target or normalized_destination
@@ -500,7 +511,7 @@ def _stage_source_revision_binding_state(
                 if source_is_revision_metadata:
                     continue
                 prebuilt_copy = True
-                artifact_destination = _artifact_destination(source, destination, source_root)
+                artifact_destination = _artifact_destination(source, destination, source_root, workdir)
                 if artifact_destination is None:
                     continue
                 for existing_artifact in artifacts:
