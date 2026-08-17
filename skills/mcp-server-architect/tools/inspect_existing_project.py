@@ -243,8 +243,8 @@ def _container_path(value: str) -> str | None:
     return posixpath.normpath(value)
 
 
-def _parse_copy_instruction(instruction: str) -> tuple[str, str, bool] | None:
-    """Parse one simple COPY/ADD and retain whether its source is another build stage."""
+def _parse_copy_instruction(instruction: str) -> tuple[list[str], str, bool] | None:
+    """Parse one static COPY/ADD and retain all sources plus stage-copy provenance."""
     match = _COPY_INSTRUCTION.match(instruction)
     if match is None:
         return None
@@ -271,17 +271,16 @@ def _parse_copy_instruction(instruction: str) -> tuple[str, str, bool] | None:
             values = json.loads(payload)
         except json.JSONDecodeError:
             return None
-        if not isinstance(values, list) or len(values) != 2 or not all(isinstance(item, str) for item in values):
+        if not isinstance(values, list) or len(values) < 2 or not all(isinstance(item, str) for item in values):
             return None
-        source, destination = values
-        return source, destination, from_stage
+        return values[:-1], values[-1], from_stage
     try:
         tokens = shlex.split(payload)
     except ValueError:
         return None
-    if len(tokens) != 2:
+    if len(tokens) < 2:
         return None
-    return tokens[0], tokens[1], from_stage
+    return tokens[:-1], tokens[-1], from_stage
 
 
 def _normalized_copy_source(source: str) -> str | None:
@@ -331,11 +330,19 @@ def _copy_target(source: str, destination: str) -> str | None:
     return normalized_destination
 
 
+def _path_at_or_below(path: str, root: str) -> bool:
+    """Return whether an absolute path is the root itself or a lexical descendant."""
+    if root == "/":
+        return path.startswith("/")
+    return path == root or path.startswith(root.rstrip("/") + "/")
+
+
 @dataclass
 class _PrebuiltArtifactBinding:
     source_root: str
     destination: str
     bound: bool = False
+    tainted: bool = False
 
 
 def _expected_revision_paths(artifact: _PrebuiltArtifactBinding) -> set[str]:
@@ -407,63 +414,77 @@ def _stage_source_revision_binding_state(
 
         parsed_copy = _parse_copy_instruction(instruction)
         if parsed_copy is not None:
-            source, destination, from_stage = parsed_copy
-            normalized_source = _normalized_copy_source(source)
-            normalized_destination = _container_path(destination)
-            source_root = None if from_stage else _prebuilt_source_root(source)
-            source_name = (
-                posixpath.basename(normalized_source).replace("-", "_").upper()
-                if normalized_source is not None
-                else ""
-            )
-            is_revision_metadata = source_name in _REVISION_METADATA_NAMES
-
-            if source_root is None and normalized_destination is not None:
-                for artifact in artifacts:
-                    if artifact.destination == normalized_destination:
-                        artifact.bound = False
-                        for path in _expected_revision_paths(artifact):
-                            revision_provenance.pop(path, None)
-
-            if source_root is not None:
-                artifact_destination = _artifact_destination(source, destination, source_root)
-                if not is_revision_metadata and artifact_destination is not None:
-                    prebuilt_copy = True
-                    for artifact in artifacts:
-                        if artifact.destination == artifact_destination and artifact.source_root != source_root:
-                            artifact.bound = False
-                            for path in _expected_revision_paths(artifact):
-                                revision_provenance.pop(path, None)
-                    artifact = next(
-                        (
-                            item
-                            for item in artifacts
-                            if item.source_root == source_root and item.destination == artifact_destination
-                        ),
-                        None,
-                    )
-                    if artifact is None:
-                        artifact = _PrebuiltArtifactBinding(source_root=source_root, destination=artifact_destination)
-                        artifacts.append(artifact)
-                    artifact.bound = False
-                    if normalized_source is not None and normalized_source.casefold() == source_root:
-                        for name in _REVISION_METADATA_NAMES:
-                            revision_provenance[posixpath.join(artifact_destination, name)] = source_root
-
-                if is_revision_metadata:
-                    target = _copy_target(source, destination)
-                    if target is not None:
-                        revision_provenance[target] = source_root
-                        for artifact in artifacts:
-                            if target in _expected_revision_paths(artifact):
-                                artifact.bound = False
-            elif normalized_source is not None and is_revision_metadata:
+            sources, destination, from_stage = parsed_copy
+            for source in sources:
+                normalized_source = _normalized_copy_source(source)
+                normalized_destination = _container_path(destination)
+                source_root = None if from_stage else _prebuilt_source_root(source)
+                source_name = (
+                    posixpath.basename(normalized_source).replace("-", "_").upper()
+                    if normalized_source is not None
+                    else ""
+                )
+                source_is_revision_metadata = source_name in _REVISION_METADATA_NAMES
                 target = _copy_target(source, destination)
-                if target is not None:
-                    revision_provenance.pop(target, None)
-                    for artifact in artifacts:
-                        if target in _expected_revision_paths(artifact):
-                            artifact.bound = False
+                target_name = (
+                    posixpath.basename(target).replace("-", "_").upper() if target is not None else ""
+                )
+                target_is_revision_metadata = target_name in _REVISION_METADATA_NAMES
+                impact_path = target or normalized_destination
+
+                if impact_path is not None:
+                    for existing_artifact in artifacts:
+                        if (
+                            _path_at_or_below(impact_path, existing_artifact.destination)
+                            and source_root != existing_artifact.source_root
+                        ):
+                            existing_artifact.bound = False
+                            existing_artifact.tainted = True
+                            for path in _expected_revision_paths(existing_artifact):
+                                revision_provenance.pop(path, None)
+
+                if target_is_revision_metadata and target is not None:
+                    for existing_artifact in artifacts:
+                        if target in _expected_revision_paths(existing_artifact):
+                            existing_artifact.bound = False
+                    if source_root is not None and source_is_revision_metadata:
+                        revision_provenance[target] = source_root
+                    else:
+                        revision_provenance.pop(target, None)
+
+                if source_root is None:
+                    continue
+                artifact_destination = _artifact_destination(source, destination, source_root)
+                if source_is_revision_metadata or artifact_destination is None:
+                    continue
+                prebuilt_copy = True
+                for existing_artifact in artifacts:
+                    if (
+                        existing_artifact.destination == artifact_destination
+                        and existing_artifact.source_root != source_root
+                    ):
+                        existing_artifact.bound = False
+                        existing_artifact.tainted = True
+                        for path in _expected_revision_paths(existing_artifact):
+                            revision_provenance.pop(path, None)
+                matching_artifact = next(
+                    (
+                        item
+                        for item in artifacts
+                        if item.source_root == source_root and item.destination == artifact_destination
+                    ),
+                    None,
+                )
+                if matching_artifact is None:
+                    matching_artifact = _PrebuiltArtifactBinding(
+                        source_root=source_root,
+                        destination=artifact_destination,
+                    )
+                    artifacts.append(matching_artifact)
+                matching_artifact.bound = False
+                if normalized_source is not None and normalized_source.casefold() == source_root:
+                    for name in _REVISION_METADATA_NAMES:
+                        revision_provenance[posixpath.join(artifact_destination, name)] = source_root
             continue
 
         run = _RUN_INSTRUCTION.match(instruction)
@@ -474,8 +495,15 @@ def _stage_source_revision_binding_state(
             revision_provenance.clear()
             for artifact in artifacts:
                 artifact.bound = False
+                artifact.tainted = True
             continue
-        if not body or "||" in body or ";" in body or re.search(r"(?<!\|)\|(?!\|)", body):
+        if (
+            not body
+            or "||" in body
+            or ";" in body
+            or re.search(r"(?<!\|)\|(?!\|)", body)
+            or re.search(r"(?<!&)&(?!&)", body)
+        ):
             continue
         cwd: str | None = None
         for command in re.split(r"\s*&&\s*", body):
@@ -505,10 +533,16 @@ def _stage_source_revision_binding_state(
                     continue
                 provenance = revision_provenance.get(checked_path)
                 for artifact in artifacts:
-                    if provenance == artifact.source_root and checked_path in _expected_revision_paths(artifact):
+                    if (
+                        not artifact.tainted
+                        and provenance == artifact.source_root
+                        and checked_path in _expected_revision_paths(artifact)
+                    ):
                         artifact.bound = True
 
-    return prebuilt_copy, prebuilt_copy and bool(artifacts) and all(artifact.bound for artifact in artifacts)
+    return prebuilt_copy, prebuilt_copy and bool(artifacts) and all(
+        artifact.bound and not artifact.tainted for artifact in artifacts
+    )
 
 
 def _source_revision_binding_state(text: str, revision_args: list[str]) -> tuple[bool, bool]:
