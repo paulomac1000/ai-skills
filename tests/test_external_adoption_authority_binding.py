@@ -153,3 +153,72 @@ def test_external_adoption_preflight_rejects_unreadable_candidate_implementation
     assert len(findings) == 1
     assert findings[0].location == "applicability[0].implementation[0].path"
     assert findings[0].message.startswith("implementation file cannot be read safely:")
+
+
+def test_external_adoption_semantics_use_the_preflight_snapshot(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    candidate = tmp_path / "candidate"
+    authority = tmp_path / "authority"
+    candidate.mkdir()
+    revision = _git_authority(authority)
+    implementation = candidate / "implementation.py"
+    implementation.write_text("ORIGINAL_SYMBOL = True\n", encoding="utf-8")
+    assessment = {
+        "acceptance_authority": _authority(revision),
+        "skill": {"name": "example-skill"},
+        "applicability": [
+            {
+                "status": "applicable",
+                "implementation": [
+                    {"path": "implementation.py", "symbol": "ORIGINAL_SYMBOL"},
+                ],
+            }
+        ],
+    }
+    original_preflight = VALIDATOR._preflight_candidate_implementation_files
+
+    def preflight_then_replace(
+        document: object,
+        candidate_root: Path,
+        implementation_payloads: dict[str, str] | None = None,
+    ) -> list[object]:
+        findings = original_preflight(document, candidate_root, implementation_payloads)
+        implementation.write_text("REPLACEMENT_ONLY = True\n", encoding="utf-8")
+        return findings
+
+    observed: dict[str, object] = {}
+
+    def validate_from_snapshot(*args: object, **kwargs: object) -> list[object]:
+        observed.update(kwargs)
+        payloads = kwargs.get("implementation_payloads")
+        assert isinstance(payloads, dict)
+        semantic_findings: list[object] = []
+        VALIDATOR.adoption._validate_implementation(
+            {"path": "implementation.py", "symbol": "ORIGINAL_SYMBOL"},
+            "implementation",
+            semantic_findings,
+            repository_root=candidate,
+            implementation_payloads=payloads,
+        )
+        assert semantic_findings == []
+        return []
+
+    monkeypatch.setattr(VALIDATOR, "_preflight_candidate_implementation_files", preflight_then_replace)
+    monkeypatch.setattr(VALIDATOR.adoption, "validate_document", validate_from_snapshot)
+
+    findings = VALIDATOR.validate_external_adoption(
+        assessment,
+        candidate_root=candidate,
+        authority_root=authority,
+        authority_repository=REPOSITORY,
+        authority_revision=revision,
+        authority_workflow_path=WORKFLOW,
+        token="test-token",
+        as_of=date(2026, 8, 16),
+    )
+
+    assert findings == []
+    assert observed["implementation_payloads"] == {"implementation.py": "ORIGINAL_SYMBOL = True\n"}
+    assert implementation.read_text(encoding="utf-8") == "REPLACEMENT_ONLY = True\n"
