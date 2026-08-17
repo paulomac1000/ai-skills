@@ -14,10 +14,11 @@ from typing import Any
 import yaml
 
 ROOT = Path(__file__).resolve().parents[3]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+CONTRACTS = ROOT / "contracts"
+if str(CONTRACTS) not in sys.path:
+    sys.path.insert(0, str(CONTRACTS))
 
-from contracts.confined_io import ConfinedReadError, is_link_or_reparse, read_utf8_bounded  # noqa: E402
+from confined_io import ConfinedReadError, is_link_or_reparse, read_utf8_bounded  # noqa: E402
 
 _MARKER = re.compile(
     r"^\s*#\s*ai-skills-execution-policy:\s*(on-demand)\s*$",
@@ -223,24 +224,22 @@ def _workflow_paths(root: Path) -> list[Path]:
             raise OSError(f"workflow directory contains a symlink or reparse component: {current}")
         if not stat.S_ISDIR(metadata.st_mode):
             raise OSError(f"workflow directory component is not a directory: {current}")
-    try:
-        entries = list(directory.iterdir())
-    except OSError as exc:
-        raise OSError(f"cannot enumerate workflow directory: {exc}") from exc
-    if len(entries) > MAX_WORKFLOW_ENTRIES:
-        raise OSError(f"workflow directory exceeds {MAX_WORKFLOW_ENTRIES} entries")
     paths: list[Path] = []
-    for path in sorted(entries):
-        if path.suffix not in _WORKFLOW_SUFFIXES:
-            continue
-        try:
+    entry_count = 0
+    try:
+        for path in directory.iterdir():
+            entry_count += 1
+            if entry_count > MAX_WORKFLOW_ENTRIES:
+                raise OSError(f"workflow directory exceeds {MAX_WORKFLOW_ENTRIES} entries")
+            if path.suffix not in _WORKFLOW_SUFFIXES:
+                continue
             metadata = path.lstat()
-        except OSError as exc:
-            raise OSError(f"cannot inspect workflow entry {path.name}: {exc}") from exc
-        if is_link_or_reparse(metadata) or not stat.S_ISREG(metadata.st_mode):
-            raise OSError(f"workflow entry must be a regular non-symlink file: {path.name}")
-        paths.append(path)
-    return paths
+            if is_link_or_reparse(metadata) or not stat.S_ISREG(metadata.st_mode):
+                raise OSError(f"workflow entry must be a regular non-symlink file: {path.name}")
+            paths.append(path)
+    except OSError as exc:
+        raise OSError(f"cannot enumerate workflow directory safely: {exc}") from exc
+    return sorted(paths)
 
 
 def audit_repository(
