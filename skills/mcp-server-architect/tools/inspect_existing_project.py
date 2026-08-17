@@ -63,6 +63,29 @@ _RUN_INSTRUCTION = re.compile(r"^RUN\b\s*(.*)$", re.IGNORECASE)
 _SOURCE_CHECK_COMMAND = re.compile(r"(?:\btest\b|^\s*\[\[?)", re.IGNORECASE)
 _EQUALITY_OPERATOR = r"(?<![!<>=])(?:==|=)(?!=)"
 _REVISION_METADATA_NAMES = ("SOURCE_REVISION", "SOURCE_SHA")
+_SHELL_ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=.*$", re.DOTALL)
+_OPAQUE_SHELL_EFFECT = re.compile(r"(?:`|\$\(|[<>])")
+_REVISION_PROVENANCE_SAFE_COMMANDS = frozenset(
+    {
+        "[",
+        "[[",
+        "cat",
+        "cmp",
+        "echo",
+        "false",
+        "grep",
+        "head",
+        "ls",
+        "printf",
+        "pwd",
+        "sha256sum",
+        "stat",
+        "tail",
+        "test",
+        "true",
+        "wc",
+    }
+)
 
 
 def _regular_text(path: Path) -> str | None:
@@ -365,7 +388,7 @@ def _invalidate_revision_provenance(
     artifacts: list[_PrebuiltArtifactBinding],
     revision_provenance: dict[str, str],
 ) -> None:
-    """Fail closed once revision metadata is explicitly touched outside the accepted equality check."""
+    """Fail closed when an instruction may have changed artifact or revision provenance."""
     revision_provenance.clear()
     for artifact in artifacts:
         artifact.bound = False
@@ -412,6 +435,19 @@ def _is_simple_equality_check(tokens: list[str]) -> bool:
     opener, _left, operator, _right, closer = tokens
     expected_closer = {"[": "]", "[[": "]]"}.get(opener)
     return expected_closer is not None and closer == expected_closer and operator in {"=", "=="}
+
+
+def _command_preserves_revision_provenance(command: str, tokens: list[str]) -> bool:
+    """Conservatively recognize shell commands that cannot mutate copied artifact bytes."""
+    if not tokens or _OPAQUE_SHELL_EFFECT.search(command) is not None:
+        return False
+    command_index = 0
+    while command_index < len(tokens) and _SHELL_ASSIGNMENT.fullmatch(tokens[command_index]) is not None:
+        command_index += 1
+    if command_index == len(tokens):
+        return True
+    executable = posixpath.basename(tokens[command_index])
+    return executable in _REVISION_PROVENANCE_SAFE_COMMANDS
 
 
 def _stage_source_revision_binding_state(
@@ -528,47 +564,57 @@ def _stage_source_revision_binding_state(
             and ("||" in body or ";" in body or re.search(r"(?<!\|)\|(?!\|)", body) or re.search(r"(?<!&)&(?!&)", body))
         )
         if not body or unsafe_control_flow:
-            if unsafe_control_flow and _SOURCE_REVISION_FILE.search(body) is not None:
+            if unsafe_control_flow and artifacts:
                 _invalidate_revision_provenance(artifacts, revision_provenance)
             continue
         cwd = workdir
         for command in re.split(r"\s*&&\s*", body):
             command = command.strip()
             if not command or command.startswith("!"):
+                if command.startswith("!") and artifacts:
+                    _invalidate_revision_provenance(artifacts, revision_provenance)
+                    break
                 continue
             try:
                 tokens = shlex.split(command)
             except ValueError:
+                if artifacts:
+                    _invalidate_revision_provenance(artifacts, revision_provenance)
+                    break
                 continue
-            if len(tokens) == 2 and tokens[0] == "cd":
+            if len(tokens) == 2 and tokens[0] == "cd" and _OPAQUE_SHELL_EFFECT.search(command) is None:
                 cwd = _resolved_container_directory(tokens[1], cwd)
                 continue
             simple_equality = _is_simple_equality_check(tokens)
             if _SOURCE_REVISION_FILE.search(command) is not None and not simple_equality:
                 _invalidate_revision_provenance(artifacts, revision_provenance)
                 break
-            if not simple_equality:
+            bound_by_command = False
+            if simple_equality and _SOURCE_CHECK_COMMAND.search(command) is not None:
+                trusted_revision_paths = set(revision_provenance)
+                for name in sorted(candidate_args.intersection(active_args)):
+                    checked_path = _source_revision_equality(
+                        command,
+                        name,
+                        cwd=cwd,
+                        trusted_revision_paths=trusted_revision_paths,
+                    )
+                    if checked_path is None:
+                        continue
+                    provenance = revision_provenance.get(checked_path)
+                    for artifact in artifacts:
+                        if (
+                            not artifact.tainted
+                            and provenance == artifact.source_root
+                            and checked_path in _expected_revision_paths(artifact)
+                        ):
+                            artifact.bound = True
+                            bound_by_command = True
+            if bound_by_command:
                 continue
-            if _SOURCE_CHECK_COMMAND.search(command) is None or _SOURCE_REVISION_FILE.search(command) is None:
-                continue
-            trusted_revision_paths = set(revision_provenance)
-            for name in sorted(candidate_args.intersection(active_args)):
-                checked_path = _source_revision_equality(
-                    command,
-                    name,
-                    cwd=cwd,
-                    trusted_revision_paths=trusted_revision_paths,
-                )
-                if checked_path is None:
-                    continue
-                provenance = revision_provenance.get(checked_path)
-                for artifact in artifacts:
-                    if (
-                        not artifact.tainted
-                        and provenance == artifact.source_root
-                        and checked_path in _expected_revision_paths(artifact)
-                    ):
-                        artifact.bound = True
+            if artifacts and not _command_preserves_revision_provenance(command, tokens):
+                _invalidate_revision_provenance(artifacts, revision_provenance)
+                break
 
     return prebuilt_copy, prebuilt_copy and bool(artifacts) and all(
         artifact.bound and not artifact.tainted for artifact in artifacts
