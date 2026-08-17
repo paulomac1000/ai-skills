@@ -617,8 +617,8 @@ def _stage_source_revision_binding_state(
                 trusted_revision_paths=trusted_revision_paths,
             )
             if captured_revision is not None:
-                variable, checked_path = captured_revision
-                revision_variables[variable] = checked_path
+                variable, captured_path = captured_revision
+                revision_variables[variable] = captured_path
                 continue
             simple_equality = _is_simple_equality_check(tokens)
             if _SOURCE_REVISION_FILE.search(command) is not None and not simple_equality:
@@ -627,15 +627,15 @@ def _stage_source_revision_binding_state(
             bound_by_command = False
             if simple_equality:
                 for name in sorted(candidate_args.intersection(active_args)):
-                    checked_path = _source_revision_variable_equality(tokens, name, revision_variables)
-                    if checked_path is None:
+                    matched_path = _source_revision_variable_equality(tokens, name, revision_variables)
+                    if matched_path is None:
                         continue
-                    provenance = revision_provenance.get(checked_path)
+                    provenance = revision_provenance.get(matched_path)
                     for artifact in artifacts:
                         if (
                             not artifact.tainted
                             and provenance == artifact.source_root
-                            and checked_path in _expected_revision_paths(artifact)
+                            and matched_path in _expected_revision_paths(artifact)
                         ):
                             artifact.bound = True
                             bound_by_command = True
