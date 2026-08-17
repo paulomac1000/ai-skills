@@ -433,12 +433,21 @@ def _validate_implementation(
     findings: list[Finding],
     *,
     repository_root: Path,
+    implementation_payloads: Mapping[str, str] | None = None,
 ) -> None:
     path_text = _text(implementation.get("path"), f"{location}.path", findings)
     symbol = _text(implementation.get("symbol"), f"{location}.symbol", findings)
     candidate = _safe_repository_path(repository_root, path_text) if path_text else None
     if candidate is None:
         findings.append(Finding(f"{location}.path", "must be a repository-relative path without symlinks"))
+        return
+    if implementation_payloads is not None:
+        if path_text not in implementation_payloads:
+            findings.append(Finding(f"{location}.path", "implementation bytes were not captured by the trusted preflight"))
+            return
+        content = implementation_payloads[path_text]
+        if symbol and symbol not in content:
+            findings.append(Finding(f"{location}.symbol", "was not found in the implementation file"))
         return
     if not candidate.is_file():
         findings.append(Finding(f"{location}.path", "does not identify an existing file"))
@@ -464,6 +473,7 @@ def _validate_applicability(
     revision: str,
     repository_root: Path,
     verifier: EvidenceVerifier | None,
+    implementation_payloads: Mapping[str, str] | None = None,
 ) -> None:
     raw_entries = _sequence(assessment.get("applicability"), "applicability", findings)
     entries: dict[str, Mapping[str, Any]] = {}
@@ -511,6 +521,7 @@ def _validate_applicability(
                     impl_location,
                     findings,
                     repository_root=repository_root,
+                    implementation_payloads=implementation_payloads,
                 )
             for verification_index, raw_verification in enumerate(verifications):
                 verification_location = f"{location}.verification[{verification_index}]"
@@ -824,6 +835,7 @@ def validate_document(
     schema: Mapping[str, Any] | None = None,
     repository_root: Path = ROOT,
     evidence_verifier: EvidenceVerifier | None = None,
+    implementation_payloads: Mapping[str, str] | None = None,
 ) -> list[Finding]:
     """Return every schema, semantic, local-artifact, and provider violation."""
     effective_schema = schema if schema is not None else _load_json(DEFAULT_SCHEMA)
@@ -947,6 +959,7 @@ def validate_document(
         revision=revision,
         repository_root=repository_root,
         verifier=verifier,
+        implementation_payloads=implementation_payloads,
     )
     _validate_compatibility(
         assessment,
