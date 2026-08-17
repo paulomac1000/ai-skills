@@ -30,10 +30,19 @@ MAX_DOCUMENT_BYTES = 2 * 1024 * 1024
 MAX_IMPLEMENTATION_BYTES = 8 * 1024 * 1024
 
 
-def _parse_mapping(path: Path, relative: str, *, json_only: bool = False) -> Mapping[str, Any]:
-    if path.stat().st_size > MAX_DOCUMENT_BYTES:
-        raise ValueError(f"input exceeds {MAX_DOCUMENT_BYTES} bytes: {relative}")
-    text = path.read_text(encoding="utf-8")
+def _parse_mapping(
+    path: Path,
+    repository_root: Path,
+    relative: str,
+    *,
+    json_only: bool = False,
+) -> Mapping[str, Any]:
+    try:
+        text, _size = read_utf8_bounded(path, repository_root, MAX_DOCUMENT_BYTES)
+    except ConfinedReadError as exc:
+        if exc.code == "input.too-large":
+            raise ValueError(f"input exceeds {MAX_DOCUMENT_BYTES} bytes: {relative}") from exc
+        raise ValueError(f"input cannot be read safely: {relative}: {exc}") from exc
     value = json.loads(text) if json_only else yaml.safe_load(text)
     if not isinstance(value, Mapping):
         raise ValueError(f"input must contain a mapping: {relative}")
@@ -41,12 +50,22 @@ def _parse_mapping(path: Path, relative: str, *, json_only: bool = False) -> Map
 
 
 def _load_mapping(root: Path, relative: str, *, json_only: bool = False) -> Mapping[str, Any]:
-    return _parse_mapping(confined_regular_file(root, relative), relative, json_only=json_only)
+    return _parse_mapping(
+        confined_regular_file(root, relative),
+        root,
+        relative,
+        json_only=json_only,
+    )
 
 
 def _load_authority_mapping(root: Path, relative: str, *, json_only: bool = False) -> Mapping[str, Any]:
     """Load policy only from tracked, clean bytes in the verified authority checkout."""
-    return _parse_mapping(trusted_sources._authority_file(root, relative), relative, json_only=json_only)
+    return _parse_mapping(
+        trusted_sources._authority_file(root, relative),
+        root,
+        relative,
+        json_only=json_only,
+    )
 
 
 def _external_authority(repository: str, revision: str, workflow_path: str) -> dict[str, str]:
