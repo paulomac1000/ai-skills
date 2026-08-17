@@ -169,7 +169,7 @@ public sealed class InvocationKernel(
         var queueLimit = manifest.ConcurrentSafe ? 64 : 0;
         var key = scope switch
         {
-            "global" => "global",
+            "global" => $"{manifest.Name}:global",
             "principal-target" => $"{manifest.Name}:{principal}:{resourceKey}",
             "principal" => $"{manifest.Name}:{principal}",
             "target" => $"{manifest.Name}:{resourceKey}",
