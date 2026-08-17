@@ -60,58 +60,55 @@ def _write_marker_project(root: Path, *, addopts: str, marker_note: str = "") ->
     )
 
 
+def _upstream_contract(*, confidence: str = "observed") -> dict[str, object]:
+    return {
+        "schema_version": 1,
+        "upstream": {"name": "fixture-upstream", "classification": "documented"},
+        "observations": [
+            {
+                "operation": "fetch",
+                "method": "GET",
+                "endpoint": "/items",
+                "request_encoding": "none",
+                "required_fields": [],
+                "success_statuses": [200],
+                "response_body": "json",
+                "credential_placement": "header",
+                "confidence": confidence,
+                "evidence": ["fixture-live-probe"],
+            }
+        ],
+    }
+
+
 def _write_observed_contract(root: Path) -> None:
     (root / "upstream-contract.yaml").write_text(
-        yaml.safe_dump(
-            {
-                "schema_version": 1,
-                "upstream": {
-                    "kind": "http",
-                    "locator": "https://upstream.invalid",
-                    "authentication": {"kind": "bearer", "secret_source": "UPSTREAM_TOKEN"},
-                },
-                "observation": {
-                    "status": "observed",
-                    "method": "live-probe",
-                    "observed_at": "2026-08-15T00:00:00Z",
-                    "producer": "fixture",
-                },
-                "operations": [
-                    {
-                        "name": "fetch",
-                        "method": "GET",
-                        "path": "/items",
-                        "request": {"content_type": None, "required_fields": [], "optional_fields": []},
-                        "response": {
-                            "success_statuses": [200],
-                            "content_types": ["application/json"],
-                            "shape": "object",
-                            "required_fields": [],
-                            "optional_fields": [],
-                        },
-                        "errors": {"statuses": [401, 429], "documented_meaning": "authentication or throttling"},
-                    }
-                ],
-            },
-            sort_keys=False,
-        ),
+        yaml.safe_dump(_upstream_contract(), sort_keys=False),
         encoding="utf-8",
     )
 
 
+def _live_policy() -> dict[str, object]:
+    return {
+        "schema_version": 1,
+        "default_execution": "excluded",
+        "mutations": {
+            "enabled_by_default": False,
+            "independent_opt_ins": 2,
+            "credential_access": "after-opt-in",
+            "unique_namespace": True,
+            "cleanup": {
+                "capture_created_ids": True,
+                "reconcile_by_marker": True,
+                "report_unreconciled": True,
+            },
+        },
+    }
+
+
 def _write_live_policy(root: Path) -> None:
     (root / "live-backend-test-policy.yaml").write_text(
-        yaml.safe_dump(
-            {
-                "schema_version": 1,
-                "execution": {"default": "deny", "requires_explicit_opt_in": True},
-                "credentials": {"source": "environment", "allowed_env": ["UPSTREAM_TOKEN"]},
-                "backend": {"kind": "read-only", "dedicated_test_account": True},
-                "mutation": {"allowed": False},
-                "cleanup": {"required": False, "strategy": "none"},
-            },
-            sort_keys=False,
-        ),
+        yaml.safe_dump(_live_policy(), sort_keys=False),
         encoding="utf-8",
     )
 
@@ -120,34 +117,7 @@ def test_discovery_requires_observed_upstream_contract(tmp_path: Path) -> None:
     inspector = _load(TOOLS / "inspect_existing_project.py", "cycle3_inspector_contract")
     _write_project(tmp_path, addopts='-m "not external"')
     (tmp_path / "upstream-contract.yaml").write_text(
-        yaml.safe_dump(
-            {
-                "schema_version": 1,
-                "upstream": {
-                    "kind": "http",
-                    "locator": "https://upstream.invalid",
-                    "authentication": {"kind": "bearer", "secret_source": "UPSTREAM_TOKEN"},
-                },
-                "observation": {"status": "unobserved", "method": "not-run", "producer": "fixture"},
-                "operations": [
-                    {
-                        "name": "fetch",
-                        "method": "GET",
-                        "path": "/items",
-                        "request": {"content_type": None, "required_fields": [], "optional_fields": []},
-                        "response": {
-                            "success_statuses": [200],
-                            "content_types": ["application/json"],
-                            "shape": "object",
-                            "required_fields": [],
-                            "optional_fields": [],
-                        },
-                        "errors": {"statuses": [401, 429], "documented_meaning": "authentication or throttling"},
-                    }
-                ],
-            },
-            sort_keys=False,
-        ),
+        yaml.safe_dump(_upstream_contract(confidence="inferred"), sort_keys=False),
         encoding="utf-8",
     )
 
@@ -166,18 +136,10 @@ def test_discovery_validates_live_backend_policy_before_declaring_it(tmp_path: P
     external.mkdir(parents=True)
     (external / "test_live.py").write_text("def test_live(): pass\n", encoding="utf-8")
     _write_observed_contract(tmp_path)
+    unsafe = _live_policy()
+    unsafe["default_execution"] = "included"
     (tmp_path / "live-backend-test-policy.yaml").write_text(
-        yaml.safe_dump(
-            {
-                "schema_version": 1,
-                "execution": {"default": "allow", "requires_explicit_opt_in": False},
-                "credentials": {"source": "environment", "allowed_env": []},
-                "backend": {"kind": "shared", "dedicated_test_account": False},
-                "mutation": {"allowed": True},
-                "cleanup": {"required": False, "strategy": "none"},
-            },
-            sort_keys=False,
-        ),
+        yaml.safe_dump(unsafe, sort_keys=False),
         encoding="utf-8",
     )
 
@@ -266,11 +228,7 @@ def test_malformed_pytest_addopts_does_not_crash_discovery(tmp_path: Path) -> No
 
 @pytest.mark.parametrize(
     "expression",
-    [
-        "not external",
-        "smoke and not external",
-        "not external and smoke",
-    ],
+    ["not external", "smoke and not external", "not external and smoke"],
 )
 def test_marker_parser_accepts_conjunctive_external_exclusion(expression: str) -> None:
     inspector = _load(TOOLS / "inspect_existing_project.py", f"cycle3_marker_{expression}")
@@ -280,11 +238,7 @@ def test_marker_parser_accepts_conjunctive_external_exclusion(expression: str) -
 
 @pytest.mark.parametrize(
     "expression",
-    [
-        "not external or smoke",
-        "smoke or not external",
-        "external or smoke",
-    ],
+    ["not external or smoke", "smoke or not external", "external or smoke"],
 )
 def test_marker_parser_rejects_disjunctive_marker_expressions(expression: str) -> None:
     inspector = _load(TOOLS / "inspect_existing_project.py", f"cycle3_marker_reject_{expression}")
@@ -326,9 +280,7 @@ def test_prebuilt_container_without_source_binding_is_an_explicit_adoption_gap(t
     inspector = _load(TOOLS / "inspect_existing_project.py", "cycle3_inspector_container")
     _write_marker_project(tmp_path, addopts='-m "not external"')
     (tmp_path / "Dockerfile").write_text(
-        "FROM python:3.12-slim\n"
-        "COPY dist/ /tmp/dist/\n"
-        "RUN sha256sum --check /tmp/dist/SHA256SUMS\n",
+        "FROM python:3.12-slim\nCOPY dist/ /tmp/dist/\nRUN sha256sum --check /tmp/dist/SHA256SUMS\n",
         encoding="utf-8",
     )
 
