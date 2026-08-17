@@ -5,7 +5,7 @@ type: reference
 status: active
 rigor: operational
 owners: [repository-maintainers]
-verification: Run authorization, sanitization, Origin, rate-limit, concurrency, dependency-failure, graceful-shutdown, and deployment-artifact exercises.
+verification: Run authorization, sanitization, Origin, rate-limit, concurrency, dependency-failure, audit-identity, healthcheck-negative-path, graceful-shutdown, and deployment-artifact exercises.
 ---
 
 # MCP security and operations
@@ -68,11 +68,13 @@ Every dependency has timeout, cancellation, failure classification, circuit-brea
 
 Do not set readiness before registration and transport binding complete. A missing optional dependency does not fail liveness; all mandatory backends failing does fail readiness.
 
+A deployment or container health command is a fail-closed operational boundary, not a happy-path smoke alias. When the command accepts runtime configuration, its tests cover invalid port or equivalent configuration, unsafe target scope for a loopback-only server, missing required authentication, unreachable readiness, non-ready HTTP status, correctly formatted IPv6 loopback literals when supported, and unknown transport values. Stdio process-liveness health and HTTP authenticated readiness are distinct modes and are tested independently.
+
 ## Observability
 
 Record component identity, duration, result category, correlation ID, principal class, dependency, policy decision, retry, cancellation, queueing, and saturation. Never log raw secrets or full sensitive payloads. Export traces and metrics through standard telemetry.
 
-One correlation ID is created at request entry and reused in logs, traces, audit, and response metadata. Audit sink failure follows a declared fail-open or fail-closed policy and remains observable.
+One correlation ID is created at request entry and reused in logs, traces, audit, and response metadata. Audit events preserve principal identity across the authentication boundary: an event emitted after successful authentication carries the authenticated principal, while a rejection emitted before authentication carries an explicit unauthenticated or null principal rather than inheriting stale request state. Audit sink failure follows a declared fail-open or fail-closed policy and remains observable.
 
 ## Shutdown and recovery
 
@@ -80,4 +82,4 @@ Stop accepting work, cancel or drain within a deadline, close transports, sessio
 
 ## Verification
 
-Exercise denied access, confused-deputy attempts, malicious metadata, public-bind refusal, Origin/CORS mismatch, secret leakage, command/path bypass, rate limits, timeout, cancellation, race conditions, dependency outage, degraded health, shutdown with in-flight work, and rollback of a broken artifact.
+Exercise denied access, confused-deputy attempts, malicious metadata, public-bind refusal, Origin/CORS mismatch, secret leakage, command/path bypass, rate limits, timeout, cancellation, race conditions, dependency outage, degraded health, audit identity before and after authentication, audit-sink failure, healthcheck invalid configuration and readiness failures, shutdown with in-flight work, and rollback of a broken artifact.
