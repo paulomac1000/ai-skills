@@ -1,4 +1,4 @@
-"""Revision provenance must fail closed when RUN explicitly touches copied metadata."""
+"""Revision provenance must fail closed when RUN may mutate copied metadata."""
 
 from __future__ import annotations
 
@@ -59,6 +59,23 @@ def test_compound_revision_rewrite_cannot_be_skipped_before_invalidation() -> No
         "ARG EXPECTED_SOURCE_REVISION\n"
         "COPY dist/ /tmp/dist/\n"
         'RUN sed -i "s/.*/$EXPECTED_SOURCE_REVISION/" /tmp/dist/SOURCE_REVISION; echo done\n'
+        'RUN test "$(cat /tmp/dist/SOURCE_REVISION)" = "$EXPECTED_SOURCE_REVISION"\n'
+    )
+
+    assert inspector._source_revision_binding_state(
+        dockerfile,
+        ["EXPECTED_SOURCE_REVISION"],
+    ) == (True, False)
+
+
+def test_dynamic_revision_path_rewrite_cannot_bootstrap_binding() -> None:
+    inspector = _inspector()
+    dockerfile = (
+        "FROM python:3.12-slim\n"
+        "ARG EXPECTED_SOURCE_REVISION\n"
+        "COPY dist/ /tmp/dist/\n"
+        'RUN p=/tmp/dist/SOURCE_ && p=${p}REVISION && '
+        'sed -i "s/.*/$EXPECTED_SOURCE_REVISION/" "$p"\n'
         'RUN test "$(cat /tmp/dist/SOURCE_REVISION)" = "$EXPECTED_SOURCE_REVISION"\n'
     )
 
