@@ -98,7 +98,7 @@ def test_external_adoption_rejects_dirty_authority_catalog(tmp_path: Path) -> No
     revision = _git_authority(authority)
     (authority / "contracts/rule-catalog.yaml").write_text("schema_version: 1\nskills: changed\n", encoding="utf-8")
 
-    with pytest.raises(ValueError, match="authority_path must be clean at the locked revision"):
+    with pytest.raises(ValueError, match="authority checkout must be pristine at the locked revision"):
         _validate(candidate, authority, revision)
 
 
@@ -109,5 +109,5 @@ def test_external_adoption_rejects_dirty_selected_skill_manifest(tmp_path: Path)
     revision = _git_authority(authority)
     (authority / "skills/example-skill/manifest.yaml").write_text("name: changed\n", encoding="utf-8")
 
-    with pytest.raises(ValueError, match="authority_path must be clean at the locked revision"):
+    with pytest.raises(ValueError, match="authority checkout must be pristine at the locked revision"):
         _validate(candidate, authority, revision)
