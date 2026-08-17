@@ -58,6 +58,7 @@ _SOURCE_REVISION_WRITE = re.compile(
     r"\b(?:touch|tee|cp|mv)\b[^;&|]*\bSOURCE[_-](?:REVISION|SHA)\b)",
     re.IGNORECASE,
 )
+_WORKDIR_INSTRUCTION = re.compile(r"^WORKDIR\b\s*(.*)$", re.IGNORECASE)
 _RUN_INSTRUCTION = re.compile(r"^RUN\b\s*(.*)$", re.IGNORECASE)
 _SOURCE_CHECK_COMMAND = re.compile(r"(?:\btest\b|^\s*\[\[?)", re.IGNORECASE)
 _EQUALITY_OPERATOR = r"(?<![!<>=])(?:==|=)(?!=)"
@@ -243,6 +244,17 @@ def _container_path(value: str) -> str | None:
     return posixpath.normpath(value)
 
 
+def _resolved_container_directory(value: str, current: str | None) -> str | None:
+    """Resolve one simple static WORKDIR/cd path without guessing inherited or dynamic state."""
+    if not value or "$" in value or any(character.isspace() for character in value):
+        return None
+    if value.startswith("/"):
+        return posixpath.normpath(value)
+    if current is None:
+        return None
+    return posixpath.normpath(posixpath.join(current, value))
+
+
 def _parse_copy_instruction(instruction: str) -> tuple[list[str], str, bool] | None:
     """Parse one static COPY/ADD and retain all sources plus stage-copy provenance."""
     match = _COPY_INSTRUCTION.match(instruction)
@@ -416,11 +428,17 @@ def _stage_source_revision_binding_state(
     artifacts: list[_PrebuiltArtifactBinding] = []
     revision_provenance: dict[str, str] = {}
     prebuilt_copy = False
+    workdir: str | None = None
 
     for instruction in instructions:
         argument = _ARG_INSTRUCTION.match(instruction)
         if argument is not None:
             active_args.add(argument.group(1))
+            continue
+
+        workdir_instruction = _WORKDIR_INSTRUCTION.match(instruction)
+        if workdir_instruction is not None:
+            workdir = _resolved_container_directory(workdir_instruction.group(1).strip(), workdir)
             continue
 
         parsed_copy = _parse_copy_instruction(instruction)
@@ -513,7 +531,7 @@ def _stage_source_revision_binding_state(
             if unsafe_control_flow and _SOURCE_REVISION_FILE.search(body) is not None:
                 _invalidate_revision_provenance(artifacts, revision_provenance)
             continue
-        cwd: str | None = None
+        cwd = workdir
         for command in re.split(r"\s*&&\s*", body):
             command = command.strip()
             if not command or command.startswith("!"):
@@ -523,7 +541,7 @@ def _stage_source_revision_binding_state(
             except ValueError:
                 continue
             if len(tokens) == 2 and tokens[0] == "cd":
-                cwd = _container_path(tokens[1])
+                cwd = _resolved_container_directory(tokens[1], cwd)
                 continue
             simple_equality = _is_simple_equality_check(tokens)
             if _SOURCE_REVISION_FILE.search(command) is not None and not simple_equality:
