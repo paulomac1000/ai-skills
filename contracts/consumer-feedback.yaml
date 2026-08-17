@@ -77,3 +77,23 @@ incidents:
     regression_selectors:
       - tests/test_field_feedback_regressions.py::test_real_consumer_canaries_state_their_proof_boundary
     status: implemented
+
+  - id: mcp.audit-principal-auth-boundary
+    source_kind: external-consumer
+    source_canaries: [legacy-financial-official-sdk]
+    failure_mode: Boundary audit events omitted the request principal, leaving authenticated operations impossible to attribute consistently.
+    generalized_invariant: Audit events preserve authenticated principal identity after authentication and explicit unauthenticated or null identity before authentication without inheriting stale request state.
+    canonical_owner: skills/mcp-server-architect/references/security-and-operations.md#observability
+    regression_selectors:
+      - tests/test_practical_consumer_feedback.py::test_operational_audit_contract_binds_principal_across_auth_boundary
+    status: implemented
+
+  - id: mcp.deployment-healthcheck-negative-paths
+    source_kind: external-consumer
+    source_canaries: [legacy-financial-official-sdk]
+    failure_mode: A deployment health command exercised the happy path but left invalid configuration, authentication, failed readiness, IPv6, and unknown-transport branches unverified.
+    generalized_invariant: Deployment health commands distinguish process liveness from authenticated readiness and fail closed across configuration, authentication, reachability, HTTP status, address formatting, and transport errors.
+    canonical_owner: skills/mcp-server-architect/references/security-and-operations.md#health-model
+    regression_selectors:
+      - tests/test_practical_consumer_feedback.py::test_deployment_healthcheck_contract_covers_fail_closed_branches
+    status: implemented
