@@ -1,0 +1,91 @@
+using System.Reflection;
+using System.Runtime.CompilerServices;
+using __NAMESPACE__.Mcp.Server;
+
+internal static class RuntimePolicyRegressions
+{
+    [ModuleInitializer]
+    internal static void Verify()
+    {
+        VerifyApprovalMismatchPreservesToken();
+        VerifyGlobalConcurrencyKeysAreCapabilityScoped();
+    }
+
+    private static void VerifyApprovalMismatchPreservesToken()
+    {
+        var approvals = new ApprovalRegistry(TimeProvider.System);
+        var digest = ApprovalArguments.PutItemDigest("review-item", "Review", 0);
+        var token = approvals.Issue(
+            "approved-principal",
+            CapabilityNames.PutItem,
+            "inventory",
+            "review-item",
+            digest);
+
+        if (approvals.Consume(
+                token,
+                "wrong-principal",
+                CapabilityNames.PutItem,
+                "inventory",
+                "review-item",
+                digest))
+            throw new InvalidOperationException("Mismatched approval binding was accepted.");
+
+        if (!approvals.Consume(
+                token,
+                "approved-principal",
+                CapabilityNames.PutItem,
+                "inventory",
+                "review-item",
+                digest))
+            throw new InvalidOperationException("Mismatched approval attempt destroyed the valid token.");
+
+        if (approvals.Consume(
+                token,
+                "approved-principal",
+                CapabilityNames.PutItem,
+                "inventory",
+                "review-item",
+                digest))
+            throw new InvalidOperationException("Approval token was reusable after successful consumption.");
+    }
+
+    private static void VerifyGlobalConcurrencyKeysAreCapabilityScoped()
+    {
+        var method = typeof(InvocationKernel).GetMethod(
+            "ConcurrencyFor",
+            BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("InvocationKernel.ConcurrencyFor was not found.");
+        var registry = new CapabilityRegistry();
+        var safe = registry.Require(CapabilityNames.DescribeCapabilities) with
+        {
+            Name = "safe-global",
+            ConcurrentSafe = true,
+            ConcurrencyScope = "none",
+        };
+        var strict = registry.Require(CapabilityNames.ListItems) with
+        {
+            Name = "strict-global",
+            ConcurrentSafe = false,
+            ConcurrencyScope = "none",
+        };
+
+        var safeKey = RuntimeKey(method.Invoke(null, new object?[] { safe, "principal", "resource" }));
+        var strictKey = RuntimeKey(method.Invoke(null, new object?[] { strict, "principal", "resource" }));
+        if (safeKey != "safe-global:global" || strictKey != "strict-global:global")
+            throw new InvalidOperationException(
+                $"Scope none must bind to capability-specific global keys; received {safeKey} and {strictKey}.");
+        if (safeKey == strictKey)
+            throw new InvalidOperationException("Different capabilities share one global concurrency key.");
+    }
+
+    private static string RuntimeKey(object? runtime)
+    {
+        if (runtime is null)
+            throw new InvalidOperationException("ConcurrencyFor returned null.");
+        return runtime.GetType()
+            .GetProperty("Key", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+            ?.GetValue(runtime) as string
+            ?? throw new InvalidOperationException("Runtime concurrency key was not readable.");
+    }
+}
