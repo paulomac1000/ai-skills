@@ -21,7 +21,7 @@ if str(ROOT) not in sys.path:
 
 import validate_adoption as adoption  # noqa: E402
 import validate_trusted_executable_sources as trusted_sources  # noqa: E402
-from confined_io import ConfinedReadError, confined_regular_file, read_utf8_bounded  # noqa: E402
+from confined_io import confined_regular_file  # noqa: E402
 from evidence import GitHubEvidenceVerifier  # noqa: E402
 
 FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
@@ -68,7 +68,7 @@ def _external_authority(repository: str, revision: str, workflow_path: str) -> d
 def _preflight_candidate_implementation_files(
     assessment: Mapping[str, Any], candidate_root: Path
 ) -> list[adoption.Finding]:
-    """Reject oversized candidate implementation files before the semantic validator reads them."""
+    """Reject unsafe or oversized candidate files before semantic validation reads them."""
     findings: list[adoption.Finding] = []
     applicability = assessment.get("applicability")
     if not isinstance(applicability, list):
@@ -87,15 +87,23 @@ def _preflight_candidate_implementation_files(
                 continue
             location = f"applicability[{entry_index}].implementation[{implementation_index}].path"
             try:
-                read_utf8_bounded(candidate_root / raw_path, candidate_root, MAX_IMPLEMENTATION_BYTES)
-            except ConfinedReadError as exc:
-                if exc.code == "input.too-large":
-                    findings.append(
-                        adoption.Finding(
-                            location,
-                            f"implementation file exceeds {MAX_IMPLEMENTATION_BYTES} bytes",
-                        )
+                implementation_path = confined_regular_file(candidate_root, raw_path)
+                size = implementation_path.stat().st_size
+            except (OSError, ValueError) as exc:
+                findings.append(
+                    adoption.Finding(
+                        location,
+                        f"implementation file cannot be read safely: {exc}",
                     )
+                )
+                continue
+            if size > MAX_IMPLEMENTATION_BYTES:
+                findings.append(
+                    adoption.Finding(
+                        location,
+                        f"implementation file exceeds {MAX_IMPLEMENTATION_BYTES} bytes",
+                    )
+                )
     return findings
 
 
