@@ -287,6 +287,17 @@ def _source_revision_equality(
     return False
 
 
+def _is_simple_equality_check(tokens: list[str]) -> bool:
+    """Accept only one unnegated equality predicate with no compound test operators."""
+    if len(tokens) == 4 and tokens[0] == "test":
+        return tokens[2] in {"=", "=="}
+    if len(tokens) != 5:
+        return False
+    opener, _left, operator, _right, closer = tokens
+    expected_closer = {"[": "]", "[[": "]]"}.get(opener)
+    return expected_closer is not None and closer == expected_closer and operator in {"=", "=="}
+
+
 def _source_revision_binding_signal(text: str, revision_args: list[str]) -> bool:
     """Require a fail-closed equality that binds copied artifact revision bytes to the expected source argument."""
     source_args = [
@@ -320,6 +331,8 @@ def _source_revision_binding_signal(text: str, revision_args: list[str]) -> bool
                 continue
             if len(tokens) == 2 and tokens[0] == "cd":
                 cwd = _container_path(tokens[1])
+                continue
+            if not _is_simple_equality_check(tokens):
                 continue
             if _SOURCE_CHECK_COMMAND.search(command) is None or _SOURCE_REVISION_FILE.search(command) is None:
                 continue
