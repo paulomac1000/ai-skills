@@ -65,27 +65,7 @@ _EQUALITY_OPERATOR = r"(?<![!<>=])(?:==|=)(?!=)"
 _REVISION_METADATA_NAMES = ("SOURCE_REVISION", "SOURCE_SHA")
 _SHELL_ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=.*$", re.DOTALL)
 _OPAQUE_SHELL_EFFECT = re.compile(r"(?:`|\$\(|[<>])")
-_REVISION_PROVENANCE_SAFE_COMMANDS = frozenset(
-    {
-        "[",
-        "[[",
-        "cat",
-        "cmp",
-        "echo",
-        "false",
-        "grep",
-        "head",
-        "ls",
-        "printf",
-        "pwd",
-        "sha256sum",
-        "stat",
-        "tail",
-        "test",
-        "true",
-        "wc",
-    }
-)
+_REVISION_PROVENANCE_SAFE_BUILTINS = frozenset({":", "[", "[[", "echo", "false", "printf", "pwd", "test", "true"})
 
 
 def _regular_text(path: Path) -> str | None:
@@ -438,7 +418,7 @@ def _is_simple_equality_check(tokens: list[str]) -> bool:
 
 
 def _command_preserves_revision_provenance(command: str, tokens: list[str]) -> bool:
-    """Conservatively recognize shell commands that cannot mutate copied artifact bytes."""
+    """Conservatively recognize shell builtins that cannot mutate copied artifact bytes."""
     if not tokens or _OPAQUE_SHELL_EFFECT.search(command) is not None:
         return False
     command_index = 0
@@ -446,8 +426,8 @@ def _command_preserves_revision_provenance(command: str, tokens: list[str]) -> b
         command_index += 1
     if command_index == len(tokens):
         return True
-    executable = posixpath.basename(tokens[command_index])
-    return executable in _REVISION_PROVENANCE_SAFE_COMMANDS
+    executable = tokens[command_index]
+    return "/" not in executable and executable in _REVISION_PROVENANCE_SAFE_BUILTINS
 
 
 def _stage_source_revision_binding_state(
