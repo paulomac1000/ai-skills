@@ -5,12 +5,19 @@ from __future__ import annotations
 
 import argparse
 import re
+import stat
 import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import yaml
+
+ROOT = Path(__file__).resolve().parents[3]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from contracts.confined_io import ConfinedReadError, is_link_or_reparse, read_utf8_bounded  # noqa: E402
 
 _MARKER = re.compile(
     r"^\s*#\s*ai-skills-execution-policy:\s*(on-demand)\s*$",
@@ -19,6 +26,8 @@ _MARKER = re.compile(
 _WORKFLOW_SUFFIXES = {".yml", ".yaml"}
 _DEFAULT_INTEGRATION_BRANCHES = ("main", "master")
 _ALLOWED_EVENTS = frozenset({"push", "workflow_dispatch"})
+MAX_WORKFLOW_BYTES = 512 * 1024
+MAX_WORKFLOW_ENTRIES = 512
 
 
 class _UniqueKeyLoader(yaml.SafeLoader):
@@ -188,27 +197,71 @@ def audit_text(
     return findings
 
 
+def _read_workflow(path: Path, root: Path) -> tuple[str | None, str | None]:
+    """Read a workflow only when it is confined, regular, stable, UTF-8, and bounded."""
+    try:
+        raw_text, _byte_count = read_utf8_bounded(path, root, MAX_WORKFLOW_BYTES)
+    except ConfinedReadError as exc:
+        if exc.code == "input.too-large":
+            return None, f"workflow exceeds {MAX_WORKFLOW_BYTES} byte limit"
+        return None, f"cannot read workflow safely: {exc}"
+    return raw_text, None
+
+
 def _workflow_paths(root: Path) -> list[Path]:
-    directory = root / ".github" / "workflows"
-    if not directory.is_dir():
-        return []
-    return sorted(path for path in directory.iterdir() if path.is_file() and path.suffix in _WORKFLOW_SUFFIXES)
+    """Enumerate a bounded workflow directory without following link-like repository components."""
+    resolved_root = root.resolve(strict=True)
+    directory = resolved_root / ".github" / "workflows"
+    current = resolved_root
+    for part in (".github", "workflows"):
+        current /= part
+        try:
+            metadata = current.lstat()
+        except FileNotFoundError:
+            return []
+        if is_link_or_reparse(metadata):
+            raise OSError(f"workflow directory contains a symlink or reparse component: {current}")
+        if not stat.S_ISDIR(metadata.st_mode):
+            raise OSError(f"workflow directory component is not a directory: {current}")
+    try:
+        entries = list(directory.iterdir())
+    except OSError as exc:
+        raise OSError(f"cannot enumerate workflow directory: {exc}") from exc
+    if len(entries) > MAX_WORKFLOW_ENTRIES:
+        raise OSError(f"workflow directory exceeds {MAX_WORKFLOW_ENTRIES} entries")
+    paths: list[Path] = []
+    for path in sorted(entries):
+        if path.suffix not in _WORKFLOW_SUFFIXES:
+            continue
+        try:
+            metadata = path.lstat()
+        except OSError as exc:
+            raise OSError(f"cannot inspect workflow entry {path.name}: {exc}") from exc
+        if is_link_or_reparse(metadata) or not stat.S_ISREG(metadata.st_mode):
+            raise OSError(f"workflow entry must be a regular non-symlink file: {path.name}")
+        paths.append(path)
+    return paths
 
 
 def audit_repository(
     root: Path, *, integration_branches: tuple[str, ...] = _DEFAULT_INTEGRATION_BRANCHES
 ) -> list[Finding]:
+    resolved_root = root.resolve(strict=True)
     findings: list[Finding] = []
-    for path in _workflow_paths(root):
-        try:
-            raw_text = path.read_text(encoding="utf-8")
-        except (OSError, UnicodeError) as exc:
-            findings.append(Finding(path, f"cannot read workflow: {exc}"))
+    try:
+        paths = _workflow_paths(resolved_root)
+    except OSError as exc:
+        return [Finding(Path(".github/workflows"), f"cannot enumerate workflows safely: {exc}")]
+    for path in paths:
+        raw_text, error = _read_workflow(path, resolved_root)
+        if error is not None:
+            findings.append(Finding(path.relative_to(resolved_root), error))
             continue
+        assert raw_text is not None
         if _MARKER.search(raw_text):
             findings.extend(
                 audit_text(
-                    path.relative_to(root),
+                    path.relative_to(resolved_root),
                     raw_text,
                     integration_branches=integration_branches,
                     require_marker=True,
@@ -233,18 +286,18 @@ def main(argv: list[str] | None = None) -> int:
         help="Audit this workflow and require the on-demand marker; repeat as needed",
     )
     args = parser.parse_args(argv)
-    root = args.repository_root.resolve()
+    root = args.repository_root.resolve(strict=True)
     branches = tuple(args.integration_branches or _DEFAULT_INTEGRATION_BRANCHES)
 
     findings: list[Finding] = []
     if args.workflow:
         for workflow in args.workflow:
             path = workflow if workflow.is_absolute() else root / workflow
-            try:
-                raw_text = path.read_text(encoding="utf-8")
-            except (OSError, UnicodeError) as exc:
-                findings.append(Finding(workflow, f"cannot read workflow: {exc}"))
+            raw_text, error = _read_workflow(path, root)
+            if error is not None:
+                findings.append(Finding(workflow, error))
                 continue
+            assert raw_text is not None
             display = path.relative_to(root) if path.is_relative_to(root) else path
             findings.extend(audit_text(display, raw_text, integration_branches=branches, require_marker=True))
     else:

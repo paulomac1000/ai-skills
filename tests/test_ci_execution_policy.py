@@ -5,6 +5,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import pytest
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -139,3 +140,43 @@ def test_repository_scan_only_enforces_marked_workflows(tmp_path: Path) -> None:
     (workflows / "cost-aware.yml").write_text(_workflow("  workflow_dispatch:\n"), encoding="utf-8")
     (workflows / "labeler.yml").write_text("name: Labeler\non: pull_request_target\n", encoding="utf-8")
     assert policy.audit_repository(tmp_path) == []
+
+
+def test_repository_scan_rejects_symlinked_workflow_directory(tmp_path: Path) -> None:
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "ci.yml").write_text(_workflow("  workflow_dispatch:\n"), encoding="utf-8")
+    github = tmp_path / "repository" / ".github"
+    github.mkdir(parents=True)
+    try:
+        (github / "workflows").symlink_to(outside, target_is_directory=True)
+    except OSError as exc:
+        pytest.skip(f"symlinks are unavailable: {exc}")
+
+    findings = policy.audit_repository(tmp_path / "repository")
+
+    assert any("symlink or reparse" in finding.message for finding in findings)
+
+
+def test_repository_scan_bounds_workflow_bytes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    workflows = tmp_path / ".github/workflows"
+    workflows.mkdir(parents=True)
+    (workflows / "cost-aware.yml").write_text(_workflow("  workflow_dispatch:\n"), encoding="utf-8")
+    monkeypatch.setattr(policy, "MAX_WORKFLOW_BYTES", 32)
+
+    findings = policy.audit_repository(tmp_path)
+
+    assert any("workflow exceeds 32 byte limit" in finding.message for finding in findings)
+
+
+def test_explicit_workflow_must_stay_inside_repository(tmp_path: Path) -> None:
+    repository = tmp_path / "repository"
+    repository.mkdir()
+    outside = tmp_path / "outside.yml"
+    outside.write_text(_workflow("  workflow_dispatch:\n"), encoding="utf-8")
+
+    raw_text, error = policy._read_workflow(outside, repository)
+
+    assert raw_text is None
+    assert error is not None
+    assert "cannot read workflow safely" in error

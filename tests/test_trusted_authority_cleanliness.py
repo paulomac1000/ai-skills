@@ -6,9 +6,10 @@ import hashlib
 import subprocess
 from pathlib import Path
 
+import pytest
 import yaml
 
-from contracts.validate_trusted_executable_sources import _git_environment, validate_lock
+from contracts.validate_trusted_executable_sources import _authority_file, _git_environment, validate_lock
 
 
 def _git(path: Path, *args: str, capture_output: bool = False) -> subprocess.CompletedProcess[str]:
@@ -85,7 +86,7 @@ def test_authority_digest_rejects_dirty_tracked_bytes_even_when_the_lock_matches
         require_authority=True,
     )
 
-    assert any("authority_path must be clean at the locked revision" in finding for finding in findings)
+    assert any("authority checkout must be pristine at the locked revision" in finding for finding in findings)
 
 
 def test_authority_digest_rejects_untracked_file_even_when_the_lock_matches_it(tmp_path: Path) -> None:
@@ -104,4 +105,29 @@ def test_authority_digest_rejects_untracked_file_even_when_the_lock_matches_it(t
         require_authority=True,
     )
 
-    assert any("authority_path must be tracked at the locked revision" in finding for finding in findings)
+    assert any("authority checkout must be pristine at the locked revision" in finding for finding in findings)
+    with pytest.raises(ValueError, match="authority_path must be tracked at the locked revision"):
+        _authority_file(authority, "untracked.py")
+
+
+def test_authority_identity_rejects_dirty_unlisted_tracked_bytes(tmp_path: Path) -> None:
+    repository = tmp_path / "consumer"
+    repository.mkdir()
+    authority = tmp_path / "authority"
+    _authority_checkout(authority)
+    helper = authority / "helper.py"
+    helper.write_text("original helper\n", encoding="utf-8")
+    _git(authority, "add", "helper.py")
+    _git(authority, "commit", "-q", "-m", "add helper")
+    revision = _git(authority, "rev-parse", "HEAD", capture_output=True).stdout.strip()
+    helper.write_text("tampered helper\n", encoding="utf-8")
+    lock = _write_lock(repository, revision, "trusted.py", b"original\n")
+
+    findings = validate_lock(
+        lock,
+        repository_root=repository,
+        authority_roots={"validator": authority},
+        require_authority=True,
+    )
+
+    assert any("authority checkout must be pristine at the locked revision" in finding for finding in findings)
