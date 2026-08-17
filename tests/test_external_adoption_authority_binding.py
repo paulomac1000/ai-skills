@@ -164,7 +164,7 @@ def test_external_adoption_semantics_use_the_preflight_snapshot(
     candidate.mkdir()
     revision = _git_authority(authority)
     implementation = candidate / "implementation.py"
-    implementation.write_text("ORIGINAL_SYMBOL = True\n", encoding="utf-8")
+    implementation.write_bytes(b"ORIGINAL_SYMBOL = True\n")
     assessment = {
         "acceptance_authority": _authority(revision),
         "skill": {"name": "example-skill"},
@@ -185,7 +185,7 @@ def test_external_adoption_semantics_use_the_preflight_snapshot(
         implementation_payloads: dict[str, str] | None = None,
     ) -> list[object]:
         findings = original_preflight(document, candidate_root, implementation_payloads)
-        implementation.write_text("REPLACEMENT_ONLY = True\n", encoding="utf-8")
+        implementation.write_bytes(b"REPLACEMENT_ONLY = True\n")
         return findings
 
     observed: dict[str, object] = {}
@@ -221,4 +221,4 @@ def test_external_adoption_semantics_use_the_preflight_snapshot(
 
     assert findings == []
     assert observed["implementation_payloads"] == {"implementation.py": "ORIGINAL_SYMBOL = True\n"}
-    assert implementation.read_text(encoding="utf-8") == "REPLACEMENT_ONLY = True\n"
+    assert implementation.read_bytes() == b"REPLACEMENT_ONLY = True\n"
