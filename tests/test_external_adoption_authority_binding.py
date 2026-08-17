@@ -134,3 +134,22 @@ def test_external_adoption_preflights_oversized_candidate_implementation(
     assert len(findings) == 1
     assert findings[0].location == "applicability[0].implementation[0].path"
     assert findings[0].message == "implementation file exceeds 32 bytes"
+
+
+def test_external_adoption_preflight_rejects_unreadable_candidate_implementation(tmp_path: Path) -> None:
+    candidate = tmp_path / "candidate"
+    candidate.mkdir()
+    assessment = {
+        "applicability": [
+            {
+                "status": "applicable",
+                "implementation": [{"path": "missing.py", "symbol": "x"}],
+            }
+        ]
+    }
+
+    findings = VALIDATOR._preflight_candidate_implementation_files(assessment, candidate)
+
+    assert len(findings) == 1
+    assert findings[0].location == "applicability[0].implementation[0].path"
+    assert findings[0].message.startswith("implementation file cannot be read safely:")
