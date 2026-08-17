@@ -426,9 +426,7 @@ def _stage_source_revision_binding_state(
                 )
                 source_is_revision_metadata = source_name in _REVISION_METADATA_NAMES
                 target = _copy_target(source, destination)
-                target_name = (
-                    posixpath.basename(target).replace("-", "_").upper() if target is not None else ""
-                )
+                target_name = posixpath.basename(target).replace("-", "_").upper() if target is not None else ""
                 target_is_revision_metadata = target_name in _REVISION_METADATA_NAMES
                 impact_path = target or normalized_destination
 
