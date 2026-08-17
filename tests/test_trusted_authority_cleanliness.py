@@ -131,3 +131,25 @@ def test_authority_identity_rejects_dirty_unlisted_tracked_bytes(tmp_path: Path)
     )
 
     assert any("authority checkout must be pristine at the locked revision" in finding for finding in findings)
+
+
+def test_authority_identity_rejects_ignored_untracked_bytes(tmp_path: Path) -> None:
+    repository = tmp_path / "consumer"
+    repository.mkdir()
+    authority = tmp_path / "authority"
+    _authority_checkout(authority)
+    (authority / ".gitignore").write_text("ignored_helper.py\n", encoding="utf-8")
+    _git(authority, "add", ".gitignore")
+    _git(authority, "commit", "-q", "-m", "ignore helper")
+    revision = _git(authority, "rev-parse", "HEAD", capture_output=True).stdout.strip()
+    (authority / "ignored_helper.py").write_text("ignored but executable\n", encoding="utf-8")
+    lock = _write_lock(repository, revision, "trusted.py", b"original\n")
+
+    findings = validate_lock(
+        lock,
+        repository_root=repository,
+        authority_roots={"validator": authority},
+        require_authority=True,
+    )
+
+    assert any("authority checkout must be pristine at the locked revision" in finding for finding in findings)
