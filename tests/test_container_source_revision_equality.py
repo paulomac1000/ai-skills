@@ -20,6 +20,14 @@ def _inspector() -> ModuleType:
     return module
 
 
+def _binding_run(
+    path: str = "/tmp/dist/SOURCE_REVISION",
+    predicate: str = 'test "$ACTUAL_SOURCE_REVISION" = "$EXPECTED_SOURCE_REVISION"',
+    suffix: str = "",
+) -> str:
+    return f"RUN read -r ACTUAL_SOURCE_REVISION < {path} && {predicate}{suffix}\n"
+
+
 def test_existence_and_nonempty_checks_in_one_command_do_not_bind_revision() -> None:
     inspector = _inspector()
     dockerfile = (
@@ -41,7 +49,7 @@ def test_revision_file_contents_must_equal_expected_build_argument() -> None:
         "FROM python:3.12-slim\n"
         "ARG EXPECTED_SOURCE_REVISION\n"
         "COPY dist/ /tmp/dist/\n"
-        'RUN test "$(cat /tmp/dist/SOURCE_REVISION)" = "$EXPECTED_SOURCE_REVISION"\n'
+        + _binding_run()
     )
 
     assert inspector._source_revision_binding_signal(
@@ -56,7 +64,8 @@ def test_revision_file_can_be_read_relative_to_copied_artifact_directory() -> No
         "FROM python:3.12-slim\n"
         "ARG EXPECTED_SOURCE_REVISION\n"
         "COPY dist/ /tmp/dist/\n"
-        'RUN cd /tmp/dist && test "$(cat SOURCE_REVISION)" = "$EXPECTED_SOURCE_REVISION"\n'
+        "RUN cd /tmp/dist && read -r ACTUAL_SOURCE_REVISION < SOURCE_REVISION && "
+        'test "$ACTUAL_SOURCE_REVISION" = "$EXPECTED_SOURCE_REVISION"\n'
     )
 
     assert inspector._source_revision_binding_signal(
@@ -72,7 +81,7 @@ def test_revision_file_can_be_read_relative_to_stage_workdir() -> None:
         "ARG EXPECTED_SOURCE_REVISION\n"
         "COPY dist/ /tmp/dist/\n"
         "WORKDIR /tmp/dist\n"
-        'RUN test "$(cat SOURCE_REVISION)" = "$EXPECTED_SOURCE_REVISION"\n'
+        + _binding_run("SOURCE_REVISION")
     )
 
     assert inspector._source_revision_binding_signal(
@@ -89,7 +98,7 @@ def test_dynamic_stage_workdir_does_not_guess_revision_location() -> None:
         "ARG ARTIFACT_DIR\n"
         "COPY dist/ /tmp/dist/\n"
         "WORKDIR $ARTIFACT_DIR\n"
-        'RUN test "$(cat SOURCE_REVISION)" = "$EXPECTED_SOURCE_REVISION"\n'
+        + _binding_run("SOURCE_REVISION")
     )
 
     assert not inspector._source_revision_binding_signal(
@@ -104,7 +113,7 @@ def test_inequality_does_not_count_as_source_binding() -> None:
         "FROM python:3.12-slim\n"
         "ARG EXPECTED_SOURCE_REVISION\n"
         "COPY dist/ /tmp/dist/\n"
-        'RUN test "$(cat /tmp/dist/SOURCE_REVISION)" != "$EXPECTED_SOURCE_REVISION"\n'
+        + _binding_run(predicate='test "$ACTUAL_SOURCE_REVISION" != "$EXPECTED_SOURCE_REVISION"')
     )
 
     assert not inspector._source_revision_binding_signal(
@@ -120,7 +129,7 @@ def test_unrelated_revision_file_does_not_bind_copied_artifact() -> None:
         "ARG EXPECTED_SOURCE_REVISION\n"
         "COPY dist/ /app/artifact/\n"
         'RUN echo "$EXPECTED_SOURCE_REVISION" > /tmp/SOURCE_REVISION\n'
-        'RUN test "$(cat /tmp/SOURCE_REVISION)" = "$EXPECTED_SOURCE_REVISION"\n'
+        + _binding_run("/tmp/SOURCE_REVISION")
     )
 
     assert not inspector._source_revision_binding_signal(
@@ -136,7 +145,7 @@ def test_overwriting_copied_revision_file_does_not_count_as_binding() -> None:
         "ARG EXPECTED_SOURCE_REVISION\n"
         "COPY dist/ /tmp/dist/\n"
         'RUN echo "$EXPECTED_SOURCE_REVISION" > /tmp/dist/SOURCE_REVISION\n'
-        'RUN test "$(cat /tmp/dist/SOURCE_REVISION)" = "$EXPECTED_SOURCE_REVISION"\n'
+        + _binding_run()
     )
 
     assert not inspector._source_revision_binding_signal(
@@ -152,7 +161,7 @@ def test_unrelated_copy_cannot_supply_artifact_revision_metadata() -> None:
         "ARG EXPECTED_SOURCE_REVISION\n"
         "COPY dist/server.whl /tmp/dist/\n"
         "COPY metadata/SOURCE_REVISION /tmp/dist/SOURCE_REVISION\n"
-        'RUN test "$(cat /tmp/dist/SOURCE_REVISION)" = "$EXPECTED_SOURCE_REVISION"\n'
+        + _binding_run()
     )
 
     assert not inspector._source_revision_binding_signal(
@@ -168,7 +177,7 @@ def test_renamed_unrelated_file_cannot_supply_artifact_revision_metadata() -> No
         "ARG EXPECTED_SOURCE_REVISION\n"
         "COPY dist/ /tmp/dist/\n"
         "COPY metadata/revision.txt /tmp/dist/SOURCE_REVISION\n"
-        'RUN test "$(cat /tmp/dist/SOURCE_REVISION)" = "$EXPECTED_SOURCE_REVISION"\n'
+        + _binding_run()
     )
 
     assert not inspector._source_revision_binding_signal(
@@ -184,7 +193,7 @@ def test_renamed_file_from_same_prebuilt_root_is_not_revision_metadata() -> None
         "ARG EXPECTED_SOURCE_REVISION\n"
         "COPY dist/server.whl /tmp/dist/\n"
         "COPY dist/revision.txt /tmp/dist/SOURCE_REVISION\n"
-        'RUN test "$(cat /tmp/dist/SOURCE_REVISION)" = "$EXPECTED_SOURCE_REVISION"\n'
+        + _binding_run()
     )
 
     assert not inspector._source_revision_binding_signal(
@@ -200,7 +209,7 @@ def test_unrelated_copy_over_artifact_bytes_taints_source_binding() -> None:
         "ARG EXPECTED_SOURCE_REVISION\n"
         "COPY dist/ /tmp/dist/\n"
         "COPY metadata/server.whl /tmp/dist/server.whl\n"
-        'RUN test "$(cat /tmp/dist/SOURCE_REVISION)" = "$EXPECTED_SOURCE_REVISION"\n'
+        + _binding_run()
     )
 
     assert not inspector._source_revision_binding_signal(
@@ -216,7 +225,7 @@ def test_matching_prebuilt_copy_can_supply_artifact_revision_metadata() -> None:
         "ARG EXPECTED_SOURCE_REVISION\n"
         "COPY dist/server.whl /tmp/dist/\n"
         "COPY dist/SOURCE_REVISION /tmp/dist/SOURCE_REVISION\n"
-        'RUN test "$(cat /tmp/dist/SOURCE_REVISION)" = "$EXPECTED_SOURCE_REVISION"\n'
+        + _binding_run()
     )
 
     assert inspector._source_revision_binding_signal(
@@ -231,7 +240,7 @@ def test_multiple_copy_sources_are_all_inspected_for_prebuilt_binding() -> None:
         "FROM python:3.12-slim\n"
         "ARG EXPECTED_SOURCE_REVISION\n"
         "COPY dist/server.whl dist/SOURCE_REVISION /tmp/dist/\n"
-        'RUN test "$(cat /tmp/dist/SOURCE_REVISION)" = "$EXPECTED_SOURCE_REVISION"\n'
+        + _binding_run()
     )
 
     assert inspector._source_revision_binding_signal(
@@ -246,8 +255,8 @@ def test_bound_earlier_stage_does_not_bind_later_prebuilt_copy() -> None:
         "FROM python:3.12-slim AS verified\n"
         "ARG EXPECTED_SOURCE_REVISION\n"
         "COPY dist/ /tmp/dist/\n"
-        'RUN test "$(cat /tmp/dist/SOURCE_REVISION)" = "$EXPECTED_SOURCE_REVISION"\n'
-        "FROM python:3.12-slim\n"
+        + _binding_run()
+        + "FROM python:3.12-slim\n"
         "ARG EXPECTED_SOURCE_REVISION\n"
         "COPY build/ /app/\n"
     )
@@ -264,8 +273,8 @@ def test_stage_copy_does_not_create_a_second_build_context_prebuilt_requirement(
         "FROM python:3.12-slim AS verified\n"
         "ARG EXPECTED_SOURCE_REVISION\n"
         "COPY dist/ /tmp/dist/\n"
-        'RUN test "$(cat /tmp/dist/SOURCE_REVISION)" = "$EXPECTED_SOURCE_REVISION"\n'
-        "FROM python:3.12-slim\n"
+        + _binding_run()
+        + "FROM python:3.12-slim\n"
         "COPY --from=verified /tmp/dist/ /app/\n"
     )
 
@@ -281,7 +290,7 @@ def test_revision_argument_must_be_declared_in_the_prebuilt_stage() -> None:
         "ARG EXPECTED_SOURCE_REVISION\n"
         "FROM python:3.12-slim\n"
         "COPY dist/ /tmp/dist/\n"
-        'RUN test "$(cat /tmp/dist/SOURCE_REVISION)" = "$EXPECTED_SOURCE_REVISION"\n'
+        + _binding_run()
     )
 
     assert not inspector._source_revision_binding_signal(
@@ -296,7 +305,7 @@ def test_neutralized_revision_comparison_does_not_gate_build() -> None:
         "FROM python:3.12-slim\n"
         "ARG EXPECTED_SOURCE_REVISION\n"
         "COPY dist/ /tmp/dist/\n"
-        'RUN test "$(cat /tmp/dist/SOURCE_REVISION)" = "$EXPECTED_SOURCE_REVISION" || true\n'
+        + _binding_run(suffix=" || true")
     )
 
     assert not inspector._source_revision_binding_signal(
@@ -311,7 +320,7 @@ def test_semicolon_after_revision_comparison_does_not_gate_build() -> None:
         "FROM python:3.12-slim\n"
         "ARG EXPECTED_SOURCE_REVISION\n"
         "COPY dist/ /tmp/dist/\n"
-        'RUN test "$(cat /tmp/dist/SOURCE_REVISION)" = "$EXPECTED_SOURCE_REVISION"; echo done\n'
+        + _binding_run(suffix="; echo done")
     )
 
     assert not inspector._source_revision_binding_signal(
@@ -326,7 +335,7 @@ def test_backgrounded_revision_comparison_does_not_gate_build() -> None:
         "FROM python:3.12-slim\n"
         "ARG EXPECTED_SOURCE_REVISION\n"
         "COPY dist/ /tmp/dist/\n"
-        'RUN test "$(cat /tmp/dist/SOURCE_REVISION)" = "$EXPECTED_SOURCE_REVISION" & echo done\n'
+        + _binding_run(suffix=" & echo done")
     )
 
     assert not inspector._source_revision_binding_signal(
@@ -341,7 +350,7 @@ def test_negated_equality_does_not_count_as_source_binding() -> None:
         "FROM python:3.12-slim\n"
         "ARG EXPECTED_SOURCE_REVISION\n"
         "COPY dist/ /tmp/dist/\n"
-        'RUN test ! "$(cat /tmp/dist/SOURCE_REVISION)" = "$EXPECTED_SOURCE_REVISION"\n'
+        + _binding_run(predicate='test ! "$ACTUAL_SOURCE_REVISION" = "$EXPECTED_SOURCE_REVISION"')
     )
 
     assert not inspector._source_revision_binding_signal(
@@ -356,7 +365,7 @@ def test_compound_or_predicate_does_not_count_as_source_binding() -> None:
         "FROM python:3.12-slim\n"
         "ARG EXPECTED_SOURCE_REVISION\n"
         "COPY dist/ /tmp/dist/\n"
-        'RUN test "$(cat /tmp/dist/SOURCE_REVISION)" = "$EXPECTED_SOURCE_REVISION" -o 1 = 1\n'
+        + _binding_run(predicate='test "$ACTUAL_SOURCE_REVISION" = "$EXPECTED_SOURCE_REVISION" -o 1 = 1')
     )
 
     assert not inspector._source_revision_binding_signal(
@@ -371,7 +380,7 @@ def test_bracket_negation_does_not_count_as_source_binding() -> None:
         "FROM python:3.12-slim\n"
         "ARG EXPECTED_SOURCE_REVISION\n"
         "COPY dist/ /tmp/dist/\n"
-        'RUN [ ! "$(cat /tmp/dist/SOURCE_REVISION)" = "$EXPECTED_SOURCE_REVISION" ]\n'
+        + _binding_run(predicate='[ ! "$ACTUAL_SOURCE_REVISION" = "$EXPECTED_SOURCE_REVISION" ]')
     )
 
     assert not inspector._source_revision_binding_signal(
@@ -386,10 +395,43 @@ def test_and_chain_after_revision_comparison_remains_fail_closed() -> None:
         "FROM python:3.12-slim\n"
         "ARG EXPECTED_SOURCE_REVISION\n"
         "COPY dist/ /tmp/dist/\n"
-        'RUN test "$(cat /tmp/dist/SOURCE_REVISION)" = "$EXPECTED_SOURCE_REVISION" && echo done\n'
+        + _binding_run(suffix=" && echo done")
     )
 
     assert inspector._source_revision_binding_signal(
+        dockerfile,
+        ["EXPECTED_SOURCE_REVISION"],
+    )
+
+
+def test_path_resolved_cat_cannot_bootstrap_source_binding() -> None:
+    inspector = _inspector()
+    dockerfile = (
+        "FROM python:3.12-slim\n"
+        "ARG EXPECTED_SOURCE_REVISION\n"
+        "COPY dist/ /tmp/dist/\n"
+        "ENV PATH=/tmp/dist:$PATH\n"
+        'RUN test "$(cat /tmp/dist/SOURCE_REVISION)" = "$EXPECTED_SOURCE_REVISION"\n'
+    )
+
+    assert not inspector._source_revision_binding_signal(
+        dockerfile,
+        ["EXPECTED_SOURCE_REVISION"],
+    )
+
+
+def test_captured_revision_variable_cannot_be_overwritten_before_comparison() -> None:
+    inspector = _inspector()
+    dockerfile = (
+        "FROM python:3.12-slim\n"
+        "ARG EXPECTED_SOURCE_REVISION\n"
+        "COPY dist/ /tmp/dist/\n"
+        "RUN read -r ACTUAL_SOURCE_REVISION < /tmp/dist/SOURCE_REVISION && "
+        'ACTUAL_SOURCE_REVISION="$EXPECTED_SOURCE_REVISION" && '
+        'test "$ACTUAL_SOURCE_REVISION" = "$EXPECTED_SOURCE_REVISION"\n'
+    )
+
+    assert not inspector._source_revision_binding_signal(
         dockerfile,
         ["EXPECTED_SOURCE_REVISION"],
     )

@@ -49,10 +49,6 @@ _SOURCE_REVISION_ARG = re.compile(
     re.IGNORECASE | re.MULTILINE,
 )
 _SOURCE_REVISION_FILE = re.compile(r"\bSOURCE[_-](?:REVISION|SHA)\b", re.IGNORECASE)
-_SOURCE_REVISION_READ = re.compile(
-    r"(?P<quote>['\"]?)\$\(\s*cat\s+(?P<path>[^)\s'\"]*SOURCE[_-](?:REVISION|SHA))\s*\)(?P=quote)",
-    re.IGNORECASE,
-)
 _SOURCE_REVISION_WRITE = re.compile(
     r"(?:>{1,2}\s*[^\s;&|]*SOURCE[_-](?:REVISION|SHA)\b|"
     r"\b(?:touch|tee|cp|mv)\b[^;&|]*\bSOURCE[_-](?:REVISION|SHA)\b)",
@@ -61,10 +57,9 @@ _SOURCE_REVISION_WRITE = re.compile(
 _WORKDIR_INSTRUCTION = re.compile(r"^WORKDIR\b\s*(.*)$", re.IGNORECASE)
 _SHELL_INSTRUCTION = re.compile(r"^SHELL\b", re.IGNORECASE)
 _RUN_INSTRUCTION = re.compile(r"^RUN\b\s*(.*)$", re.IGNORECASE)
-_SOURCE_CHECK_COMMAND = re.compile(r"(?:\btest\b|^\s*\[\[?)", re.IGNORECASE)
-_EQUALITY_OPERATOR = r"(?<![!<>=])(?:==|=)(?!=)"
 _REVISION_METADATA_NAMES = ("SOURCE_REVISION", "SOURCE_SHA")
 _SHELL_ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=.*$", re.DOTALL)
+_SHELL_VARIABLE_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _OPAQUE_SHELL_EFFECT = re.compile(r"(?:`|\$\(|[<>])")
 _REVISION_PROVENANCE_SAFE_BUILTINS = frozenset({":", "[", "[[", "echo", "false", "printf", "pwd", "test", "true"})
 
@@ -395,26 +390,49 @@ def _resolved_revision_read(path: str, cwd: str | None) -> str | None:
     return None
 
 
-def _source_revision_equality(
-    command: str,
-    source_arg: str,
+def _source_revision_builtin_read(
+    tokens: list[str],
     *,
     cwd: str | None,
     trusted_revision_paths: set[str],
+) -> tuple[str, str] | None:
+    """Bind one shell variable to trusted revision metadata without invoking a PATH-resolved executable."""
+    if len(tokens) != 5 or tokens[0] != "read" or tokens[1] != "-r" or tokens[3] != "<":
+        return None
+    variable = tokens[2]
+    if _SHELL_VARIABLE_NAME.fullmatch(variable) is None:
+        return None
+    resolved = _resolved_revision_read(tokens[4], cwd)
+    if resolved not in trusted_revision_paths:
+        return None
+    return variable, resolved
+
+
+def _shell_variable_reference(token: str) -> str | None:
+    if token.startswith("${") and token.endswith("}"):
+        name = token[2:-1]
+    elif token.startswith("$"):
+        name = token[1:]
+    else:
+        return None
+    return name if _SHELL_VARIABLE_NAME.fullmatch(name) is not None else None
+
+
+def _source_revision_variable_equality(
+    tokens: list[str],
+    source_arg: str,
+    revision_variables: dict[str, str],
 ) -> str | None:
-    """Return the trusted revision path compared exactly with one expected build argument."""
-    argument = rf"(?P<arg_quote>['\"]?)\$(?:\{{{re.escape(source_arg)}\}}|{re.escape(source_arg)}\b)(?P=arg_quote)"
-    for revision_match in _SOURCE_REVISION_READ.finditer(command):
-        resolved = _resolved_revision_read(revision_match.group("path"), cwd)
-        if resolved not in trusted_revision_paths:
-            continue
-        revision_read = re.escape(revision_match.group(0))
-        patterns = (
-            rf"{revision_read}\s*{_EQUALITY_OPERATOR}\s*{argument}",
-            rf"{argument}\s*{_EQUALITY_OPERATOR}\s*{revision_read}",
-        )
-        if any(re.search(pattern, command, re.IGNORECASE) is not None for pattern in patterns):
-            return resolved
+    """Return a trusted revision path when a captured shell variable equals the active source argument."""
+    if not _is_simple_equality_check(tokens):
+        return None
+    left = tokens[1]
+    right = tokens[3]
+    source_references = {f"${source_arg}", f"${{{source_arg}}}"}
+    for variable_token, argument_token in ((left, right), (right, left)):
+        variable = _shell_variable_reference(variable_token)
+        if variable is not None and argument_token in source_references:
+            return revision_variables.get(variable)
     return None
 
 
@@ -471,9 +489,8 @@ def _stage_source_revision_binding_state(
             continue
 
         if _SHELL_INSTRUCTION.match(instruction) is not None:
-            # The inspector cannot prove the identity or semantics of a custom shell
-            # from Dockerfile text alone. Preserve earlier binding evidence, but do
-            # not trust any subsequent RUN to establish or preserve provenance.
+            # Custom shell identity and semantics are not verifiable from Dockerfile text.
+            # Preserve already-established evidence, but reject all subsequent RUN evidence.
             run_shell_trusted = False
             continue
 
@@ -572,6 +589,7 @@ def _stage_source_revision_binding_state(
                 _invalidate_revision_provenance(artifacts, revision_provenance)
             continue
         cwd = workdir
+        revision_variables: dict[str, str] = {}
         for command in re.split(r"\s*&&\s*", body):
             command = command.strip()
             if not command or command.startswith("!"):
@@ -586,23 +604,30 @@ def _stage_source_revision_binding_state(
                     _invalidate_revision_provenance(artifacts, revision_provenance)
                     break
                 continue
+            for token in tokens:
+                if _SHELL_ASSIGNMENT.fullmatch(token) is not None:
+                    revision_variables.pop(token.split("=", 1)[0], None)
             if len(tokens) == 2 and tokens[0] == "cd" and _OPAQUE_SHELL_EFFECT.search(command) is None:
                 cwd = _resolved_container_directory(tokens[1], cwd)
+                continue
+            trusted_revision_paths = set(revision_provenance)
+            captured_revision = _source_revision_builtin_read(
+                tokens,
+                cwd=cwd,
+                trusted_revision_paths=trusted_revision_paths,
+            )
+            if captured_revision is not None:
+                variable, checked_path = captured_revision
+                revision_variables[variable] = checked_path
                 continue
             simple_equality = _is_simple_equality_check(tokens)
             if _SOURCE_REVISION_FILE.search(command) is not None and not simple_equality:
                 _invalidate_revision_provenance(artifacts, revision_provenance)
                 break
             bound_by_command = False
-            if simple_equality and _SOURCE_CHECK_COMMAND.search(command) is not None:
-                trusted_revision_paths = set(revision_provenance)
+            if simple_equality:
                 for name in sorted(candidate_args.intersection(active_args)):
-                    checked_path = _source_revision_equality(
-                        command,
-                        name,
-                        cwd=cwd,
-                        trusted_revision_paths=trusted_revision_paths,
-                    )
+                    checked_path = _source_revision_variable_equality(tokens, name, revision_variables)
                     if checked_path is None:
                         continue
                     provenance = revision_provenance.get(checked_path)

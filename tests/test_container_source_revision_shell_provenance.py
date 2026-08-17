@@ -1,4 +1,4 @@
-"""Container provenance must not trust RUN checks executed by a custom Docker shell."""
+"""Custom Docker shells cannot establish trusted source-revision provenance."""
 
 from __future__ import annotations
 
@@ -20,14 +20,15 @@ def _inspector() -> ModuleType:
     return module
 
 
-def test_custom_shell_cannot_establish_source_revision_binding() -> None:
+def test_custom_artifact_supplied_shell_cannot_establish_source_binding() -> None:
     inspector = _inspector()
     dockerfile = (
         "FROM python:3.12-slim\n"
         "ARG EXPECTED_SOURCE_REVISION\n"
         "COPY dist/ /tmp/dist/\n"
         'SHELL ["/tmp/dist/fake-shell"]\n'
-        'RUN test "$(cat /tmp/dist/SOURCE_REVISION)" = "$EXPECTED_SOURCE_REVISION"\n'
+        "RUN read -r ACTUAL_SOURCE_REVISION < /tmp/dist/SOURCE_REVISION && "
+        'test "$ACTUAL_SOURCE_REVISION" = "$EXPECTED_SOURCE_REVISION"\n'
     )
 
     assert inspector._source_revision_binding_state(dockerfile, ["EXPECTED_SOURCE_REVISION"]) == (True, False)

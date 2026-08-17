@@ -20,6 +20,13 @@ def _inspector() -> ModuleType:
     return module
 
 
+def _binding_run() -> str:
+    return (
+        "RUN read -r ACTUAL_SOURCE_REVISION < /tmp/dist/SOURCE_REVISION && "
+        'test "$ACTUAL_SOURCE_REVISION" = "$EXPECTED_SOURCE_REVISION"\n'
+    )
+
+
 def test_distinct_case_sensitive_source_roots_do_not_share_revision_provenance() -> None:
     inspector = _inspector()
     dockerfile = (
@@ -27,7 +34,7 @@ def test_distinct_case_sensitive_source_roots_do_not_share_revision_provenance()
         "ARG EXPECTED_SOURCE_REVISION\n"
         "COPY Dist/server.whl /tmp/dist/\n"
         "COPY dist/SOURCE_REVISION /tmp/dist/SOURCE_REVISION\n"
-        'RUN test "$(cat /tmp/dist/SOURCE_REVISION)" = "$EXPECTED_SOURCE_REVISION"\n'
+        + _binding_run()
     )
 
     assert inspector._source_revision_binding_state(
@@ -57,7 +64,7 @@ def test_json_multi_source_copy_keeps_same_root_revision_binding() -> None:
         "FROM python:3.12-slim\n"
         "ARG EXPECTED_SOURCE_REVISION\n"
         'COPY ["dist/server.whl", "dist/SOURCE_REVISION", "/tmp/dist/"]\n'
-        'RUN test "$(cat /tmp/dist/SOURCE_REVISION)" = "$EXPECTED_SOURCE_REVISION"\n'
+        + _binding_run()
     )
 
     assert inspector._source_revision_binding_state(

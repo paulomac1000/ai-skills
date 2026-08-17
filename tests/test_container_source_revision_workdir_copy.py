@@ -20,6 +20,13 @@ def _inspector() -> ModuleType:
     return module
 
 
+def _binding_run(path: str = "SOURCE_REVISION") -> str:
+    return (
+        f"RUN read -r ACTUAL_SOURCE_REVISION < {path} && "
+        'test "$ACTUAL_SOURCE_REVISION" = "$EXPECTED_SOURCE_REVISION"\n'
+    )
+
+
 def test_relative_directory_copy_uses_explicit_stage_workdir() -> None:
     inspector = _inspector()
     dockerfile = (
@@ -27,7 +34,7 @@ def test_relative_directory_copy_uses_explicit_stage_workdir() -> None:
         "ARG EXPECTED_SOURCE_REVISION\n"
         "WORKDIR /app\n"
         "COPY dist/ .\n"
-        'RUN test "$(cat SOURCE_REVISION)" = "$EXPECTED_SOURCE_REVISION"\n'
+        + _binding_run()
     )
 
     assert inspector._source_revision_binding_signal(dockerfile, ["EXPECTED_SOURCE_REVISION"])
@@ -41,7 +48,7 @@ def test_relative_file_copies_use_explicit_stage_workdir() -> None:
         "WORKDIR /app\n"
         "COPY dist/server.whl .\n"
         "COPY dist/SOURCE_REVISION .\n"
-        'RUN test "$(cat SOURCE_REVISION)" = "$EXPECTED_SOURCE_REVISION"\n'
+        + _binding_run()
     )
 
     assert inspector._source_revision_binding_signal(dockerfile, ["EXPECTED_SOURCE_REVISION"])
@@ -53,7 +60,7 @@ def test_relative_copy_without_explicit_workdir_remains_unresolved() -> None:
         "FROM python:3.12-slim\n"
         "ARG EXPECTED_SOURCE_REVISION\n"
         "COPY dist/ .\n"
-        'RUN test "$(cat SOURCE_REVISION)" = "$EXPECTED_SOURCE_REVISION"\n'
+        + _binding_run()
     )
 
     assert not inspector._source_revision_binding_signal(dockerfile, ["EXPECTED_SOURCE_REVISION"])

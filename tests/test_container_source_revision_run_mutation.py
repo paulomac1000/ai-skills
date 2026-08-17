@@ -20,6 +20,13 @@ def _inspector() -> ModuleType:
     return module
 
 
+def _binding_run() -> str:
+    return (
+        "RUN read -r ACTUAL_SOURCE_REVISION < /tmp/dist/SOURCE_REVISION && "
+        'test "$ACTUAL_SOURCE_REVISION" = "$EXPECTED_SOURCE_REVISION"\n'
+    )
+
+
 def test_sed_rewrite_of_copied_revision_metadata_cannot_bootstrap_binding() -> None:
     inspector = _inspector()
     dockerfile = (
@@ -27,7 +34,7 @@ def test_sed_rewrite_of_copied_revision_metadata_cannot_bootstrap_binding() -> N
         "ARG EXPECTED_SOURCE_REVISION\n"
         "COPY dist/ /tmp/dist/\n"
         'RUN sed -i "s/.*/$EXPECTED_SOURCE_REVISION/" /tmp/dist/SOURCE_REVISION\n'
-        'RUN test "$(cat /tmp/dist/SOURCE_REVISION)" = "$EXPECTED_SOURCE_REVISION"\n'
+        + _binding_run()
     )
 
     assert inspector._source_revision_binding_state(
@@ -43,7 +50,8 @@ def test_inline_revision_rewrite_before_equality_cannot_bootstrap_binding() -> N
         "ARG EXPECTED_SOURCE_REVISION\n"
         "COPY dist/ /tmp/dist/\n"
         'RUN sed -i "s/.*/$EXPECTED_SOURCE_REVISION/" /tmp/dist/SOURCE_REVISION && '
-        'test "$(cat /tmp/dist/SOURCE_REVISION)" = "$EXPECTED_SOURCE_REVISION"\n'
+        'read -r ACTUAL_SOURCE_REVISION < /tmp/dist/SOURCE_REVISION && '
+        'test "$ACTUAL_SOURCE_REVISION" = "$EXPECTED_SOURCE_REVISION"\n'
     )
 
     assert inspector._source_revision_binding_state(
@@ -59,7 +67,7 @@ def test_compound_revision_rewrite_cannot_be_skipped_before_invalidation() -> No
         "ARG EXPECTED_SOURCE_REVISION\n"
         "COPY dist/ /tmp/dist/\n"
         'RUN sed -i "s/.*/$EXPECTED_SOURCE_REVISION/" /tmp/dist/SOURCE_REVISION; echo done\n'
-        'RUN test "$(cat /tmp/dist/SOURCE_REVISION)" = "$EXPECTED_SOURCE_REVISION"\n'
+        + _binding_run()
     )
 
     assert inspector._source_revision_binding_state(
@@ -76,7 +84,7 @@ def test_dynamic_revision_path_rewrite_cannot_bootstrap_binding() -> None:
         "COPY dist/ /tmp/dist/\n"
         'RUN p=/tmp/dist/SOURCE_ && p=${p}REVISION && '
         'sed -i "s/.*/$EXPECTED_SOURCE_REVISION/" "$p"\n'
-        'RUN test "$(cat /tmp/dist/SOURCE_REVISION)" = "$EXPECTED_SOURCE_REVISION"\n'
+        + _binding_run()
     )
 
     assert inspector._source_revision_binding_state(
@@ -92,7 +100,7 @@ def test_artifact_supplied_safe_basename_executable_taints_provenance() -> None:
         "ARG EXPECTED_SOURCE_REVISION\n"
         "COPY dist/ /tmp/dist/\n"
         "RUN /tmp/dist/cat\n"
-        'RUN test "$(cat /tmp/dist/SOURCE_REVISION)" = "$EXPECTED_SOURCE_REVISION"\n'
+        + _binding_run()
     )
 
     assert inspector._source_revision_binding_state(
