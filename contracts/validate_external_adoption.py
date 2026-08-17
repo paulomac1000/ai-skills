@@ -21,7 +21,7 @@ if str(ROOT) not in sys.path:
 
 import validate_adoption as adoption  # noqa: E402
 import validate_trusted_executable_sources as trusted_sources  # noqa: E402
-from confined_io import confined_regular_file  # noqa: E402
+from confined_io import ConfinedReadError, confined_regular_file, read_utf8_bounded  # noqa: E402
 from evidence import GitHubEvidenceVerifier  # noqa: E402
 
 FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
@@ -66,9 +66,11 @@ def _external_authority(repository: str, revision: str, workflow_path: str) -> d
 
 
 def _preflight_candidate_implementation_files(
-    assessment: Mapping[str, Any], candidate_root: Path
+    assessment: Mapping[str, Any],
+    candidate_root: Path,
+    implementation_payloads: dict[str, str] | None = None,
 ) -> list[adoption.Finding]:
-    """Reject unsafe or oversized candidate files before semantic validation reads them."""
+    """Capture bounded stable implementation bytes before semantic validation uses them."""
     findings: list[adoption.Finding] = []
     applicability = assessment.get("applicability")
     if not isinstance(applicability, list):
@@ -88,7 +90,27 @@ def _preflight_candidate_implementation_files(
             location = f"applicability[{entry_index}].implementation[{implementation_index}].path"
             try:
                 implementation_path = confined_regular_file(candidate_root, raw_path)
-                size = implementation_path.stat().st_size
+                content, _size = read_utf8_bounded(
+                    implementation_path,
+                    candidate_root,
+                    MAX_IMPLEMENTATION_BYTES,
+                )
+            except ConfinedReadError as exc:
+                if exc.code == "input.too-large":
+                    findings.append(
+                        adoption.Finding(
+                            location,
+                            f"implementation file exceeds {MAX_IMPLEMENTATION_BYTES} bytes",
+                        )
+                    )
+                else:
+                    findings.append(
+                        adoption.Finding(
+                            location,
+                            f"implementation file cannot be read safely: {exc}",
+                        )
+                    )
+                continue
             except (OSError, ValueError) as exc:
                 findings.append(
                     adoption.Finding(
@@ -97,13 +119,8 @@ def _preflight_candidate_implementation_files(
                     )
                 )
                 continue
-            if size > MAX_IMPLEMENTATION_BYTES:
-                findings.append(
-                    adoption.Finding(
-                        location,
-                        f"implementation file exceeds {MAX_IMPLEMENTATION_BYTES} bytes",
-                    )
-                )
+            if implementation_payloads is not None:
+                implementation_payloads[raw_path] = content
     return findings
 
 
@@ -143,7 +160,12 @@ def validate_external_adoption(
         if isinstance(skill_name, str) and skill_name:
             trusted_sources._authority_file(authority_root, f"skills/{skill_name}/manifest.yaml")
 
-    implementation_findings = _preflight_candidate_implementation_files(assessment, candidate_root)
+    implementation_payloads: dict[str, str] = {}
+    implementation_findings = _preflight_candidate_implementation_files(
+        assessment,
+        candidate_root,
+        implementation_payloads,
+    )
     if implementation_findings:
         return implementation_findings
 
@@ -160,6 +182,7 @@ def validate_external_adoption(
         schema=schema,
         repository_root=candidate_root,
         evidence_verifier=verifier,
+        implementation_payloads=implementation_payloads,
     )
 
 
