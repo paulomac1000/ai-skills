@@ -12,6 +12,7 @@ import shlex
 import stat
 import sys
 import tomllib
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -40,11 +41,9 @@ IGNORED_PARTS = {
 TEXT_SUFFIXES = {".py", ".toml", ".txt", ".ini", ".yaml", ".yml", ".md", ".json"}
 HTTP_DEPENDENCIES = {"requests", "httpx", "aiohttp", "urllib3"}
 _PREBUILT_CONTAINER_DIRS = frozenset({"dist", "build", "out", "publish", "artifacts"})
-_PREBUILT_CONTAINER_COPY = re.compile(
-    r"^\s*(?:COPY|ADD)\b[^\n]*\b(?:dist|build|out|publish|artifacts)/",
-    re.IGNORECASE | re.MULTILINE,
-)
 _COPY_INSTRUCTION = re.compile(r"^(?:COPY|ADD)\b\s*(.*)$", re.IGNORECASE)
+_FROM_INSTRUCTION = re.compile(r"^FROM\b", re.IGNORECASE)
+_ARG_INSTRUCTION = re.compile(r"^ARG\s+([A-Za-z_][A-Za-z0-9_]*)", re.IGNORECASE)
 _SOURCE_REVISION_ARG = re.compile(
     r"^\s*ARG\s+([A-Za-z_][A-Za-z0-9_]*)",
     re.IGNORECASE | re.MULTILINE,
@@ -62,6 +61,7 @@ _SOURCE_REVISION_WRITE = re.compile(
 _RUN_INSTRUCTION = re.compile(r"^RUN\b\s*(.*)$", re.IGNORECASE)
 _SOURCE_CHECK_COMMAND = re.compile(r"(?:\btest\b|^\s*\[\[?)", re.IGNORECASE)
 _EQUALITY_OPERATOR = r"(?<![!<>=])(?:==|=)(?!=)"
+_REVISION_METADATA_NAMES = ("SOURCE_REVISION", "SOURCE_SHA")
 
 
 def _regular_text(path: Path) -> str | None:
@@ -216,6 +216,26 @@ def _docker_instructions(text: str) -> list[str]:
     return instructions
 
 
+def _docker_stages(text: str) -> list[list[str]]:
+    """Split logical Dockerfile instructions into build stages without sharing stage-local state."""
+    instructions = _docker_instructions(text)
+    stages: list[list[str]] = []
+    current: list[str] | None = None
+    for instruction in instructions:
+        if _FROM_INSTRUCTION.match(instruction):
+            if current is not None:
+                stages.append(current)
+            current = []
+            continue
+        if current is not None:
+            current.append(instruction)
+    if current is not None:
+        stages.append(current)
+    if not stages and instructions:
+        return [instructions]
+    return stages
+
+
 def _container_path(value: str) -> str | None:
     """Normalize one static absolute container path, rejecting dynamic destinations."""
     if not value.startswith("/") or "$" in value:
@@ -223,46 +243,111 @@ def _container_path(value: str) -> str | None:
     return posixpath.normpath(value)
 
 
-def _prebuilt_copy_destinations(text: str) -> set[str]:
-    """Return statically provable destinations of simple prebuilt-artifact COPY/ADD instructions."""
-    destinations: set[str] = set()
-    for instruction in _docker_instructions(text):
-        match = _COPY_INSTRUCTION.match(instruction)
-        if match is None:
-            continue
-        payload = match.group(1).strip()
-        if not payload or payload.startswith("["):
-            continue
+def _parse_copy_instruction(instruction: str) -> tuple[str, str, bool] | None:
+    """Parse one simple COPY/ADD and retain whether its source is another build stage."""
+    match = _COPY_INSTRUCTION.match(instruction)
+    if match is None:
+        return None
+    payload = match.group(1).strip()
+    if not payload:
+        return None
+    from_stage = False
+    while payload.startswith("--"):
+        flag, separator, remainder = payload.partition(" ")
+        if not separator:
+            return None
+        folded = flag.casefold()
+        payload = remainder.lstrip()
+        if folded == "--from":
+            _stage, separator, payload = payload.partition(" ")
+            if not separator:
+                return None
+            from_stage = True
+            payload = payload.lstrip()
+        elif folded.startswith("--from="):
+            from_stage = True
+    if payload.startswith("["):
         try:
-            tokens = shlex.split(payload)
-        except ValueError:
-            continue
-        while tokens and tokens[0].startswith("--"):
-            tokens.pop(0)
-        if len(tokens) != 2:
-            continue
-        source, destination = tokens
-        source_parts = {part.casefold() for part in source.replace("\\", "/").split("/") if part}
-        if not source_parts.intersection(_PREBUILT_CONTAINER_DIRS):
-            continue
-        normalized = _container_path(destination)
-        if normalized is not None:
-            destinations.add(normalized)
-    return destinations
+            values = json.loads(payload)
+        except json.JSONDecodeError:
+            return None
+        if not isinstance(values, list) or len(values) != 2 or not all(isinstance(item, str) for item in values):
+            return None
+        source, destination = values
+        return source, destination, from_stage
+    try:
+        tokens = shlex.split(payload)
+    except ValueError:
+        return None
+    if len(tokens) != 2:
+        return None
+    return tokens[0], tokens[1], from_stage
 
 
-def _revision_read_is_from_artifact(path: str, cwd: str | None, destinations: set[str]) -> bool:
-    """Require the revision file read to resolve directly under a copied artifact destination."""
+def _normalized_copy_source(source: str) -> str | None:
+    """Return a confined lexical build-context source path suitable only for conservative provenance matching."""
+    if "$" in source:
+        return None
+    value = source.replace("\\", "/").strip()
+    while value.startswith("./"):
+        value = value[2:]
+    normalized = posixpath.normpath(value).lstrip("/")
+    if normalized in {"", ".", ".."} or normalized.startswith("../") or "/../" in normalized:
+        return None
+    return normalized
+
+
+def _prebuilt_source_root(source: str) -> str | None:
+    """Return the lexical build-context root that owns one copied prebuilt artifact path."""
+    normalized = _normalized_copy_source(source)
+    if normalized is None:
+        return None
+    parts = normalized.split("/")
+    for index, part in enumerate(parts):
+        if part.casefold() in _PREBUILT_CONTAINER_DIRS:
+            return "/".join(parts[: index + 1]).casefold()
+    return None
+
+
+def _artifact_destination(source: str, destination: str, source_root: str) -> str | None:
+    """Return the container directory whose copied artifact bytes share one revision marker."""
+    normalized_destination = _container_path(destination)
+    normalized_source = _normalized_copy_source(source)
+    if normalized_destination is None or normalized_source is None:
+        return None
+    if normalized_source.casefold() == source_root or destination.endswith("/"):
+        return normalized_destination
+    return posixpath.dirname(normalized_destination) or "/"
+
+
+def _copy_target(source: str, destination: str) -> str | None:
+    """Return the exact target of a simple file COPY when statically provable."""
+    normalized_destination = _container_path(destination)
+    normalized_source = _normalized_copy_source(source)
+    if normalized_destination is None or normalized_source is None:
+        return None
+    if destination.endswith("/"):
+        return posixpath.join(normalized_destination, posixpath.basename(normalized_source))
+    return normalized_destination
+
+
+@dataclass
+class _PrebuiltArtifactBinding:
+    source_root: str
+    destination: str
+    bound: bool = False
+
+
+def _expected_revision_paths(artifact: _PrebuiltArtifactBinding) -> set[str]:
+    return {posixpath.join(artifact.destination, name) for name in _REVISION_METADATA_NAMES}
+
+
+def _resolved_revision_read(path: str, cwd: str | None) -> str | None:
     if path.startswith("/"):
-        resolved = posixpath.normpath(path)
-    elif cwd is not None:
-        resolved = posixpath.normpath(posixpath.join(cwd, path))
-    else:
-        return False
-    return any(
-        resolved in {posixpath.join(destination, "SOURCE_REVISION"), posixpath.join(destination, "SOURCE_SHA")}
-        for destination in destinations
-    )
+        return posixpath.normpath(path)
+    if cwd is not None:
+        return posixpath.normpath(posixpath.join(cwd, path))
+    return None
 
 
 def _source_revision_equality(
@@ -270,12 +355,13 @@ def _source_revision_equality(
     source_arg: str,
     *,
     cwd: str | None,
-    artifact_destinations: set[str],
-) -> bool:
-    """Recognize an equality between copied artifact revision bytes and one expected build argument."""
+    trusted_revision_paths: set[str],
+) -> str | None:
+    """Return the trusted revision path compared exactly with one expected build argument."""
     argument = rf"(?P<arg_quote>['\"]?)\$(?:\{{{re.escape(source_arg)}\}}|{re.escape(source_arg)}\b)(?P=arg_quote)"
     for revision_match in _SOURCE_REVISION_READ.finditer(command):
-        if not _revision_read_is_from_artifact(revision_match.group("path"), cwd, artifact_destinations):
+        resolved = _resolved_revision_read(revision_match.group("path"), cwd)
+        if resolved not in trusted_revision_paths:
             continue
         revision_read = re.escape(revision_match.group(0))
         patterns = (
@@ -283,8 +369,8 @@ def _source_revision_equality(
             rf"{argument}\s*{_EQUALITY_OPERATOR}\s*{revision_read}",
         )
         if any(re.search(pattern, command, re.IGNORECASE) is not None for pattern in patterns):
-            return True
-    return False
+            return resolved
+    return None
 
 
 def _is_simple_equality_check(tokens: list[str]) -> bool:
@@ -298,26 +384,97 @@ def _is_simple_equality_check(tokens: list[str]) -> bool:
     return expected_closer is not None and closer == expected_closer and operator in {"=", "=="}
 
 
-def _source_revision_binding_signal(text: str, revision_args: list[str]) -> bool:
-    """Require a fail-closed equality that binds copied artifact revision bytes to the expected source argument."""
-    source_args = [
+def _stage_source_revision_binding_state(
+    instructions: list[str],
+    revision_args: list[str],
+) -> tuple[bool, bool]:
+    """Evaluate prebuilt-artifact revision binding within exactly one Docker build stage."""
+    candidate_args = {
         name
         for name in revision_args
         if "source" in name.casefold() and ("revision" in name.casefold() or "sha" in name.casefold())
-    ]
-    artifact_destinations = _prebuilt_copy_destinations(text)
-    instructions = _docker_instructions(text)
-    if not source_args or not artifact_destinations:
-        return False
+    }
+    active_args: set[str] = set()
+    artifacts: list[_PrebuiltArtifactBinding] = []
+    revision_provenance: dict[str, str] = {}
+    prebuilt_copy = False
+
     for instruction in instructions:
-        run = _RUN_INSTRUCTION.match(instruction)
-        if run is not None and _SOURCE_REVISION_WRITE.search(run.group(1)) is not None:
-            return False
-    for instruction in instructions:
+        argument = _ARG_INSTRUCTION.match(instruction)
+        if argument is not None:
+            active_args.add(argument.group(1))
+            continue
+
+        parsed_copy = _parse_copy_instruction(instruction)
+        if parsed_copy is not None:
+            source, destination, from_stage = parsed_copy
+            normalized_source = _normalized_copy_source(source)
+            normalized_destination = _container_path(destination)
+            source_root = None if from_stage else _prebuilt_source_root(source)
+            source_name = (
+                posixpath.basename(normalized_source).replace("-", "_").upper()
+                if normalized_source is not None
+                else ""
+            )
+            is_revision_metadata = source_name in _REVISION_METADATA_NAMES
+
+            if source_root is None and normalized_destination is not None:
+                for artifact in artifacts:
+                    if artifact.destination == normalized_destination:
+                        artifact.bound = False
+                        for path in _expected_revision_paths(artifact):
+                            revision_provenance.pop(path, None)
+
+            if source_root is not None:
+                artifact_destination = _artifact_destination(source, destination, source_root)
+                if not is_revision_metadata and artifact_destination is not None:
+                    prebuilt_copy = True
+                    for artifact in artifacts:
+                        if artifact.destination == artifact_destination and artifact.source_root != source_root:
+                            artifact.bound = False
+                            for path in _expected_revision_paths(artifact):
+                                revision_provenance.pop(path, None)
+                    artifact = next(
+                        (
+                            item
+                            for item in artifacts
+                            if item.source_root == source_root and item.destination == artifact_destination
+                        ),
+                        None,
+                    )
+                    if artifact is None:
+                        artifact = _PrebuiltArtifactBinding(source_root=source_root, destination=artifact_destination)
+                        artifacts.append(artifact)
+                    artifact.bound = False
+                    if normalized_source is not None and normalized_source.casefold() == source_root:
+                        for name in _REVISION_METADATA_NAMES:
+                            revision_provenance[posixpath.join(artifact_destination, name)] = source_root
+
+                if is_revision_metadata:
+                    target = _copy_target(source, destination)
+                    if target is not None:
+                        revision_provenance[target] = source_root
+                        for artifact in artifacts:
+                            if target in _expected_revision_paths(artifact):
+                                artifact.bound = False
+            elif normalized_source is not None and is_revision_metadata:
+                target = _copy_target(source, destination)
+                if target is not None:
+                    revision_provenance.pop(target, None)
+                    for artifact in artifacts:
+                        if target in _expected_revision_paths(artifact):
+                            artifact.bound = False
+            continue
+
         run = _RUN_INSTRUCTION.match(instruction)
         if run is None:
             continue
         body = run.group(1).strip()
+        if _SOURCE_REVISION_WRITE.search(body) is not None:
+            revision_provenance.clear()
+            for artifact in artifacts:
+                artifact.bound = False
+            continue
         if not body or "||" in body or ";" in body or re.search(r"(?<!\|)\|(?!\|)", body):
             continue
         cwd: str | None = None
@@ -336,17 +493,35 @@ def _source_revision_binding_signal(text: str, revision_args: list[str]) -> bool
                 continue
             if _SOURCE_CHECK_COMMAND.search(command) is None or _SOURCE_REVISION_FILE.search(command) is None:
                 continue
-            if any(
-                _source_revision_equality(
+            trusted_revision_paths = set(revision_provenance)
+            for name in sorted(candidate_args.intersection(active_args)):
+                checked_path = _source_revision_equality(
                     command,
                     name,
                     cwd=cwd,
-                    artifact_destinations=artifact_destinations,
+                    trusted_revision_paths=trusted_revision_paths,
                 )
-                for name in source_args
-            ):
-                return True
-    return False
+                if checked_path is None:
+                    continue
+                provenance = revision_provenance.get(checked_path)
+                for artifact in artifacts:
+                    if provenance == artifact.source_root and checked_path in _expected_revision_paths(artifact):
+                        artifact.bound = True
+
+    return prebuilt_copy, prebuilt_copy and bool(artifacts) and all(artifact.bound for artifact in artifacts)
+
+
+def _source_revision_binding_state(text: str, revision_args: list[str]) -> tuple[bool, bool]:
+    """Require every Docker stage with build-context prebuilt artifacts to bind its own revision metadata."""
+    states = [_stage_source_revision_binding_state(stage, revision_args) for stage in _docker_stages(text)]
+    prebuilt_copy = any(prebuilt for prebuilt, _bound in states)
+    source_binding = prebuilt_copy and all(not prebuilt or bound for prebuilt, bound in states)
+    return prebuilt_copy, source_binding
+
+
+def _source_revision_binding_signal(text: str, revision_args: list[str]) -> bool:
+    """Require stage-local, provenance-bound, fail-closed revision equality for all prebuilt artifact copies."""
+    return _source_revision_binding_state(text, revision_args)[1]
 
 
 def _container_build_facts(root: Path) -> dict[str, bool]:
@@ -356,9 +531,8 @@ def _container_build_facts(root: Path) -> dict[str, bool]:
         return {"prebuilt_artifact_copy": False, "source_revision_binding_signal": False}
     per_definition: list[tuple[bool, bool]] = []
     for text in texts:
-        prebuilt = _PREBUILT_CONTAINER_COPY.search(text) is not None
         revision_args = _SOURCE_REVISION_ARG.findall(text)
-        bound = prebuilt and _source_revision_binding_signal(text, revision_args)
+        prebuilt, bound = _source_revision_binding_state(text, revision_args)
         per_definition.append((prebuilt, bound))
     prebuilt_copy = any(prebuilt for prebuilt, _ in per_definition)
     source_binding = prebuilt_copy and all(not prebuilt or bound for prebuilt, bound in per_definition)
