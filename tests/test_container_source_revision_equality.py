@@ -65,6 +65,39 @@ def test_revision_file_can_be_read_relative_to_copied_artifact_directory() -> No
     )
 
 
+def test_revision_file_can_be_read_relative_to_stage_workdir() -> None:
+    inspector = _inspector()
+    dockerfile = (
+        "FROM python:3.12-slim\n"
+        "ARG EXPECTED_SOURCE_REVISION\n"
+        "COPY dist/ /tmp/dist/\n"
+        "WORKDIR /tmp/dist\n"
+        'RUN test "$(cat SOURCE_REVISION)" = "$EXPECTED_SOURCE_REVISION"\n'
+    )
+
+    assert inspector._source_revision_binding_signal(
+        dockerfile,
+        ["EXPECTED_SOURCE_REVISION"],
+    )
+
+
+def test_dynamic_stage_workdir_does_not_guess_revision_location() -> None:
+    inspector = _inspector()
+    dockerfile = (
+        "FROM python:3.12-slim\n"
+        "ARG EXPECTED_SOURCE_REVISION\n"
+        "ARG ARTIFACT_DIR\n"
+        "COPY dist/ /tmp/dist/\n"
+        "WORKDIR $ARTIFACT_DIR\n"
+        'RUN test "$(cat SOURCE_REVISION)" = "$EXPECTED_SOURCE_REVISION"\n'
+    )
+
+    assert not inspector._source_revision_binding_signal(
+        dockerfile,
+        ["EXPECTED_SOURCE_REVISION"],
+    )
+
+
 def test_inequality_does_not_count_as_source_binding() -> None:
     inspector = _inspector()
     dockerfile = (
