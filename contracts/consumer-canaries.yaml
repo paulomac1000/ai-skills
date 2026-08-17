@@ -15,7 +15,7 @@ canaries:
       plan.upstream_contract: required
   - id: legacy-financial-official-sdk
     repository: paulomac1000/kontomierz-mcp
-    revision: c1030d5e922a4eeae45287295627c88396cf47fa
+    revision: 39294546f72bb53521f1e6844314c36b94dc2d64
     proof_level: source-inspection
     expected:
       facts.language: python
@@ -27,5 +27,5 @@ canaries:
       facts.external_upstream: true
       facts.external_tests: true
       facts.external_tests_default_excluded: true
-      plan.upstream_contract: required
-      plan.live_backend_safety: needs-policy
+      plan.upstream_contract: verified
+      plan.live_backend_safety: declared
