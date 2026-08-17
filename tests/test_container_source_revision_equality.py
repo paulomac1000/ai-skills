@@ -56,7 +56,7 @@ def test_revision_file_can_be_read_relative_to_copied_artifact_directory() -> No
         "FROM python:3.12-slim\n"
         "ARG EXPECTED_SOURCE_REVISION\n"
         "COPY dist/ /tmp/dist/\n"
-        'RUN cd /tmp/dist && sha256sum --check SHA256SUMS && test "$(cat SOURCE_REVISION)" = "$EXPECTED_SOURCE_REVISION"\n'
+        'RUN cd /tmp/dist && test "$(cat SOURCE_REVISION)" = "$EXPECTED_SOURCE_REVISION"\n'
     )
 
     assert inspector._source_revision_binding_signal(
