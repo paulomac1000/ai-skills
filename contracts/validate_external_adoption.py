@@ -21,12 +21,13 @@ if str(ROOT) not in sys.path:
 
 import validate_adoption as adoption  # noqa: E402
 import validate_trusted_executable_sources as trusted_sources  # noqa: E402
-from confined_io import confined_regular_file  # noqa: E402
+from confined_io import ConfinedReadError, confined_regular_file, read_utf8_bounded  # noqa: E402
 from evidence import GitHubEvidenceVerifier  # noqa: E402
 
 FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
 GITHUB_REPOSITORY = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 MAX_DOCUMENT_BYTES = 2 * 1024 * 1024
+MAX_IMPLEMENTATION_BYTES = 8 * 1024 * 1024
 
 
 def _parse_mapping(path: Path, relative: str, *, json_only: bool = False) -> Mapping[str, Any]:
@@ -64,6 +65,40 @@ def _external_authority(repository: str, revision: str, workflow_path: str) -> d
     }
 
 
+def _preflight_candidate_implementation_files(
+    assessment: Mapping[str, Any], candidate_root: Path
+) -> list[adoption.Finding]:
+    """Reject oversized candidate implementation files before the semantic validator reads them."""
+    findings: list[adoption.Finding] = []
+    applicability = assessment.get("applicability")
+    if not isinstance(applicability, list):
+        return findings
+    for entry_index, raw_entry in enumerate(applicability):
+        if not isinstance(raw_entry, Mapping) or raw_entry.get("status") != "applicable":
+            continue
+        implementations = raw_entry.get("implementation")
+        if not isinstance(implementations, list):
+            continue
+        for implementation_index, raw_implementation in enumerate(implementations):
+            if not isinstance(raw_implementation, Mapping):
+                continue
+            raw_path = raw_implementation.get("path")
+            if not isinstance(raw_path, str) or not raw_path:
+                continue
+            location = f"applicability[{entry_index}].implementation[{implementation_index}].path"
+            try:
+                read_utf8_bounded(candidate_root / raw_path, candidate_root, MAX_IMPLEMENTATION_BYTES)
+            except ConfinedReadError as exc:
+                if exc.code == "input.too-large":
+                    findings.append(
+                        adoption.Finding(
+                            location,
+                            f"implementation file exceeds {MAX_IMPLEMENTATION_BYTES} bytes",
+                        )
+                    )
+    return findings
+
+
 def validate_external_adoption(
     assessment: Mapping[str, Any],
     *,
@@ -99,6 +134,10 @@ def validate_external_adoption(
         skill_name = skill.get("name")
         if isinstance(skill_name, str) and skill_name:
             trusted_sources._authority_file(authority_root, f"skills/{skill_name}/manifest.yaml")
+
+    implementation_findings = _preflight_candidate_implementation_files(assessment, candidate_root)
+    if implementation_findings:
+        return implementation_findings
 
     skills_root = authority_root / "skills"
     verifier = GitHubEvidenceVerifier(token)
