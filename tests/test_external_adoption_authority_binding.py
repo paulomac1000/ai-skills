@@ -111,3 +111,26 @@ def test_external_adoption_rejects_dirty_selected_skill_manifest(tmp_path: Path)
 
     with pytest.raises(ValueError, match="authority checkout must be pristine at the locked revision"):
         _validate(candidate, authority, revision)
+
+
+def test_external_adoption_preflights_oversized_candidate_implementation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    candidate = tmp_path / "candidate"
+    candidate.mkdir()
+    (candidate / "implementation.py").write_text("x" * 64, encoding="utf-8")
+    monkeypatch.setattr(VALIDATOR, "MAX_IMPLEMENTATION_BYTES", 32)
+    assessment = {
+        "applicability": [
+            {
+                "status": "applicable",
+                "implementation": [{"path": "implementation.py", "symbol": "x"}],
+            }
+        ]
+    }
+
+    findings = VALIDATOR._preflight_candidate_implementation_files(assessment, candidate)
+
+    assert len(findings) == 1
+    assert findings[0].location == "applicability[0].implementation[0].path"
+    assert findings[0].message == "implementation file exceeds 32 bytes"
