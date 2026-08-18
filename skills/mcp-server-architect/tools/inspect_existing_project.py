@@ -650,12 +650,7 @@ def _stage_source_revision_binding_state(
             continue
         unsafe_control_flow = bool(
             body
-            and (
-                "||" in body
-                or ";" in body
-                or re.search(r"(?<!\|)\|(?!\|)", body)
-                or re.search(r"(?<!&)&(?!&)", body)
-            )
+            and ("||" in body or ";" in body or re.search(r"(?<!\|)\|(?!\|)", body) or re.search(r"(?<!&)&(?!&)", body))
         )
         if not body or unsafe_control_flow:
             if unsafe_control_flow and artifacts:
