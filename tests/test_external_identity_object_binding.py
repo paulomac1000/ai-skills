@@ -25,7 +25,7 @@ def _module() -> ModuleType:
 
 def _checkout(root: Path) -> str:
     root.mkdir()
-    (root / "policy.yaml").write_text("value: trusted\n", encoding="utf-8")
+    (root / "policy.yaml").write_bytes(b"value: trusted\n")
     subprocess.run(["git", "init", "-q", str(root)], check=True, timeout=30)
     subprocess.run(["git", "-C", str(root), "config", "user.name", "Test"], check=True, timeout=30)
     subprocess.run(["git", "-C", str(root), "config", "user.email", "test@example.invalid"], check=True, timeout=30)
@@ -65,7 +65,7 @@ def test_authority_text_reads_locked_blob_not_mutated_worktree(tmp_path: Path) -
     trusted = _module()
     authority = tmp_path / "authority"
     revision = _checkout(authority)
-    (authority / "policy.yaml").write_text("value: candidate-controlled\n", encoding="utf-8")
+    (authority / "policy.yaml").write_bytes(b"value: candidate-controlled\n")
 
     observed = trusted._authority_text(authority, revision, "policy.yaml")
 
