@@ -8,6 +8,7 @@ import json
 import os
 import re
 import sys
+import tempfile
 from collections.abc import Mapping, Sequence
 from datetime import date
 from pathlib import Path
@@ -30,6 +31,13 @@ MAX_DOCUMENT_BYTES = 2 * 1024 * 1024
 MAX_IMPLEMENTATION_BYTES = 8 * 1024 * 1024
 
 
+def _mapping_from_text(text: str, relative: str, *, json_only: bool = False) -> Mapping[str, Any]:
+    value = json.loads(text) if json_only else yaml.safe_load(text)
+    if not isinstance(value, Mapping):
+        raise ValueError(f"input must contain a mapping: {relative}")
+    return value
+
+
 def _parse_mapping(
     path: Path,
     repository_root: Path,
@@ -43,10 +51,7 @@ def _parse_mapping(
         if exc.code == "input.too-large":
             raise ValueError(f"input exceeds {MAX_DOCUMENT_BYTES} bytes: {relative}") from exc
         raise ValueError(f"input cannot be read safely: {relative}: {exc}") from exc
-    value = json.loads(text) if json_only else yaml.safe_load(text)
-    if not isinstance(value, Mapping):
-        raise ValueError(f"input must contain a mapping: {relative}")
-    return value
+    return _mapping_from_text(text, relative, json_only=json_only)
 
 
 def _load_mapping(root: Path, relative: str, *, json_only: bool = False) -> Mapping[str, Any]:
@@ -58,14 +63,21 @@ def _load_mapping(root: Path, relative: str, *, json_only: bool = False) -> Mapp
     )
 
 
-def _load_authority_mapping(root: Path, relative: str, *, json_only: bool = False) -> Mapping[str, Any]:
-    """Load policy only from tracked, clean bytes in the verified authority checkout."""
-    return _parse_mapping(
-        trusted_sources._authority_file(root, relative),
+def _load_authority_mapping(
+    root: Path,
+    revision: str,
+    relative: str,
+    *,
+    json_only: bool = False,
+) -> Mapping[str, Any]:
+    """Load authority policy directly from the immutable Git object, not mutable worktree bytes."""
+    text = trusted_sources._authority_text(
         root,
+        revision,
         relative,
-        json_only=json_only,
+        max_bytes=MAX_DOCUMENT_BYTES,
     )
+    return _mapping_from_text(text, relative, json_only=json_only)
 
 
 def _external_authority(repository: str, revision: str, workflow_path: str) -> dict[str, str]:
@@ -82,6 +94,30 @@ def _external_authority(repository: str, revision: str, workflow_path: str) -> d
         "claim_catalog_revision": revision,
         "workflow_path": workflow_path,
     }
+
+
+def _external_candidate(repository: str, revision: str) -> tuple[str, str]:
+    if GITHUB_REPOSITORY.fullmatch(repository) is None:
+        raise ValueError("candidate repository must use GitHub owner/name syntax")
+    if FULL_SHA.fullmatch(revision) is None:
+        raise ValueError("candidate revision must be a full lowercase 40-character commit SHA")
+    return repository, revision
+
+
+def _candidate_assessment_binding(
+    assessment: Mapping[str, Any],
+    repository: str,
+    revision: str,
+) -> list[adoption.Finding]:
+    observed = assessment.get("repository")
+    if not isinstance(observed, Mapping):
+        return [adoption.Finding("repository", "must match the externally supplied candidate repository and revision")]
+    findings: list[adoption.Finding] = []
+    if observed.get("name") != repository:
+        findings.append(adoption.Finding("repository.name", "must equal the externally supplied candidate repository"))
+    if observed.get("revision") != revision:
+        findings.append(adoption.Finding("repository.revision", "must equal the externally supplied candidate revision"))
+    return findings
 
 
 def _preflight_candidate_implementation_files(
@@ -147,6 +183,8 @@ def validate_external_adoption(
     assessment: Mapping[str, Any],
     *,
     candidate_root: Path,
+    candidate_repository: str,
+    candidate_revision: str,
     authority_root: Path,
     authority_repository: str,
     authority_revision: str,
@@ -154,7 +192,24 @@ def validate_external_adoption(
     token: str,
     as_of: date,
 ) -> list[adoption.Finding]:
-    """Run the normal adoption validator while binding approval to external authority coordinates."""
+    """Run adoption validation while binding both candidate and authority to external immutable coordinates."""
+    expected_candidate_repository, expected_candidate_revision = _external_candidate(
+        candidate_repository,
+        candidate_revision,
+    )
+    trusted_sources._verify_candidate_identity(
+        candidate_root,
+        expected_candidate_repository,
+        expected_candidate_revision,
+    )
+    candidate_findings = _candidate_assessment_binding(
+        assessment,
+        expected_candidate_repository,
+        expected_candidate_revision,
+    )
+    if candidate_findings:
+        return candidate_findings
+
     expected = _external_authority(authority_repository, authority_revision, authority_workflow_path)
     observed = assessment.get("acceptance_authority")
     if not isinstance(observed, Mapping) or dict(observed) != expected:
@@ -165,19 +220,30 @@ def validate_external_adoption(
             )
         ]
 
-    # The authority checkout must be independently identified before any policy bytes
-    # from it can influence the adoption decision. Each policy file is then required
-    # to be tracked and clean at that locked revision.
     trusted_sources._verify_authority_identity(authority_root, authority_repository, authority_revision)
-    catalog = _load_authority_mapping(authority_root, "contracts/rule-catalog.yaml")
-    atomic_catalog = _load_authority_mapping(authority_root, "contracts/atomic-claim-catalog.yaml")
-    schema = _load_authority_mapping(authority_root, "contracts/adoption-assessment.schema.json", json_only=True)
+    catalog = _load_authority_mapping(authority_root, authority_revision, "contracts/rule-catalog.yaml")
+    atomic_catalog = _load_authority_mapping(
+        authority_root,
+        authority_revision,
+        "contracts/atomic-claim-catalog.yaml",
+    )
+    schema = _load_authority_mapping(
+        authority_root,
+        authority_revision,
+        "contracts/adoption-assessment.schema.json",
+        json_only=True,
+    )
 
     skill = assessment.get("skill")
-    if isinstance(skill, Mapping):
-        skill_name = skill.get("name")
-        if isinstance(skill_name, str) and skill_name:
-            trusted_sources._authority_file(authority_root, f"skills/{skill_name}/manifest.yaml")
+    skill_name = skill.get("name") if isinstance(skill, Mapping) else None
+    manifest_text: str | None = None
+    if isinstance(skill_name, str) and skill_name:
+        manifest_text = trusted_sources._authority_text(
+            authority_root,
+            authority_revision,
+            f"skills/{skill_name}/manifest.yaml",
+            max_bytes=MAX_DOCUMENT_BYTES,
+        )
 
     implementation_payloads: dict[str, str] = {}
     implementation_findings = _preflight_candidate_implementation_files(
@@ -188,27 +254,34 @@ def validate_external_adoption(
     if implementation_findings:
         return implementation_findings
 
-    skills_root = authority_root / "skills"
     verifier = GitHubEvidenceVerifier(token)
     verifier.acceptance_authority = expected
-    return adoption.validate_document(
-        assessment,
-        catalog,
-        skills_root,
-        atomic_catalog=atomic_catalog,
-        require_approval=True,
-        as_of=as_of,
-        schema=schema,
-        repository_root=candidate_root,
-        evidence_verifier=verifier,
-        implementation_payloads=implementation_payloads,
-    )
+    with tempfile.TemporaryDirectory(prefix="ai-skills-authority-") as temporary:
+        skills_root = Path(temporary) / "skills"
+        if isinstance(skill_name, str) and manifest_text is not None:
+            manifest_path = skills_root / skill_name / "manifest.yaml"
+            manifest_path.parent.mkdir(parents=True)
+            manifest_path.write_text(manifest_text, encoding="utf-8", newline="\n")
+        return adoption.validate_document(
+            assessment,
+            catalog,
+            skills_root,
+            atomic_catalog=atomic_catalog,
+            require_approval=True,
+            as_of=as_of,
+            schema=schema,
+            repository_root=candidate_root,
+            evidence_verifier=verifier,
+            implementation_payloads=implementation_payloads,
+        )
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("assessment", help="Repository-relative assessment path inside the candidate checkout")
     parser.add_argument("--candidate-root", type=Path, required=True)
+    parser.add_argument("--candidate-repository", required=True)
+    parser.add_argument("--candidate-revision", required=True)
     parser.add_argument("--authority-root", type=Path, required=True)
     parser.add_argument("--authority-repository", required=True)
     parser.add_argument("--authority-revision", required=True)
@@ -222,10 +295,21 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         candidate_root = args.candidate_root.resolve(strict=True)
         authority_root = args.authority_root.resolve(strict=True)
+        candidate_repository, candidate_revision = _external_candidate(
+            args.candidate_repository,
+            args.candidate_revision,
+        )
+        trusted_sources._verify_candidate_identity(
+            candidate_root,
+            candidate_repository,
+            candidate_revision,
+        )
         assessment = _load_mapping(candidate_root, args.assessment)
         findings = validate_external_adoption(
             assessment,
             candidate_root=candidate_root,
+            candidate_repository=candidate_repository,
+            candidate_revision=candidate_revision,
             authority_root=authority_root,
             authority_repository=args.authority_repository,
             authority_revision=args.authority_revision,
