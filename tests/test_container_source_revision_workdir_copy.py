@@ -22,7 +22,9 @@ def _inspector() -> ModuleType:
 
 def _binding_run(path: str = "SOURCE_REVISION") -> str:
     return (
-        f"RUN read -r ACTUAL_SOURCE_REVISION < {path} && "
+        'SHELL ["/bin/sh", "-c"]\n'
+        'RUN test -n "$EXPECTED_SOURCE_REVISION" && '
+        f"read -r ACTUAL_SOURCE_REVISION < {path} && "
         'test "$ACTUAL_SOURCE_REVISION" = "$EXPECTED_SOURCE_REVISION"\n'
     )
 
