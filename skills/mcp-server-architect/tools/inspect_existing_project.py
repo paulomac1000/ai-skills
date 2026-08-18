@@ -709,6 +709,11 @@ def _stage_source_revision_binding_state(
             )
             if captured_revision is not None:
                 variable, captured_path = captured_revision
+                if variable in active_args:
+                    # Reading artifact-owned bytes into the externally supplied build
+                    # argument destroys the independent value that must gate the build.
+                    _invalidate_revision_provenance(artifacts, revision_provenance)
+                    break
                 revision_variables[variable] = captured_path
                 continue
             if _SOURCE_REVISION_FILE.search(command) is not None and not simple_equality:
