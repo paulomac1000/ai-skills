@@ -22,7 +22,8 @@ def _inspector() -> ModuleType:
 
 def _binding_run() -> str:
     return (
-        "RUN read -r ACTUAL_SOURCE_REVISION < /tmp/dist/SOURCE_REVISION && "
+        'RUN test -n "$EXPECTED_SOURCE_REVISION" && '
+        "read -r ACTUAL_SOURCE_REVISION < /tmp/dist/SOURCE_REVISION && "
         'test "$ACTUAL_SOURCE_REVISION" = "$EXPECTED_SOURCE_REVISION"\n'
     )
 
@@ -33,6 +34,7 @@ def test_sed_rewrite_of_copied_revision_metadata_cannot_bootstrap_binding() -> N
         "FROM python:3.12-slim\n"
         "ARG EXPECTED_SOURCE_REVISION\n"
         "COPY dist/ /tmp/dist/\n"
+        'SHELL ["/bin/sh", "-c"]\n'
         'RUN sed -i "s/.*/$EXPECTED_SOURCE_REVISION/" /tmp/dist/SOURCE_REVISION\n'
         + _binding_run()
     )
@@ -49,7 +51,9 @@ def test_inline_revision_rewrite_before_equality_cannot_bootstrap_binding() -> N
         "FROM python:3.12-slim\n"
         "ARG EXPECTED_SOURCE_REVISION\n"
         "COPY dist/ /tmp/dist/\n"
-        'RUN sed -i "s/.*/$EXPECTED_SOURCE_REVISION/" /tmp/dist/SOURCE_REVISION && '
+        'SHELL ["/bin/sh", "-c"]\n'
+        'RUN test -n "$EXPECTED_SOURCE_REVISION" && '
+        'sed -i "s/.*/$EXPECTED_SOURCE_REVISION/" /tmp/dist/SOURCE_REVISION && '
         'read -r ACTUAL_SOURCE_REVISION < /tmp/dist/SOURCE_REVISION && '
         'test "$ACTUAL_SOURCE_REVISION" = "$EXPECTED_SOURCE_REVISION"\n'
     )
@@ -66,6 +70,7 @@ def test_compound_revision_rewrite_cannot_be_skipped_before_invalidation() -> No
         "FROM python:3.12-slim\n"
         "ARG EXPECTED_SOURCE_REVISION\n"
         "COPY dist/ /tmp/dist/\n"
+        'SHELL ["/bin/sh", "-c"]\n'
         'RUN sed -i "s/.*/$EXPECTED_SOURCE_REVISION/" /tmp/dist/SOURCE_REVISION; echo done\n'
         + _binding_run()
     )
@@ -82,6 +87,7 @@ def test_dynamic_revision_path_rewrite_cannot_bootstrap_binding() -> None:
         "FROM python:3.12-slim\n"
         "ARG EXPECTED_SOURCE_REVISION\n"
         "COPY dist/ /tmp/dist/\n"
+        'SHELL ["/bin/sh", "-c"]\n'
         'RUN p=/tmp/dist/SOURCE_ && p=${p}REVISION && '
         'sed -i "s/.*/$EXPECTED_SOURCE_REVISION/" "$p"\n'
         + _binding_run()
@@ -99,6 +105,7 @@ def test_artifact_supplied_safe_basename_executable_taints_provenance() -> None:
         "FROM python:3.12-slim\n"
         "ARG EXPECTED_SOURCE_REVISION\n"
         "COPY dist/ /tmp/dist/\n"
+        'SHELL ["/bin/sh", "-c"]\n'
         "RUN /tmp/dist/cat\n"
         + _binding_run()
     )
