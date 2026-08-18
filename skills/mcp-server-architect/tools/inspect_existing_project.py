@@ -43,7 +43,11 @@ HTTP_DEPENDENCIES = {"requests", "httpx", "aiohttp", "urllib3"}
 _PREBUILT_CONTAINER_DIRS = frozenset({"dist", "build", "out", "publish", "artifacts"})
 _COPY_INSTRUCTION = re.compile(r"^(?:COPY|ADD)\b\s*(.*)$", re.IGNORECASE)
 _FROM_INSTRUCTION = re.compile(r"^FROM\b", re.IGNORECASE)
-_ARG_INSTRUCTION = re.compile(r"^ARG\s+([A-Za-z_][A-Za-z0-9_]*)", re.IGNORECASE)
+_ARG_INSTRUCTION = re.compile(
+    r"^ARG\s+([A-Za-z_][A-Za-z0-9_]*)(?:\s*=\s*(.*))?$",
+    re.IGNORECASE,
+)
+_ENV_INSTRUCTION = re.compile(r"^ENV\b\s*(.*)$", re.IGNORECASE)
 _SOURCE_REVISION_ARG = re.compile(
     r"^\s*ARG\s+([A-Za-z_][A-Za-z0-9_]*)",
     re.IGNORECASE | re.MULTILINE,
@@ -55,13 +59,14 @@ _SOURCE_REVISION_WRITE = re.compile(
     re.IGNORECASE,
 )
 _WORKDIR_INSTRUCTION = re.compile(r"^WORKDIR\b\s*(.*)$", re.IGNORECASE)
-_SHELL_INSTRUCTION = re.compile(r"^SHELL\b", re.IGNORECASE)
+_SHELL_INSTRUCTION = re.compile(r"^SHELL\b\s*(.*)$", re.IGNORECASE)
 _RUN_INSTRUCTION = re.compile(r"^RUN\b\s*(.*)$", re.IGNORECASE)
 _REVISION_METADATA_NAMES = ("SOURCE_REVISION", "SOURCE_SHA")
 _SHELL_ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=.*$", re.DOTALL)
 _SHELL_VARIABLE_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _OPAQUE_SHELL_EFFECT = re.compile(r"(?:`|\$\(|[<>])")
-_REVISION_PROVENANCE_SAFE_BUILTINS = frozenset({":", "[", "[[", "echo", "false", "printf", "pwd", "test", "true"})
+_REVISION_PROVENANCE_SAFE_BUILTINS = frozenset({":", "[", "[[", "echo", "false", "pwd", "test", "true"})
+_TRUSTED_DOCKER_SHELLS = frozenset({("/bin/sh", "-c"), ("/bin/bash", "-c")})
 
 
 def _regular_text(path: Path) -> str | None:
@@ -447,8 +452,57 @@ def _is_simple_equality_check(tokens: list[str]) -> bool:
     return expected_closer is not None and closer == expected_closer and operator in {"=", "=="}
 
 
+def _source_argument_nonempty_check(tokens: list[str], eligible_args: set[str]) -> str | None:
+    """Return a source argument proved non-empty by one simple build-gating predicate."""
+    variable_token: str | None = None
+    if len(tokens) == 3 and tokens[:2] == ["test", "-n"]:
+        variable_token = tokens[2]
+    elif len(tokens) == 4 and tokens[0] in {"[", "[["} and tokens[1] == "-n":
+        closer = "]" if tokens[0] == "[" else "]]"
+        if tokens[3] == closer:
+            variable_token = tokens[2]
+    if variable_token is None:
+        return None
+    variable = _shell_variable_reference(variable_token)
+    return variable if variable in eligible_args else None
+
+
+def _trusted_shell_instruction(instruction: str) -> bool:
+    """Accept only an explicit stage-local POSIX shell identity with fixed invocation semantics."""
+    match = _SHELL_INSTRUCTION.match(instruction)
+    if match is None:
+        return False
+    try:
+        value = json.loads(match.group(1).strip())
+    except json.JSONDecodeError:
+        return False
+    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+        return False
+    return tuple(value) in _TRUSTED_DOCKER_SHELLS
+
+
+def _environment_assignment_names(payload: str) -> set[str] | None:
+    """Return statically assigned ENV names, or None when the instruction is ambiguous."""
+    try:
+        tokens = shlex.split(payload)
+    except ValueError:
+        return None
+    if not tokens:
+        return None
+    if "=" not in tokens[0]:
+        name = tokens[0]
+        return {name} if _SHELL_VARIABLE_NAME.fullmatch(name) is not None and len(tokens) >= 2 else None
+    names: set[str] = set()
+    for token in tokens:
+        name, separator, _value = token.partition("=")
+        if not separator or _SHELL_VARIABLE_NAME.fullmatch(name) is None:
+            return None
+        names.add(name)
+    return names
+
+
 def _command_preserves_revision_provenance(command: str, tokens: list[str]) -> bool:
-    """Conservatively recognize shell builtins that cannot mutate copied artifact bytes."""
+    """Conservatively recognize shell builtins that cannot mutate copied artifact bytes or captured variables."""
     if not tokens or _OPAQUE_SHELL_EFFECT.search(command) is not None:
         return False
     command_index = 0
@@ -475,12 +529,28 @@ def _stage_source_revision_binding_state(
     revision_provenance: dict[str, str] = {}
     prebuilt_copy = False
     workdir: str | None = None
-    run_shell_trusted = True
+    # A base image can carry an arbitrary Config.Shell. Static Dockerfile inspection
+    # therefore accepts RUN evidence only after this stage explicitly selects a fixed shell.
+    run_shell_trusted = False
 
     for instruction in instructions:
         argument = _ARG_INSTRUCTION.match(instruction)
         if argument is not None:
-            active_args.add(argument.group(1))
+            name, default = argument.group(1), argument.group(2)
+            if name in candidate_args:
+                if default is None:
+                    active_args.add(name)
+                else:
+                    active_args.discard(name)
+            continue
+
+        environment_instruction = _ENV_INSTRUCTION.match(instruction)
+        if environment_instruction is not None:
+            assigned = _environment_assignment_names(environment_instruction.group(1).strip())
+            if assigned is None:
+                active_args.clear()
+            else:
+                active_args.difference_update(assigned)
             continue
 
         workdir_instruction = _WORKDIR_INSTRUCTION.match(instruction)
@@ -489,9 +559,7 @@ def _stage_source_revision_binding_state(
             continue
 
         if _SHELL_INSTRUCTION.match(instruction) is not None:
-            # Custom shell identity and semantics are not verifiable from Dockerfile text.
-            # Preserve already-established evidence, but reject all subsequent RUN evidence.
-            run_shell_trusted = False
+            run_shell_trusted = _trusted_shell_instruction(instruction)
             continue
 
         parsed_copy = _parse_copy_instruction(instruction)
@@ -582,7 +650,12 @@ def _stage_source_revision_binding_state(
             continue
         unsafe_control_flow = bool(
             body
-            and ("||" in body or ";" in body or re.search(r"(?<!\|)\|(?!\|)", body) or re.search(r"(?<!&)&(?!&)", body))
+            and (
+                "||" in body
+                or ";" in body
+                or re.search(r"(?<!\|)\|(?!\|)", body)
+                or re.search(r"(?<!&)&(?!&)", body)
+            )
         )
         if not body or unsafe_control_flow:
             if unsafe_control_flow and artifacts:
@@ -590,6 +663,8 @@ def _stage_source_revision_binding_state(
             continue
         cwd = workdir
         revision_variables: dict[str, str] = {}
+        nonempty_args: set[str] = set()
+        shadowed_args: set[str] = set()
         for command in re.split(r"\s*&&\s*", body):
             command = command.strip()
             if not command or command.startswith("!"):
@@ -604,9 +679,30 @@ def _stage_source_revision_binding_state(
                     _invalidate_revision_provenance(artifacts, revision_provenance)
                     break
                 continue
+
+            assignment_names: list[str] = []
             for token in tokens:
-                if _SHELL_ASSIGNMENT.fullmatch(token) is not None:
-                    revision_variables.pop(token.split("=", 1)[0], None)
+                if _SHELL_ASSIGNMENT.fullmatch(token) is None:
+                    break
+                assignment_names.append(token.split("=", 1)[0])
+            for name in assignment_names:
+                revision_variables.pop(name, None)
+                nonempty_args.discard(name)
+                if name in active_args:
+                    shadowed_args.add(name)
+
+            simple_equality = _is_simple_equality_check(tokens)
+            if revision_variables and not simple_equality:
+                # A captured marker is single-use. Any intervening command may
+                # rewrite shell state, including builtins such as `printf -v`.
+                revision_variables.clear()
+
+            eligible_args = active_args - shadowed_args
+            nonempty = _source_argument_nonempty_check(tokens, eligible_args)
+            if nonempty is not None:
+                nonempty_args.add(nonempty)
+                continue
+
             if len(tokens) == 2 and tokens[0] == "cd" and _OPAQUE_SHELL_EFFECT.search(command) is None:
                 cwd = _resolved_container_directory(tokens[1], cwd)
                 continue
@@ -620,13 +716,12 @@ def _stage_source_revision_binding_state(
                 variable, captured_path = captured_revision
                 revision_variables[variable] = captured_path
                 continue
-            simple_equality = _is_simple_equality_check(tokens)
             if _SOURCE_REVISION_FILE.search(command) is not None and not simple_equality:
                 _invalidate_revision_provenance(artifacts, revision_provenance)
                 break
             bound_by_command = False
             if simple_equality:
-                for name in sorted(candidate_args.intersection(active_args)):
+                for name in sorted(candidate_args.intersection(eligible_args).intersection(nonempty_args)):
                     matched_path = _source_revision_variable_equality(tokens, name, revision_variables)
                     if matched_path is None:
                         continue
@@ -639,6 +734,7 @@ def _stage_source_revision_binding_state(
                         ):
                             artifact.bound = True
                             bound_by_command = True
+                revision_variables.clear()
             if bound_by_command:
                 continue
             if artifacts and not _command_preserves_revision_provenance(command, tokens):
