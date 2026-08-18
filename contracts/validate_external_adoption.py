@@ -116,7 +116,9 @@ def _candidate_assessment_binding(
     if observed.get("name") != repository:
         findings.append(adoption.Finding("repository.name", "must equal the externally supplied candidate repository"))
     if observed.get("revision") != revision:
-        findings.append(adoption.Finding("repository.revision", "must equal the externally supplied candidate revision"))
+        findings.append(
+            adoption.Finding("repository.revision", "must equal the externally supplied candidate revision")
+        )
     return findings
 
 
