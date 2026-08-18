@@ -157,6 +157,8 @@ jobs:
         shell: bash
         env:
           ASSESSMENT_PATH: ${{ inputs.assessment_path }}
+          CANDIDATE_REPOSITORY: ${{ inputs.candidate_repository }}
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
           AUTHORITY_REPOSITORY: ${{ job.workflow_repository }}
           AUTHORITY_SHA: ${{ job.workflow_sha }}
           AUTHORITY_WORKFLOW_PATH: ${{ job.workflow_file_path }}
@@ -165,6 +167,8 @@ jobs:
           set -euo pipefail
           python authority/contracts/validate_external_adoption.py "$ASSESSMENT_PATH" \
             --candidate-root candidate \
+            --candidate-repository "$CANDIDATE_REPOSITORY" \
+            --candidate-revision "$CANDIDATE_SHA" \
             --authority-root authority \
             --authority-repository "$AUTHORITY_REPOSITORY" \
             --authority-revision "$AUTHORITY_SHA" \
