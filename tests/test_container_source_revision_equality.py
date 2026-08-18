@@ -25,7 +25,11 @@ def _binding_run(
     predicate: str = 'test "$ACTUAL_SOURCE_REVISION" = "$EXPECTED_SOURCE_REVISION"',
     suffix: str = "",
 ) -> str:
-    return f"RUN read -r ACTUAL_SOURCE_REVISION < {path} && {predicate}{suffix}\n"
+    return (
+        'SHELL ["/bin/sh", "-c"]\n'
+        'RUN test -n "$EXPECTED_SOURCE_REVISION" && '
+        f"read -r ACTUAL_SOURCE_REVISION < {path} && {predicate}{suffix}\n"
+    )
 
 
 def test_existence_and_nonempty_checks_in_one_command_do_not_bind_revision() -> None:
@@ -34,6 +38,7 @@ def test_existence_and_nonempty_checks_in_one_command_do_not_bind_revision() -> 
         "FROM python:3.12-slim\n"
         "ARG EXPECTED_SOURCE_REVISION\n"
         "COPY dist/ /tmp/dist/\n"
+        'SHELL ["/bin/sh", "-c"]\n'
         'RUN test -f /tmp/dist/SOURCE_REVISION -a -n "$EXPECTED_SOURCE_REVISION"\n'
     )
 
@@ -58,13 +63,29 @@ def test_revision_file_contents_must_equal_expected_build_argument() -> None:
     )
 
 
+def test_inherited_base_shell_cannot_establish_source_binding() -> None:
+    inspector = _inspector()
+    dockerfile = (
+        "FROM python:3.12-slim\n"
+        "ARG EXPECTED_SOURCE_REVISION\n"
+        "COPY dist/ /tmp/dist/\n"
+        'RUN test -n "$EXPECTED_SOURCE_REVISION" && '
+        "read -r ACTUAL_SOURCE_REVISION < /tmp/dist/SOURCE_REVISION && "
+        'test "$ACTUAL_SOURCE_REVISION" = "$EXPECTED_SOURCE_REVISION"\n'
+    )
+
+    assert not inspector._source_revision_binding_signal(dockerfile, ["EXPECTED_SOURCE_REVISION"])
+
+
 def test_revision_file_can_be_read_relative_to_copied_artifact_directory() -> None:
     inspector = _inspector()
     dockerfile = (
         "FROM python:3.12-slim\n"
         "ARG EXPECTED_SOURCE_REVISION\n"
         "COPY dist/ /tmp/dist/\n"
-        "RUN cd /tmp/dist && read -r ACTUAL_SOURCE_REVISION < SOURCE_REVISION && "
+        'SHELL ["/bin/sh", "-c"]\n'
+        'RUN test -n "$EXPECTED_SOURCE_REVISION" && cd /tmp/dist && '
+        "read -r ACTUAL_SOURCE_REVISION < SOURCE_REVISION && "
         'test "$ACTUAL_SOURCE_REVISION" = "$EXPECTED_SOURCE_REVISION"\n'
     )
 
@@ -299,6 +320,60 @@ def test_revision_argument_must_be_declared_in_the_prebuilt_stage() -> None:
     )
 
 
+def test_defaulted_revision_argument_cannot_establish_external_binding() -> None:
+    inspector = _inspector()
+    dockerfile = (
+        "FROM python:3.12-slim\n"
+        "ARG EXPECTED_SOURCE_REVISION=stale\n"
+        "COPY dist/ /tmp/dist/\n"
+        + _binding_run()
+    )
+
+    assert not inspector._source_revision_binding_signal(dockerfile, ["EXPECTED_SOURCE_REVISION"])
+
+
+def test_env_shadowed_revision_argument_cannot_establish_binding() -> None:
+    inspector = _inspector()
+    dockerfile = (
+        "FROM python:3.12-slim\n"
+        "ARG EXPECTED_SOURCE_REVISION\n"
+        "ENV EXPECTED_SOURCE_REVISION=stale\n"
+        "COPY dist/ /tmp/dist/\n"
+        + _binding_run()
+    )
+
+    assert not inspector._source_revision_binding_signal(dockerfile, ["EXPECTED_SOURCE_REVISION"])
+
+
+def test_run_shadowed_revision_argument_cannot_establish_binding() -> None:
+    inspector = _inspector()
+    dockerfile = (
+        "FROM python:3.12-slim\n"
+        "ARG EXPECTED_SOURCE_REVISION\n"
+        "COPY dist/ /tmp/dist/\n"
+        'SHELL ["/bin/sh", "-c"]\n'
+        'RUN EXPECTED_SOURCE_REVISION=stale && test -n "$EXPECTED_SOURCE_REVISION" && '
+        "read -r ACTUAL_SOURCE_REVISION < /tmp/dist/SOURCE_REVISION && "
+        'test "$ACTUAL_SOURCE_REVISION" = "$EXPECTED_SOURCE_REVISION"\n'
+    )
+
+    assert not inspector._source_revision_binding_signal(dockerfile, ["EXPECTED_SOURCE_REVISION"])
+
+
+def test_revision_comparison_requires_explicit_nonempty_argument_guard() -> None:
+    inspector = _inspector()
+    dockerfile = (
+        "FROM python:3.12-slim\n"
+        "ARG EXPECTED_SOURCE_REVISION\n"
+        "COPY dist/ /tmp/dist/\n"
+        'SHELL ["/bin/sh", "-c"]\n'
+        "RUN read -r ACTUAL_SOURCE_REVISION < /tmp/dist/SOURCE_REVISION && "
+        'test "$ACTUAL_SOURCE_REVISION" = "$EXPECTED_SOURCE_REVISION"\n'
+    )
+
+    assert not inspector._source_revision_binding_signal(dockerfile, ["EXPECTED_SOURCE_REVISION"])
+
+
 def test_neutralized_revision_comparison_does_not_gate_build() -> None:
     inspector = _inspector()
     dockerfile = (
@@ -411,7 +486,9 @@ def test_path_resolved_cat_cannot_bootstrap_source_binding() -> None:
         "ARG EXPECTED_SOURCE_REVISION\n"
         "COPY dist/ /tmp/dist/\n"
         "ENV PATH=/tmp/dist:$PATH\n"
-        'RUN test "$(cat /tmp/dist/SOURCE_REVISION)" = "$EXPECTED_SOURCE_REVISION"\n'
+        'SHELL ["/bin/sh", "-c"]\n'
+        'RUN test -n "$EXPECTED_SOURCE_REVISION" && '
+        'test "$(cat /tmp/dist/SOURCE_REVISION)" = "$EXPECTED_SOURCE_REVISION"\n'
     )
 
     assert not inspector._source_revision_binding_signal(
@@ -426,7 +503,9 @@ def test_captured_revision_variable_cannot_be_overwritten_before_comparison() ->
         "FROM python:3.12-slim\n"
         "ARG EXPECTED_SOURCE_REVISION\n"
         "COPY dist/ /tmp/dist/\n"
-        "RUN read -r ACTUAL_SOURCE_REVISION < /tmp/dist/SOURCE_REVISION && "
+        'SHELL ["/bin/sh", "-c"]\n'
+        'RUN test -n "$EXPECTED_SOURCE_REVISION" && '
+        "read -r ACTUAL_SOURCE_REVISION < /tmp/dist/SOURCE_REVISION && "
         'ACTUAL_SOURCE_REVISION="$EXPECTED_SOURCE_REVISION" && '
         'test "$ACTUAL_SOURCE_REVISION" = "$EXPECTED_SOURCE_REVISION"\n'
     )
@@ -435,3 +514,19 @@ def test_captured_revision_variable_cannot_be_overwritten_before_comparison() ->
         dockerfile,
         ["EXPECTED_SOURCE_REVISION"],
     )
+
+
+def test_captured_revision_variable_is_single_use_across_intervening_builtins() -> None:
+    inspector = _inspector()
+    dockerfile = (
+        "FROM python:3.12-slim\n"
+        "ARG EXPECTED_SOURCE_REVISION\n"
+        "COPY dist/ /tmp/dist/\n"
+        'SHELL ["/bin/sh", "-c"]\n'
+        'RUN test -n "$EXPECTED_SOURCE_REVISION" && '
+        "read -r ACTUAL_SOURCE_REVISION < /tmp/dist/SOURCE_REVISION && "
+        'printf -v ACTUAL_SOURCE_REVISION "%s" "$EXPECTED_SOURCE_REVISION" && '
+        'test "$ACTUAL_SOURCE_REVISION" = "$EXPECTED_SOURCE_REVISION"\n'
+    )
+
+    assert not inspector._source_revision_binding_signal(dockerfile, ["EXPECTED_SOURCE_REVISION"])
