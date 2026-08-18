@@ -1,4 +1,4 @@
-"""Regressions for authority identity before provider-backed adoption policy loads."""
+"""Regressions for immutable candidate and authority identity in provider-backed adoption."""
 
 from __future__ import annotations
 
@@ -14,6 +14,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 CONTRACTS = ROOT / "contracts"
 REPOSITORY = "trusted/ai-skills"
+CANDIDATE_REPOSITORY = "consumer/project"
 WORKFLOW = ".github/workflows/consumer-acceptance.yml"
 
 
@@ -42,23 +43,22 @@ def _authority(revision: str) -> dict[str, str]:
     }
 
 
-def _git_authority(root: Path) -> str:
-    (root / "contracts").mkdir(parents=True)
-    (root / "skills/example-skill").mkdir(parents=True)
-    (root / "contracts/rule-catalog.yaml").write_text("schema_version: 1\nskills: {}\n", encoding="utf-8")
-    (root / "contracts/atomic-claim-catalog.yaml").write_text("schema_version: 1\nclaims: {}\n", encoding="utf-8")
-    (root / "contracts/adoption-assessment.schema.json").write_text("{}\n", encoding="utf-8")
-    (root / "skills/example-skill/manifest.yaml").write_text("name: example-skill\n", encoding="utf-8")
+def _init_git_checkout(root: Path, repository: str, message: str) -> str:
+    root.mkdir(parents=True, exist_ok=True)
     subprocess.run(["git", "init", "-q", str(root)], check=True, timeout=30)
     subprocess.run(["git", "-C", str(root), "config", "user.name", "Test"], check=True, timeout=30)
     subprocess.run(["git", "-C", str(root), "config", "user.email", "test@example.invalid"], check=True, timeout=30)
     subprocess.run(
-        ["git", "-C", str(root), "remote", "add", "origin", f"https://github.com/{REPOSITORY}.git"],
+        ["git", "-C", str(root), "remote", "add", "origin", f"https://github.com/{repository}.git"],
         check=True,
         timeout=30,
     )
     subprocess.run(["git", "-C", str(root), "add", "-A"], check=True, timeout=30)
-    subprocess.run(["git", "-C", str(root), "commit", "-q", "-m", "authority"], check=True, timeout=30)
+    subprocess.run(
+        ["git", "-C", str(root), "commit", "-q", "--allow-empty", "-m", message],
+        check=True,
+        timeout=30,
+    )
     return subprocess.run(
         ["git", "-C", str(root), "rev-parse", "HEAD"],
         check=True,
@@ -68,13 +68,37 @@ def _git_authority(root: Path) -> str:
     ).stdout.strip()
 
 
-def _validate(candidate: Path, authority: Path, revision: str) -> list[object]:
+def _git_authority(root: Path) -> str:
+    (root / "contracts").mkdir(parents=True)
+    (root / "skills/example-skill").mkdir(parents=True)
+    (root / "contracts/rule-catalog.yaml").write_text("schema_version: 1\nskills: {}\n", encoding="utf-8")
+    (root / "contracts/atomic-claim-catalog.yaml").write_text("schema_version: 1\nclaims: {}\n", encoding="utf-8")
+    (root / "contracts/adoption-assessment.schema.json").write_text("{}\n", encoding="utf-8")
+    (root / "skills/example-skill/manifest.yaml").write_text("name: example-skill\n", encoding="utf-8")
+    return _init_git_checkout(root, REPOSITORY, "authority")
+
+
+def _git_candidate(root: Path) -> str:
+    return _init_git_checkout(root, CANDIDATE_REPOSITORY, "candidate")
+
+
+def _assessment(authority_revision: str, candidate_revision: str) -> dict[str, object]:
+    return {
+        "acceptance_authority": _authority(authority_revision),
+        "repository": {"name": CANDIDATE_REPOSITORY, "revision": candidate_revision},
+        "skill": {"name": "example-skill"},
+    }
+
+
+def _validate(candidate: Path, candidate_revision: str, authority: Path, authority_revision: str) -> list[object]:
     return VALIDATOR.validate_external_adoption(
-        {"acceptance_authority": _authority(revision), "skill": {"name": "example-skill"}},
+        _assessment(authority_revision, candidate_revision),
         candidate_root=candidate,
+        candidate_repository=CANDIDATE_REPOSITORY,
+        candidate_revision=candidate_revision,
         authority_root=authority,
         authority_repository=REPOSITORY,
-        authority_revision=revision,
+        authority_revision=authority_revision,
         authority_workflow_path=WORKFLOW,
         token="test-token",
         as_of=date(2026, 8, 16),
@@ -84,33 +108,56 @@ def _validate(candidate: Path, authority: Path, revision: str) -> list[object]:
 def test_external_adoption_verifies_checkout_before_loading_policy(tmp_path: Path) -> None:
     candidate = tmp_path / "candidate"
     authority = tmp_path / "authority"
-    candidate.mkdir()
+    candidate_revision = _git_candidate(candidate)
     authority.mkdir()
 
     with pytest.raises(ValueError, match="authority checkout is not a verifiable git checkout"):
-        _validate(candidate, authority, "a" * 40)
+        _validate(candidate, candidate_revision, authority, "a" * 40)
 
 
 def test_external_adoption_rejects_dirty_authority_catalog(tmp_path: Path) -> None:
     candidate = tmp_path / "candidate"
     authority = tmp_path / "authority"
-    candidate.mkdir()
+    candidate_revision = _git_candidate(candidate)
     revision = _git_authority(authority)
     (authority / "contracts/rule-catalog.yaml").write_text("schema_version: 1\nskills: changed\n", encoding="utf-8")
 
     with pytest.raises(ValueError, match="authority checkout must be pristine at the locked revision"):
-        _validate(candidate, authority, revision)
+        _validate(candidate, candidate_revision, authority, revision)
 
 
 def test_external_adoption_rejects_dirty_selected_skill_manifest(tmp_path: Path) -> None:
     candidate = tmp_path / "candidate"
     authority = tmp_path / "authority"
-    candidate.mkdir()
+    candidate_revision = _git_candidate(candidate)
     revision = _git_authority(authority)
     (authority / "skills/example-skill/manifest.yaml").write_text("name: changed\n", encoding="utf-8")
 
     with pytest.raises(ValueError, match="authority checkout must be pristine at the locked revision"):
-        _validate(candidate, authority, revision)
+        _validate(candidate, candidate_revision, authority, revision)
+
+
+def test_external_adoption_rejects_candidate_coordinate_mismatch(tmp_path: Path) -> None:
+    candidate = tmp_path / "candidate"
+    authority = tmp_path / "authority"
+    candidate_revision = _git_candidate(candidate)
+    authority_revision = _git_authority(authority)
+    assessment = _assessment(authority_revision, "b" * 40)
+
+    findings = VALIDATOR.validate_external_adoption(
+        assessment,
+        candidate_root=candidate,
+        candidate_repository=CANDIDATE_REPOSITORY,
+        candidate_revision=candidate_revision,
+        authority_root=authority,
+        authority_repository=REPOSITORY,
+        authority_revision=authority_revision,
+        authority_workflow_path=WORKFLOW,
+        token="test-token",
+        as_of=date(2026, 8, 16),
+    )
+
+    assert any(finding.location == "repository.revision" for finding in findings)
 
 
 def test_external_adoption_preflights_oversized_candidate_implementation(
@@ -162,21 +209,19 @@ def test_external_adoption_semantics_use_the_preflight_snapshot(
     candidate = tmp_path / "candidate"
     authority = tmp_path / "authority"
     candidate.mkdir()
-    revision = _git_authority(authority)
     implementation = candidate / "implementation.py"
     implementation.write_bytes(b"ORIGINAL_SYMBOL = True\n")
-    assessment = {
-        "acceptance_authority": _authority(revision),
-        "skill": {"name": "example-skill"},
-        "applicability": [
-            {
-                "status": "applicable",
-                "implementation": [
-                    {"path": "implementation.py", "symbol": "ORIGINAL_SYMBOL"},
-                ],
-            }
-        ],
-    }
+    candidate_revision = _git_candidate(candidate)
+    revision = _git_authority(authority)
+    assessment = _assessment(revision, candidate_revision)
+    assessment["applicability"] = [
+        {
+            "status": "applicable",
+            "implementation": [
+                {"path": "implementation.py", "symbol": "ORIGINAL_SYMBOL"},
+            ],
+        }
+    ]
     original_preflight = VALIDATOR._preflight_candidate_implementation_files
 
     def preflight_then_replace(
@@ -211,6 +256,8 @@ def test_external_adoption_semantics_use_the_preflight_snapshot(
     findings = VALIDATOR.validate_external_adoption(
         assessment,
         candidate_root=candidate,
+        candidate_repository=CANDIDATE_REPOSITORY,
+        candidate_revision=candidate_revision,
         authority_root=authority,
         authority_repository=REPOSITORY,
         authority_revision=revision,
