@@ -21,6 +21,7 @@ DEFAULT_SCHEMA = Path(__file__).with_name("trusted-executable-sources.schema.jso
 MAX_LOCK_BYTES = 512 * 1024
 MAX_SOURCE_BYTES = 8 * 1024 * 1024
 GITHUB_REPOSITORY = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
+FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
 _GIT_ENVIRONMENT_ALLOWLIST = {
     "COMSPEC",
     "LANG",
@@ -34,6 +35,13 @@ _GIT_ENVIRONMENT_ALLOWLIST = {
     "TMPDIR",
     "WINDIR",
 }
+_TRUSTED_GIT_CANDIDATES = (
+    Path(r"C:\Program Files\Git\cmd\git.exe"),
+    Path(r"C:\Program Files\Git\bin\git.exe"),
+    Path("/usr/bin/git"),
+    Path("/usr/local/bin/git"),
+    Path("/opt/homebrew/bin/git"),
+)
 
 
 def _load(path: Path) -> Mapping[str, Any]:
@@ -51,12 +59,17 @@ def _load(path: Path) -> Mapping[str, Any]:
     return value
 
 
-def _safe_file(root: Path, raw: str, name: str) -> Path:
+def _safe_relative_path(raw: str, name: str) -> Path:
     if not raw or "\\" in raw:
         raise ValueError(f"{name} must use a non-empty POSIX relative path")
     relative = Path(raw)
     if relative.is_absolute() or any(part in {"", ".", ".."} for part in relative.parts):
         raise ValueError(f"{name} must stay inside its checkout root")
+    return relative
+
+
+def _safe_file(root: Path, raw: str, name: str) -> Path:
+    relative = _safe_relative_path(raw, name)
     root = root.resolve(strict=True)
     current = root
     for part in relative.parts:
@@ -87,6 +100,23 @@ def _digest(path: Path) -> str:
     return f"sha256:{digest.hexdigest()}"
 
 
+def _digest_bytes(payload: bytes) -> str:
+    return f"sha256:{hashlib.sha256(payload).hexdigest()}"
+
+
+def _trusted_git_executable() -> str:
+    """Return Git only from fixed system locations, never from candidate-controlled PATH."""
+    for candidate in _TRUSTED_GIT_CANDIDATES:
+        try:
+            metadata = candidate.lstat()
+        except OSError:
+            continue
+        if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISREG(metadata.st_mode):
+            continue
+        return str(candidate)
+    raise ValueError("trusted git executable is unavailable at an allowlisted absolute path")
+
+
 def _git_environment() -> dict[str, str]:
     environment = {
         name: value
@@ -104,9 +134,22 @@ def _git_environment() -> dict[str, str]:
     return environment
 
 
+def _git_argv(root: Path, *args: str) -> list[str]:
+    return [
+        _trusted_git_executable(),
+        "-c",
+        "core.fsmonitor=false",
+        "-c",
+        "core.pager=cat",
+        "-C",
+        str(root),
+        *args,
+    ]
+
+
 def _git(root: Path, *args: str) -> str:
-    completed = subprocess.run(  # noqa: S603 - fixed git executable and argument vector.
-        ["git", "-c", "core.fsmonitor=false", "-c", "core.pager=cat", "-C", str(root), *args],
+    completed = subprocess.run(  # noqa: S603 - absolute allowlisted git executable and argument vector.
+        _git_argv(root, *args),
         env=_git_environment(),
         check=False,
         capture_output=True,
@@ -117,6 +160,45 @@ def _git(root: Path, *args: str) -> str:
         detail = completed.stderr.strip() or completed.stdout.strip() or "git command failed"
         raise ValueError(detail)
     return completed.stdout.strip()
+
+
+def _git_blob(root: Path, revision: str, raw: str, *, max_bytes: int = MAX_SOURCE_BYTES) -> bytes:
+    """Read one tracked file directly from an immutable Git object with a strict allocation bound."""
+    _safe_relative_path(raw, "authority_path")
+    if FULL_SHA.fullmatch(revision) is None:
+        raise ValueError("authority revision must be a full lowercase 40-character commit SHA")
+    try:
+        blob = _git(root, "rev-parse", "--verify", f"{revision}:{raw}")
+        if _git(root, "cat-file", "-t", blob) != "blob":
+            raise ValueError(f"authority_path is not a tracked blob at the locked revision: {raw}")
+        size = int(_git(root, "cat-file", "-s", blob))
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"authority_path must be tracked at the locked revision: {raw}: {exc}") from exc
+    if size < 0 or size > max_bytes:
+        raise ValueError(f"authority_path exceeds {max_bytes} bytes: {raw}")
+    completed = subprocess.run(  # noqa: S603 - absolute allowlisted git executable and immutable blob id.
+        _git_argv(root, "cat-file", "blob", blob),
+        env=_git_environment(),
+        check=False,
+        capture_output=True,
+        text=False,
+        timeout=30,
+    )
+    if completed.returncode != 0:
+        detail = completed.stderr.decode("utf-8", errors="replace").strip() or "git cat-file failed"
+        raise ValueError(f"cannot read authority blob at the locked revision: {raw}: {detail}")
+    payload = completed.stdout
+    if len(payload) != size or len(payload) > max_bytes:
+        raise ValueError(f"authority blob size changed or exceeded the read bound: {raw}")
+    return payload
+
+
+def _authority_text(root: Path, revision: str, raw: str, *, max_bytes: int = MAX_SOURCE_BYTES) -> str:
+    payload = _git_blob(root, revision, raw, max_bytes=max_bytes)
+    try:
+        return payload.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise ValueError(f"authority_path is not valid UTF-8 at the locked revision: {raw}") from exc
 
 
 def _repository_from_remote(value: str) -> str:
@@ -130,38 +212,53 @@ def _repository_from_remote(value: str) -> str:
         if remote.startswith("git@github.com:"):
             remote = remote[len("git@github.com:") :]
         else:
-            raise ValueError("authority origin must be a secure GitHub owner/name remote")
+            raise ValueError("checkout origin must be a secure GitHub owner/name remote")
     remote = remote.rstrip("/")
     if remote.endswith(".git"):
         remote = remote[:-4]
     if GITHUB_REPOSITORY.fullmatch(remote) is None:
-        raise ValueError("authority origin must resolve to GitHub owner/name")
+        raise ValueError("checkout origin must resolve to GitHub owner/name")
     return remote
 
 
-def _verify_authority_identity(root: Path, repository: str, revision: str) -> None:
+def _verify_checkout_identity(root: Path, repository: str, revision: str, *, label: str) -> None:
+    if GITHUB_REPOSITORY.fullmatch(repository) is None:
+        raise ValueError(f"{label} repository must use GitHub owner/name syntax")
+    if FULL_SHA.fullmatch(revision) is None:
+        raise ValueError(f"{label} revision must be a full lowercase 40-character commit SHA")
     try:
         top_level = Path(_git(root, "rev-parse", "--show-toplevel")).resolve(strict=True)
     except (OSError, ValueError) as exc:
-        raise ValueError(f"authority checkout is not a verifiable git checkout: {exc}") from exc
+        raise ValueError(f"{label} checkout is not a verifiable git checkout: {exc}") from exc
     if top_level != root.resolve(strict=True):
-        raise ValueError("authority root must be the git checkout top level")
+        raise ValueError(f"{label} root must be the git checkout top level")
     head = _git(root, "rev-parse", "HEAD")
     if head != revision:
-        raise ValueError(f"authority checkout HEAD {head!r} does not match locked revision {revision!r}")
-    actual_repository = _repository_from_remote(_git(root, "remote", "get-url", "origin"))
+        raise ValueError(f"{label} checkout HEAD {head!r} does not match locked revision {revision!r}")
+    try:
+        actual_repository = _repository_from_remote(_git(root, "remote", "get-url", "origin"))
+    except ValueError as exc:
+        raise ValueError(f"{label} {exc}") from exc
     if actual_repository.casefold() != repository.casefold():
         raise ValueError(
-            f"authority checkout repository {actual_repository!r} does not match locked repository {repository!r}"
+            f"{label} checkout repository {actual_repository!r} does not match locked repository {repository!r}"
         )
     if _git(root, "status", "--porcelain=v1", "--untracked-files=all") or _git(
         root, "ls-files", "--others", "--ignored", "--exclude-standard"
     ):
-        raise ValueError("authority checkout must be pristine at the locked revision")
+        raise ValueError(f"{label} checkout must be pristine at the locked revision")
+
+
+def _verify_authority_identity(root: Path, repository: str, revision: str) -> None:
+    _verify_checkout_identity(root, repository, revision, label="authority")
+
+
+def _verify_candidate_identity(root: Path, repository: str, revision: str) -> None:
+    _verify_checkout_identity(root, repository, revision, label="candidate")
 
 
 def _authority_file(root: Path, raw: str) -> Path:
-    """Return a trusted file only when the working-tree bytes are the tracked HEAD bytes."""
+    """Compatibility helper for callers that still need a clean tracked worktree path."""
     candidate = _safe_file(root, raw, "authority_path")
     try:
         tracked = _git(root, "ls-files", "--error-unmatch", "--", raw)
@@ -259,11 +356,15 @@ def validate_lock(
                         )
             if authority_root is not None and authority_identity_valid:
                 try:
-                    authority = _authority_file(authority_root, str(raw_file["authority_path"]))
+                    authority_payload = _git_blob(
+                        authority_root,
+                        str(raw_source["revision"]),
+                        str(raw_file["authority_path"]),
+                    )
                 except ValueError as exc:
                     findings.append(f"sources.{index}.files.{file_index}: {exc}")
                 else:
-                    if _digest(authority) != expected:
+                    if _digest_bytes(authority_payload) != expected:
                         findings.append(f"sources.{index}.files.{file_index}: authority digest does not match lock")
     unknown_roots = sorted(set(roots) - seen)
     findings.extend(f"authority checkout has no lock entry: {source_id}" for source_id in unknown_roots)
