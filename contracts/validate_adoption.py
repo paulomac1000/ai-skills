@@ -1009,21 +1009,27 @@ def validate_document(
             findings.append(Finding(f"{location}.blocking", "must be a boolean"))
 
     _text(decision.get("rationale"), "decision.rationale", findings)
-    reviewer_value = _mapping(decision.get("reviewer"), "decision.reviewer", findings)
-    reviewer_identity = _identity(reviewer_value, "decision.reviewer", findings)
-    reviewer_repository = _text(reviewer_value.get("repository"), "decision.reviewer.repository", findings)
-    reviewer_revision = _text(reviewer_value.get("revision"), "decision.reviewer.revision", findings)
-    reviewer_state = _text(reviewer_value.get("state"), "decision.reviewer.state", findings)
-    if reviewer_repository and repository and reviewer_repository != repository:
-        findings.append(Finding("decision.reviewer.repository", "must equal repository.name"))
-    if reviewer_revision and revision and reviewer_revision != revision:
-        findings.append(Finding("decision.reviewer.revision", "must equal repository.revision"))
-    if reviewer_identity in prepared or any(
-        reviewer_identity[0] == identity[0]
-        and (reviewer_identity[1] == identity[1] or reviewer_identity[2] == identity[2])
-        for identity in prepared
-    ):
-        findings.append(Finding("decision.reviewer", "must be independent from every prepared_by identity"))
+    reviewer_raw = decision.get("reviewer")
+    reviewer_value: Mapping[str, Any] | None = None
+    reviewer_state = ""
+    if reviewer_raw is not None:
+        reviewer_value = _mapping(reviewer_raw, "decision.reviewer", findings)
+        reviewer_identity = _identity(reviewer_value, "decision.reviewer", findings)
+        reviewer_repository = _text(reviewer_value.get("repository"), "decision.reviewer.repository", findings)
+        reviewer_revision = _text(reviewer_value.get("revision"), "decision.reviewer.revision", findings)
+        reviewer_state = _text(reviewer_value.get("state"), "decision.reviewer.state", findings)
+        if reviewer_repository and repository and reviewer_repository != repository:
+            findings.append(Finding("decision.reviewer.repository", "must equal repository.name"))
+        if reviewer_revision and revision and reviewer_revision != revision:
+            findings.append(Finding("decision.reviewer.revision", "must equal repository.revision"))
+        if reviewer_identity in prepared or any(
+            reviewer_identity[0] == identity[0]
+            and (reviewer_identity[1] == identity[1] or reviewer_identity[2] == identity[2])
+            for identity in prepared
+        ):
+            findings.append(Finding("decision.reviewer", "must be independent from every prepared_by identity"))
+    elif decision_status == "approve":
+        findings.append(Finding("decision.reviewer", "is required for an approval decision"))
     if decision_status == "approve" and reviewer_state != "APPROVED":
         findings.append(Finding("decision.reviewer.state", "must be APPROVED for an approval decision"))
     if require_approval and decision_status != "approve":
@@ -1032,7 +1038,7 @@ def validate_document(
         isinstance(risk, Mapping) and risk.get("blocking") is True for risk in risks
     ):
         findings.append(Finding("decision.status", "cannot approve while a blocking residual risk remains"))
-    if decision_status == "approve" and verifier is not None:
+    if decision_status == "approve" and verifier is not None and reviewer_value is not None:
         _provider_findings("decision.reviewer", verifier.verify_review(reviewer_value, revision), findings)
 
     return sorted(set(findings), key=lambda finding: (finding.location, finding.message))
