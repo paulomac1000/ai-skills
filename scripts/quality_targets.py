@@ -99,6 +99,19 @@ SECURITY_BOUNDARY_COVERAGE_FLOORS = (
     ("skills/mcp-server-architect/tools/check_consumer_canaries.py", 45),
     ("skills/mcp-server-architect/tools/inspect_existing_project.py", 80),
 )
+# coverage.py's normal --fail-under threshold combines statement and branch
+# opportunities. These explicit branch-only baselines prevent trust-boundary
+# decision paths from regressing while adversarial tests raise the floors over time.
+SECURITY_BOUNDARY_BRANCH_COVERAGE_FLOORS = (
+    ("contracts/validate_external_adoption.py", 50),
+    ("contracts/validate_external_trust_lock.py", 90),
+    ("contracts/validate_live_backend_test_policy.py", 60),
+    ("contracts/validate_trusted_executable_sources.py", 70),
+    ("contracts/validate_upstream_contract.py", 75),
+    ("skills/ci-cd-architect/tools/check_github_provider_controls.py", 60),
+    ("skills/mcp-server-architect/tools/check_consumer_canaries.py", 35),
+    ("skills/mcp-server-architect/tools/inspect_existing_project.py", 80),
+)
 
 TARGETS = {
     "quality": QUALITY_PATHS,
