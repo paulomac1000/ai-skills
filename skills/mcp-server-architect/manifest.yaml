@@ -131,6 +131,7 @@ required:
 - references/security-and-operations.md
 - references/upstream-contract-discovery.md
 - references/consumer-driven-validation.md
+- references/container-provenance-dataflow.md
 - templates/migration-assessment.yaml.template
 - templates/upstream-contract.yaml.template
 - templates/live-backend-test-policy.yaml.template
