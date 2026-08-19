@@ -59,7 +59,7 @@ Before authentication, code may only parse and normalize a locally declared targ
 
 ## Public component contracts
 
-Every public component has a stable name, bounded input, structured output, documented empty-success behavior, version policy, and machine-readable failure shape. Tool descriptions and annotations improve discovery but are not authorization.
+Every public component has a stable name, bounded input, structured output, documented empty-success behavior, version policy, and machine-readable failure shape. For state-changing operations, completion, returned identity, and returned representation are separate dimensions: confirmed success without an identity or representation is not an ambiguous completion, while an unknown completion requires reconciliation before retry. Tool descriptions and annotations improve discovery but are not authorization.
 
 At L2 and above, every public tool has a complete governed manifest. Missing or malformed metadata fails registration or CI; it never defaults to `READ`. The manifest, schema, description, runtime policy, active profile, SDK annotations, and tested behavior describe the same operation.
 
@@ -122,7 +122,7 @@ Startup, readiness, liveness, capability health, task health, and shutdown have 
 
 ## Data, errors, and responses
 
-Errors distinguish validation, authentication, authorization, not found, conflict, rate limit, timeout, cancellation, unavailable dependency, upstream failure, UI drift, ambiguous outcome, and internal failure. Preserve upstream status and retry guidance without leaking secrets or raw protected bodies.
+Errors distinguish validation, authentication, authorization, not found, conflict, rate limit, timeout, cancellation, unavailable dependency, upstream failure, UI drift, ambiguous outcome, and internal failure. `ambiguous outcome` means the operation's effect is not established; it MUST NOT be used merely because a confirmed success omitted a resource identity or response representation. Preserve upstream status and retry guidance without leaking secrets or raw protected bodies.
 
 Responses preserve protocol-native content, structured content, correlation identifiers, target identity, data provenance, freshness, and partial-result state. A custom DTO containing `success: false` does not automatically become a protocol-native tool error; tests assert `isError` or the SDK equivalent. Schema and data annotations improve discovery but do not enforce runtime validation.
 
@@ -172,13 +172,13 @@ Generation uses exclusive no-replace publication and refuses an existing file, d
 
 Existing projects begin with bounded read-only discovery rather than a handwritten final assessment. Discovery records observed package identity, transports, packaging, external boundaries, live-test prerequisites, and unresolved facts. An external, legacy, poorly documented, or contradicted backend requires an observed `upstream-contract.yaml` before its adapter contract is redesigned. Inferred upstream behavior is a discovery state, not acceptance evidence.
 
-Migration state progresses through `discovered -> planned -> implemented -> locally-verified -> provider-verified -> accepted`. Normal unfinished work does not require a waiver. A waiver represents an intentional final deviation from an applicable rule, not the fact that implementation has not reached acceptance yet.
+Implementation state and formal assurance state are independent. A useful implementation lifecycle is `planned -> implemented -> merged -> released`; assurance progresses separately through `discovered -> locally-verified -> provider-verified -> independent-review-pending -> adopted`. Repository policy MAY permit merge or release before formal adoption, but that implementation state MUST NOT be represented as `adopted`. Pending provider or review state likewise MUST NOT become a durable requirement that a particular PR remain draft. Normal unfinished work does not require a waiver. A waiver represents an intentional final deviation from an applicable rule, not the fact that implementation has not reached adoption yet.
 
 Every L2+ migration eventually produces `migration-assessment.yaml` from `templates/migration-assessment.yaml.template`, covers every `mcp-server-architect` rule in `contracts/rule-catalog.yaml`, preserves the complete normative-heading mapping in `contracts/standard-rule-map.yaml`, and follows `references/migration-assessment.md`. The final assessment pins the immutable source revision, skill version, maturity target, profiles, scope, applicability matrix, implementation evidence, verification commands, preserved and intentionally changed behavior, removed legacy behavior, waivers, exact artifact identity, rollback, residual risks, and independent decision.
 
 `not-applicable` requires an architectural rationale. `deferred` requires an owned, expiring waiver and compensating controls. No waiver may permit model-controlled authorization, fail-open risk, target substitution, unbounded privileged execution, or a new legacy HTTP+SSE implementation. A green aggregate check without rule-to-code-to-test evidence is insufficient.
 
-A canonical independent reviewer may approve only through provider-backed evidence whose review state and commit ID match the immutable assessed revision, after every advertised transport passes official-client smoke against the exact deployment artifact and all applicable rules have executable evidence. Runtime risk and publication exposure are separate axes: destructive local-single-user capabilities still require strong runtime authorization, but independent protected-release authority is driven by maturity and actual distribution/exposure rather than the mere presence of a delete operation. An undocumented behavioral difference or unresolved normative conflict is a migration defect.
+A canonical independent reviewer may approve only through provider-backed evidence whose review state and commit ID match the immutable assessed revision, after every advertised transport passes official-client smoke against the exact deployment artifact and all applicable rules have executable evidence. Review evidence from an earlier head is stale after implementation changes even when all earlier bot threads are resolved. Runtime risk and publication exposure are separate axes: destructive local-single-user capabilities still require strong runtime authorization, but independent protected-release authority is driven by maturity and actual distribution/exposure rather than the mere presence of a delete operation. An undocumented behavioral difference or unresolved normative conflict is a migration defect.
 
 ## Verification layers
 
@@ -191,9 +191,10 @@ A canonical independent reviewer may approve only through provider-backed eviden
 7. representative official-client workflows;
 8. deployment-artifact smoke tests;
 9. upstream contract tests with controlled fakes, recordings, canaries, or test containers; for unknown or legacy upstreams this layer moves before adapter refactoring;
-10. the implementation-language migration simulation for consumer work, while ai-skills self-validation runs both Python and .NET simulations;
-11. fresh-project generation followed by installation or restore, compilation, and its own real-client suite;
-12. completed migration assessment with independent decision for every L2+ adoption or migration.
+10. live-backend mutation evidence, when applicable, only after independent operator opt-in and independent proof that the resolved target is an exclusive disposable environment; pre-clean is forbidden before that proof and cleanup uses captured identities, a unique namespace, or verified baseline difference according to resource semantics;
+11. the implementation-language migration simulation for consumer work, while ai-skills self-validation runs both Python and .NET simulations;
+12. fresh-project generation followed by installation or restore, compilation, and its own real-client suite;
+13. completed migration assessment with independent decision for every L2+ adoption or migration.
 
 No layer substitutes for another.
 
@@ -203,6 +204,7 @@ No layer substitutes for another.
 - [Capability manifests and versioning](references/capability-manifests-and-versioning.md)
 - [Transport, lifecycle, and conformance](references/transport-lifecycle-and-conformance.md)
 - [Runtime boundaries and artifacts](references/runtime-boundaries-and-artifacts.md)
+- [Container artifact source provenance](references/container-provenance-dataflow.md)
 - [Python and FastMCP](references/python-fastmcp.md)
 - [Python migration simulation](references/python-migration-simulation.md)
 - [.NET MCP](references/dotnet-mcp.md)
