@@ -68,5 +68,5 @@ def test_python_generator_is_official_mcp_only() -> None:
     pyproject = (
         SKILL / "tools/python-template/pyproject.toml.template"
     ).read_text(encoding="utf-8")
-    assert '"mcp>=2.0.0,<3"' in pyproject
+    assert '"mcp==2.0.0"' in pyproject
     assert '"fastmcp' not in pyproject
