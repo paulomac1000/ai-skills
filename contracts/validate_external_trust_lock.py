@@ -54,9 +54,9 @@ def validate_external_lock(
         return ["expected authority repository must use GitHub owner/name syntax"]
     if FULL_SHA.fullmatch(expected_revision) is None:
         return ["expected authority revision must be a full lowercase 40-character commit SHA"]
+
     try:
         trusted_sources._verify_candidate_identity(candidate_root, candidate_repository, candidate_revision)
-        trusted_sources._verify_authority_identity(authority_root, expected_repository, expected_revision)
         text = trusted_sources._authority_text(
             candidate_root,
             candidate_revision,
@@ -64,19 +64,8 @@ def validate_external_lock(
             max_bytes=trusted_sources.MAX_LOCK_BYTES,
         )
         document = trusted_lock_snapshot.parse_document(text, suffix=Path(lock_relative).suffix)
-        schema_text = trusted_sources._authority_text(
-            authority_root,
-            expected_revision,
-            TRUST_LOCK_SCHEMA_PATH,
-            max_bytes=trusted_sources.MAX_LOCK_BYTES,
-        )
-        schema = trusted_lock_snapshot.parse_document(schema_text, suffix=".json")
     except (OSError, UnicodeDecodeError, ValueError) as exc:
         return [str(exc)]
-
-    schema_findings = _schema_findings(document, schema)
-    if schema_findings:
-        return schema_findings
 
     raw_sources = document.get("sources")
     if not isinstance(raw_sources, list):
@@ -104,6 +93,35 @@ def validate_external_lock(
             findings.append(f"source {source_id!r} is missing required trusted executable {required!r}")
     if findings:
         return findings
+
+    try:
+        trusted_sources._verify_authority_identity(authority_root, expected_repository, expected_revision)
+    except (OSError, ValueError):
+        # Preserve the canonical source-indexed authority diagnostics. The delegated
+        # validator performs the same identity check and cannot accept an invalid
+        # authority checkout.
+        return trusted_lock_snapshot.validate_document(
+            document,
+            repository_root=candidate_root,
+            repository_revision=candidate_revision,
+            authority_roots={source_id: authority_root},
+            require_authority=True,
+        )
+
+    try:
+        schema_text = trusted_sources._authority_text(
+            authority_root,
+            expected_revision,
+            TRUST_LOCK_SCHEMA_PATH,
+            max_bytes=trusted_sources.MAX_LOCK_BYTES,
+        )
+        schema = trusted_lock_snapshot.parse_document(schema_text, suffix=".json")
+    except (OSError, UnicodeDecodeError, ValueError) as exc:
+        return [str(exc)]
+
+    schema_findings = _schema_findings(document, schema)
+    if schema_findings:
+        return schema_findings
 
     return trusted_lock_snapshot.validate_document(
         document,
