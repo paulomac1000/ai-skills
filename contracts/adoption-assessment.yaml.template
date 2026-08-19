@@ -12,7 +12,7 @@ repository:
   source_branch: REPLACE_WITH_SOURCE_BRANCH
 skill:
   name: REPLACE_WITH_SKILL_NAME
-  version: 1.2.0
+  version: REPLACE_WITH_SKILL_VERSION
   maturity: stable
 scope:
   included: []
