@@ -1,4 +1,4 @@
-"""Consumer-facing MCP templates stay aligned with the published skill version."""
+"""Consumer-facing templates stay aligned with published skill versions."""
 
 from pathlib import Path
 
@@ -23,3 +23,11 @@ def test_mcp_consumer_templates_use_current_skill_version() -> None:
     assert conformance["skill"]["name"] == "mcp-server-architect"
     assert conformance["skill"]["version"] == version
     assert lock["skills"]["mcp-server-architect"]["version"] == version
+
+
+def test_generic_adoption_template_never_hardcodes_a_release_version() -> None:
+    adoption = yaml.safe_load(
+        (ROOT / "contracts/adoption-assessment.yaml.template").read_text(encoding="utf-8")
+    )
+
+    assert adoption["skill"]["version"] == "REPLACE_WITH_SKILL_VERSION"
