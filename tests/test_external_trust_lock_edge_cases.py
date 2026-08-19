@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import subprocess
 import sys
 from pathlib import Path
 from types import ModuleType
@@ -28,7 +29,29 @@ def _load() -> ModuleType:
 VALIDATOR = _load()
 REPOSITORY = "trusted/ai-skills"
 REVISION = "a" * 40
+CANDIDATE_REPOSITORY = "consumer/project"
 AUTHORITY_PATH = "contracts/validate_external_adoption.py"
+
+
+def _git(root: Path, *args: str) -> str:
+    completed = subprocess.run(
+        ["git", "-C", str(root), *args],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return completed.stdout.strip()
+
+
+def _snapshot_candidate(root: Path) -> str:
+    if not (root / ".git").exists():
+        _git(root, "init", "-q")
+        _git(root, "config", "user.name", "Test")
+        _git(root, "config", "user.email", "test@example.invalid")
+        _git(root, "remote", "add", "origin", f"https://github.com/{CANDIDATE_REPOSITORY}.git")
+    _git(root, "add", "-A")
+    _git(root, "commit", "-q", "--allow-empty", "-m", "candidate snapshot")
+    return _git(root, "rev-parse", "HEAD")
 
 
 def _write_lock(root: Path, sources: object) -> str:
@@ -58,9 +81,12 @@ def _source(*, source_id: str = "ai-skills", files: object | None = None) -> dic
 
 
 def _validate(lock: str, root: Path, authority: Path, **kwargs: object) -> list[str]:
+    candidate_revision = _snapshot_candidate(root)
     return VALIDATOR.validate_external_lock(
         lock,
         candidate_root=root,
+        candidate_repository=str(kwargs.get("candidate_repository", CANDIDATE_REPOSITORY)),
+        candidate_revision=str(kwargs.get("candidate_revision", candidate_revision)),
         authority_root=authority,
         source_id=str(kwargs.get("source_id", "ai-skills")),
         expected_repository=str(kwargs.get("expected_repository", REPOSITORY)),
@@ -79,6 +105,12 @@ def test_external_binding_rejects_invalid_external_coordinates(tmp_path: Path) -
     ]
     assert _validate(lock, tmp_path, authority, expected_revision="short") == [
         "expected authority revision must be a full lowercase 40-character commit SHA"
+    ]
+    assert _validate(lock, tmp_path, authority, candidate_repository="invalid") == [
+        "candidate repository must use GitHub owner/name syntax"
+    ]
+    assert _validate(lock, tmp_path, authority, candidate_revision="short") == [
+        "candidate revision must be a full lowercase 40-character commit SHA"
     ]
 
 

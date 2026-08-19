@@ -16,7 +16,6 @@ if str(ROOT) not in sys.path:
 
 import trusted_lock_snapshot  # noqa: E402
 import validate_trusted_executable_sources as trusted_sources  # noqa: E402
-from confined_io import confined_regular_file, read_utf8_bounded  # noqa: E402
 
 FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
 
@@ -25,21 +24,32 @@ def validate_external_lock(
     lock_relative: str,
     *,
     candidate_root: Path,
+    candidate_repository: str,
+    candidate_revision: str,
     authority_root: Path,
     source_id: str,
     expected_repository: str,
     expected_revision: str,
     required_authority_paths: Sequence[str] = (),
 ) -> list[str]:
-    """Validate external binding and generic lock integrity from one candidate byte snapshot."""
+    """Validate external binding from one immutable candidate Git revision and authority checkout."""
+    if trusted_sources.GITHUB_REPOSITORY.fullmatch(candidate_repository) is None:
+        return ["candidate repository must use GitHub owner/name syntax"]
+    if FULL_SHA.fullmatch(candidate_revision) is None:
+        return ["candidate revision must be a full lowercase 40-character commit SHA"]
     if trusted_sources.GITHUB_REPOSITORY.fullmatch(expected_repository) is None:
         return ["expected authority repository must use GitHub owner/name syntax"]
     if FULL_SHA.fullmatch(expected_revision) is None:
         return ["expected authority revision must be a full lowercase 40-character commit SHA"]
     try:
-        lock_path = confined_regular_file(candidate_root, lock_relative)
-        text, _size = read_utf8_bounded(lock_path, candidate_root, trusted_sources.MAX_LOCK_BYTES)
-        document = trusted_lock_snapshot.parse_document(text, suffix=lock_path.suffix)
+        trusted_sources._verify_candidate_identity(candidate_root, candidate_repository, candidate_revision)
+        text = trusted_sources._authority_text(
+            candidate_root,
+            candidate_revision,
+            lock_relative,
+            max_bytes=trusted_sources.MAX_LOCK_BYTES,
+        )
+        document = trusted_lock_snapshot.parse_document(text, suffix=Path(lock_relative).suffix)
     except (OSError, UnicodeDecodeError, ValueError) as exc:
         return [str(exc)]
 
@@ -73,6 +83,7 @@ def validate_external_lock(
     return trusted_lock_snapshot.validate_document(
         document,
         repository_root=candidate_root,
+        repository_revision=candidate_revision,
         authority_roots={source_id: authority_root},
         require_authority=True,
     )
@@ -82,6 +93,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("lock", help="Repository-relative lock path inside the candidate checkout")
     parser.add_argument("--candidate-root", type=Path, required=True)
+    parser.add_argument("--candidate-repository", required=True)
+    parser.add_argument("--candidate-revision", required=True)
     parser.add_argument("--authority-root", type=Path, required=True)
     parser.add_argument("--source-id", default="ai-skills")
     parser.add_argument("--expected-repository", required=True)
@@ -94,6 +107,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         findings = validate_external_lock(
             args.lock,
             candidate_root=candidate_root,
+            candidate_repository=args.candidate_repository,
+            candidate_revision=args.candidate_revision,
             authority_root=authority_root,
             source_id=args.source_id,
             expected_repository=args.expected_repository,

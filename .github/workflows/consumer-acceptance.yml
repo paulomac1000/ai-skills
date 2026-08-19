@@ -129,12 +129,16 @@ jobs:
         shell: bash
         env:
           TRUST_LOCK_PATH: ${{ inputs.trust_lock_path }}
+          CANDIDATE_REPOSITORY: ${{ inputs.candidate_repository }}
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
           AUTHORITY_REPOSITORY: ${{ job.workflow_repository }}
           AUTHORITY_SHA: ${{ job.workflow_sha }}
         run: |
           set -euo pipefail
           python authority/contracts/validate_external_trust_lock.py "$TRUST_LOCK_PATH" \
             --candidate-root candidate \
+            --candidate-repository "$CANDIDATE_REPOSITORY" \
+            --candidate-revision "$CANDIDATE_SHA" \
             --authority-root authority \
             --expected-repository "$AUTHORITY_REPOSITORY" \
             --expected-revision "$AUTHORITY_SHA" \
@@ -145,10 +149,11 @@ jobs:
         env:
           AI_SKILLS_PROVIDER_TOKEN: ${{ secrets.consumer_read_token }}
           CANDIDATE_REPOSITORY: ${{ inputs.candidate_repository }}
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
           REQUIRED_CHECK: ${{ inputs.required_check }}
         run: |
           set -euo pipefail
-          args=(candidate --repository "$CANDIDATE_REPOSITORY" --token-env AI_SKILLS_PROVIDER_TOKEN)
+          args=(candidate --repository "$CANDIDATE_REPOSITORY" --revision "$CANDIDATE_SHA" --token-env AI_SKILLS_PROVIDER_TOKEN)
           if [[ -n "$REQUIRED_CHECK" ]]; then
             args+=(--required-check "$REQUIRED_CHECK")
           fi

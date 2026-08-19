@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import ast
 import re
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -137,6 +139,11 @@ def expected_rules(
 
 
 TEST_CASE_IDENTITY = re.compile(r"^(tests/[A-Za-z0-9_./-]+[.]py)::(test_[A-Za-z0-9_]+)$")
+_TestCaseSourceLoader = Callable[[str], str]
+_TEST_CASE_SOURCE_LOADER: ContextVar[_TestCaseSourceLoader | None] = ContextVar(
+    "ai_skills_test_case_source_loader",
+    default=None,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -177,6 +184,23 @@ def project_applicability(
     return ApplicabilityProjection(parents, tuple(children))
 
 
+@contextmanager
+def test_case_source_loader(loader: _TestCaseSourceLoader) -> Iterator[None]:
+    """Temporarily bind test-identity inspection to an immutable external source loader."""
+    token = _TEST_CASE_SOURCE_LOADER.set(loader)
+    try:
+        yield
+    finally:
+        _TEST_CASE_SOURCE_LOADER.reset(token)
+
+
+def _test_tree(source: str, raw_path: str) -> ast.Module | str:
+    try:
+        return ast.parse(source, filename=raw_path)
+    except SyntaxError as exc:
+        return f"cannot inspect test file: {exc}"
+
+
 def test_case_identity_finding(value: object, repository_root: Path) -> str | None:
     """Validate one exact repository test identity without executing candidate code."""
     if not isinstance(value, str):
@@ -188,18 +212,37 @@ def test_case_identity_finding(value: object, repository_root: Path) -> str | No
     pure = PurePosixPath(raw_path)
     if pure.is_absolute() or any(part in {"", ".", ".."} for part in pure.parts):
         return "test path must remain inside the repository"
-    root = repository_root.resolve(strict=True)
-    current = root
-    for part in pure.parts:
-        current /= part
-        if current.is_symlink():
-            return "test path must not contain symlinks"
-    if not current.is_file():
-        return "test file does not exist"
-    try:
-        tree = ast.parse(current.read_text(encoding="utf-8"), filename=raw_path)
-    except (OSError, UnicodeDecodeError, SyntaxError) as exc:
-        return f"cannot inspect test file: {exc}"
+
+    loader = _TEST_CASE_SOURCE_LOADER.get()
+    if loader is not None:
+        try:
+            source = loader(raw_path)
+        except (OSError, UnicodeDecodeError, ValueError) as exc:
+            return f"cannot inspect immutable test file: {exc}"
+        if not isinstance(source, str):
+            return "cannot inspect immutable test file: source loader returned non-text content"
+        parsed = _test_tree(source, raw_path)
+        if isinstance(parsed, str):
+            return parsed
+        tree = parsed
+    else:
+        root = repository_root.resolve(strict=True)
+        current = root
+        for part in pure.parts:
+            current /= part
+            if current.is_symlink():
+                return "test path must not contain symlinks"
+        if not current.is_file():
+            return "test file does not exist"
+        try:
+            source = current.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError) as exc:
+            return f"cannot inspect test file: {exc}"
+        parsed = _test_tree(source, raw_path)
+        if isinstance(parsed, str):
+            return parsed
+        tree = parsed
+
     functions = {node.name for node in tree.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))}
     if function_name not in functions:
         return f"test function {function_name!r} does not exist"

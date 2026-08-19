@@ -27,6 +27,7 @@ for candidate in (TOOLS, CONTRACTS):
 
 import check_github_actions_policy as workflow_policy  # noqa: E402
 import check_github_actions_policy_impl as workflow_impl  # noqa: E402
+import validate_trusted_executable_sources as trusted_sources  # noqa: E402
 
 API_VERSION = "2026-03-10"
 GITHUB_REPOSITORY = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
@@ -112,16 +113,91 @@ def _provider_error(label: str, status: int, detail: str) -> ProviderFinding:
     return ProviderFinding("unverifiable", f"cannot verify {label}: GitHub request failed with HTTP {status}{suffix}")
 
 
-def _release_environments(repository_root: Path) -> tuple[set[str], list[ProviderFinding]]:
+def _profiles_from_immutable_policy(text: str) -> tuple[dict[str, str], list[ProviderFinding]]:
+    """Parse the workflow-profile declaration captured from one authenticated Git object."""
+    try:
+        document = yaml.load(text, Loader=workflow_impl._UniqueKeyLoader)
+    except yaml.YAMLError as exc:
+        return {}, [ProviderFinding("misconfigured", f"cannot parse workflow policy: {exc}")]
+    if not isinstance(document, Mapping) or document.get("schema_version") != 1:
+        return {}, [ProviderFinding("misconfigured", "workflow policy must be a schema_version 1 mapping")]
+    if set(document) != {"schema_version", "workflows"}:
+        return {}, [ProviderFinding("misconfigured", "workflow policy contains unsupported fields")]
+    raw_workflows = document.get("workflows")
+    if not isinstance(raw_workflows, Mapping):
+        return {}, [ProviderFinding("misconfigured", "workflow policy workflows must be a mapping")]
+
+    profiles: dict[str, str] = {}
+    findings: list[ProviderFinding] = []
+    for raw_path, raw_profile in raw_workflows.items():
+        if not isinstance(raw_path, str) or not isinstance(raw_profile, str):
+            findings.append(ProviderFinding("misconfigured", "workflow policy paths and profiles must be strings"))
+            continue
+        candidate = Path(raw_path)
+        if (
+            candidate.is_absolute()
+            or "\\" in raw_path
+            or ".." in candidate.parts
+            or candidate.parts[:2] != (".github", "workflows")
+            or candidate.suffix.casefold() not in workflow_impl._WORKFLOW_SUFFIXES
+        ):
+            findings.append(ProviderFinding("misconfigured", f"invalid governed workflow path: {raw_path}"))
+            continue
+        selected_profile = raw_profile.casefold()
+        if selected_profile not in workflow_impl._PROFILES:
+            findings.append(
+                ProviderFinding("misconfigured", f"unknown profile for {raw_path}: {raw_profile}")
+            )
+            continue
+        profiles[candidate.as_posix()] = selected_profile
+    return profiles, findings
+
+
+def _release_environments(
+    repository_root: Path,
+    repository_revision: str | None = None,
+) -> tuple[set[str], list[ProviderFinding]]:
     root = repository_root.resolve(strict=True)
-    profiles, policy_findings = workflow_policy._repository_profiles(root)
-    findings = [ProviderFinding("misconfigured", finding.render()) for finding in policy_findings]
+    if repository_revision is None:
+        profiles, policy_findings = workflow_policy._repository_profiles(root)
+        findings = [ProviderFinding("misconfigured", finding.render()) for finding in policy_findings]
+
+        def read_workflow(relative: str) -> tuple[str | None, str | None]:
+            return workflow_policy._read_workflow(root / relative, root)
+
+    else:
+        try:
+            policy_text = trusted_sources._authority_text(
+                root,
+                repository_revision,
+                workflow_policy.POLICY_PATH.as_posix(),
+                max_bytes=workflow_policy.MAX_POLICY_BYTES,
+            )
+        except ValueError as exc:
+            if "path is not tracked at the locked revision" in str(exc):
+                profiles, findings = {}, []
+            else:
+                return set(), [ProviderFinding("unverifiable", f"cannot inspect immutable workflow policy: {exc}")]
+        else:
+            profiles, findings = _profiles_from_immutable_policy(policy_text)
+
+        def read_workflow(relative: str) -> tuple[str | None, str | None]:
+            try:
+                text = trusted_sources._authority_text(
+                    root,
+                    repository_revision,
+                    relative,
+                    max_bytes=workflow_policy.MAX_WORKFLOW_BYTES,
+                )
+            except ValueError as exc:
+                return None, str(exc)
+            return text, None
+
     environments: set[str] = set()
     for relative, profile in sorted(profiles.items()):
         if profile != "protected-release":
             continue
-        path = root / relative
-        text, error = workflow_policy._read_workflow(path, root)
+        text, error = read_workflow(relative)
         if error or text is None:
             findings.append(ProviderFinding("misconfigured", f"cannot inspect protected release {relative}: {error}"))
             continue
@@ -252,11 +328,29 @@ def check_provider_controls(
     *,
     default_branch: str | None = None,
     required_checks: Sequence[str] = (),
+    repository_revision: str | None = None,
 ) -> list[ProviderFinding]:
     """Return provider-backed control findings, preserving unknown as unverifiable."""
     if GITHUB_REPOSITORY.fullmatch(repository) is None:
         return [ProviderFinding("misconfigured", "repository must use GitHub owner/name syntax")]
     findings: list[ProviderFinding] = []
+    if repository_revision is not None:
+        if trusted_sources.FULL_SHA.fullmatch(repository_revision) is None:
+            return [
+                ProviderFinding(
+                    "misconfigured",
+                    "repository revision must be a full lowercase 40-character commit SHA",
+                )
+            ]
+        try:
+            trusted_sources._verify_candidate_identity(repository_root, repository, repository_revision)
+        except ValueError as exc:
+            return [
+                ProviderFinding(
+                    "unverifiable",
+                    f"cannot bind provider scope to immutable candidate revision: {exc}",
+                )
+            ]
     encoded_repository = "/".join(urllib.parse.quote(part, safe="") for part in repository.split("/", 1))
 
     branch = default_branch
@@ -293,7 +387,7 @@ def check_provider_controls(
                     )
                 )
 
-    environments, discovery_findings = _release_environments(repository_root)
+    environments, discovery_findings = _release_environments(repository_root, repository_revision)
     findings.extend(discovery_findings)
     if environments:
         available, environment_findings = _repository_environment_names(encoded_repository, client)
@@ -352,6 +446,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--token-env", default="AI_SKILLS_PROVIDER_TOKEN")
     parser.add_argument("--default-branch")
     parser.add_argument("--required-check", action="append", default=[])
+    parser.add_argument(
+        "--revision",
+        help="Externally supplied immutable candidate commit SHA used to scope workflow policy",
+    )
     args = parser.parse_args(argv)
     if not args.repository:
         parser.error("--repository or GITHUB_REPOSITORY is required")
@@ -366,6 +464,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             GitHubClient(token),
             default_branch=args.default_branch,
             required_checks=args.required_check,
+            repository_revision=args.revision,
         )
     except (OSError, RuntimeError, ValueError) as exc:
         print(f"UNVERIFIABLE: provider preflight could not complete safely: {exc}")

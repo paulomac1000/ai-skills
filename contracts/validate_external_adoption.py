@@ -13,6 +13,8 @@ from collections.abc import Mapping, Sequence
 from datetime import date
 from pathlib import Path
 from typing import Any
+from urllib.error import HTTPError
+from urllib.request import HTTPRedirectHandler, build_opener
 
 import yaml
 
@@ -23,12 +25,42 @@ if str(ROOT) not in sys.path:
 import validate_adoption as adoption  # noqa: E402
 import validate_trusted_executable_sources as trusted_sources  # noqa: E402
 from confined_io import ConfinedReadError, confined_regular_file, read_utf8_bounded  # noqa: E402
+from contracts import rule_applicability  # noqa: E402
 from evidence import GitHubEvidenceVerifier  # noqa: E402
 
 FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
 GITHUB_REPOSITORY = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 MAX_DOCUMENT_BYTES = 2 * 1024 * 1024
 MAX_IMPLEMENTATION_BYTES = 8 * 1024 * 1024
+
+
+class _RejectRedirects(HTTPRedirectHandler):
+    """Reject metadata redirects so repository identity cannot drift during final acceptance."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+class _ExternalGitHubEvidenceVerifier(GitHubEvidenceVerifier):
+    """Final-acceptance verifier that refuses redirects for GitHub provider metadata."""
+
+    def _get_json(self, path: str) -> object:
+        cached = self._cache.get(path)
+        if cached is not None:
+            return cached
+        opener = build_opener(_RejectRedirects())
+        try:
+            with opener.open(self._api_request(path), timeout=self._timeout_seconds) as response:  # noqa: S310
+                payload = json.load(response)
+        except HTTPError as exc:
+            if 300 <= exc.code < 400:
+                exc.close()
+                raise ValueError(f"GitHub provider metadata redirect is not accepted for {path}") from exc
+            raise
+        if not isinstance(payload, (Mapping, list)):
+            raise ValueError(f"GitHub API returned an unsupported payload for {path}")
+        self._cache[path] = payload
+        return payload
 
 
 def _mapping_from_text(text: str, relative: str, *, json_only: bool = False) -> Mapping[str, Any]:
@@ -271,7 +303,22 @@ def validate_external_adoption(
     if implementation_findings:
         return implementation_findings
 
-    verifier = GitHubEvidenceVerifier(token)
+    test_payloads: dict[str, str] = {}
+
+    def immutable_test_source(relative: str) -> str:
+        cached = test_payloads.get(relative)
+        if cached is not None:
+            return cached
+        content = trusted_sources._authority_text(
+            candidate_root,
+            expected_candidate_revision,
+            relative,
+            max_bytes=MAX_IMPLEMENTATION_BYTES,
+        )
+        test_payloads[relative] = content
+        return content
+
+    verifier = _ExternalGitHubEvidenceVerifier(token)
     verifier.acceptance_authority = expected
     with tempfile.TemporaryDirectory(prefix="ai-skills-authority-") as temporary:
         skills_root = Path(temporary) / "skills"
@@ -279,18 +326,19 @@ def validate_external_adoption(
             manifest_path = skills_root / skill_name / "manifest.yaml"
             manifest_path.parent.mkdir(parents=True)
             manifest_path.write_text(manifest_text, encoding="utf-8", newline="\n")
-        return adoption.validate_document(
-            assessment,
-            catalog,
-            skills_root,
-            atomic_catalog=atomic_catalog,
-            require_approval=True,
-            as_of=as_of,
-            schema=schema,
-            repository_root=candidate_root,
-            evidence_verifier=verifier,
-            implementation_payloads=implementation_payloads,
-        )
+        with rule_applicability.test_case_source_loader(immutable_test_source):
+            return adoption.validate_document(
+                assessment,
+                catalog,
+                skills_root,
+                atomic_catalog=atomic_catalog,
+                require_approval=True,
+                as_of=as_of,
+                schema=schema,
+                repository_root=candidate_root,
+                evidence_verifier=verifier,
+                implementation_payloads=implementation_payloads,
+            )
 
 
 def main(argv: Sequence[str] | None = None) -> int:

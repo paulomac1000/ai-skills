@@ -29,6 +29,8 @@ from confined_io import ConfinedReadError, read_bytes_bounded, read_utf8_bounded
 DEFAULT_SCHEMA = Path(__file__).with_name("trusted-executable-sources.schema.json")
 MAX_LOCK_BYTES = 512 * 1024
 MAX_SOURCE_BYTES = 8 * 1024 * 1024
+MAX_COMMIT_BYTES = 2 * 1024 * 1024
+MAX_TREE_BYTES = 8 * 1024 * 1024
 GITHUB_REPOSITORY = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
 _GIT_ENVIRONMENT_ALLOWLIST = {
@@ -177,32 +179,32 @@ def _git(root: Path, *args: str) -> str:
     return completed.stdout.strip()
 
 
-def _git_blob(root: Path, revision: str, raw: str, *, max_bytes: int = MAX_SOURCE_BYTES) -> bytes:
-    """Read one regular tracked file from an immutable Git object with a strict allocation bound."""
-    _safe_relative_path(raw, "authority_path")
-    if FULL_SHA.fullmatch(revision) is None:
-        raise ValueError("authority revision must be a full lowercase 40-character commit SHA")
+def _git_object_digest(object_type: str, payload: bytes) -> str:
+    """Recompute the SHA-1 object id used by the 40-character Git revisions this contract accepts."""
+    header = f"{object_type} {len(payload)}\0".encode("ascii")
+    # GitHub's accepted object/revision contract is still the 40-hex Git SHA-1 format here.
+    # This is protocol verification of an already-pinned Git object id, not a choice of a new digest algorithm.
+    return hashlib.sha1(header + payload, usedforsecurity=False).hexdigest()  # noqa: S324
+
+
+def _read_verified_git_object(
+    root: Path,
+    object_id: str,
+    object_type: str,
+    *,
+    max_bytes: int,
+) -> bytes:
+    """Read one Git object and authenticate the returned bytes against its requested object id."""
+    if FULL_SHA.fullmatch(object_id) is None:
+        raise ValueError(f"invalid {object_type} object id")
     try:
-        entries = _git(root, "ls-tree", revision, "--", raw).splitlines()
-    except ValueError as exc:
-        raise ValueError(f"authority_path must be tracked at the locked revision: {raw}: {exc}") from exc
-    if len(entries) != 1:
-        raise ValueError(f"authority_path must resolve to exactly one tracked file at the locked revision: {raw}")
-    metadata, separator, _display_path = entries[0].partition("\t")
-    fields = metadata.split()
-    if not separator or len(fields) != 3:
-        raise ValueError(f"authority_path has invalid Git tree metadata at the locked revision: {raw}")
-    mode, object_type, blob = fields
-    if mode not in {"100644", "100755"} or object_type != "blob" or FULL_SHA.fullmatch(blob) is None:
-        raise ValueError(f"authority_path must be a regular tracked file at the locked revision: {raw}")
-    try:
-        size = int(_git(root, "cat-file", "-s", blob))
+        size = int(_git(root, "cat-file", "-s", object_id))
     except (TypeError, ValueError) as exc:
-        raise ValueError(f"authority_path size cannot be verified at the locked revision: {raw}: {exc}") from exc
+        raise ValueError(f"cannot verify {object_type} object size {object_id}: {exc}") from exc
     if size < 0 or size > max_bytes:
-        raise ValueError(f"authority_path exceeds {max_bytes} bytes: {raw}")
-    completed = subprocess.run(  # noqa: S603 - absolute allowlisted git executable and immutable blob id.
-        _git_argv(root, "cat-file", "blob", blob),
+        raise ValueError(f"{object_type} object exceeds {max_bytes} bytes")
+    completed = subprocess.run(  # noqa: S603 - absolute allowlisted git executable and full object id.
+        _git_argv(root, "cat-file", object_type, object_id),
         env=_git_environment(),
         check=False,
         capture_output=True,
@@ -211,11 +213,86 @@ def _git_blob(root: Path, revision: str, raw: str, *, max_bytes: int = MAX_SOURC
     )
     if completed.returncode != 0:
         detail = completed.stderr.decode("utf-8", errors="replace").strip() or "git cat-file failed"
-        raise ValueError(f"cannot read authority blob at the locked revision: {raw}: {detail}")
+        raise ValueError(f"cannot read {object_type} object {object_id}: {detail}")
     payload = completed.stdout
     if len(payload) != size or len(payload) > max_bytes:
-        raise ValueError(f"authority blob size changed or exceeded the read bound: {raw}")
+        raise ValueError(f"{object_type} object size changed or exceeded the read bound")
+    if _git_object_digest(object_type, payload) != object_id:
+        raise ValueError(f"{object_type} object bytes do not match requested object id {object_id}")
     return payload
+
+
+def _commit_tree_id(root: Path, revision: str) -> str:
+    payload = _read_verified_git_object(root, revision, "commit", max_bytes=MAX_COMMIT_BYTES)
+    headers, separator, _message = payload.partition(b"\n\n")
+    if not separator:
+        raise ValueError("locked revision has malformed commit bytes")
+    tree_lines = [line[5:] for line in headers.splitlines() if line.startswith(b"tree ")]
+    if len(tree_lines) != 1:
+        raise ValueError("locked revision must contain exactly one Git tree id")
+    try:
+        tree_id = tree_lines[0].decode("ascii")
+    except UnicodeDecodeError as exc:
+        raise ValueError("locked revision contains a non-ASCII Git tree id") from exc
+    if FULL_SHA.fullmatch(tree_id) is None:
+        raise ValueError("locked revision contains an invalid Git tree id")
+    return tree_id
+
+
+def _tree_entry(payload: bytes, component: bytes) -> tuple[str, str]:
+    """Return the unique tree entry for one raw path component."""
+    cursor = 0
+    match: tuple[str, str] | None = None
+    while cursor < len(payload):
+        space = payload.find(b" ", cursor)
+        nul = payload.find(b"\0", space + 1 if space >= 0 else cursor)
+        if space <= cursor or nul < 0:
+            raise ValueError("Git tree object has malformed entry metadata")
+        raw_mode = payload[cursor:space]
+        raw_name = payload[space + 1 : nul]
+        object_start = nul + 1
+        object_end = object_start + 20
+        if object_end > len(payload):
+            raise ValueError("Git tree object has truncated object id")
+        try:
+            mode = raw_mode.decode("ascii")
+        except UnicodeDecodeError as exc:
+            raise ValueError("Git tree object has a non-ASCII entry mode") from exc
+        object_id = payload[object_start:object_end].hex()
+        if raw_name == component:
+            if match is not None:
+                raise ValueError("Git tree object contains duplicate path entries")
+            match = (mode, object_id)
+        cursor = object_end
+    if match is None:
+        raise ValueError("path is not tracked at the locked revision")
+    return match
+
+
+def _git_blob(root: Path, revision: str, raw: str, *, max_bytes: int = MAX_SOURCE_BYTES) -> bytes:
+    """Read one tracked regular file while authenticating commit, tree, and blob object bytes."""
+    relative = _safe_relative_path(raw, "authority_path")
+    if FULL_SHA.fullmatch(revision) is None:
+        raise ValueError("authority revision must be a full lowercase 40-character commit SHA")
+    tree_id = _commit_tree_id(root, revision)
+    components = tuple(part.encode("utf-8") for part in relative.parts)
+    if not components:
+        raise ValueError(f"authority_path must identify one tracked file: {raw}")
+    try:
+        for index, component in enumerate(components):
+            tree_payload = _read_verified_git_object(root, tree_id, "tree", max_bytes=MAX_TREE_BYTES)
+            mode, object_id = _tree_entry(tree_payload, component)
+            is_last = index == len(components) - 1
+            if is_last:
+                if mode not in {"100644", "100755"}:
+                    raise ValueError("final tree entry is not a regular file")
+                return _read_verified_git_object(root, object_id, "blob", max_bytes=max_bytes)
+            if mode not in {"40000", "040000"}:
+                raise ValueError("intermediate tree entry is not a directory")
+            tree_id = object_id
+    except ValueError as exc:
+        raise ValueError(f"authority_path must be a regular tracked file at the locked revision: {raw}: {exc}") from exc
+    raise AssertionError("unreachable Git path traversal")
 
 
 def _authority_text(root: Path, revision: str, raw: str, *, max_bytes: int = MAX_SOURCE_BYTES) -> str:
@@ -319,6 +396,7 @@ def validate_document(
     authority_roots: Mapping[str, Path] | None = None,
     require_authority: bool = False,
     schema_path: Path = DEFAULT_SCHEMA,
+    repository_revision: str | None = None,
 ) -> list[str]:
     """Validate one already-parsed lock document against stable candidate and authority bytes."""
     try:
@@ -372,8 +450,16 @@ def validate_document(
             local_path = raw_file.get("local_path")
             if isinstance(local_path, str):
                 try:
-                    local = _safe_file(repository_root, local_path, "local_path")
-                    local_payload, _ = read_bytes_bounded(local, repository_root, MAX_SOURCE_BYTES)
+                    if repository_revision is not None:
+                        local_payload = _git_blob(
+                            repository_root,
+                            repository_revision,
+                            local_path,
+                            max_bytes=MAX_SOURCE_BYTES,
+                        )
+                    else:
+                        local = _safe_file(repository_root, local_path, "local_path")
+                        local_payload, _ = read_bytes_bounded(local, repository_root, MAX_SOURCE_BYTES)
                 except (ConfinedReadError, OSError, ValueError) as exc:
                     findings.append(f"sources.{index}.files.{file_index}: {exc}")
                 else:
