@@ -219,8 +219,6 @@ def test_case_identity_finding(value: object, repository_root: Path) -> str | No
             source = loader(raw_path)
         except (OSError, UnicodeDecodeError, ValueError) as exc:
             return f"cannot inspect immutable test file: {exc}"
-        if not isinstance(source, str):
-            return "cannot inspect immutable test file: source loader returned non-text content"
         parsed = _test_tree(source, raw_path)
         if isinstance(parsed, str):
             return parsed
