@@ -10,12 +10,19 @@ import os
 import re
 import stat
 import subprocess
+import sys
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
 import yaml
 from jsonschema import Draft202012Validator
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from contracts.confined_io import ConfinedReadError, read_bytes_bounded, read_utf8_bounded  # noqa: E402
 
 DEFAULT_SCHEMA = Path(__file__).with_name("trusted-executable-sources.schema.json")
 MAX_LOCK_BYTES = 512 * 1024
@@ -44,19 +51,24 @@ _TRUSTED_GIT_CANDIDATES = (
 )
 
 
+def parse_document(text: str, *, suffix: str) -> Mapping[str, Any]:
+    """Parse trusted-lock bytes that were already captured from a stable descriptor."""
+    try:
+        value = json.loads(text) if suffix.lower() == ".json" else yaml.safe_load(text)
+    except (json.JSONDecodeError, yaml.YAMLError) as exc:
+        raise ValueError(f"invalid trusted source lock syntax: {exc}") from exc
+    if not isinstance(value, Mapping):
+        raise ValueError("trusted source lock root must be an object")
+    return value
+
+
 def _load(path: Path) -> Mapping[str, Any]:
     if path.is_symlink() or not path.is_file():
         raise ValueError("trusted source lock must be a regular non-symlink file")
     if path.stat().st_size > MAX_LOCK_BYTES:
         raise ValueError(f"trusted source lock exceeds {MAX_LOCK_BYTES} bytes")
     text = path.read_text(encoding="utf-8")
-    try:
-        value = json.loads(text) if path.suffix.lower() == ".json" else yaml.safe_load(text)
-    except (json.JSONDecodeError, yaml.YAMLError) as exc:
-        raise ValueError(f"invalid trusted source lock syntax: {exc}") from exc
-    if not isinstance(value, Mapping):
-        raise ValueError("trusted source lock root must be an object")
-    return value
+    return parse_document(text, suffix=path.suffix)
 
 
 def _safe_relative_path(raw: str, name: str) -> Path:
@@ -287,17 +299,17 @@ def _authority_roots(values: Sequence[str]) -> dict[str, Path]:
     return roots
 
 
-def validate_lock(
-    path: Path,
+def validate_document(
+    document: Mapping[str, Any],
     *,
     repository_root: Path,
     authority_roots: Mapping[str, Path] | None = None,
     require_authority: bool = False,
     schema_path: Path = DEFAULT_SCHEMA,
 ) -> list[str]:
+    """Validate one already-parsed lock document against stable candidate and authority bytes."""
     try:
         schema = _load(schema_path)
-        document = _load(path)
     except (OSError, UnicodeDecodeError, ValueError) as exc:
         return [str(exc)]
     findings = [
@@ -309,6 +321,7 @@ def validate_lock(
     ]
     if findings:
         return findings
+
     roots = dict(authority_roots or {})
     sources = document.get("sources")
     assert isinstance(sources, list)
@@ -347,10 +360,11 @@ def validate_lock(
             if isinstance(local_path, str):
                 try:
                     local = _safe_file(repository_root, local_path, "local_path")
-                except ValueError as exc:
+                    local_payload, _ = read_bytes_bounded(local, repository_root, MAX_SOURCE_BYTES)
+                except (ConfinedReadError, OSError, ValueError) as exc:
                     findings.append(f"sources.{index}.files.{file_index}: {exc}")
                 else:
-                    if _digest(local) != expected:
+                    if _digest_bytes(local_payload) != expected:
                         findings.append(
                             f"sources.{index}.files.{file_index}: local vendored digest does not match lock"
                         )
@@ -369,6 +383,30 @@ def validate_lock(
     unknown_roots = sorted(set(roots) - seen)
     findings.extend(f"authority checkout has no lock entry: {source_id}" for source_id in unknown_roots)
     return findings
+
+
+def validate_lock(
+    path: Path,
+    *,
+    repository_root: Path,
+    authority_roots: Mapping[str, Path] | None = None,
+    require_authority: bool = False,
+    schema_path: Path = DEFAULT_SCHEMA,
+) -> list[str]:
+    """Capture one candidate lock snapshot and validate that same parsed document."""
+    lock_path = path if path.is_absolute() else repository_root / path
+    try:
+        text, _ = read_utf8_bounded(lock_path, repository_root, MAX_LOCK_BYTES)
+        document = parse_document(text, suffix=path.suffix)
+    except (ConfinedReadError, OSError, UnicodeDecodeError, ValueError) as exc:
+        return [str(exc)]
+    return validate_document(
+        document,
+        repository_root=repository_root,
+        authority_roots=authority_roots,
+        require_authority=require_authority,
+        schema_path=schema_path,
+    )
 
 
 def main(argv: Sequence[str] | None = None) -> int:
