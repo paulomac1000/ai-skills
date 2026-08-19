@@ -16,7 +16,8 @@ The active normative contract is [MCP server standard](STANDARD.md). Implementat
 
 - [Capability manifests and versioning](references/capability-manifests-and-versioning.md)
 - [Transport, lifecycle, and conformance](references/transport-lifecycle-and-conformance.md)
-- [Python and FastMCP](references/python-fastmcp.md)
+- [Python official MCP SDK](references/python-official-mcp-sdk.md)
+- [Python FastMCP package](references/python-fastmcp-package.md)
 - [.NET MCP](references/dotnet-mcp.md)
 - [Testing strategy](references/testing-strategy.md)
 - [Security and operations](references/security-and-operations.md)
