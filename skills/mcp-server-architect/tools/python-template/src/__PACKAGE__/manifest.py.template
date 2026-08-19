@@ -52,7 +52,11 @@ def _semantic_findings(manifest: Mapping[str, Any]) -> list[str]:
             findings.append("approval policy is required")
         else:
             binds = approval.get("binds")
-            observed = set(binds) if isinstance(binds, list) else set()
+            observed = (
+                {binding for binding in binds if isinstance(binding, str)}
+                if isinstance(binds, list)
+                else set()
+            )
             missing = sorted(_REQUIRED_APPROVAL_BINDINGS - observed)
             if missing:
                 findings.append(f"approval.binds is missing {missing}")
