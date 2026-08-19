@@ -166,6 +166,7 @@ def test_external_adoption_preflights_oversized_candidate_implementation(
     candidate = tmp_path / "candidate"
     candidate.mkdir()
     (candidate / "implementation.py").write_text("x" * 64, encoding="utf-8")
+    candidate_revision = _git_candidate(candidate)
     monkeypatch.setattr(VALIDATOR, "MAX_IMPLEMENTATION_BYTES", 32)
     assessment = {
         "applicability": [
@@ -176,7 +177,7 @@ def test_external_adoption_preflights_oversized_candidate_implementation(
         ]
     }
 
-    findings = VALIDATOR._preflight_candidate_implementation_files(assessment, candidate)
+    findings = VALIDATOR._preflight_candidate_implementation_files(assessment, candidate, candidate_revision)
 
     assert len(findings) == 1
     assert findings[0].location == "applicability[0].implementation[0].path"
@@ -185,7 +186,7 @@ def test_external_adoption_preflights_oversized_candidate_implementation(
 
 def test_external_adoption_preflight_rejects_unreadable_candidate_implementation(tmp_path: Path) -> None:
     candidate = tmp_path / "candidate"
-    candidate.mkdir()
+    candidate_revision = _git_candidate(candidate)
     assessment = {
         "applicability": [
             {
@@ -195,14 +196,14 @@ def test_external_adoption_preflight_rejects_unreadable_candidate_implementation
         ]
     }
 
-    findings = VALIDATOR._preflight_candidate_implementation_files(assessment, candidate)
+    findings = VALIDATOR._preflight_candidate_implementation_files(assessment, candidate, candidate_revision)
 
     assert len(findings) == 1
     assert findings[0].location == "applicability[0].implementation[0].path"
-    assert findings[0].message.startswith("implementation file cannot be read safely:")
+    assert findings[0].message.startswith("implementation file cannot be read from immutable candidate Git object:")
 
 
-def test_external_adoption_semantics_use_the_preflight_snapshot(
+def test_external_adoption_semantics_use_candidate_revision_not_mutable_worktree(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -227,11 +228,11 @@ def test_external_adoption_semantics_use_the_preflight_snapshot(
     def preflight_then_replace(
         document: object,
         candidate_root: Path,
+        observed_revision: str,
         implementation_payloads: dict[str, str] | None = None,
     ) -> list[object]:
-        findings = original_preflight(document, candidate_root, implementation_payloads)
         implementation.write_bytes(b"REPLACEMENT_ONLY = True\n")
-        return findings
+        return original_preflight(document, candidate_root, observed_revision, implementation_payloads)
 
     observed: dict[str, object] = {}
 
