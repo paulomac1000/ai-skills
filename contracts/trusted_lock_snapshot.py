@@ -8,10 +8,9 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+import validate_trusted_executable_sources as trusted_sources
 import yaml
 from jsonschema import Draft202012Validator
-
-import validate_trusted_executable_sources as trusted_sources
 
 
 def parse_document(text: str, *, suffix: str) -> Mapping[str, Any]:
