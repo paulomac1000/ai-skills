@@ -9,6 +9,7 @@ import keyword
 import os
 import re
 import shutil
+import stat
 import sys
 import tempfile
 from collections.abc import Sequence
@@ -46,6 +47,7 @@ LOCK_IDS = tuple(
 SOURCE_NAMES = ("python-runtime.in", "python-dev.in")
 _BASE_PROJECT_FILES = _implementation.project_files
 validate_generated_project = _implementation.validate_generated_project
+_FILE_ATTRIBUTE_REPARSE_POINT = 0x0400
 
 
 def _validate_public_identity(package_name: str, server_name: str) -> None:
@@ -69,6 +71,34 @@ def project_files(package_name: str, server_name: str) -> dict[str, str]:
 _implementation.project_files = project_files
 
 
+def _is_link_or_reparse(metadata: os.stat_result) -> bool:
+    attributes = getattr(metadata, "st_file_attributes", 0)
+    return stat.S_ISLNK(metadata.st_mode) or bool(
+        attributes & _FILE_ATTRIBUTE_REPARSE_POINT
+    )
+
+
+def _reject_lexical_links(path: Path) -> None:
+    """Reject every existing symlink/reparse component before resolution."""
+    absolute = path.absolute()
+    parts = absolute.parts
+    if not parts:
+        raise ValueError("destination must have path components")
+    current = Path(parts[0])
+    for component in parts[1:]:
+        current /= component
+        if not os.path.lexists(current):
+            break
+        try:
+            metadata = os.lstat(current)
+        except OSError as exc:
+            raise ValueError(f"cannot inspect destination component: {current}") from exc
+        if _is_link_or_reparse(metadata):
+            raise ValueError(
+                f"destination path must not contain symlinks or reparse points: {current}"
+            )
+
+
 def generate_project(
     destination: Path,
     package_name: str,
@@ -77,13 +107,19 @@ def generate_project(
     """Render and atomically publish a project using the stable public API."""
     files = project_files(package_name, server_name)
     validate_generated_project(files, package_name)
-    destination = destination.resolve(strict=False)
-    parent = destination.parent
-    parent.mkdir(parents=True, exist_ok=True)
-    if parent.is_symlink() or not parent.is_dir():
+
+    lexical_destination = destination.absolute()
+    _reject_lexical_links(lexical_destination)
+    lexical_parent = lexical_destination.parent
+    lexical_parent.mkdir(parents=True, exist_ok=True)
+    _reject_lexical_links(lexical_destination)
+
+    parent = lexical_parent.resolve(strict=True)
+    if not parent.is_dir():
         raise ValueError(
             "destination parent must be a regular directory, not a symlink"
         )
+    destination = parent / lexical_destination.name
     if os.path.lexists(destination):
         raise FileExistsError(destination)
 

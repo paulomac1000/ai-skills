@@ -189,13 +189,6 @@ def workflow_paths(
         ]
 
 
-def _permissions_write(value: object) -> bool:
-    return isinstance(value, Mapping) and any(
-        isinstance(scope, str) and scope.casefold() == "write"
-        for scope in value.values()
-    )
-
-
 def _privileged_local_reusable_findings(
     path: Path,
     repository_root: Path,
@@ -217,10 +210,14 @@ def _privileged_local_reusable_findings(
         if not isinstance(raw_job, Mapping):
             continue
         reusable = raw_job.get("uses")
+        effective_permissions = raw_job.get(
+            "permissions",
+            document.get("permissions"),
+        )
         if (
             isinstance(reusable, str)
             and reusable.startswith("./.github/workflows/")
-            and _permissions_write(raw_job.get("permissions"))
+            and _impl._permission_has_write(effective_permissions)
         ):
             findings.append(
                 Finding(

@@ -79,7 +79,11 @@ def _semantic_findings(manifest: Mapping[str, Any]) -> list[str]:
             )
         else:
             raw_binds = approval.get("binds", [])
-            binds = set(raw_binds) if isinstance(raw_binds, list) else set()
+            binds = (
+                {binding for binding in raw_binds if isinstance(binding, str)}
+                if isinstance(raw_binds, list)
+                else set()
+            )
             missing = sorted(_REQUIRED_APPROVAL_BINDINGS - binds)
             if missing:
                 findings.append(f"approval.binds is missing {missing}")

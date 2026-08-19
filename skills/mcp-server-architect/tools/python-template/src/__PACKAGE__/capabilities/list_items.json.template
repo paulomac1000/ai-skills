@@ -10,7 +10,7 @@
   "impact": "none",
   "active_state": "active",
   "retryable": false,
-  "idempotent": false,
+  "idempotent": true,
   "reversible": false,
   "requires_confirmation": false,
   "idempotency_key_required": false,

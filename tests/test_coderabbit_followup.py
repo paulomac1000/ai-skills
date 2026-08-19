@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from jsonschema import Draft202012Validator
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -72,6 +73,38 @@ def test_capability_schema_separates_lifecycle_from_operation_kind() -> None:
     )
 
 
+def test_read_schema_is_naturally_idempotent_and_retry_is_opt_in() -> None:
+    schema = json.loads(
+        (ROOT / "contracts/capability-manifest.schema.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    manifest = {
+        "schema_version": 1,
+        "id": "inventory.list",
+        "name": "List inventory",
+        "description": "Lists bounded inventory metadata.",
+        "operation_kind": "read",
+        "risk": "low",
+        "determinism": "environment-dependent",
+        "latency": "interactive",
+        "impact": "none",
+        "active_state": "active",
+        "retryable": True,
+        "idempotent": True,
+        "reversible": False,
+        "requires_confirmation": False,
+        "idempotency_key_required": False,
+        "authorization_scopes": [],
+        "concurrency": {"scope": "principal", "limit": 4},
+        "max_response_bytes": 65536,
+    }
+    validator = Draft202012Validator(schema)
+    assert list(validator.iter_errors(manifest)) == []
+    manifest["idempotent"] = False
+    assert list(validator.iter_errors(manifest))
+
+
 def test_generated_manifests_are_active_and_read_flags_fail_closed() -> None:
     capability_dir = (
         ROOT
@@ -83,9 +116,9 @@ def test_generated_manifests_are_active_and_read_flags_fail_closed() -> None:
         assert manifest["active_state"] == "active"
         if manifest["operation_kind"] == "read":
             assert manifest["impact"] == "none"
+            assert manifest["retryable"] is False
+            assert manifest["idempotent"] is True
             for field in (
-                "retryable",
-                "idempotent",
                 "reversible",
                 "requires_confirmation",
                 "idempotency_key_required",
@@ -137,6 +170,95 @@ def test_privileged_local_reusable_workflow_guard_is_executable() -> None:
     assert "_privileged_local_reusable_findings" in auditor
     assert "write-enabled local reusable workflow" in auditor
     assert "recursively audited" in auditor
+    assert 'document.get("permissions")' in auditor
+    assert "_impl._permission_has_write(effective_permissions)" in auditor
+
+
+def test_privileged_local_reusable_inherits_workflow_write_permissions(
+    tmp_path: Path,
+) -> None:
+    tools = ROOT / "skills/ci-cd-architect/tools"
+    sys.path.insert(0, str(tools))
+    import check_github_actions_policy as auditor
+
+    workflow = tmp_path / ".github/workflows/caller.yml"
+    workflow.parent.mkdir(parents=True)
+    workflow.write_text(
+        """name: caller
+on: workflow_dispatch
+permissions:
+  packages: write
+jobs:
+  publish:
+    uses: ./.github/workflows/reusable.yml
+""",
+        encoding="utf-8",
+    )
+    findings = auditor._privileged_local_reusable_findings(workflow, tmp_path)
+    assert any("write-enabled local reusable workflow" in item.message for item in findings)
+
+
+def test_python_generator_rejects_lexical_symlink_parent(tmp_path: Path) -> None:
+    generator = _load(
+        ROOT / "skills/mcp-server-architect/tools/generate_python_server.py",
+        "review_followup_python_generator",
+    )
+    real_parent = tmp_path / "real"
+    real_parent.mkdir()
+    linked_parent = tmp_path / "linked"
+    linked_parent.symlink_to(real_parent, target_is_directory=True)
+    with pytest.raises(ValueError, match="symlinks or reparse points"):
+        generator.generate_project(
+            linked_parent / "generated",
+            "inventory_server",
+            "Inventory Server",
+        )
+
+
+def test_manifest_validator_handles_non_string_approval_bindings(
+    tmp_path: Path,
+) -> None:
+    validator = _load(
+        ROOT / "contracts/validate_capability_manifest.py",
+        "review_followup_manifest_validator",
+    )
+    manifest = {
+        "schema_version": 1,
+        "id": "inventory.put",
+        "name": "Put inventory",
+        "description": "Updates bounded inventory metadata.",
+        "operation_kind": "write",
+        "risk": "high",
+        "determinism": "environment-dependent",
+        "latency": "interactive",
+        "impact": "external",
+        "active_state": "active",
+        "retryable": False,
+        "idempotent": False,
+        "reversible": False,
+        "requires_confirmation": True,
+        "idempotency_key_required": False,
+        "authorization_scopes": ["inventory:write"],
+        "approval": {
+            "enforcement": "server-side",
+            "record_required": True,
+            "record_ttl_seconds": 60,
+            "binds": [
+                "principal",
+                {"invalid": True},
+                "capability",
+                "target",
+                "arguments-digest",
+                "expires-at",
+            ],
+        },
+        "concurrency": {"scope": "principal-target", "limit": 1},
+        "max_response_bytes": 65536,
+    }
+    path = tmp_path / "manifest.json"
+    path.write_text(json.dumps(manifest), encoding="utf-8")
+    findings = validator.validate_manifest(path)
+    assert findings
 
 
 def test_lock_schema_and_validator_reject_path_and_name_ambiguity() -> None:
