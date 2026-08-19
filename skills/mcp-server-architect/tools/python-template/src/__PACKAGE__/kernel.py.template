@@ -10,7 +10,9 @@ import json
 import os
 import threading
 import time
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
+from dataclasses import dataclass
 from typing import Any
 
 from .manifest import MANIFESTS
@@ -24,6 +26,67 @@ _APPROVAL_PRINCIPAL_EXPIRY: dict[str, int] = {}
 _MAX_CONSUMED_APPROVALS_PER_PRINCIPAL = 10_000
 _MAX_APPROVAL_PRINCIPALS = 1_024
 _MAX_ITEMS = 10_000
+_MAX_CONCURRENCY_KEYS = 1_024
+
+
+@dataclass
+class _GateEntry:
+    limit: int
+    queue_limit: int
+    active: int = 0
+    waiting: int = 0
+
+
+class _KeyedOperationGate:
+    """Bound active and queued invocations for manifest-derived concurrency keys."""
+
+    def __init__(self, maximum_keys: int) -> None:
+        self._maximum_keys = maximum_keys
+        self._condition = threading.Condition(threading.RLock())
+        self._entries: dict[str, _GateEntry] = {}
+
+    def _remove_if_unused(self, key: str, entry: _GateEntry) -> None:
+        if entry.active == 0 and entry.waiting == 0:
+            self._entries.pop(key, None)
+
+    @contextmanager
+    def slot(self, key: str, limit: int, queue_limit: int) -> Iterator[None]:
+        with self._condition:
+            entry = self._entries.get(key)
+            if entry is None:
+                if len(self._entries) >= self._maximum_keys:
+                    raise RuntimeError("CONCURRENCY_GATE_CAPACITY: operation-key registry is full")
+                entry = _GateEntry(limit=limit, queue_limit=queue_limit)
+                self._entries[key] = entry
+            elif entry.limit != limit or entry.queue_limit != queue_limit:
+                raise RuntimeError("CONCURRENCY_POLICY_MISMATCH: active key changed policy")
+
+            if entry.active >= entry.limit:
+                if entry.waiting >= entry.queue_limit:
+                    self._remove_if_unused(key, entry)
+                    raise RuntimeError("CONCURRENCY_QUEUE_FULL: operation queue is full")
+                entry.waiting += 1
+                try:
+                    while entry.active >= entry.limit:
+                        self._condition.wait()
+                except BaseException:
+                    entry.waiting -= 1
+                    self._remove_if_unused(key, entry)
+                    self._condition.notify_all()
+                    raise
+                entry.waiting -= 1
+            entry.active += 1
+
+        try:
+            yield
+        finally:
+            with self._condition:
+                entry.active -= 1
+                self._remove_if_unused(key, entry)
+                self._condition.notify_all()
+
+
+_OPERATION_GATE = _KeyedOperationGate(_MAX_CONCURRENCY_KEYS)
 
 
 def _canonical_bytes(value: Any) -> bytes:
@@ -53,28 +116,103 @@ def _bounded_payload(
     return result
 
 
+def _concurrency_value(value: object, name: str, maximum: int) -> int:
+    if type(value) is not int or not 1 <= value <= maximum:
+        raise RuntimeError(f"invalid manifest concurrency {name}")
+    return value
+
+
+def _queue_limit(value: object) -> int:
+    if type(value) is not int or not 0 <= value <= 100_000:
+        raise RuntimeError("invalid manifest concurrency queue_limit")
+    return value
+
+
+def _operation_key(
+    capability_id: str,
+    scope: str,
+    principal: str,
+    resource_key: str | None,
+) -> str:
+    if scope in {"global", "capability"}:
+        return f"{capability_id}:capability"
+    if scope == "principal":
+        return f"{capability_id}:principal:{principal}"
+    if scope in {"target", "resource"}:
+        if not resource_key:
+            raise RuntimeError(f"concurrency scope {scope} requires a resource key")
+        return f"{capability_id}:{scope}:{resource_key}"
+    if scope == "principal-target":
+        if not resource_key:
+            raise RuntimeError("concurrency scope principal-target requires a resource key")
+        return f"{capability_id}:principal:{principal}:target:{resource_key}"
+    if scope == "credential":
+        # HTTP principals are derived from the authenticated credential; stdio has
+        # one process principal. Never retain or key on the raw credential itself.
+        return f"{capability_id}:credential-principal:{principal}"
+    if scope == "custom":
+        raise RuntimeError("custom concurrency scope requires application-owned keying")
+    raise RuntimeError(f"unsupported manifest concurrency scope: {scope}")
+
+
+@contextmanager
+def _operation_slots(
+    capability_id: str,
+    principal: str,
+    resource_key: str | None,
+) -> Iterator[None]:
+    manifest = MANIFESTS[capability_id]
+    concurrency = manifest.get("concurrency")
+    if not isinstance(concurrency, Mapping):
+        raise RuntimeError("capability manifest concurrency policy is missing")
+    scope = concurrency.get("scope")
+    if not isinstance(scope, str):
+        raise RuntimeError("invalid manifest concurrency scope")
+    limit = _concurrency_value(concurrency.get("limit"), "limit", 10_000)
+    queue_limit = _queue_limit(concurrency.get("queue_limit", 0))
+    scoped_key = _operation_key(capability_id, scope, principal, resource_key)
+    raw_global_limit = concurrency.get("global_limit")
+    if raw_global_limit is None:
+        with _OPERATION_GATE.slot(scoped_key, limit, queue_limit):
+            yield
+        return
+
+    global_limit = _concurrency_value(raw_global_limit, "global_limit", 10_000)
+    with _OPERATION_GATE.slot(
+        f"{capability_id}:global-limit",
+        global_limit,
+        queue_limit,
+    ):
+        with _OPERATION_GATE.slot(scoped_key, limit, queue_limit):
+            yield
+
+
 def describe_capabilities() -> dict[str, Any]:
-    manifests = [dict(MANIFESTS[key]) for key in sorted(MANIFESTS)]
-    return _bounded_payload(
-        "describe_capabilities",
-        {"capabilities": manifests},
-    )
+    principal = current_principal()
+    with _operation_slots("describe_capabilities", principal, None):
+        manifests = [dict(MANIFESTS[key]) for key in sorted(MANIFESTS)]
+        return _bounded_payload(
+            "describe_capabilities",
+            {"capabilities": manifests},
+        )
 
 
 def list_items(limit: int = 25) -> dict[str, Any]:
     if type(limit) is not int or not 1 <= limit <= 100:
         raise ValueError("limit must be an integer from 1 to 100")
-    with _LOCK:
-        selected = heapq.nsmallest(limit, _ITEMS.items(), key=lambda item: item[0])
-        items = [
-            {
-                "item_id": item_id,
-                "value": value,
-                "version": _ITEM_VERSIONS[item_id],
-            }
-            for item_id, value in selected
-        ]
-    return _bounded_payload("list_items", {"items": items, "count": len(items)})
+    principal = current_principal()
+    with _operation_slots("list_items", principal, "inventory"):
+        with _LOCK:
+            selected = heapq.nsmallest(limit, _ITEMS.items(), key=lambda item: item[0])
+            items = [
+                {
+                    "item_id": item_id,
+                    "value": value,
+                    "version": _ITEM_VERSIONS[item_id],
+                }
+                for item_id, value in selected
+            ]
+        return _bounded_payload("list_items", {"items": items, "count": len(items)})
 
 
 def _decode_b64url(value: str) -> bytes:
@@ -203,19 +341,21 @@ def put_item(
         raise ValueError("value must be at most 4096 UTF-8 bytes")
     if type(expected_version) is not int or expected_version < 0:
         raise ValueError("expected_version must be a non-negative integer")
-    _consume_approval(item_id, value, expected_version, approval_record)
-    with _LOCK:
-        current_version = _ITEM_VERSIONS.get(item_id, 0)
-        if current_version != expected_version:
-            raise RuntimeError(
-                f"item version conflict: expected {expected_version}, current {current_version}"
-            )
-        if item_id not in _ITEMS and len(_ITEMS) >= _MAX_ITEMS:
-            raise RuntimeError(f"item store is at capacity ({_MAX_ITEMS})")
-        next_version = current_version + 1
-        _ITEMS[item_id] = value
-        _ITEM_VERSIONS[item_id] = next_version
-    return _bounded_payload(
-        "put_item",
-        {"item_id": item_id, "updated": True, "version": next_version},
-    )
+    principal = current_principal()
+    with _operation_slots("put_item", principal, item_id):
+        _consume_approval(item_id, value, expected_version, approval_record)
+        with _LOCK:
+            current_version = _ITEM_VERSIONS.get(item_id, 0)
+            if current_version != expected_version:
+                raise RuntimeError(
+                    f"item version conflict: expected {expected_version}, current {current_version}"
+                )
+            if item_id not in _ITEMS and len(_ITEMS) >= _MAX_ITEMS:
+                raise RuntimeError(f"item store is at capacity ({_MAX_ITEMS})")
+            next_version = current_version + 1
+            _ITEMS[item_id] = value
+            _ITEM_VERSIONS[item_id] = next_version
+        return _bounded_payload(
+            "put_item",
+            {"item_id": item_id, "updated": True, "version": next_version},
+        )
