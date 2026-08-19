@@ -121,10 +121,24 @@ def test_untrusted_helper_shapes_do_not_raise_or_select() -> None:
 
 def test_dotnet_manifest_canonical_fields_escalate_monotonically() -> None:
     engine = load_engine()
+    identity = engine.CapabilityIdentity(
+        server_identity="server:inventory",
+        tool_name="list_items",
+        tool_schema_hash="sha256:" + "1" * 64,
+        manifest_version="1",
+    )
+    policy = engine.TrustedCapabilityPolicy(
+        binding=engine.TrustedPolicyBinding(
+            identity=identity,
+            source="reviewed-policy:sha256:" + "2" * 64,
+        ),
+        risk=engine.Risk.READ,
+    )
     profile = engine.infer_capability_profile(
         "list_items",
         {"risk": "READ", "sideEffects": "write", "requiresConfirmation": True},
-        trusted_policy=engine.TrustedCapabilityPolicy(risk=engine.Risk.READ),
+        identity=identity,
+        trusted_policy=policy,
     )
     assert profile.risk is engine.Risk.WRITE
     assert profile.requires_confirmation is True
