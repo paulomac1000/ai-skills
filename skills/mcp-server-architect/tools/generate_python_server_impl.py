@@ -200,11 +200,13 @@ def _write_files(root: Path, files: Mapping[str, str]) -> None:
         relative = _safe_relative_path(raw_path)
         destination = root.joinpath(*relative.parts)
         destination.parent.mkdir(parents=True, exist_ok=True)
-        destination.write_text(content, encoding="utf-8", newline="\n")
-    for directory, _, names in os.walk(root, topdown=False):
-        for name in names:
-            with (Path(directory) / name).open("rb") as handle:
-                os.fsync(handle.fileno())
+        with destination.open("w", encoding="utf-8", newline="\n") as handle:
+            handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
+    if os.name == "nt":
+        return
+    for directory, _, _names in os.walk(root, topdown=False):
         descriptor = os.open(directory, os.O_RDONLY)
         try:
             os.fsync(descriptor)
