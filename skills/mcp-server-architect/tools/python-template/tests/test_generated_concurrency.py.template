@@ -1,0 +1,65 @@
+"""Generated runtime tests for manifest-derived concurrency admission."""
+
+from __future__ import annotations
+
+import threading
+
+import pytest
+
+from __PACKAGE__ import kernel
+from __PACKAGE__.manifest import MANIFESTS
+
+
+def test_manifest_concurrency_rejects_when_queue_is_full(monkeypatch: pytest.MonkeyPatch) -> None:
+    policy = MANIFESTS["list_items"]["concurrency"]
+    monkeypatch.setitem(policy, "limit", 1)
+    monkeypatch.setitem(policy, "queue_limit", 0)
+    monkeypatch.setattr(kernel, "_OPERATION_GATE", kernel._KeyedOperationGate(16))
+
+    original_payload = kernel._bounded_payload
+    entered = threading.Event()
+    release = threading.Event()
+    failures: list[BaseException] = []
+
+    def blocking_payload(capability_id: str, payload):
+        if capability_id == "list_items" and not entered.is_set():
+            entered.set()
+            if not release.wait(timeout=5):
+                raise RuntimeError("test did not release active invocation")
+        return original_payload(capability_id, payload)
+
+    monkeypatch.setattr(kernel, "_bounded_payload", blocking_payload)
+
+    def first_invocation() -> None:
+        try:
+            kernel.list_items(1)
+        except BaseException as exc:
+            failures.append(exc)
+
+    worker = threading.Thread(target=first_invocation, daemon=True)
+    worker.start()
+    assert entered.wait(timeout=5)
+
+    try:
+        with pytest.raises(RuntimeError, match="CONCURRENCY_QUEUE_FULL"):
+            kernel.list_items(1)
+    finally:
+        release.set()
+        worker.join(timeout=5)
+
+    assert not worker.is_alive()
+    assert failures == []
+
+
+def test_manifest_concurrency_scope_isolates_principal_targets(monkeypatch: pytest.MonkeyPatch) -> None:
+    gate = kernel._KeyedOperationGate(16)
+    monkeypatch.setattr(kernel, "_OPERATION_GATE", gate)
+    policy = MANIFESTS["put_item"]["concurrency"]
+    assert policy["scope"] == "principal-target"
+
+    first = kernel._operation_key("put_item", "principal-target", "principal-a", "item-a")
+    second = kernel._operation_key("put_item", "principal-target", "principal-a", "item-b")
+    other_principal = kernel._operation_key("put_item", "principal-target", "principal-b", "item-a")
+
+    assert first != second
+    assert first != other_principal
