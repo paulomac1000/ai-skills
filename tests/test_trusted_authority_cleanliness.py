@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from contracts.validate_trusted_executable_sources import _authority_file, _git_environment, validate_lock
+from contracts.validate_trusted_executable_sources import _authority_file, _git_blob, _git_environment, validate_lock
 
 
 def _git(path: Path, *args: str, capture_output: bool = False) -> subprocess.CompletedProcess[str]:
@@ -108,6 +108,23 @@ def test_authority_digest_rejects_untracked_file_even_when_the_lock_matches_it(t
     assert any("authority checkout must be pristine at the locked revision" in finding for finding in findings)
     with pytest.raises(ValueError, match="authority_path must be tracked at the locked revision"):
         _authority_file(authority, "untracked.py")
+
+
+def test_immutable_authority_blob_rejects_symlink_tree_entries(tmp_path: Path) -> None:
+    authority = tmp_path / "authority"
+    authority.mkdir()
+    _git(authority, "init", "-q")
+    _git(authority, "config", "user.name", "Test")
+    _git(authority, "config", "user.email", "test@example.invalid")
+    target = authority / "symlink-target.txt"
+    target.write_text("trusted.py\n", encoding="utf-8")
+    blob = _git(authority, "hash-object", "-w", "symlink-target.txt", capture_output=True).stdout.strip()
+    _git(authority, "update-index", "--add", "--cacheinfo", "120000", blob, "link.py")
+    _git(authority, "commit", "-q", "-m", "symlink tree entry")
+    revision = _git(authority, "rev-parse", "HEAD", capture_output=True).stdout.strip()
+
+    with pytest.raises(ValueError, match="regular tracked file"):
+        _git_blob(authority, revision, "link.py")
 
 
 def test_authority_identity_rejects_dirty_unlisted_tracked_bytes(tmp_path: Path) -> None:
