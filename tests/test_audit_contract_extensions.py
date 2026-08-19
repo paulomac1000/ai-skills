@@ -36,7 +36,7 @@ def _capability(**overrides: object) -> dict[str, object]:
         "impact": "none",
         "active_state": "active",
         "retryable": False,
-        "idempotent": False,
+        "idempotent": True,
         "reversible": False,
         "requires_confirmation": False,
         "idempotency_key_required": False,
@@ -51,6 +51,11 @@ def _capability(**overrides: object) -> dict[str, object]:
 
 def test_capability_schema_accepts_explicit_read_contract(tmp_path: Path) -> None:
     manifest = _write_yaml(tmp_path / "capability.yaml", _capability())
+    assert validate_manifest(manifest) == []
+
+
+def test_retryable_read_does_not_require_idempotency_key(tmp_path: Path) -> None:
+    manifest = _write_yaml(tmp_path / "read.yaml", _capability(retryable=True))
     assert validate_manifest(manifest) == []
 
 
