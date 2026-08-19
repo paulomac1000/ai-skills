@@ -198,10 +198,11 @@ def _privileged_local_reusable_findings(
         if not isinstance(raw_job, Mapping):
             continue
         reusable = raw_job.get("uses")
+        effective_permissions = raw_job.get("permissions", document.get("permissions"))
         if (
             isinstance(reusable, str)
             and reusable.startswith("./.github/workflows/")
-            and _permissions_write(raw_job.get("permissions"))
+            and _permissions_write(effective_permissions)
         ):
             findings.append(
                 Finding(
