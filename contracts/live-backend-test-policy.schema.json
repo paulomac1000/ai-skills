@@ -16,7 +16,17 @@
         "enabled_by_default": {"const": false},
         "independent_opt_ins": {"type": "integer", "minimum": 2},
         "credential_access": {"const": "after-opt-in"},
-        "unique_namespace": {"const": true},
+        "unique_namespace": {"type": "boolean"},
+        "target_identity": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["verified_before_mutation", "exclusive_disposable_environment", "proof"],
+          "properties": {
+            "verified_before_mutation": {"const": true},
+            "exclusive_disposable_environment": {"const": true},
+            "proof": {"type": "string", "minLength": 1, "maxLength": 256}
+          }
+        },
         "cleanup": {
           "type": "object",
           "additionalProperties": false,
@@ -24,7 +34,14 @@
           "properties": {
             "capture_created_ids": {"const": true},
             "reconcile_by_marker": {"const": true},
-            "report_unreconciled": {"const": true}
+            "report_unreconciled": {"const": true},
+            "preclean_after_target_verification": {"const": true},
+            "strategies": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {"enum": ["captured-id", "unique-namespace", "verified-baseline-difference"]}
+            }
           }
         }
       }

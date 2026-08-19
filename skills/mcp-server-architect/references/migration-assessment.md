@@ -16,6 +16,16 @@ A migration is not complete merely because the new transport starts or a generat
 
 The file makes scope, applicability, evidence, behavioral change, waivers, rollback, and residual risk comparable across agents and repositories. It is not a narrative status report and must not contain unverified claims.
 
+## Implementation and assurance are independent
+
+Repository integration state and formal ai-skills assurance state are independent axes. Do not reinterpret one as the other.
+
+A useful implementation lifecycle is `planned -> implemented -> merged -> released`. The assurance lifecycle is separately `discovered -> locally-verified -> provider-verified -> independent-review-pending -> adopted`, with blocked or failed evidence represented explicitly rather than by moving the implementation backwards.
+
+A repository MAY merge or release a technically verified implementation before formal provider-backed adoption when its own repository policy permits that action. Such a merge or release MUST NOT be represented as `adopted`. Conversely, a pending provider control or independent review MUST NOT be converted into a durable instruction such as "keep PR N draft" unless that instruction belongs to the transient pull-request process itself.
+
+The assessment records assurance. Repository and release state come from their canonical repository or provider sources. Durable documentation summarizes the distinction and links here rather than mirroring temporary PR state.
+
 ## Normative precedence
 
 When repository resources disagree, apply this order:
@@ -45,6 +55,8 @@ Evidence names an immutable revision, relative code path, symbol or configuratio
 
 For each advertised transport, capture listing, representative read, representative failure, and every applicable write or approval boundary. Preserve target identity, principal, manifest, error, artifact, and task evidence where relevant.
 
+Evidence is revision-scoped. Review, CI, provider control, or artifact evidence for revision A does not review or approve revision B. Any implementation-changing push invalidates stale exact-revision claims and requires the affected evidence to be re-established.
+
 ## Behavioral accounting
 
 List behavior that remains compatible, behavior deliberately changed, and legacy behavior removed. Explicitly cover transport endpoints, capability names, schemas, identifiers, error categories, authentication, target selection, retry behavior, artifacts, background tasks, and operator controls. An undocumented behavioral difference is a migration defect.
@@ -72,3 +84,5 @@ A reviewer identified by canonical provider, login, and numeric ID may set `deci
 - preserved and intentionally changed behavior are accounted for;
 - rollback is executable;
 - no unresolved conflict exists between normative resources and implementation.
+
+Zero unresolved bot threads is thread hygiene, not acceptance evidence. For security-sensitive parsers, trust validators, provenance analyzers, and authorization logic, perform a focused adversarial/manual pass after the final implementation-changing revision and bind that review to the exact assessed SHA.

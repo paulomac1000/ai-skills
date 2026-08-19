@@ -14,8 +14,9 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+import trusted_lock_snapshot  # noqa: E402
 import validate_trusted_executable_sources as trusted_sources  # noqa: E402
-from confined_io import confined_regular_file  # noqa: E402
+from confined_io import confined_regular_file, read_utf8_bounded  # noqa: E402
 
 FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
 
@@ -30,16 +31,18 @@ def validate_external_lock(
     expected_revision: str,
     required_authority_paths: Sequence[str] = (),
 ) -> list[str]:
-    """Validate lock bytes and prove its authority declaration equals external coordinates."""
+    """Validate external binding and generic lock integrity from one candidate byte snapshot."""
     if trusted_sources.GITHUB_REPOSITORY.fullmatch(expected_repository) is None:
         return ["expected authority repository must use GitHub owner/name syntax"]
     if FULL_SHA.fullmatch(expected_revision) is None:
         return ["expected authority revision must be a full lowercase 40-character commit SHA"]
     try:
         lock_path = confined_regular_file(candidate_root, lock_relative)
-        document = trusted_sources._load(lock_path)
+        text, _size = read_utf8_bounded(lock_path, candidate_root, trusted_sources.MAX_LOCK_BYTES)
+        document = trusted_lock_snapshot.parse_document(text, suffix=lock_path.suffix)
     except (OSError, UnicodeDecodeError, ValueError) as exc:
         return [str(exc)]
+
     raw_sources = document.get("sources")
     if not isinstance(raw_sources, list):
         return ["candidate trust lock has no sources list"]
@@ -52,6 +55,7 @@ def validate_external_lock(
         findings.append(f"source {source_id!r} repository does not match externally supplied authority repository")
     if str(source.get("revision")) != expected_revision:
         findings.append(f"source {source_id!r} revision does not match externally supplied authority revision")
+
     raw_files = source.get("files")
     actual_paths: set[str] = set()
     if isinstance(raw_files, list):
@@ -65,8 +69,9 @@ def validate_external_lock(
             findings.append(f"source {source_id!r} is missing required trusted executable {required!r}")
     if findings:
         return findings
-    return trusted_sources.validate_lock(
-        lock_path,
+
+    return trusted_lock_snapshot.validate_document(
+        document,
         repository_root=candidate_root,
         authority_roots={source_id: authority_root},
         require_authority=True,

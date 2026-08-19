@@ -20,6 +20,7 @@ SECRET_ASSIGNMENT = re.compile(
     r"(?i)\b(?:access[_-]?token|api[_-]?key|apikey|password|secret|credential|token)\s*[:=]\s*([^\s,;&]+)"
 )
 SAFE_SECRET_REFERENCES = {"redacted", "<redacted>", "***", "env", "secret-ref"}
+MUTATING_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 
 
 def _load(path: Path) -> Mapping[str, Any]:
@@ -56,6 +57,34 @@ def _contains_secret_key(value: object) -> bool:
     return False
 
 
+def _validate_mutation_outcome(index: int, observation: Mapping[str, Any]) -> list[str]:
+    if str(observation.get("method") or "") not in MUTATING_METHODS:
+        return []
+    raw = observation.get("mutation_outcome")
+    if not isinstance(raw, Mapping):
+        return [
+            f"observations.{index}.mutation_outcome: observed mutating operations must separate completion, identity, and representation uncertainty"
+        ]
+    findings: list[str] = []
+    completion = raw.get("completion")
+    identity = raw.get("identity")
+    representation = raw.get("representation")
+    reconciliation_required = raw.get("reconciliation_required")
+    if completion == "unknown" and reconciliation_required is not True:
+        findings.append(
+            f"observations.{index}.mutation_outcome.reconciliation_required: completion=unknown requires reconciliation"
+        )
+    if completion == "confirmed-success" and identity == "unavailable" and reconciliation_required is not True:
+        findings.append(
+            f"observations.{index}.mutation_outcome.reconciliation_required: confirmed success without identity requires reconciliation"
+        )
+    if observation.get("response_body") == "empty" and representation == "available":
+        findings.append(
+            f"observations.{index}.mutation_outcome.representation: an empty success response cannot claim an available representation"
+        )
+    return findings
+
+
 def validate_contract(path: Path, schema_path: Path = DEFAULT_SCHEMA, *, require_observed: bool = False) -> list[str]:
     try:
         schema = _load(schema_path)
@@ -84,6 +113,8 @@ def validate_contract(path: Path, schema_path: Path = DEFAULT_SCHEMA, *, require
             findings.append(
                 f"observations.{index}.confidence: inferred claims cannot satisfy observed-contract acceptance"
             )
+        if require_observed:
+            findings.extend(_validate_mutation_outcome(index, raw))
         if _contains_secret_key(raw):
             findings.append(f"observations.{index}: secret values do not belong in upstream contract evidence")
     return findings

@@ -54,6 +54,26 @@ GIT_ENVIRONMENT_ALLOWLIST = {
     "no_proxy",
 }
 _PROXY_ALIASES = ("all_proxy", "http_proxy", "https_proxy", "no_proxy")
+_TRUSTED_GIT_CANDIDATES = (
+    Path(r"C:\Program Files\Git\cmd\git.exe"),
+    Path(r"C:\Program Files\Git\bin\git.exe"),
+    Path("/usr/bin/git"),
+    Path("/usr/local/bin/git"),
+    Path("/opt/homebrew/bin/git"),
+)
+
+
+def _trusted_git_executable() -> str:
+    """Resolve Git from reviewed absolute system locations rather than inherited PATH."""
+    for candidate in _TRUSTED_GIT_CANDIDATES:
+        try:
+            metadata = candidate.lstat()
+        except OSError:
+            continue
+        if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISREG(metadata.st_mode):
+            continue
+        return str(candidate)
+    raise ValueError("trusted git executable is unavailable at an allowlisted absolute path")
 
 
 def _git_environment() -> dict[str, str]:
@@ -70,14 +90,26 @@ def _git_environment() -> dict[str, str]:
             "GIT_TERMINAL_PROMPT": "0",
             "GIT_CONFIG_NOSYSTEM": "1",
             "GIT_CONFIG_GLOBAL": os.devnull,
+            "GIT_OPTIONAL_LOCKS": "0",
         }
     )
     return environment
 
 
+def _git_argv(*args: str) -> list[str]:
+    return [
+        _trusted_git_executable(),
+        "-c",
+        "core.fsmonitor=false",
+        "-c",
+        "core.pager=cat",
+        *args,
+    ]
+
+
 def _run(argv: list[str], *, cwd: Path, timeout: int = 120) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(  # noqa: S603 - fixed git executable and validated repository/SHA inputs.
-        argv,
+    return subprocess.run(  # noqa: S603 - absolute allowlisted git executable and validated repository/SHA inputs.
+        _git_argv(*argv),
         cwd=cwd,
         env=_git_environment(),
         check=True,
@@ -94,15 +126,15 @@ def _verify_materialized(repository: str, revision: str, target: Path) -> None:
         raise ValueError("materialized consumer checkout is missing") from exc
     if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISDIR(metadata.st_mode):
         raise ValueError("materialized consumer checkout must be a real directory, not a symlink")
-    head = _run(["git", "rev-parse", "HEAD"], cwd=target, timeout=30).stdout.strip()
+    head = _run(["rev-parse", "HEAD"], cwd=target, timeout=30).stdout.strip()
     if head != revision:
         raise ValueError("materialized consumer revision does not match the canary pin")
-    remote = _run(["git", "remote", "get-url", "origin"], cwd=target, timeout=30).stdout.strip()
+    remote = _run(["remote", "get-url", "origin"], cwd=target, timeout=30).stdout.strip()
     expected_remote = f"https://github.com/{repository}.git"
     if remote != expected_remote:
         raise ValueError("materialized consumer repository does not match the canary pin")
     status = _run(
-        ["git", "status", "--porcelain=v1", "--untracked-files=all", "--ignored=matching"],
+        ["status", "--porcelain=v1", "--untracked-files=all", "--ignored=matching"],
         cwd=target,
         timeout=30,
     ).stdout
@@ -116,16 +148,16 @@ def _materialize(repository: str, revision: str, target: Path) -> None:
     if REPOSITORY.fullmatch(repository) is None or FULL_SHA.fullmatch(revision) is None:
         raise ValueError("consumer canary requires owner/name and a full lowercase commit SHA")
     target.mkdir(parents=True, exist_ok=False)
-    _run(["git", "init", "-q"], cwd=target)
+    _run(["init", "-q"], cwd=target)
     _run(
-        ["git", "-c", "core.hooksPath=/dev/null", "remote", "add", "origin", f"https://github.com/{repository}.git"],
+        ["-c", "core.hooksPath=/dev/null", "remote", "add", "origin", f"https://github.com/{repository}.git"],
         cwd=target,
     )
     _run(
-        ["git", "-c", "core.hooksPath=/dev/null", "fetch", "--depth=1", "--no-tags", "origin", revision],
+        ["-c", "core.hooksPath=/dev/null", "fetch", "--depth=1", "--no-tags", "origin", revision],
         cwd=target,
     )
-    _run(["git", "-c", "core.hooksPath=/dev/null", "checkout", "-q", "--detach", "FETCH_HEAD"], cwd=target)
+    _run(["-c", "core.hooksPath=/dev/null", "checkout", "-q", "--detach", "FETCH_HEAD"], cwd=target)
     _verify_materialized(repository, revision, target)
 
 
@@ -206,22 +238,12 @@ def check_catalog(catalog_path: Path, workspace: Path, *, materialize: bool) -> 
 
         discovery_report = workspace / f"{canary_id}.discovery.json"
         discovery_report.write_text(
-            json.dumps(
-                {"proof_level": proof_level, "discovery": discovery},
-                indent=2,
-                sort_keys=True,
-            )
-            + "\n",
+            json.dumps({"proof_level": proof_level, "discovery": discovery}, indent=2, sort_keys=True) + "\n",
             encoding="utf-8",
         )
         plan_report = workspace / f"{canary_id}.plan.json"
         plan_report.write_text(
-            json.dumps(
-                {"proof_level": proof_level, "plan": plan},
-                indent=2,
-                sort_keys=True,
-            )
-            + "\n",
+            json.dumps({"proof_level": proof_level, "plan": plan}, indent=2, sort_keys=True) + "\n",
             encoding="utf-8",
         )
     return findings

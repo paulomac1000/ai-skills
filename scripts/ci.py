@@ -9,7 +9,13 @@ import sys
 from pathlib import Path
 
 from ci_environment import build_clean_environment, configured_passthrough
-from quality_targets import BANDIT_PATHS, POLICY_COVERAGE_PATHS, QUALITY_PATHS, TYPE_PATHS
+from quality_targets import (
+    BANDIT_PATHS,
+    POLICY_COVERAGE_PATHS,
+    QUALITY_PATHS,
+    SECURITY_BOUNDARY_COVERAGE_FLOORS,
+    TYPE_PATHS,
+)
 from select_lock import selected_lock
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -64,6 +70,15 @@ def main() -> int:
         f"--include={','.join(POLICY_COVERAGE_PATHS)}",
         "--fail-under=80",
     )
+    for path, floor in SECURITY_BOUNDARY_COVERAGE_FLOORS:
+        run(
+            sys.executable,
+            "-m",
+            "coverage",
+            "report",
+            f"--include={path}",
+            f"--fail-under={floor}",
+        )
     run(
         sys.executable,
         "-m",

@@ -86,6 +86,17 @@ POLICY_COVERAGE_PATHS = (
     "skills/agents-md-architect/tools/*.py",
     "skills/ci-cd-architect/tools/*.py",
     "skills/mcp-server-consumer/tools/*.py",
+    "skills/mcp-server-architect/tools/check_consumer_canaries.py",
+    "skills/mcp-server-architect/tools/inspect_existing_project.py",
+)
+SECURITY_BOUNDARY_COVERAGE_FLOORS = (
+    ("contracts/validate_external_adoption.py", 60),
+    ("contracts/validate_external_trust_lock.py", 90),
+    ("contracts/validate_live_backend_test_policy.py", 65),
+    ("contracts/validate_upstream_contract.py", 65),
+    ("skills/ci-cd-architect/tools/check_github_provider_controls.py", 60),
+    ("skills/mcp-server-architect/tools/check_consumer_canaries.py", 45),
+    ("skills/mcp-server-architect/tools/inspect_existing_project.py", 80),
 )
 
 TARGETS = {

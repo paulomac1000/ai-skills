@@ -114,10 +114,17 @@ def test_live_backend_policy_requires_two_opt_ins_and_reconciliation(tmp_path: P
             "independent_opt_ins": 2,
             "credential_access": "after-opt-in",
             "unique_namespace": True,
+            "target_identity": {
+                "verified_before_mutation": True,
+                "exclusive_disposable_environment": True,
+                "proof": "known disposable sandbox identity",
+            },
             "cleanup": {
                 "capture_created_ids": True,
                 "reconcile_by_marker": True,
                 "report_unreconciled": True,
+                "preclean_after_target_verification": True,
+                "strategies": ["captured-id", "unique-namespace"],
             },
         },
     }

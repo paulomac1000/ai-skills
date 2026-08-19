@@ -15,3 +15,9 @@ observations:
     confidence: inferred
     evidence:
       - replace-with-recording-probe-or-authoritative-document-reference
+    # For POST/PUT/PATCH/DELETE, record mutation_outcome after observing the real backend:
+    # mutation_outcome:
+    #   completion: confirmed-success
+    #   identity: unavailable
+    #   representation: unavailable
+    #   reconciliation_required: true

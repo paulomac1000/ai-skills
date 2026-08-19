@@ -94,8 +94,8 @@ controls:
   - id: mcp.upstream.contract-observed
     parent_rule_id: mcp.verification.layered
     skill: mcp-server-architect
-    source: skills/mcp-server-architect/STANDARD.md#migration-acceptance
-    description: External or legacy upstream behavior is discovered from controlled observations before adapter refactoring, and inferred dialect assumptions cannot satisfy acceptance.
+    source: skills/mcp-server-architect/references/upstream-contract-discovery.md#entry-gate
+    description: External or legacy upstream behavior is discovered from controlled observations before adapter refactoring; inferred dialect assumptions cannot satisfy acceptance and mutation observations distinguish completion from identity and representation uncertainty.
     applies_when: {maturity_at_least: L1, profiles_any: [external-upstream, legacy-upstream]}
     severity: blocking
     waivable: false
@@ -104,8 +104,8 @@ controls:
   - id: mcp.testing.live-backend-safety
     parent_rule_id: mcp.verification.layered
     skill: mcp-server-architect
-    source: skills/mcp-server-architect/STANDARD.md#verification-layers
-    description: Live-backend tests are excluded by default and mutating probes require independent opt-ins, delayed credential access, unique test identities, reconciliation, and reported cleanup failures.
+    source: skills/mcp-server-architect/references/upstream-contract-discovery.md#safe-live-probes
+    description: Live-backend mutations are excluded by default and require independent operator opt-ins, delayed credential access, verified exclusive disposable-target identity before pre-clean or mutation, and an explicit captured-id, unique-namespace, or verified-baseline-difference cleanup strategy.
     applies_when: {maturity_at_least: L1, profiles_any: [live-backend]}
     severity: blocking
     waivable: false
@@ -164,8 +164,8 @@ controls:
   - id: mcp.response.partial-state
     parent_rule_id: mcp.response.structured
     skill: mcp-server-architect
-    source: skills/mcp-server-architect/STANDARD.md#data-errors-and-responses
-    description: Partial execution and unknown outcomes are explicit terminal states with reconciliation information rather than generic success or retry advice.
+    source: skills/mcp-server-architect/references/upstream-contract-discovery.md#observed-facts
+    description: Partial execution and unknown outcomes are explicit states with reconciliation information; confirmed success without an identity or representation is not relabeled as completion-unknown.
     applies_when: {maturity_at_least: L2, capabilities_any: [write, workflow, background-task]}
     severity: blocking
     waivable: false
