@@ -137,8 +137,8 @@ def confined_regular_file(repository_root: Path, raw: str) -> Path:
     return resolved
 
 
-def read_utf8_bounded(path: Path, repository_root: Path, max_bytes: int) -> tuple[str, int]:
-    """Read one stable regular UTF-8 file using a strict maximum allocation."""
+def read_bytes_bounded(path: Path, repository_root: Path, max_bytes: int) -> tuple[bytes, int]:
+    """Read one stable regular file as bytes using a strict maximum allocation."""
     try:
         candidate, _root = confined_candidate(path, repository_root)
         descriptor, snapshot = open_stable(
@@ -187,11 +187,17 @@ def read_utf8_bounded(path: Path, repository_root: Path, max_bytes: int) -> tupl
             f"Input file exceeds the maximum supported size of {max_bytes} bytes.",
             len(payload),
         )
+    return payload, len(payload)
+
+
+def read_utf8_bounded(path: Path, repository_root: Path, max_bytes: int) -> tuple[str, int]:
+    """Read one stable regular UTF-8 file using a strict maximum allocation."""
+    payload, byte_count = read_bytes_bounded(path, repository_root, max_bytes)
     try:
-        return payload.decode("utf-8"), len(payload)
+        return payload.decode("utf-8"), byte_count
     except UnicodeDecodeError as error:
         raise ConfinedReadError(
             "input.invalid-utf8",
             f"Input file is not valid UTF-8 at byte {error.start}.",
-            len(payload),
+            byte_count,
         ) from error
