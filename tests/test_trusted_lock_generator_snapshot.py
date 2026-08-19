@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 import pytest
+import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 GENERATOR = ROOT / "skills/ci-cd-architect/tools/generate_trusted_executable_sources.py"
@@ -142,3 +143,84 @@ def test_generator_rejects_duplicate_authority_paths(
             credential_access="none",
             authority_paths=["validator.py", "validator.py"],
         )
+
+
+def _generated_document() -> dict[str, object]:
+    return {
+        "schema_version": 1,
+        "sources": [
+            {
+                "id": "validator",
+                "role": "vendored-validator",
+                "repository": "owner/repo",
+                "revision": "a" * 40,
+                "credential_access": "none",
+                "files": [
+                    {
+                        "authority_path": "validator.py",
+                        "sha256": "sha256:" + "0" * 64,
+                    }
+                ],
+            }
+        ],
+    }
+
+
+def test_generator_cli_renders_lock_to_stdout(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    generator = _load_generator()
+    authority = tmp_path / "authority"
+    authority.mkdir()
+    document = _generated_document()
+    monkeypatch.setattr(generator, "generate_lock", lambda *_args, **_kwargs: document)
+
+    result = generator.main(
+        [
+            "--authority-root",
+            str(authority),
+            "--repository",
+            "owner/repo",
+            "--revision",
+            "a" * 40,
+            "--authority-path",
+            "validator.py",
+        ]
+    )
+
+    assert result == 0
+    assert yaml.safe_load(capsys.readouterr().out) == document
+
+
+def test_generator_cli_writes_requested_lock_file(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    generator = _load_generator()
+    authority = tmp_path / "authority"
+    authority.mkdir()
+    output = tmp_path / "trusted-sources.lock.yaml"
+    document = _generated_document()
+    monkeypatch.setattr(generator, "generate_lock", lambda *_args, **_kwargs: document)
+
+    result = generator.main(
+        [
+            "--authority-root",
+            str(authority),
+            "--repository",
+            "owner/repo",
+            "--revision",
+            "a" * 40,
+            "--authority-path",
+            "validator.py",
+            "--output",
+            str(output),
+        ]
+    )
+
+    assert result == 0
+    assert capsys.readouterr().out == ""
+    assert yaml.safe_load(output.read_text(encoding="utf-8")) == document
