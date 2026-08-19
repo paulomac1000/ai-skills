@@ -55,9 +55,16 @@ def test_install_locked_uses_exact_file_hash_enforcement_and_pip_check(monkeypat
 def test_local_ci_runs_every_bounded_gate(monkeypatch, tmp_path: Path) -> None:
     ci = load(ROOT / "scripts/ci.py", "local_ci_contract")
     calls: list[tuple[str, ...]] = []
+    branch_gate_calls = 0
+
+    def fake_branch_gate() -> None:
+        nonlocal branch_gate_calls
+        branch_gate_calls += 1
+
     monkeypatch.setattr(ci.compileall, "compile_dir", lambda *_args, **_kwargs: True)
     monkeypatch.setattr(ci, "run", lambda *command: calls.append(command))
     monkeypatch.setattr(ci, "selected_lock", lambda: tmp_path / "target.lock")
+    monkeypatch.setattr(ci, "_enforce_security_branch_coverage", fake_branch_gate)
     assert ci.main() == 0
     flattened = [" ".join(command) for command in calls]
     assert any("ruff check" in command for command in flattened)
@@ -67,6 +74,44 @@ def test_local_ci_runs_every_bounded_gate(monkeypatch, tmp_path: Path) -> None:
     assert any("validate_consumer_feedback.py" in command for command in flattened)
     assert any("coverage run --branch" in command for command in flattened)
     assert sum("coverage report" in command for command in flattened) >= 3
+    assert branch_gate_calls == 1
+
+
+def test_security_branch_coverage_uses_exact_file_and_branch_counters() -> None:
+    ci = load(ROOT / "scripts/ci.py", "local_ci_branch_coverage_contract")
+    report = {
+        "files": {
+            "contracts/example.py": {
+                "summary": {
+                    "num_branches": 8,
+                    "covered_branches": 6,
+                }
+            }
+        }
+    }
+    assert ci._branch_coverage_percentage(report, "contracts/example.py") == 75.0
+
+
+@pytest.mark.parametrize(
+    ("report", "message"),
+    [
+        ({}, "files mapping"),
+        ({"files": {}}, "no measured file"),
+        ({"files": {"contracts/example.py": {}}}, "no summary"),
+        (
+            {"files": {"contracts/example.py": {"summary": {"num_branches": 0, "covered_branches": 0}}}},
+            "invalid branch counters",
+        ),
+        (
+            {"files": {"contracts/example.py": {"summary": {"num_branches": 2, "covered_branches": 3}}}},
+            "invalid branch counters",
+        ),
+    ],
+)
+def test_security_branch_coverage_fails_closed_for_malformed_report(report, message: str) -> None:
+    ci = load(ROOT / "scripts/ci.py", f"local_ci_branch_coverage_failure_{message.replace(' ', '_')}")
+    with pytest.raises(RuntimeError, match=message):
+        ci._branch_coverage_percentage(report, "contracts/example.py")
 
 
 def test_local_ci_run_wrapper_is_bounded_and_environment_isolated(monkeypatch) -> None:
