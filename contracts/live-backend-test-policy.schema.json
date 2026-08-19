@@ -11,7 +11,7 @@
     "mutations": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["enabled_by_default", "independent_opt_ins", "credential_access", "unique_namespace", "cleanup"],
+      "required": ["enabled_by_default", "independent_opt_ins", "credential_access", "unique_namespace", "target_identity", "cleanup"],
       "properties": {
         "enabled_by_default": {"const": false},
         "independent_opt_ins": {"type": "integer", "minimum": 2},
@@ -30,7 +30,7 @@
         "cleanup": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["capture_created_ids", "reconcile_by_marker", "report_unreconciled"],
+          "required": ["capture_created_ids", "reconcile_by_marker", "report_unreconciled", "preclean_after_target_verification", "strategies"],
           "properties": {
             "capture_created_ids": {"const": true},
             "reconcile_by_marker": {"const": true},
