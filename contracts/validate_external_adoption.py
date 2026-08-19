@@ -33,6 +33,7 @@ FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
 GITHUB_REPOSITORY = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 MAX_DOCUMENT_BYTES = 2 * 1024 * 1024
 MAX_IMPLEMENTATION_BYTES = 8 * 1024 * 1024
+MAX_PROVIDER_RESPONSE_BYTES = 2 * 1024 * 1024
 
 
 class _RejectRedirects(HTTPRedirectHandler):
@@ -52,12 +53,15 @@ class _ExternalGitHubEvidenceVerifier(GitHubEvidenceVerifier):
         opener = build_opener(_RejectRedirects())
         try:
             with opener.open(self._api_request(path), timeout=self._timeout_seconds) as response:  # noqa: S310
-                payload = json.load(response)
+                raw = response.read(MAX_PROVIDER_RESPONSE_BYTES + 1)
         except HTTPError as exc:
             if 300 <= exc.code < 400:
                 exc.close()
                 raise ValueError(f"GitHub provider metadata redirect is not accepted for {path}") from exc
             raise
+        if len(raw) > MAX_PROVIDER_RESPONSE_BYTES:
+            raise ValueError(f"GitHub provider metadata response exceeds the size limit for {path}")
+        payload = json.loads(raw)
         if not isinstance(payload, (Mapping, list)):
             raise ValueError(f"GitHub API returned an unsupported payload for {path}")
         self._cache[path] = payload
