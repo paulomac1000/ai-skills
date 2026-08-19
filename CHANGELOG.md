@@ -14,6 +14,8 @@
 - Added a reusable trusted-workflow audit template that checks out the candidate and immutable verifier separately, installs the verifier's hashed dependency graph, and executes only the external auditor.
 - Added a materialized reusable consumer-acceptance workflow, external authority binding for candidate trust locks and adoption assessments, provider-control preflight, trusted-source lock generation, and explicit no-runner evidence classification for real provider-backed adoption.
 - Added an `agents-md-architect` migration-diff workflow that compares normative, validator, evidence, template, and reference surfaces before rewriting an existing canonical `AGENTS.md`.
+- Added mutation outcome taxonomy for independently recording completion, returned identity, representation, and reconciliation requirements.
+- Added conservative stage-local container provenance guidance and practical consumer regressions covering disposable live targets, README preservation, lifecycle separation, moving-head freshness, review freshness, and reproducibility claims.
 
 ### Changed
 
@@ -25,6 +27,17 @@
 - Hardened `mcp-server-consumer` trusted capability values with exact `CapabilityIdentity` bindings while preserving the 1.2 helper call shape: legacy unbound policy/contract inputs and `trusted_server=` remain accepted for migration compatibility, but they are fail-closed and cannot reduce risk or confer positive idempotency.
 - Distinguished trusted executable provenance from trusted orchestration authority: candidate-owned immutable verifier execution is structural evidence only, while provider-backed approval requires externally pinned orchestration, candidate-lock equality, provider-control verification, exact-SHA evidence, and independent review.
 - Changed `agents-md-architect` reference validation so concrete directories are valid routing targets, while concrete files remain regular-file references and placeholder/path-pattern references are not forced to exist literally.
+- Strengthened live-backend mutation acceptance so operator intent is distinct from verified exclusive disposable-target identity, pre-clean is forbidden before target proof, and cleanup strategy is explicit for namespaced and non-namespaced resources.
+- Separated repository implementation/merge/release state from formal provider-backed assurance/adoption state, and kept volatile PR/provider status out of durable product documentation.
+- Defined a root README migration as product-entrypoint preservation rather than structural compliance alone.
+- Clarified that `SOURCE_DATE_EPOCH` and related deterministic-build controls are reproducibility controls rather than evidence of byte-identical rebuilds.
+
+### Security and correctness
+
+- Bound external trust-lock coordinate checks, required authority paths, schema validation, and authority digest validation to one stable bounded candidate byte snapshot instead of reopening candidate-owned lock bytes between phases.
+- Hardened real-consumer canary materialization so Git resolves from reviewed absolute system locations rather than inherited `PATH`.
+- Added focused coverage floors for trust validators, provider controls, consumer canaries, and source-provenance inspection in addition to aggregate policy coverage.
+- Made review evidence revision-scoped: zero unresolved bot threads is hygiene only, and security-sensitive final changes require a fresh exact-head adversarial/manual pass.
 
 ## 1.2.0 - 2026-07-28
 
