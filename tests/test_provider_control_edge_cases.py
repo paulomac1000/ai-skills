@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import sys
+import urllib.error
 from pathlib import Path
 from types import ModuleType
 
@@ -62,6 +63,35 @@ def _base_provider_responses() -> dict[str, tuple[int, object | None, str]]:
         "/repos/acme/project": (200, {"default_branch": "main"}, ""),
         "/repos/acme/project/branches/main": (200, {"protected": True}, ""),
     }
+
+
+def test_provider_http_client_rejects_redirects(monkeypatch) -> None:
+    captured_handlers: list[object] = []
+
+    class RedirectingOpener:
+        def open(self, request, *, timeout):
+            del timeout
+            raise urllib.error.HTTPError(
+                request.full_url,
+                301,
+                "Moved Permanently",
+                {"Location": "https://api.github.com/repos/acme/successor"},
+                None,
+            )
+
+    def build_opener(*handlers):
+        captured_handlers.extend(handlers)
+        return RedirectingOpener()
+
+    monkeypatch.setattr(PROVIDER.urllib.request, "build_opener", build_opener)
+    client = PROVIDER.GitHubClient("secret")
+    status, document, detail = client.get("/repos/acme/project")
+
+    assert any(isinstance(handler, PROVIDER._RejectRedirects) for handler in captured_handlers)
+    assert status == 301
+    assert document is None
+    assert "redirect is not accepted" in detail
+    assert "acme/successor" in detail
 
 
 def test_provider_rejects_invalid_repository_identity(tmp_path: Path) -> None:
