@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 import pytest
+import yaml
 from jsonschema import Draft202012Validator
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -80,7 +81,10 @@ def test_python_generator_rejects_lexical_symlink_parent(tmp_path: Path) -> None
     real_parent = tmp_path / "real"
     real_parent.mkdir()
     linked_parent = tmp_path / "linked"
-    linked_parent.symlink_to(real_parent, target_is_directory=True)
+    try:
+        linked_parent.symlink_to(real_parent, target_is_directory=True)
+    except OSError as exc:
+        pytest.skip(f"symlink creation unavailable on this runner: {exc}")
     with pytest.raises(ValueError, match="symlinks or reparse points"):
         generator.generate_project(
             linked_parent / "generated",
@@ -117,3 +121,25 @@ def test_generic_assessment_template_has_exact_test_case_placeholder() -> None:
     assert "version: REPLACE_WITH_SKILL_VERSION" in template
     assert "test_case: tests/test_contract.py::test_REPLACE_WITH_EXACT_TEST" in template
     assert "reviewer:" not in template
+
+
+def test_mcp_manifest_exposes_complete_shared_adoption_contract() -> None:
+    manifest = yaml.safe_load(
+        (ROOT / "skills/mcp-server-architect/manifest.yaml").read_text(encoding="utf-8")
+    )
+    adoption = manifest["adoption"]
+    expected = {
+        "template": "contracts/adoption-assessment.yaml.template",
+        "validator": "contracts/validate_adoption.py",
+        "rule_catalog": "contracts/rule-catalog.yaml",
+        "rule_map": "contracts/standard-rule-map.yaml",
+        "atomic_claim_catalog": "contracts/atomic-claim-catalog.yaml",
+        "atomic_claim_schema": "contracts/atomic-claim-report.schema.json",
+        "atomic_claim_validator": "contracts/validate_atomic_claims.py",
+        "evidence_profiles": "contracts/evidence-profiles.yaml",
+        "extension": "mcp",
+    }
+    assert expected.items() <= adoption.items()
+    for key, relative in expected.items():
+        if key != "extension":
+            assert (ROOT / relative).is_file(), key
