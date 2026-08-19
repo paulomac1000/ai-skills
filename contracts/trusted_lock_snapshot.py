@@ -104,7 +104,5 @@ def validate_document(
                 else:
                     if trusted_sources._digest_bytes(payload) != expected:
                         findings.append(f"sources.{index}.files.{file_index}: authority digest does not match lock")
-    findings.extend(
-        f"authority checkout has no lock entry: {source_id}" for source_id in sorted(set(roots) - seen)
-    )
+    findings.extend(f"authority checkout has no lock entry: {source_id}" for source_id in sorted(set(roots) - seen))
     return findings
