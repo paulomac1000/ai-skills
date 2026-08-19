@@ -156,7 +156,7 @@ def test_release_template_lowercases_ghcr_identity_and_attestation_subject() -> 
     template = (
         ROOT / "skills/ci-cd-architect/templates/publish.yml.template"
     ).read_text(encoding="utf-8")
-    assert 'repository="${GITHUB_REPOSITORY,,}"' in template
+    assert 'repository="ghcr.io/${GITHUB_REPOSITORY,,}"' in template
     assert "subject_name=$repository" in template
     assert "subject-name: ${{ steps.push.outputs.subject_name }}" in template
     assert "docker push --all-tags" not in template
