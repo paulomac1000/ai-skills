@@ -9,6 +9,7 @@ import keyword
 import os
 import re
 import shutil
+import stat
 import sys
 import tempfile
 from collections.abc import Sequence
@@ -52,6 +53,7 @@ LOCK_IDS = tuple(
 SOURCE_NAMES = ("python-runtime.in", "python-dev.in")
 _BASE_PROJECT_FILES = _implementation.project_files
 validate_generated_project = _implementation.validate_generated_project
+_FILE_ATTRIBUTE_REPARSE_POINT = 0x0400
 
 
 def _validate_public_identity(package_name: str, server_name: str) -> None:
@@ -73,14 +75,25 @@ _implementation_dynamic: Any = _implementation
 _implementation_dynamic.project_files = project_files
 
 
+def _is_link_or_reparse(metadata: os.stat_result) -> bool:
+    attributes = getattr(metadata, "st_file_attributes", 0)
+    return stat.S_ISLNK(metadata.st_mode) or bool(attributes & _FILE_ATTRIBUTE_REPARSE_POINT)
+
+
 def _reject_symlink_components(path: Path) -> None:
-    """Reject symlinks in the lexical path without resolving through them."""
+    """Reject symlink/reparse components in the lexical path without resolving through them."""
     absolute = path.absolute()
     current = Path(absolute.anchor)
     for part in absolute.parts[1:]:
         current /= part
-        if current.is_symlink():
-            raise ValueError(f"destination path must not contain symlinks: {current}")
+        if not os.path.lexists(current):
+            break
+        try:
+            metadata = os.lstat(current)
+        except OSError as exc:
+            raise ValueError(f"cannot inspect destination component: {current}") from exc
+        if _is_link_or_reparse(metadata):
+            raise ValueError(f"destination path must not contain symlinks or reparse points: {current}")
 
 
 def generate_project(
@@ -95,10 +108,10 @@ def generate_project(
     expanded = destination.expanduser()
     if os.path.lexists(expanded):
         raise FileExistsError(expanded)
-    _reject_symlink_components(expanded.parent)
+    _reject_symlink_components(expanded)
     parent = expanded.parent.resolve(strict=False)
     parent.mkdir(parents=True, exist_ok=True)
-    _reject_symlink_components(expanded.parent)
+    _reject_symlink_components(expanded)
     if not parent.is_dir():
         raise ValueError("destination parent must be a regular directory")
     destination = parent / expanded.name
