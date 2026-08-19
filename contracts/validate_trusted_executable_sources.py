@@ -18,11 +18,13 @@ from typing import Any
 import yaml
 from jsonschema import Draft202012Validator
 
-ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+CONTRACTS = Path(__file__).resolve().parent
+ROOT = CONTRACTS.parent
+for value in (str(ROOT), str(CONTRACTS)):
+    if value not in sys.path:
+        sys.path.insert(0, value)
 
-from contracts.confined_io import ConfinedReadError, read_bytes_bounded, read_utf8_bounded  # noqa: E402
+from confined_io import ConfinedReadError, read_bytes_bounded, read_utf8_bounded  # noqa: E402
 
 DEFAULT_SCHEMA = Path(__file__).with_name("trusted-executable-sources.schema.json")
 MAX_LOCK_BYTES = 512 * 1024
