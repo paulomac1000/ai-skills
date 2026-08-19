@@ -9,11 +9,14 @@ from jsonschema import Draft202012Validator
 from contracts import validate_adoption
 
 
+def _decision_schema(schema: dict[str, Any]) -> dict[str, Any]:
+    return {"$defs": schema["$defs"], **schema["properties"]["decision"]}
+
+
 def test_request_changes_schema_does_not_require_fictitious_reviewer() -> None:
-    schema = validate_adoption._load_json(validate_adoption.DEFAULT_SCHEMA)
-    decision_schema = schema["properties"]["decision"]
+    schema = dict(validate_adoption._load_json(validate_adoption.DEFAULT_SCHEMA))
     errors = list(
-        Draft202012Validator(decision_schema).iter_errors(
+        Draft202012Validator(_decision_schema(schema)).iter_errors(
             {"status": "request-changes", "rationale": "blocking gaps remain"}
         )
     )
@@ -21,16 +24,22 @@ def test_request_changes_schema_does_not_require_fictitious_reviewer() -> None:
 
 
 def test_approve_schema_still_requires_reviewer_and_acceptance_authority() -> None:
-    schema = validate_adoption._load_json(validate_adoption.DEFAULT_SCHEMA)
-    conditional = {"type": "object", "allOf": schema["allOf"]}
-    errors = list(
-        Draft202012Validator(conditional).iter_errors(
-            {"decision": {"status": "approve", "rationale": "ready"}}
+    schema = dict(validate_adoption._load_json(validate_adoption.DEFAULT_SCHEMA))
+    decision = {"status": "approve", "rationale": "ready"}
+    decision_messages = [
+        error.message
+        for error in Draft202012Validator(_decision_schema(schema)).iter_errors(decision)
+    ]
+    root_messages = [
+        error.message
+        for error in Draft202012Validator(schema).iter_errors(
+            {
+                "decision": decision,
+            }
         )
-    )
-    messages = [error.message for error in errors]
-    assert any("acceptance_authority" in message for message in messages)
-    assert any("reviewer" in message for message in messages)
+    ]
+    assert any("reviewer" in message for message in decision_messages)
+    assert any("acceptance_authority" in message for message in root_messages)
 
 
 def test_structural_request_changes_validator_accepts_missing_reviewer(
