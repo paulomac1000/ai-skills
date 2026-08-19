@@ -98,7 +98,20 @@
       "if": {"properties": {"retryable": {"const": true}}, "required": ["retryable"]},
       "then": {
         "properties": {
-          "idempotent": {"const": true},
+          "idempotent": {"const": true}
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "operation_kind": {"enum": ["write", "destructive"]},
+          "retryable": {"const": true}
+        },
+        "required": ["operation_kind", "retryable"]
+      },
+      "then": {
+        "properties": {
           "idempotency_key_required": {"const": true}
         }
       }
@@ -113,7 +126,7 @@
       "then": {
         "properties": {
           "impact": {"const": "none"},
-          "retryable": {"const": false},
+          "idempotent": {"const": true},
           "reversible": {"const": false},
           "requires_confirmation": {"const": false},
           "idempotency_key_required": {"const": false}
