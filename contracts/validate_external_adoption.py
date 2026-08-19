@@ -63,6 +63,26 @@ def _load_mapping(root: Path, relative: str, *, json_only: bool = False) -> Mapp
     )
 
 
+def _load_candidate_mapping(
+    root: Path,
+    revision: str,
+    relative: str,
+    *,
+    json_only: bool = False,
+) -> Mapping[str, Any]:
+    """Load candidate policy from the immutable Git object bound by the external revision."""
+    try:
+        text = trusted_sources._authority_text(
+            root,
+            revision,
+            relative,
+            max_bytes=MAX_DOCUMENT_BYTES,
+        )
+    except ValueError as exc:
+        raise ValueError(f"candidate input is not readable from the immutable Git object {relative}: {exc}") from exc
+    return _mapping_from_text(text, relative, json_only=json_only)
+
+
 def _load_authority_mapping(
     root: Path,
     revision: str,
@@ -306,7 +326,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             candidate_repository,
             candidate_revision,
         )
-        assessment = _load_mapping(candidate_root, args.assessment)
+        assessment = _load_candidate_mapping(candidate_root, candidate_revision, args.assessment)
         findings = validate_external_adoption(
             assessment,
             candidate_root=candidate_root,
