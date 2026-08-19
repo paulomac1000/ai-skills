@@ -44,6 +44,21 @@ class ProviderFinding:
         return f"{self.state.upper()}: {self.message}"
 
 
+class _RejectRedirects(urllib.request.HTTPRedirectHandler):
+    """Fail closed on redirects so provider identity cannot silently change."""
+
+    def redirect_request(
+        self,
+        req: Any,
+        fp: Any,
+        code: int,
+        msg: str,
+        headers: Any,
+        newurl: str,
+    ) -> None:
+        return None
+
+
 class GitHubClient:
     """Small read-only GitHub REST client with explicit response bounds."""
 
@@ -51,6 +66,7 @@ class GitHubClient:
         self._token = token
         self._api_base = api_base.rstrip("/")
         self._timeout_seconds = timeout_seconds
+        self._opener = urllib.request.build_opener(_RejectRedirects())
 
     def get(self, path: str) -> tuple[int, object | None, str]:
         request = urllib.request.Request(
@@ -64,12 +80,16 @@ class GitHubClient:
             method="GET",
         )
         try:
-            with urllib.request.urlopen(request, timeout=self._timeout_seconds) as response:  # noqa: S310
+            with self._opener.open(request, timeout=self._timeout_seconds) as response:  # noqa: S310
                 raw = response.read(MAX_RESPONSE_BYTES + 1)
                 status = int(response.status)
         except urllib.error.HTTPError as exc:
-            raw = exc.read(MAX_RESPONSE_BYTES + 1)
             status = int(exc.code)
+            if 300 <= status < 400:
+                location = exc.headers.get("Location", "") if exc.headers is not None else ""
+                suffix = f" to {location}" if location else ""
+                return status, None, f"provider redirect is not accepted{suffix}"
+            raw = exc.read(MAX_RESPONSE_BYTES + 1)
         except (OSError, TimeoutError, urllib.error.URLError) as exc:
             return 0, None, str(exc)
         if len(raw) > MAX_RESPONSE_BYTES:
