@@ -85,9 +85,22 @@ def test_manifest_requires_repository_adoption_contract_and_mcp_extension() -> N
         "validator": "contracts/validate_adoption.py",
         "rule_catalog": "contracts/rule-catalog.yaml",
         "rule_map": "contracts/standard-rule-map.yaml",
+        "atomic_claim_catalog": "contracts/atomic-claim-catalog.yaml",
+        "atomic_claim_schema": "contracts/atomic-claim-report.schema.json",
+        "atomic_claim_validator": "contracts/validate_atomic_claims.py",
+        "evidence_profiles": "contracts/evidence-profiles.yaml",
         "extension": "mcp",
     }
-    for key in ("template", "validator", "rule_catalog", "rule_map"):
+    for key in (
+        "template",
+        "validator",
+        "rule_catalog",
+        "rule_map",
+        "atomic_claim_catalog",
+        "atomic_claim_schema",
+        "atomic_claim_validator",
+        "evidence_profiles",
+    ):
         assert (ROOT / adoption[key]).is_file()
 
 
