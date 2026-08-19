@@ -26,10 +26,6 @@ def test_request_changes_schema_does_not_require_fictitious_reviewer() -> None:
 def test_approve_schema_still_requires_reviewer_and_acceptance_authority() -> None:
     schema = dict(validate_adoption._load_json(validate_adoption.DEFAULT_SCHEMA))
     decision = {"status": "approve", "rationale": "ready"}
-    decision_messages = [
-        error.message
-        for error in Draft202012Validator(_decision_schema(schema)).iter_errors(decision)
-    ]
     root_messages = [
         error.message
         for error in Draft202012Validator(schema).iter_errors(
@@ -38,7 +34,7 @@ def test_approve_schema_still_requires_reviewer_and_acceptance_authority() -> No
             }
         )
     ]
-    assert any("reviewer" in message for message in decision_messages)
+    assert any("reviewer" in message for message in root_messages)
     assert any("acceptance_authority" in message for message in root_messages)
 
 
