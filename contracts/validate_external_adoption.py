@@ -145,9 +145,10 @@ def _candidate_assessment_binding(
 def _preflight_candidate_implementation_files(
     assessment: Mapping[str, Any],
     candidate_root: Path,
+    candidate_revision: str,
     implementation_payloads: dict[str, str] | None = None,
 ) -> list[adoption.Finding]:
-    """Capture bounded stable implementation bytes before semantic validation uses them."""
+    """Capture implementation bytes from the immutable candidate Git object."""
     findings: list[adoption.Finding] = []
     applicability = assessment.get("applicability")
     if not isinstance(applicability, list):
@@ -166,14 +167,15 @@ def _preflight_candidate_implementation_files(
                 continue
             location = f"applicability[{entry_index}].implementation[{implementation_index}].path"
             try:
-                implementation_path = confined_regular_file(candidate_root, raw_path)
-                content, _size = read_utf8_bounded(
-                    implementation_path,
+                content = trusted_sources._authority_text(
                     candidate_root,
-                    MAX_IMPLEMENTATION_BYTES,
+                    candidate_revision,
+                    raw_path,
+                    max_bytes=MAX_IMPLEMENTATION_BYTES,
                 )
-            except ConfinedReadError as exc:
-                if exc.code == "input.too-large":
+            except ValueError as exc:
+                message = str(exc)
+                if "exceeds" in message and str(MAX_IMPLEMENTATION_BYTES) in message:
                     findings.append(
                         adoption.Finding(
                             location,
@@ -184,17 +186,9 @@ def _preflight_candidate_implementation_files(
                     findings.append(
                         adoption.Finding(
                             location,
-                            f"implementation file cannot be read safely: {exc}",
+                            f"implementation file cannot be read from immutable candidate Git object: {exc}",
                         )
                     )
-                continue
-            except (OSError, ValueError) as exc:
-                findings.append(
-                    adoption.Finding(
-                        location,
-                        f"implementation file cannot be read safely: {exc}",
-                    )
-                )
                 continue
             if implementation_payloads is not None:
                 implementation_payloads[raw_path] = content
@@ -271,6 +265,7 @@ def validate_external_adoption(
     implementation_findings = _preflight_candidate_implementation_files(
         assessment,
         candidate_root,
+        expected_candidate_revision,
         implementation_payloads,
     )
     if implementation_findings:
