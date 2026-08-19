@@ -64,3 +64,81 @@ def test_generator_hashes_immutable_git_blob_instead_of_authority_worktree(
             "sha256": "sha256:" + hashlib.sha256(payload).hexdigest(),
         }
     ]
+
+
+@pytest.mark.parametrize(
+    ("repository", "revision", "paths", "message"),
+    [
+        ("not-a-github-repository", "a" * 40, ["validator.py"], "repository must use GitHub owner/name syntax"),
+        ("owner/repo", "main", ["validator.py"], "revision must be a full lowercase 40-character commit SHA"),
+        ("owner/repo", "a" * 40, [], "at least one --authority-path is required"),
+    ],
+)
+def test_generator_rejects_unbound_source_coordinates_before_git_access(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    repository: str,
+    revision: str,
+    paths: list[str],
+    message: str,
+) -> None:
+    generator = _load_generator()
+    authority = tmp_path / "authority"
+    authority.mkdir()
+
+    def forbidden_identity(*_args):
+        raise AssertionError("invalid source coordinates must fail before git identity verification")
+
+    monkeypatch.setattr(generator.trusted_sources, "_verify_authority_identity", forbidden_identity)
+
+    with pytest.raises(ValueError, match=message):
+        generator.generate_lock(
+            authority,
+            source_id="validator",
+            role="vendored-validator",
+            repository=repository,
+            revision=revision,
+            credential_access="none",
+            authority_paths=paths,
+        )
+
+
+def test_generator_rejects_non_directory_authority_root(tmp_path: Path) -> None:
+    generator = _load_generator()
+    authority = tmp_path / "authority.txt"
+    authority.write_text("not a checkout", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="authority root must be a directory"):
+        generator.generate_lock(
+            authority,
+            source_id="validator",
+            role="vendored-validator",
+            repository="owner/repo",
+            revision="a" * 40,
+            credential_access="none",
+            authority_paths=["validator.py"],
+        )
+
+
+def test_generator_rejects_duplicate_authority_paths(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    generator = _load_generator()
+    authority = tmp_path / "authority"
+    authority.mkdir()
+    revision = "a" * 40
+
+    monkeypatch.setattr(generator.trusted_sources, "_verify_authority_identity", lambda *_args: None)
+    monkeypatch.setattr(generator.trusted_sources, "_git_blob", lambda *_args: b"trusted")
+
+    with pytest.raises(ValueError, match="duplicate authority path: validator.py"):
+        generator.generate_lock(
+            authority,
+            source_id="validator",
+            role="vendored-validator",
+            repository="owner/repo",
+            revision=revision,
+            credential_access="none",
+            authority_paths=["validator.py", "validator.py"],
+        )
