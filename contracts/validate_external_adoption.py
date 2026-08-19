@@ -25,8 +25,9 @@ if str(ROOT) not in sys.path:
 import validate_adoption as adoption  # noqa: E402
 import validate_trusted_executable_sources as trusted_sources  # noqa: E402
 from confined_io import ConfinedReadError, confined_regular_file, read_utf8_bounded  # noqa: E402
-from contracts import rule_applicability  # noqa: E402
 from evidence import GitHubEvidenceVerifier  # noqa: E402
+
+from contracts import rule_applicability  # noqa: E402
 
 FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
 GITHUB_REPOSITORY = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
