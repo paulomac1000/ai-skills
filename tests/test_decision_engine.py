@@ -195,7 +195,7 @@ def test_trusted_values_require_an_exact_capability_binding() -> None:
 
 def test_positive_idempotency_requires_bound_trusted_values_and_untrusted_veto_wins() -> None:
     engine = load_engine()
-    identity = _identity(engine)
+    identity = _identity(engine, tool="inventory.update")
     policy = engine.TrustedCapabilityPolicy(
         binding=_binding(engine, identity),
         risk=engine.Risk.WRITE,
