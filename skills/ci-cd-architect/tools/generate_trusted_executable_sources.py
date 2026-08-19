@@ -13,11 +13,10 @@ import yaml
 
 TOOLS = Path(__file__).resolve().parent
 REPOSITORY_ROOT = TOOLS.parents[2]
-CONTRACTS = REPOSITORY_ROOT / "contracts"
-if str(CONTRACTS) not in sys.path:
-    sys.path.insert(0, str(CONTRACTS))
+if str(REPOSITORY_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPOSITORY_ROOT))
 
-import validate_trusted_executable_sources as trusted_sources  # noqa: E402
+from contracts import validate_trusted_executable_sources as trusted_sources  # noqa: E402
 
 FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
 
@@ -32,7 +31,7 @@ def generate_lock(
     credential_access: str,
     authority_paths: Sequence[str],
 ) -> dict[str, object]:
-    """Return a deterministic lock after verifying checkout identity and tracked bytes."""
+    """Return a deterministic lock after verifying checkout identity and tracked immutable bytes."""
     lexical = authority_root
     if lexical.is_symlink():
         raise ValueError("authority root must not be a symlink")
@@ -53,11 +52,11 @@ def generate_lock(
         if raw_path in seen:
             raise ValueError(f"duplicate authority path: {raw_path}")
         seen.add(raw_path)
-        authority_file = trusted_sources._authority_file(root, raw_path)
+        authority_payload = trusted_sources._git_blob(root, revision, raw_path)
         files.append(
             {
                 "authority_path": raw_path,
-                "sha256": trusted_sources._digest(authority_file),
+                "sha256": trusted_sources._digest_bytes(authority_payload),
             }
         )
 
