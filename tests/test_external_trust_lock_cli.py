@@ -29,6 +29,8 @@ def _load() -> ModuleType:
 VALIDATOR = _load()
 REPOSITORY = "trusted/ai-skills"
 REVISION = "b" * 40
+CANDIDATE_REPOSITORY = "consumer/project"
+CANDIDATE_REVISION = "c" * 40
 
 
 def _lock(root: Path) -> Path:
@@ -60,16 +62,32 @@ def _lock(root: Path) -> Path:
     return path
 
 
-def test_external_trust_lock_cli_reports_authority_identity_failure(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    lock = _lock(tmp_path)
+def test_external_trust_lock_cli_reports_authority_identity_failure(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    candidate = tmp_path / "candidate"
+    candidate.mkdir()
+    lock = _lock(candidate)
     authority = tmp_path / "authority"
     authority.mkdir()
+    monkeypatch.setattr(VALIDATOR.trusted_sources, "_verify_candidate_identity", lambda *_args: None)
+    monkeypatch.setattr(
+        VALIDATOR.trusted_sources,
+        "_authority_text",
+        lambda *_args, **_kwargs: lock.read_text(encoding="utf-8"),
+    )
 
     result = VALIDATOR.main(
         [
             lock.name,
             "--candidate-root",
-            str(tmp_path),
+            str(candidate),
+            "--candidate-repository",
+            CANDIDATE_REPOSITORY,
+            "--candidate-revision",
+            CANDIDATE_REVISION,
             "--authority-root",
             str(authority),
             "--expected-repository",
@@ -97,6 +115,10 @@ def test_external_trust_lock_cli_fails_closed_when_root_cannot_be_resolved(tmp_p
                 lock.name,
                 "--candidate-root",
                 str(tmp_path),
+                "--candidate-repository",
+                CANDIDATE_REPOSITORY,
+                "--candidate-revision",
+                CANDIDATE_REVISION,
                 "--authority-root",
                 str(missing),
                 "--expected-repository",

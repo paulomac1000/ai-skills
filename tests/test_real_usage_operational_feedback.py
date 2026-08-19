@@ -110,7 +110,7 @@ def _write_candidate_lock(root: Path, *, repository: str, revision: str) -> str:
     return relative
 
 
-def test_external_trust_binding_rejects_candidate_selected_authority(tmp_path: Path) -> None:
+def test_external_trust_binding_rejects_candidate_selected_authority(tmp_path: Path, monkeypatch) -> None:
     validator = _load(
         CONTRACTS / "validate_external_trust_lock.py",
         "real_usage_external_trust_lock",
@@ -121,10 +121,19 @@ def test_external_trust_binding_rejects_candidate_selected_authority(tmp_path: P
         repository="candidate/controlled-authority",
         revision="1" * 40,
     )
+    lock_text = (tmp_path / relative).read_text(encoding="utf-8")
+    monkeypatch.setattr(validator.trusted_sources, "_verify_candidate_identity", lambda *_args: None)
+    monkeypatch.setattr(
+        validator.trusted_sources,
+        "_authority_text",
+        lambda *_args, **_kwargs: lock_text,
+    )
 
     findings = validator.validate_external_lock(
         relative,
         candidate_root=tmp_path,
+        candidate_repository="consumer/project",
+        candidate_revision="3" * 40,
         authority_root=tmp_path,
         source_id="ai-skills",
         expected_repository="trusted/ai-skills",

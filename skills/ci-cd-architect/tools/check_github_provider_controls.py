@@ -145,9 +145,7 @@ def _profiles_from_immutable_policy(text: str) -> tuple[dict[str, str], list[Pro
             continue
         selected_profile = raw_profile.casefold()
         if selected_profile not in workflow_impl._PROFILES:
-            findings.append(
-                ProviderFinding("misconfigured", f"unknown profile for {raw_path}: {raw_profile}")
-            )
+            findings.append(ProviderFinding("misconfigured", f"unknown profile for {raw_path}: {raw_profile}"))
             continue
         profiles[candidate.as_posix()] = selected_profile
     return profiles, findings

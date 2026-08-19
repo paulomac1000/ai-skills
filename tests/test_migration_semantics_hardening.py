@@ -149,7 +149,8 @@ def test_external_trust_lock_uses_one_candidate_snapshot(tmp_path: Path, monkeyp
         CONTRACTS / "validate_external_trust_lock.py",
         extra_path=CONTRACTS,
     )
-    revision = "a" * 40
+    authority_revision = "a" * 40
+    candidate_revision = "c" * 40
     lock = tmp_path / "trusted-executable-sources.lock.yaml"
     original = {
         "schema_version": 1,
@@ -158,7 +159,7 @@ def test_external_trust_lock_uses_one_candidate_snapshot(tmp_path: Path, monkeyp
                 "id": "ai-skills",
                 "role": "auditor",
                 "repository": "trusted/ai-skills",
-                "revision": revision,
+                "revision": authority_revision,
                 "credential_access": "read-only-provider",
                 "files": [
                     {
@@ -169,17 +170,16 @@ def test_external_trust_lock_uses_one_candidate_snapshot(tmp_path: Path, monkeyp
             }
         ],
     }
-    lock.write_text(yaml.safe_dump(original), encoding="utf-8")
+    immutable_text = yaml.safe_dump(original)
+    lock.write_text(immutable_text, encoding="utf-8")
     authority = tmp_path / "authority"
     authority.mkdir()
-    real_read = validator.read_utf8_bounded
 
-    def replace_after_read(path: Path, root: Path, max_bytes: int):
-        text, size = real_read(path, root, max_bytes)
+    def read_immutable_candidate(*_args, **_kwargs):
         changed = dict(original)
         changed["sources"] = [dict(original["sources"][0], repository="attacker/replaced")]
         lock.write_text(yaml.safe_dump(changed), encoding="utf-8")
-        return text, size
+        return immutable_text
 
     captured: dict[str, object] = {}
 
@@ -187,15 +187,18 @@ def test_external_trust_lock_uses_one_candidate_snapshot(tmp_path: Path, monkeyp
         captured["repository"] = document["sources"][0]["repository"]
         return []
 
-    monkeypatch.setattr(validator, "read_utf8_bounded", replace_after_read)
+    monkeypatch.setattr(validator.trusted_sources, "_verify_candidate_identity", lambda *_args: None)
+    monkeypatch.setattr(validator.trusted_sources, "_authority_text", read_immutable_candidate)
     monkeypatch.setattr(validator.trusted_lock_snapshot, "validate_document", validate_snapshot)
     findings = validator.validate_external_lock(
         lock.name,
         candidate_root=tmp_path,
+        candidate_repository="consumer/project",
+        candidate_revision=candidate_revision,
         authority_root=authority,
         source_id="ai-skills",
         expected_repository="trusted/ai-skills",
-        expected_revision=revision,
+        expected_revision=authority_revision,
         required_authority_paths=("contracts/validate_external_adoption.py",),
     )
     assert findings == []

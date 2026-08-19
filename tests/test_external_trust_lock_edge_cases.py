@@ -183,10 +183,12 @@ def test_external_binding_collects_paths_only_from_valid_file_entries(tmp_path: 
 
 
 def test_external_binding_delegates_matching_lock_to_authority_identity_validation(tmp_path: Path) -> None:
+    candidate = tmp_path / "candidate"
+    candidate.mkdir()
     authority = tmp_path / "authority"
     authority.mkdir()
-    lock = _write_lock(tmp_path, [_source()])
+    lock = _write_lock(candidate, [_source()])
 
-    findings = _validate(lock, tmp_path, authority, required_authority_paths=(AUTHORITY_PATH,))
+    findings = _validate(lock, candidate, authority, required_authority_paths=(AUTHORITY_PATH,))
 
     assert any("authority checkout is not a verifiable git checkout" in finding for finding in findings)
