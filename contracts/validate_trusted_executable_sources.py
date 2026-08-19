@@ -141,6 +141,7 @@ def _git_environment() -> dict[str, str]:
         {
             "GIT_CONFIG_GLOBAL": os.devnull,
             "GIT_CONFIG_NOSYSTEM": "1",
+            "GIT_LITERAL_PATHSPECS": "1",
             "GIT_OPTIONAL_LOCKS": "0",
             "GIT_TERMINAL_PROMPT": "0",
         }
@@ -177,17 +178,27 @@ def _git(root: Path, *args: str) -> str:
 
 
 def _git_blob(root: Path, revision: str, raw: str, *, max_bytes: int = MAX_SOURCE_BYTES) -> bytes:
-    """Read one tracked file directly from an immutable Git object with a strict allocation bound."""
+    """Read one regular tracked file from an immutable Git object with a strict allocation bound."""
     _safe_relative_path(raw, "authority_path")
     if FULL_SHA.fullmatch(revision) is None:
         raise ValueError("authority revision must be a full lowercase 40-character commit SHA")
     try:
-        blob = _git(root, "rev-parse", "--verify", f"{revision}:{raw}")
-        if _git(root, "cat-file", "-t", blob) != "blob":
-            raise ValueError(f"authority_path is not a tracked blob at the locked revision: {raw}")
+        entries = _git(root, "ls-tree", revision, "--", raw).splitlines()
+    except ValueError as exc:
+        raise ValueError(f"authority_path must be tracked at the locked revision: {raw}: {exc}") from exc
+    if len(entries) != 1:
+        raise ValueError(f"authority_path must resolve to exactly one tracked file at the locked revision: {raw}")
+    metadata, separator, _display_path = entries[0].partition("\t")
+    fields = metadata.split()
+    if not separator or len(fields) != 3:
+        raise ValueError(f"authority_path has invalid Git tree metadata at the locked revision: {raw}")
+    mode, object_type, blob = fields
+    if mode not in {"100644", "100755"} or object_type != "blob" or FULL_SHA.fullmatch(blob) is None:
+        raise ValueError(f"authority_path must be a regular tracked file at the locked revision: {raw}")
+    try:
         size = int(_git(root, "cat-file", "-s", blob))
     except (TypeError, ValueError) as exc:
-        raise ValueError(f"authority_path must be tracked at the locked revision: {raw}: {exc}") from exc
+        raise ValueError(f"authority_path size cannot be verified at the locked revision: {raw}: {exc}") from exc
     if size < 0 or size > max_bytes:
         raise ValueError(f"authority_path exceeds {max_bytes} bytes: {raw}")
     completed = subprocess.run(  # noqa: S603 - absolute allowlisted git executable and immutable blob id.
