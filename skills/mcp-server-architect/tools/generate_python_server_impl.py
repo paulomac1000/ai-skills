@@ -182,14 +182,17 @@ def validate_generated_project(files: Mapping[str, str], package_name: str) -> N
     if "COPY src" in dockerfile or "pip install --no-cache-dir ." in dockerfile:
         raise ValueError("generated container must not rebuild the application from source")
 
-    stale_manifest_fields = ("operational_impact", '"active"', '"side_effects"')
-    manifest_content = "\n".join(
-        content
-        for path, content in files.items()
-        if "/capabilities/" in path and path.endswith(".json")
-    )
-    if any(field in manifest_content for field in stale_manifest_fields):
-        raise ValueError("generated capability manifests contain legacy field names")
+    stale_manifest_fields = {"operational_impact", "active", "side_effects"}
+    for path, content in files.items():
+        if "/capabilities/" not in path or not path.endswith(".json"):
+            continue
+        manifest = json.loads(content)
+        observed_legacy_fields = sorted(stale_manifest_fields.intersection(manifest))
+        if observed_legacy_fields:
+            raise ValueError(
+                f"{path}: generated capability manifest contains legacy fields: "
+                f"{observed_legacy_fields}"
+            )
 
 
 def _write_files(root: Path, files: Mapping[str, str]) -> None:
