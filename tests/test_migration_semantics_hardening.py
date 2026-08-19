@@ -67,7 +67,26 @@ def test_live_policy_requires_verified_disposable_target_before_mutation(tmp_pat
     mutations.pop("target_identity")
     path.write_text(yaml.safe_dump(policy), encoding="utf-8")
     findings = validator.validate_policy(path)
-    assert any("disposable-target identity" in finding for finding in findings)
+    assert any("target_identity" in finding and "required property" in finding for finding in findings)
+    structural_findings = validator.validate_policy(path, require_safe_mutations=False)
+    assert any("target_identity" in finding and "required property" in finding for finding in structural_findings)
+
+
+def test_live_policy_schema_requires_cleanup_ordering_contract(tmp_path: Path) -> None:
+    validator = _load("live_policy_cleanup_schema", CONTRACTS / "validate_live_backend_test_policy.py")
+    policy = _live_policy()
+    mutations = policy["mutations"]
+    assert isinstance(mutations, dict)
+    cleanup = mutations["cleanup"]
+    assert isinstance(cleanup, dict)
+    cleanup.pop("preclean_after_target_verification")
+    cleanup.pop("strategies")
+    path = tmp_path / "live-backend-test-policy.yaml"
+    path.write_text(yaml.safe_dump(policy), encoding="utf-8")
+
+    findings = validator.validate_policy(path, require_safe_mutations=False)
+    assert any("preclean_after_target_verification" in finding and "required property" in finding for finding in findings)
+    assert any("strategies" in finding and "required property" in finding for finding in findings)
 
 
 def test_live_policy_requires_baseline_cleanup_without_namespace(tmp_path: Path) -> None:
