@@ -9,6 +9,7 @@ import importlib.util
 import os
 import socket
 import subprocess
+import sys
 import tempfile
 import time
 import urllib.request
@@ -28,6 +29,14 @@ def _assert_installed(package: str) -> None:
     origin = Path(spec.origin).resolve()
     if "site-packages" not in origin.parts:
         raise RuntimeError(f"package did not load from site-packages: {origin}")
+
+
+def _installed_entrypoint(distribution: str) -> str:
+    suffix = ".exe" if os.name == "nt" else ""
+    candidate = Path(sys.executable).resolve().parent / f"{distribution}{suffix}"
+    if not candidate.is_file():
+        raise RuntimeError(f"installed console entry point is missing: {candidate}")
+    return str(candidate)
 
 
 def _free_loopback_port() -> int:
@@ -68,15 +77,15 @@ async def _exercise(client: Any, *, expect_write_failure: bool = True) -> None:
             raise RuntimeError("write succeeded without a valid server approval record")
 
 
-async def _stdio_smoke(distribution: str) -> None:
-    parameters = StdioServerParameters(command=distribution, args=[])
+async def _stdio_smoke(entrypoint: str) -> None:
+    parameters = StdioServerParameters(command=entrypoint, args=[])
     async with Client(stdio_client(parameters)) as client:
         await _exercise(client)
     async with Client(stdio_client(parameters), mode="legacy") as client:
         await _exercise(client)
 
 
-async def _http_smoke(distribution: str) -> None:
+async def _http_smoke(entrypoint: str) -> None:
     token = "artifact-smoke-token-that-is-at-least-32-bytes"
     port = _free_loopback_port()
     environment = dict(os.environ)
@@ -88,8 +97,8 @@ async def _http_smoke(distribution: str) -> None:
         }
     )
     with tempfile.TemporaryFile() as output:
-        process = subprocess.Popen(  # noqa: S603 - validated command name from CI configuration
-            [distribution],
+        process = subprocess.Popen(  # noqa: S603 - exact installed console entry point from current environment
+            [entrypoint],
             env=environment,
             stdout=output,
             stderr=output,
@@ -120,8 +129,9 @@ def main() -> int:
     if not args.distribution.replace("-", "").replace("_", "").isalnum():
         raise SystemExit("distribution must contain only letters, digits, hyphens, and underscores")
     _assert_installed(args.package)
-    asyncio.run(_stdio_smoke(args.distribution))
-    asyncio.run(_http_smoke(args.distribution))
+    entrypoint = _installed_entrypoint(args.distribution)
+    asyncio.run(_stdio_smoke(entrypoint))
+    asyncio.run(_http_smoke(entrypoint))
     print("exact-artifact smoke passed")
     return 0
 
