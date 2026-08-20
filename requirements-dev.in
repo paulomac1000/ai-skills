@@ -13,4 +13,4 @@ types-jsonschema==4.26.0.20260518
 types-PyYAML==6.0.12.20260724
 wheel==0.47.0
 
-pip-tools==7.6.0
+pip-tools==7.6.1
