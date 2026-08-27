@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import sys
+from collections.abc import Iterable
 from pathlib import Path
+from typing import Protocol
 
 ROOT = Path(__file__).resolve().parents[1]
 TOOLS = ROOT / "skills/agents-md-architect/tools"
@@ -13,8 +15,12 @@ import audit_agents_md as audit_module  # noqa: E402
 import validate_agents_md as validator  # noqa: E402
 
 
-def codes(findings: list[object]) -> set[str]:
-    return {getattr(item, "code") for item in findings}
+class _FindingWithCode(Protocol):
+    code: str
+
+
+def codes(findings: Iterable[_FindingWithCode]) -> set[str]:
+    return {item.code for item in findings}
 
 
 def write(path: Path, text: str) -> Path:
@@ -45,7 +51,7 @@ Report the exact revision, skipped checks, and residual risk.
 
 
 def test_multiline_quoted_yaml_scalar_cannot_fabricate_run_node() -> None:
-    text = '''name: CI
+    text = """name: CI
 note: "first line
 jobs:
   fake:
@@ -57,46 +63,40 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - run: echo real
-'''
+"""
     commands = audit_module._extract_yaml_invocations(".github/workflows/ci.yml", text)
     assert "python scripts/ghost.py" not in commands
     assert "echo real" in commands
 
 
 def test_yaml_indentation_indicators_preserve_executable_scalars() -> None:
-    literal = '''jobs:
+    literal = """jobs:
   test:
     runs-on: ubuntu-latest
     steps:
       - run: |2
           python scripts/ci.py
-'''
-    folded = '''jobs:
+"""
+    folded = """jobs:
   test:
     runs-on: ubuntu-latest
     steps:
       - run: >-2
           python -m
           pytest
-'''
-    assert "python scripts/ci.py" in audit_module._extract_yaml_invocations(
-        ".github/workflows/ci.yml", literal
-    )
-    assert "python -m pytest" in audit_module._extract_yaml_invocations(
-        ".github/workflows/ci.yml", folded
-    )
+"""
+    assert "python scripts/ci.py" in audit_module._extract_yaml_invocations(".github/workflows/ci.yml", literal)
+    assert "python -m pytest" in audit_module._extract_yaml_invocations(".github/workflows/ci.yml", folded)
 
 
 def test_quoted_shell_separators_do_not_create_phantom_commands() -> None:
-    commands = audit_module._extract_shell_invocations(
-        "echo '; python scripts/ghost.py ;' && python scripts/ci.py"
-    )
+    commands = audit_module._extract_shell_invocations("echo '; python scripts/ghost.py ;' && python scripts/ci.py")
     assert "python scripts/ghost.py" not in commands
     assert "python scripts/ci.py" in commands
 
 
 def test_python_process_evidence_respects_lexical_scope() -> None:
-    text = '''
+    text = """
 class Fake:
     def run(self, *_args: object, **_kwargs: object) -> None:
         return None
@@ -110,7 +110,7 @@ def real() -> None:
 
 def shadowed(subprocess: object) -> None:
     subprocess.run(["python", "scripts/shadowed.py"])
-'''
+"""
     commands = audit_module._extract_python_invocations(text)
     assert "python scripts/ghost.py" not in commands
     assert "python scripts/shadowed.py" not in commands
@@ -122,12 +122,12 @@ def test_fenced_context_waiver_does_not_suppress_budget_warning(tmp_path: Path) 
     path = write(
         tmp_path / "AGENTS.md",
         valid_application(
-            f'''\n```markdown
+            f"""\n```markdown
 <!-- agents-md: waive context-budget reason="This fenced example is not active policy." -->
 ```
 
 {padding}
-'''
+"""
         ),
     )
     findings = validator.validate_path(path, "application", tmp_path)
@@ -139,10 +139,10 @@ def test_exactly_one_active_reasoned_waiver_suppresses_budget_warning(tmp_path: 
     path = write(
         tmp_path / "AGENTS.md",
         valid_application(
-            f'''\n<!-- agents-md: waive context-budget reason="The generated command matrix is intentionally reviewed here." -->
+            f"""\n<!-- agents-md: waive context-budget reason="The generated command matrix is intentionally reviewed here." -->
 
 {padding}
-'''
+"""
         ),
     )
     findings = validator.validate_path(path, "application", tmp_path)
@@ -155,11 +155,11 @@ def test_multiple_active_waivers_are_invalid_and_do_not_suppress_budget(tmp_path
     path = write(
         tmp_path / "AGENTS.md",
         valid_application(
-            f'''\n<!-- agents-md: waive context-budget reason="First reason is intentionally long enough for review." -->
+            f"""\n<!-- agents-md: waive context-budget reason="First reason is intentionally long enough for review." -->
 <!-- agents-md: waive context-budget reason="Second reason is intentionally long enough for review." -->
 
 {padding}
-'''
+"""
         ),
     )
     findings = validator.validate_path(path, "application", tmp_path)
@@ -170,9 +170,7 @@ def test_multiple_active_waivers_are_invalid_and_do_not_suppress_budget(tmp_path
 def test_codex_effective_root_to_leaf_chain_enforces_default_budget(tmp_path: Path) -> None:
     write(tmp_path / "AGENTS.md", "r" * 17000)
     write(tmp_path / "packages/AGENTS.md", "n" * 17000)
-    findings = validator._validate_codex_context(
-        tmp_path, (), validator.CODEX_DEFAULT_PROJECT_DOC_MAX_BYTES
-    )
+    findings = validator._validate_codex_context(tmp_path, (), validator.CODEX_DEFAULT_PROJECT_DOC_MAX_BYTES)
     assert "platform.codex-context-budget" in codes(findings)
 
 

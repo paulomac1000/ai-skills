@@ -1,6 +1,6 @@
 schema_version: 1
 name: ci-cd-architect
-version: 1.2.0
+version: 1.3.0
 maturity: stable
 skill_format: ai-skills/v1
 normative_entrypoint: STANDARD.md
@@ -57,8 +57,23 @@ deprecation:
 required:
 - SKILL.md
 - STANDARD.md
+- references/protected-release-workflows.md
+- references/trusted-auditor-bootstrap.md
+- references/trusted-executable-sources.md
+- references/provider-trust-bootstrap.md
+- references/finding-triage.md
+- references/on-demand-ci.md
+- templates/publish.yml.template
+- templates/trusted-workflow-audit.yml.template
+- templates/on-demand-ci.yaml.template
+- templates/trusted-executable-sources.lock.yaml.template
 - tools/check_github_actions_policy.py
 - tools/check_github_actions_policy_impl.py
+- tools/check_ci_execution_policy.py
+- tools/check_consumer_trust_hygiene.py
+- tools/check_github_provider_controls.py
+- tools/classify_github_run_evidence.py
+- tools/generate_trusted_executable_sources.py
 categories:
 - core
 - references
@@ -68,5 +83,9 @@ adoption:
   template: contracts/adoption-assessment.yaml.template
   validator: contracts/validate_adoption.py
   rule_catalog: contracts/rule-catalog.yaml
-  extension: generic
   rule_map: contracts/standard-rule-map.yaml
+  atomic_claim_catalog: contracts/atomic-claim-catalog.yaml
+  atomic_claim_schema: contracts/atomic-claim-report.schema.json
+  atomic_claim_validator: contracts/validate_atomic_claims.py
+  evidence_profiles: contracts/evidence-profiles.yaml
+  extension: generic

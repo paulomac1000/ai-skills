@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ai-skills operational claims",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "claims"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "claims": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"oneOf": [{"$ref": "#/$defs/configState"}, {"$ref": "#/$defs/runtimeCapability"}]}
+    }
+  },
+  "$defs": {
+    "base": {
+      "type": "object",
+      "required": ["id", "kind", "expected"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9.-]{2,95}$"},
+        "kind": {"enum": ["configuration-state", "runtime-capability"]},
+        "expected": {}
+      }
+    },
+    "configState": {
+      "allOf": [
+        {"$ref": "#/$defs/base"},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "kind", "expected", "canonical_source"],
+          "properties": {
+            "id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9.-]{2,95}$"},
+            "kind": {"const": "configuration-state"},
+            "expected": {},
+            "canonical_source": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["path", "format", "selector"],
+              "properties": {
+                "path": {"type": "string", "minLength": 1},
+                "format": {"enum": ["json", "yaml"]},
+                "selector": {"type": "string", "pattern": "^[A-Za-z0-9_.-]+$"}
+              }
+            }
+          }
+        }
+      ]
+    },
+    "runtimeCapability": {
+      "allOf": [
+        {"$ref": "#/$defs/base"},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "kind", "expected", "subject", "probe_evidence"],
+          "properties": {
+            "id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9.-]{2,95}$"},
+            "kind": {"const": "runtime-capability"},
+            "expected": {},
+            "subject": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["name", "version"],
+              "properties": {
+                "name": {"type": "string", "minLength": 1, "maxLength": 128},
+                "version": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._+\\-]{0,127}$"}
+              }
+            },
+            "probe_evidence": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["path", "argv", "fresh_context"],
+              "properties": {
+                "path": {"type": "string", "minLength": 1},
+                "argv": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+                "fresh_context": {"const": true}
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

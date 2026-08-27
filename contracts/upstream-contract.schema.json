@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/paulomac1000/ai-skills/blob/main/contracts/upstream-contract.schema.json",
+  "title": "Observed upstream integration contract",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "upstream", "observations"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "upstream": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "classification"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1, "maxLength": 128},
+        "classification": {"enum": ["documented", "legacy", "poorly-documented", "unknown"]}
+      }
+    },
+    "observations": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["operation", "method", "endpoint", "request_encoding", "success_statuses", "response_body", "credential_placement", "confidence", "evidence"],
+        "properties": {
+          "operation": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"},
+          "method": {"enum": ["GET", "POST", "PUT", "PATCH", "DELETE", "OTHER"]},
+          "endpoint": {"type": "string", "minLength": 1, "maxLength": 512},
+          "request_encoding": {"enum": ["none", "json", "form", "multipart", "query", "other"]},
+          "required_fields": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 128}},
+          "date_formats": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 64}},
+          "success_statuses": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "integer", "minimum": 100, "maximum": 599}},
+          "response_body": {"enum": ["json", "empty", "text", "binary", "mixed"]},
+          "pagination": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["model", "termination"],
+            "properties": {
+              "model": {"type": "string", "minLength": 1, "maxLength": 128},
+              "termination": {"type": "string", "minLength": 1, "maxLength": 256}
+            }
+          },
+          "create_identity": {"type": "string", "minLength": 1, "maxLength": 256},
+          "delete_semantics": {"type": "string", "minLength": 1, "maxLength": 256},
+          "retry_hint": {"type": "string", "minLength": 1, "maxLength": 256},
+          "mutation_outcome": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["completion", "identity", "representation", "reconciliation_required"],
+            "properties": {
+              "completion": {"enum": ["unknown", "confirmed-success", "confirmed-failure"]},
+              "identity": {"enum": ["known", "unavailable", "not-applicable"]},
+              "representation": {"enum": ["available", "unavailable", "not-applicable"]},
+              "reconciliation_required": {"type": "boolean"}
+            }
+          },
+          "credential_placement": {"enum": ["none", "header", "query", "body", "other"]},
+          "confidence": {"enum": ["observed", "recorded", "documented", "inferred"]},
+          "evidence": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 512}}
+        }
+      }
+    }
+  }
+}

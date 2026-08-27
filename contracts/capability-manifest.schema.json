@@ -1,0 +1,142 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/paulomac1000/ai-skills/blob/main/contracts/capability-manifest.schema.json",
+  "title": "MCP capability manifest",
+  "description": "Language-neutral source of truth for one application-owned MCP capability.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "id", "name", "description", "operation_kind", "risk",
+    "determinism", "latency", "impact", "active_state", "retryable",
+    "idempotent", "reversible", "requires_confirmation",
+    "idempotency_key_required", "authorization_scopes", "concurrency",
+    "max_response_bytes"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"},
+    "name": {"type": "string", "minLength": 1, "maxLength": 128},
+    "description": {"type": "string", "minLength": 1, "maxLength": 2048},
+    "operation_kind": {"enum": ["read", "write", "destructive"]},
+    "risk": {"enum": ["low", "medium", "high", "critical"]},
+    "determinism": {"enum": ["deterministic", "environment-dependent", "nondeterministic"]},
+    "latency": {"enum": ["interactive", "bounded-long", "background"]},
+    "impact": {"enum": ["none", "local", "external", "cross-tenant"]},
+    "active_state": {"enum": ["active", "inactive", "deprecated"]},
+    "retryable": {"type": "boolean"},
+    "idempotent": {"type": "boolean"},
+    "reversible": {"type": "boolean"},
+    "requires_confirmation": {"type": "boolean"},
+    "idempotency_key_required": {"type": "boolean"},
+    "authorization_scopes": {
+      "type": "array",
+      "items": {"type": "string", "pattern": "^[a-z0-9][a-z0-9:._-]{0,127}$"},
+      "uniqueItems": true
+    },
+    "approval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enforcement", "record_required", "record_ttl_seconds", "binds"],
+      "properties": {
+        "enforcement": {"const": "server-side"},
+        "record_required": {"const": true},
+        "record_ttl_seconds": {"type": "integer", "minimum": 1, "maximum": 86400},
+        "binds": {
+          "type": "array",
+          "items": {"enum": ["principal", "capability", "target", "arguments-digest", "expires-at", "approval-id"]},
+          "minItems": 5,
+          "uniqueItems": true,
+          "allOf": [
+            {"contains": {"const": "principal"}},
+            {"contains": {"const": "capability"}},
+            {"contains": {"const": "target"}},
+            {"contains": {"const": "arguments-digest"}},
+            {"contains": {"const": "expires-at"}}
+          ]
+        }
+      }
+    },
+    "concurrency": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scope", "limit"],
+      "properties": {
+        "scope": {"enum": ["global", "principal", "target", "credential", "resource", "capability", "principal-target", "custom"]},
+        "limit": {"type": "integer", "minimum": 1, "maximum": 10000},
+        "queue_limit": {"type": "integer", "minimum": 0, "maximum": 100000},
+        "global_limit": {"type": "integer", "minimum": 1, "maximum": 10000}
+      }
+    },
+    "max_response_bytes": {"type": "integer", "minimum": 1, "maximum": 16777216},
+    "protocol_revisions": {
+      "type": "array",
+      "items": {"type": "string", "pattern": "^20[0-9]{2}-[0-9]{2}-[0-9]{2}$"},
+      "uniqueItems": true
+    },
+    "extensions": {"type": "object"}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"operation_kind": {"enum": ["write", "destructive"]}}, "required": ["operation_kind"]},
+      "then": {
+        "properties": {
+          "authorization_scopes": {"minItems": 1},
+          "impact": {"not": {"const": "none"}}
+        }
+      }
+    },
+    {
+      "if": {"properties": {"operation_kind": {"const": "destructive"}}, "required": ["operation_kind"]},
+      "then": {
+        "properties": {
+          "requires_confirmation": {"const": true},
+          "risk": {"enum": ["high", "critical"]}
+        }
+      }
+    },
+    {
+      "if": {"properties": {"retryable": {"const": true}}, "required": ["retryable"]},
+      "then": {
+        "properties": {
+          "idempotent": {"const": true}
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "operation_kind": {"enum": ["write", "destructive"]},
+          "retryable": {"const": true}
+        },
+        "required": ["operation_kind", "retryable"]
+      },
+      "then": {
+        "properties": {
+          "idempotency_key_required": {"const": true}
+        }
+      }
+    },
+    {
+      "if": {"properties": {"requires_confirmation": {"const": true}}, "required": ["requires_confirmation"]},
+      "then": {"required": ["approval"]},
+      "else": {"not": {"required": ["approval"]}}
+    },
+    {
+      "if": {"properties": {"operation_kind": {"const": "read"}}, "required": ["operation_kind"]},
+      "then": {
+        "properties": {
+          "impact": {"const": "none"},
+          "idempotent": {"const": true},
+          "reversible": {"const": false},
+          "requires_confirmation": {"const": false},
+          "idempotency_key_required": {"const": false}
+        }
+      }
+    },
+    {
+      "if": {"properties": {"active_state": {"const": "active"}}, "required": ["active_state"]},
+      "then": {},
+      "else": {"properties": {"retryable": {"const": false}}}
+    }
+  ]
+}

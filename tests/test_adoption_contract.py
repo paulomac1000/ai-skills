@@ -136,6 +136,9 @@ def assessment_for(
 ) -> tuple[dict[str, Any], dict[str, Any], Path]:
     artifact = tmp_path / "artifact.txt"
     artifact.write_text("immutable artifact\n", encoding="utf-8")
+    test_file = tmp_path / "tests" / "test_rule.py"
+    test_file.parent.mkdir(parents=True, exist_ok=True)
+    test_file.write_text("def test_rule():\n    pass\n", encoding="utf-8")
     combination = {
         "operating_system": "linux",
         "architecture": "x64",
@@ -166,6 +169,7 @@ def assessment_for(
                 "verification": [
                     {
                         "command": "python -m pytest tests/test_rule.py",
+                        "test_case": "tests/test_rule.py::test_rule",
                         "evidence": evidence(1),
                         "result": "passed",
                     }
@@ -228,6 +232,7 @@ def assessment_for(
             "mcp": {
                 "target_level": "L3",
                 "profiles": ["python"],
+                "capabilities": [],
                 "advertised_transports": ["stdio"],
                 "official_client_commands": ["python -m pytest tests/official_client"],
                 "transport_results": {
@@ -388,3 +393,14 @@ def test_empty_directory_changes_artifact_tree_digest(tmp_path: Path) -> None:
     (tree / "empty").mkdir()
     after = _path_digest(tree)
     assert before != after
+
+
+def test_mcp_applicability_is_derived_from_catalog_context(tmp_path: Path) -> None:
+    document, catalog, skills = assessment_for(
+        tmp_path,
+        skill_name="mcp-server-architect",
+        mcp=True,
+    )
+    catalog["skills"]["mcp-server-architect"]["rules"][0]["applies_when"] = {"maturity_at_least": "L4"}
+    result = "\n".join(findings(document, catalog, skills, tmp_path))
+    assert "catalog applicability requires this rule to be not-applicable" in result

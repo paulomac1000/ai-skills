@@ -1,0 +1,121 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/paulomac1000/ai-skills/blob/main/contracts/evidence-provider.schema.json",
+  "title": "AI Skills evidence provider record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "profile",
+    "quality_level",
+    "provider",
+    "repository",
+    "revision",
+    "execution",
+    "result",
+    "evidence"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "profile": {"enum": ["local-structural", "hosted-provider", "independent-release"]},
+    "quality_level": {
+      "enum": [
+        "located",
+        "executed-local",
+        "artifact-tested",
+        "provider-backed-exact-sha",
+        "independently-approved"
+      ]
+    },
+    "provider": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "name"],
+      "properties": {
+        "kind": {
+          "enum": [
+            "local-structural",
+            "github-actions",
+            "gitlab-ci",
+            "azure-pipelines",
+            "jenkins",
+            "generic-hosted"
+          ]
+        },
+        "name": {"type": "string", "minLength": 1},
+        "instance": {"type": "string", "minLength": 1},
+        "adapter_version": {"type": "string", "minLength": 1}
+      }
+    },
+    "repository": {"type": "string", "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"},
+    "revision": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "execution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "lane", "command", "started_at"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "lane": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$"},
+        "command": {"type": "string", "minLength": 1},
+        "started_at": {"type": "string", "format": "date-time"},
+        "finished_at": {"type": "string", "format": "date-time"},
+        "provider_metadata": {"type": "object"}
+      }
+    },
+    "result": {"enum": ["passed", "failed", "not-run"]},
+    "evidence": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "identity", "digest"],
+        "properties": {
+          "kind": {"enum": ["report", "artifact", "log", "review", "attestation"]},
+          "identity": {"type": "string", "minLength": 1},
+          "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+          "uri": {"type": "string", "minLength": 1},
+          "metadata": {"type": "object"}
+        }
+      }
+    },
+    "approval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["authority", "revision", "decision", "record_digest"],
+      "properties": {
+        "authority": {"type": "string", "minLength": 1},
+        "revision": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "decision": {"enum": ["approved", "changes-requested", "rejected"]},
+        "record_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"profile": {"const": "local-structural"}}, "required": ["profile"]},
+      "then": {
+        "properties": {
+          "provider": {"properties": {"kind": {"const": "local-structural"}}},
+          "quality_level": {"enum": ["located", "executed-local", "artifact-tested"]}
+        }
+      }
+    },
+    {
+      "if": {"properties": {"profile": {"const": "hosted-provider"}}, "required": ["profile"]},
+      "then": {
+        "properties": {
+          "provider": {"properties": {"kind": {"not": {"const": "local-structural"}}}},
+          "quality_level": {"const": "provider-backed-exact-sha"}
+        }
+      }
+    },
+    {
+      "if": {"properties": {"profile": {"const": "independent-release"}}, "required": ["profile"]},
+      "then": {
+        "properties": {"quality_level": {"const": "independently-approved"}},
+        "required": ["approval"]
+      }
+    }
+  ]
+}

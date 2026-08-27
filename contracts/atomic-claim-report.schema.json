@@ -1,0 +1,196 @@
+{
+  "$id": "https://github.com/paulomac1000/ai-skills/blob/main/contracts/atomic-claim-report.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "checks": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "command": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "control_id": {
+            "pattern": "^[a-z0-9][a-z0-9.-]*$",
+            "type": "string"
+          },
+          "evidence_paths": {
+            "items": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "minItems": 1,
+            "type": "array",
+            "uniqueItems": true
+          },
+          "evidence_types": {
+            "items": {
+              "enum": [
+                "unit",
+                "integration",
+                "official-client",
+                "artifact",
+                "security",
+                "review"
+              ]
+            },
+            "minItems": 1,
+            "type": "array",
+            "uniqueItems": true
+          },
+          "implementation": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "path": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "symbol": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path",
+                "symbol"
+              ],
+              "type": "object"
+            },
+            "minItems": 1,
+            "type": "array"
+          },
+          "result": {
+            "const": "passed"
+          },
+          "status": {
+            "const": "passed"
+          },
+          "test_case": {
+            "pattern": "^(?!.*(?:^|/)[.][.](?:/|$))tests/[A-Za-z0-9_./-]+[.]py::test_[A-Za-z0-9_]+$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "control_id",
+          "status",
+          "implementation",
+          "command",
+          "test_case",
+          "result",
+          "evidence_types",
+          "evidence_paths"
+        ],
+        "type": "object"
+      },
+      "minItems": 1,
+      "type": "array"
+    },
+    "context": {
+      "additionalProperties": false,
+      "properties": {
+        "capabilities": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "profiles": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "target_level": {
+          "enum": [
+            "L1",
+            "L2",
+            "L3",
+            "L4"
+          ]
+        }
+      },
+      "required": [
+        "target_level",
+        "profiles",
+        "capabilities"
+      ],
+      "type": "object"
+    },
+    "report_id": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$",
+      "type": "string"
+    },
+    "repository": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$",
+          "type": "string"
+        },
+        "revision": {
+          "pattern": "^[0-9a-f]{40}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "revision"
+      ],
+      "type": "object"
+    },
+    "residual_risks": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "blocking": {
+            "type": "boolean"
+          },
+          "mitigation": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "owner": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "risk": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "risk",
+          "owner",
+          "mitigation",
+          "blocking"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "skill": {
+      "pattern": "^[a-z0-9][a-z0-9-]*$",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "report_id",
+    "repository",
+    "skill",
+    "context",
+    "checks",
+    "residual_risks"
+  ],
+  "title": "AI Skills atomic child-control report",
+  "type": "object"
+}

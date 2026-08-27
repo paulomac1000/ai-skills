@@ -1,0 +1,213 @@
+schema_version: 1
+catalog_version: 1.3.0
+controls:
+  - id: cicd.mcp.protocol-conformance
+    parent_rule_id: cicd.quality.language
+    skill: ci-cd-architect
+    source: skills/ci-cd-architect/STANDARD.md#mcp-specific-assurance
+    description: Hosted CI executes revision-specific MCP protocol tests through an official client for every claimed transport and protocol era.
+    applies_when: {maturity_at_least: L2, profiles_any: [mcp]}
+    severity: blocking
+    waivable: false
+    required_evidence: [official-client, integration]
+    test_selectors: [tests/test_atomic_claim_contract.py::test_cicd_mcp_claims_are_independent]
+  - id: cicd.mcp.artifact-smoke
+    parent_rule_id: cicd.quality.language
+    skill: ci-cd-architect
+    source: skills/ci-cd-architect/STANDARD.md#mcp-specific-assurance
+    description: Hosted CI installs or starts the exact built MCP artifact and executes its public transport contract without importing from the source checkout.
+    applies_when: {maturity_at_least: L2, profiles_any: [mcp, packaged, container]}
+    severity: blocking
+    waivable: false
+    required_evidence: [artifact, official-client]
+    test_selectors: [tests/test_atomic_claim_contract.py::test_cicd_mcp_claims_are_independent]
+  - id: mcp.runtime.isolation
+    parent_rule_id: mcp.architecture.boundaries
+    skill: mcp-server-architect
+    source: skills/mcp-server-architect/STANDARD.md#core-architecture
+    description: Application runtime policy, SDK compatibility, transports, and host lifecycle remain independently replaceable and testable.
+    applies_when: {maturity_at_least: L1}
+    severity: blocking
+    waivable: false
+    required_evidence: [unit]
+    test_selectors: [tests/test_atomic_claim_contract.py::test_runtime_and_protocol_claims_are_separate]
+  - id: mcp.protocol.current-revision
+    parent_rule_id: mcp.sdk.compatibility-isolation
+    skill: mcp-server-architect
+    source: skills/mcp-server-architect/references/protocol-2026-07-28.md#dual-era-acceptance
+    description: Each claimed protocol revision is exercised independently, and upstream package support is never recorded as repository-tested evidence.
+    applies_when: {maturity_at_least: L2}
+    severity: blocking
+    waivable: true
+    required_evidence: [official-client, integration]
+    test_selectors: [tests/test_atomic_claim_contract.py::test_runtime_and_protocol_claims_are_separate]
+  - id: mcp.identity.local-principal
+    parent_rule_id: mcp.identity.target-binding
+    skill: mcp-server-architect
+    source: skills/mcp-server-architect/references/principal-and-shell-boundaries.md#local-stdio-principal
+    description: A local stdio deployment derives an explicit principal from a documented operating-system process boundary and never trusts model-supplied identity.
+    applies_when: {maturity_at_least: L2, profiles_any: [local-stdio]}
+    severity: blocking
+    waivable: false
+    required_evidence: [unit, security]
+    test_selectors: [tests/test_atomic_claim_contract.py::test_local_and_remote_principal_claims_are_distinct]
+  - id: mcp.identity.remote-principal
+    parent_rule_id: mcp.identity.target-binding
+    skill: mcp-server-architect
+    source: skills/mcp-server-architect/references/principal-and-shell-boundaries.md#remote-principal
+    description: Every remote request authenticates a request-scoped principal before target, backend, artifact, task, browser, or network resolution.
+    applies_when: {maturity_at_least: L2, profiles_any: [remote-http]}
+    severity: blocking
+    waivable: false
+    required_evidence: [integration, security]
+    test_selectors: [tests/test_atomic_claim_contract.py::test_local_and_remote_principal_claims_are_distinct]
+  - id: mcp.manifest.write-defaults
+    parent_rule_id: mcp.manifest.complete
+    skill: mcp-server-architect
+    source: skills/mcp-server-architect/STANDARD.md#multi-axis-safety-classification
+    description: Write and destructive capability factories default retryable, idempotent, and reversible flags to false and require explicit reviewed rationale before enabling them.
+    applies_when: {maturity_at_least: L2, capabilities_any: [write, destructive]}
+    severity: blocking
+    waivable: false
+    required_evidence: [unit, security]
+    test_selectors: [tests/test_atomic_claim_contract.py::test_write_flags_and_confirmation_are_fail_closed]
+  - id: mcp.authorization.confirmation-enforced
+    parent_rule_id: mcp.authorization.server-side
+    skill: mcp-server-architect
+    source: skills/mcp-server-architect/references/principal-and-shell-boundaries.md#confirmation-enforcement
+    description: Confirmation metadata is registration-time policy backed by a server-verifiable approval record bound to principal, capability, target, arguments, and expiry.
+    applies_when: {maturity_at_least: L2, capabilities_any: [write, destructive]}
+    severity: blocking
+    waivable: false
+    required_evidence: [unit, security, integration]
+    test_selectors: [tests/test_atomic_claim_contract.py::test_write_flags_and_confirmation_are_fail_closed]
+  - id: mcp.shell.boundaries
+    parent_rule_id: mcp.authorization.server-side
+    skill: mcp-server-architect
+    source: skills/mcp-server-architect/references/principal-and-shell-boundaries.md#shell-and-subprocess-boundary
+    description: Agent-controlled values reaching SSH, subprocess, or shell boundaries use structured arguments, operation-specific parsing, bounded input, and adversarial no-dispatch tests.
+    applies_when: {maturity_at_least: L2, capabilities_any: [ssh, subprocess, shell]}
+    severity: blocking
+    waivable: false
+    required_evidence: [unit, security, integration]
+    test_selectors: [tests/test_atomic_claim_contract.py::test_shell_boundary_adversarial_matrix_is_normative]
+  - id: mcp.upstream.contract-observed
+    parent_rule_id: mcp.verification.layered
+    skill: mcp-server-architect
+    source: skills/mcp-server-architect/references/upstream-contract-discovery.md#entry-gate
+    description: External or legacy upstream behavior is discovered from controlled observations before adapter refactoring; inferred dialect assumptions cannot satisfy acceptance and mutation observations distinguish completion from identity and representation uncertainty.
+    applies_when: {maturity_at_least: L1, profiles_any: [external-upstream, legacy-upstream]}
+    severity: blocking
+    waivable: false
+    required_evidence: [integration]
+    test_selectors: [tests/test_practical_consumer_feedback.py::test_atomic_controls_capture_practical_migration_failures]
+  - id: mcp.testing.live-backend-safety
+    parent_rule_id: mcp.verification.layered
+    skill: mcp-server-architect
+    source: skills/mcp-server-architect/references/upstream-contract-discovery.md#safe-live-probes
+    description: Live-backend mutations are excluded by default and require independent operator opt-ins, delayed credential access, verified exclusive disposable-target identity before pre-clean or mutation, and an explicit captured-id, unique-namespace, or verified-baseline-difference cleanup strategy.
+    applies_when: {maturity_at_least: L1, profiles_any: [live-backend]}
+    severity: blocking
+    waivable: false
+    required_evidence: [integration, security]
+    test_selectors: [tests/test_practical_consumer_feedback.py::test_atomic_controls_capture_practical_migration_failures]
+  - id: mcp.authorization.transport-parity
+    parent_rule_id: mcp.authorization.server-side
+    skill: mcp-server-architect
+    source: skills/mcp-server-architect/STANDARD.md#authentication-and-authorization
+    description: Every advertised transport enforces the same operator gate, authorization, exact capability, target, and resource policy for representative write and destructive operations.
+    applies_when: {maturity_at_least: L2, profiles_all: [local-stdio, remote-http], capabilities_any: [write, destructive]}
+    severity: blocking
+    waivable: false
+    required_evidence: [integration, security, official-client]
+    test_selectors: [tests/test_practical_consumer_feedback.py::test_atomic_controls_capture_practical_migration_failures]
+  - id: mcp.response.protocol-error
+    parent_rule_id: mcp.response.structured
+    skill: mcp-server-architect
+    source: skills/mcp-server-architect/STANDARD.md#data-errors-and-responses
+    description: Protocol and application failures use deterministic error channels and never report a failed operation as a successful tool result.
+    applies_when: {maturity_at_least: L1}
+    severity: blocking
+    waivable: false
+    required_evidence: [unit, official-client]
+    test_selectors: [tests/test_atomic_claim_contract.py::test_response_child_controls_are_independent]
+  - id: mcp.response.output-bound
+    parent_rule_id: mcp.response.structured
+    skill: mcp-server-architect
+    source: skills/mcp-server-architect/STANDARD.md#data-errors-and-responses
+    description: The final serialized response, including metadata, envelopes, and encoding, remains within the declared byte bound.
+    applies_when: {maturity_at_least: L1}
+    severity: blocking
+    waivable: false
+    required_evidence: [unit, official-client]
+    test_selectors: [tests/test_atomic_claim_contract.py::test_response_child_controls_are_independent]
+  - id: mcp.response.provenance
+    parent_rule_id: mcp.response.structured
+    skill: mcp-server-architect
+    source: skills/mcp-server-architect/STANDARD.md#data-errors-and-responses
+    description: Responses preserve application-owned source, target, revision, and artifact provenance without trusting backend display labels.
+    applies_when: {maturity_at_least: L2}
+    severity: blocking
+    waivable: true
+    required_evidence: [unit, integration]
+    test_selectors: [tests/test_atomic_claim_contract.py::test_response_child_controls_are_independent]
+  - id: mcp.response.confidentiality
+    parent_rule_id: mcp.response.structured
+    skill: mcp-server-architect
+    source: skills/mcp-server-architect/STANDARD.md#data-errors-and-responses
+    description: Public responses and errors omit secrets, credentials, internal paths, stack traces, and cross-principal data.
+    applies_when: {maturity_at_least: L1}
+    severity: blocking
+    waivable: false
+    required_evidence: [unit, security]
+    test_selectors: [tests/test_atomic_claim_contract.py::test_response_child_controls_are_independent]
+  - id: mcp.response.partial-state
+    parent_rule_id: mcp.response.structured
+    skill: mcp-server-architect
+    source: skills/mcp-server-architect/references/upstream-contract-discovery.md#observed-facts
+    description: Partial execution and unknown outcomes are explicit states with reconciliation information; confirmed success without an identity or representation is not relabeled as completion-unknown.
+    applies_when: {maturity_at_least: L2, capabilities_any: [write, workflow, background-task]}
+    severity: blocking
+    waivable: false
+    required_evidence: [unit, integration]
+    test_selectors: [tests/test_atomic_claim_contract.py::test_response_child_controls_are_independent]
+  - id: mcp.browser.boundaries
+    parent_rule_id: mcp.browser.profile-isolation
+    skill: mcp-server-architect
+    source: skills/mcp-server-architect/STANDARD.md#runtime-boundaries-artifacts-and-browser-automation
+    description: Browser profile, download, navigation, credential, origin, and cleanup boundaries are independently authorized and confined.
+    applies_when: {maturity_at_least: L2, capabilities_any: [browser-automation]}
+    severity: blocking
+    waivable: false
+    required_evidence: [unit, security, artifact]
+    test_selectors: [tests/test_atomic_claim_contract.py::test_backend_browser_and_lifecycle_claims_are_separate]
+  - id: mcp.backends.confined
+    parent_rule_id: mcp.backends.identity
+    skill: mcp-server-architect
+    source: skills/mcp-server-architect/STANDARD.md#multi-backend-and-embedded-hosting
+    description: Backend selection is confined to configured identities and cannot redirect through model input, display names, ambient credentials, or cross-tenant aliases.
+    applies_when: {maturity_at_least: L2, profiles_any: [multi-backend, gateway]}
+    severity: blocking
+    waivable: false
+    required_evidence: [unit, integration, security]
+    test_selectors: [tests/test_atomic_claim_contract.py::test_backend_browser_and_lifecycle_claims_are_separate]
+  - id: mcp.lifecycle.readiness
+    parent_rule_id: mcp.health.readiness
+    skill: mcp-server-architect
+    source: skills/mcp-server-architect/STANDARD.md#observability-and-operations
+    description: Startup completion, liveness, readiness, dependency health, capability degradation, and shutdown ownership are separate observable states.
+    applies_when: {maturity_at_least: L2}
+    severity: blocking
+    waivable: false
+    required_evidence: [integration]
+    test_selectors: [tests/test_atomic_claim_contract.py::test_backend_browser_and_lifecycle_claims_are_separate]
+  - id: mcp.artifact.multiarch-exact
+    parent_rule_id: mcp.artifact.exact
+    skill: mcp-server-architect
+    source: skills/mcp-server-architect/references/multiarch-artifact-promotion.md#identity-model
+    description: Every declared platform digest is tested once and the release promotes the unchanged OCI index digest composed from exactly those approved children.
+    applies_when: {maturity_at_least: L2, profiles_any: [container, multi-arch]}
+    severity: blocking
+    waivable: false
+    required_evidence: [artifact, review]
+    test_selectors: [tests/test_atomic_claim_contract.py::test_multiarch_identity_is_an_immutable_graph]

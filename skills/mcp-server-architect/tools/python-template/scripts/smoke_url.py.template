@@ -1,0 +1,45 @@
+#!/usr/bin/env python3
+"""Exercise an authenticated Streamable HTTP endpoint through the official client."""
+
+from __future__ import annotations
+
+import argparse
+import asyncio
+
+import httpx2
+from mcp import Client
+from mcp.client.streamable_http import streamable_http_client
+
+
+async def _run(url: str, token: str) -> None:
+    async with httpx2.AsyncClient(headers={"Authorization": f"Bearer {token}"}) as http_client:
+        transport = streamable_http_client(url, http_client=http_client)
+        async with Client(transport) as client:
+            tools = await client.list_tools()
+            names = {tool.name for tool in tools.tools}
+            required = {"describe_capabilities", "list_items", "put_item"}
+            if not required <= names:
+                raise RuntimeError(f"missing tools: {sorted(required - names)}")
+            result = await client.call_tool("list_items", {"limit": 1})
+            if result.is_error:
+                raise RuntimeError("container safe call failed")
+            denied = await client.call_tool(
+                "put_item",
+                {"item_id": "container", "value": "denied", "approval_record": "invalid"},
+            )
+            if not denied.is_error:
+                raise RuntimeError("container write did not fail closed")
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--url", required=True)
+    parser.add_argument("--token", required=True)
+    args = parser.parse_args()
+    asyncio.run(_run(args.url, args.token))
+    print("container official-client smoke passed")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

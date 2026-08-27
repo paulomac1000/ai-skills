@@ -1,0 +1,267 @@
+#!/usr/bin/env python3
+"""Validate source-inspection adoption canaries against exact real-consumer revisions."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import stat
+import subprocess
+from pathlib import Path
+from typing import Any
+
+import yaml
+from inspect_existing_project import inspect_repository
+from plan_existing_project import build_plan
+
+REPOSITORY = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
+FULL_SHA = re.compile(r"[0-9a-f]{40}")
+CANARY_ID = re.compile(r"[a-z0-9][a-z0-9-]{0,63}")
+TARGET_LEVELS = {"L1", "L2", "L3", "L4"}
+PROOF_LEVEL = "source-inspection"
+GIT_ENVIRONMENT_ALLOWLIST = {
+    "ALL_PROXY",
+    "APPDATA",
+    "COMSPEC",
+    "CURL_CA_BUNDLE",
+    "GIT_SSL_CAINFO",
+    "HOMEDRIVE",
+    "HOMEPATH",
+    "HTTPS_PROXY",
+    "HTTP_PROXY",
+    "LANG",
+    "LC_ALL",
+    "LC_CTYPE",
+    "LOCALAPPDATA",
+    "NO_PROXY",
+    "PATH",
+    "PATHEXT",
+    "PROGRAMDATA",
+    "SSL_CERT_DIR",
+    "SSL_CERT_FILE",
+    "SYSTEMDRIVE",
+    "SYSTEMROOT",
+    "TEMP",
+    "TMP",
+    "TMPDIR",
+    "USERPROFILE",
+    "WINDIR",
+    "all_proxy",
+    "http_proxy",
+    "https_proxy",
+    "no_proxy",
+}
+_PROXY_ALIASES = ("all_proxy", "http_proxy", "https_proxy", "no_proxy")
+_TRUSTED_GIT_CANDIDATES = (
+    Path(r"C:\Program Files\Git\cmd\git.exe"),
+    Path(r"C:\Program Files\Git\bin\git.exe"),
+    Path("/usr/bin/git"),
+    Path("/usr/local/bin/git"),
+    Path("/opt/homebrew/bin/git"),
+)
+
+
+def _trusted_git_executable() -> str:
+    """Resolve Git from reviewed absolute system locations rather than inherited PATH."""
+    for candidate in _TRUSTED_GIT_CANDIDATES:
+        try:
+            metadata = candidate.lstat()
+        except OSError:
+            continue
+        if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISREG(metadata.st_mode):
+            continue
+        return str(candidate)
+    raise ValueError("trusted git executable is unavailable at an allowlisted absolute path")
+
+
+def _git_environment() -> dict[str, str]:
+    environment = {
+        name: value for name, value in os.environ.items() if name in GIT_ENVIRONMENT_ALLOWLIST or name.startswith("LC_")
+    }
+    casefolded = {name.casefold(): value for name, value in os.environ.items()}
+    for alias in _PROXY_ALIASES:
+        value = casefolded.get(alias)
+        if value is not None:
+            environment[alias] = value
+    environment.update(
+        {
+            "GIT_TERMINAL_PROMPT": "0",
+            "GIT_CONFIG_NOSYSTEM": "1",
+            "GIT_CONFIG_GLOBAL": os.devnull,
+            "GIT_OPTIONAL_LOCKS": "0",
+        }
+    )
+    return environment
+
+
+def _git_argv(*args: str) -> list[str]:
+    return [
+        _trusted_git_executable(),
+        "-c",
+        "core.fsmonitor=false",
+        "-c",
+        "core.pager=cat",
+        *args,
+    ]
+
+
+def _run(argv: list[str], *, cwd: Path, timeout: int = 120) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(  # noqa: S603 - absolute allowlisted git executable and validated repository/SHA inputs.
+        _git_argv(*argv),
+        cwd=cwd,
+        env=_git_environment(),
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+    )
+
+
+def _verify_materialized(repository: str, revision: str, target: Path) -> None:
+    try:
+        metadata = target.lstat()
+    except OSError as exc:
+        raise ValueError("materialized consumer checkout is missing") from exc
+    if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISDIR(metadata.st_mode):
+        raise ValueError("materialized consumer checkout must be a real directory, not a symlink")
+    head = _run(["rev-parse", "HEAD"], cwd=target, timeout=30).stdout.strip()
+    if head != revision:
+        raise ValueError("materialized consumer revision does not match the canary pin")
+    remote = _run(["remote", "get-url", "origin"], cwd=target, timeout=30).stdout.strip()
+    expected_remote = f"https://github.com/{repository}.git"
+    if remote != expected_remote:
+        raise ValueError("materialized consumer repository does not match the canary pin")
+    status = _run(
+        ["status", "--porcelain=v1", "--untracked-files=all", "--ignored=matching"],
+        cwd=target,
+        timeout=30,
+    ).stdout
+    if status.strip():
+        raise ValueError(
+            "materialized consumer checkout must be pristine; tracked changes and untracked or ignored files are not allowed"
+        )
+
+
+def _materialize(repository: str, revision: str, target: Path) -> None:
+    if REPOSITORY.fullmatch(repository) is None or FULL_SHA.fullmatch(revision) is None:
+        raise ValueError("consumer canary requires owner/name and a full lowercase commit SHA")
+    target.mkdir(parents=True, exist_ok=False)
+    _run(["init", "-q"], cwd=target)
+    _run(
+        ["-c", "core.hooksPath=/dev/null", "remote", "add", "origin", f"https://github.com/{repository}.git"],
+        cwd=target,
+    )
+    _run(
+        ["-c", "core.hooksPath=/dev/null", "fetch", "--depth=1", "--no-tags", "origin", revision],
+        cwd=target,
+    )
+    _run(["-c", "core.hooksPath=/dev/null", "checkout", "-q", "--detach", "FETCH_HEAD"], cwd=target)
+    _verify_materialized(repository, revision, target)
+
+
+def _lookup(document: dict[str, Any], dotted: str) -> Any:
+    value: Any = document
+    for part in dotted.split("."):
+        if not isinstance(value, dict) or part not in value:
+            raise KeyError(dotted)
+        value = value[part]
+    return value
+
+
+def check_catalog(catalog_path: Path, workspace: Path, *, materialize: bool) -> list[str]:
+    raw = yaml.safe_load(catalog_path.read_text(encoding="utf-8"))
+    if not isinstance(raw, dict) or raw.get("schema_version") != 1:
+        return ["consumer canary catalog must use schema_version 1"]
+    canaries = raw.get("canaries")
+    if not isinstance(canaries, list) or not canaries:
+        return ["consumer canary catalog must contain canaries"]
+    findings: list[str] = []
+    for index, entry in enumerate(canaries):
+        if not isinstance(entry, dict):
+            findings.append(f"canaries[{index}] must be an object")
+            continue
+        canary_id = str(entry.get("id") or "")
+        repository = str(entry.get("repository") or "")
+        revision = str(entry.get("revision") or "")
+        target_level = str(entry.get("target_level") or "L2")
+        proof_level = str(entry.get("proof_level") or "")
+        if CANARY_ID.fullmatch(canary_id) is None:
+            findings.append(f"canaries[{index}].id is invalid")
+            continue
+        if proof_level != PROOF_LEVEL:
+            findings.append(
+                f"{canary_id}: cheap consumer canaries must declare proof_level={PROOF_LEVEL!r}; "
+                "runtime behavior requires a separate fresh-context behavior canary"
+            )
+            continue
+        if target_level not in TARGET_LEVELS:
+            findings.append(f"{canary_id}: target_level must be one of {sorted(TARGET_LEVELS)}")
+            continue
+        if REPOSITORY.fullmatch(repository) is None or FULL_SHA.fullmatch(revision) is None:
+            findings.append(f"canaries[{index}] must pin owner/name at an immutable full SHA")
+            continue
+        target = workspace / canary_id
+        try:
+            if not target.exists():
+                if not materialize:
+                    findings.append(f"{canary_id}: workspace is missing")
+                    continue
+                _materialize(repository, revision, target)
+            _verify_materialized(repository, revision, target)
+            discovery = inspect_repository(target)
+            plan = build_plan(target, target_level=target_level)
+        except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError, yaml.YAMLError) as exc:
+            findings.append(f"{canary_id}: consumer materialization/inspection/planning failed: {exc}")
+            continue
+        expected = entry.get("expected")
+        if not isinstance(expected, dict) or not expected:
+            findings.append(f"{canary_id}: expected facts are missing")
+            continue
+        for dotted, expected_value in sorted(expected.items()):
+            try:
+                observed = _lookup(discovery, dotted)
+            except KeyError:
+                findings.append(f"{canary_id}: expected path {dotted!r} was not discovered")
+                continue
+            if observed != expected_value:
+                findings.append(f"{canary_id}: {dotted} expected {expected_value!r}, observed {observed!r}")
+
+        if plan.get("format") != "ai-skills-mcp-adoption-plan":
+            findings.append(f"{canary_id}: adoption planner returned an unexpected format")
+        if not plan.get("applicable_rules") or not plan.get("applicable_controls"):
+            findings.append(f"{canary_id}: adoption planner produced an empty applicability projection")
+        if discovery["facts"]["external_upstream"] and discovery["plan"]["upstream_contract"] == "required":
+            if not any("upstream-contract.yaml" in action for action in plan.get("next_actions", [])):
+                findings.append(f"{canary_id}: adoption plan lost the upstream-contract discovery gate")
+
+        discovery_report = workspace / f"{canary_id}.discovery.json"
+        discovery_report.write_text(
+            json.dumps({"proof_level": proof_level, "discovery": discovery}, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        plan_report = workspace / f"{canary_id}.plan.json"
+        plan_report.write_text(
+            json.dumps({"proof_level": proof_level, "plan": plan}, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+    return findings
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--catalog", type=Path, default=Path("contracts/consumer-canaries.yaml"))
+    parser.add_argument("--workspace", type=Path, required=True)
+    parser.add_argument("--no-materialize", action="store_true")
+    args = parser.parse_args(argv)
+    args.workspace.mkdir(parents=True, exist_ok=True)
+    findings = check_catalog(args.catalog, args.workspace, materialize=not args.no_materialize)
+    for finding in findings:
+        print(f"ERROR: {finding}")
+    print(f"consumer canary findings: {len(findings)}")
+    return 1 if findings else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

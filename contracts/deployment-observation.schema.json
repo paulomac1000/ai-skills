@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/paulomac1000/ai-skills/blob/main/contracts/deployment-observation.schema.json",
+  "title": "Deployment observation evidence",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format", "schema_version", "source_revision", "artifact", "deployment_identity", "environment_class", "command", "result", "actor"],
+  "properties": {
+    "format": {"const": "ai-skills-deployment-observation"},
+    "schema_version": {"const": 1},
+    "source_revision": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["identity", "digest"],
+      "properties": {
+        "identity": {"type": "string", "minLength": 1, "maxLength": 512},
+        "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+      }
+    },
+    "deployment_identity": {"type": "string", "minLength": 1, "maxLength": 256},
+    "environment_class": {"type": "string", "pattern": "^[a-z0-9][a-z0-9.-]{0,127}$"},
+    "upstream_version": {"type": "string", "minLength": 1, "maxLength": 128},
+    "command": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["argv", "working_directory"],
+      "properties": {
+        "argv": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1, "maxLength": 4096}},
+        "working_directory": {"type": "string", "minLength": 1, "maxLength": 1024}
+      }
+    },
+    "result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status"],
+      "properties": {
+        "status": {"enum": ["passed", "failed", "not-executed"]},
+        "result_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "reason": {"type": "string", "minLength": 1, "maxLength": 1024},
+        "started_at": {"type": "string", "format": "date-time"},
+        "completed_at": {"type": "string", "format": "date-time"}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"status": {"enum": ["passed", "failed"]}}},
+          "then": {"required": ["result_digest", "started_at", "completed_at"]}
+        },
+        {
+          "if": {"properties": {"status": {"const": "not-executed"}}},
+          "then": {
+            "required": ["reason"],
+            "not": {
+              "anyOf": [
+                {"required": ["result_digest"]},
+                {"required": ["started_at"]},
+                {"required": ["completed_at"]}
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "actor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "identity"],
+      "properties": {
+        "kind": {"enum": ["operator", "runner"]},
+        "identity": {"type": "string", "minLength": 1, "maxLength": 256}
+      }
+    }
+  }
+}

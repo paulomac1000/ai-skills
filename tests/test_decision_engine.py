@@ -1,4 +1,4 @@
-"""Behavior tests for the MCP consumer decision engine."""
+"""Behavior tests for identity-bound MCP consumer trust decisions."""
 
 from __future__ import annotations
 
@@ -9,11 +9,11 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
+LEGACY_CASES = ROOT / "tests/decision_engine_cases.py"
 
 
-def load_engine():
-    path = ROOT / "skills/mcp-server-consumer/tools/decision_engine.py"
-    spec = importlib.util.spec_from_file_location("mcp_decision_engine", path)
+def _load_cases():
+    spec = importlib.util.spec_from_file_location("decision_engine_cases", LEGACY_CASES)
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
@@ -21,315 +21,268 @@ def load_engine():
     return module
 
 
-def load_tools_package():
-    directory = ROOT / "skills/mcp-server-consumer/tools"
-    spec = importlib.util.spec_from_file_location(
-        "mcp_consumer_tools",
-        directory / "__init__.py",
-        submodule_search_locations=[str(directory)],
+_CASES = _load_cases()
+for _name, _value in vars(_CASES).items():
+    if _name.startswith("test_"):
+        globals()[_name] = _value
+
+load_engine = _CASES.load_engine
+load_tools_package = _CASES.load_tools_package
+
+
+def _identity(engine, *, tool: str = "inventory.list", schema: str = "1"):
+    return engine.CapabilityIdentity(
+        server_identity="server:inventory:production",
+        tool_name=tool,
+        tool_schema_hash="sha256:" + schema * 64,
+        manifest_version="2026.08.06",
+        target_scope="tenant:example",
     )
-    assert spec and spec.loader
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
+
+
+def _binding(engine, identity, *, marker: str = "2"):
+    return engine.TrustedPolicyBinding(
+        identity=identity,
+        source="local-policy:sha256:" + marker * 64,
+    )
 
 
 def test_tools_package_public_entry_point_imports() -> None:
     tools = load_tools_package()
+    identity = tools.CapabilityIdentity(
+        server_identity="server:example",
+        tool_name="inventory.list",
+        tool_schema_hash="sha256:" + "1" * 64,
+        manifest_version="1",
+    )
+    binding = tools.TrustedPolicyBinding(
+        identity=identity,
+        source="local-policy:sha256:" + "2" * 64,
+    )
     assert tools.Decision.INVOKE.value == "invoke"
-    assert tools.TrustedCapabilityPolicy(risk="READ").risk == "READ"
-    assert tools.TrustedCapabilityContract(idempotent=True).idempotent is True
+    assert tools.TrustedCapabilityPolicy(binding=binding, risk="READ").risk == "READ"
+    assert tools.TrustedCapabilityContract(binding=binding, idempotent=True).idempotent is True
     assert callable(tools.infer_capability_profile)
     assert callable(tools.handle_response)
 
 
-def test_unknown_risk_defers_instead_of_defaulting_to_read() -> None:
+def test_untrusted_signals_only_escalate_bound_policy() -> None:
     engine = load_engine()
-    assert engine.evaluate_decision("unclassified", False, "general") is engine.Decision.DEFER
-    assert engine.infer_capability_profile("run").risk is engine.Risk.UNKNOWN
-    assert engine.infer_capability_profile("[READ] list-items").risk is engine.Risk.UNKNOWN
-    assert engine.infer_capability_profile("list", {"risk": "READ"}).risk is engine.Risk.UNKNOWN
+    identity = _identity(engine)
+    binding = _binding(engine, identity)
+    policy = engine.TrustedCapabilityPolicy(
+        binding=binding,
+        risk=engine.Risk.READ,
+        sensitive=False,
+    )
 
+    read = engine.infer_capability_profile(
+        "inventory.list",
+        {"risk": "READ", "annotations": {"readOnlyHint": True}},
+        identity=identity,
+        trusted_policy=policy,
+    )
+    assert read.risk is engine.Risk.READ
+    assert "consumer-policy:local-policy:sha256:" in read.source
 
-def test_untrusted_signals_can_only_increase_risk_and_preserve_confidentiality() -> None:
-    engine = load_engine()
-    assert engine.infer_capability_profile("[WRITE] update").risk is engine.Risk.WRITE
-    assert engine.infer_capability_profile("run", {"risk": "DESTRUCTIVE"}).risk is engine.Risk.DESTRUCTIVE
-    combined = engine.infer_capability_profile("[DANGEROUS] execute", {"risk": "WRITE"})
-    assert combined.risk is engine.Risk.DANGEROUS
-    assert engine.evaluate_decision(combined.risk, combined.requires_confirmation, "general") is engine.Decision.REJECT
+    write = engine.infer_capability_profile(
+        "inventory.list",
+        {"risk": "WRITE"},
+        identity=identity,
+        trusted_policy=policy,
+    )
+    assert write.risk is engine.Risk.WRITE
+    assert "untrusted-risk-escalation" in write.source
+
+    destructive = engine.infer_capability_profile(
+        "inventory.list",
+        {"annotations": {"destructiveHint": True}},
+        identity=identity,
+        trusted_policy=policy,
+    )
+    assert destructive.risk is engine.Risk.DESTRUCTIVE
+    assert "untrusted-annotation-escalation" in destructive.source
 
     sensitive_then_destructive = engine.infer_capability_profile(
-        "remove",
+        "inventory.list",
         {"risk": "SENSITIVE", "annotations": {"destructiveHint": True}},
+        identity=identity,
+        trusted_policy=policy,
     )
     assert sensitive_then_destructive.risk is engine.Risk.DESTRUCTIVE
     assert sensitive_then_destructive.sensitive is True
 
-    policy_sensitive = engine.infer_capability_profile(
-        "remove",
-        {"annotations": {"destructiveHint": True}},
-        trusted_policy=engine.TrustedCapabilityPolicy(risk="SENSITIVE"),
-    )
-    assert policy_sensitive.risk is engine.Risk.DESTRUCTIVE
-    assert policy_sensitive.sensitive is True
 
-    trusted = engine.infer_capability_profile(
-        "[READ] misleading-name",
-        {"risk": "WRITE", "requires_confirmation": True},
-        trusted_policy=engine.TrustedCapabilityPolicy(risk="READ"),
-    )
-    assert trusted.risk is engine.Risk.WRITE
-    assert trusted.source == "consumer-policy+untrusted-risk-escalation"
-    assert trusted.requires_confirmation is True
+def test_legacy_trust_call_shapes_are_accepted_but_fail_closed() -> None:
+    engine = load_engine()
+    policy = engine.TrustedCapabilityPolicy(engine.Risk.READ, False, False, True)
+    contract = engine.TrustedCapabilityContract(engine.Risk.READ, True)
 
-    forged = engine.infer_capability_profile("list", {"risk": "READ", "trusted_policy": True})
+    profile = engine.infer_capability_profile(
+        "inventory.list",
+        {"annotations": {"readOnlyHint": True}, "idempotent": True},
+        trusted_policy=policy,
+        trusted_contract=contract,
+        trusted_server=True,
+    )
+    assert profile.risk is engine.Risk.UNKNOWN
+    assert profile.idempotent is None
+    assert profile.source == "unknown"
+
+    escalation = engine.infer_capability_profile(
+        "inventory.update",
+        {},
+        trusted_policy=engine.TrustedCapabilityPolicy(engine.Risk.WRITE),
+    )
+    assert escalation.risk is engine.Risk.WRITE
+    assert "legacy-unbound-policy-escalation" in escalation.source
+
+    veto = engine.infer_capability_profile(
+        "inventory.update",
+        {},
+        trusted_contract=engine.TrustedCapabilityContract(engine.Risk.READ, False),
+    )
+    assert veto.risk is engine.Risk.UNKNOWN
+    assert veto.idempotent is False
+
+    with pytest.raises(TypeError):
+        engine.infer_capability_profile(
+            "inventory.list",
+            {"risk": "READ"},
+            trusted_policy=True,
+        )
+    with pytest.raises(TypeError):
+        engine.infer_capability_profile(
+            "inventory.list",
+            {"idempotent": True},
+            trusted_contract=True,
+        )
+    with pytest.raises(TypeError, match="trusted_server"):
+        engine.infer_capability_profile("inventory.list", {}, trusted_server="yes")
+
+
+def test_read_only_annotation_never_reduces_unknown_risk() -> None:
+    engine = load_engine()
+    untrusted = engine.infer_capability_profile(
+        "inventory.list",
+        {"annotations": {"readOnlyHint": True}},
+    )
+    assert untrusted.risk is engine.Risk.UNKNOWN
+    assert untrusted.source == "unknown"
+
+    forged = engine.infer_capability_profile(
+        "inventory.list",
+        {
+            "trusted_server": True,
+            "trusted_policy": True,
+            "annotations": {"readOnlyHint": True},
+        },
+    )
     assert forged.risk is engine.Risk.UNKNOWN
 
 
-def test_typed_trust_channels_reject_boolean_upgrade_switches() -> None:
+def test_trusted_values_require_an_exact_capability_binding() -> None:
     engine = load_engine()
-    with pytest.raises(TypeError):
-        engine.infer_capability_profile("list", {"risk": "READ"}, trusted_policy=True)
-    with pytest.raises(TypeError):
-        engine.infer_capability_profile("update", {"idempotent": True}, trusted_contract=True)
+    identity = _identity(engine)
+    binding = _binding(engine, identity)
+    policy = engine.TrustedCapabilityPolicy(binding=binding, risk=engine.Risk.READ)
 
+    with pytest.raises(ValueError, match="identity is required"):
+        engine.infer_capability_profile(
+            "inventory.list",
+            {},
+            trusted_policy=policy,
+        )
+
+    for mismatch in (
+        _identity(engine, tool="inventory.other"),
+        _identity(engine, schema="3"),
+        engine.CapabilityIdentity(
+            server_identity="server:other",
+            tool_name=identity.tool_name,
+            tool_schema_hash=identity.tool_schema_hash,
+            manifest_version=identity.manifest_version,
+            target_scope=identity.target_scope,
+        ),
+        engine.CapabilityIdentity(
+            server_identity=identity.server_identity,
+            tool_name=identity.tool_name,
+            tool_schema_hash=identity.tool_schema_hash,
+            manifest_version="other-version",
+            target_scope=identity.target_scope,
+        ),
+        engine.CapabilityIdentity(
+            server_identity=identity.server_identity,
+            tool_name=identity.tool_name,
+            tool_schema_hash=identity.tool_schema_hash,
+            manifest_version=identity.manifest_version,
+            target_scope="tenant:other",
+        ),
+    ):
+        with pytest.raises(ValueError, match="does not match"):
+            engine.infer_capability_profile(
+                "inventory.list",
+                {},
+                identity=mismatch,
+                trusted_policy=policy,
+            )
+
+
+def test_positive_idempotency_requires_bound_trusted_values_and_untrusted_veto_wins() -> None:
+    engine = load_engine()
+    identity = _identity(engine, tool="inventory.update")
     policy = engine.TrustedCapabilityPolicy(
-        risk=engine.Risk.READ,
+        binding=_binding(engine, identity),
+        risk=engine.Risk.WRITE,
         idempotent=True,
-        requires_confirmation=True,
-        sensitive=True,
     )
-    profile = engine.infer_capability_profile("list", {}, trusted_policy=policy)
-    assert profile.risk is engine.Risk.SENSITIVE
-    assert profile.idempotent is True
-    assert profile.requires_confirmation is True
-    assert profile.sensitive is True
-    assert profile.source == "consumer-policy+sensitive"
-
-    contract = engine.TrustedCapabilityContract(risk=engine.Risk.WRITE, idempotent=True)
-    contracted = engine.infer_capability_profile("update", {}, trusted_contract=contract)
-    assert contracted.risk is engine.Risk.WRITE
-    assert contracted.idempotent is True
-    assert contracted.source == "consumer-contract"
-
-
-def test_annotations_require_consumer_controlled_server_trust() -> None:
-    engine = load_engine()
-    untrusted_destructive = engine.infer_capability_profile("remove", {"annotations": {"destructiveHint": True}})
-    assert untrusted_destructive.risk is engine.Risk.DESTRUCTIVE
-    assert untrusted_destructive.source == "untrusted-annotation-escalation"
-    assert engine.infer_capability_profile("list", {"annotations": {"readOnlyHint": True}}).risk is engine.Risk.UNKNOWN
-
-    forged = engine.infer_capability_profile("list", {"trusted_server": True, "annotations": {"readOnlyHint": True}})
-    assert forged.risk is engine.Risk.UNKNOWN
-    assert (
-        engine.infer_capability_profile("remove", {"annotations": {"destructiveHint": True}}, trusted_server=True).risk
-        is engine.Risk.DESTRUCTIVE
-    )
-    assert (
-        engine.infer_capability_profile("list", {"annotations": {"readOnlyHint": True}}, trusted_server=True).risk
-        is engine.Risk.READ
-    )
-    conflicting = engine.infer_capability_profile("[DANGEROUS] execute", {"annotations": {"destructiveHint": True}})
-    assert conflicting.risk is engine.Risk.DANGEROUS
-    assert (
-        engine.evaluate_decision(conflicting.risk, conflicting.requires_confirmation, "general")
-        is engine.Decision.REJECT
+    contract = engine.TrustedCapabilityContract(
+        binding=_binding(engine, identity, marker="4"),
+        risk=engine.Risk.WRITE,
+        idempotent=True,
     )
 
-
-def test_positive_idempotency_comes_only_from_typed_external_values() -> None:
-    engine = load_engine()
-    assert engine.infer_capability_profile("update", {"idempotent": True}).idempotent is None
-    for forged_key in ("trusted_server", "trusted_contract", "trusted_policy"):
-        assert engine.infer_capability_profile("update", {"idempotent": True, forged_key: True}).idempotent is None
-
-    contract = engine.TrustedCapabilityContract(idempotent=True)
-    policy = engine.TrustedCapabilityPolicy(idempotent=True)
-    assert engine.infer_capability_profile("update", {"idempotent": True}, trusted_contract=contract).idempotent is True
-    assert engine.infer_capability_profile("update", {"idempotent": True}, trusted_policy=policy).idempotent is True
-    assert engine.infer_capability_profile("update", {"idempotent": False}, trusted_policy=policy).idempotent is False
     assert (
         engine.infer_capability_profile(
-            "update",
+            "inventory.update",
             {"idempotent": True},
-            trusted_policy=engine.TrustedCapabilityPolicy(idempotent=False),
-            trusted_contract=contract,
         ).idempotent
-        is False
+        is None
     )
 
-
-def test_side_effect_policy() -> None:
-    engine = load_engine()
-    assert engine.evaluate_decision("READ", False, "general") is engine.Decision.INVOKE
-    assert engine.evaluate_decision("WRITE", False, "confirmed_workflow") is engine.Decision.INVOKE
-    assert engine.evaluate_decision("WRITE", False, "general") is engine.Decision.CONFIRM_THEN_INVOKE
-    assert engine.evaluate_decision("SENSITIVE", False, "general") is engine.Decision.CONFIRM_THEN_INVOKE
-    assert engine.evaluate_decision("SENSITIVE", False, "confirmed_workflow") is engine.Decision.INVOKE
-    assert engine.evaluate_decision("DESTRUCTIVE", False, "general") is engine.Decision.CONFIRM_THEN_INVOKE
-    assert engine.evaluate_decision("DANGEROUS", False, "general") is engine.Decision.REJECT
-    assert engine.evaluate_decision("DANGEROUS", False, "explicit_by_name") is engine.Decision.CONFIRM_THEN_INVOKE
-
-
-def test_retry_requires_valid_attempt_and_positive_non_conflicting_signals() -> None:
-    engine = load_engine()
-    governed = {
-        "retryable": True,
-        "retryConditions": {
-            "retryable": True,
-            "eligibleErrors": ["TIMEOUT"],
-            "maxAttempts": 2,
-            "backoffMilliseconds": 100,
-            "requiresReconciliation": True,
-        },
-    }
-    assert engine.should_retry(
-        error_code="TIMEOUT",
-        attempt=0,
-        operation_idempotent=True,
-        manifest=governed,
-        reconciliation_completed=True,
+    positive = engine.infer_capability_profile(
+        "inventory.update",
+        {"idempotent": True},
+        identity=identity,
+        trusted_policy=policy,
+        trusted_contract=contract,
     )
-    assert engine.should_retry(error_code="TIMEOUT", attempt=0, operation_idempotent=True, response_retryable=True)
-    for attempt in (-1, True, 2):
-        assert not engine.should_retry(
-            error_code="TIMEOUT",
-            attempt=attempt,
-            operation_idempotent=True,
-            manifest=governed,
-            reconciliation_completed=True,
+    assert positive.idempotent is True
+
+    vetoed = engine.infer_capability_profile(
+        "inventory.update",
+        {"idempotent": False},
+        identity=identity,
+        trusted_policy=policy,
+        trusted_contract=contract,
+    )
+    assert vetoed.idempotent is False
+
+
+def test_binding_and_identity_fields_are_fail_closed() -> None:
+    engine = load_engine()
+    with pytest.raises(ValueError, match="tool_schema_hash"):
+        engine.CapabilityIdentity(
+            server_identity="server:example",
+            tool_name="inventory.list",
+            tool_schema_hash="main",
+            manifest_version="1",
         )
-    for manifest in (None, {}, {"retryable": False}, {"retryable": True}):
-        assert not engine.should_retry(error_code="TIMEOUT", attempt=0, operation_idempotent=True, manifest=manifest)
-    assert not engine.should_retry(
-        error_code="TIMEOUT",
-        attempt=0,
-        operation_idempotent=True,
-        manifest=governed,
-        response_retryable=False,
-        reconciliation_completed=True,
-    )
-    assert not engine.should_retry(
-        error_code="TIMEOUT",
-        attempt=0,
-        operation_idempotent=True,
-        manifest={"retryable": False},
-        response_retryable=True,
-    )
-
-
-def test_conflict_retry_requires_refreshed_precondition() -> None:
-    engine = load_engine()
-    kwargs = {
-        "error_code": "CONFLICT",
-        "attempt": 0,
-        "operation_idempotent": True,
-        "manifest": {
-            "retryable": True,
-            "retryConditions": {
-                "retryable": True,
-                "eligibleErrors": ["CONFLICT"],
-                "maxAttempts": 2,
-                "backoffMilliseconds": 100,
-                "requiresReconciliation": False,
-            },
-        },
-    }
-    assert not engine.should_retry(**kwargs)
-    assert engine.should_retry(**kwargs, precondition_refreshed=True)
-
-
-def test_response_normalization_preserves_protocol_native_errors() -> None:
-    engine = load_engine()
-    success = engine.handle_response({"structuredContent": {"items": []}, "_meta": {"correlation_id": "abc"}})
-    assert success.success and success.correlation_id == "abc"
-    native = engine.handle_response({"isError": True, "content": [{"type": "text", "text": "device unavailable"}]})
-    assert native.error_code == "MCP_TOOL_ERROR"
-    assert native.error_message == "device unavailable"
-    structured = engine.handle_response(
-        {"isError": True, "structuredContent": {"code": "CONFLICT", "message": "stale"}}
-    )
-    assert structured.error_code == "CONFLICT"
-    assert structured.error_message == "stale"
-
-
-def test_every_explicit_legacy_error_shape_fails_closed() -> None:
-    engine = load_engine()
-    without_details = engine.handle_response({"success": False})
-    assert without_details.success is False
-    assert without_details.error_code == "LEGACY_ERROR"
-    assert "without structured error" in without_details.error_message
-
-    string_error = engine.handle_response({"error": "upstream rejected mutation"})
-    assert string_error.success is False
-    assert string_error.error_message == "upstream rejected mutation"
-
-    for malformed_error in (None, [], 7, False):
-        malformed = engine.handle_response({"error": malformed_error})
-        assert malformed.success is False
-        assert malformed.error_code == "LEGACY_ERROR"
-
-    conflicting = engine.handle_response({"success": True, "error": "still failed"})
-    assert conflicting.success is False
-    assert conflicting.error_message == "still failed"
-
-    malformed_success = engine.handle_response({"success": "yes"})
-    assert malformed_success.success is False
-    assert malformed_success.error_code == "MALFORMED_RESPONSE"
-
-
-def test_efficiency_helpers_fail_closed() -> None:
-    engine = load_engine()
-    tools = [
-        {"name": "wide", "capabilities": ["search", "read", "write"]},
-        {"name": "read", "capabilities": ["search", "read"]},
-        {"name": "batch-read", "capabilities": ["search", "read"], "batch": True},
-    ]
-    assert (
-        engine.select_efficient_tool(tools, required_capabilities=["search", "read"], prefer_batch=True)["name"]
-        == "batch-read"
-    )
-    assert engine.select_efficient_tool(tools, required_capabilities=[]) is None
-    assert engine.choose_initial_detail_params({"properties": {"compact": {"type": "boolean"}}}) == {"compact": True}
-    assert engine.choose_initial_detail_params({"properties": {"compact": {"type": "string", "enum": ["short"]}}}) == {}
-
-
-def test_pagination_accepts_only_contract_valid_tokens_and_respects_final_marker() -> None:
-    engine = load_engine()
-    valid = engine.get_pagination_decision(
-        {"next_cursor": "opaque"}, outcome_satisfied=False, pages_seen=1, max_pages=5
-    )
-    assert valid.continue_paging and valid.cursor == "opaque"
-    for cursor in (True, 3, [], {}, ""):
-        assert not engine.get_pagination_decision(
-            {"next_cursor": cursor}, outcome_satisfied=False, pages_seen=1, max_pages=5
-        ).continue_paging
-    for offset in (True, -1, "0"):
-        assert not engine.get_pagination_decision(
-            {"next_offset": offset}, outcome_satisfied=False, pages_seen=1, max_pages=5
-        ).continue_paging
-    valid_offset = engine.get_pagination_decision(
-        {"next_offset": 0}, outcome_satisfied=False, pages_seen=1, max_pages=5
-    )
-    assert valid_offset.continue_paging and valid_offset.offset == 0
-
-    for final_meta in (
-        {"has_more": False, "next_cursor": "stale"},
-        {"has_more": False, "next_offset": 10},
-    ):
-        decision = engine.get_pagination_decision(final_meta, outcome_satisfied=False, pages_seen=1, max_pages=5)
-        assert not decision.continue_paging
-        assert decision.reason == "server marked final page"
-
-    for malformed in (None, 0, "false", []):
-        decision = engine.get_pagination_decision(
-            {"has_more": malformed, "next_cursor": "stale"},
-            outcome_satisfied=False,
-            pages_seen=1,
-            max_pages=5,
+    identity = _identity(engine)
+    with pytest.raises(ValueError, match="immutable"):
+        engine.TrustedPolicyBinding(identity=identity, source="main")
+    with pytest.raises(TypeError, match="boolean or None"):
+        engine.TrustedCapabilityPolicy(
+            binding=_binding(engine, identity),
+            idempotent="yes",
         )
-        assert not decision.continue_paging
-        assert decision.reason == "invalid has_more marker"

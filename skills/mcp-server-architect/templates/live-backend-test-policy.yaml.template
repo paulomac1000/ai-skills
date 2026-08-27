@@ -1,0 +1,19 @@
+schema_version: 1
+default_execution: excluded
+mutations:
+  enabled_by_default: false
+  independent_opt_ins: 2
+  credential_access: after-opt-in
+  unique_namespace: true
+  target_identity:
+    verified_before_mutation: true
+    exclusive_disposable_environment: true
+    proof: provider sandbox/account identity checked against a known disposable fixture
+  cleanup:
+    capture_created_ids: true
+    reconcile_by_marker: true
+    report_unreconciled: true
+    preclean_after_target_verification: true
+    strategies:
+      - captured-id
+      - unique-namespace

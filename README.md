@@ -2,7 +2,7 @@
 
 A production-oriented collection of reusable standards, agent workflows, implementation playbooks, executable policy helpers, and tested templates for AI-assisted software engineering.
 
-The current repository release is `1.2.0`. All bundled skills are published with `maturity: stable` and are intended for production adoption. Each skill declares its compatibility, dependencies, evidence lanes, and required entry points in `manifest.yaml`.
+The current repository release is `1.3.0`. All bundled skills are published with `maturity: stable` and are intended for production adoption. Each skill declares its compatibility, dependencies, evidence lanes, and required entry points in `manifest.yaml`.
 
 ## Included skills
 
@@ -92,7 +92,7 @@ Run `python contracts/validate_adoption.py <assessment.yaml> --require-approval`
 - Prefer executable templates and regression tests over aspirational prose.
 - Treat remote tool metadata as untrusted unless a trust boundary is explicit.
 - Build and test the artifact that is actually published.
-- Record reusable lessons from real failures in the canonical standard or playbook.
+- Record reusable lessons from real failures as a canonical invariant plus an executable validator, regression, or immutable consumer canary.
 - Preserve valuable history by integrating it into current guidance, not by shipping duplicate or numbered variants.
 
 ## Recovery and change history

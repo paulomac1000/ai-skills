@@ -1,0 +1,177 @@
+schema_version: 1
+incidents:
+  - id: mcp.upstream-discovery-before-refactor
+    source_kind: external-consumer
+    source_canaries: [legacy-financial-official-sdk]
+    failure_mode: Architecture work proceeded before the real legacy upstream request and response dialect had been observed.
+    generalized_invariant: An uncertain external or legacy backend is observed and recorded before the adapter or public MCP contract is restructured.
+    canonical_owner: skills/mcp-server-architect/references/upstream-contract-discovery.md#entry-gate
+    regression_selectors:
+      - tests/test_practical_consumer_feedback.py::test_inspector_routes_fastmcp_and_requires_upstream_discovery
+      - tests/test_practical_consumer_feedback.py::test_upstream_contract_rejects_inference_and_embedded_secret_keys
+    status: implemented
+
+  - id: mcp.live-mutation-test-safety
+    source_kind: external-consumer
+    source_canaries: [legacy-financial-official-sdk]
+    failure_mode: Ordinary test execution could reach a real mutable backend and cleanup was not resilient to partial success.
+    generalized_invariant: Live mutating tests are excluded by default, require independent opt-ins, verify an exclusive disposable target before pre-clean or mutation, delay credentials, and use explicit resource-appropriate cleanup strategies.
+    canonical_owner: skills/mcp-server-architect/references/upstream-contract-discovery.md#safe-live-probes
+    regression_selectors:
+      - tests/test_practical_consumer_feedback.py::test_live_backend_policy_requires_two_opt_ins_and_reconciliation
+      - tests/test_migration_semantics_hardening.py::test_live_policy_requires_verified_disposable_target_before_mutation
+      - tests/test_migration_semantics_hardening.py::test_live_policy_requires_baseline_cleanup_without_namespace
+    status: implemented
+
+  - id: mcp.public-contract-semver
+    source_kind: external-consumer
+    source_canaries: [legacy-financial-official-sdk]
+    failure_mode: A migration changed public MCP behavior while retaining a version that did not communicate the breaking contract change.
+    generalized_invariant: Public MCP contracts are captured from exact artifacts and contract diffs mechanically determine the minimum SemVer bump.
+    canonical_owner: skills/mcp-server-architect/references/consumer-driven-validation.md#public-contract-and-semver-gate
+    regression_selectors:
+      - tests/test_consumer_driven_contract_tools.py::test_public_contract_diff_rejects_minor_for_new_required_input
+      - tests/test_consumer_driven_contract_tools.py::test_public_contract_diff_treats_policy_semantics_as_breaking
+    status: implemented
+
+  - id: cicd.credential-bearing-source-integrity
+    source_kind: external-consumer
+    source_canaries: [home-automation-fastmcp]
+    failure_mode: A credential-bearing evidence collector used an independent immutable revision without the same content-digest authority as the verifier.
+    generalized_invariant: Every executable that receives provider credentials or contributes acceptance evidence is bound by one immutable digest-verified trust inventory.
+    canonical_owner: skills/ci-cd-architect/references/trusted-executable-sources.md#one-trust-inventory
+    regression_selectors:
+      - tests/test_real_usage_hardening.py::test_trusted_source_lock_binds_authority_and_vendored_bytes
+    status: implemented
+
+  - id: agents.runtime-capability-staleness
+    source_kind: field-report
+    failure_mode: Durable agent instructions stated an external runtime capability as verified even though the claim became false in a newer build.
+    generalized_invariant: External runtime capability claims are bound to one exact product or build version and fresh-context probe evidence.
+    canonical_owner: skills/agents-md-architect/references/anti-patterns-and-drift.md#runtime-capability-staleness
+    regression_selectors:
+      - tests/test_field_feedback_regressions.py::test_runtime_capability_claim_is_bound_to_exact_version_argv_and_fresh_context
+    status: implemented
+
+  - id: cicd.local-gate-environment-isolation
+    source_kind: field-report
+    failure_mode: A local quality gate inherited session-specific environment state and reported failures that did not reproduce in a clean execution context.
+    generalized_invariant: Authoritative local quality commands run with an explicit minimal environment contract and opt-in passthrough for project variables.
+    canonical_owner: skills/ci-cd-architect/references/local-quality-gates.md#environment-isolation
+    regression_selectors:
+      - tests/test_field_feedback_regressions.py::test_clean_environment_strips_session_state_and_requires_explicit_passthrough
+    status: implemented
+
+  - id: agents.operational-mirror-drift
+    source_kind: field-report
+    failure_mode: A hand-maintained service registry disagreed with the canonical runtime configuration and caused an audit to reason from stale state.
+    generalized_invariant: Durable operational state is read from one canonical configuration source and any mirrored claim is mechanically checked against it.
+    canonical_owner: skills/agents-md-architect/references/anti-patterns-and-drift.md#hand-maintained-operational-mirrors
+    regression_selectors:
+      - tests/test_field_feedback_regressions.py::test_configuration_state_claim_fails_when_canonical_config_drifts
+    status: implemented
+
+  - id: agents.shape-only-runtime-canary
+    source_kind: field-report
+    failure_mode: A compatibility probe proved only that a field existed while instructions treated that shape check as proof of effective runtime behavior.
+    generalized_invariant: Source and shape canaries declare their limited proof level; behavior claims require fresh-context execution evidence.
+    canonical_owner: skills/mcp-server-architect/references/consumer-driven-validation.md#behavior-canaries
+    regression_selectors:
+      - tests/test_field_feedback_regressions.py::test_real_consumer_canaries_state_their_proof_boundary
+    status: implemented
+
+  - id: mcp.audit-principal-auth-boundary
+    source_kind: external-consumer
+    source_canaries: [legacy-financial-official-sdk]
+    failure_mode: Boundary audit events omitted the request principal, leaving authenticated operations impossible to attribute consistently.
+    generalized_invariant: Audit events preserve authenticated principal identity after authentication and explicit unauthenticated or null identity before authentication without inheriting stale request state.
+    canonical_owner: skills/mcp-server-architect/references/security-and-operations.md#observability
+    regression_selectors:
+      - tests/test_practical_consumer_feedback.py::test_operational_audit_contract_binds_principal_across_auth_boundary
+    status: implemented
+
+  - id: mcp.deployment-healthcheck-negative-paths
+    source_kind: external-consumer
+    source_canaries: [legacy-financial-official-sdk]
+    failure_mode: A deployment health command exercised the happy path but left invalid configuration, authentication, failed readiness, IPv6, and unknown-transport branches unverified.
+    generalized_invariant: Deployment health commands distinguish process liveness from authenticated readiness and fail closed across configuration, authentication, reachability, HTTP status, address formatting, and transport errors.
+    canonical_owner: skills/mcp-server-architect/references/security-and-operations.md#health-model
+    regression_selectors:
+      - tests/test_practical_consumer_feedback.py::test_deployment_healthcheck_contract_covers_fail_closed_branches
+    status: implemented
+
+  - id: afds.readme-compliance-dump
+    source_kind: external-consumer
+    source_canaries: [legacy-financial-official-sdk]
+    failure_mode: A migration replaced a useful product README with a structurally valid compliance and assurance report.
+    generalized_invariant: Root README migrations preserve product-entrypoint value and summarize detailed compliance through links to canonical governed documents.
+    canonical_owner: skills/afds-doc-writer/references/ecosystem-readme-governance.md#rule
+    regression_selectors:
+      - tests/test_migration_semantics_hardening.py::test_normative_migration_semantics_are_explicit
+    status: implemented
+
+  - id: mcp.live-target-intent-is-not-identity
+    source_kind: external-consumer
+    source_canaries: [legacy-financial-official-sdk]
+    failure_mode: Independent operator opt-ins were interpreted as sufficient authority to clean or mutate a live financial backend without proving the selected target was disposable.
+    generalized_invariant: Destructive live evidence requires both operator intent and independently verified exclusive disposable-target identity before any pre-clean or mutation.
+    canonical_owner: skills/mcp-server-architect/references/upstream-contract-discovery.md#safe-live-probes
+    regression_selectors:
+      - tests/test_migration_semantics_hardening.py::test_live_policy_requires_verified_disposable_target_before_mutation
+    status: implemented
+
+  - id: mcp.mutation-empty-success-outcome
+    source_kind: external-consumer
+    source_canaries: [legacy-financial-official-sdk]
+    failure_mode: A confirmed successful upstream mutation with an empty response body was classified as ambiguous merely because no resource identity was returned.
+    generalized_invariant: Mutation completion, identity, and representation uncertainty are modeled independently; confirmed success without identity is not completion-unknown.
+    canonical_owner: skills/mcp-server-architect/references/upstream-contract-discovery.md#observed-facts
+    regression_selectors:
+      - tests/test_migration_semantics_hardening.py::test_mutation_outcome_separates_completion_from_identity
+    status: implemented
+
+  - id: mcp.implementation-assurance-lifecycle-conflation
+    source_kind: external-consumer
+    source_canaries: [legacy-financial-official-sdk]
+    failure_mode: Formal adoption state was used to infer whether implementation could be merged, causing transient PR instructions to leak into durable documentation.
+    generalized_invariant: Repository implementation/merge/release state and formal assurance/adoption state are independent and neither is inferred from the other.
+    canonical_owner: skills/mcp-server-architect/references/migration-assessment.md#implementation-and-assurance-are-independent
+    regression_selectors:
+      - tests/test_migration_semantics_hardening.py::test_normative_migration_semantics_are_explicit
+    status: implemented
+
+  - id: mcp.container-provenance-is-dataflow
+    source_kind: field-report
+    failure_mode: Textual Dockerfile checks allowed later overwrite, cross-stage reuse, expected-revision shadowing, or artifact-owned self-comparison to preserve a stale provenance proof.
+    generalized_invariant: Container artifact provenance is a conservative stage-local dataflow property whose proof is invalidated by unmodeled or provenance-changing effects.
+    canonical_owner: skills/mcp-server-architect/references/container-provenance-dataflow.md#invariant
+    regression_selectors:
+      - tests/test_migration_semantics_hardening.py::test_normative_migration_semantics_are_explicit
+    status: implemented
+
+  - id: cicd.moving-head-finalization-staleness
+    source_kind: field-report
+    failure_mode: A final exact-head or green-CI claim became stale after another agent advanced the branch during review or finalization.
+    generalized_invariant: Moving refs are re-resolved before every final exact-head claim and head-dependent write, and concurrent mutation invalidates the prior resolved-head assumption.
+    canonical_owner: skills/ci-cd-architect/references/trusted-executable-sources.md#freshness-and-reproducibility-claims
+    regression_selectors:
+      - tests/test_migration_semantics_hardening.py::test_normative_migration_semantics_are_explicit
+    status: implemented
+
+  - id: cicd.reproducibility-control-overclaim
+    source_kind: field-report
+    failure_mode: SOURCE_DATE_EPOCH was described as guaranteeing byte-identical builds without an independent rebuild-and-digest comparison.
+    generalized_invariant: Deterministic-build controls reduce nondeterminism; byte reproducibility is evidence only after independent rebuilds from the same declared inputs produce equal artifact digests.
+    canonical_owner: skills/ci-cd-architect/references/trusted-executable-sources.md#freshness-and-reproducibility-claims
+    regression_selectors:
+      - tests/test_migration_semantics_hardening.py::test_normative_migration_semantics_are_explicit
+    status: implemented
+
+  - id: cicd.resolved-threads-are-not-fresh-review
+    source_kind: field-report
+    failure_mode: All bot threads were resolved, but later exact-head changes and manual adversarial review still found security-sensitive defects.
+    generalized_invariant: Zero unresolved threads is hygiene only; review evidence is bound to the exact revision and sensitive control-plane changes receive a final adversarial/manual pass.
+    canonical_owner: skills/ci-cd-architect/references/trusted-executable-sources.md#freshness-and-reproducibility-claims
+    regression_selectors:
+      - tests/test_migration_semantics_hardening.py::test_normative_migration_semantics_are_explicit
+    status: implemented

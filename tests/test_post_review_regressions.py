@@ -22,7 +22,9 @@ def _load(path: Path, name: str):
     return module
 
 
-def test_python_generator_refuses_dangling_symlink_and_racing_target(tmp_path: Path) -> None:
+def test_python_generator_refuses_dangling_symlink_and_racing_target(
+    tmp_path: Path,
+) -> None:
     generator = _load(
         ROOT / "skills/mcp-server-architect/tools/generate_python_server.py",
         "post_review_python_generator",
@@ -64,16 +66,20 @@ def test_python_generator_refuses_dangling_symlink_and_racing_target(tmp_path: P
     assert (target / "pyproject.toml").is_file()
 
 
-def test_generated_http_replay_delegates_to_original_receive(tmp_path: Path) -> None:
+def test_generated_http_uses_official_streamable_transport_not_custom_replay(
+    tmp_path: Path,
+) -> None:
     generator = _load(
         ROOT / "skills/mcp-server-architect/tools/generate_python_server.py",
         "post_review_python_generator_http",
     )
     target = tmp_path / "server"
     generator.generate_project(target, "safe_mcp", "Safe MCP")
-    source = (target / "src/safe_mcp/http.py").read_text(encoding="utf-8")
-    assert "return await receive()" in source
-    assert 'return {"type": "http.disconnect"}' not in source
+    assert not (target / "src/safe_mcp/http.py").exists()
+    source = (target / "src/safe_mcp/server.py").read_text(encoding="utf-8")
+    assert "mcp.streamable_http_app(" in source
+    assert "stateless_http=True" in source
+    assert "legacy" not in source.casefold()
 
 
 def test_consumer_rejects_empty_or_meta_only_response() -> None:
@@ -176,10 +182,10 @@ def test_target_authorization_precedes_network_resolution_in_normative_docs() ->
 
 def test_dotnet_approval_capacity_check_is_serialized() -> None:
     source = (
-        ROOT
-        / "skills/mcp-server-architect/tools/dotnet-template/src/__NAMESPACE__.Mcp.Server/ApprovalRegistry.cs.template"
+        ROOT / "skills/mcp-server-architect/tools/dotnet-template/src/"
+        "__NAMESPACE__.Mcp.Server/ApprovalRegistry.cs.template"
     ).read_text(encoding="utf-8")
-    lock_index = source.index("lock (_issueGate)")
+    lock_index = source.index("lock (_gate)")
     count_index = source.index("_records.Count >= MaximumRecords")
     add_index = source.index("_records.TryAdd(token, record)")
     assert lock_index < count_index < add_index

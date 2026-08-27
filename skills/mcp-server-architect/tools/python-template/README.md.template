@@ -1,0 +1,57 @@
+# __SERVER_NAME__
+
+Generated from the canonical `ai-skills` Python MCP server template. The project uses the official `mcp` 2.x SDK and keeps application policy outside the transport adapter.
+
+## Security profile
+
+- Local stdio derives an explicit principal from the operating-system process boundary.
+- Streamable HTTP binds only to loopback and requires `MCP_HTTP_BEARER_TOKEN` with at least 32 visible ASCII bytes.
+- Remote deployment is not production-ready until the development bearer is replaced by a real identity provider and resource authorization.
+- Writes are disabled unless `MCP_ENABLE_WRITES=1` and a server-verifiable, one-use HMAC approval record binds principal, capability, target, normalized arguments, expiry, and nonce.
+- `put_item` uses optimistic concurrency: `expected_version=0` creates an absent item, successful writes return the next version, listings expose the current version, and updates must provide that version. The approval arguments digest includes `expected_version`, so a stale precondition cannot be detached from its approval.
+- The capability manifests in `src/__PACKAGE__/capabilities` are validated against the copied canonical schema at import time.
+
+## Local stdio
+
+```bash
+python -m pip install --require-hashes -r locks/dev-linux-x64-py312.lock
+python -m pip install -e . --no-deps
+__DISTRIBUTION__
+```
+
+A host should launch the installed entry point rather than `python src/...` so tests exercise the packaged application.
+
+## Loopback Streamable HTTP
+
+```bash
+export MCP_TRANSPORT=streamable-http
+export MCP_HTTP_BEARER_TOKEN='replace-with-at-least-32-visible-ascii-bytes'
+__DISTRIBUTION__
+```
+
+The MCP endpoint is `http://127.0.0.1:8000/mcp`. Liveness and readiness are exposed at `/health/live` and `/health/ready` and contain no private data.
+
+## Quality gate
+
+```bash
+python -m pytest --junitxml=junit.xml
+python scripts/assert_junit.py junit.xml --minimum-tests 1 --maximum-skips 0
+python -m build --wheel
+python scripts/smoke_artifact.py --distribution __DISTRIBUTION__ --package __PACKAGE__
+```
+
+The artifact smoke runs outside the checkout, verifies import provenance from `site-packages`, executes modern and legacy protocol paths through the official client, and checks a safe success and application failure path.
+
+## Container
+
+Build only after the wheel has passed artifact smoke:
+
+```bash
+WHEEL="$(find dist -maxdepth 1 -name '*.whl' -print -quit)"
+docker build --build-arg "WHEEL=$WHEEL" --tag __DISTRIBUTION__:test .
+docker run --rm --read-only --tmpfs /tmp:rw,noexec,nosuid,size=16m \
+  --mount type=volume,source=__DISTRIBUTION__-state,target=/var/lib/__DISTRIBUTION__ \
+  __DISTRIBUTION__:test
+```
+
+The Dockerfile installs the exact tested wheel and never rebuilds the package from source. For multi-architecture publication, build each platform once, test every child digest, compose an OCI index from those exact digests, and promote the unchanged index digest.

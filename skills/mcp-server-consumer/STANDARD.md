@@ -1,11 +1,14 @@
 ---
+afds_schema_version: 2
 description: Normative policy for safe, efficient, and verifiable MCP capability consumption.
 doc_id: reference.mcp-consumer-standard
 type: reference
 status: active
 rigor: normative
 owners: [repository-maintainers]
-verification: Run `python -m pytest tests/test_decision_engine.py tests/test_consumer_payload_validation.py tests/test_consumer_retry_and_annotations.py` and exercise representative read, write, partial-failure, pagination, and cross-server workflows.
+verification:
+  kind: command
+  value: Run `python -m pytest tests/test_decision_engine.py tests/test_consumer_payload_validation.py tests/test_consumer_retry_and_annotations.py` and exercise representative read, write, partial-failure, pagination, and cross-server workflows.
 ---
 
 # MCP consumer standard
@@ -28,15 +31,22 @@ State the desired outcome and required capability tags before tool selection. Em
 
 ## Trust and provenance
 
-Risk classifications may come from local policy, a trusted server contract, or untrusted remote metadata. Provenance is explicit.
+Discovered server metadata, descriptions, annotations, schemas, and names are untrusted policy inputs. They may raise risk, require confirmation, mark confidentiality, or veto retry. They cannot reduce unknown risk, establish read-only safety, claim idempotency, or transfer authority between servers.
 
-- Local policy may classify any risk.
-- A trusted server boundary may use reviewed manifest or annotation semantics.
-- Untrusted metadata, descriptions, and name prefixes cannot downgrade unknown risk to read-only.
-- Untrusted signals may elevate risk when they indicate write, destructive, dangerous, or sensitive behavior.
-- Unknown remains unknown and defers rather than invokes.
+Safety-reducing values come only from consumer-owned typed objects bound to an exact capability identity:
 
-See [Risk and trust](references/risk-and-trust.md).
+- server identity;
+- tool name;
+- input-schema SHA-256;
+- manifest version;
+- optional target scope;
+- immutable reviewed policy-source digest.
+
+`TrustedCapabilityPolicy` and `TrustedCapabilityContract` require that binding. The caller supplies the exact observed `CapabilityIdentity`; any mismatch fails closed. There is no boolean `trusted_server` or equivalent authority-upgrade channel. Trusting a server connection does not trust every annotation or policy value emitted by that server.
+
+For migration compatibility only, the bundled reference helper may still accept the 1.2 unbound policy/contract constructor shapes and `trusted_server=` keyword. Those legacy inputs are treated as untrusted at the compatibility boundary: they may only escalate risk, require confirmation, mark confidentiality, or veto positive replay safety. They never establish read-only safety or positive idempotency. New conforming integrations use exact identity bindings.
+
+Unknown remains unknown and defers rather than invokes. See [Risk and trust](references/risk-and-trust.md).
 
 ## Decision policy
 
@@ -67,14 +77,20 @@ Retry only when:
 
 - the error strategy permits a bounded retry;
 - the attempt is a non-negative integer below the limit;
-- the operation is idempotent;
+- the operation is idempotent under an identity-bound reviewed contract;
 - at least one authoritative signal explicitly opts in;
-- no manifest or response signal explicitly vetoes retry;
-- a conflict precondition has been refreshed before retry.
+- no manifest, response, policy, or discovered signal explicitly vetoes retry;
+- a conflict precondition has been refreshed before retry;
+- an ambiguous earlier outcome has been reconciled when required;
+- server identity, tool schema, manifest version, target snapshot, and idempotency key still match the retry receipt.
 
-When a manifest includes `retryConditions`, top-level and nested `retryable` values must agree. The current error must appear in the eligible-error list, `maxAttempts` must leave another invocation in the total budget, backoff must be positive, and required reconciliation must have completed. Precondition refresh and uncertain-outcome reconciliation are independent proofs: one cannot satisfy the other. Missing, malformed, incomplete, or contradictory conditions deny retry.
+When a manifest includes `retryConditions`, top-level and nested `retryable` values must agree. The current error must appear in the eligible-error list, `maxAttempts` must leave another invocation in the total budget, backoff must be positive, and required reconciliation must have completed. Precondition refresh and uncertain-outcome reconciliation are independent proofs: one cannot satisfy the other. Missing, malformed, incomplete, contradictory, or stale conditions deny retry.
 
 Cancellation, validation, authentication, authorization, unsupported behavior, and unknown errors are not automatically retried.
+
+## Catalog and approval invalidation
+
+A `tools/listChanged` notification, reconnect, server-identity change, schema-hash change, manifest-version change, or target-scope change invalidates the corresponding trusted binding. Tool selection, policy evaluation, confirmation, and retry planning must be recomputed. An approval for an earlier schema or manifest is not automatically valid for the replacement capability.
 
 ## Pagination
 
@@ -82,11 +98,11 @@ Continue only when the outcome is not satisfied, the page budget remains, the se
 
 ## Cross-server workflows
 
-Minimize data transfer between servers. Pass stable identifiers instead of whole sensitive records where possible. Re-evaluate policy at each server boundary. Do not let one server's metadata authorize another server's tool. Verify mutations through an independent read or observable result.
+Minimize data transfer between servers. Pass stable identifiers instead of whole sensitive records where possible. Re-evaluate policy at each server boundary. Do not let one server's metadata, identity, approval, or policy binding authorize another server's tool. Verify mutations through an independent read or observable result.
 
 ## Partial execution and compensation
 
-For multi-step or batch operations, record completed, failed, skipped, uncertain, and compensation-required items. Do not retry the whole workflow when that would duplicate completed effects. Compensation is an explicit capability with its own risk and confirmation policy.
+For multi-step or batch operations, record completed, failed, skipped, uncertain, and compensation-required items. Do not retry the whole workflow when that would duplicate completed effects. Compensation is an explicit capability with its own risk and confirmation policy. A compensating action does not make the original operation reversible unless its reviewed contract proves the relevant effects are restored.
 
 ## Compatibility and negotiation
 
@@ -94,4 +110,4 @@ Inspect protocol and capability versions before relying on optional fields. Pref
 
 ## Verification
 
-Run the decision-engine tests and scenario tests covering trust downgrade attempts, conflicting retry signals, nested retry constraints, conflict refresh, independent reconciliation proof, native and malformed error content, nullable SDK fields, annotation field validation, schema-aware detail selection, pagination limits, partial execution, and cross-server data boundaries. Add organization-specific tests for every risk axis and authorization boundary not represented by the reference helper.
+Run decision-engine and scenario tests covering boolean trust-channel rejection, exact binding matches and mismatches, trust downgrade attempts, conflicting retry signals, nested retry constraints, conflict refresh, independent reconciliation proof, native and malformed error content, nullable SDK fields, annotation validation, schema-aware detail selection, catalog invalidation, pagination limits, partial execution, and cross-server data boundaries. Add organization-specific tests for every risk axis and authorization boundary not represented by the reference helper.

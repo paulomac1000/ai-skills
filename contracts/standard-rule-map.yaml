@@ -6,6 +6,7 @@ skills:
       core-invariants: {rule_id: afds.metadata.required}
       document-types: {rule_id: afds.metadata.required}
       required-metadata: {rule_id: afds.metadata.required, primary: true}
+      governance-profiles: {rule_id: afds.governance.profiled, primary: true}
       structure-and-links: {rule_id: afds.structure.links, primary: true}
       evidence-and-uncertainty: {rule_id: afds.evidence.uncertainty, primary: true}
       canonical-ownership-and-lifecycle: {rule_id: afds.ownership.lifecycle, primary: true}
@@ -30,6 +31,8 @@ skills:
       purpose: {excluded: true, rationale: Informational scope heading, not an independently assessable invariant.}
       pipeline-layers: {rule_id: cicd.layers.separated, primary: true}
       universal-workflow-controls: {rule_id: cicd.workflow.least-privilege, primary: true}
+      workflow-policy-profiles: {rule_id: cicd.workflow.profiled, primary: true}
+      execution-policy-and-hosted-runner-budget: {rule_id: cicd.execution.on-demand, primary: true}
       python-quality: {rule_id: cicd.quality.language, primary: true}
       net-quality: {rule_id: cicd.quality.language}
       mcp-specific-assurance: {rule_id: cicd.quality.language}
@@ -42,18 +45,18 @@ skills:
       purpose: {excluded: true, rationale: Informational scope heading, not an independently assessable invariant.}
       maturity-levels: {excluded: true, rationale: Classification vocabulary evaluated through the selected target level.}
       skill-contract-and-precedence: {rule_id: mcp.architecture.boundaries}
-      core-architecture: {rule_id: mcp.architecture.boundaries, primary: true}
-      configuration-and-identity: {rule_id: mcp.identity.target-binding, primary: true}
-      public-component-contracts: {rule_id: mcp.architecture.boundaries}
+      core-architecture: {rule_ids: [mcp.architecture.boundaries, mcp.sdk.compatibility-isolation], primary: true}
+      configuration-and-identity: {rule_ids: [mcp.configuration.lifecycle, mcp.identity.target-binding], primary: true}
+      public-component-contracts: {rule_ids: [mcp.components.public-contract, mcp.discovery.progressive], primary: true}
       multi-axis-safety-classification: {rule_id: mcp.manifest.complete, primary: true}
       side-effects-retries-and-workflows: {rule_id: mcp.retry.fail-closed, primary: true}
-      transport-and-lifecycle: {rule_id: mcp.transport.supported, primary: true}
+      transport-and-lifecycle: {rule_ids: [mcp.transport.supported, mcp.transport.remote-hardening], primary: true}
       deadlines-cancellation-retries-and-concurrency: {rule_id: mcp.deadline.concurrency, primary: true}
       data-errors-and-responses: {rule_id: mcp.response.structured, primary: true}
-      authentication-and-authorization: {rule_id: mcp.authorization.server-side, primary: true}
-      runtime-boundaries-artifacts-and-browser-automation: {rule_id: mcp.identity.target-binding}
-      multi-backend-and-embedded-hosting: {rule_id: mcp.identity.target-binding}
-      observability-and-operations: {rule_id: mcp.operations.observable, primary: true}
+      authentication-and-authorization: {rule_ids: [mcp.authorization.server-side, mcp.authorization.resource-isolation, mcp.abuse.controls], primary: true}
+      runtime-boundaries-artifacts-and-browser-automation: {rule_ids: [mcp.filesystem.containment, mcp.artifact.ownership, mcp.task.supervision, mcp.browser.profile-isolation], primary: true}
+      multi-backend-and-embedded-hosting: {rule_ids: [mcp.backends.identity, mcp.embedded.host-ownership], primary: true}
+      observability-and-operations: {rule_ids: [mcp.operations.observable, mcp.health.readiness, mcp.operations.recovery-drills], primary: true}
       generated-project-acceptance: {rule_id: mcp.artifact.exact, primary: true}
       migration-acceptance: {rule_id: mcp.migration.accounted, primary: true}
       verification-layers: {rule_id: mcp.verification.layered, primary: true}
@@ -69,6 +72,7 @@ skills:
       efficient-selection: {rule_id: consumer.selection.efficient, primary: true}
       response-contract: {rule_id: consumer.response.validated, primary: true}
       retry-policy: {rule_id: consumer.retry.reconciled, primary: true}
+      catalog-and-approval-invalidation: {rule_id: consumer.trust.provenance}
       pagination: {rule_id: consumer.pagination.bounded, primary: true}
       cross-server-workflows: {rule_id: consumer.workflow.compensated}
       partial-execution-and-compensation: {rule_id: consumer.workflow.compensated, primary: true}

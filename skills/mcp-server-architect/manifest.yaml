@@ -1,6 +1,6 @@
 schema_version: 1
 name: mcp-server-architect
-version: 1.2.0
+version: 1.3.0
 maturity: stable
 skill_format: ai-skills/v1
 normative_entrypoint: STANDARD.md
@@ -13,6 +13,7 @@ compatibility:
   runtimes:
     python: '>=3.12,<3.15'
     dotnet: 10.0.x
+  runtime_scope: compatibility.runtimes describes the ai-skills tools, not every assessed project.
   evidence_lanes:
   - python-compatibility
   - dotnet-compatibility
@@ -63,6 +64,52 @@ compatibility:
     runtime: python
     version: '3.12'
     lane: docker-artifact
+runtime_contract:
+  tool_runtime:
+    python: '>=3.12,<3.15'
+    dotnet: 10.0.x
+  assessed_project_runtime:
+    python: '>=3.10'
+    dotnet: '>=8.0'
+  generated_baseline_runtime:
+    python: '>=3.12,<3.15'
+    dotnet: 10.0.x
+  policy: Project runtime eligibility is derived from the selected SDK and required features; tool runtime never becomes an implicit project minimum.
+protocol:
+  default_revision: '2026-07-28'
+  negotiation: explicit
+  compatibility_policy: Claims are recorded per exact SDK profile; one package, language, or upstream release never implies another profile's support or repository evidence.
+  sdk_profiles:
+    python-official-mcp:
+      distribution: mcp
+      import_namespace: mcp
+      generated: true
+      packages:
+      - name: mcp
+        verified_baseline_versions: ['2.0.0']
+      upstream_supported_revisions: ['2026-07-28', '2025-11-25']
+      repository_tested_revisions: []
+      current_revision_support: not-claimed
+      verification_required: Test modern server/discover and direct requests plus forced earlier-revision initialize through the official client against exact installed and container artifacts before adding repository-tested revisions.
+    python-fastmcp-package:
+      distribution: fastmcp
+      import_namespace: fastmcp
+      generated: false
+      profile_maturity: consumer-observed
+      consumer_canary_versions: ['3.4.6']
+      verified_baseline_versions: []
+      repository_tested_revisions: []
+      current_revision_support: not-claimed
+      verification_required: Existing projects require exact package, middleware, auth-context, mounted-state, transport, artifact evidence; mixed or unresolved SDK ownership is unsupported-sdk-profile.
+    dotnet-official-mcp:
+      distribution: ModelContextProtocol
+      import_namespace: ModelContextProtocol
+      generated: true
+      verified_baseline_versions: ['1.4.1']
+      upstream_stable_candidate_versions: ['2.1.0']
+      repository_tested_revisions: []
+      current_revision_support: not-claimed
+      upgrade_policy: The upstream stable 2.1.0 line is not the generated baseline until exact NuGet locks are regenerated and restore, build, publish, official-client, transport, and protocol-revision evidence pass together. Do not hand-edit lock files or infer support from release status.
 dependencies:
   skills: []
   tools:
@@ -75,7 +122,24 @@ required:
 - SKILL.md
 - STANDARD.md
 - references/migration-assessment.md
+- references/protocol-and-sdk-compatibility.md
+- references/protocol-2026-07-28.md
+- references/python-official-mcp-sdk.md
+- references/python-fastmcp-package.md
+- references/multiarch-artifact-promotion.md
+- references/principal-and-shell-boundaries.md
+- references/security-and-operations.md
+- references/upstream-contract-discovery.md
+- references/consumer-driven-validation.md
+- references/container-provenance-dataflow.md
 - templates/migration-assessment.yaml.template
+- templates/upstream-contract.yaml.template
+- templates/live-backend-test-policy.yaml.template
+- tools/inspect_existing_project.py
+- tools/plan_existing_project.py
+- tools/check_consumer_canaries.py
+- tools/capture_mcp_contract.py
+- tools/compare_mcp_contracts.py
 - tools/generate_python_server.py
 - tools/generate_dotnet_server.py
 - locks/python-runtime.in
@@ -91,5 +155,12 @@ adoption:
   template: contracts/adoption-assessment.yaml.template
   validator: contracts/validate_adoption.py
   rule_catalog: contracts/rule-catalog.yaml
-  extension: mcp
   rule_map: contracts/standard-rule-map.yaml
+  atomic_claim_catalog: contracts/atomic-claim-catalog.yaml
+  atomic_claim_schema: contracts/atomic-claim-report.schema.json
+  atomic_claim_validator: contracts/validate_atomic_claims.py
+  evidence_profiles: contracts/evidence-profiles.yaml
+  extension: mcp
+conformance:
+  template: contracts/conformance-report.yaml.template
+  validator: contracts/validate_conformance.py

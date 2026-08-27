@@ -5,7 +5,7 @@ type: reference
 status: active
 rigor: operational
 owners: [repository-maintainers]
-verification: Run the AGENTS.md validator in strict mode and manually compare each warning with current repository evidence.
+verification: Run the AGENTS.md validator in strict mode, validate operational-claims.yaml when volatile runtime or configuration facts are referenced, and compare each warning with current repository evidence.
 ---
 
 # AGENTS.md anti-patterns and drift
@@ -29,6 +29,18 @@ The file lists paths without explaining when to read them or what they own. Each
 ## Fossilized initialization
 
 A generated instruction file contains stale counts, versions, dates, ports, package lists, paths, or temporary migration state. Derive volatile facts automatically or remove them from durable policy.
+
+## Runtime capability staleness
+
+Do not preserve statements such as “the agent cannot self-enable this integration,” “this API supports field X,” or “this hook is effective” as timeless facts after observing one build. External platform and runtime capabilities are volatile. Bind a durable capability claim to one exact product/build version and a fresh-context probe observation in `operational-claims.yaml`, validated by `contracts/validate_operational_claims.py`.
+
+A schema/field-presence check proves compatibility shape only. It does not prove that the effective prompt, runtime path, activation flow, middleware, hook, or transport actually uses that field. Behavior claims require a canary that exercises the public path in a fresh process/session and records the observed result. When no such probe is available, phrase the instruction as an unresolved prerequisite or route to current discovery rather than “verified”.
+
+## Hand-maintained operational mirrors
+
+Do not maintain a second editable truth for enabled services, runtime state, feature flags, deployment status, or similar operational inventory. The instruction system points to the canonical configuration or to generated output derived from it.
+
+When a concise mirrored state is genuinely useful, record it as a `configuration-state` entry in `operational-claims.yaml`. The claim names the canonical JSON/YAML path and selector; validation fails when the canonical value changes. Reconcile the canonical source before auditing the prose mirror. A stale registry must never overrule the runtime configuration it summarizes.
 
 ## Conflicting instructions
 
@@ -62,6 +74,6 @@ Review the instruction tree when any of these change:
 - repository layout or generated-file ownership;
 - architecture or dependency direction;
 - authentication, authorization, data flow, mounts, or network exposure;
-- supported agent platforms or instruction precedence;
+- supported agent platforms, versions, runtime capabilities, or instruction precedence;
 - recurring incident or review evidence;
-- canonical documents, skills, or workflows referenced from the file.
+- canonical operational configuration, registries, documents, skills, or workflows referenced from the file.

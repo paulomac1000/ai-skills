@@ -113,9 +113,7 @@ def test_platform_reference_and_conditional_mcp_dependency_are_published() -> No
     manifest = yaml.safe_load((SKILL / "manifest.yaml").read_text(encoding="utf-8"))
     platform = "references/instruction-precedence-and-platforms.md"
     assert platform in manifest["required"]
-    assert manifest["conditional_dependencies"]["profiles"]["mcp-server"]["skills"] == [
-        "mcp-server-architect"
-    ]
+    assert manifest["conditional_dependencies"]["profiles"]["mcp-server"]["skills"] == ["mcp-server-architect"]
     skill = (SKILL / "SKILL.md").read_text(encoding="utf-8")
     standard = (SKILL / "STANDARD.md").read_text(encoding="utf-8")
     assert platform in skill

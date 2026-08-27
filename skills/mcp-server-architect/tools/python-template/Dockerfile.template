@@ -1,0 +1,24 @@
+FROM python:3.12.11-slim-bookworm@sha256:519591d6871b7bc437060736b9f7456b8731f1499a57e22e6c285135ae657bf7
+
+ARG WHEEL
+ARG WHEEL_SHA256
+WORKDIR /app
+
+RUN useradd --create-home --uid 10001 app
+COPY locks/runtime-linux-x64-py312.lock /tmp/runtime.lock
+COPY ${WHEEL} /tmp/wheels/
+RUN set -eu; \
+    wheel="$(find /tmp/wheels -maxdepth 1 -type f -name '*.whl' -print -quit)"; \
+    test -n "$wheel"; \
+    test "$(find /tmp/wheels -maxdepth 1 -type f -name '*.whl' | wc -l)" -eq 1; \
+    test -n "$WHEEL_SHA256"; \
+    test "$(sha256sum "$wheel" | cut -d' ' -f1)" = "$WHEEL_SHA256"; \
+    python -m pip install --no-cache-dir --require-hashes -r /tmp/runtime.lock; \
+    python -m pip install --no-cache-dir --no-deps "$wheel"; \
+    python -m pip check; \
+    rm -rf /tmp/wheels /tmp/runtime.lock
+
+USER app
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+ENTRYPOINT ["__DISTRIBUTION__"]

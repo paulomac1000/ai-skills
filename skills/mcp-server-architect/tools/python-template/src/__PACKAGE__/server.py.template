@@ -1,0 +1,95 @@
+"""Official MCP SDK v2 adapter around the application-owned kernel."""
+
+from __future__ import annotations
+
+import os
+
+import uvicorn
+from mcp.server import MCPServer
+from starlette.requests import Request
+from starlette.responses import JSONResponse, Response
+
+from .kernel import describe_capabilities as invoke_describe_capabilities
+from .kernel import list_items as invoke_list_items
+from .kernel import put_item as invoke_put_item
+from .security import BearerAuthMiddleware, require_http_token
+
+mcp = MCPServer("__SERVER_NAME__")
+
+
+@mcp.tool()
+def describe_capabilities() -> dict[str, object]:
+    """Return the validated application-owned capability catalog."""
+    return invoke_describe_capabilities()
+
+
+@mcp.tool()
+def list_items(limit: int = 25) -> dict[str, object]:
+    """List a bounded number of deterministic inventory records."""
+    return invoke_list_items(limit)
+
+
+@mcp.tool()
+def put_item(
+    item_id: str,
+    value: str,
+    approval_record: str,
+    expected_version: int = 0,
+) -> dict[str, object]:
+    """Write one item with an approval bound to its optimistic version precondition."""
+    return invoke_put_item(item_id, value, approval_record, expected_version)
+
+
+@mcp.custom_route("/health/live", methods=["GET"])
+async def health_live(request: Request) -> Response:
+    del request
+    return JSONResponse({"status": "live"})
+
+
+@mcp.custom_route("/health/ready", methods=["GET"])
+async def health_ready(request: Request) -> Response:
+    del request
+    return JSONResponse({"status": "ready"})
+
+
+def build_http_app() -> BearerAuthMiddleware:
+    """Build the authenticated Streamable HTTP application."""
+    app = mcp.streamable_http_app(
+        host="127.0.0.1",
+        stateless_http=True,
+        json_response=True,
+        max_request_body_size=1024 * 1024,
+    )
+    return BearerAuthMiddleware(app, require_http_token())
+
+
+def _http_host() -> str:
+    host = os.environ.get("MCP_HTTP_HOST", "127.0.0.1")
+    if host in {"127.0.0.1", "::1", "localhost"}:
+        return host
+    if host == "0.0.0.0" and os.environ.get("MCP_CONTAINER_BIND") == "1":
+        return host
+    raise SystemExit(
+        "generated HTTP baseline is loopback-only; 0.0.0.0 is allowed only inside an explicitly isolated container network"
+    )
+
+
+def main() -> None:
+    """Run local stdio by default or authenticated Streamable HTTP."""
+    transport = os.environ.get("MCP_TRANSPORT", "stdio")
+    if transport == "stdio":
+        mcp.run()
+        return
+    if transport != "streamable-http":
+        raise SystemExit("MCP_TRANSPORT must be stdio or streamable-http")
+    try:
+        port = int(os.environ.get("MCP_HTTP_PORT", "8000"))
+    except ValueError as exc:
+        raise SystemExit("MCP_HTTP_PORT must be an integer") from exc
+    if not 1 <= port <= 65535:
+        raise SystemExit("MCP_HTTP_PORT must be from 1 to 65535")
+    uvicorn.run(build_http_app(), host=_http_host(), port=port, log_level="info")
+
+
+if __name__ == "__main__":
+    main()

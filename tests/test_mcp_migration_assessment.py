@@ -80,13 +80,14 @@ def test_every_provider_reference_carries_execution_and_report_identity() -> Non
 def test_manifest_requires_repository_adoption_contract_and_mcp_extension() -> None:
     manifest = yaml.safe_load((SKILL / "manifest.yaml").read_text(encoding="utf-8"))
     adoption = manifest["adoption"]
-    assert adoption == {
+    required = {
         "template": "contracts/adoption-assessment.yaml.template",
         "validator": "contracts/validate_adoption.py",
         "rule_catalog": "contracts/rule-catalog.yaml",
         "rule_map": "contracts/standard-rule-map.yaml",
         "extension": "mcp",
     }
+    assert required.items() <= adoption.items()
     for key in ("template", "validator", "rule_catalog", "rule_map"):
         assert (ROOT / adoption[key]).is_file()
 

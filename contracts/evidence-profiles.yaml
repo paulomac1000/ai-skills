@@ -1,0 +1,59 @@
+schema_version: 1
+quality_levels:
+  located:
+    rank: 1
+    description: A source, command, or artifact location is named but execution is not demonstrated.
+  executed-local:
+    rank: 2
+    description: A bounded command executed locally against the stated working tree.
+  artifact-tested:
+    rank: 3
+    description: The exact built artifact was installed or started and exercised through its public contract.
+  provider-backed-exact-sha:
+    rank: 4
+    description: A hosted provider binds successful evidence to the full assessed revision and immutable artifact identity.
+  independently-approved:
+    rank: 5
+    description: An independent acceptance authority reviewed provider-backed exact-revision evidence.
+profiles:
+  local-structural:
+    provider_kinds: [local-structural]
+    maximum_maturity: L1
+    minimum_quality: executed-local
+    independent_review_required: false
+    intended_use: Local development, experiments, and baseline technical conformance.
+  hosted-provider:
+    provider_kinds: [github-actions]
+    maximum_maturity: L2
+    minimum_quality: provider-backed-exact-sha
+    independent_review_required: false
+    intended_use: Private or internal services with hosted CI and exact-revision evidence.
+  independent-release:
+    provider_kinds: [github-actions]
+    maximum_maturity: L4
+    minimum_quality: independently-approved
+    independent_review_required: true
+    intended_use: Public, sensitive, multi-tenant, or formally released services.
+requirements:
+  L1:
+    profile_at_least: local-structural
+    required_quality: executed-local
+    formal_attestation_required: false
+  L2:
+    profile_at_least: hosted-provider
+    required_quality: provider-backed-exact-sha
+    formal_attestation_required: false
+  L3:
+    profile_at_least: independent-release
+    required_quality: independently-approved
+    formal_attestation_required: true
+  L4:
+    profile_at_least: independent-release
+    required_quality: independently-approved
+    formal_attestation_required: true
+escalation:
+  public: independent-release
+  sensitive: independent-release
+  multi-tenant: independent-release
+  public-distribution: independent-release
+  shared-service: independent-release

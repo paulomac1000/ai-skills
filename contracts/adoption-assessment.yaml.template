@@ -12,7 +12,7 @@ repository:
   source_branch: REPLACE_WITH_SOURCE_BRANCH
 skill:
   name: REPLACE_WITH_SKILL_NAME
-  version: 1.2.0
+  version: REPLACE_WITH_SKILL_VERSION
   maturity: stable
 scope:
   included: []
@@ -34,6 +34,7 @@ applicability:
         symbol: REPLACE_WITH_SYMBOL
     verification:
       - command: REPLACE_WITH_EXACT_COMMAND
+        test_case: tests/test_contract.py::test_REPLACE_WITH_EXACT_TEST
         evidence: &action_evidence
           provider: github-actions
           repository: owner/repository
@@ -98,21 +99,9 @@ rollback:
   procedure: []
   data_recovery: []
 residual_risks: []
-acceptance_authority:
-  verifier_repository: trusted-owner/ai-skills-verifier
-  verifier_revision: REPLACE_WITH_TRUSTED_VERIFIER_SHA
-  claim_catalog_repository: trusted-owner/ai-skills-policy
-  claim_catalog_revision: REPLACE_WITH_TRUSTED_CATALOG_SHA
-  workflow_path: .github/workflows/verify-adoption.yml
+# Add acceptance_authority only when status is approve and the decision is provider-backed.
 decision:
   status: request-changes # approve | request-changes | rejected
   rationale: REPLACE_WITH_DECISION_RATIONALE
-  reviewer:
-    provider: github
-    repository: owner/repository
-    pull_request: 1
-    review_id: 1
-    login: REPLACE_WITH_INDEPENDENT_REVIEWER
-    id: 2
-    revision: REPLACE_WITH_FULL_IMMUTABLE_COMMIT_SHA
-    state: CHANGES_REQUESTED
+# For provider-reviewed request-changes/rejected decisions, a reviewer object may be added.
+# For approve, reviewer is mandatory and must be bound to the exact assessed revision.

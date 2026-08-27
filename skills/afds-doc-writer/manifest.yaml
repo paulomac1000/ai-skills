@@ -1,6 +1,6 @@
 schema_version: 1
 name: afds-doc-writer
-version: 1.2.0
+version: 1.3.0
 maturity: stable
 skill_format: ai-skills/v1
 normative_entrypoint: STANDARD.md
@@ -50,11 +50,20 @@ deprecation:
 required:
 - SKILL.md
 - STANDARD.md
+- governance.yaml
+- validate.py
+- references/ecosystem-readme-governance.md
+- templates/governed-document.md.template
 categories:
 - core
 - references
 - templates
 - tools
+contracts:
+  frontmatter_schema: contracts/afds-frontmatter.schema.json
+  current_document_schema: 2
+  legacy_document_schema: 1
+  strict_migration_flag: --minimum-document-schema 2
 adoption:
   template: contracts/adoption-assessment.yaml.template
   validator: contracts/validate_adoption.py

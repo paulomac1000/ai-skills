@@ -1,0 +1,5 @@
+schema_version: 1
+workflows:
+  .github/workflows/ci.yml: trusted-ci
+  .github/workflows/consumer-acceptance-dispatch.yml: trusted-ci
+  .github/workflows/consumer-acceptance.yml: trusted-ci

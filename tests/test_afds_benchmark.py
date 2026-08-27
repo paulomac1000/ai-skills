@@ -23,8 +23,12 @@ QUERIES = [
     ("mcp-server-architect/SKILL.md", "design secure agent friendly mcp server sdk review"),
     ("mcp-server-architect/STANDARD.md", "transport authorization errors cancellation observability maturity"),
     (
-        "mcp-server-architect/references/python-fastmcp.md",
-        "fastmcp private tools decorator context lifespan contentblock",
+        "mcp-server-architect/references/python-official-mcp-sdk.md",
+        "official python mcp sdk package mcp protocol revision wheel exact artifact",
+    ),
+    (
+        "mcp-server-architect/references/python-fastmcp-package.md",
+        "fastmcp package access token authmiddleware mounted server middleware provider",
     ),
     (
         "mcp-server-architect/references/dotnet-mcp.md",
@@ -111,7 +115,7 @@ def test_recovered_documents_remain_retrievable_without_monolithic_context() -> 
     items = documents()
     recall_at_three, mrr, average_context = evaluate()
     assert len(items) >= 20
-    assert len(QUERIES) >= 18
+    assert len(QUERIES) >= 19
     assert recall_at_three >= 0.88
     assert mrr >= 0.78
     assert average_context <= 24_000

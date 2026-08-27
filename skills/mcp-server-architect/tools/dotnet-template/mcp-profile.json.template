@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "sdk_profile": "sdk:dotnet-official-mcp@1.4.1",
+  "distribution": "ModelContextProtocol",
+  "sdk_version": "1.4.1",
+  "repository_tested_protocol_revisions": [],
+  "current_revision_support": "not-claimed",
+  "evidence_status": "generated-baseline"
+}

@@ -1,0 +1,50 @@
+# ai-skills-policy-profile: trusted-ci
+name: Consumer acceptance dispatcher
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_repository:
+        description: GitHub owner/name repository to assess.
+        required: true
+        type: string
+      candidate_sha:
+        description: Full lowercase candidate commit SHA.
+        required: true
+        type: string
+      assessment_path:
+        description: Repository-relative adoption assessment path.
+        required: false
+        default: adoption-assessment.yaml
+        type: string
+      trust_lock_path:
+        description: Repository-relative trusted executable source lock path.
+        required: false
+        default: trusted-executable-sources.lock.yaml
+        type: string
+      required_check:
+        description: Optional required status-check identity selected by authority policy.
+        required: false
+        default: ''
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+  pull-requests: read
+
+concurrency:
+  group: consumer-acceptance-dispatch-${{ inputs.candidate_repository }}-${{ inputs.candidate_sha }}
+  cancel-in-progress: true
+
+jobs:
+  accept:
+    uses: ./.github/workflows/consumer-acceptance.yml
+    with:
+      candidate_repository: ${{ inputs.candidate_repository }}
+      candidate_sha: ${{ inputs.candidate_sha }}
+      assessment_path: ${{ inputs.assessment_path }}
+      trust_lock_path: ${{ inputs.trust_lock_path }}
+      required_check: ${{ inputs.required_check }}
+    secrets:
+      consumer_read_token: ${{ secrets.AI_SKILLS_CONSUMER_READ_TOKEN }}

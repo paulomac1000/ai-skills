@@ -6,4 +6,8 @@
     <ProjectReference Include="../__NAMESPACE__.Mcp.Domain/__NAMESPACE__.Mcp.Domain.csproj" />
     <PackageReference Include="ModelContextProtocol.AspNetCore" />
   </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="../../contracts/capability-manifest.schema.json"
+                      LogicalName="capability-manifest.schema.json" />
+  </ItemGroup>
 </Project>

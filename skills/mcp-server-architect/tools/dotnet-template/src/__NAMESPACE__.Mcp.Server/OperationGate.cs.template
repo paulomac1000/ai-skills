@@ -2,61 +2,111 @@ namespace __NAMESPACE__.Mcp.Server;
 
 public sealed class KeyedOperationGate(int maximumKeys = 1_024)
 {
-    private sealed class Entry
+    private sealed class Entry(int limit, int queueLimit)
     {
-        public SemaphoreSlim Semaphore { get; } = new(1, 1);
+        public SemaphoreSlim Semaphore { get; } = new(limit, limit);
+        public int Limit { get; } = limit;
+        public int QueueLimit { get; } = queueLimit;
         public int References { get; set; }
+        public int Waiting { get; set; }
     }
 
     private readonly object _sync = new();
     private readonly Dictionary<string, Entry> _entries = new(StringComparer.Ordinal);
 
-    public async ValueTask<IAsyncDisposable> EnterAsync(string key, CancellationToken cancellationToken)
+    public ValueTask<IAsyncDisposable> EnterAsync(string key, CancellationToken cancellationToken) =>
+        EnterAsync(key, limit: 1, queueLimit: 0, cancellationToken);
+
+    public async ValueTask<IAsyncDisposable> EnterAsync(
+        string key,
+        int limit,
+        int queueLimit,
+        CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(key))
             throw new ArgumentException("A non-empty concurrency key is required.", nameof(key));
+        if (limit is < 1 or > 10_000)
+            throw new ArgumentOutOfRangeException(nameof(limit));
+        if (queueLimit is < 0 or > 100_000)
+            throw new ArgumentOutOfRangeException(nameof(queueLimit));
 
         Entry entry;
+        var acquired = false;
         lock (_sync)
         {
             if (!_entries.TryGetValue(key, out entry!))
             {
                 if (_entries.Count >= maximumKeys)
                     throw new McpOperationException("CONCURRENCY_CAPACITY", "The keyed operation gate is at capacity.");
-                entry = new Entry();
+                entry = new Entry(limit, queueLimit);
                 _entries.Add(key, entry);
             }
+            else if (entry.Limit != limit || entry.QueueLimit != queueLimit)
+            {
+                throw new McpOperationException(
+                    "CONCURRENCY_POLICY_MISMATCH",
+                    "The runtime concurrency policy changed while the key was active.");
+            }
+
             entry.References++;
+            acquired = entry.Semaphore.Wait(0, CancellationToken.None);
+            if (!acquired)
+            {
+                if (entry.Waiting >= entry.QueueLimit)
+                {
+                    entry.References--;
+                    RemoveIfUnused(key, entry);
+                    throw new McpOperationException(
+                        "CONCURRENCY_QUEUE_FULL",
+                        "The operation concurrency queue is full.");
+                }
+                entry.Waiting++;
+            }
         }
 
-        try
+        if (!acquired)
         {
-            await entry.Semaphore.WaitAsync(cancellationToken);
-            return new Lease(this, key, entry);
+            try
+            {
+                await entry.Semaphore.WaitAsync(cancellationToken);
+            }
+            catch
+            {
+                lock (_sync)
+                {
+                    entry.Waiting--;
+                    entry.References--;
+                    RemoveIfUnused(key, entry);
+                }
+                throw;
+            }
+            lock (_sync)
+            {
+                entry.Waiting--;
+            }
         }
-        catch
-        {
-            ReleaseReference(key, entry, releaseSemaphore: false);
-            throw;
-        }
+
+        return new Lease(this, key, entry);
     }
 
-    private void Exit(string key, Entry entry) => ReleaseReference(key, entry, releaseSemaphore: true);
-
-    private void ReleaseReference(string key, Entry entry, bool releaseSemaphore)
+    private void Exit(string key, Entry entry)
     {
-        if (releaseSemaphore) entry.Semaphore.Release();
-        var dispose = false;
+        entry.Semaphore.Release();
         lock (_sync)
         {
             entry.References--;
-            if (entry.References == 0 && _entries.TryGetValue(key, out var current) && ReferenceEquals(current, entry))
-            {
-                _entries.Remove(key);
-                dispose = true;
-            }
+            RemoveIfUnused(key, entry);
         }
-        if (dispose) entry.Semaphore.Dispose();
+    }
+
+    private void RemoveIfUnused(string key, Entry entry)
+    {
+        if (entry.References != 0 ||
+            !_entries.TryGetValue(key, out var current) ||
+            !ReferenceEquals(current, entry))
+            return;
+        _entries.Remove(key);
+        entry.Semaphore.Dispose();
     }
 
     private sealed class Lease(KeyedOperationGate owner, string key, Entry entry) : IAsyncDisposable

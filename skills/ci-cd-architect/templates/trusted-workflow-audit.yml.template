@@ -1,0 +1,57 @@
+# ai-skills-policy-profile: pull-request
+# Reusable immutable authority for auditing a caller repository without executing its auditor copy.
+name: Trusted workflow policy audit
+
+on:
+  workflow_call:
+    inputs:
+      candidate_sha:
+        description: Exact caller repository commit to audit
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: trusted-workflow-audit-${{ github.repository }}-${{ inputs.candidate_sha }}
+  cancel-in-progress: true
+
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: <TIMEOUT_MINUTES>
+    steps:
+      - name: Check out exact candidate revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.candidate_sha }}
+          path: candidate
+          persist-credentials: false
+      - name: Check out immutable trusted verifier
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: <TRUSTED_VERIFIER_REPOSITORY>
+          ref: <TRUSTED_VERIFIER_SHA>
+          path: trusted-verifier
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "<PYTHON_VERSION>"
+          cache: pip
+          cache-dependency-path: trusted-verifier/<VERIFIER_LOCK_FILE>
+      - name: Verify immutable checkouts
+        shell: bash
+        env:
+          EXPECTED_CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          EXPECTED_VERIFIER_SHA: <TRUSTED_VERIFIER_SHA>
+        run: |
+          set -euo pipefail
+          test "$(git -C candidate rev-parse HEAD)" = "$EXPECTED_CANDIDATE_SHA"
+          test "$(git -C trusted-verifier rev-parse HEAD)" = "$EXPECTED_VERIFIER_SHA"
+      - name: Install trusted hashed verifier graph
+        run: python trusted-verifier/scripts/install_locked.py
+      - name: Execute trusted auditor against candidate workflows
+        run: >-
+          python trusted-verifier/skills/ci-cd-architect/tools/check_github_actions_policy.py
+          candidate

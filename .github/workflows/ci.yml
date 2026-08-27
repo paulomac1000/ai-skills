@@ -237,8 +237,44 @@ jobs:
         env:
           EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}
         run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+      - name: Verify stable release versions changed with shipped contracts
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          git fetch --no-tags --depth=1 origin "$BASE_SHA"
+          python scripts/check_release_version.py --base "$BASE_SHA"
       - name: Execute complete local gate on exact head
         run: python scripts/ci.py
+
+  consumer-canaries:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+          architecture: x64
+          cache: pip
+          cache-dependency-path: requirements-dev-linux-x64-py312.lock
+      - run: python scripts/install_locked.py
+      - name: Inspect immutable real-consumer canaries without executing them
+        run: >-
+          python skills/mcp-server-architect/tools/check_consumer_canaries.py
+          --catalog contracts/consumer-canaries.yaml
+          --workspace "${RUNNER_TEMP}/ai-skills-consumer-canaries"
+      - name: Upload consumer discovery reports
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: consumer-canary-discovery-${{ github.run_id }}
+          path: ${{ runner.temp }}/ai-skills-consumer-canaries/*.discovery.json
+          if-no-files-found: error
+          retention-days: 30
 
   compatibility-python:
     name: Python compatibility (${{ matrix.os }}, ${{ matrix.python }})

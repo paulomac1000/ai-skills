@@ -10,6 +10,7 @@ import os
 import platform
 import re
 import shutil
+import stat
 import tempfile
 from pathlib import Path
 
@@ -19,6 +20,11 @@ SERVER_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9 ._-]{1,78}$")
 RESERVED_NAMESPACE_ROOTS = frozenset({"System", "Microsoft", "ModelContextProtocol"})
 RESERVED_NAMESPACES = RESERVED_NAMESPACE_ROOTS | {"InventoryMcp"}
 TEMPLATE_ROOT = Path(__file__).with_name("dotnet-template")
+SKILL_ROOT = Path(__file__).resolve().parent.parent
+REPOSITORY_ROOT = SKILL_ROOT.parents[1]
+CONTRACT_ROOT = REPOSITORY_ROOT / "contracts"
+COPIED_CONTRACTS = ("capability-manifest.schema.json",)
+MAX_TEMPLATE_BYTES = 2 * 1024 * 1024
 _AT_FDCWD = -100
 _RENAME_NOREPLACE = 1
 _RENAME_EXCL = 0x00000004
@@ -38,6 +44,21 @@ def _validate(namespace: str, server_name: str) -> None:
         raise ValueError("server name must be 2-79 safe display characters")
 
 
+def _read_regular_utf8(path: Path, *, maximum: int = MAX_TEMPLATE_BYTES) -> str:
+    """Read one bounded non-symlink UTF-8 template or contract."""
+    if path.is_symlink():
+        raise ValueError(f"generator input must not be a symlink: {path}")
+    metadata = path.stat()
+    if not stat.S_ISREG(metadata.st_mode):
+        raise ValueError(f"generator input must be a regular file: {path}")
+    if metadata.st_size > maximum:
+        raise ValueError(f"generator input exceeds {maximum} bytes: {path}")
+    try:
+        return path.read_text(encoding="utf-8")
+    except UnicodeDecodeError as exc:
+        raise ValueError(f"generator input must be UTF-8: {path}") from exc
+
+
 def _render(value: str, *, namespace: str, server_name: str) -> str:
     """Render one template path or body using the validated project identity."""
     return (
@@ -50,21 +71,36 @@ def _render(value: str, *, namespace: str, server_name: str) -> str:
 def project_files(namespace: str, server_name: str) -> dict[str, str]:
     """Return every generated UTF-8 file keyed by its rendered relative path."""
     _validate(namespace, server_name)
-    if not TEMPLATE_ROOT.is_dir():
-        raise FileNotFoundError(f"template directory is missing: {TEMPLATE_ROOT}")
+    if not TEMPLATE_ROOT.is_dir() or TEMPLATE_ROOT.is_symlink():
+        raise FileNotFoundError(f"template directory is missing or unsafe: {TEMPLATE_ROOT}")
 
     files: dict[str, str] = {}
-    for source in sorted(path for path in TEMPLATE_ROOT.rglob("*") if path.is_file()):
+    for source in sorted(TEMPLATE_ROOT.rglob("*")):
+        if source.is_dir():
+            continue
         relative = source.relative_to(TEMPLATE_ROOT).as_posix()
         if relative.endswith(".template"):
             relative = relative[: -len(".template")]
-        rendered_path = _render(relative, namespace=namespace, server_name=server_name)
+        rendered_path = _render(
+            relative,
+            namespace=namespace,
+            server_name=server_name,
+        )
+        if rendered_path in files:
+            raise ValueError(f"duplicate generated path: {rendered_path}")
         content = _render(
-            source.read_text(encoding="utf-8"),
+            _read_regular_utf8(source),
             namespace=namespace,
             server_name=server_name,
         )
         files[rendered_path] = content.rstrip() + "\n"
+
+    for contract_name in COPIED_CONTRACTS:
+        destination = f"contracts/{contract_name}"
+        if destination in files:
+            raise ValueError(f"duplicate generated path: {destination}")
+        files[destination] = _read_regular_utf8(CONTRACT_ROOT / contract_name).rstrip() + "\n"
+
     if not files:
         raise RuntimeError("the .NET template is empty")
     return files
@@ -73,7 +109,11 @@ def project_files(namespace: str, server_name: str) -> dict[str, str]:
 def _raise_rename_error(error_number: int, destination: Path) -> None:
     """Translate platform rename errors without hiding unexpected failures."""
     if error_number in {errno.EEXIST, errno.ENOTEMPTY}:
-        raise FileExistsError(error_number, "generation target already exists", destination)
+        raise FileExistsError(
+            error_number,
+            "generation target already exists",
+            destination,
+        )
     raise OSError(error_number, os.strerror(error_number), destination)
 
 
@@ -114,15 +154,25 @@ def _rename_noreplace(source: Path, destination: Path) -> None:
         renamex_np = getattr(libc, "renamex_np", None)
         if renamex_np is None:
             raise RuntimeError("atomic no-replace rename requires renamex_np on this macOS runtime")
-        renamex_np.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_uint]
+        renamex_np.argtypes = [
+            ctypes.c_char_p,
+            ctypes.c_char_p,
+            ctypes.c_uint,
+        ]
         renamex_np.restype = ctypes.c_int
         if renamex_np(source_bytes, destination_bytes, _RENAME_EXCL) != 0:
             _raise_rename_error(ctypes.get_errno(), destination)
         return
 
     if operating_system == "Windows":
-        # Windows os.rename is no-replace and raises FileExistsError when dst exists.
-        os.rename(source, destination)
+        try:
+            os.rename(source, destination)
+        except FileExistsError as exc:
+            raise FileExistsError(
+                errno.EEXIST,
+                "generation target already exists",
+                destination,
+            ) from exc
         return
 
     raise RuntimeError("this platform has no configured atomic no-replace directory rename")
@@ -134,7 +184,11 @@ def generate_project(target: Path, namespace: str, server_name: str) -> list[Pat
     target = expanded.parent.resolve(strict=False) / expanded.name
     target.parent.mkdir(parents=True, exist_ok=True)
     if os.path.lexists(target):
-        raise FileExistsError(errno.EEXIST, "generation target already exists", target)
+        raise FileExistsError(
+            errno.EEXIST,
+            "generation target already exists",
+            target,
+        )
 
     files = project_files(namespace, server_name)
     staging = Path(tempfile.mkdtemp(prefix=f".{target.name}-", dir=target.parent))

@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/paulomac1000/ai-skills/blob/main/contracts/trusted-executable-sources.schema.json",
+  "title": "Trusted executable source lock",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "sources"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "sources": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "role", "repository", "revision", "credential_access", "files"],
+        "properties": {
+          "id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,63}$"},
+          "role": {"enum": ["auditor", "evidence-collector", "vendored-validator", "provider-correlator"]},
+          "repository": {"type": "string", "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"},
+          "revision": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+          "credential_access": {"enum": ["none", "read-only-provider"]},
+          "files": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["authority_path", "sha256"],
+              "properties": {
+                "authority_path": {"type": "string", "minLength": 1, "maxLength": 512},
+                "local_path": {"type": "string", "minLength": 1, "maxLength": 512},
+                "sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

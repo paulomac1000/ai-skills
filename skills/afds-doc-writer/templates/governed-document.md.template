@@ -1,11 +1,14 @@
 ---
+afds_schema_version: 2
 description: <ONE_SENTENCE_QUESTION_AND_OUTCOME>
 doc_id: <TYPE>.<STABLE_SLUG>
 type: <TYPE>
 status: draft
 rigor: <RIGOR>
 owners: [<OWNER_ROLE>]
-verification: <CONCRETE_VERIFICATION_METHOD>
+verification:
+  kind: <command|ci-job|manual-review|observable>
+  value: <CONCRETE_VERIFICATION_METHOD>
 ---
 
 # <Document title>
@@ -28,4 +31,4 @@ verification: <CONCRETE_VERIFICATION_METHOD>
 
 ## Verification
 
-<State the observable acceptance criteria and commands.>
+<State the observable acceptance criteria and commands. This section explains acceptance but does not replace v2 verification metadata.>

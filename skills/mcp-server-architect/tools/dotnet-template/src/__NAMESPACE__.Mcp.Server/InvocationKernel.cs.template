@@ -13,13 +13,19 @@ public sealed class InvocationKernel(
 {
     private const string Target = "inventory";
 
-    public ValueTask<IReadOnlyList<CapabilityManifest>> DescribeAsync(
+    public async ValueTask<IReadOnlyList<CapabilityManifest>> DescribeAsync(
         ClaimsPrincipal? principal,
         CancellationToken cancellationToken)
     {
-        cancellationToken.ThrowIfCancellationRequested();
         var caller = Caller(principal);
-        return ValueTask.FromResult(capabilities.ForScopes(caller.Scopes));
+        var manifest = RequireActive(CapabilityNames.DescribeCapabilities);
+        RequireScope(caller, manifest.RequiredScope);
+        return await ExecuteAsync(
+            manifest,
+            caller.Principal,
+            Target,
+            _ => ValueTask.FromResult(capabilities.ForScopes(caller.Scopes)),
+            cancellationToken);
     }
 
     public ValueTask<ListItemsResult> ListAsync(
@@ -34,6 +40,7 @@ public sealed class InvocationKernel(
             throw new McpException("VALIDATION_FAILED: limit must be from 1 to 100.");
         return ExecuteAsync(
             manifest,
+            caller.Principal,
             Target,
             token => inventory.ListAsync(limit, token),
             cancellationToken);
@@ -59,6 +66,7 @@ public sealed class InvocationKernel(
         if (expectedVersion < 0)
             throw new McpException("VALIDATION_FAILED: expectedVersion is mandatory and non-negative.");
 
+        var argumentsDigest = ApprovalArguments.PutItemDigest(itemId, name, expectedVersion);
         Action? approvalGate = null;
         if (manifest.RequiresApproval)
         {
@@ -66,8 +74,15 @@ public sealed class InvocationKernel(
                 throw new McpException("APPROVAL_REQUIRED: a trusted approval token is required.");
             approvalGate = () =>
             {
-                if (!approvals.Consume(approvalToken, caller.Principal, manifest.Name, Target, itemId))
-                    throw new McpException("APPROVAL_INVALID: approval is expired, used, or bound to another principal or resource.");
+                if (!approvals.Consume(
+                    approvalToken,
+                    caller.Principal,
+                    manifest.Name,
+                    Target,
+                    itemId,
+                    argumentsDigest))
+                    throw new McpException(
+                        "APPROVAL_INVALID: approval is expired, used, or bound to another principal, resource, or argument set.");
             };
         }
 
@@ -75,6 +90,7 @@ public sealed class InvocationKernel(
         {
             return await ExecuteAsync(
                 manifest,
+                caller.Principal,
                 itemId,
                 token => inventory.PutAsync(new(itemId, name, expectedVersion), token),
                 cancellationToken,
@@ -96,6 +112,7 @@ public sealed class InvocationKernel(
 
     private async ValueTask<T> ExecuteAsync<T>(
         CapabilityManifest manifest,
+        string principal,
         string resourceKey,
         Func<CancellationToken, ValueTask<T>> operation,
         CancellationToken cancellationToken,
@@ -107,12 +124,12 @@ public sealed class InvocationKernel(
         IAsyncDisposable? lease = null;
         try
         {
-            if (!manifest.ConcurrentSafe)
-            {
-                lease = await operationGate.EnterAsync(
-                    $"{manifest.ConcurrencyScope}:{Target}:{resourceKey}",
-                    linked.Token);
-            }
+            var concurrency = ConcurrencyFor(manifest, principal, resourceKey);
+            lease = await operationGate.EnterAsync(
+                concurrency.Key,
+                concurrency.Limit,
+                concurrency.QueueLimit,
+                linked.Token);
             linked.Token.ThrowIfCancellationRequested();
             beforeExecution?.Invoke();
             return await operation(linked.Token);
@@ -129,6 +146,36 @@ public sealed class InvocationKernel(
         {
             if (lease is not null) await lease.DisposeAsync();
         }
+    }
+
+    private static RuntimeConcurrency ConcurrencyFor(
+        CapabilityManifest manifest,
+        string principal,
+        string resourceKey)
+    {
+        var scope = manifest.ConcurrencyScope switch
+        {
+            "none" => "global",
+            var value when value.Contains("principal", StringComparison.Ordinal)
+                && value.Contains("target", StringComparison.Ordinal) =>
+                "principal-target",
+            var value when value.Contains("principal", StringComparison.Ordinal) =>
+                "principal",
+            var value when value.Contains("target", StringComparison.Ordinal) =>
+                "target",
+            _ => "capability",
+        };
+        var limit = manifest.ConcurrentSafe ? 32 : 1;
+        var queueLimit = manifest.ConcurrentSafe ? 64 : 0;
+        var key = scope switch
+        {
+            "global" => $"{manifest.Name}:global",
+            "principal-target" => $"{manifest.Name}:{principal}:{resourceKey}",
+            "principal" => $"{manifest.Name}:{principal}",
+            "target" => $"{manifest.Name}:{resourceKey}",
+            _ => manifest.Name,
+        };
+        return new(key, limit, queueLimit);
     }
 
     private static CallerContext Caller(ClaimsPrincipal? principal)
@@ -150,5 +197,6 @@ public sealed class InvocationKernel(
             throw new McpException($"AUTHORIZATION_FAILED: missing scope {scope}.");
     }
 
+    private sealed record RuntimeConcurrency(string Key, int Limit, int QueueLimit);
     private sealed record CallerContext(string Principal, IReadOnlySet<string> Scopes);
 }

@@ -1,12 +1,16 @@
-"""Pure decision helpers for safe and efficient MCP capability consumption.
+"""Pure MCP consumer decisions with identity-bound trusted policy values.
 
-The module performs no network or protocol I/O. Discovered server metadata is
-always untrusted; safety-reducing policy values use typed consumer-owned inputs.
+The module performs no network or protocol I/O and is intentionally
+self-contained. Discovered server metadata is always untrusted: it may only
+increase risk, require confirmation, mark confidentiality, or veto a positive
+claim. Safety-reducing policy values and positive idempotency require an exact
+consumer-owned capability identity binding.
 """
 
 from __future__ import annotations
 
 import math
+import re
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -43,30 +47,98 @@ class UserIntent(StrEnum):
 
 
 @dataclass(frozen=True)
-class TrustedCapabilityPolicy:
-    """Consumer-owned policy values, never populated from discovered metadata."""
-
-    risk: str | Risk | None = None
-    requires_confirmation: bool | None = None
-    sensitive: bool | None = None
-    idempotent: bool | None = None
-
-
-@dataclass(frozen=True)
-class TrustedCapabilityContract:
-    """Reviewed capability-contract facts kept outside server metadata."""
-
-    risk: str | Risk | None = None
-    idempotent: bool | None = None
-
-
-@dataclass(frozen=True)
 class CapabilityProfile:
     risk: Risk
     requires_confirmation: bool = False
     sensitive: bool = False
     idempotent: bool | None = None
     source: str = "unknown"
+
+
+_DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
+_POLICY_SOURCE = re.compile(r"^[a-z][a-z0-9-]*:sha256:[0-9a-f]{64}$")
+
+
+def _nonempty(value: str, field_name: str, maximum: int = 512) -> None:
+    if not isinstance(value, str) or not value.strip() or len(value) > maximum:
+        raise ValueError(f"{field_name} must be a non-empty string of at most {maximum} characters")
+
+
+@dataclass(frozen=True, slots=True)
+class CapabilityIdentity:
+    """Exact capability identity observed from the selected server contract."""
+
+    server_identity: str
+    tool_name: str
+    tool_schema_hash: str
+    manifest_version: str
+    target_scope: str | None = None
+
+    def __post_init__(self) -> None:
+        _nonempty(self.server_identity, "server_identity")
+        _nonempty(self.tool_name, "tool_name", 255)
+        if not _DIGEST.fullmatch(self.tool_schema_hash):
+            raise ValueError("tool_schema_hash must be a lowercase sha256 digest")
+        _nonempty(self.manifest_version, "manifest_version", 128)
+        if self.target_scope is not None:
+            _nonempty(self.target_scope, "target_scope", 255)
+
+
+@dataclass(frozen=True, slots=True)
+class TrustedPolicyBinding:
+    """Consumer-owned provenance for values reviewed against one exact identity."""
+
+    identity: CapabilityIdentity
+    source: str
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.identity, CapabilityIdentity):
+            raise TypeError("identity must be CapabilityIdentity")
+        if not _POLICY_SOURCE.fullmatch(self.source):
+            raise ValueError("source must be an immutable '<kind>:sha256:<64 lowercase hex>' identity")
+
+
+@dataclass(frozen=True, slots=True)
+class TrustedCapabilityPolicy:
+    """Consumer policy values; positive trust requires ``binding``.
+
+    The field order preserves the 1.2 constructor shape. Unbound values remain
+    accepted for migration, but inference treats them as untrusted and they can
+    never reduce risk or confer positive idempotency.
+    """
+
+    risk: object = None
+    requires_confirmation: bool | None = None
+    sensitive: bool | None = None
+    idempotent: bool | None = None
+    binding: TrustedPolicyBinding | None = None
+
+    def __post_init__(self) -> None:
+        if self.binding is not None and not isinstance(self.binding, TrustedPolicyBinding):
+            raise TypeError("binding must be TrustedPolicyBinding or None")
+        for field_name in ("requires_confirmation", "sensitive", "idempotent"):
+            value = getattr(self, field_name)
+            if value is not None and type(value) is not bool:
+                raise TypeError(f"{field_name} must be boolean or None")
+
+
+@dataclass(frozen=True, slots=True)
+class TrustedCapabilityContract:
+    """Reviewed capability facts; positive trust requires ``binding``.
+
+    The legacy constructor shape remains accepted so downstream callers can
+    migrate without a flag day; unbound values remain fail-closed at inference.
+    """
+
+    risk: object = None
+    idempotent: bool | None = None
+    binding: TrustedPolicyBinding | None = None
+
+    def __post_init__(self) -> None:
+        if self.binding is not None and not isinstance(self.binding, TrustedPolicyBinding):
+            raise TypeError("binding must be TrustedPolicyBinding or None")
+        if self.idempotent is not None and type(self.idempotent) is not bool:
+            raise TypeError("idempotent must be boolean or None")
 
 
 @dataclass(frozen=True)
@@ -123,7 +195,7 @@ _INVALID = object()
 _ANNOTATION_ROLES = frozenset({"user", "assistant"})
 
 
-def _risk(value: str | Risk | None) -> Risk:
+def _risk(value: object) -> Risk:
     if isinstance(value, Risk):
         return value
     if not isinstance(value, str):
@@ -180,10 +252,7 @@ def _untrusted_side_effect_signal(metadata: Mapping[str, Any]) -> Risk:
         value = metadata.get(key, _MISSING)
         if not isinstance(value, str):
             continue
-        candidate = {
-            "write": Risk.WRITE,
-            "destructive": Risk.DESTRUCTIVE,
-        }.get(value.strip().lower(), Risk.UNKNOWN)
+        candidate = {"write": Risk.WRITE, "destructive": Risk.DESTRUCTIVE}.get(value.strip().lower(), Risk.UNKNOWN)
         inferred = _higher_risk(inferred, candidate)
     return inferred
 
@@ -204,95 +273,152 @@ def _append_source(source: str, addition: str) -> str:
     return source if addition in source.split("+") else f"{source}+{addition}"
 
 
+def _validate_binding(
+    value: TrustedCapabilityPolicy | TrustedCapabilityContract | None,
+    identity: CapabilityIdentity | None,
+    invoked_name: str,
+    field_name: str,
+) -> None:
+    if value is None or value.binding is None:
+        return
+    if identity is None:
+        raise ValueError(f"identity is required when bound {field_name} is supplied")
+    if identity.tool_name != invoked_name:
+        raise ValueError(f"{field_name} tool identity does not match invoked capability name")
+    if value.binding.identity != identity:
+        raise ValueError(f"{field_name} does not match the observed capability identity")
+
+
 def infer_capability_profile(
     name: str,
     metadata: Mapping[str, Any] | None = None,
     *,
+    identity: CapabilityIdentity | None = None,
     trusted_policy: TrustedCapabilityPolicy | None = None,
     trusted_contract: TrustedCapabilityContract | None = None,
-    trusted_server: bool = False,
+    **legacy_options: Any,
 ) -> CapabilityProfile:
-    """Infer a fail-closed profile without upgrading untrusted metadata to policy."""
+    """Infer a fail-closed profile using exact, identity-bound trusted values.
 
+    Server-discovered values and annotations never reduce risk, confer
+    idempotency, or create trust. They may only escalate risk, require
+    confirmation, mark confidentiality, or veto an idempotency claim.
+
+    The removed 1.2 ``trusted_server=`` keyword remains accepted at the
+    compatibility boundary, but never turns remote metadata into trusted input.
+    """
+
+    trusted_server = legacy_options.pop("trusted_server", False)
+    if legacy_options:
+        unexpected = ", ".join(sorted(str(option) for option in legacy_options))
+        raise TypeError(f"unexpected keyword argument(s): {unexpected}")
+    if not isinstance(name, str):
+        raise TypeError("name must be a string")
+    if identity is not None and not isinstance(identity, CapabilityIdentity):
+        raise TypeError("identity must be CapabilityIdentity or None")
     if trusted_policy is not None and not isinstance(trusted_policy, TrustedCapabilityPolicy):
         raise TypeError("trusted_policy must be TrustedCapabilityPolicy or None")
     if trusted_contract is not None and not isinstance(trusted_contract, TrustedCapabilityContract):
         raise TypeError("trusted_contract must be TrustedCapabilityContract or None")
+    if type(trusted_server) is not bool:
+        raise TypeError("trusted_server must be boolean")
     if metadata is None:
         metadata = {}
     elif not isinstance(metadata, Mapping):
         raise TypeError("metadata must be a mapping or None")
 
-    policy_risk = _risk(trusted_policy.risk) if trusted_policy else Risk.UNKNOWN
-    contract_risk = _risk(trusted_contract.risk) if trusted_contract else Risk.UNKNOWN
+    _validate_binding(trusted_policy, identity, name, "trusted_policy")
+    _validate_binding(trusted_contract, identity, name, "trusted_contract")
+
+    policy_binding = trusted_policy.binding if trusted_policy is not None else None
+    contract_binding = trusted_contract.binding if trusted_contract is not None else None
+    if trusted_policy is None:
+        policy_risk = Risk.UNKNOWN
+    elif policy_binding is not None:
+        policy_risk = _risk(trusted_policy.risk)
+    else:
+        policy_risk = _untrusted_risk_signal(trusted_policy.risk)
+    if trusted_contract is None:
+        contract_risk = Risk.UNKNOWN
+    elif contract_binding is not None:
+        contract_risk = _risk(trusted_contract.risk)
+    else:
+        contract_risk = _untrusted_risk_signal(trusted_contract.risk)
+
+    inferred = _higher_risk(policy_risk, contract_risk)
+    source = "unknown"
+    if policy_risk is not Risk.UNKNOWN:
+        if policy_binding is not None:
+            source = _append_source(source, f"consumer-policy:{policy_binding.source}")
+        else:
+            source = _append_source(source, "legacy-unbound-policy-escalation")
+    if contract_risk is not Risk.UNKNOWN:
+        if contract_binding is not None:
+            source = _append_source(source, f"consumer-contract:{contract_binding.source}")
+        else:
+            source = _append_source(source, "legacy-unbound-contract-escalation")
+
     untrusted_risk = _untrusted_risk_signal(metadata.get("risk"))
     side_effect_risk = _untrusted_side_effect_signal(metadata)
-    prefix = _prefixed_risk(name)
-    inferred = _higher_risk(policy_risk, contract_risk)
-    source = "consumer-policy" if policy_risk is not Risk.UNKNOWN else "unknown"
-    if contract_risk is not Risk.UNKNOWN:
-        source = _append_source(source, "consumer-contract")
-
-    previous = inferred
-    inferred = _higher_risk(inferred, untrusted_risk)
-    if inferred is not previous:
-        source = _append_source(source, "untrusted-risk-escalation")
-    previous = inferred
-    inferred = _higher_risk(inferred, side_effect_risk)
-    if inferred is not previous:
-        source = _append_source(source, "side-effect-escalation")
-    previous = inferred
-    inferred = _higher_risk(inferred, prefix)
-    if inferred is not previous:
-        source = _append_source(source, "name-prefix-escalation")
+    prefix_risk = _prefixed_risk(name)
+    signals = (
+        (untrusted_risk, "untrusted-risk-escalation"),
+        (side_effect_risk, "side-effect-escalation"),
+        (prefix_risk, "name-prefix-escalation"),
+    )
+    for candidate, label in signals:
+        previous = inferred
+        inferred = _higher_risk(inferred, candidate)
+        if inferred is not previous:
+            source = _append_source(source, label)
 
     annotations = metadata.get("annotations")
-    if isinstance(annotations, Mapping):
-        if annotations.get("destructiveHint") is True:
-            previous = inferred
-            inferred = _higher_risk(inferred, Risk.DESTRUCTIVE)
-            if inferred is not previous:
-                source = _append_source(
-                    source,
-                    "trusted-annotation" if trusted_server is True else "untrusted-annotation-escalation",
-                )
-        if trusted_server is True and inferred is Risk.UNKNOWN and annotations.get("readOnlyHint") is True:
-            inferred = Risk.READ
-            source = _append_source(source, "trusted-annotation")
+    if isinstance(annotations, Mapping) and annotations.get("destructiveHint") is True:
+        previous = inferred
+        inferred = _higher_risk(inferred, Risk.DESTRUCTIVE)
+        if inferred is not previous:
+            source = _append_source(source, "untrusted-annotation-escalation")
 
-    risk_signals = (policy_risk, contract_risk, untrusted_risk, side_effect_risk, prefix)
     explicit_sensitive = metadata.get("sensitive") is True or (
         trusted_policy is not None and trusted_policy.sensitive is True
     )
-    sensitive = explicit_sensitive or Risk.SENSITIVE in risk_signals
+    sensitive_signal = (
+        policy_risk is Risk.SENSITIVE
+        or contract_risk is Risk.SENSITIVE
+        or untrusted_risk is Risk.SENSITIVE
+        or side_effect_risk is Risk.SENSITIVE
+        or prefix_risk is Risk.SENSITIVE
+    )
+    sensitive = explicit_sensitive or sensitive_signal
     if explicit_sensitive:
-        previous = inferred
         inferred = _higher_risk(inferred, Risk.SENSITIVE)
-        if inferred is not previous:
-            source = _append_source(source, "sensitive")
+    if sensitive:
+        source = _append_source(source, "sensitive")
 
     requires_confirmation = (
         metadata.get("requiresConfirmation") is True
         or metadata.get("requires_confirmation") is True
         or (trusted_policy is not None and trusted_policy.requires_confirmation is True)
     )
+
     if (
         metadata.get("idempotent") is False
-        or (trusted_policy and trusted_policy.idempotent is False)
-        or (trusted_contract and trusted_contract.idempotent is False)
+        or (trusted_policy is not None and trusted_policy.idempotent is False)
+        or (trusted_contract is not None and trusted_contract.idempotent is False)
     ):
         idempotent: bool | None = False
-    elif (trusted_policy and trusted_policy.idempotent is True) or (
-        trusted_contract and trusted_contract.idempotent is True
+    elif (trusted_policy is not None and policy_binding is not None and trusted_policy.idempotent is True) or (
+        trusted_contract is not None and contract_binding is not None and trusted_contract.idempotent is True
     ):
         idempotent = True
     else:
         idempotent = None
+
     return CapabilityProfile(inferred, requires_confirmation, sensitive, idempotent, source)
 
 
 def _alias_value(mapping: Mapping[str, Any], camel: str, snake: str) -> Any:
-    """Read one canonical/legacy alias and reject contradictory duplicates."""
+    """Read one canonical/compatibility alias and reject contradictory duplicates."""
 
     camel_value = mapping.get(camel, _MISSING)
     snake_value = mapping.get(snake, _MISSING)
@@ -430,8 +556,8 @@ def should_retry(
         if not nested_retryable or not _nested_retry_permits(
             conditions,
             error_code=error_code,
-            attempt=attempt,
-            reconciliation_completed=reconciliation_completed,
+            attempt=int(attempt),
+            reconciliation_completed=bool(reconciliation_completed),
         ):
             return False
 
@@ -800,3 +926,27 @@ def get_pagination_decision(
     if type(offset) is int and offset >= 0:
         return PaginationDecision(True, offset=offset, reason="next offset available")
     return PaginationDecision(False, reason="no contract-valid continuation token")
+
+
+__all__ = [
+    "CapabilityIdentity",
+    "CapabilityProfile",
+    "Decision",
+    "ErrorAction",
+    "ErrorStrategy",
+    "PaginationDecision",
+    "ResponseResult",
+    "Risk",
+    "TrustedCapabilityContract",
+    "TrustedCapabilityPolicy",
+    "TrustedPolicyBinding",
+    "UserIntent",
+    "choose_initial_detail_params",
+    "evaluate_decision",
+    "get_error_strategy",
+    "get_pagination_decision",
+    "handle_response",
+    "infer_capability_profile",
+    "select_efficient_tool",
+    "should_retry",
+]

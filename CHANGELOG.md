@@ -1,5 +1,44 @@
 # Changelog
 
+## 1.3.0 - 2026-08-12
+
+### Added
+
+- Added consumer-driven adoption discovery, immutable external consumer canaries, observed upstream-contract validation, and live-backend mutation-safety contracts derived from real MCP migrations.
+- Added transport-by-capability authorization parity, profile-specific FastMCP consumer evidence, and a stable-version drift gate so changed stable skill contents cannot continue to identify as the previous release.
+- Added explicit `pull-request`, `trusted-ci`, and `protected-release` workflow-policy profiles with profile-specific permissions, closed literal runner matrices, and reusable-workflow validation.
+- Added repository-governed AFDS document profiles, bounded confined link and anchor checks, and regression coverage for basename exemptions, symlinks, traversal, and informative-document verification.
+- Added machine-readable MCP rule applicability, granular runtime, artifact, task, browser, backend, hosting, readiness, discovery, configuration, component, and SDK-isolation rules.
+- Added a lightweight local conformance report and validator that derive applicable rules without requiring GitHub run, job, artifact, or acceptance-authority identifiers.
+- Added a per-language MCP protocol and SDK compatibility matrix that records verified revisions independently for Python and .NET and leaves unsupported claims explicitly unasserted.
+- Added a reusable trusted-workflow audit template that checks out the candidate and immutable verifier separately, installs the verifier's hashed dependency graph, and executes only the external auditor.
+- Added a materialized reusable consumer-acceptance workflow, external authority binding for candidate trust locks and adoption assessments, provider-control preflight, trusted-source lock generation, and explicit no-runner evidence classification for real provider-backed adoption.
+- Added an `agents-md-architect` migration-diff workflow that compares normative, validator, evidence, template, and reference surfaces before rewriting an existing canonical `AGENTS.md`.
+- Added mutation outcome taxonomy for independently recording completion, returned identity, representation, and reconciliation requirements.
+- Added conservative stage-local container provenance guidance and practical consumer regressions covering disposable live targets, README preservation, lifecycle separation, moving-head freshness, review freshness, and reproducibility claims.
+
+### Changed
+
+- Reworked the container and NuGet publish templates so unprivileged validation builds and tests closed artifacts while protected publishers verify and publish them without checking out or executing candidate source.
+- Replaced mutable runner labels across all workflow templates, short-SHA artifact identity, post-checkout authenticated fetches, and `docker push --all-tags` with concrete runners, full source SHAs, checksums, explicit tags, and registry digest capture.
+- Made every rendered workflow template pass its declared policy profile and made the repository workflow profile explicit in `.github/workflow-policy.yaml`.
+- Clarified that AFDS `verification` is conditional on operational or normative rigor: governed metadata is canonical, while a `## Verification` section is a fallback only for legacy implicit-v1 documents that have no governed metadata.
+- Clarified the distinction between MCP protocol compatibility allowances, SDK implementation evidence, `ai-skills` transport policy, and controlled project exceptions.
+- Hardened `mcp-server-consumer` trusted capability values with exact `CapabilityIdentity` bindings while preserving the 1.2 helper call shape: legacy unbound policy/contract inputs and `trusted_server=` remain accepted for migration compatibility, but they are fail-closed and cannot reduce risk or confer positive idempotency.
+- Distinguished trusted executable provenance from trusted orchestration authority: candidate-owned immutable verifier execution is structural evidence only, while provider-backed approval requires externally pinned orchestration, candidate-lock equality, provider-control verification, exact-SHA evidence, and independent review.
+- Changed `agents-md-architect` reference validation so concrete directories are valid routing targets, while concrete files remain regular-file references and placeholder/path-pattern references are not forced to exist literally.
+- Strengthened live-backend mutation acceptance so operator intent is distinct from verified exclusive disposable-target identity, pre-clean is forbidden before target proof, and cleanup strategy is explicit for namespaced and non-namespaced resources.
+- Separated repository implementation/merge/release state from formal provider-backed assurance/adoption state, and kept volatile PR/provider status out of durable product documentation.
+- Defined a root README migration as product-entrypoint preservation rather than structural compliance alone.
+- Clarified that `SOURCE_DATE_EPOCH` and related deterministic-build controls are reproducibility controls rather than evidence of byte-identical rebuilds.
+
+### Security and correctness
+
+- Bound external trust-lock coordinate checks, required authority paths, schema validation, and authority digest validation to one stable bounded candidate byte snapshot instead of reopening candidate-owned lock bytes between phases.
+- Hardened real-consumer canary materialization so Git resolves from reviewed absolute system locations rather than inherited `PATH`.
+- Added focused coverage floors for trust validators, provider controls, consumer canaries, and source-provenance inspection in addition to aggregate policy coverage.
+- Made review evidence revision-scoped: zero unresolved bot threads is hygiene only, and security-sensitive final changes require a fresh exact-head adversarial/manual pass.
+
 ## 1.2.0 - 2026-07-28
 
 This release adds a governed standard for designing and maintaining repository instruction systems for coding agents.

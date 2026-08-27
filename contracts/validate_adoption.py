@@ -24,9 +24,16 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from contracts.evidence import EvidenceVerifier, GitHubEvidenceVerifier  # noqa: E402
+from contracts.rule_applicability import (  # noqa: E402
+    RuleContext,
+    expected_rules,
+    project_applicability,
+    test_case_identity_finding,
+)
 from contracts.semver import is_semver  # noqa: E402
 
 DEFAULT_CATALOG = Path(__file__).with_name("rule-catalog.yaml")
+DEFAULT_ATOMIC_CATALOG = Path(__file__).with_name("atomic-claim-catalog.yaml")
 DEFAULT_SCHEMA = Path(__file__).with_name("adoption-assessment.schema.json")
 DEFAULT_SKILLS = ROOT / "skills"
 FULL_SHA = re.compile(r"[0-9a-f]{40}")
@@ -426,12 +433,23 @@ def _validate_implementation(
     findings: list[Finding],
     *,
     repository_root: Path,
+    implementation_payloads: Mapping[str, str] | None = None,
 ) -> None:
     path_text = _text(implementation.get("path"), f"{location}.path", findings)
     symbol = _text(implementation.get("symbol"), f"{location}.symbol", findings)
     candidate = _safe_repository_path(repository_root, path_text) if path_text else None
     if candidate is None:
         findings.append(Finding(f"{location}.path", "must be a repository-relative path without symlinks"))
+        return
+    if implementation_payloads is not None:
+        if path_text not in implementation_payloads:
+            findings.append(
+                Finding(f"{location}.path", "implementation bytes were not captured by the trusted preflight")
+            )
+            return
+        content = implementation_payloads[path_text]
+        if symbol and symbol not in content:
+            findings.append(Finding(f"{location}.symbol", "was not found in the implementation file"))
         return
     if not candidate.is_file():
         findings.append(Finding(f"{location}.path", "does not identify an existing file"))
@@ -451,11 +469,13 @@ def _validate_applicability(
     catalog_rules: set[str],
     findings: list[Finding],
     *,
+    machine_applicable_rules: set[str] | None = None,
     as_of: date,
     repository: str,
     revision: str,
     repository_root: Path,
     verifier: EvidenceVerifier | None,
+    implementation_payloads: Mapping[str, str] | None = None,
 ) -> None:
     raw_entries = _sequence(assessment.get("applicability"), "applicability", findings)
     entries: dict[str, Mapping[str, Any]] = {}
@@ -471,6 +491,22 @@ def _validate_applicability(
         status_value = entry.get("status")
         if status_value not in ALLOWED_STATUSES:
             findings.append(Finding(f"{location}.status", f"must be one of {sorted(ALLOWED_STATUSES)}"))
+        if machine_applicable_rules is not None and rule_id in catalog_rules:
+            machine_applies = rule_id in machine_applicable_rules
+            if machine_applies and status_value == "not-applicable":
+                findings.append(
+                    Finding(
+                        f"{location}.status",
+                        "catalog applicability requires this rule to be applicable or explicitly deferred",
+                    )
+                )
+            elif not machine_applies and status_value != "not-applicable":
+                findings.append(
+                    Finding(
+                        f"{location}.status",
+                        "catalog applicability requires this rule to be not-applicable",
+                    )
+                )
         _text(entry.get("rationale"), f"{location}.rationale", findings)
         waiver_id = entry.get("waiver_id")
         if status_value == "applicable":
@@ -487,11 +523,26 @@ def _validate_applicability(
                     impl_location,
                     findings,
                     repository_root=repository_root,
+                    implementation_payloads=implementation_payloads,
                 )
             for verification_index, raw_verification in enumerate(verifications):
                 verification_location = f"{location}.verification[{verification_index}]"
                 verification = _mapping(raw_verification, verification_location, findings)
                 command = _text(verification.get("command"), f"{verification_location}.command", findings)
+                test_case = _text(
+                    verification.get("test_case"),
+                    f"{verification_location}.test_case",
+                    findings,
+                )
+                if test_case:
+                    test_case_finding = test_case_identity_finding(test_case, repository_root)
+                    if test_case_finding:
+                        findings.append(
+                            Finding(
+                                f"{verification_location}.test_case",
+                                test_case_finding,
+                            )
+                        )
                 evidence = _evidence_reference(
                     verification.get("evidence"),
                     f"{verification_location}.evidence",
@@ -507,6 +558,7 @@ def _validate_applicability(
                         "subject": rule_id,
                         "result": "passed",
                         "command_digest": _command_digest(command),
+                        "test_case": test_case,
                     }
                     _provider_findings(
                         f"{verification_location}.evidence",
@@ -518,6 +570,20 @@ def _validate_applicability(
         elif status_value == "not-applicable":
             if waiver_id is not None:
                 findings.append(Finding(f"{location}.waiver_id", "not-applicable rule must not use a waiver"))
+            if entry.get("implementation"):
+                findings.append(
+                    Finding(
+                        f"{location}.implementation",
+                        "not-applicable rule must not claim implementation evidence",
+                    )
+                )
+            if entry.get("verification"):
+                findings.append(
+                    Finding(
+                        f"{location}.verification",
+                        "not-applicable rule must not claim verification evidence",
+                    )
+                )
         elif status_value == "deferred":
             _text(waiver_id, f"{location}.waiver_id", findings)
 
@@ -711,6 +777,7 @@ def _validate_mcp_extension(
     if mcp.get("target_level") not in {"L1", "L2", "L3", "L4"}:
         findings.append(Finding("extensions.mcp.target_level", "must be L1, L2, L3, or L4"))
     _text_list(mcp.get("profiles"), "extensions.mcp.profiles", findings, nonempty=True)
+    _text_list(mcp.get("capabilities"), "extensions.mcp.capabilities", findings)
     advertised = set(
         _text_list(
             mcp.get("advertised_transports"),
@@ -764,11 +831,13 @@ def validate_document(
     catalog: Mapping[str, Any],
     skills_root: Path,
     *,
+    atomic_catalog: Mapping[str, Any] | None = None,
     require_approval: bool,
     as_of: date,
     schema: Mapping[str, Any] | None = None,
     repository_root: Path = ROOT,
     evidence_verifier: EvidenceVerifier | None = None,
+    implementation_payloads: Mapping[str, str] | None = None,
 ) -> list[Finding]:
     """Return every schema, semantic, local-artifact, and provider violation."""
     effective_schema = schema if schema is not None else _load_json(DEFAULT_SCHEMA)
@@ -847,15 +916,52 @@ def validate_document(
     _text_list(scope.get("exclusion_rationale"), "scope.exclusion_rationale", findings)
 
     catalog_rules = _catalog_rules(catalog, skill_name, findings) if skill_name else set()
+    machine_applicable_rules: set[str] | None = None
+    if skill_name == "mcp-server-architect":
+        raw_extensions = assessment.get("extensions")
+        raw_mcp = raw_extensions.get("mcp") if isinstance(raw_extensions, Mapping) else None
+        if isinstance(raw_mcp, Mapping):
+            level = raw_mcp.get("target_level")
+            profiles = raw_mcp.get("profiles")
+            capabilities = raw_mcp.get("capabilities", [])
+            if (
+                isinstance(level, str)
+                and isinstance(profiles, list)
+                and all(isinstance(item, str) for item in profiles)
+                and isinstance(capabilities, list)
+                and all(isinstance(item, str) for item in capabilities)
+            ):
+                try:
+                    context = RuleContext(
+                        target_level=level,
+                        profiles=frozenset(profiles),
+                        capabilities=frozenset(capabilities),
+                    )
+                    if atomic_catalog is None:
+                        parent_rules = expected_rules(catalog, skill_name, context)
+                    else:
+                        parent_rules = list(
+                            project_applicability(catalog, atomic_catalog, skill_name, context).parent_rules
+                        )
+                    machine_applicable_rules = {str(rule["id"]) for rule in parent_rules}
+                except (KeyError, TypeError, ValueError) as exc:
+                    findings.append(
+                        Finding(
+                            "extensions.mcp",
+                            f"cannot derive catalog applicability: {exc}",
+                        )
+                    )
     _validate_applicability(
         assessment,
         catalog_rules,
         findings,
+        machine_applicable_rules=machine_applicable_rules,
         as_of=as_of,
         repository=repository,
         revision=revision,
         repository_root=repository_root,
         verifier=verifier,
+        implementation_payloads=implementation_payloads,
     )
     _validate_compatibility(
         assessment,
@@ -903,21 +1009,27 @@ def validate_document(
             findings.append(Finding(f"{location}.blocking", "must be a boolean"))
 
     _text(decision.get("rationale"), "decision.rationale", findings)
-    reviewer_value = _mapping(decision.get("reviewer"), "decision.reviewer", findings)
-    reviewer_identity = _identity(reviewer_value, "decision.reviewer", findings)
-    reviewer_repository = _text(reviewer_value.get("repository"), "decision.reviewer.repository", findings)
-    reviewer_revision = _text(reviewer_value.get("revision"), "decision.reviewer.revision", findings)
-    reviewer_state = _text(reviewer_value.get("state"), "decision.reviewer.state", findings)
-    if reviewer_repository and repository and reviewer_repository != repository:
-        findings.append(Finding("decision.reviewer.repository", "must equal repository.name"))
-    if reviewer_revision and revision and reviewer_revision != revision:
-        findings.append(Finding("decision.reviewer.revision", "must equal repository.revision"))
-    if reviewer_identity in prepared or any(
-        reviewer_identity[0] == identity[0]
-        and (reviewer_identity[1] == identity[1] or reviewer_identity[2] == identity[2])
-        for identity in prepared
-    ):
-        findings.append(Finding("decision.reviewer", "must be independent from every prepared_by identity"))
+    reviewer_raw = decision.get("reviewer")
+    reviewer_value: Mapping[str, Any] | None = None
+    reviewer_state = ""
+    if reviewer_raw is not None:
+        reviewer_value = _mapping(reviewer_raw, "decision.reviewer", findings)
+        reviewer_identity = _identity(reviewer_value, "decision.reviewer", findings)
+        reviewer_repository = _text(reviewer_value.get("repository"), "decision.reviewer.repository", findings)
+        reviewer_revision = _text(reviewer_value.get("revision"), "decision.reviewer.revision", findings)
+        reviewer_state = _text(reviewer_value.get("state"), "decision.reviewer.state", findings)
+        if reviewer_repository and repository and reviewer_repository != repository:
+            findings.append(Finding("decision.reviewer.repository", "must equal repository.name"))
+        if reviewer_revision and revision and reviewer_revision != revision:
+            findings.append(Finding("decision.reviewer.revision", "must equal repository.revision"))
+        if reviewer_identity in prepared or any(
+            reviewer_identity[0] == identity[0]
+            and (reviewer_identity[1] == identity[1] or reviewer_identity[2] == identity[2])
+            for identity in prepared
+        ):
+            findings.append(Finding("decision.reviewer", "must be independent from every prepared_by identity"))
+    elif decision_status == "approve":
+        findings.append(Finding("decision.reviewer", "is required for an approval decision"))
     if decision_status == "approve" and reviewer_state != "APPROVED":
         findings.append(Finding("decision.reviewer.state", "must be APPROVED for an approval decision"))
     if require_approval and decision_status != "approve":
@@ -926,7 +1038,7 @@ def validate_document(
         isinstance(risk, Mapping) and risk.get("blocking") is True for risk in risks
     ):
         findings.append(Finding("decision.status", "cannot approve while a blocking residual risk remains"))
-    if decision_status == "approve" and verifier is not None:
+    if decision_status == "approve" and verifier is not None and reviewer_value is not None:
         _provider_findings("decision.reviewer", verifier.verify_review(reviewer_value, revision), findings)
 
     return sorted(set(findings), key=lambda finding: (finding.location, finding.message))
@@ -950,6 +1062,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         assessment = _load_yaml(args.assessment)
         catalog = _load_yaml(args.catalog)
+        atomic_catalog = _load_yaml(DEFAULT_ATOMIC_CATALOG)
         schema = _load_json(args.schema)
         Draft202012Validator.check_schema(schema)
     except (OSError, ValueError, json.JSONDecodeError, yaml.YAMLError) as exc:
@@ -970,6 +1083,7 @@ def main(argv: list[str] | None = None) -> int:
         assessment,
         catalog,
         args.skills_root,
+        atomic_catalog=atomic_catalog,
         require_approval=args.require_approval,
         as_of=args.as_of,
         schema=schema,
