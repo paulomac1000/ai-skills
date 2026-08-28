@@ -1,5 +1,5 @@
 schema_version: 1
-name: afds-doc-writer
+name: readme-architect
 version: 1.4.0
 maturity: stable
 skill_format: ai-skills/v1
@@ -41,7 +41,8 @@ compatibility:
     version: '3.12'
     lane: python-compatibility
 dependencies:
-  skills: []
+  skills:
+  - afds-doc-writer
   tools:
   - python
 deprecation:
@@ -50,20 +51,20 @@ deprecation:
 required:
 - SKILL.md
 - STANDARD.md
-- governance.yaml
-- validate.py
-- references/ecosystem-readme-governance.md
-- templates/governed-document.md.template
+- references/authoring-workflow.md
+- references/evidence-source-map.md
+- references/structure-profiles.md
+- references/visual-presentation.md
+- references/drift-and-change-impact.md
+- templates/README.server.md.template
+- templates/README.generic.md.template
+- tools/collect_readme_evidence.py
+- tools/audit_readme.py
 categories:
 - core
 - references
 - templates
 - tools
-contracts:
-  frontmatter_schema: contracts/afds-frontmatter.schema.json
-  current_document_schema: 2
-  legacy_document_schema: 1
-  strict_migration_flag: --minimum-document-schema 2
 adoption:
   template: contracts/adoption-assessment.yaml.template
   validator: contracts/validate_adoption.py

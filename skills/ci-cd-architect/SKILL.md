@@ -7,6 +7,8 @@ description: Design, repair, and review secure, cost-aware local and hosted qual
 
 Use this skill when a repository needs trustworthy feedback before merge, reproducible artifact release, or control over excessive hosted CI consumption during high-churn development.
 
+Repository SemVer selection, changelog curation, and the one-version-per-release-boundary invariant belong to `changelog-release-architect`. This skill consumes that release identity and owns its CI enforcement, exact-artifact promotion, provider trust, and publication mechanics; it must not independently increment the version.
+
 ## Workflow
 
 1. Classify the repository archetype, release artifact, trust boundaries, and whether hosted-runner time is effectively finite. Classify the target evidence plane as either structural/diagnostic or provider-backed; do not blur the two.

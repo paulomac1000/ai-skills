@@ -3,7 +3,7 @@ repository: paulomac1000/ai-skills
 revision: REPLACE_WITH_FULL_40_CHARACTER_SHA
 skills:
   mcp-server-architect:
-    version: 1.3.0
+    version: 1.4.0
     revision: REPLACE_WITH_FULL_40_CHARACTER_SHA
     normative_entrypoint: skills/mcp-server-architect/STANDARD.md
     content_digest: sha256:REPLACE_WITH_64_HEX_CHARACTERS

@@ -10,7 +10,7 @@ import yaml
 from contracts.semver import is_semver
 
 ROOT = Path(__file__).resolve().parents[1]
-RELEASE_VERSION = "1.3.0"
+RELEASE_VERSION = "1.4.0"
 RELEASE_MATURITY = "stable"
 SUPPORTED_MATURITY = {"experimental", "release-candidate", "stable", "deprecated"}
 ALLOWED_OPERATING_SYSTEMS = {"linux", "macos", "windows"}

@@ -12,7 +12,7 @@ repository:
   source_branch: REPLACE_WITH_SOURCE_BRANCH
 skill:
   name: mcp-server-architect
-  version: 1.3.0
+  version: 1.4.0
   maturity: stable
 scope:
   included: []

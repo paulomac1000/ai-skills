@@ -1,17 +1,15 @@
 # __SERVER_NAME__
 
-Generated from the canonical `ai-skills` Python MCP server template. The project uses the official `mcp` 2.x SDK and keeps application policy outside the transport adapter.
+Generated from the canonical `ai-skills` Python MCP server template. It is an architecture seed using the official `mcp` 2.x SDK, one application-owned invocation path, and conservative local defaults.
 
-## Security profile
+> [!IMPORTANT]
+> This generated project is not production-accepted by generation alone. Replace sample domain behavior and complete the applicable security, CI/CD, deployment-artifact, and adoption work before production use.
 
-- Local stdio derives an explicit principal from the operating-system process boundary.
-- Streamable HTTP binds only to loopback and requires `MCP_HTTP_BEARER_TOKEN` with at least 32 visible ASCII bytes.
-- Remote deployment is not production-ready until the development bearer is replaced by a real identity provider and resource authorization.
-- Writes are disabled unless `MCP_ENABLE_WRITES=1` and a server-verifiable, one-use HMAC approval record binds principal, capability, target, normalized arguments, expiry, and nonce.
-- `put_item` uses optimistic concurrency: `expected_version=0` creates an absent item, successful writes return the next version, listings expose the current version, and updates must provide that version. The approval arguments digest includes `expected_version`, so a stale precondition cannot be detached from its approval.
-- The capability manifests in `src/__PACKAGE__/capabilities` are validated against the copied canonical schema at import time.
+## Quick start
 
-## Local stdio
+### Local stdio
+
+Stdio is the default transport and does not expose a network listener.
 
 ```bash
 python -m pip install --require-hashes -r locks/dev-linux-x64-py312.lock
@@ -21,7 +19,9 @@ __DISTRIBUTION__
 
 A host should launch the installed entry point rather than `python src/...` so tests exercise the packaged application.
 
-## Loopback Streamable HTTP
+### Loopback Streamable HTTP
+
+HTTP mode binds only to loopback and requires a development bearer token with at least 32 visible ASCII bytes.
 
 ```bash
 export MCP_TRANSPORT=streamable-http
@@ -31,7 +31,22 @@ __DISTRIBUTION__
 
 The MCP endpoint is `http://127.0.0.1:8000/mcp`. Liveness and readiness are exposed at `/health/live` and `/health/ready` and contain no private data.
 
-## Quality gate
+## Capabilities
+
+The application-owned capability manifests in `src/__PACKAGE__/capabilities/` are the canonical static definitions, and runtime MCP discovery is the authoritative active view. The generated seed includes representative read, write, and capability-description operations so authorization and contract behavior can be exercised without maintaining a duplicate tool catalog in this README.
+
+## Security
+
+- Local stdio derives an explicit principal from the operating-system process boundary.
+- Streamable HTTP binds only to loopback and requires `MCP_HTTP_BEARER_TOKEN` with at least 32 visible ASCII bytes.
+- Remote deployment is not production-ready until the development bearer is replaced by a real identity provider and resource authorization.
+- Writes are disabled unless `MCP_ENABLE_WRITES=1` and a server-verifiable, one-use HMAC approval record binds principal, capability, target, normalized arguments, expiry, and nonce.
+- `put_item` uses optimistic concurrency: `expected_version=0` creates an absent item, successful writes return the next version, listings expose the current version, and updates must provide that version. The approval arguments digest includes `expected_version`, so a stale precondition cannot be detached from its approval.
+- Capability manifests are validated against the copied canonical schema at import time.
+
+## Development and verification
+
+Run the repository-owned quality and exact-artifact path:
 
 ```bash
 python -m pytest --junitxml=junit.xml
@@ -40,7 +55,7 @@ python -m build --wheel
 python scripts/smoke_artifact.py --distribution __DISTRIBUTION__ --package __PACKAGE__
 ```
 
-The artifact smoke runs outside the checkout, verifies import provenance from `site-packages`, executes modern and legacy protocol paths through the official client, and checks a safe success and application failure path.
+The artifact smoke runs outside the checkout, verifies import provenance from `site-packages`, exercises supported protocol paths through the official MCP client, and checks a safe success and application failure path.
 
 ## Container
 

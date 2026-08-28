@@ -26,6 +26,18 @@ skills:
       anti-patterns-and-drift: {rule_id: agents.drift.prevented, primary: true}
       definition-of-done: {rule_id: agents.completion.evidenced, primary: true}
       verification: {rule_id: agents.completion.evidenced}
+  changelog-release-architect:
+    headings:
+      purpose: {excluded: true, rationale: Informational scope heading, not an independently assessable invariant.}
+      release-boundary-and-baseline: {rule_id: release.boundary.single, primary: true}
+      canonical-ownership-and-lock-state: {rule_id: release.ownership.canonical, primary: true}
+      evidence-and-changelog-content: {rule_id: release.evidence.curated, primary: true}
+      semantic-version-classification: {rule_id: release.semver.behavior, primary: true}
+      scope-growth-and-idempotence: {rule_id: release.idempotence.scope, primary: true}
+      mcp-compatibility-profile: {rule_id: release.mcp.compatibility, primary: true}
+      legacy-and-release-dates: {rule_id: release.legacy.fail-closed, primary: true}
+      verification-and-findings: {rule_id: release.verification.history, primary: true}
+      definition-of-done: {rule_id: release.verification.history}
   ci-cd-architect:
     headings:
       purpose: {excluded: true, rationale: Informational scope heading, not an independently assessable invariant.}
@@ -78,3 +90,16 @@ skills:
       partial-execution-and-compensation: {rule_id: consumer.workflow.compensated, primary: true}
       compatibility-and-negotiation: {rule_id: consumer.compatibility.negotiated, primary: true}
       verification: {rule_id: consumer.verification.adversarial, primary: true}
+  readme-architect:
+    headings:
+      purpose: {excluded: true, rationale: Informational scope heading, not an independently assessable invariant.}
+      evidence-and-source-ownership: {rule_id: readme.evidence.owned, primary: true}
+      opening-and-audience: {rule_id: readme.entrypoint.clear, primary: true}
+      quick-start-and-verification: {rule_id: readme.quickstart.verified, primary: true}
+      adaptive-structure-and-progressive-disclosure: {rule_id: readme.structure.profiled, primary: true}
+      security-and-public-contracts: {rule_id: readme.security.projected, primary: true}
+      volatility-and-drift: {rule_id: readme.drift.bounded, primary: true}
+      visual-presentation-and-accessibility: {rule_id: readme.presentation.accessible, primary: true}
+      mcp-server-profile: {rule_id: readme.mcp.projected, primary: true}
+      afds-integration: {rule_id: readme.afds.routed, primary: true}
+      change-impact-and-completion: {rule_id: readme.completion.evidenced, primary: true}

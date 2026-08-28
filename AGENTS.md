@@ -32,11 +32,17 @@ Use this file when implementing, migrating, reviewing, or maintaining content in
 
 ## Release metadata
 
-- Keep one repository release version across `README.md`, `CHANGELOG.md`, and every skill `manifest.yaml`.
-- A published stable release uses the plain SemVer version and `maturity: stable`; do not retain release-candidate or pilot wording after promotion.
-- Branch iterations, repair commits, generated variants, and review rounds are not separate releases.
-- Record all changes introduced by one pull request under its single release heading unless the maintainer explicitly defines a different release boundary.
-- Preserve prerelease examples only when they test generic SemVer behaviour and cannot be confused with the current repository version.
+- [`changelog-release-architect`](skills/changelog-release-architect/STANDARD.md) is the canonical owner of release-boundary, changelog-curation, evidence, and repository-SemVer rules. Read it before changing any release version or changelog heading.
+- This repository projects one release version across `README.md`, `CHANGELOG.md`, every skill `manifest.yaml`, and release templates; all projections must agree at completion.
+- A published stable release uses the plain SemVer version and `maturity: stable`; preserve prerelease examples only when they test generic SemVer behavior and cannot be confused with the current repository version.
+- The release version validator adapter at `scripts/check_release_version.py` runs the canonical history-aware validator and must pass against the pull-request base before merge.
+
+## README changes
+
+- [`readme-architect`](skills/readme-architect/STANDARD.md) is the canonical owner of repository README evidence selection, product-entrypoint structure, visual presentation, volatile-fact policy, profile routing, and README completion checks.
+- `afds-doc-writer` still owns README publication/frontmatter profile selection, structural validity, confined links, anchors, and documentation lifecycle. Do not duplicate those controls in `readme-architect` or bypass them with a README-specific exemption.
+- For an MCP README, `mcp-server-architect` remains authoritative for MCP capability, transport, authorization, retry, lifecycle, and safety semantics; `readme-architect` only projects those verified facts to readers.
+- Before materially rewriting an existing README, collect repository evidence and preserve useful onboarding knowledge before reorganizing prose. Do not turn a product entrypoint into a compliance dump.
 
 ## Security and evidence boundaries
 
@@ -53,8 +59,8 @@ Use this file when implementing, migrating, reviewing, or maintaining content in
 2. Inspect current code, tests, review threads, compatibility declarations, and release metadata.
 3. Make the smallest complete change that closes the rule and its known failure modes.
 4. Add independent regression tests for independent failure paths.
-5. Update user-facing guidance whenever its workflow, guarantees, compatibility, version, or maturity changed.
-6. Update `CHANGELOG.md` under the single release introduced by the pull request; do not invent intermediate release sections for branch iterations.
+5. Update user-facing guidance whenever its workflow, guarantees, compatibility, version, or maturity changed; use `readme-architect` for README changes.
+6. For release metadata or changelog work, follow `changelog-release-architect`; update the single target already claimed by this release boundary instead of deriving another target from the branch version.
 7. Run the locked validation commands.
 8. Confirm the final CI run belongs to the exact final commit and that no actionable review thread remains open.
 
@@ -73,7 +79,7 @@ Windows PowerShell:
 ```powershell
 py -3.12 -m venv .venv
 .venv\Scripts\python.exe scripts\install_locked.py
-.venv\Scripts\python.exe scripts\ci.py
+.venv\Scripts\python.exe scripts/ci.py
 ```
 
 Run focused tests while developing, but do not substitute them for the full gate before completion. Do not edit generated lockfiles by hand; regenerate them through the documented trusted workflow.
@@ -83,7 +89,8 @@ Run focused tests while developing, but do not substitute them for the full gate
 A change is complete only when:
 
 - the canonical standard, implementation, documentation, and tests agree;
-- release version and maturity agree across README, changelog, and all manifests;
+- release version and maturity agree across README, changelog, all manifests, and release templates;
+- the history-aware release gate reports no additional version transition inside the current release boundary;
 - new paths and artifacts cannot escape their declared repository or working-directory boundary;
 - the exact built artifact is the artifact exercised by acceptance tests;
 - Linux, macOS, Windows, Python, .NET, and container claims remain consistent with the manifest and compatibility matrix where applicable;
@@ -94,4 +101,4 @@ A change is complete only when:
 
 ## Verification
 
-Run `scripts/ci.py` in the locked environment. For a pull request, verify the reported head SHA, required job matrix, retained evidence artifacts, and unresolved review-thread count after the final commit. Any change after approval requires the relevant checks and approval to run again.
+Run `scripts/ci.py` in the locked environment. For a pull request, run the history-aware release gate against the actual base, verify the reported head SHA, required job matrix, retained evidence artifacts, and unresolved review-thread count after the final commit. Any change after approval requires the relevant checks and approval to run again.

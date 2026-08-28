@@ -472,6 +472,116 @@ profiles:
     commands:
     - python contracts/validate_adoption.py assessment.yaml
     execution_id: repository
+  - kind: rule
+    subject: readme.afds.routed
+    selectors: &id001
+    - '*test_readme_architect*'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: readme.completion.evidenced
+    selectors: *id001
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: readme.drift.bounded
+    selectors: *id001
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: readme.entrypoint.clear
+    selectors: *id001
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: readme.evidence.owned
+    selectors: *id001
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: readme.mcp.projected
+    selectors: *id001
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: readme.presentation.accessible
+    selectors: *id001
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: readme.quickstart.verified
+    selectors: *id001
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: readme.security.projected
+    selectors: *id001
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: readme.structure.profiled
+    selectors: *id001
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: release.boundary.single
+    selectors: &id002
+    - '*test_changelog_release_branch*'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: release.evidence.curated
+    selectors: *id002
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: release.idempotence.scope
+    selectors: *id002
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: release.legacy.fail-closed
+    selectors: *id002
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: release.mcp.compatibility
+    selectors: *id002
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: release.ownership.canonical
+    selectors: *id002
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: release.semver.behavior
+    selectors: *id002
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: release.verification.history
+    selectors: *id002
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
   mcp-dotnet:
   - kind: transport
     subject: stdio:capability_listing

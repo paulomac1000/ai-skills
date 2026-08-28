@@ -13,9 +13,11 @@ ROOT = Path(__file__).resolve().parents[1]
 EXPECTED_SKILLS = {
     "afds-doc-writer",
     "agents-md-architect",
+    "changelog-release-architect",
     "ci-cd-architect",
     "mcp-server-architect",
     "mcp-server-consumer",
+    "readme-architect",
 }
 ALLOWED_CATEGORIES = {"core", "references", "templates", "examples", "tools", "locks"}
 IGNORED_PARTS = {".git", ".venv", ".pytest_cache", "__pycache__", ".ruff_cache"}

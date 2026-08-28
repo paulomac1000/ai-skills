@@ -102,6 +102,8 @@ Use public SDK APIs for enumeration. If a supported SDK generation lacks a publi
 
 ## Version compatibility
 
+These rules own MCP public-contract compatibility only. Repository-level SemVer selection, release-boundary locking, and changelog materialization are owned by `changelog-release-architect`; use this section as domain evidence when that skill classifies an MCP release.
+
 - Additive response fields and optional parameters are backward-compatible only when defaults preserve semantics.
 - Existing field semantics do not change within a major version.
 - Removed fields, newly required parameters, changed target selection, or changed retry behavior require a major version or versioned tool name.
