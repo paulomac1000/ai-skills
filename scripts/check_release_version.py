@@ -108,11 +108,7 @@ def _base_manifest_paths(base: str) -> set[str]:
 
 
 def _current_manifest_paths() -> set[str]:
-    return {
-        path.relative_to(ROOT).as_posix()
-        for path in (ROOT / "skills").glob("*/manifest.yaml")
-        if path.is_file()
-    }
+    return {path.relative_to(ROOT).as_posix() for path in (ROOT / "skills").glob("*/manifest.yaml") if path.is_file()}
 
 
 def _stable_triplet(value: object, skill_name: str) -> tuple[int, int, int]:

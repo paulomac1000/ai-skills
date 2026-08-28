@@ -186,9 +186,7 @@ def validate_release_branch(
                 base_headings = set(HEADING.findall(base_changelog or ""))
                 introduced = sorted(current_headings - base_headings)
                 if len(introduced) > 1:
-                    findings.append(
-                        f"MULTIPLE_RELEASE_HEADINGS: {changelog_path} introduces {', '.join(introduced)}"
-                    )
+                    findings.append(f"MULTIPLE_RELEASE_HEADINGS: {changelog_path} introduces {', '.join(introduced)}")
                 elif len(introduced) == 1 and target and introduced[0] != target:
                     findings.append(
                         f"VERSION_MIRROR_DRIFT: changelog target {introduced[0]} does not match version target {target}"

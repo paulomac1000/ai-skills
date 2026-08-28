@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.4.0 - 2026-08-27
+## 1.4.0 - 2026-08-28
 
 ### Added
 
@@ -19,6 +19,11 @@
 - Split AFDS README publication and structural governance from product-facing README authoring so frontmatter/confinement rules and onboarding/presentation rules have distinct canonical owners.
 - Aligned generated Python and .NET MCP README templates with `readme-architect` while keeping MCP capability, transport, authorization, retry, lifecycle, and safety semantics canonical in `mcp-server-architect`.
 - Registered README governance in the shared adoption rule catalog and standard-rule map and routed root repository instructions through the new skill.
+
+### Dependencies
+
+- Regenerated the five committed platform dev locks and the MCP generator runtime/dev locks for Python 3.12, 3.13, and 3.14 with the updated toolchain.
+- Bumped development dependencies: `ruff` 0.16.0 → 0.16.3, `setuptools` 83.0.0 → 84.0.0, `types-PyYAML` 6.0.12.20260724 → 6.0.12.20260815, `wheel` 0.47.0 → 0.48.0, and `pip-tools` 7.6.0 → 7.6.1.
 
 ## 1.3.0 - 2026-08-12
 
