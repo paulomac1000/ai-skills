@@ -17,6 +17,7 @@ EXPECTED_SKILLS = {
     "ci-cd-architect",
     "mcp-server-architect",
     "mcp-server-consumer",
+    "readme-architect",
 }
 ALLOWED_CATEGORIES = {"core", "references", "templates", "examples", "tools", "locks"}
 IGNORED_PARTS = {".git", ".venv", ".pytest_cache", "__pycache__", ".ruff_cache"}
