@@ -15,7 +15,7 @@ verification:
 
 ## Rule
 
-AFDS owns the repository decision about README metadata, publication compatibility, structural validation, link confinement, anchors, bounded input, and lifecycle. [`readme-architect`](../../readme-architect/STANDARD.md) owns evidence selection, product-entrypoint content, onboarding structure, presentation, volatility policy, and README-specific completion checks.
+AFDS owns the repository decision about README metadata, publication compatibility, structural validation, link confinement, anchors, bounded input, and lifecycle. `readme-architect` (see `skills/readme-architect/STANDARD.md`) owns evidence selection, product-entrypoint content, onboarding structure, presentation, volatility policy, and README-specific completion checks.
 
 A repository or package `README.md` MAY omit AFDS frontmatter when an external renderer would expose, reject, or misinterpret that metadata. This exception removes only the frontmatter requirement. The document MUST still pass the selected conventional-document profile for one H1, unique headings, confined relative links, valid anchors, bounded UTF-8 input, and regular-file handling.
 
