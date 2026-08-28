@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.4.0 - 2026-08-27
+
+### Added
+
+- Added `changelog-release-architect` as the canonical owner of human-facing changelog curation, repository SemVer classification, release-boundary discovery, evidence sourcing, legacy bootstrap, and idempotent release metadata updates.
+- Added a history-aware release validator that derives the baseline from merge-base, detects repeated version transitions such as `1.3.0 -> 1.4.0 -> 1.5.0`, verifies aligned version mirrors, and rejects multiple release headings introduced by one release boundary.
+- Added an MCP compatibility profile that maps MCP public-contract changes to repository MAJOR, MINOR, or PATCH while leaving capability/schema version semantics owned by `mcp-server-architect`.
+- Added `readme-architect` as the canonical owner of evidence-backed repository README authoring, adaptive entrypoint structure, verified quick starts, public security projection, visual/accessibility guidance, and volatile-fact control.
+- Added README evidence-source and change-impact playbooks, generic and server templates, a non-secret repository evidence collector, a deterministic README auditor, and focused regression tests for secret exclusion, broken links, placeholders, profile checks, and volatile metrics.
+
+### Changed
+
+- Made release-version selection merge-base-relative: agents calculate a target from the baseline version, reuse a target already claimed by the branch, and report scope conflicts instead of incrementing the branch version again.
+- Routed repository release instructions through the new canonical skill instead of duplicating branch-iteration and single-heading policy in `AGENTS.md`.
+- Extended the existing stable-version self-hosting gate to invoke the canonical history-aware validator while preserving the rule that changed stable skill contracts require a version increase.
+- Published all bundled skills as version `1.4.0` and added the release and README skills to the cross-platform Python compatibility lane.
+- Split AFDS README publication and structural governance from product-facing README authoring so frontmatter/confinement rules and onboarding/presentation rules have distinct canonical owners.
+- Aligned generated Python and .NET MCP README templates with `readme-architect` while keeping MCP capability, transport, authorization, retry, lifecycle, and safety semantics canonical in `mcp-server-architect`.
+- Registered README governance in the shared adoption rule catalog and standard-rule map and routed root repository instructions through the new skill.
+
 ## 1.3.0 - 2026-08-12
 
 ### Added

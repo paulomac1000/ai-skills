@@ -1,5 +1,5 @@
 schema_version: 1
-catalog_version: 1.3.0
+catalog_version: 1.4.0
 skills:
   afds-doc-writer:
     rules:
@@ -56,6 +56,32 @@ skills:
     - id: agents.completion.evidenced
       source: STANDARD.md#definition-of-done
       description: Completion binds scope, links, commands, boundaries, tests, and residual risk to the exact revision.
+  changelog-release-architect:
+    rules:
+    - id: release.boundary.single
+      source: STANDARD.md#release-boundary-and-baseline
+      description: A release boundary is explicit, merge-base-relative, and contains at most one repository-version transition.
+    - id: release.ownership.canonical
+      source: STANDARD.md#canonical-ownership-and-lock-state
+      description: One canonical version owner and a stable claimed-target state prevent repeated agent bumps and mirror drift.
+    - id: release.evidence.curated
+      source: STANDARD.md#evidence-and-changelog-content
+      description: Changelog entries are curated from shipped behavior and exact evidence rather than copied from commit history.
+    - id: release.semver.behavior
+      source: STANDARD.md#semantic-version-classification
+      description: Repository SemVer follows the highest consumer-visible compatibility impact in the complete release boundary.
+    - id: release.idempotence.scope
+      source: STANDARD.md#scope-growth-and-idempotence
+      description: Repeated runs reuse one claimed target and scope growth cannot silently create another release version.
+    - id: release.mcp.compatibility
+      source: STANDARD.md#mcp-compatibility-profile
+      description: MCP public-contract evidence is classified by the MCP owner and mapped consistently to repository SemVer.
+    - id: release.legacy.fail-closed
+      source: STANDARD.md#legacy-and-release-dates
+      description: Missing release identity and unknown release dates fail closed instead of being guessed from commit chronology.
+    - id: release.verification.history
+      source: STANDARD.md#verification-and-findings
+      description: History-aware verification checks merge base, version transitions, release headings, mirrors, and evidence before completion.
   ci-cd-architect:
     rules:
     - id: cicd.layers.separated
@@ -308,3 +334,35 @@ skills:
     - id: consumer.verification.adversarial
       source: STANDARD.md#verification
       description: Adversarial trust, retry, response, and pagination cases are executable.
+  readme-architect:
+    rules:
+    - id: readme.evidence.owned
+      source: STANDARD.md#evidence-and-source-ownership
+      description: Material README claims are reconciled with explicit canonical owners and unresolved conflicts are surfaced.
+    - id: readme.entrypoint.clear
+      source: STANDARD.md#opening-and-audience
+      description: The README opening communicates project identity, audience, value, and material limitations before deep detail.
+    - id: readme.quickstart.verified
+      source: STANDARD.md#quick-start-and-verification
+      description: The primary onboarding path uses supported artifacts, safe configuration, and an observable verification step.
+    - id: readme.structure.profiled
+      source: STANDARD.md#adaptive-structure-and-progressive-disclosure
+      description: README structure follows the smallest applicable audience profile and routes deep detail to canonical documents.
+    - id: readme.security.projected
+      source: STANDARD.md#security-and-public-contracts
+      description: Security and public-contract claims are projected from executable domain owners rather than prose intent.
+    - id: readme.drift.bounded
+      source: STANDARD.md#volatility-and-drift
+      description: Volatile facts are generated, linked, live, or omitted and public-contract changes trigger README impact review.
+    - id: readme.presentation.accessible
+      source: STANDARD.md#visual-presentation-and-accessibility
+      description: README presentation is scannable, truthful, restrained, theme-aware, and accessible.
+    - id: readme.mcp.projected
+      source: STANDARD.md#mcp-server-profile
+      description: MCP README content summarizes governed capability and safety semantics without creating a parallel protocol standard.
+    - id: readme.afds.routed
+      source: STANDARD.md#afds-integration
+      description: README publication and structural profiles remain owned by AFDS while product-facing content follows README governance.
+    - id: readme.completion.evidenced
+      source: STANDARD.md#change-impact-and-completion
+      description: README completion records evidence, verification, conflicts, drift risk, and downstream documentation impact.

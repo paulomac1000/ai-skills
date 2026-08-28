@@ -1,8 +1,36 @@
 # __SERVER_NAME__
 
-Generated .NET MCP architecture seed. Domain code is independent from MCP, manifests fail closed, every transport uses one invocation kernel, and HTTP is loopback-only Streamable HTTP.
+Generated from the canonical `ai-skills` .NET MCP server template. It is an architecture seed with domain code isolated from MCP, fail-closed manifests, one invocation kernel, and conservative local transport defaults.
 
-## Verify
+> [!IMPORTANT]
+> This generated project is not production-accepted by generation alone. Replace the in-memory adapter, review the public capability contract, and complete the applicable identity, authorization, CI/CD, deployment-artifact, and adoption work before production use.
+
+## Quick start
+
+Restore and build the generated server and its smoke project with the committed lock files:
+
+```bash
+dotnet restore tests/__NAMESPACE__.Mcp.Smoke/__NAMESPACE__.Mcp.Smoke.csproj --locked-mode
+dotnet build tests/__NAMESPACE__.Mcp.Smoke/__NAMESPACE__.Mcp.Smoke.csproj -c Release --no-restore
+```
+
+Stdio is the default transport. For loopback Streamable HTTP, pass `--http` and set `MCP_HTTP_BEARER_TOKEN` to at least 32 random characters. Legacy `/sse` and `/message` endpoints are intentionally absent. Modern Streamable HTTP may still use `text/event-stream` framing; that is not the deprecated two-endpoint transport.
+
+## Capabilities
+
+The generated server's application-owned canonical capability manifest is the static source of truth, while runtime MCP discovery is the authoritative active view. Keep README content at capability-group and representative-workflow level rather than maintaining a second exact tool catalog.
+
+## Security
+
+- Stdio is the default and does not expose an MCP network listener.
+- Streamable HTTP is restricted to loopback and requires a development bearer token.
+- Every transport reaches the same application-owned invocation kernel rather than implementing policy independently.
+- Mutation behavior remains subject to the generated operation gate and manifest policy.
+- Remote/public HTTP is not part of the generated production-ready profile; replace development identity and authorization before extending the deployment boundary.
+
+## Development and verification
+
+Run the generated smoke project against the exact built server assembly:
 
 ```bash
 dotnet restore tests/__NAMESPACE__.Mcp.Smoke/__NAMESPACE__.Mcp.Smoke.csproj --locked-mode
@@ -10,6 +38,6 @@ dotnet build tests/__NAMESPACE__.Mcp.Smoke/__NAMESPACE__.Mcp.Smoke.csproj -c Rel
 dotnet run --project tests/__NAMESPACE__.Mcp.Smoke/__NAMESPACE__.Mcp.Smoke.csproj -c Release --no-build -- src/__NAMESPACE__.Mcp.Server/bin/Release/net10.0/__NAMESPACE__.Mcp.Server.dll
 ```
 
-Stdio is the default. For loopback Streamable HTTP, pass `--http` and set `MCP_HTTP_BEARER_TOKEN` to at least 32 random characters. Legacy `/sse` and `/message` endpoints are intentionally absent. Modern Streamable HTTP may still use `text/event-stream` framing; that is not the deprecated two-endpoint transport.
+## Production adoption
 
-Before production, replace the in-memory adapter, review every manifest, connect a real identity provider, authorize stable resource identities, add upstream contracts, and smoke the exact deployment artifact. This generated architecture seed is not production-accepted until the repository applies the applicable `ci-cd-architect` profile, including formatting, complete tests with machine-readable results, coverage policy, dependency/security review, container verification when deployed as an image, and a completed adoption assessment.
+Before production, replace the in-memory adapter, review every manifest, connect a real identity provider, authorize stable resource identities, add upstream contracts, and smoke the exact deployment artifact. Apply the applicable `ci-cd-architect` profile, including formatting, complete tests with machine-readable results, coverage policy, dependency/security review, container verification when deployed as an image, and a completed adoption assessment.
