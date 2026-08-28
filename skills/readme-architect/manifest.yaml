@@ -51,6 +51,7 @@ deprecation:
 required:
 - SKILL.md
 - STANDARD.md
+- references/authoring-workflow.md
 - references/evidence-source-map.md
 - references/structure-profiles.md
 - references/visual-presentation.md

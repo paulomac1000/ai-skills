@@ -37,7 +37,7 @@ The choice among these patterns is an AFDS governance decision. It does not defi
 
 When `readme-architect` is adopted, use its standard and profile references for README content and presentation. Do not duplicate its quick-start, security-projection, badge, visual, dynamic-catalog, volatile-fact, or migration-preservation rules here.
 
-A structural AFDS pass does not prove that a README is a useful product entrypoint. Conversely, a polished README render does not replace AFDS confinement, anchor, metadata/profile, or lifecycle checks.
+A structural AFDS pass does not prove that a README is a useful product entrypoint. Conversely, a polished README render does not replace AFDS confinement, anchor, metadata/profile, or lifecycle checks. The README is the product and user entrypoint. Durable and volatile information must be separated: volatile facts belong in generated output or explicitly dated evidence, never as standing README claims.
 
 For README migration, AFDS verifies the selected document profile while `readme-architect` verifies that useful existing onboarding knowledge is preserved or deliberately moved to an equally discoverable canonical owner.
 

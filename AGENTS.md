@@ -35,7 +35,7 @@ Use this file when implementing, migrating, reviewing, or maintaining content in
 - [`changelog-release-architect`](skills/changelog-release-architect/STANDARD.md) is the canonical owner of release-boundary, changelog-curation, evidence, and repository-SemVer rules. Read it before changing any release version or changelog heading.
 - This repository projects one release version across `README.md`, `CHANGELOG.md`, every skill `manifest.yaml`, and release templates; all projections must agree at completion.
 - A published stable release uses the plain SemVer version and `maturity: stable`; preserve prerelease examples only when they test generic SemVer behavior and cannot be confused with the current repository version.
-- The [`check_release_version.py`](scripts/check_release_version.py) adapter runs the canonical history-aware validator and must pass against the pull-request base before merge.
+- The release version validator adapter at `scripts/check_release_version.py` runs the canonical history-aware validator and must pass against the pull-request base before merge.
 
 ## README changes
 
