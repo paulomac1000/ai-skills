@@ -22,7 +22,7 @@
 
 ### Dependencies
 
-- Regenerated the five committed platform dev locks and the MCP generator runtime/dev locks for Python 3.12, 3.13, and 3.14 with the updated toolchain.
+- Regenerated the five committed platform dev locks and the MCP generator runtime/dev locks for Python 3.12, 3.13, and 3.14 with the updated toolchain, and pinned `pip` 26.2 in the development sources to resolve PYSEC-2026-3721.
 - Bumped development dependencies: `ruff` 0.16.0 → 0.16.3, `setuptools` 83.0.0 → 84.0.0, `types-PyYAML` 6.0.12.20260724 → 6.0.12.20260815, `wheel` 0.47.0 → 0.48.0, and `pip-tools` 7.6.0 → 7.6.1.
 
 ## 1.3.0 - 2026-08-12
