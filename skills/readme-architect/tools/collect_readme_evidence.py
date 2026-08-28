@@ -100,12 +100,12 @@ def safe_json(path: Path) -> dict[str, Any]:
 
 def parse_pyproject(path: Path) -> dict[str, Any]:
     data = safe_toml(path)
-    project = data.get("project") if isinstance(data.get("project"), dict) else {}
-    poetry = (
-        data.get("tool", {}).get("poetry", {})
-        if isinstance(data.get("tool"), dict) and isinstance(data.get("tool", {}).get("poetry"), dict)
-        else {}
-    )
+    raw_project = data.get("project")
+    project: dict[str, Any] = raw_project if isinstance(raw_project, dict) else {}
+    raw_tool = data.get("tool")
+    tool = raw_tool if isinstance(raw_tool, dict) else {}
+    raw_poetry = tool.get("poetry")
+    poetry: dict[str, Any] = raw_poetry if isinstance(raw_poetry, dict) else {}
     return {
         "name": project.get("name") or poetry.get("name"),
         "version": project.get("version") or poetry.get("version"),
@@ -130,7 +130,8 @@ def parse_package_json(path: Path) -> dict[str, Any]:
 
 def parse_cargo(path: Path) -> dict[str, Any]:
     data = safe_toml(path)
-    package = data.get("package") if isinstance(data.get("package"), dict) else {}
+    raw_package = data.get("package")
+    package: dict[str, Any] = raw_package if isinstance(raw_package, dict) else {}
     return {
         "name": package.get("name"),
         "version": package.get("version"),

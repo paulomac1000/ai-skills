@@ -174,7 +174,7 @@ def validate_release_branch(
         detail = ", ".join(f"{path}={value}" for path, value in sorted(baseline_versions.items()))
         findings.append(f"VERSION_SOURCE_CONFLICT: baseline version sources disagree: {detail}")
 
-    target = next(iter(current_set)) if len(current_set) == 1 else None
+    mirror_target = next(iter(current_set)) if len(current_set) == 1 else None
     baseline = next(iter(base_set)) if len(base_set) == 1 else None
 
     if changelog_path:
@@ -187,11 +187,11 @@ def validate_release_branch(
                 introduced = sorted(current_headings - base_headings)
                 if len(introduced) > 1:
                     findings.append(f"MULTIPLE_RELEASE_HEADINGS: {changelog_path} introduces {', '.join(introduced)}")
-                elif len(introduced) == 1 and target and introduced[0] != target:
+                elif len(introduced) == 1 and mirror_target and introduced[0] != mirror_target:
                     findings.append(
-                        f"VERSION_MIRROR_DRIFT: changelog target {introduced[0]} does not match version target {target}"
+                        f"VERSION_MIRROR_DRIFT: changelog target {introduced[0]} does not match version target {mirror_target}"
                     )
-                elif len(introduced) == 1 and baseline and target == baseline:
+                elif len(introduced) == 1 and baseline and mirror_target == baseline:
                     findings.append(
                         f"VERSION_SOURCE_CONFLICT: changelog introduces {introduced[0]} without a version transition"
                     )

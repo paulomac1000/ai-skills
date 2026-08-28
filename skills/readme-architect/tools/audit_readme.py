@@ -8,7 +8,7 @@ import re
 from pathlib import Path
 from urllib.parse import unquote
 
-PROFILE_REQUIREMENTS = {
+PROFILE_REQUIREMENTS: dict[str, list[tuple[str, tuple[str, ...]]]] = {
     "generic": [],
     "server": [
         ("quick-start", ("quick start", "getting started", "installation", "install")),
