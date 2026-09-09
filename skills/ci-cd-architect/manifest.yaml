@@ -63,6 +63,7 @@ required:
 - references/provider-trust-bootstrap.md
 - references/finding-triage.md
 - references/on-demand-ci.md
+- references/verification-integrity.md
 - templates/publish.yml.template
 - templates/trusted-workflow-audit.yml.template
 - templates/on-demand-ci.yaml.template
@@ -74,6 +75,10 @@ required:
 - tools/check_github_provider_controls.py
 - tools/classify_github_run_evidence.py
 - tools/generate_trusted_executable_sources.py
+- tools/check_test_corpus.py
+- tools/check_execution_integrity.py
+- tools/check_local_ci_parity.py
+- tools/verify_state_isolation.py
 categories:
 - core
 - references
