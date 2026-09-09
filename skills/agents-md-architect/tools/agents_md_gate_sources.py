@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import re
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -16,13 +15,24 @@ from discover_repository import Discovery, discover
 
 Classification = Literal["ci_entrypoint", "task_entrypoint", "helper", "library", "generated", "excluded"]
 
-MAIN_GUARD = re.compile(
-    r"""(?m)^\s*if\s+__name__\s*==\s*['"]__main__['"]\s*:"""
-)
-SCRIPT_REFERENCE = re.compile(
-    r"""(?<![A-Za-z0-9_.-])(?:python(?:3)?\s+|bash\s+|sh\s+|pwsh\s+|powershell\s+|\./)?(?P<path>(?:scripts|bin)/[A-Za-z0-9_./-]+(?:\.(?:py|sh|ps1|rb))?)(?![A-Za-z0-9_.-])"""
+GATE_SOURCE_POLICY_REVISION = "agents-md-gate-sources-1"
+MAIN_GUARD = re.compile(r"""(?m)^\s*if\s+__name__\s*==\s*['"]__main__['"]\s*:""")
+COMMAND_PATH_REFERENCE = re.compile(
+    r"""(?:(?:python(?:3)?|bash|sh|pwsh|powershell)\s+|\./)"""
+    r"""(?P<path>[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)+(?:\.(?:py|sh|ps1|rb))?)"""
 )
 MAX_CLASSIFIER_FILE_BYTES = 2 * 1024 * 1024
+
+WELL_KNOWN_TASK_RUNNERS = {
+    "Makefile",
+    "makefile",
+    "Justfile",
+    "justfile",
+    "Taskfile.yml",
+    "Taskfile.yaml",
+    "build.sh",
+    "build.ps1",
+}
 
 
 @dataclass(frozen=True)
@@ -56,31 +66,30 @@ def _read_bounded(root: Path, relative: str) -> str:
     return data.decode("utf-8")
 
 
-def _is_executable(root: Path, relative: str) -> bool:
-    try:
-        return os.access((root / relative).resolve(strict=True), os.X_OK)
-    except OSError:
-        return False
+def _public_task_surfaces(discovery: Discovery) -> set[str]:
+    surfaces = set(discovery.ci_files)
+    surfaces.update(
+        path for path in discovery.task_runners
+        if Path(path).name in WELL_KNOWN_TASK_RUNNERS
+    )
+    surfaces.update(
+        path for path in discovery.manifests
+        if Path(path).name in {"package.json", "pyproject.toml"}
+    )
+    return surfaces
 
 
 def _referenced_task_paths(root: Path, discovery: Discovery) -> set[str]:
     references: set[str] = set()
-    source_paths = set(discovery.ci_files)
-    source_paths.update(
-        path for path in discovery.task_runners
-        if Path(path).name in {"Makefile", "makefile", "Justfile", "justfile", "Taskfile.yml", "Taskfile.yaml", "build.sh", "build.ps1"}
-    )
-    source_paths.update(
-        path for path in discovery.manifests
-        if Path(path).name in {"package.json", "pyproject.toml"}
-    )
-    for relative in sorted(source_paths):
+    for relative in sorted(_public_task_surfaces(discovery)):
         try:
             text = _read_bounded(root, relative)
         except (OSError, UnicodeError, ValueError):
             continue
-        for match in SCRIPT_REFERENCE.finditer(text):
-            references.add(match.group("path").lstrip("./"))
+        for match in COMMAND_PATH_REFERENCE.finditer(text):
+            candidate = match.group("path").lstrip("./")
+            if candidate in discovery.files:
+                references.add(candidate)
     return references
 
 
@@ -89,31 +98,42 @@ def classify_gate_sources(
     discovery: Discovery,
     *,
     limit: int = MAX_GATE_FILES,
-    policy_revision: str = "agents-md-gate-sources-1",
+    policy_revision: str = GATE_SOURCE_POLICY_REVISION,
 ) -> GateSourceInventory:
     """Classify discovered CI/task-shaped sources without counting helpers as entrypoints."""
     safe_root = Path(discovery.root)
     references = _referenced_task_paths(safe_root, discovery)
+    candidates = set(discovery.ci_files)
+    candidates.update(discovery.task_runners)
+    candidates.update(references)
     rows: list[GateSource] = []
 
-    for relative in sorted(set((*discovery.ci_files, *discovery.task_runners))):
+    for relative in sorted(candidates):
         path = Path(relative)
         if relative in discovery.ci_files:
             rows.append(GateSource(relative, "ci_entrypoint", True, "discovered CI workflow/configuration"))
             continue
 
         name = path.name
-        if name in {"Makefile", "makefile", "Justfile", "justfile", "Taskfile.yml", "Taskfile.yaml", "build.sh", "build.ps1"}:
-            rows.append(GateSource(relative, "task_entrypoint", True, "well-known repository task-runner entrypoint"))
+        if name in WELL_KNOWN_TASK_RUNNERS:
+            rows.append(
+                GateSource(relative, "task_entrypoint", True, "well-known repository task-runner entrypoint")
+            )
             continue
         if relative.startswith("bin/"):
-            rows.append(GateSource(relative, "task_entrypoint", True, "bin/ is an explicit command entrypoint namespace"))
+            rows.append(
+                GateSource(relative, "task_entrypoint", True, "bin/ is an explicit command entrypoint namespace")
+            )
             continue
         if relative in references:
-            rows.append(GateSource(relative, "task_entrypoint", True, "referenced by CI or a public repository task surface"))
-            continue
-        if _is_executable(safe_root, relative):
-            rows.append(GateSource(relative, "task_entrypoint", True, "file has executable mode"))
+            rows.append(
+                GateSource(
+                    relative,
+                    "task_entrypoint",
+                    True,
+                    "referenced by CI or another public repository task surface",
+                )
+            )
             continue
 
         suffix = path.suffix.casefold()
@@ -121,15 +141,38 @@ def classify_gate_sources(
             try:
                 text = _read_bounded(safe_root, relative)
             except (OSError, UnicodeError, ValueError) as error:
-                rows.append(GateSource(relative, "helper", False, f"could not prove independent entrypoint: {error}"))
+                rows.append(
+                    GateSource(relative, "helper", False, f"could not prove independent entrypoint: {error}")
+                )
                 continue
             if MAIN_GUARD.search(text):
-                rows.append(GateSource(relative, "task_entrypoint", True, "Python module exposes an explicit __main__ entrypoint"))
+                rows.append(
+                    GateSource(
+                        relative,
+                        "task_entrypoint",
+                        True,
+                        "Python module exposes an explicit __main__ entrypoint",
+                    )
+                )
             else:
-                rows.append(GateSource(relative, "helper", False, "script-shaped file has no independent entrypoint evidence"))
+                rows.append(
+                    GateSource(
+                        relative,
+                        "helper",
+                        False,
+                        "script-shaped file has no independent entrypoint evidence",
+                    )
+                )
             continue
 
-        rows.append(GateSource(relative, "helper", False, "script-shaped file has no independent entrypoint evidence"))
+        rows.append(
+            GateSource(
+                relative,
+                "helper",
+                False,
+                "script-shaped file has no independent entrypoint evidence",
+            )
+        )
 
     count = sum(1 for row in rows if row.counted)
     return GateSourceInventory(

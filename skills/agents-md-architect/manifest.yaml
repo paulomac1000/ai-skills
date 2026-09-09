@@ -65,10 +65,13 @@ required:
 - references/lifecycle-and-evidence.md
 - references/instruction-precedence-and-platforms.md
 - references/migration-and-upgrade.md
+- references/gate-source-budget.md
 - templates/AGENTS.md.template
 - templates/nested-AGENTS.md.template
 - tools/discover_repository.py
 - tools/audit_agents_md.py
+- tools/audit_agents_md_impl.py
+- tools/agents_md_gate_sources.py
 - tools/agents_md_types.py
 - tools/agents_md_parse.py
 - tools/agents_md_completion_evidence.py
