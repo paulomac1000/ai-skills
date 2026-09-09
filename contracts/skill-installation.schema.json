@@ -1,0 +1,23 @@
+{
+  "$id": "https://example.invalid/ai-skills/skill-installation.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "canonical_source": {"minLength": 1, "type": "string"},
+    "cleanup_policy": {"minLength": 1, "type": "string"},
+    "distribution_mode": {"enum": ["GLOBAL", "VENDORED", "EPHEMERAL"]},
+    "install_path": {"minLength": 1, "type": "string"},
+    "install_scope": {"enum": ["machine-user", "project"]},
+    "installed_at": {"format": "date-time", "type": "string"},
+    "managed_by": {"minLength": 1, "type": "string"},
+    "owned_files": {"items": {"additionalProperties": false, "properties": {"path": {"minLength": 1, "type": "string"}, "sha256": {"pattern": "^[a-f0-9]{64}$", "type": "string"}, "size": {"minimum": 0, "type": "integer"}}, "required": ["path", "sha256", "size"], "type": "object"}, "minItems": 1, "type": "array"},
+    "schema_version": {"const": 1},
+    "skill_id": {"minLength": 1, "type": "string"},
+    "source_digest": {"pattern": "^[a-f0-9]{64}$", "type": "string"},
+    "source_revision": {"minLength": 1, "type": "string"},
+    "update_policy": {"minLength": 1, "type": "string"}
+  },
+  "required": ["schema_version", "skill_id", "canonical_source", "source_revision", "source_digest", "distribution_mode", "install_scope", "install_path", "installed_at", "managed_by", "update_policy", "cleanup_policy", "owned_files"],
+  "title": "Governed skill installation ownership state",
+  "type": "object"
+}

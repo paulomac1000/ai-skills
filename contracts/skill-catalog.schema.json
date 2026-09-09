@@ -1,0 +1,30 @@
+{
+  "$id": "https://example.invalid/ai-skills/skill-catalog.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "catalog_revision": {"minLength": 1, "type": "string"},
+    "schema_version": {"const": 1},
+    "skills": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "capabilities": {"items": {"pattern": "^[a-z0-9][a-z0-9-]*$", "type": "string"}, "minItems": 1, "type": "array", "uniqueItems": true},
+          "do_not_use_when": {"items": {"minLength": 1, "type": "string"}, "minItems": 1, "type": "array"},
+          "loading": {"additionalProperties": false, "properties": {"modes": {"items": {"enum": ["runtime_tool", "preload", "vendored"]}, "minItems": 1, "type": "array", "uniqueItems": true}}, "required": ["modes"], "type": "object"},
+          "manifest_path": {"pattern": "^skills/[a-z0-9-]+/manifest\\.yaml$", "type": "string"},
+          "skill_entrypoint": {"pattern": "^skills/[a-z0-9-]+/SKILL\\.md$", "type": "string"},
+          "skill_id": {"pattern": "^[a-z0-9][a-z0-9-]*$", "type": "string"},
+          "use_when": {"items": {"minLength": 1, "type": "string"}, "minItems": 1, "type": "array"},
+          "version": {"minLength": 1, "type": "string"}
+        },
+        "required": ["skill_id", "version", "manifest_path", "skill_entrypoint", "capabilities", "use_when", "do_not_use_when", "loading"],
+        "type": "object"
+      },
+      "type": "array"
+    }
+  },
+  "required": ["schema_version", "catalog_revision", "skills"],
+  "title": "Governed skill catalog",
+  "type": "object"
+}
