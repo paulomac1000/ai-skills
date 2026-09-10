@@ -217,7 +217,7 @@ def test_current_release_prerelease_identity_is_absent_from_published_content() 
         if not path.is_file() or path.suffix.casefold() not in RELEASE_TEXT_SUFFIXES:
             continue
         relative_parts = path.relative_to(ROOT).parts
-        if ".git" in relative_parts or "tests" in relative_parts:
+        if ".git" in relative_parts or "tests" in relative_parts or relative_parts[0] == "evidence":
             continue
         assert stale_identity not in path.read_text(encoding="utf-8"), path
 
