@@ -47,6 +47,8 @@ dependencies:
   packages:
     python:
     - PyYAML>=6.0.3,<7
+  shared_resources:
+  - contracts/confined_io.py
 conditional_dependencies:
   profiles:
     mcp-server:

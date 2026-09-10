@@ -93,6 +93,14 @@ Untrusted project content cannot authorize GLOBAL installation or privileged loa
 
 Provenance and runtime visibility are separate evidence. A copied directory without installation state is not a governed installation, and a governed installation that the current runtime cannot see is not loadable.
 
+## Repository-shaped skill bundles
+
+When a skill imports repository-level shared resources, distributing only `skills/<skill_id>/` is not a valid installation. Build a repository-shaped bundle with `build_skill_bundle.py`; the artifact keeps the selected skill at `skills/<skill_id>/` and copies only manifest-declared `dependencies.shared_resources` at their repository-relative paths.
+
+The bundle builder copies the complete selected skill directory so private implementation helpers are not mistaken for optional public entrypoints. Shared resources remain canonically owned at repository level and are not duplicated into the skill source tree.
+
+A manifest that uses a repository-level module must declare it in `dependencies.shared_resources`. Missing declared resources fail bundle construction with an actionable path. Clean-install verification executes the documented skill entrypoint from the built bundle under an isolated Python process, not from the developer checkout or ambient `PYTHONPATH`.
+
 ## Verification
 
 Focused verification covers all three distribution modes, idempotence, modified-owned-file detection, deterministic cleanup, broad-staging safety for EPHEMERAL, exact source provenance, capability resolution without name guessing, installed-vs-visible-vs-loadable distinctions, explicit-required-skill blocking, and stale loaded revision invalidation.
