@@ -30,6 +30,8 @@ QUALITY_PATHS = (
     "scripts/check_release_version.py",
 )
 TYPE_PATHS = (
+    "contracts/audit_log.py",
+    "contracts/diagnostic_reasoning.py",
     "contracts/semver.py",
     "contracts/evidence.py",
     "contracts/mcp_public_contract.py",
