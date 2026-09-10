@@ -62,6 +62,10 @@ def verify_runtime_chain(
     """Bind exact source/artifact identity to candidate and deployed runtime self-reports."""
     if not expected_source_revision or not expected_artifact_digest:
         raise RuntimeIdentityError("expected source revision and artifact digest are required")
+    if require_new_generation and previous_deployed_runtime is None:
+        raise RuntimeIdentityError(
+            "previous deployed runtime identity is required to prove a new instance generation"
+        )
     _assert_expected(
         candidate_runtime,
         expected_source_revision=expected_source_revision,
