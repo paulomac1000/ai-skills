@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from collections import Counter
 from collections.abc import Mapping
 from copy import deepcopy
+from dataclasses import dataclass
+from itertools import combinations
 from typing import Literal, cast
 
 ProbeVerdict = Literal["supports", "contradicts", "inconclusive"]
@@ -13,6 +14,15 @@ RemediationStatus = Literal["verified", "failed", "partial", "unknown"]
 
 class DiagnosticReasoningError(ValueError):
     """Raised when a diagnostic transition would violate evidence discipline."""
+
+
+@dataclass(frozen=True, slots=True)
+class EvidenceBinding:
+    """Semantic provenance for one evidence reference."""
+
+    source_group: str | None
+    kind: Literal["observation", "probe"]
+    discriminates_for: frozenset[str] = frozenset()
 
 
 def _clone_state(state: Mapping[str, object]) -> dict[str, object]:
@@ -202,48 +212,142 @@ def record_remediation_result(
             raise DiagnosticReasoningError("verified remediation cannot silently resurrect a disproven hypothesis")
         _append_evidence(hypothesis, "supporting_evidence", evidence_ref)
         hypothesis["status"] = "supported"
-    elif status in {"partial", "unknown"} and hypothesis.get("status") not in {"disproven"}:
+    elif status in {"partial", "unknown"} and hypothesis.get("status") != "disproven":
         hypothesis["status"] = "unknown"
     return updated
 
 
+def _prediction_map(probe: Mapping[str, object]) -> Mapping[str, object]:
+    raw = probe.get("predictions")
+    return raw if isinstance(raw, Mapping) else {}
+
+
+def _probe_discrimination_score(probe: Mapping[str, object], hypothesis_ids: set[str]) -> tuple[int, int]:
+    predictions = _prediction_map(probe)
+    covered = sorted(hypothesis_id for hypothesis_id in hypothesis_ids if isinstance(predictions.get(hypothesis_id), str))
+    separated = sum(1 for left, right in combinations(covered, 2) if predictions[left] != predictions[right])
+    return separated, len(covered)
+
+
 def select_discriminating_probe(state: Mapping[str, object]) -> str | None:
-    """Select a deterministic probe that discriminates unresolved hypotheses.
+    """Select the planned probe with greatest prediction-separation power.
 
     Args:
-        state: Diagnostic state containing candidate hypotheses.
+        state: Diagnostic state containing candidate hypotheses and planned probes.
 
     Returns:
-        The most shared unresolved next-probe request, with lexical tie-breaking,
-        or ``None`` when no unresolved hypothesis declares a next probe.
+        Description of the highest-scoring planned discriminating probe, using
+        coverage and probe ID as deterministic tie-breakers, or ``None``.
     """
-    probes: list[str] = []
-    for hypothesis in _mapping_list(state.get("hypotheses"), "hypotheses"):
-        if hypothesis.get("status") == "disproven":
-            continue
-        probe = hypothesis.get("next_discriminating_probe")
-        if isinstance(probe, str) and probe:
-            probes.append(probe)
-    if not probes:
+    hypotheses = _mapping_list(state.get("hypotheses"), "hypotheses")
+    unresolved = {
+        str(item["id"])
+        for item in hypotheses
+        if item.get("status") != "disproven" and isinstance(item.get("id"), str)
+    }
+    if len(unresolved) == 1:
+        only = next(item for item in hypotheses if item.get("id") in unresolved)
+        legacy = only.get("next_discriminating_probe")
+        return legacy if isinstance(legacy, str) and legacy else None
+    if len(unresolved) < 2:
         return None
-    counts = Counter(probes)
-    return min(counts, key=lambda probe: (-counts[probe], probe))
+
+    candidates: list[tuple[int, int, str, str]] = []
+    for probe in _mapping_list(state.get("probes", []), "probes"):
+        if probe.get("observed_outcome") is not None:
+            continue
+        probe_id = probe.get("id")
+        description = probe.get("description")
+        if not isinstance(probe_id, str) or not isinstance(description, str):
+            continue
+        separated, coverage = _probe_discrimination_score(probe, unresolved)
+        if separated > 0:
+            candidates.append((separated, coverage, probe_id, description))
+    if not candidates:
+        return None
+    candidates.sort(key=lambda item: (-item[0], -item[1], item[2]))
+    return candidates[0][3]
+
+
+def _source_group(value: object) -> str | None:
+    return value if isinstance(value, str) and value else None
+
+
+def _evidence_registry(
+    observations: list[dict[str, object]],
+    probes: list[dict[str, object]],
+    hypothesis_ids: set[str],
+) -> tuple[dict[str, EvidenceBinding], list[str]]:
+    registry: dict[str, EvidenceBinding] = {}
+    findings: list[str] = []
+
+    def add(evidence_ref: object, binding: EvidenceBinding) -> None:
+        if not isinstance(evidence_ref, str) or not evidence_ref:
+            return
+        if evidence_ref in registry:
+            findings.append(f"DUPLICATE_EVIDENCE_REF: {evidence_ref}")
+        else:
+            registry[evidence_ref] = binding
+
+    for observation in observations:
+        add(
+            observation.get("evidence_ref"),
+            EvidenceBinding(_source_group(observation.get("source_group")), "observation"),
+        )
+
+    for probe in probes:
+        evidence_ref = probe.get("evidence_ref")
+        observed = probe.get("observed_outcome")
+        if evidence_ref is None and observed is None:
+            continue
+        if not isinstance(evidence_ref, str) or not isinstance(observed, str):
+            findings.append(f"INCOMPLETE_PROBE_EVIDENCE: {probe.get('id')}")
+            continue
+        predictions = _prediction_map(probe)
+        discriminates_for: set[str] = set()
+        for hypothesis_id in hypothesis_ids:
+            predicted = predictions.get(hypothesis_id)
+            if predicted != observed:
+                continue
+            for alternative in hypothesis_ids - {hypothesis_id}:
+                alternative_prediction = predictions.get(alternative)
+                if isinstance(alternative_prediction, str) and alternative_prediction != predicted:
+                    discriminates_for.add(hypothesis_id)
+                    break
+        add(
+            evidence_ref,
+            EvidenceBinding(
+                _source_group(probe.get("source_group")),
+                "probe",
+                frozenset(discriminates_for),
+            ),
+        )
+    return registry, findings
+
+
+def _string_list(value: object, label: str, findings: list[str]) -> list[str]:
+    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+        findings.append(f"{label} must be an array of strings")
+        return []
+    return cast(list[str], value)
 
 
 def validate_diagnostic_state(state: Mapping[str, object]) -> list[str]:
-    """Validate cross-record causal and effective-runtime provenance semantics.
+    """Validate causal claims against independent, discriminating evidence.
 
     Args:
         state: Structurally valid diagnostic-state document.
 
     Returns:
-        Semantic findings. An empty list means causal references, disproven-state
-        discipline, and effective-config provenance are internally consistent.
+        Semantic findings. A ``proven`` causal assessment is accepted only when
+        its evidence exists, is independently sourced, and includes an executed
+        probe whose prediction discriminates the winning hypothesis.
     """
     findings: list[str] = []
     try:
         hypotheses = _mapping_list(state.get("hypotheses"), "hypotheses")
         observations = _mapping_list(state.get("observations"), "observations")
+        probes = _mapping_list(state.get("probes", []), "probes")
     except DiagnosticReasoningError as error:
         return [str(error)]
 
@@ -265,6 +369,10 @@ def validate_diagnostic_state(state: Mapping[str, object]) -> list[str]:
                 findings.append(f"DUPLICATE_OBSERVATION_ID: {observation_id}")
             observation_ids.add(observation_id)
 
+    hypothesis_ids = set(hypothesis_by_id)
+    evidence, evidence_findings = _evidence_registry(observations, probes, hypothesis_ids)
+    findings.extend(evidence_findings)
+
     causal = state.get("causal_assessment")
     if not isinstance(causal, Mapping):
         return findings + ["causal_assessment must be an object"]
@@ -273,8 +381,8 @@ def validate_diagnostic_state(state: Mapping[str, object]) -> list[str]:
     except DiagnosticReasoningError as error:
         return findings + [str(error)]
 
-    primary_count = sum(1 for cause in causes if cause.get("role") == "primary")
-    if primary_count > 1:
+    primary_causes = [cause for cause in causes if cause.get("role") == "primary"]
+    if len(primary_causes) > 1:
         findings.append("MULTIPLE_PRIMARY_CAUSES: causal assessment may contain at most one primary")
 
     config_entries = state.get("effective_config_provenance", [])
@@ -300,15 +408,37 @@ def validate_diagnostic_state(state: Mapping[str, object]) -> list[str]:
             for source_ref in source_refs:
                 if not isinstance(source_ref, str) or config_status.get(source_ref) != "runtime-proven":
                     findings.append(f"CONFIG_SOURCE_NOT_RUNTIME_PROVEN: {hypothesis_id} -> {source_ref}")
+        cause_refs = _string_list(cause.get("evidence_refs"), f"cause {hypothesis_id} evidence_refs", findings)
+        for evidence_ref in cause_refs:
+            if evidence_ref not in evidence:
+                findings.append(f"UNKNOWN_CAUSAL_EVIDENCE: {hypothesis_id} -> {evidence_ref}")
 
     unresolved = causal.get("unresolved_alternatives")
     if causal.get("status") == "proven":
         if not causes:
             findings.append("PROVEN_WITHOUT_CAUSE: proven assessment requires causal evidence")
+        if len(primary_causes) != 1:
+            findings.append("PROVEN_WITHOUT_SINGLE_PRIMARY_CAUSE")
         if isinstance(unresolved, list) and unresolved:
             findings.append("PROVEN_WITH_UNRESOLVED_ALTERNATIVES")
         if any(cause.get("support") != "proven" for cause in causes):
             findings.append("PROVEN_WITH_NONPROVEN_CAUSE")
+
+        if len(primary_causes) == 1:
+            primary = primary_causes[0]
+            winner = primary.get("hypothesis_id")
+            if isinstance(winner, str) and winner in hypothesis_by_id:
+                refs = _string_list(primary.get("evidence_refs"), f"cause {winner} evidence_refs", findings)
+                bindings = [evidence[ref] for ref in refs if ref in evidence]
+                source_groups = {binding.source_group for binding in bindings if binding.source_group is not None}
+                if len(source_groups) < 2:
+                    findings.append(f"PROVEN_WITHOUT_INDEPENDENT_CONFIRMATION: {winner}")
+                supporting = _evidence_values(hypothesis_by_id[winner])
+                missing_support = sorted(ref for ref in refs if ref not in supporting)
+                if missing_support:
+                    findings.append(f"PROVEN_EVIDENCE_NOT_BOUND_TO_HYPOTHESIS: {winner} -> {missing_support}")
+                if not any(winner in binding.discriminates_for for binding in bindings):
+                    findings.append(f"PROVEN_WITHOUT_DISCRIMINATING_EVIDENCE: {winner}")
 
     return findings
 
