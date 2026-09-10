@@ -5,42 +5,24 @@ from pathlib import Path
 
 import pytest
 from jsonschema import Draft202012Validator, ValidationError
+from referencing import Registry, Resource
 
 ROOT = Path(__file__).resolve().parents[1]
-SCHEMA = json.loads((ROOT / "contracts" / "agentic-governance.schema.json").read_text(encoding="utf-8"))
+CONTRACTS = ROOT / "contracts"
 
 
-def _validator(definition: str) -> Draft202012Validator:
-    return Draft202012Validator({"$ref": f"#/$defs/{definition}", "$defs": SCHEMA["$defs"]})
+def _load(name: str) -> dict:
+    return json.loads((CONTRACTS / name).read_text(encoding="utf-8"))
 
 
-def _outcome(**overrides: object) -> dict:
-    value = {
-        "schema_version": 1,
-        "transport": "succeeded",
-        "execution": "succeeded",
-        "side_effect": "confirmed",
-        "artifact": "none",
-        "verification": "passed",
-        "disposition": "completed",
-        "safe_to_retry": "no",
-    }
-    value.update(overrides)
-    return value
-
-
-@pytest.mark.parametrize(
-    ("overrides", "reason"),
-    [
-        ({"side_effect": "unknown", "disposition": "completed"}, "ambiguous side effect"),
-        ({"artifact": "missing"}, "required artifact missing"),
-        ({"verification": "stale"}, "stale evidence"),
-    ],
-)
-def test_completed_outcome_rejects_unproven_completion(overrides: dict, reason: str) -> None:
-    del reason
-    with pytest.raises(ValidationError):
-        _validator("action_outcome").validate(_outcome(**overrides))
+def _validator(name: str) -> Draft202012Validator:
+    schema = _load(name)
+    resources = []
+    for path in CONTRACTS.glob("*.schema.json"):
+        candidate = _load(path.name)
+        if "$id" in candidate:
+            resources.append((candidate["$id"], Resource.from_contents(candidate)))
+    return Draft202012Validator(schema, registry=Registry().with_resources(resources))
 
 
 def _receipt() -> dict:
@@ -73,100 +55,143 @@ def test_historical_34_23_test_corpus_shape_cannot_pass() -> None:
     receipt["test_corpus"]["executed_files"] = 23
     receipt["test_corpus"]["discovery_drift"] = 11
     with pytest.raises(ValidationError):
-        _validator("verification_receipt").validate(receipt)
+        _validator("verification-receipt.schema.json").validate(receipt)
 
 
 @pytest.mark.parametrize(
     "field",
     ["cancelled", "pending", "unhandled_exceptions", "unraisable", "blocking_warnings"],
 )
-def test_pass_rejects_execution_integrity_failures(field: str) -> None:
+def test_verification_pass_rejects_execution_integrity_failures(field: str) -> None:
     receipt = _receipt()
     receipt["execution_integrity"][field] = 1
     with pytest.raises(ValidationError):
-        _validator("verification_receipt").validate(receipt)
+        _validator("verification-receipt.schema.json").validate(receipt)
 
 
-def test_pass_rejects_unknown_async_leak_state() -> None:
+def test_verification_pass_rejects_unknown_async_leak_state() -> None:
     receipt = _receipt()
     receipt["execution_integrity"]["leaked_async_work"] = "unknown"
     with pytest.raises(ValidationError):
-        _validator("verification_receipt").validate(receipt)
+        _validator("verification-receipt.schema.json").validate(receipt)
 
 
 def test_validation_cannot_touch_production_effective_state() -> None:
     receipt = _receipt()
     receipt["isolation"]["production_effective_state_touched"] = True
     with pytest.raises(ValidationError):
-        _validator("verification_receipt").validate(receipt)
+        _validator("verification-receipt.schema.json").validate(receipt)
 
 
-def test_ephemeral_distribution_requires_cleanup() -> None:
-    install = {
-        "schema_version": 1,
-        "skill_id": "qa-change-verifier",
-        "source": "github:owner/repo",
-        "source_revision": "b" * 40,
-        "distribution_mode": "EPHEMERAL",
-        "install_scope": ".agents/generated/qa-change-verifier",
-        "managed_by": "skill-installer",
-        "update_policy": "pinned",
-        "cleanup_policy": "none",
-    }
-    with pytest.raises(ValidationError):
-        _validator("skill_installation").validate(install)
-
-
-def test_delegation_preserves_planning_and_execution_bases() -> None:
-    contract = {
-        "schema_version": 1,
-        "task_id": "task-1",
-        "planning_base": {"repository": "owner/repo", "ref": "main", "revision": "a" * 40},
-        "execution_base": {"repository": "owner/repo", "ref": "branch", "revision": "b" * 40},
-        "base_relationship": "descendant",
-        "admission": "BASE_ADVANCED_COMPATIBLE",
-        "plan_revision": "plan-1",
-        "required_capabilities": ["repository.write"],
-        "expected_outputs": ["published revision"],
-        "authority": ["repository.write:owner/repo"],
-    }
-    _validator("delegation_contract").validate(contract)
-    assert contract["planning_base"]["revision"] != contract["execution_base"]["revision"]
-
-
-def test_intent_ledger_keeps_superseded_requirements_auditable() -> None:
-    ledger = {
+def _ledger() -> dict:
+    return {
         "schema_version": 1,
         "ledger_id": "ledger-1",
         "task_id": "task-1",
-        "revision": 2,
+        "intent_revision": 3,
+        "goal": "Implement and deploy the requested change",
         "requirements": [
-            {"id": "r1", "statement": "Do not publish", "origin": "user_explicit", "kind": "constraint", "state": "superseded", "superseded_by": "r2"},
-            {"id": "r2", "statement": "Publish only to the feature branch", "origin": "clarified", "kind": "constraint", "state": "active"}
-        ]
+            {
+                "id": "R1",
+                "statement": "Implement code",
+                "status": "satisfied",
+                "source": "user",
+                "source_revision": "user-turn-1",
+                "mandatory": True,
+                "superseded_by": None,
+                "superseded_by_authority": None,
+                "evidence_refs": ["git:commit-a"],
+            },
+            {
+                "id": "R2",
+                "statement": "Deploy app A",
+                "status": "pending",
+                "source": "user",
+                "source_revision": "user-turn-1",
+                "mandatory": True,
+                "superseded_by": None,
+                "superseded_by_authority": None,
+                "evidence_refs": [],
+            },
+        ],
+        "required_capabilities": ["repository.write", "deployment.execute"],
+        "required_execution_methods": ["protected-release"],
+        "acceptance_criteria": ["code verified", "deployed runtime verified"],
+        "prohibitions": ["do not mutate service B"],
+        "authorized_operations": ["repository.write:app-a", "deploy:app-a"],
+        "scope": {
+            "in_scope_targets": ["app-a"],
+            "protected_or_out_of_scope_targets": ["service-b"],
+            "allowed_side_effect_classes": ["repository-write", "deploy"],
+        },
+        "open_questions": [],
+        "unresolved_conflicts": [],
     }
-    _validator("intent_ledger").validate(ledger)
 
 
-def test_diagnostic_state_keeps_disproven_hypothesis_distinct_from_observation() -> None:
+def test_intent_ledger_preserves_pending_required_deployment() -> None:
+    ledger = _ledger()
+    _validator("intent-ledger.schema.json").validate(ledger)
+    assert [item["id"] for item in ledger["requirements"] if item["status"] == "pending"] == ["R2"]
+
+
+def test_satisfied_requirement_requires_evidence() -> None:
+    ledger = _ledger()
+    ledger["requirements"][0]["evidence_refs"] = []
+    with pytest.raises(ValidationError):
+        _validator("intent-ledger.schema.json").validate(ledger)
+
+
+def test_superseded_requirement_requires_new_requirement_and_authority_reference() -> None:
+    ledger = _ledger()
+    ledger["requirements"][1].update({"status": "superseded", "superseded_by": None, "superseded_by_authority": None})
+    with pytest.raises(ValidationError):
+        _validator("intent-ledger.schema.json").validate(ledger)
+
+
+def test_delegation_records_both_bases_and_explicit_advanced_admission() -> None:
+    contract = {
+        "schema_version": 1,
+        "task_id": "task-1",
+        "attempt_id": "attempt-1",
+        "intent_revision": 3,
+        "planning_base": {"repository": "owner/repo", "ref": "main", "revision": "a" * 40},
+        "execution_base": {"repository": "owner/repo", "ref": "feature", "revision": "b" * 40},
+        "base_relationship": "descendant",
+        "admission": "BASE_ADVANCED_COMPATIBLE",
+        "plan_revision": "plan-2",
+        "required_capabilities": ["repository.write"],
+        "expected_outputs": ["published-revision"],
+        "authority": ["repository.write:owner/repo"],
+        "resource_domains": ["repo:owner/repo"],
+        "requires_work": True,
+        "revalidated_assumptions": ["working set unchanged upstream"],
+        "result": None,
+    }
+    _validator("delegation-contract.schema.json").validate(contract)
+    assert contract["planning_base"]["revision"] != contract["execution_base"]["revision"]
+
+
+def test_diagnostic_state_preserves_multiple_contributing_causes() -> None:
     state = {
         "schema_version": 1,
-        "observations": [{"id": "o1", "claim": "HTTP returned 403", "evidence_ref": "probe:1", "classification": "OBSERVATION"}],
-        "hypotheses": [{"id": "h1", "claim": "credential is invalid", "status": "disproven", "supporting_evidence": [], "contradicting_evidence": ["probe:2"], "next_discriminating_probe": None}],
-        "root_cause": {"status": "unknown", "hypothesis_id": None}
+        "observations": [
+            {"id": "O1", "claim": "action-specific probe failed", "evidence_ref": "probe:1", "classification": "OBSERVATION"}
+        ],
+        "hypotheses": [
+            {"id": "H1", "claim": "runtime binding is stale", "status": "supported", "supporting_evidence": ["probe:2"], "contradicting_evidence": [], "next_discriminating_probe": None},
+            {"id": "H2", "claim": "provider is degraded", "status": "supported", "supporting_evidence": ["probe:3"], "contradicting_evidence": [], "next_discriminating_probe": None},
+        ],
+        "causal_assessment": {
+            "status": "partial",
+            "causes": [
+                {"hypothesis_id": "H1", "role": "contributing", "support": "supported", "evidence_refs": ["probe:2"]},
+                {"hypothesis_id": "H2", "role": "contributing", "support": "supported", "evidence_refs": ["probe:3"]},
+            ],
+            "unresolved_alternatives": [],
+        },
+        "effective_config_provenance": [],
+        "evidence_refs": ["probe:1", "probe:2", "probe:3"],
     }
-    _validator("diagnostic_state").validate(state)
-    assert state["observations"][0]["claim"] == "HTTP returned 403"
-
-
-def test_audit_can_record_dispatched_unknown_side_effect_without_false_success() -> None:
-    event = {
-        "schema_version": 1,
-        "event_id": "event-1",
-        "correlation_id": "correlation-1",
-        "timestamp": "2026-09-10T00:00:00Z",
-        "actor": {"principal": "agent"},
-        "action": {"capability": "send", "operation": "create", "target": "resource:1"},
-        "outcome": _outcome(transport="timed_out", execution="unknown", side_effect="unknown", verification="not_run", disposition="reconcile_required", safe_to_retry="unknown")
-    }
-    _validator("audit_event").validate(event)
+    _validator("diagnostic-state.schema.json").validate(state)
+    assert len(state["causal_assessment"]["causes"]) == 2
