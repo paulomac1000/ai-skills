@@ -12,6 +12,7 @@ MAX_LOG_BYTES = 16 * 1024 * 1024
 
 BLOCKING_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("pytest_unhandled_thread", re.compile(r"PytestUnhandledThreadExceptionWarning")),
+    ("python_thread_exception", re.compile(r"^\s*Exception in thread\b.*:", re.IGNORECASE)),
     ("pytest_unraisable", re.compile(r"PytestUnraisableExceptionWarning")),
     ("python_unawaited_coroutine", re.compile(r"coroutine .* was never awaited", re.IGNORECASE)),
     ("python_pending_task", re.compile(r"Task was destroyed but it is pending", re.IGNORECASE)),
@@ -31,9 +32,17 @@ GENERIC_WARNING = re.compile(r"\b[A-Za-z][A-Za-z0-9_]*Warning\s*:")
 
 
 def _read(path: Path) -> str:
-    data = path.read_bytes()
+    if path.is_symlink() or not path.is_file():
+        raise ValueError("log must be a regular file")
+    size = path.stat().st_size
+    if size > MAX_LOG_BYTES:
+        raise ValueError("log exceeds maximum supported size")
+    with path.open("rb") as handle:
+        data = handle.read(MAX_LOG_BYTES + 1)
     if len(data) > MAX_LOG_BYTES:
         raise ValueError("log exceeds maximum supported size")
+    if len(data) != size:
+        raise ValueError("log changed while being read")
     return data.decode("utf-8")
 
 
