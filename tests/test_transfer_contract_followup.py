@@ -26,7 +26,8 @@ def _load(path: Path, name: str):
 def test_read_capability_is_naturally_idempotent_without_retry_key() -> None:
     schema = json.loads((ROOT / "contracts/capability-manifest.schema.json").read_text(encoding="utf-8"))
     manifest = {
-        "schema_version": 1,
+        "schema_version": 2,
+        "contract_revision": 2,
         "id": "inventory.list",
         "name": "List inventory",
         "description": "Lists bounded inventory metadata.",
@@ -41,8 +42,19 @@ def test_read_capability_is_naturally_idempotent_without_retry_key() -> None:
         "reversible": False,
         "requires_confirmation": False,
         "idempotency_key_required": False,
+        "idempotency": {"mode": "intrinsic", "scope": "invocation"},
+        "async_model": "synchronous",
+        "outcome_contract": "simple",
+        "reconciliation": {
+            "supported": False,
+            "required_after_ambiguous_dispatch": False,
+            "method": "none",
+        },
+        "publication": {"model": "inline", "implies_verification": False},
+        "result_bounded": True,
+        "runtime_identity": {"supported": False, "level": "none"},
         "authorization_scopes": [],
-        "concurrency": {"scope": "principal", "limit": 4},
+        "concurrency": {"scope": "principal", "limit": 4, "queue_limit": 8},
         "max_response_bytes": 65536,
     }
     validator = Draft202012Validator(schema)
