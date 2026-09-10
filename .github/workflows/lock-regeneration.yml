@@ -8,6 +8,7 @@ on:
       - .github/workflow-policy.yaml
       - requirements-dev.in
       - scripts/compile_locks.py
+      - scripts/install_locked.py
       - scripts/select_lock.py
       - skills/mcp-server-architect/locks/python-dev.in
       - skills/mcp-server-architect/locks/python-runtime.in
@@ -16,6 +17,7 @@ on:
     paths:
       - requirements-dev.in
       - scripts/compile_locks.py
+      - scripts/install_locked.py
       - scripts/select_lock.py
       - skills/mcp-server-architect/locks/python-dev.in
       - skills/mcp-server-architect/locks/python-runtime.in
