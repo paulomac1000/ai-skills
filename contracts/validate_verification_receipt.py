@@ -9,7 +9,7 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-from jsonschema import Draft202012Validator
+from jsonschema import Draft202012Validator, FormatChecker
 from referencing import Registry, Resource
 
 CONTRACTS = Path(__file__).resolve().parent
@@ -24,9 +24,21 @@ class VerificationReceiptError(ValueError):
 def _load_mapping(path: Path, *, max_bytes: int = MAX_RECEIPT_BYTES) -> Mapping[str, Any]:
     if path.is_symlink() or not path.is_file():
         raise VerificationReceiptError(f"not a regular file: {path}")
-    data = path.read_bytes()
+    try:
+        size = path.stat().st_size
+    except OSError as error:
+        raise VerificationReceiptError(f"file cannot be inspected: {path}: {error}") from error
+    if size > max_bytes:
+        raise VerificationReceiptError(f"file exceeds {max_bytes} bytes: {path}")
+    try:
+        with path.open("rb") as handle:
+            data = handle.read(max_bytes + 1)
+    except OSError as error:
+        raise VerificationReceiptError(f"file cannot be read: {path}: {error}") from error
     if len(data) > max_bytes:
         raise VerificationReceiptError(f"file exceeds {max_bytes} bytes: {path}")
+    if len(data) != size:
+        raise VerificationReceiptError(f"file changed while being read: {path}")
     try:
         value = json.loads(data.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as error:
@@ -105,7 +117,11 @@ def validate_receipt(
         schema_id = candidate.get("$id")
         if isinstance(schema_id, str) and schema_id:
             resources.append((schema_id, Resource.from_contents(candidate)))
-    validator = Draft202012Validator(active_schema, registry=Registry().with_resources(resources))
+    validator = Draft202012Validator(
+        active_schema,
+        registry=Registry().with_resources(resources),
+        format_checker=FormatChecker(),
+    )
     findings = [
         f"{'.'.join(str(part) for part in error.absolute_path) or '$'}: {error.message}"
         for error in sorted(
