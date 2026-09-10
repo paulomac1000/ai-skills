@@ -61,3 +61,6 @@ adoption:
   rule_catalog: contracts/rule-catalog.yaml
   extension: generic
   rule_map: contracts/standard-rule-map.yaml
+  consumer_runtime_evidence:
+    provider_backed_runtimes:
+    - node
