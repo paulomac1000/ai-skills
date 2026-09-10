@@ -13,7 +13,7 @@ CONTRACTS = ROOT / "contracts"
 if str(CONTRACTS) not in sys.path:
     sys.path.insert(0, str(CONTRACTS))
 
-from verification_receipt import VerificationReceiptError, validate_receipt_semantics  # noqa: E402
+from validate_verification_receipt import validate_receipt, validate_receipt_semantics  # noqa: E402
 
 
 def _load(name: str) -> dict:
@@ -61,7 +61,7 @@ def _receipt() -> dict:
 def test_valid_pass_receipt_is_schema_and_semantically_complete() -> None:
     receipt = _receipt()
     _validator("verification-receipt.schema.json").validate(receipt)
-    validate_receipt_semantics(receipt)
+    assert validate_receipt(receipt) == []
 
 
 def test_historical_34_23_test_corpus_shape_cannot_pass() -> None:
@@ -88,8 +88,8 @@ def test_semantic_validator_recomputes_accounted_test_files() -> None:
     receipt["test_corpus"]["accounted_files"] = 34
     receipt["test_corpus"]["discovery_drift"] = 0
     _validator("verification-receipt.schema.json").validate(receipt)
-    with pytest.raises(VerificationReceiptError, match="accounted_files"):
-        validate_receipt_semantics(receipt)
+    findings = validate_receipt_semantics(receipt)
+    assert any("accounted_files" in finding for finding in findings)
 
 
 @pytest.mark.parametrize(
