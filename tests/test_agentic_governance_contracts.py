@@ -54,6 +54,7 @@ def _receipt() -> dict:
             "leaked_async_work": 0,
         },
         "isolation": {"production_effective_state_touched": False},
+        "evidence_refs": ["evidence:repository-run"],
         "verdict": "pass",
     }
 
