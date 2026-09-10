@@ -321,6 +321,39 @@ def _combination_object(combination: tuple[str, str, str, str, str]) -> dict[str
     }
 
 
+def _consumer_runtime_policy(
+    manifest: Mapping[str, Any],
+    findings: list[Finding],
+) -> set[str]:
+    adoption = _mapping(manifest.get("adoption"), "manifest.adoption", findings)
+    raw_policy = adoption.get("consumer_runtime_evidence")
+    if raw_policy is None:
+        return set()
+    policy = _mapping(raw_policy, "manifest.adoption.consumer_runtime_evidence", findings)
+    unknown = set(policy) - {"provider_backed_runtimes"}
+    if unknown:
+        findings.append(
+            Finding(
+                "manifest.adoption.consumer_runtime_evidence",
+                f"unsupported fields: {sorted(unknown)}",
+            )
+        )
+    runtimes = _text_list(
+        policy.get("provider_backed_runtimes"),
+        "manifest.adoption.consumer_runtime_evidence.provider_backed_runtimes",
+        findings,
+        nonempty=True,
+    )
+    if len(runtimes) != len(set(runtimes)):
+        findings.append(
+            Finding(
+                "manifest.adoption.consumer_runtime_evidence.provider_backed_runtimes",
+                "must not contain duplicate runtimes",
+            )
+        )
+    return set(runtimes)
+
+
 def _validate_compatibility(
     assessment: Mapping[str, Any],
     manifest: Mapping[str, Any],
@@ -348,7 +381,20 @@ def _validate_compatibility(
         _combination(raw, f"manifest.compatibility.tested_combinations[{index}]", findings)
         for index, raw in enumerate(raw_supported)
     }
-    unsupported = claimed - supported
+    provider_backed_consumer_runtimes = _consumer_runtime_policy(manifest, findings)
+    supported_platforms = {(item[0], item[1]) for item in supported}
+
+    def supported_claim(combination: tuple[str, str, str, str, str]) -> bool:
+        if combination in supported:
+            return True
+        if verifier is None:
+            return False
+        return (
+            combination[2] in provider_backed_consumer_runtimes
+            and (combination[0], combination[1]) in supported_platforms
+        )
+
+    unsupported = {combination for combination in claimed if not supported_claim(combination)}
     if unsupported:
         findings.append(
             Finding(
