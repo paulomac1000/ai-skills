@@ -57,6 +57,75 @@ profiles:
     - repository-junit.xml
     execution_id: repository
   - kind: rule
+    subject: orchestrator.intent.preserved
+    selectors: &orchestrator-intent
+    - '*test_task_intent_ledger*'
+    - '*test_task_orchestrator*'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: orchestrator.scope.authority
+    selectors: &orchestrator-runtime
+    - '*test_task_orchestrator*'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: orchestrator.base.revalidated
+    selectors: *orchestrator-runtime
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: orchestrator.delegation.least-authority
+    selectors: *orchestrator-runtime
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: orchestrator.dispatch.once
+    selectors: *orchestrator-runtime
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: orchestrator.progress.no-stall
+    selectors: *orchestrator-runtime
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: orchestrator.reconciliation.evidenced
+    selectors: *orchestrator-runtime
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: orchestrator.completion.intent
+    selectors: *orchestrator-intent
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: orchestrator.parallel.resources
+    selectors: *orchestrator-runtime
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: orchestrator.handoff.compact
+    selectors: *orchestrator-runtime
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: orchestrator.verification.adversarial
+    selectors: *orchestrator-runtime
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
     subject: agents.scope.precedence
     selectors:
     - '*test_agents_md*'
@@ -466,6 +535,7 @@ profiles:
     subject: adoption-contract-schema
     selectors:
     - '*test_adoption_contract*'
+    - '*test_adoption_node_consumer*'
     result_files:
     - repository-junit.xml
     content_path: contracts/adoption-assessment.schema.json
