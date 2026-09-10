@@ -192,6 +192,7 @@ def _lease(**overrides: object) -> dict:
 def _admit(lease: dict, **overrides: object):
     args = {
         "principal": "release-agent",
+        "session": "session-1",
         "target": {"project": "owner/repo", "environment": "staging", "resource": "service/api"},
         "artifact_digest": "sha256:" + "b" * 64,
         "action": "deploy",
@@ -208,8 +209,16 @@ def test_deployment_lease_admits_exact_target_only() -> None:
     _validator("deployment-lease.schema.json").validate(lease)
     admission = _admit(lease)
     assert admission.target_environment == "staging"
+    assert admission.session == "session-1"
     with pytest.raises(DeploymentLeaseError, match="target.environment"):
         _admit(lease, target={"project": "owner/repo", "environment": "production", "resource": "service/api"})
+
+
+def test_deployment_lease_rejects_session_mismatch_or_missing_session() -> None:
+    with pytest.raises(DeploymentLeaseError, match="session"):
+        _admit(_lease(), session="session-2")
+    with pytest.raises(DeploymentLeaseError, match="session"):
+        _admit(_lease(), session=None)
 
 
 @pytest.mark.parametrize("state", ["used", "revoked", "expired"])
