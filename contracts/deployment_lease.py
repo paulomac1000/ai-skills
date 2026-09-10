@@ -95,8 +95,7 @@ def admit_lease(
     if not isinstance(lease_target, Mapping):
         raise DeploymentLeaseError("deployment lease target is missing")
     requested_dimensions = {
-        field: _target_dimension(target, field, label="requested")
-        for field in ("project", "environment", "resource")
+        field: _target_dimension(target, field, label="requested") for field in ("project", "environment", "resource")
     }
     lease_dimensions = {
         field: _target_dimension(lease_target, field, label="deployment lease")
