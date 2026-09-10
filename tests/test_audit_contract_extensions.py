@@ -25,7 +25,8 @@ def _write_yaml(path: Path, value: object) -> Path:
 
 def _capability(**overrides: object) -> dict[str, object]:
     value: dict[str, object] = {
-        "schema_version": 1,
+        "schema_version": 2,
+        "contract_revision": 2,
         "id": "inventory.list",
         "name": "List inventory",
         "description": "Lists bounded inventory metadata.",
@@ -40,6 +41,17 @@ def _capability(**overrides: object) -> dict[str, object]:
         "reversible": False,
         "requires_confirmation": False,
         "idempotency_key_required": False,
+        "idempotency": {"mode": "intrinsic", "scope": "invocation"},
+        "async_model": "synchronous",
+        "outcome_contract": "simple",
+        "reconciliation": {
+            "supported": False,
+            "required_after_ambiguous_dispatch": False,
+            "method": "none",
+        },
+        "publication": {"model": "inline", "implies_verification": False},
+        "result_bounded": True,
+        "runtime_identity": {"supported": False, "level": "none"},
         "authorization_scopes": [],
         "concurrency": {"scope": "principal", "limit": 4, "queue_limit": 8},
         "max_response_bytes": 65536,
@@ -70,6 +82,7 @@ def test_write_retry_flags_require_explicit_rationales(tmp_path: Path) -> None:
             retryable=True,
             idempotent=True,
             idempotency_key_required=True,
+            idempotency={"mode": "keyed", "scope": "principal-target"},
         ),
     )
     findings = validate_manifest(manifest)
@@ -90,6 +103,39 @@ def test_confirmation_metadata_requires_server_approval_record(tmp_path: Path) -
     )
     findings = validate_manifest(manifest)
     assert any("approval" in finding for finding in findings)
+
+
+def test_capability_manifest_requires_machine_readable_lifecycle_semantics(tmp_path: Path) -> None:
+    value = _capability()
+    value.pop("reconciliation")
+    manifest = _write_yaml(tmp_path / "missing-lifecycle.yaml", value)
+    findings = validate_manifest(manifest)
+    assert any("reconciliation" in finding for finding in findings)
+
+
+def test_non_idempotent_mutation_requires_ambiguous_dispatch_reconciliation(tmp_path: Path) -> None:
+    manifest = _write_yaml(
+        tmp_path / "mutation.yaml",
+        _capability(
+            operation_kind="write",
+            impact="external",
+            risk="high",
+            idempotent=False,
+            idempotency={"mode": "none", "scope": "principal-target"},
+            authorization_scopes=["inventory:write"],
+        ),
+    )
+    findings = validate_manifest(manifest)
+    assert any("required_after_ambiguous_dispatch" in finding for finding in findings)
+
+
+def test_runtime_identity_support_cannot_be_claimed_with_none_level(tmp_path: Path) -> None:
+    manifest = _write_yaml(
+        tmp_path / "identity.yaml",
+        _capability(runtime_identity={"supported": True, "level": "none"}),
+    )
+    findings = validate_manifest(manifest)
+    assert any("runtime_identity" in finding or "none" in finding for finding in findings)
 
 
 def _evidence_record(profile: str, quality: str, provider_kind: str) -> dict[str, object]:
