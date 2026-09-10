@@ -133,7 +133,7 @@ def test_action_outcome_unknown_side_effect_cannot_be_terminal_failed() -> None:
         "transport": "timed_out",
         "execution": "unknown",
         "side_effect": "unknown",
-        "artifact_publication": "unknown",
+        "artifact": "unknown",
         "verification": "not_run",
         "disposition": "failed",
         "safe_to_retry": "no",
