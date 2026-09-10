@@ -17,6 +17,7 @@ import pytest
 from jsonschema import Draft202012Validator
 
 from contracts.deployment_lease import DeploymentLeaseError, admit_lease
+from contracts.evidence import GitHubEvidenceVerifier
 from contracts.secret_taint import TaintGuard, TaintViolation
 from contracts.skill_consumer import SkillConsumerError, load_catalog, resolve_skill
 from contracts.skill_distribution import DistributionError, install
@@ -196,6 +197,30 @@ def test_pass_receipt_requires_nonempty_evidence_refs() -> None:
     assert list(Draft202012Validator(schema).iter_errors(receipt))
     receipt["evidence_refs"] = ["evidence:run-1"]
     assert list(Draft202012Validator(schema).iter_errors(receipt)) == []
+
+
+def test_provider_verifier_maps_pytest_and_exact_non_python_junit_identities() -> None:
+    assert (
+        GitHubEvidenceVerifier._junit_identity_for_test_case("tests/test_rule.py::test_rule")
+        == "tests.test_rule::test_rule"
+    )
+    assert (
+        GitHubEvidenceVerifier._junit_identity_for_test_case("tests/adoption.test.ts::adoption contract")
+        == "tests/adoption.test.ts::adoption contract"
+    )
+    claim = {
+        "result_bindings": [
+            {
+                "test_cases": [
+                    {"identity": "tests/adoption.test.ts::adoption contract", "status": "passed"}
+                ]
+            }
+        ]
+    }
+    assert GitHubEvidenceVerifier._claim_binds_test_case(
+        claim,
+        "tests/adoption.test.ts::adoption contract",
+    )
 
 
 def test_terminal_evidence_without_outputs_must_bind_the_current_task() -> None:
