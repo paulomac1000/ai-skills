@@ -124,12 +124,26 @@ def resolve_skill(
 
     if not candidates:
         return SkillResolution(
-            "NOT_CATALOGUED", capability, None, revision, None, None, None, False,
+            "NOT_CATALOGUED",
+            capability,
+            None,
+            revision,
+            None,
+            None,
+            None,
+            False,
             "no governed skill declares the requested capability",
         )
     if len(candidates) > 1:
         return SkillResolution(
-            "AMBIGUOUS", capability, None, revision, None, None, None, required_skill is not None,
+            "AMBIGUOUS",
+            capability,
+            None,
+            revision,
+            None,
+            None,
+            None,
+            required_skill is not None,
             "multiple governed skills declare the capability; refine declared routing constraints",
         )
 
@@ -162,6 +176,19 @@ def resolve_skill(
             None,
             blocked,
             "installed skill has no attributable revision",
+        )
+    installed_digest = state.get("installed_artifact_digest")
+    if not isinstance(installed_digest, str) or not installed_digest.strip():
+        return SkillResolution(
+            "BLOCKED_REQUIRED_SKILL" if blocked else "UNKNOWN",
+            capability,
+            skill_id,
+            revision,
+            installed_revision,
+            None,
+            None,
+            blocked,
+            "installed skill has no attributable artifact digest",
         )
     if not state.get("runtime_visible", False):
         return SkillResolution(
@@ -209,13 +236,20 @@ def resolve_skill(
 
     loaded_revision = state.get("loaded_revision")
     loaded_digest = state.get("loaded_artifact_digest")
-    installed_digest = state.get("installed_artifact_digest")
     if loaded_revision is not None:
-        if str(loaded_revision) != installed_revision or (
-            loaded_digest is not None
-            and installed_digest is not None
-            and str(loaded_digest) != str(installed_digest)
-        ):
+        if not isinstance(loaded_digest, str) or not loaded_digest.strip():
+            return SkillResolution(
+                "BLOCKED_REQUIRED_SKILL" if blocked else "STALE_LOADED_REVISION",
+                capability,
+                skill_id,
+                revision,
+                installed_revision,
+                str(loaded_revision),
+                selected,
+                blocked,
+                "loaded skill has no attributable artifact digest; reload is required",
+            )
+        if str(loaded_revision) != installed_revision or loaded_digest != installed_digest:
             return SkillResolution(
                 "BLOCKED_REQUIRED_SKILL" if blocked else "STALE_LOADED_REVISION",
                 capability,
@@ -236,7 +270,7 @@ def resolve_skill(
             str(loaded_revision),
             selected,
             False,
-            "exact installed revision is already loaded",
+            "exact installed revision and artifact digest are already loaded",
         )
 
     return SkillResolution(
@@ -248,7 +282,7 @@ def resolve_skill(
         None,
         selected,
         False,
-        "exact skill is catalogued, installed, visible, compatible, and loadable",
+        "exact skill is catalogued, installed, digest-attributed, visible, compatible, and loadable",
     )
 
 
