@@ -352,7 +352,13 @@
         ]
       },
       "then": {
+        "required": [
+          "evidence_refs"
+        ],
         "properties": {
+          "evidence_refs": {
+            "minItems": 1
+          },
           "bootstrap": {
             "properties": {
               "declared_dependencies_only": {
