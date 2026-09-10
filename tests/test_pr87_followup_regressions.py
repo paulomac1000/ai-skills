@@ -261,6 +261,44 @@ def test_terminal_evidence_without_outputs_must_bind_the_current_task() -> None:
     assert accepted.code == "TERMINAL_EVIDENCE_PRESENT"
 
 
+def test_expected_output_evidence_must_bind_output_and_current_task() -> None:
+    revision = "a" * 40
+    bindings = {
+        "evidence:other": {
+            "intent_revision": 3,
+            "execution_revision": revision,
+            "subjects": ["output:artifact", "task:task-2"],
+        },
+        "evidence:task": {
+            "intent_revision": 3,
+            "execution_revision": revision,
+            "subjects": ["output:artifact", "task:task-1"],
+        },
+    }
+    rejected = TASK_ORCHESTRATOR.classify_terminal(
+        requires_work=True,
+        child_disposition="completed",
+        expected_outputs=["artifact"],
+        task_id="task-1",
+        intent_revision=3,
+        execution_revision=revision,
+        evidence_bindings=bindings,
+        evidence_refs=["evidence:other"],
+    )
+    assert rejected.code == "COMPLETED_NO_EVIDENCE"
+    accepted = TASK_ORCHESTRATOR.classify_terminal(
+        requires_work=True,
+        child_disposition="completed",
+        expected_outputs=["artifact"],
+        task_id="task-1",
+        intent_revision=3,
+        execution_revision=revision,
+        evidence_bindings=bindings,
+        evidence_refs=["evidence:task"],
+    )
+    assert accepted.code == "TERMINAL_EVIDENCE_PRESENT"
+
+
 def _swap_path_after_open(
     monkeypatch: pytest.MonkeyPatch,
     module: ModuleType,
@@ -275,7 +313,12 @@ def _swap_path_after_open(
         if Path(target) == path:
             replacement = path.with_name(path.name + ".replacement")
             replacement.write_bytes(b"substitute")
-            os.replace(replacement, path)
+            try:
+                os.replace(replacement, path)
+            except PermissionError:
+                if os.name != "nt":
+                    raise
+                replacement.unlink()
         return descriptor
 
     with monkeypatch.context() as patch:
@@ -303,3 +346,54 @@ def test_descriptor_bound_readers_do_not_process_same_path_replacement(
 
     for module, path, reader, expected in cases:
         _swap_path_after_open(monkeypatch, module, path, reader, expected)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="in-place descriptor mutation regression uses POSIX sharing semantics")
+def test_descriptor_bound_readers_reject_equal_length_in_place_mutation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cases: list[tuple[ModuleType, Path, Callable[[], object]]] = []
+
+    log = tmp_path / "mutable.log"
+    log.write_bytes(b"original!!")
+    cases.append((EXECUTION_INTEGRITY, log, lambda: EXECUTION_INTEGRITY._read(log)))
+
+    policy = tmp_path / "mutable.yaml"
+    policy.write_bytes(b"original!!")
+    cases.append((BOOTSTRAP, policy, lambda: BOOTSTRAP._read_bounded(policy, 100, label="policy")))
+
+    receipt = tmp_path / "mutable.json"
+    receipt.write_bytes(b"original!!")
+    cases.append((RECEIPT_VALIDATOR, receipt, lambda: RECEIPT_VALIDATOR._read_file_bounded(receipt, max_bytes=100)))
+
+    for module, path, reader in cases:
+        original_read = os.read
+        mutated = False
+
+        def mutating_read(descriptor: int, count: int) -> bytes:
+            nonlocal mutated
+            data = original_read(descriptor, count)
+            if data and not mutated:
+                mutated = True
+                before = path.stat()
+                path.write_bytes(b"substitut!")
+                os.utime(path, ns=(before.st_atime_ns, before.st_mtime_ns + 1_000_000_000))
+            return data
+
+        with monkeypatch.context() as patch:
+            patch.setattr(module.os, "read", mutating_read)
+            with pytest.raises(ValueError, match="changed while being read"):
+                reader()
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="FIFO regression requires POSIX mkfifo")
+def test_descriptor_bound_readers_reject_fifo_without_waiting_for_writer(tmp_path: Path) -> None:
+    fifo = tmp_path / "input.fifo"
+    os.mkfifo(fifo)
+    with pytest.raises(ValueError, match="regular file"):
+        RECEIPT_VALIDATOR._read_file_bounded(fifo, max_bytes=100)
+    with pytest.raises(ValueError, match="regular file"):
+        EXECUTION_INTEGRITY._read(fifo)
+    with pytest.raises(ValueError, match="regular file"):
+        BOOTSTRAP._read_bounded(fifo, 100, label="policy")
