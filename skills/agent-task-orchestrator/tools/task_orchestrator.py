@@ -174,7 +174,6 @@ def admit_base(
         return BaseAdmission("BASE_TOPOLOGY_CHANGED", "ref changed")
     if planning_base["revision"] == execution_base["revision"]:
         return BaseAdmission("BASE_UNCHANGED", "execution revision equals planning revision")
-
     if base_relationship == "unknown" or overlapping_upstream_change is None:
         return BaseAdmission("BASE_UNKNOWN", "base relationship or overlap evidence is unknown")
     if base_relationship != "descendant":
@@ -203,7 +202,6 @@ def admit_child(
     parent_auth = _strings(parent_authority, label="parent_authority")
     requested_resources = _strings(requested_resource_domains, label="requested_resource_domains")
     parent_resources = _strings(parent_resource_domains, label="parent_resource_domains")
-
     missing_caps = requested_caps - available_caps
     missing_auth = requested_auth - parent_auth
     missing_resources = requested_resources - parent_resources
@@ -215,11 +213,7 @@ def admit_child(
         raise OrchestrationError("child authority must be a strict subset of parent authority")
     if missing_resources:
         raise OrchestrationError(f"child resource domain exceeds parent admission: {sorted(missing_resources)}")
-    return ChildAdmission(
-        tuple(sorted(requested_caps)),
-        tuple(sorted(requested_auth)),
-        tuple(sorted(requested_resources)),
-    )
+    return ChildAdmission(tuple(sorted(requested_caps)), tuple(sorted(requested_auth)), tuple(sorted(requested_resources)))
 
 
 def admit_dispatch(*, attempt_id: str, known_attempts: Mapping[str, str]) -> DispatchDecision:
@@ -272,6 +266,25 @@ def _read_attempt_record(path: Path) -> dict[str, Any]:
     return value
 
 
+def _write_attempt_record(path: Path, record: Mapping[str, Any]) -> None:
+    payload = (json.dumps(record, sort_keys=True, separators=(",", ":")) + "\n").encode("utf-8")
+    temp_path = path.parent / f".{path.name}.{secrets.token_hex(8)}.tmp"
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    try:
+        descriptor = os.open(temp_path, flags, 0o600)
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temp_path, path)
+    except OSError as error:
+        try:
+            temp_path.unlink()
+        except OSError:
+            pass
+        raise OrchestrationError(f"attempt record could not be persisted: {error}") from error
+
+
 def reserve_dispatch(
     *,
     attempt_store: Path,
@@ -286,7 +299,6 @@ def reserve_dispatch(
         raise OrchestrationError("intent_revision must be a positive integer")
     if _exact_revision(execution_revision) is None:
         raise OrchestrationError("execution_revision must be an immutable full revision")
-
     store = _prepare_attempt_store(attempt_store)
     record_path = _attempt_record_path(store, attempt_id)
     reservation_token = secrets.token_hex(32)
@@ -313,11 +325,11 @@ def reserve_dispatch(
         except FileExistsError:
             existing = _read_attempt_record(record_path)
             child_job_id = existing.get("child_job_id")
-            code = (
-                "ALREADY_DISPATCHED"
-                if isinstance(child_job_id, str) and child_job_id
-                else "ATTEMPT_ALREADY_RESERVED"
-            )
+            state = existing.get("state")
+            if isinstance(child_job_id, str) and child_job_id:
+                code = "RECONCILE_REQUIRED" if state == "dispatch_ambiguous" else "ALREADY_DISPATCHED"
+            else:
+                code = "ATTEMPT_ALREADY_RESERVED"
             return DispatchReservation(
                 False,
                 code,
@@ -344,7 +356,7 @@ def bind_dispatched_child(
     reservation_token: str,
     child_job_id: str,
 ) -> DispatchReservation:
-    """Bind the exact durable child identity to the winning reservation."""
+    """Bind the exact durable child identity to a reserved or ambiguous attempt."""
     if not reservation_token or not child_job_id:
         raise OrchestrationError("reservation_token and child_job_id are required")
     store = _prepare_attempt_store(attempt_store)
@@ -356,42 +368,71 @@ def bind_dispatched_child(
         raise OrchestrationError("child binding is already in progress; reconcile before retry") from error
     except OSError as error:
         raise OrchestrationError(f"child binding lock could not be acquired: {error}") from error
-
     try:
         record = _read_attempt_record(path)
         if record.get("attempt_id") != attempt_id:
             raise OrchestrationError("attempt record identity does not match requested attempt")
+        state = record.get("state")
         existing_child = record.get("child_job_id")
-        if isinstance(existing_child, str) and existing_child:
-            if existing_child != child_job_id:
-                raise OrchestrationError("attempt is already bound to a different child job")
-            return DispatchReservation(False, "ALREADY_DISPATCHED", attempt_id, None, existing_child)
-        if record.get("state") != "reserved" or record.get("reservation_token") != reservation_token:
+        if isinstance(existing_child, str) and existing_child and existing_child != child_job_id:
+            raise OrchestrationError("attempt is already bound to a different child job")
+        if state == "dispatched" and existing_child == child_job_id:
+            return DispatchReservation(False, "ALREADY_DISPATCHED", attempt_id, None, child_job_id)
+        if state not in {"reserved", "dispatch_ambiguous"} or record.get("reservation_token") != reservation_token:
             raise OrchestrationError("attempt reservation token does not authorize child binding")
-
-        updated = {**record, "state": "dispatched", "child_job_id": child_job_id}
-        payload = (json.dumps(updated, sort_keys=True, separators=(",", ":")) + "\n").encode("utf-8")
-        temp_path = store / f".{path.name}.{secrets.token_hex(8)}.tmp"
-        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
-        try:
-            descriptor = os.open(temp_path, flags, 0o600)
-            with os.fdopen(descriptor, "wb") as handle:
-                handle.write(payload)
-                handle.flush()
-                os.fsync(handle.fileno())
-            os.replace(temp_path, path)
-        except OSError as error:
-            try:
-                temp_path.unlink()
-            except OSError:
-                pass
-            raise OrchestrationError(f"child binding could not be persisted: {error}") from error
+        if state == "dispatch_ambiguous" and existing_child != child_job_id:
+            raise OrchestrationError("ambiguous attempt child identity does not match observed child")
+        _write_attempt_record(path, {**record, "state": "dispatched", "child_job_id": child_job_id})
         return DispatchReservation(False, "ALREADY_DISPATCHED", attempt_id, None, child_job_id)
     finally:
         try:
             lock_path.rmdir()
         except OSError:
             pass
+
+
+def _mark_dispatch_ambiguous(
+    *,
+    attempt_store: Path,
+    attempt_id: str,
+    reservation_token: str,
+    child_job_id: str,
+) -> DispatchReservation:
+    store = _prepare_attempt_store(attempt_store)
+    path = _attempt_record_path(store, attempt_id)
+    record = _read_attempt_record(path)
+    if record.get("attempt_id") != attempt_id or record.get("reservation_token") != reservation_token:
+        raise OrchestrationError("attempt reservation changed before ambiguity could be persisted")
+    existing_child = record.get("child_job_id")
+    if isinstance(existing_child, str) and existing_child not in {"", child_job_id}:
+        raise OrchestrationError("attempt already records a different child identity")
+    _write_attempt_record(path, {**record, "state": "dispatch_ambiguous", "child_job_id": child_job_id})
+    return DispatchReservation(False, "RECONCILE_REQUIRED", attempt_id, reservation_token, child_job_id)
+
+
+def reconcile_dispatch(
+    *,
+    attempt_store: Path,
+    attempt_id: str,
+    child_job_id: str,
+) -> DispatchReservation:
+    """Reconcile a preserved ambiguous child identity without redispatching work."""
+    store = _prepare_attempt_store(attempt_store)
+    record = _read_attempt_record(_attempt_record_path(store, attempt_id))
+    recorded_child = record.get("child_job_id")
+    token = record.get("reservation_token")
+    if record.get("state") != "dispatch_ambiguous":
+        if record.get("state") == "dispatched" and recorded_child == child_job_id:
+            return DispatchReservation(False, "ALREADY_DISPATCHED", attempt_id, None, child_job_id)
+        raise OrchestrationError("attempt is not awaiting dispatch reconciliation")
+    if recorded_child != child_job_id or not isinstance(token, str) or not token:
+        raise OrchestrationError("reconciliation child identity does not match preserved dispatch evidence")
+    return bind_dispatched_child(
+        attempt_store=store,
+        attempt_id=attempt_id,
+        reservation_token=token,
+        child_job_id=child_job_id,
+    )
 
 
 def dispatch_once(
@@ -402,7 +443,7 @@ def dispatch_once(
     execution_revision: str,
     dispatch: Callable[[], str],
 ) -> DispatchReservation:
-    """Run the child-launch callback only for the winner of durable attempt reservation."""
+    """Launch at most once and preserve child identity when local binding is ambiguous."""
     reservation = reserve_dispatch(
         attempt_store=attempt_store,
         attempt_id=attempt_id,
@@ -422,12 +463,29 @@ def dispatch_once(
         raise OrchestrationError(
             "child dispatch returned no durable child identity; reconcile the reserved attempt before retry"
         )
-    return bind_dispatched_child(
-        attempt_store=attempt_store,
-        attempt_id=attempt_id,
-        reservation_token=reservation.reservation_token,
-        child_job_id=child_job_id,
-    )
+    try:
+        return bind_dispatched_child(
+            attempt_store=attempt_store,
+            attempt_id=attempt_id,
+            reservation_token=reservation.reservation_token,
+            child_job_id=child_job_id,
+        )
+    except OrchestrationError:
+        try:
+            return _mark_dispatch_ambiguous(
+                attempt_store=attempt_store,
+                attempt_id=attempt_id,
+                reservation_token=reservation.reservation_token,
+                child_job_id=child_job_id,
+            )
+        except OrchestrationError:
+            return DispatchReservation(
+                False,
+                "RECONCILE_REQUIRED",
+                attempt_id,
+                reservation.reservation_token,
+                child_job_id,
+            )
 
 
 def build_continuation(
@@ -497,7 +555,6 @@ def classify_terminal(
         or evidence_bindings is None
     ):
         return TerminalDecision("COMPLETED_NO_EVIDENCE", ())
-
     refs = set(combined)
     for output in expected:
         if output == "published-revision" and published_revision == execution_revision:
@@ -557,6 +614,77 @@ def resource_domains_conflict(left: Collection[str], right: Collection[str]) -> 
     return bool(_strings(left, label="left resource domains") & _strings(right, label="right resource domains"))
 
 
+def _requirement_by_id(ledger: Mapping[str, Any]) -> dict[str, Mapping[str, Any]]:
+    requirements = ledger.get("requirements")
+    if not isinstance(requirements, Sequence) or isinstance(requirements, (str, bytes, bytearray)):
+        return {}
+    result: dict[str, Mapping[str, Any]] = {}
+    for requirement in requirements:
+        if isinstance(requirement, Mapping):
+            requirement_id = requirement.get("id")
+            if isinstance(requirement_id, str) and requirement_id:
+                result[requirement_id] = requirement
+    return result
+
+
+def _supersession_findings(
+    ledger: Mapping[str, Any],
+    supersession_authorities: Mapping[str, Collection[str]] | None,
+) -> list[str]:
+    findings: list[str] = []
+    requirements = _requirement_by_id(ledger)
+    raw_requirements = ledger.get("requirements")
+    if isinstance(raw_requirements, Sequence) and not isinstance(raw_requirements, (str, bytes, bytearray)):
+        seen: set[str] = set()
+        for requirement in raw_requirements:
+            if not isinstance(requirement, Mapping):
+                continue
+            requirement_id = requirement.get("id")
+            if not isinstance(requirement_id, str) or not requirement_id:
+                continue
+            if requirement_id in seen:
+                findings.append(f"{requirement_id}:duplicate-requirement-id")
+            seen.add(requirement_id)
+    for requirement_id, requirement in requirements.items():
+        if requirement.get("status") != "superseded":
+            continue
+        replacement_id = requirement.get("superseded_by")
+        authority = requirement.get("superseded_by_authority")
+        if not isinstance(replacement_id, str) or replacement_id not in requirements or replacement_id == requirement_id:
+            findings.append(f"{requirement_id}:invalid-superseded-by")
+            continue
+        if requirements[replacement_id].get("status") == "superseded":
+            findings.append(f"{requirement_id}:replacement-is-superseded")
+        if not isinstance(authority, str) or not authority:
+            findings.append(f"{requirement_id}:missing-supersession-authority")
+            continue
+        authorized = supersession_authorities.get(authority, ()) if supersession_authorities is not None else ()
+        authorized_ids = {str(value) for value in authorized}
+        if requirement_id not in authorized_ids and "*" not in authorized_ids:
+            findings.append(f"{requirement_id}:unverified-supersession-authority:{authority}")
+    return findings
+
+
+def validate_ledger_transition(
+    previous: Mapping[str, Any],
+    current: Mapping[str, Any],
+    *,
+    supersession_authorities: Mapping[str, Collection[str]] | None,
+) -> list[str]:
+    """Validate that requirement supersession names a real replacement and verified authority."""
+    findings = _supersession_findings(current, supersession_authorities)
+    previous_requirements = _requirement_by_id(previous)
+    current_requirements = _requirement_by_id(current)
+    for requirement_id, prior in previous_requirements.items():
+        current_requirement = current_requirements.get(requirement_id)
+        if current_requirement is None:
+            findings.append(f"{requirement_id}:requirement-dropped")
+            continue
+        if prior.get("status") == "superseded" and current_requirement.get("status") != "superseded":
+            findings.append(f"{requirement_id}:supersession-revoked-without-new-requirement")
+    return list(dict.fromkeys(findings))
+
+
 def completion_gate(
     ledger: Mapping[str, Any],
     *,
@@ -565,8 +693,9 @@ def completion_gate(
     capability_evidence: Mapping[str, Collection[str]],
     method_evidence: Mapping[str, Collection[str]],
     acceptance_evidence: Mapping[str, Collection[str]],
+    supersession_authorities: Mapping[str, Collection[str]] | None = None,
 ) -> CompletionDecision:
-    """Complete only structurally valid current intent with evidence bound to its exact execution."""
+    """Complete only current intent with evidence and authority-backed supersession."""
     blockers: list[str] = []
     required_fields = (
         "intent_revision",
@@ -585,7 +714,9 @@ def completion_gate(
         blockers.append("execution:missing-or-invalid-revision")
     if evidence_bindings is None:
         blockers.append("evidence:bindings-missing")
-
+    supersession_findings = _supersession_findings(ledger, supersession_authorities)
+    blockers.extend(f"supersession:{finding}" for finding in supersession_findings)
+    invalid_superseded_ids = {finding.split(":", 1)[0] for finding in supersession_findings}
     can_bind = (
         isinstance(intent_revision, int)
         and not isinstance(intent_revision, bool)
@@ -594,7 +725,6 @@ def completion_gate(
         and _exact_revision(execution_revision) is not None
         and evidence_bindings is not None
     )
-
     requirements = ledger.get("requirements")
     if isinstance(requirements, Sequence) and not isinstance(requirements, (str, bytes, bytearray)):
         for requirement in requirements:
@@ -603,9 +733,9 @@ def completion_gate(
                 continue
             if not requirement.get("mandatory"):
                 continue
-            if requirement.get("status") == "superseded":
-                continue
             requirement_id = str(requirement.get("id") or "unknown")
+            if requirement.get("status") == "superseded" and requirement_id not in invalid_superseded_ids:
+                continue
             if requirement.get("status") != "satisfied":
                 blockers.append(f"requirement:{requirement_id}:{requirement.get('status', 'unknown')}")
                 continue
@@ -628,11 +758,7 @@ def completion_gate(
     elif "requirements" in ledger:
         blockers.append("ledger:invalid:requirements")
 
-    def check_axis(
-        ledger_field: str,
-        evidence: Mapping[str, Collection[str]],
-        prefix: str,
-    ) -> None:
+    def check_axis(ledger_field: str, evidence: Mapping[str, Collection[str]], prefix: str) -> None:
         values = ledger.get(ledger_field)
         if not isinstance(values, Sequence) or isinstance(values, (str, bytes, bytearray)):
             if ledger_field in ledger:
@@ -667,13 +793,13 @@ def compact_handoff(
     *,
     active_children: Sequence[Mapping[str, str]] = (),
 ) -> dict[str, Any]:
-    """Return compact continuation state without replaying task history or satisfied requirement prose."""
-    unresolved = []
+    """Preserve unresolved task intent and authority while omitting satisfied history."""
+    unresolved_requirements: list[dict[str, Any]] = []
     for requirement in ledger.get("requirements", []):
         if not isinstance(requirement, Mapping):
             continue
         if requirement.get("status") in {"pending", "blocked"}:
-            unresolved.append(str(requirement.get("id") or "unknown"))
+            unresolved_requirements.append(dict(requirement))
     children = [
         {
             "attempt_id": child.get("attempt_id"),
@@ -686,7 +812,12 @@ def compact_handoff(
         "ledger_id": ledger.get("ledger_id"),
         "task_id": ledger.get("task_id"),
         "intent_revision": ledger.get("intent_revision"),
-        "unresolved_requirement_ids": unresolved,
+        "unresolved_requirement_ids": [str(item.get("id") or "unknown") for item in unresolved_requirements],
+        "unresolved_requirements": unresolved_requirements,
+        "acceptance_criteria": list(ledger.get("acceptance_criteria", [])),
+        "prohibitions": list(ledger.get("prohibitions", [])),
+        "authorized_operations": list(ledger.get("authorized_operations", [])),
+        "open_questions": list(ledger.get("open_questions", [])),
         "required_capabilities": list(ledger.get("required_capabilities", [])),
         "required_execution_methods": list(ledger.get("required_execution_methods", [])),
         "scope": dict(ledger.get("scope") or {}),
