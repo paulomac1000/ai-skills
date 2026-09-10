@@ -68,14 +68,8 @@ def _read_bounded(root: Path, relative: str) -> str:
 
 def _public_task_surfaces(discovery: Discovery) -> set[str]:
     surfaces = set(discovery.ci_files)
-    surfaces.update(
-        path for path in discovery.task_runners
-        if Path(path).name in WELL_KNOWN_TASK_RUNNERS
-    )
-    surfaces.update(
-        path for path in discovery.manifests
-        if Path(path).name in {"package.json", "pyproject.toml"}
-    )
+    surfaces.update(path for path in discovery.task_runners if Path(path).name in WELL_KNOWN_TASK_RUNNERS)
+    surfaces.update(path for path in discovery.manifests if Path(path).name in {"package.json", "pyproject.toml"})
     return surfaces
 
 
@@ -116,9 +110,7 @@ def classify_gate_sources(
 
         name = path.name
         if name in WELL_KNOWN_TASK_RUNNERS:
-            rows.append(
-                GateSource(relative, "task_entrypoint", True, "well-known repository task-runner entrypoint")
-            )
+            rows.append(GateSource(relative, "task_entrypoint", True, "well-known repository task-runner entrypoint"))
             continue
         if relative.startswith("bin/"):
             rows.append(
@@ -141,9 +133,7 @@ def classify_gate_sources(
             try:
                 text = _read_bounded(safe_root, relative)
             except (OSError, UnicodeError, ValueError) as error:
-                rows.append(
-                    GateSource(relative, "helper", False, f"could not prove independent entrypoint: {error}")
-                )
+                rows.append(GateSource(relative, "helper", False, f"could not prove independent entrypoint: {error}"))
                 continue
             if MAIN_GUARD.search(text):
                 rows.append(
