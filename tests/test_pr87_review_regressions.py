@@ -148,7 +148,12 @@ def _runtime(**overrides: object) -> dict:
         "loaded_artifact_digest": "1" * 64,
     }
     skill.update(overrides)
-    return {"skills": [skill]}
+    return {
+        "schema_version": 1,
+        "runtime_id": "test-runtime",
+        "observed_at": "2026-09-10T00:00:00Z",
+        "skills": [skill],
+    }
 
 
 def test_loaded_state_requires_installed_and_loaded_artifact_digests() -> None:
