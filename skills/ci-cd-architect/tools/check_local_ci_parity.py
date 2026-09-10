@@ -54,8 +54,11 @@ def evaluate(policy: dict[str, Any]) -> dict[str, object]:
             missing.append(gate_id)
         if required and (not isinstance(policy_ref, str) or not policy_ref.strip()):
             invalid.append(gate_id)
-        if required and isinstance(local, str) and local.strip() and (
-            not isinstance(dependency_ref, str) or not dependency_ref.strip()
+        if (
+            required
+            and isinstance(local, str)
+            and local.strip()
+            and (not isinstance(dependency_ref, str) or not dependency_ref.strip())
         ):
             invalid.append(gate_id)
 
