@@ -48,13 +48,51 @@ class SkillResolution:
     reason: str
 
 
+def _validate_catalog_entries(skills: object) -> list[dict[str, Any]]:
+    if not isinstance(skills, list):
+        raise SkillConsumerError("catalog must contain a skills list")
+    validated: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for index, item in enumerate(skills):
+        if not isinstance(item, dict):
+            raise SkillConsumerError(f"catalog skills[{index}] must be an object")
+        skill_id = item.get("skill_id")
+        if not isinstance(skill_id, str) or not skill_id:
+            raise SkillConsumerError(f"catalog skills[{index}].skill_id is required")
+        if skill_id in seen:
+            raise SkillConsumerError(f"catalog contains duplicate skill_id: {skill_id}")
+        seen.add(skill_id)
+        capabilities = item.get("capabilities")
+        if (
+            not isinstance(capabilities, list)
+            or not capabilities
+            or any(not isinstance(capability, str) or not capability for capability in capabilities)
+            or len(set(capabilities)) != len(capabilities)
+        ):
+            raise SkillConsumerError(f"catalog skill {skill_id}.capabilities must be unique non-empty strings")
+        loading = item.get("loading")
+        if not isinstance(loading, dict):
+            raise SkillConsumerError(f"catalog skill {skill_id}.loading must be an object")
+        modes = loading.get("modes")
+        if (
+            not isinstance(modes, list)
+            or not modes
+            or any(not isinstance(mode, str) or mode not in LOAD_MODES for mode in modes)
+            or len(set(modes)) != len(modes)
+        ):
+            raise SkillConsumerError(f"catalog skill {skill_id}.loading.modes is invalid")
+        validated.append(item)
+    return validated
+
+
 def load_catalog(path: Path) -> dict[str, Any]:
     try:
         raw = yaml.safe_load(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, yaml.YAMLError) as error:
         raise SkillConsumerError(f"catalog cannot be loaded: {error}") from error
-    if not isinstance(raw, dict) or not isinstance(raw.get("skills"), list):
-        raise SkillConsumerError("catalog must contain a skills list")
+    if not isinstance(raw, dict):
+        raise SkillConsumerError("catalog must contain an object")
+    _validate_catalog_entries(raw.get("skills"))
     return raw
 
 
@@ -75,19 +113,11 @@ def _validate_optional_digest(value: object, field: str) -> None:
         raise SkillConsumerError(f"runtime state {field} must be 64 lowercase hexadecimal characters or null")
 
 
-def _validate_runtime_state(runtime: dict[str, Any]) -> None:
-    if runtime.get("schema_version") != 1:
-        raise SkillConsumerError("runtime state schema_version must be 1")
-    runtime_id = runtime.get("runtime_id")
-    if not isinstance(runtime_id, str) or not runtime_id:
-        raise SkillConsumerError("runtime state runtime_id is required")
-    if not _valid_datetime(runtime.get("observed_at")):
-        raise SkillConsumerError("runtime state observed_at must be a timezone-aware date-time")
-    skills = runtime.get("skills")
+def _validate_runtime_entries(skills: object) -> list[dict[str, Any]]:
     if not isinstance(skills, list):
         raise SkillConsumerError("runtime state must contain a skills list")
-
     seen: set[str] = set()
+    validated: list[dict[str, Any]] = []
     for index, item in enumerate(skills):
         if not isinstance(item, dict):
             raise SkillConsumerError(f"runtime state skills[{index}] must be an object")
@@ -116,6 +146,19 @@ def _validate_runtime_state(runtime: dict[str, Any]) -> None:
         distribution_mode = item.get("distribution_mode")
         if distribution_mode is not None and distribution_mode not in {"GLOBAL", "VENDORED", "EPHEMERAL"}:
             raise SkillConsumerError(f"runtime state {skill_id}.distribution_mode is invalid")
+        validated.append(item)
+    return validated
+
+
+def _validate_runtime_state(runtime: dict[str, Any]) -> None:
+    if runtime.get("schema_version") != 1:
+        raise SkillConsumerError("runtime state schema_version must be 1")
+    runtime_id = runtime.get("runtime_id")
+    if not isinstance(runtime_id, str) or not runtime_id:
+        raise SkillConsumerError("runtime state runtime_id is required")
+    if not _valid_datetime(runtime.get("observed_at")):
+        raise SkillConsumerError("runtime state observed_at must be a timezone-aware date-time")
+    _validate_runtime_entries(runtime.get("skills"))
 
 
 def load_runtime_state(path: Path) -> dict[str, Any]:
@@ -135,7 +178,7 @@ def catalog_digest(catalog: dict[str, Any]) -> str:
 
 
 def _matches_capability(entry: dict[str, Any], capability: str) -> bool:
-    capabilities = entry.get("capabilities") or []
+    capabilities = entry["capabilities"]
     return capability in capabilities
 
 
@@ -155,14 +198,13 @@ def resolve_skill(
     allowed_load_modes: tuple[str, ...] = ("runtime_tool", "preload", "vendored"),
 ) -> SkillResolution:
     """Resolve an exact skill from declared capability and schema-valid live runtime state."""
-    if not isinstance(catalog.get("skills"), list):
-        raise SkillConsumerError("catalog must contain a skills list")
-    _validate_runtime_state(runtime)
+    entries = _validate_catalog_entries(catalog.get("skills"))
+    _validate_runtime_entries(runtime.get("skills"))
     revision = str(catalog.get("catalog_revision") or catalog_digest(catalog))
 
-    candidates = [item for item in catalog["skills"] if _matches_capability(item, capability)]
+    candidates = [item for item in entries if _matches_capability(item, capability)]
     if required_skill is not None:
-        required = [item for item in catalog["skills"] if item.get("skill_id") == required_skill]
+        required = [item for item in entries if item.get("skill_id") == required_skill]
         if not required:
             return SkillResolution(
                 "BLOCKED_REQUIRED_SKILL", capability, required_skill, revision, None, None, None, True,
@@ -221,7 +263,7 @@ def resolve_skill(
         )
 
     supported = tuple(state.get("supported_load_modes") or ())
-    declared = tuple((entry.get("loading") or {}).get("modes") or ())
+    declared = tuple(entry["loading"]["modes"])
     selected = next((mode for mode in allowed_load_modes if mode in supported and mode in declared), None)
     if selected is None:
         return SkillResolution(
