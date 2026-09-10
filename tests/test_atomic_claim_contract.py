@@ -79,7 +79,8 @@ def test_write_flags_and_confirmation_are_fail_closed(tmp_path: Path) -> None:
     assert {"retryable", "idempotent", "reversible", "requires_confirmation"} <= required
 
     manifest = {
-        "schema_version": 1,
+        "schema_version": 2,
+        "contract_revision": 2,
         "id": "device.delete",
         "name": "Delete device",
         "description": "Deletes one device.",
@@ -94,6 +95,17 @@ def test_write_flags_and_confirmation_are_fail_closed(tmp_path: Path) -> None:
         "reversible": True,
         "requires_confirmation": True,
         "idempotency_key_required": True,
+        "idempotency": {"mode": "keyed", "scope": "principal-target"},
+        "async_model": "synchronous",
+        "outcome_contract": "layered",
+        "reconciliation": {
+            "supported": False,
+            "required_after_ambiguous_dispatch": False,
+            "method": "none",
+        },
+        "publication": {"model": "external", "implies_verification": False},
+        "result_bounded": True,
+        "runtime_identity": {"supported": False, "level": "none"},
         "authorization_scopes": ["device:delete"],
         "approval": {
             "enforcement": "server-side",
@@ -107,7 +119,7 @@ def test_write_flags_and_confirmation_are_fail_closed(tmp_path: Path) -> None:
                 "expires-at",
             ],
         },
-        "concurrency": {"scope": "principal-target", "limit": 1},
+        "concurrency": {"scope": "principal-target", "limit": 1, "queue_limit": 0},
         "max_response_bytes": 65536,
     }
     path = tmp_path / "capability.yaml"
