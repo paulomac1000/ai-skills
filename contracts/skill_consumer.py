@@ -207,25 +207,53 @@ def resolve_skill(
         required = [item for item in entries if item.get("skill_id") == required_skill]
         if not required:
             return SkillResolution(
-                "BLOCKED_REQUIRED_SKILL", capability, required_skill, revision, None, None, None, True,
+                "BLOCKED_REQUIRED_SKILL",
+                capability,
+                required_skill,
+                revision,
+                None,
+                None,
+                None,
+                True,
                 "explicitly required skill is not present in the governed catalog",
             )
         entry = required[0]
         if entry not in candidates:
             return SkillResolution(
-                "BLOCKED_REQUIRED_SKILL", capability, required_skill, revision, None, None, None, True,
+                "BLOCKED_REQUIRED_SKILL",
+                capability,
+                required_skill,
+                revision,
+                None,
+                None,
+                None,
+                True,
                 "explicitly required skill does not declare the requested capability",
             )
         candidates = [entry]
 
     if not candidates:
         return SkillResolution(
-            "NOT_CATALOGUED", capability, None, revision, None, None, None, False,
+            "NOT_CATALOGUED",
+            capability,
+            None,
+            revision,
+            None,
+            None,
+            None,
+            False,
             "no governed skill declares the requested capability",
         )
     if len(candidates) > 1:
         return SkillResolution(
-            "AMBIGUOUS", capability, None, revision, None, None, None, required_skill is not None,
+            "AMBIGUOUS",
+            capability,
+            None,
+            revision,
+            None,
+            None,
+            None,
+            required_skill is not None,
             "multiple governed skills declare the capability; refine declared routing constraints",
         )
 
@@ -235,31 +263,66 @@ def resolve_skill(
     blocked = required_skill is not None
     if state is None or not state.get("installed", False):
         return SkillResolution(
-            "BLOCKED_REQUIRED_SKILL" if blocked else "NOT_INSTALLED", capability, skill_id, revision,
-            None, None, None, blocked, "skill is catalogued but no approved installed artifact is present",
+            "BLOCKED_REQUIRED_SKILL" if blocked else "NOT_INSTALLED",
+            capability,
+            skill_id,
+            revision,
+            None,
+            None,
+            None,
+            blocked,
+            "skill is catalogued but no approved installed artifact is present",
         )
 
     installed_revision = str(state.get("installed_revision") or "")
     if not installed_revision:
         return SkillResolution(
-            "BLOCKED_REQUIRED_SKILL" if blocked else "UNKNOWN", capability, skill_id, revision,
-            None, None, None, blocked, "installed skill has no attributable revision",
+            "BLOCKED_REQUIRED_SKILL" if blocked else "UNKNOWN",
+            capability,
+            skill_id,
+            revision,
+            None,
+            None,
+            None,
+            blocked,
+            "installed skill has no attributable revision",
         )
     installed_digest = state.get("installed_artifact_digest")
     if not isinstance(installed_digest, str):
         return SkillResolution(
-            "BLOCKED_REQUIRED_SKILL" if blocked else "UNKNOWN", capability, skill_id, revision,
-            installed_revision, None, None, blocked, "installed skill has no attributable artifact digest",
+            "BLOCKED_REQUIRED_SKILL" if blocked else "UNKNOWN",
+            capability,
+            skill_id,
+            revision,
+            installed_revision,
+            None,
+            None,
+            blocked,
+            "installed skill has no attributable artifact digest",
         )
     if not state.get("runtime_visible", False):
         return SkillResolution(
-            "BLOCKED_REQUIRED_SKILL" if blocked else "NOT_VISIBLE", capability, skill_id, revision,
-            installed_revision, None, None, blocked, "installed skill is not visible to the current runtime",
+            "BLOCKED_REQUIRED_SKILL" if blocked else "NOT_VISIBLE",
+            capability,
+            skill_id,
+            revision,
+            installed_revision,
+            None,
+            None,
+            blocked,
+            "installed skill is not visible to the current runtime",
         )
     if not state.get("compatible", False):
         return SkillResolution(
-            "BLOCKED_REQUIRED_SKILL" if blocked else "INCOMPATIBLE", capability, skill_id, revision,
-            installed_revision, None, None, blocked, "current runtime does not satisfy the skill compatibility contract",
+            "BLOCKED_REQUIRED_SKILL" if blocked else "INCOMPATIBLE",
+            capability,
+            skill_id,
+            revision,
+            installed_revision,
+            None,
+            None,
+            blocked,
+            "current runtime does not satisfy the skill compatibility contract",
         )
 
     supported = tuple(state.get("supported_load_modes") or ())
@@ -267,8 +330,14 @@ def resolve_skill(
     selected = next((mode for mode in allowed_load_modes if mode in supported and mode in declared), None)
     if selected is None:
         return SkillResolution(
-            "BLOCKED_REQUIRED_SKILL" if blocked else "UNSUPPORTED_LOAD_MODE", capability, skill_id, revision,
-            installed_revision, None, None, blocked,
+            "BLOCKED_REQUIRED_SKILL" if blocked else "UNSUPPORTED_LOAD_MODE",
+            capability,
+            skill_id,
+            revision,
+            installed_revision,
+            None,
+            None,
+            blocked,
             "no load mode is both declared by the skill and supported by the current runtime",
         )
 
@@ -277,23 +346,49 @@ def resolve_skill(
     if loaded_revision is not None:
         if not isinstance(loaded_digest, str):
             return SkillResolution(
-                "BLOCKED_REQUIRED_SKILL" if blocked else "STALE_LOADED_REVISION", capability, skill_id, revision,
-                installed_revision, str(loaded_revision), selected, blocked,
+                "BLOCKED_REQUIRED_SKILL" if blocked else "STALE_LOADED_REVISION",
+                capability,
+                skill_id,
+                revision,
+                installed_revision,
+                str(loaded_revision),
+                selected,
+                blocked,
                 "loaded skill has no attributable artifact digest; reload is required",
             )
         if str(loaded_revision) != installed_revision or loaded_digest != installed_digest:
             return SkillResolution(
-                "BLOCKED_REQUIRED_SKILL" if blocked else "STALE_LOADED_REVISION", capability, skill_id, revision,
-                installed_revision, str(loaded_revision), selected, blocked,
+                "BLOCKED_REQUIRED_SKILL" if blocked else "STALE_LOADED_REVISION",
+                capability,
+                skill_id,
+                revision,
+                installed_revision,
+                str(loaded_revision),
+                selected,
+                blocked,
                 "loaded skill identity no longer matches the installed artifact; reload is required",
             )
         return SkillResolution(
-            "LOADED", capability, skill_id, revision, installed_revision, str(loaded_revision), selected, False,
+            "LOADED",
+            capability,
+            skill_id,
+            revision,
+            installed_revision,
+            str(loaded_revision),
+            selected,
+            False,
             "exact installed revision and artifact digest are already loaded",
         )
 
     return SkillResolution(
-        "READY", capability, skill_id, revision, installed_revision, None, selected, False,
+        "READY",
+        capability,
+        skill_id,
+        revision,
+        installed_revision,
+        None,
+        selected,
+        False,
         "exact skill is catalogued, installed, digest-attributed, visible, compatible, and loadable",
     )
 
@@ -307,8 +402,10 @@ def main() -> int:
     args = parser.parse_args()
     try:
         result = resolve_skill(
-            catalog=load_catalog(args.catalog), runtime=load_runtime_state(args.runtime_state),
-            capability=args.capability, required_skill=args.required_skill,
+            catalog=load_catalog(args.catalog),
+            runtime=load_runtime_state(args.runtime_state),
+            capability=args.capability,
+            required_skill=args.required_skill,
         )
     except SkillConsumerError as error:
         print(json.dumps({"status": "UNKNOWN", "reason": str(error)}, sort_keys=True))
