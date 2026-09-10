@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from collections.abc import Collection, Mapping
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 
@@ -17,6 +17,7 @@ class DeploymentLeaseError(ValueError):
 class LeaseAdmission:
     lease_id: str
     principal: str
+    session: str | None
     action: str
     artifact_digest: str
     target_project: str
@@ -32,7 +33,7 @@ def _utc(value: str) -> datetime:
         raise DeploymentLeaseError(f"invalid lease timestamp: {value}") from error
     if parsed.tzinfo is None:
         raise DeploymentLeaseError("lease timestamps must include a timezone")
-    return parsed.astimezone(timezone.utc)
+    return parsed.astimezone(UTC)
 
 
 def admit_lease(
@@ -44,6 +45,7 @@ def admit_lease(
     action: str,
     normalized_args_digest: str,
     now: datetime,
+    session: str | None = None,
     consumed_lease_ids: Collection[str] = (),
 ) -> LeaseAdmission:
     """Admit only an active, unconsumed lease matching every protected dimension exactly."""
@@ -55,7 +57,9 @@ def admit_lease(
     if lease.get("state") != "active":
         raise DeploymentLeaseError(f"deployment lease is not active: {lease.get('state')}")
 
-    instant = now.astimezone(timezone.utc)
+    if now.tzinfo is None:
+        raise DeploymentLeaseError("current time must include a timezone")
+    instant = now.astimezone(UTC)
     issued_at = _utc(str(lease.get("issued_at") or ""))
     expires_at = _utc(str(lease.get("expires_at") or ""))
     if issued_at > instant:
@@ -73,6 +77,13 @@ def admit_lease(
         if actual != expected:
             raise DeploymentLeaseError(f"deployment lease {field} does not match requested operation")
 
+    lease_session = lease.get("session")
+    if lease_session is not None:
+        if not isinstance(lease_session, str) or not lease_session:
+            raise DeploymentLeaseError("deployment lease session must be a non-empty string when present")
+        if session != lease_session:
+            raise DeploymentLeaseError("deployment lease session does not match current session")
+
     lease_target = lease.get("target")
     if not isinstance(lease_target, Mapping):
         raise DeploymentLeaseError("deployment lease target is missing")
@@ -87,6 +98,7 @@ def admit_lease(
     return LeaseAdmission(
         lease_id=lease_id,
         principal=principal,
+        session=session if lease_session is not None else None,
         action=action,
         artifact_digest=artifact_digest,
         target_project=target["project"],
