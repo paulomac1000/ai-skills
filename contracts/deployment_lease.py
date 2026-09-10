@@ -36,6 +36,13 @@ def _utc(value: str) -> datetime:
     return parsed.astimezone(UTC)
 
 
+def _target_dimension(target: Mapping[str, Any], field: str, *, label: str) -> str:
+    value = target.get(field)
+    if not isinstance(value, str) or not value:
+        raise DeploymentLeaseError(f"{label} target.{field} is required")
+    return value
+
+
 def admit_lease(
     lease: Mapping[str, Any],
     *,
@@ -87,8 +94,16 @@ def admit_lease(
     lease_target = lease.get("target")
     if not isinstance(lease_target, Mapping):
         raise DeploymentLeaseError("deployment lease target is missing")
+    requested_dimensions = {
+        field: _target_dimension(target, field, label="requested")
+        for field in ("project", "environment", "resource")
+    }
+    lease_dimensions = {
+        field: _target_dimension(lease_target, field, label="deployment lease")
+        for field in ("project", "environment", "resource")
+    }
     for field in ("project", "environment", "resource"):
-        if lease_target.get(field) != target.get(field):
+        if lease_dimensions[field] != requested_dimensions[field]:
             raise DeploymentLeaseError(f"deployment lease target.{field} does not match requested target")
 
     policy_revision = str(lease.get("policy_revision") or "")
@@ -101,8 +116,8 @@ def admit_lease(
         session=session if lease_session is not None else None,
         action=action,
         artifact_digest=artifact_digest,
-        target_project=target["project"],
-        target_environment=target["environment"],
-        target_resource=target["resource"],
+        target_project=requested_dimensions["project"],
+        target_environment=requested_dimensions["environment"],
+        target_resource=requested_dimensions["resource"],
         policy_revision=policy_revision,
     )
