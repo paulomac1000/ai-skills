@@ -24,6 +24,15 @@ class VerificationReceiptError(ValueError):
     """Raised when a verification receipt overstates its evidence."""
 
 
+def _metadata_changed(before: os.stat_result, after: os.stat_result) -> bool:
+    return (
+        not os.path.samestat(before, after)
+        or before.st_size != after.st_size
+        or getattr(before, "st_mtime_ns", None) != getattr(after, "st_mtime_ns", None)
+        or getattr(before, "st_ctime_ns", None) != getattr(after, "st_ctime_ns", None)
+    )
+
+
 def _read_file_bounded(path: Path, *, max_bytes: int) -> bytes:
     nofollow = getattr(os, "O_NOFOLLOW", 0)
     expected: os.stat_result | None = None
@@ -34,7 +43,7 @@ def _read_file_bounded(path: Path, *, max_bytes: int) -> bytes:
             raise VerificationReceiptError(f"file cannot be inspected: {path}: {error}") from error
         if stat.S_ISLNK(expected.st_mode):
             raise VerificationReceiptError(f"not a regular file: {path}")
-    flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | nofollow
+    flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NONBLOCK", 0) | nofollow
     try:
         descriptor = os.open(path, flags)
     except OSError as error:
@@ -58,7 +67,7 @@ def _read_file_bounded(path: Path, *, max_bytes: int) -> bytes:
         data = b"".join(chunks)
         if len(data) > max_bytes:
             raise VerificationReceiptError(f"file exceeds {max_bytes} bytes: {path}")
-        if len(data) != metadata.st_size:
+        if len(data) != metadata.st_size or _metadata_changed(metadata, os.fstat(descriptor)):
             raise VerificationReceiptError(f"file changed while being read: {path}")
         return data
     finally:
