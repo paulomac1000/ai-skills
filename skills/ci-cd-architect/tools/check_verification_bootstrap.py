@@ -17,10 +17,23 @@ PATH_SOURCE_TYPES = {"lockfile", "manifest", "tool-version-file", "bootstrap-scr
 SOURCE_TYPES = PATH_SOURCE_TYPES | {"immutable-image"}
 
 
+def _read_bounded(path: Path, maximum: int, *, label: str) -> bytes:
+    if path.is_symlink() or not path.is_file():
+        raise ValueError(f"{label} is not a regular file: {path}")
+    size = path.stat().st_size
+    if size > maximum:
+        raise ValueError(f"{label} exceeds maximum size")
+    with path.open("rb") as handle:
+        data = handle.read(maximum + 1)
+    if len(data) > maximum:
+        raise ValueError(f"{label} exceeds maximum size")
+    if len(data) != size:
+        raise ValueError(f"{label} changed while being read")
+    return data
+
+
 def _load(path: Path) -> dict[str, Any]:
-    data = path.read_bytes()
-    if len(data) > MAX_POLICY_BYTES:
-        raise ValueError("policy exceeds maximum size")
+    data = _read_bounded(path, MAX_POLICY_BYTES, label="policy")
     value = yaml.safe_load(data)
     if not isinstance(value, dict) or value.get("schema_version") != 1:
         raise ValueError("unsupported or invalid bootstrap policy")
@@ -39,15 +52,14 @@ def _source(root: Path, item: dict[str, Any]) -> dict[str, str]:
     if kind == "immutable-image":
         if "@sha256:" not in source or len(source.rsplit("@sha256:", 1)[1]) != 64:
             raise ValueError(f"immutable image must be digest-pinned for {dependency_id}")
-        return {"kind": kind, "source": source, "source_digest": source.rsplit("@", 1)[1]}
+        digest = source.rsplit("@", 1)[1]
+        if any(character not in "0123456789abcdef" for character in digest.removeprefix("sha256:")):
+            raise ValueError(f"immutable image digest must be lowercase hexadecimal for {dependency_id}")
+        return {"kind": kind, "source": source, "source_digest": digest}
 
     path = (root / source).resolve()
     path.relative_to(root)
-    if path.is_symlink() or not path.is_file():
-        raise ValueError(f"declared dependency source is not a regular file: {source}")
-    data = path.read_bytes()
-    if len(data) > MAX_SOURCE_BYTES:
-        raise ValueError(f"declared dependency source exceeds size bound: {source}")
+    data = _read_bounded(path, MAX_SOURCE_BYTES, label=f"declared dependency source {source}")
     return {
         "kind": kind,
         "source": source,
