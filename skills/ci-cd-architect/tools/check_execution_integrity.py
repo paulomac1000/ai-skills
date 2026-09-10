@@ -34,6 +34,15 @@ BLOCKING_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
 GENERIC_WARNING = re.compile(r"\b[A-Za-z][A-Za-z0-9_]*Warning\s*:")
 
 
+def _metadata_changed(before: os.stat_result, after: os.stat_result) -> bool:
+    return (
+        not os.path.samestat(before, after)
+        or before.st_size != after.st_size
+        or getattr(before, "st_mtime_ns", None) != getattr(after, "st_mtime_ns", None)
+        or getattr(before, "st_ctime_ns", None) != getattr(after, "st_ctime_ns", None)
+    )
+
+
 def _read(path: Path) -> str:
     nofollow = getattr(os, "O_NOFOLLOW", 0)
     expected: os.stat_result | None = None
@@ -41,7 +50,7 @@ def _read(path: Path) -> str:
         expected = os.lstat(path)
         if stat.S_ISLNK(expected.st_mode):
             raise ValueError("log must be a regular file")
-    flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | nofollow
+    flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NONBLOCK", 0) | nofollow
     try:
         descriptor = os.open(path, flags)
     except OSError as error:
@@ -65,7 +74,7 @@ def _read(path: Path) -> str:
         data = b"".join(chunks)
         if len(data) > MAX_LOG_BYTES:
             raise ValueError("log exceeds maximum supported size")
-        if len(data) != metadata.st_size:
+        if len(data) != metadata.st_size or _metadata_changed(metadata, os.fstat(descriptor)):
             raise ValueError("log changed while being read")
     finally:
         os.close(descriptor)
