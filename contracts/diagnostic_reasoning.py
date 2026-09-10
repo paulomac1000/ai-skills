@@ -224,7 +224,9 @@ def _prediction_map(probe: Mapping[str, object]) -> Mapping[str, object]:
 
 def _probe_discrimination_score(probe: Mapping[str, object], hypothesis_ids: set[str]) -> tuple[int, int]:
     predictions = _prediction_map(probe)
-    covered = sorted(hypothesis_id for hypothesis_id in hypothesis_ids if isinstance(predictions.get(hypothesis_id), str))
+    covered = sorted(
+        hypothesis_id for hypothesis_id in hypothesis_ids if isinstance(predictions.get(hypothesis_id), str)
+    )
     separated = sum(1 for left, right in combinations(covered, 2) if predictions[left] != predictions[right])
     return separated, len(covered)
 
@@ -241,9 +243,7 @@ def select_discriminating_probe(state: Mapping[str, object]) -> str | None:
     """
     hypotheses = _mapping_list(state.get("hypotheses"), "hypotheses")
     unresolved = {
-        str(item["id"])
-        for item in hypotheses
-        if item.get("status") != "disproven" and isinstance(item.get("id"), str)
+        str(item["id"]) for item in hypotheses if item.get("status") != "disproven" and isinstance(item.get("id"), str)
     }
     if len(unresolved) == 1:
         only = next(item for item in hypotheses if item.get("id") in unresolved)
