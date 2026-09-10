@@ -54,6 +54,21 @@ def test_nested_tool_arguments_and_argv_do_not_replay_raw_value() -> None:
     assert raw not in json.dumps(sanitized_argv)
 
 
+def test_tainted_mapping_key_is_redacted_before_external_egress() -> None:
+    guard, raw = _guard()
+    sanitized = guard.sanitize_value({raw: "value"}, sink="tool_argument")
+    serialized = json.dumps(sanitized, sort_keys=True)
+    assert raw not in serialized
+    assert "secret://github/release-token" in serialized
+
+
+def test_tainted_mapping_key_collision_fails_closed() -> None:
+    guard, raw = _guard()
+    replacement = "[REDACTED:secret://github/release-token]"
+    with pytest.raises(TaintViolation, match="collapse distinct mapping keys"):
+        guard.sanitize_value({raw: "secret-key", replacement: "existing-key"}, sink="durable_evidence")
+
+
 def test_protected_runtime_callback_can_use_secret_without_returning_it() -> None:
     guard, raw = _guard()
     observed: list[str] = []
