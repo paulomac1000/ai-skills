@@ -59,7 +59,7 @@ def _bindings() -> dict[str, dict[str, object]]:
         "lease:1": binding("method:protected-release"),
         "junit:1": binding("acceptance:tests pass"),
         "runtime:1": binding("acceptance:runtime identity verified"),
-        "diff:empty@exact-sha": binding("output:repository-change-or-noop-proof"),
+        "diff:empty@exact-sha": binding("output:repository-change-or-noop-proof", "task:task-1"),
     }
 
 
@@ -259,6 +259,7 @@ def test_unbound_terminal_evidence_is_rejected() -> None:
         requires_work=True,
         child_disposition="completed",
         expected_outputs=["repository-change-or-noop-proof"],
+        task_id="task-1",
         intent_revision=4,
         execution_revision=EXECUTION_REVISION,
         evidence_bindings={},
@@ -272,6 +273,7 @@ def test_explicit_bound_no_change_evidence_can_reconcile_legitimate_noop() -> No
         requires_work=True,
         child_disposition="completed",
         expected_outputs=["repository-change-or-noop-proof"],
+        task_id="task-1",
         intent_revision=4,
         execution_revision=EXECUTION_REVISION,
         evidence_bindings=_bindings(),
