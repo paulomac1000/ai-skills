@@ -43,7 +43,7 @@ Define stable delivery invariants for Python, .NET, MCP, documentation, package,
 - Verdict-affecting dependencies come from repository-declared locks, manifests, tool-version files, immutable images, or an explicit deterministic bootstrap. Ambient host packages are not reproducible evidence merely because they happen to satisfy an invocation.
 - Ordinary validation is read-only with respect to production-effective runtime state. Test fixtures, generated env/config, databases, caches, sockets, work directories, identities, and credentials use isolated run-owned state. A validation run that mutates the production-effective state it was meant to observe is invalid evidence even if its assertions pass.
 
-The canonical machine-readable semantics for test-corpus completeness, execution integrity, dependency bootstrap, local/hosted parity, and protected-state isolation are described in `references/verification-integrity.md` and compose into the repository-level `contracts/agentic-governance.schema.json` verification receipt. Individual language or MCP profiles consume those semantics rather than inventing private definitions of `PASS`.
+The canonical machine-readable semantics for test-corpus completeness, execution integrity, dependency bootstrap, local/hosted parity, and protected-state isolation are described in `references/verification-integrity.md` and compose into the repository-level `contracts/verification-receipt.schema.json`. Individual language or MCP profiles consume those semantics rather than inventing private definitions of `PASS`.
 
 ## Workflow policy profiles
 
@@ -151,13 +151,13 @@ The publisher verifies that every promoted production tag resolves to the expect
 
 `docker push --all-tags` is forbidden because unrelated local tags may be promoted accidentally. `docker image load` or candidate execution in the privileged publisher is forbidden because it reintroduces candidate-controlled execution after the trust boundary. A short SHA may be a human alias but is not the durable source identity.
 
-A deployment authority, where required, is bound to an exact principal/session, target/environment/resource, candidate digest/revision, action, normalized arguments/policy revision, and validity window. Repository source or generic write credentials cannot mint or widen that authority. Timeout after dispatch is reconciled against target RuntimeIdentity before any retry; rollback is separately authorized unless the governing lease explicitly includes it. The common lease and audit semantics live in `contracts/agentic-governance.schema.json`.
+A deployment authority, where required, is bound to an exact principal/session, target/environment/resource, candidate digest/revision, action, normalized arguments/policy revision, and validity window. Repository source or generic write credentials cannot mint or widen that authority. Timeout after dispatch is reconciled against target RuntimeIdentity before any retry; rollback is separately authorized unless the governing lease explicitly includes it. The common lease and audit semantics live in `contracts/deployment-lease.schema.json` and `contracts/audit-event.schema.json`.
 
 ## Local quality gates
 
 Pre-commit runs only deterministic, fast, secret-free checks. Pre-push may run the bounded repository parity runner. Network, deployment, integration environments, and privileged publication remain in CI. In an on-demand repository, local and pre-push gates carry more of the iterative feedback load but never manufacture hosted evidence. See [Local quality gates](references/local-quality-gates.md).
 
-Every merge-blocking hosted gate maps to one supported local entrypoint or an explicit `hosted_only` classification with rationale. The local entrypoint uses the same policy/configuration and pinned dependency source where feasible; unavailable provider-only checks remain visible as not executed. Use `tools/check_local_ci_parity.py` for the mapping, `tools/check_test_corpus.py` for corpus completeness, `tools/check_execution_integrity.py` for hidden runtime failures, and `tools/verify_state_isolation.py` when validation can run near protected state.
+Every merge-blocking hosted gate maps to one supported local entrypoint or an explicit `hosted_only` classification with rationale. The local entrypoint uses the same policy/configuration and pinned dependency source where feasible; unavailable provider-only checks remain visible as not executed. Use `tools/check_local_ci_parity.py` for the mapping, `tools/check_verification_bootstrap.py` for dependency provenance, `tools/check_test_corpus.py` for corpus completeness, `tools/check_execution_integrity.py` for hidden runtime failures, and `tools/verify_state_isolation.py` when validation can run near protected state.
 
 ## Verification
 
