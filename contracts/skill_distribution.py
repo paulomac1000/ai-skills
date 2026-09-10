@@ -7,6 +7,7 @@ import argparse
 import hashlib
 import json
 import shutil
+import subprocess
 import tempfile
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
@@ -169,24 +170,24 @@ def _source_digest(inventory: tuple[tuple[OwnedFile, bytes], ...]) -> str:
 
 def _gitignore_covers_ephemeral(project_root: Path) -> bool:
     ignore = project_root / ".gitignore"
-    if ignore.is_symlink() or not ignore.is_file():
+    if ignore.is_symlink() or not ignore.is_file() or shutil.which("git") is None:
         return False
     try:
-        text = _read_bounded(ignore, MAX_GITIGNORE_BYTES, label=".gitignore").decode("utf-8")
-    except (DistributionError, UnicodeDecodeError):
+        _read_bounded(ignore, MAX_GITIGNORE_BYTES, label=".gitignore").decode("utf-8")
+        probe = (EPHEMERAL_ROOT / ".ai-skills-ignore-probe").as_posix()
+        result = subprocess.run(
+            ["git", "check-ignore", "--no-index", "--verbose", "--", probe],
+            cwd=project_root,
+            check=False,
+            text=True,
+            capture_output=True,
+            timeout=5,
+        )
+    except (DistributionError, OSError, subprocess.TimeoutExpired, UnicodeDecodeError):
         return False
-
-    ignored = False
-    for raw_line in text.splitlines():
-        stripped = raw_line.strip()
-        if not stripped or stripped.startswith("#"):
-            continue
-        negated = stripped.startswith("!")
-        pattern = stripped[1:] if negated else stripped
-        normalized = pattern.lstrip("/").rstrip("/")
-        if normalized in {".ai-skills", ".ai-skills/ephemeral"}:
-            ignored = not negated
-    return ignored
+    if result.returncode != 0:
+        return False
+    return any(line.startswith(".gitignore:") for line in result.stdout.splitlines())
 
 
 def _validate_scope(mode: DistributionMode, project_root: Path, target: Path) -> None:
@@ -253,7 +254,7 @@ def _verify_owned_files(target: Path, state: InstallationState) -> None:
     expected = {item.path: item for item in state.owned_files}
     for relative, item in expected.items():
         candidate = _managed_file_path(target, relative)
-        data = _read_bounded(candidate, item.size, label="managed file")
+        data = _read_bounded(candidate, MAX_TOTAL_BYTES, label="managed file")
         if len(data) != item.size or hashlib.sha256(data).hexdigest() != item.sha256:
             raise DistributionError(f"managed file was modified outside installer ownership: {relative}")
 
