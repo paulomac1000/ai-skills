@@ -1,8 +1,8 @@
 schema_version: 1
-catalog_revision: skill-catalog-1
+catalog_revision: skill-catalog-2
 skills:
 - skill_id: afds-doc-writer
-  version: 1.4.0
+  version: 2.0.0
   manifest_path: skills/afds-doc-writer/manifest.yaml
   skill_entrypoint: skills/afds-doc-writer/SKILL.md
   capabilities: [governed-document-authoring, document-structure-validation]
@@ -10,7 +10,7 @@ skills:
   do_not_use_when: [the task is only README, changelog, CI, or MCP architecture]
   loading: {modes: [runtime_tool, preload, vendored]}
 - skill_id: agent-task-orchestrator
-  version: 1.4.0
+  version: 2.0.0
   manifest_path: skills/agent-task-orchestrator/manifest.yaml
   skill_entrypoint: skills/agent-task-orchestrator/SKILL.md
   capabilities: [task-intent-orchestration, delegated-agent-coordination, task-completion-reconciliation]
@@ -18,7 +18,7 @@ skills:
   do_not_use_when: [the task is a single bounded operation with no mutable task state or delegation lifecycle]
   loading: {modes: [runtime_tool, preload, vendored]}
 - skill_id: agents-md-architect
-  version: 1.4.0
+  version: 2.0.0
   manifest_path: skills/agents-md-architect/manifest.yaml
   skill_entrypoint: skills/agents-md-architect/SKILL.md
   capabilities: [agent-instruction-authoring, agent-instruction-audit]
@@ -26,7 +26,7 @@ skills:
   do_not_use_when: [the task does not change or verify repository agent instructions]
   loading: {modes: [runtime_tool, preload, vendored]}
 - skill_id: changelog-release-architect
-  version: 1.4.0
+  version: 2.0.0
   manifest_path: skills/changelog-release-architect/manifest.yaml
   skill_entrypoint: skills/changelog-release-architect/SKILL.md
   capabilities: [changelog-governance, release-version-governance]
@@ -34,7 +34,7 @@ skills:
   do_not_use_when: [the task is CI implementation without release documentation semantics]
   loading: {modes: [runtime_tool, preload, vendored]}
 - skill_id: ci-cd-architect
-  version: 1.4.0
+  version: 2.0.0
   manifest_path: skills/ci-cd-architect/manifest.yaml
   skill_entrypoint: skills/ci-cd-architect/SKILL.md
   capabilities: [ci-cd-governance, protected-release-workflow]
@@ -42,7 +42,7 @@ skills:
   do_not_use_when: [the task is application behavior without build or delivery implications]
   loading: {modes: [runtime_tool, preload, vendored]}
 - skill_id: mcp-server-architect
-  version: 1.4.0
+  version: 2.0.0
   manifest_path: skills/mcp-server-architect/manifest.yaml
   skill_entrypoint: skills/mcp-server-architect/SKILL.md
   capabilities: [mcp-server-design, mcp-server-generation, mcp-provider-compatibility]
@@ -50,7 +50,7 @@ skills:
   do_not_use_when: [the task only consumes an existing MCP server]
   loading: {modes: [runtime_tool, preload, vendored]}
 - skill_id: mcp-server-consumer
-  version: 1.4.0
+  version: 2.0.0
   manifest_path: skills/mcp-server-consumer/manifest.yaml
   skill_entrypoint: skills/mcp-server-consumer/SKILL.md
   capabilities: [mcp-consumption, mcp-tool-selection, mcp-retry-reconciliation]
@@ -58,7 +58,7 @@ skills:
   do_not_use_when: [the task is implementing the MCP server itself]
   loading: {modes: [runtime_tool, preload, vendored]}
 - skill_id: readme-architect
-  version: 1.4.0
+  version: 2.0.0
   manifest_path: skills/readme-architect/manifest.yaml
   skill_entrypoint: skills/readme-architect/SKILL.md
   capabilities: [readme-authoring, readme-audit]
