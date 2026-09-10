@@ -137,6 +137,8 @@ def evaluate(
     else:
         verdict = "pass"
     completeness = "complete" if verdict == "pass" else ("unknown" if verdict == "incomplete" else "drift")
+    executed_count = len(observed & expected)
+    accounted_files = executed_count + len(excluded_discovered)
 
     return {
         "schema_version": 1,
@@ -144,7 +146,7 @@ def evaluate(
         "mode": mode,
         "discovered_files": len(discovered),
         "selected_files": len(selected & expected),
-        "executed_files": len(observed & expected),
+        "executed_files": executed_count,
         "excluded_files": [
             {
                 "path": path,
@@ -154,6 +156,7 @@ def evaluate(
             }
             for path in sorted(excluded_discovered)
         ],
+        "accounted_files": accounted_files,
         "stale_exclusions": sorted(stale_exclusions),
         "missing_from_selection": sorted(missing_selection),
         "unexpected_in_selection": sorted(unexpected_selection),
