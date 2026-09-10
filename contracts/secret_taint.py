@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import asdict, dataclass
 from typing import Any, Literal
 
@@ -120,10 +120,27 @@ class TaintGuard:
     def _replacement(self, observed: _ObservedValue) -> str:
         return f"[REDACTED:{observed.metadata.opaque_ref}]"
 
+    def _ordered_values(self) -> tuple[_ObservedValue, ...]:
+        return tuple(sorted(self._values.values(), key=lambda observed: len(observed.raw), reverse=True))
+
+    def _contains_registered_secret(self, value: object) -> bool:
+        if isinstance(value, str):
+            return any(observed.raw in value for observed in self._values.values())
+        if isinstance(value, Mapping):
+            return any(
+                self._contains_registered_secret(key) or self._contains_registered_secret(item)
+                for key, item in value.items()
+            )
+        if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+            return any(self._contains_registered_secret(item) for item in value)
+        if isinstance(value, set):
+            return any(self._contains_registered_secret(item) for item in value)
+        return False
+
     def sanitize_text(self, text: str, *, sink: Sink) -> str:
-        """Redact known tainted values; unknown-sensitive egress must use guard_unknown()."""
+        """Redact known tainted values longest-first; unknown egress uses guard_unknown()."""
         output = text
-        for observed in self._values.values():
+        for observed in self._ordered_values():
             if observed.raw not in output:
                 continue
             metadata = observed.metadata
@@ -170,10 +187,12 @@ class TaintGuard:
         purpose: str,
         operation: Callable[[str], Any],
     ) -> tuple[Any, ProtectedBinding]:
-        """Resolve raw material only inside a trusted callback and return opaque evidence."""
+        """Resolve raw material only inside a trusted callback and reject tainted return values."""
         binding = self.protected_binding(opaque_ref, channel=channel, purpose=purpose)
         observed = self._values[opaque_ref]
         result = operation(observed.raw)
+        if self._contains_registered_secret(result):
+            raise TaintViolation("protected callback result contains tainted material")
         return result, binding
 
     def exposure_record(self, opaque_ref: str, *, affected_sinks: tuple[Sink, ...]) -> ExposureRecord:
