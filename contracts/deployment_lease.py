@@ -3,10 +3,13 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Collection, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
+
+FULL_REVISION = re.compile(r"^[0-9a-fA-F]{40}$")
 
 
 class DeploymentLeaseError(ValueError):
@@ -24,6 +27,7 @@ class LeaseAdmission:
     target_environment: str
     target_resource: str
     policy_revision: str
+    source_revision: str | None
 
 
 def _utc(value: str) -> datetime:
@@ -51,11 +55,18 @@ def admit_lease(
     artifact_digest: str,
     action: str,
     normalized_args_digest: str,
+    policy_revision: str,
     now: datetime,
+    source_revision: str | None = None,
     session: str | None = None,
     consumed_lease_ids: Collection[str] = (),
 ) -> LeaseAdmission:
     """Admit only an active, unconsumed lease matching every protected dimension exactly."""
+    if not policy_revision:
+        raise DeploymentLeaseError("current policy_revision is required")
+    if source_revision is not None and FULL_REVISION.fullmatch(source_revision) is None:
+        raise DeploymentLeaseError("current source_revision must be an immutable full revision")
+
     lease_id = str(lease.get("lease_id") or "")
     if not lease_id:
         raise DeploymentLeaseError("lease_id is required")
@@ -79,6 +90,7 @@ def admit_lease(
         "artifact_digest": (lease.get("artifact_digest"), artifact_digest),
         "action": (lease.get("action"), action),
         "normalized_args_digest": (lease.get("normalized_args_digest"), normalized_args_digest),
+        "policy_revision": (lease.get("policy_revision"), policy_revision),
     }
     for field, (actual, expected) in checks.items():
         if actual != expected:
@@ -105,9 +117,12 @@ def admit_lease(
         if lease_dimensions[field] != requested_dimensions[field]:
             raise DeploymentLeaseError(f"deployment lease target.{field} does not match requested target")
 
-    policy_revision = str(lease.get("policy_revision") or "")
-    if not policy_revision:
-        raise DeploymentLeaseError("deployment lease policy_revision is required")
+    lease_source_revision = lease.get("source_revision")
+    if lease_source_revision is not None or source_revision is not None:
+        if not isinstance(lease_source_revision, str) or FULL_REVISION.fullmatch(lease_source_revision) is None:
+            raise DeploymentLeaseError("deployment lease source_revision is missing or invalid")
+        if source_revision != lease_source_revision:
+            raise DeploymentLeaseError("deployment lease source_revision does not match requested operation")
 
     return LeaseAdmission(
         lease_id=lease_id,
@@ -119,4 +134,5 @@ def admit_lease(
         target_environment=requested_dimensions["environment"],
         target_resource=requested_dimensions["resource"],
         policy_revision=policy_revision,
+        source_revision=source_revision,
     )

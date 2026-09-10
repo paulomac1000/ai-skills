@@ -85,15 +85,3 @@ jobs:
             skills/mcp-server-architect/locks/dev-${{ matrix.lock_id }}.lock
           if-no-files-found: error
           retention-days: 14
-      - name: Archive exact source for repair diagnostics
-        if: matrix.lock_id == 'linux-x64-py312'
-        shell: bash
-        run: git archive --format=zip --output=exact-source.zip HEAD
-      - name: Upload exact source diagnostics
-        if: matrix.lock_id == 'linux-x64-py312'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
-        with:
-          name: exact-source-${{ github.run_id }}
-          path: exact-source.zip
-          if-no-files-found: error
-          retention-days: 2

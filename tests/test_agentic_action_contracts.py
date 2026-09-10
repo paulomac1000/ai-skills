@@ -197,6 +197,8 @@ def _admit(lease: dict, **overrides: object):
         "artifact_digest": "sha256:" + "b" * 64,
         "action": "deploy",
         "normalized_args_digest": "hmac-sha256:" + "c" * 64,
+        "policy_revision": "deploy-policy-1",
+        "source_revision": "a" * 40,
         "now": datetime(2026, 9, 10, 0, 30, tzinfo=timezone.utc),
         "consumed_lease_ids": (),
     }
@@ -235,6 +237,49 @@ def test_consumed_lease_cannot_be_replayed() -> None:
 def test_parent_lease_does_not_authorize_child_principal() -> None:
     with pytest.raises(DeploymentLeaseError, match="principal"):
         _admit(_lease(), principal="delegated-child")
+
+
+def test_deployment_lease_rejects_stale_policy_revision() -> None:
+    with pytest.raises(DeploymentLeaseError, match="policy_revision"):
+        _admit(_lease(), policy_revision="deploy-policy-2")
+
+
+def test_deployment_lease_source_revision_is_optional_but_binding_when_present() -> None:
+    admission = _admit(_lease())
+    assert admission.source_revision == "a" * 40
+
+    with pytest.raises(DeploymentLeaseError, match="source_revision"):
+        _admit(_lease(), source_revision="d" * 40)
+    with pytest.raises(DeploymentLeaseError, match="source_revision"):
+        _admit(_lease(), source_revision=None)
+
+    unbound = _lease(source_revision=None)
+    admission = _admit(unbound, source_revision=None)
+    assert admission.source_revision is None
+    with pytest.raises(DeploymentLeaseError, match="source_revision"):
+        _admit(unbound, source_revision="a" * 40)
+
+
+def test_deployment_lease_rejects_invalid_current_authorization_context() -> None:
+    with pytest.raises(DeploymentLeaseError, match="current policy_revision"):
+        _admit(_lease(), policy_revision="")
+    with pytest.raises(DeploymentLeaseError, match="current source_revision"):
+        _admit(_lease(), source_revision="main")
+
+
+def test_deployment_lease_rejects_time_and_exact_operation_mismatches() -> None:
+    with pytest.raises(DeploymentLeaseError, match="timezone"):
+        _admit(_lease(), now=datetime(2026, 9, 10, 0, 30))
+    with pytest.raises(DeploymentLeaseError, match="not active yet"):
+        _admit(_lease(), now=datetime(2026, 9, 9, 23, 59, tzinfo=timezone.utc))
+    with pytest.raises(DeploymentLeaseError, match="expired"):
+        _admit(_lease(), now=datetime(2026, 9, 10, 1, 0, tzinfo=timezone.utc))
+    with pytest.raises(DeploymentLeaseError, match="artifact_digest"):
+        _admit(_lease(), artifact_digest="sha256:" + "e" * 64)
+    with pytest.raises(DeploymentLeaseError, match="action"):
+        _admit(_lease(), action="rollback")
+    with pytest.raises(DeploymentLeaseError, match="normalized_args_digest"):
+        _admit(_lease(), normalized_args_digest="hmac-sha256:" + "e" * 64)
 
 
 def test_audit_event_accepts_ambiguous_mutation_without_false_success() -> None:

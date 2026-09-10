@@ -40,7 +40,7 @@ Do not solve provenance by stripping known reminder prefixes after source text h
 
 `deployment-lease.schema.json` is the generic high-impact deployment approval contract. A lease binds the principal/session, exact project/environment/resource, exact artifact digest and optional source revision, one action, keyed normalized-argument digest, policy revision, validity window, and state.
 
-`deployment_lease.py` is the reference admission primitive. It requires an active, unexpired, unconsumed lease and exact matches on every protected dimension. A parent principal's lease does not authorize a delegated child because principal identity must match. Rollback, restart, migration, promotion, and deployment are distinct actions.
+`deployment_lease.py` is the reference admission primitive. It requires an active, unexpired, unconsumed lease and exact matches on every protected dimension. The caller supplies the current `policy_revision`; stale policy authority is rejected. `source_revision` is optional only when neither the lease nor the requested operation binds one; when either side declares it, both sides must provide the same immutable full revision. A parent principal's lease does not authorize a delegated child because principal identity must match. Rollback, restart, migration, promotion, and deployment are distinct actions.
 
 Repository content, prompt text, or child output cannot mint, extend, or reactivate a lease. Credentials stay behind the trusted executor/broker boundary. A timeout after deployment dispatch is reconciled against target runtime identity before any retry; the lease itself does not prove that replay is safe.
 
