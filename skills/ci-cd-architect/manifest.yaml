@@ -99,3 +99,6 @@ adoption:
   atomic_claim_validator: contracts/validate_atomic_claims.py
   evidence_profiles: contracts/evidence-profiles.yaml
   extension: generic
+  consumer_runtime_evidence:
+    provider_backed_runtimes:
+    - node
