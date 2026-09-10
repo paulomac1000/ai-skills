@@ -1,0 +1,119 @@
+# One-shot maintainer workflow. Removed after exact lock promotion.
+name: Promote regenerated locks
+
+on:
+  push:
+    branches:
+      - feat/agentic-governance-hardening
+    paths:
+      - .github/workflows/promote-regenerated-locks.yml
+
+permissions:
+  actions: read
+  contents: write
+
+concurrency:
+  group: promote-regenerated-locks
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 2
+          persist-credentials: true
+      - name: Verify one-shot promotion revision
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = "dfe2025ed0e2b54b81cf4fdfa010f83dcdc8d960"
+          test "$(git diff --name-only HEAD^ HEAD)" = ".github/workflows/promote-regenerated-locks.yml"
+      - name: Download exact native lock artifacts
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tmp="$(mktemp -d)"
+          printf '%s\n' "$tmp" > "$RUNNER_TEMP/lock-promotion-tmp"
+          expected_head="aa4e474085c138f07460b8897fcad629f38b7cbd"
+          while read -r target artifact_id; do
+            metadata="$(curl --fail --silent --show-error \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}")"
+            ARTIFACT_METADATA="$metadata" EXPECTED_HEAD="$expected_head" python - <<'PY'
+          import json
+          import os
+
+          metadata = json.loads(os.environ["ARTIFACT_METADATA"])
+          assert metadata["expired"] is False
+          assert metadata["workflow_run"]["head_sha"] == os.environ["EXPECTED_HEAD"]
+          PY
+            mkdir -p "$tmp/$target"
+            curl --fail --silent --show-error --location \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}/zip" \
+              --output "$tmp/$target.zip"
+            unzip -q "$tmp/$target.zip" -d "$tmp/$target"
+          done <<'EOF'
+          linux-x64-py312 10171804270
+          linux-x64-py313 10171808869
+          linux-x64-py314 10171810919
+          macos-arm64-py312 10171801151
+          windows-x64-py312 10171834763
+          EOF
+
+          for target in linux-x64-py312 linux-x64-py313 linux-x64-py314 macos-arm64-py312 windows-x64-py312; do
+            cp "$tmp/$target/requirements-dev-$target.lock" "requirements-dev-$target.lock"
+            cp "$tmp/$target/skills/mcp-server-architect/locks/dev-$target.lock" \
+              "skills/mcp-server-architect/locks/dev-$target.lock"
+            cp "$tmp/$target/skills/mcp-server-architect/locks/runtime-$target.lock" \
+              "skills/mcp-server-architect/locks/runtime-$target.lock"
+          done
+      - name: Verify exact lock blobs and changed paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          tmp="$(cat "$RUNNER_TEMP/lock-promotion-tmp")"
+          cat > "$tmp/expected-blobs.txt" <<'EOF'
+          f2a60791d40ab130e9473b26a65548d0aa1c0c5d requirements-dev-linux-x64-py312.lock
+          e9e752f2373c1ad2b02b0df683a78044a92435f5 requirements-dev-linux-x64-py313.lock
+          6d6dce8837b93830dadaf761504313efb610f091 requirements-dev-linux-x64-py314.lock
+          bc5474f2cc66f793e031f41555d00a382494e82d requirements-dev-macos-arm64-py312.lock
+          fb13ccc7a7ee668c76e2ce80a3465363314574d1 requirements-dev-windows-x64-py312.lock
+          0f60b386a57cda552b94d95c3e50c0547233f02e skills/mcp-server-architect/locks/dev-linux-x64-py312.lock
+          353d2baab30296bdcbca5ef3e38c8ed12ac096d0 skills/mcp-server-architect/locks/dev-linux-x64-py313.lock
+          7864ac6f30d50dced668c81a0d4ad04aca956f35 skills/mcp-server-architect/locks/dev-linux-x64-py314.lock
+          f26a36799d39db230df9dd0371a5e86308b51ff6 skills/mcp-server-architect/locks/dev-macos-arm64-py312.lock
+          7422eef0db55a088734f5814cb2e8a9ec024c7f8 skills/mcp-server-architect/locks/dev-windows-x64-py312.lock
+          a6068ec787bcb19940a3b0d783bc0b3791cf7674 skills/mcp-server-architect/locks/runtime-linux-x64-py312.lock
+          3371d92c73bd1fe909f169eb140e35a01474a95c skills/mcp-server-architect/locks/runtime-linux-x64-py313.lock
+          056ef1fc3a69fd86fb01770aca3c2cf7b20155f5 skills/mcp-server-architect/locks/runtime-linux-x64-py314.lock
+          13c97bfd39675335c3deace9d5782c0cdb510e7a skills/mcp-server-architect/locks/runtime-macos-arm64-py312.lock
+          e1b07da427da21b47e4eef37014330994d114ddc skills/mcp-server-architect/locks/runtime-windows-x64-py312.lock
+          EOF
+          while read -r expected path; do
+            test "$(git hash-object "$path")" = "$expected"
+            grep -q '^httpcore2==2\.12\.0 ' "$path"
+            grep -q '^httpx2==2\.12\.0 ' "$path"
+          done < "$tmp/expected-blobs.txt"
+          cut -d' ' -f2- "$tmp/expected-blobs.txt" | sort > "$tmp/expected-paths.txt"
+          git diff --name-only | sort > "$tmp/actual-paths.txt"
+          diff -u "$tmp/expected-paths.txt" "$tmp/actual-paths.txt"
+      - name: Commit exact regenerated locks
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add requirements-dev-*.lock skills/mcp-server-architect/locks/*.lock
+          git commit -m "chore(deps): regenerate native lock files"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
