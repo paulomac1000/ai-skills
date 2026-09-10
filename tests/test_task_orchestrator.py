@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import importlib.util
 import sys
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
@@ -15,6 +17,7 @@ sys.modules[spec.name] = module
 spec.loader.exec_module(module)
 
 OrchestrationError = module.OrchestrationError
+EXECUTION_REVISION = "c" * 40
 
 
 def _base(revision: str, *, repository: str = "owner/repo", ref: str = "feature") -> dict[str, str]:
@@ -39,6 +42,24 @@ def _ledger() -> dict:
             "protected_or_out_of_scope_targets": ["service-b"],
             "allowed_side_effect_classes": ["repository-write", "deploy"],
         },
+    }
+
+
+def _bindings() -> dict[str, dict[str, object]]:
+    def binding(*subjects: str) -> dict[str, object]:
+        return {
+            "intent_revision": 4,
+            "execution_revision": EXECUTION_REVISION,
+            "subjects": list(subjects),
+        }
+
+    return {
+        "git:abc": binding("requirement:R1", "capability:repository.write"),
+        "deploy:receipt": binding("requirement:R2", "capability:deployment.execute"),
+        "lease:1": binding("method:protected-release"),
+        "junit:1": binding("acceptance:tests pass"),
+        "runtime:1": binding("acceptance:runtime identity verified"),
+        "diff:empty@exact-sha": binding("output:repository-change-or-noop-proof"),
     }
 
 
@@ -82,6 +103,11 @@ def test_resource_pressure_has_no_scope_bypass_api() -> None:
 def test_unchanged_base_is_admitted() -> None:
     decision = module.admit_base(_base("a" * 40), _base("a" * 40), base_relationship="identical")
     assert decision.admission == "BASE_UNCHANGED"
+
+
+def test_symbolic_revision_is_not_an_immutable_base() -> None:
+    decision = module.admit_base(_base("main"), _base("main"), base_relationship="identical")
+    assert decision.admission == "BASE_UNKNOWN"
 
 
 def test_descendant_requires_explicit_nonoverlap_revalidation() -> None:
@@ -144,15 +170,55 @@ def test_child_is_least_authority_subset() -> None:
             requested_resource_domains=["repo:owner/repo"],
             parent_resource_domains=["repo:owner/repo"],
         )
+    with pytest.raises(OrchestrationError, match="strict subset"):
+        module.admit_child(
+            requested_capabilities=["repository.write"],
+            available_capabilities=["repository.write"],
+            requested_authority=["repository.write:owner/repo"],
+            parent_authority=["repository.write:owner/repo"],
+            requested_resource_domains=["repo:owner/repo"],
+            parent_resource_domains=["repo:owner/repo"],
+        )
 
 
-def test_existing_attempt_is_not_dispatched_twice() -> None:
+def test_dispatch_classification_never_authorizes_new_launch() -> None:
     first = module.admit_dispatch(attempt_id="attempt-1", known_attempts={})
     again = module.admit_dispatch(attempt_id="attempt-1", known_attempts={"attempt-1": "child-42"})
-    assert first.allowed is True
+    assert first.allowed is False
+    assert first.code == "ATOMIC_RESERVATION_REQUIRED"
     assert again.allowed is False
     assert again.code == "ALREADY_DISPATCHED"
     assert again.child_job_id == "child-42"
+
+
+def test_dispatch_once_is_atomic_for_concurrent_callers(tmp_path: Path) -> None:
+    attempts = tmp_path / "attempts"
+    callback_count = 0
+    lock = threading.Lock()
+    barrier = threading.Barrier(2)
+
+    def launch() -> str:
+        nonlocal callback_count
+        with lock:
+            callback_count += 1
+        return "child-42"
+
+    def caller() -> object:
+        barrier.wait()
+        return module.dispatch_once(
+            attempt_store=attempts,
+            attempt_id="attempt-1",
+            intent_revision=4,
+            execution_revision=EXECUTION_REVISION,
+            dispatch=launch,
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = [future.result() for future in (executor.submit(caller), executor.submit(caller))]
+
+    assert callback_count == 1
+    assert any(result.child_job_id == "child-42" for result in results)
+    assert {result.code for result in results} <= {"ALREADY_DISPATCHED", "ATTEMPT_ALREADY_RESERVED"}
 
 
 def test_continuation_is_delta_only_for_existing_child() -> None:
@@ -166,26 +232,49 @@ def test_continuation_is_delta_only_for_existing_child() -> None:
         module.build_continuation(
             attempt_id="attempt-1",
             child_job_id="child-42",
-            continuation_delta={"full_task": "repeat everything"},
+            continuation_delta={"nested": {"full_task": "repeat everything"}},
         )
 
 
 def test_completed_without_work_evidence_is_suspicious() -> None:
-    decision = module.classify_terminal(requires_work=True, child_disposition="completed", expected_outputs=["published-revision"])
+    decision = module.classify_terminal(
+        requires_work=True,
+        child_disposition="completed",
+        expected_outputs=["published-revision"],
+    )
     assert decision.code == "COMPLETED_NO_EVIDENCE"
     assert module.classify_terminal(
         requires_work=True,
         child_disposition="completed",
         expected_outputs=["published-revision"],
-        published_revision="c" * 40,
+        intent_revision=4,
+        execution_revision=EXECUTION_REVISION,
+        evidence_bindings={},
+        published_revision=EXECUTION_REVISION,
     ).code == "TERMINAL_EVIDENCE_PRESENT"
 
 
-def test_explicit_no_change_evidence_can_reconcile_legitimate_noop() -> None:
+def test_unbound_terminal_evidence_is_rejected() -> None:
     decision = module.classify_terminal(
         requires_work=True,
         child_disposition="completed",
         expected_outputs=["repository-change-or-noop-proof"],
+        intent_revision=4,
+        execution_revision=EXECUTION_REVISION,
+        evidence_bindings={},
+        no_change_evidence_refs=["diff:empty@exact-sha"],
+    )
+    assert decision.code == "COMPLETED_NO_EVIDENCE"
+
+
+def test_explicit_bound_no_change_evidence_can_reconcile_legitimate_noop() -> None:
+    decision = module.classify_terminal(
+        requires_work=True,
+        child_disposition="completed",
+        expected_outputs=["repository-change-or-noop-proof"],
+        intent_revision=4,
+        execution_revision=EXECUTION_REVISION,
+        evidence_bindings=_bindings(),
         no_change_evidence_refs=["diff:empty@exact-sha"],
     )
     assert decision.code == "TERMINAL_EVIDENCE_PRESENT"
@@ -219,6 +308,8 @@ def test_parallel_writers_conflict_on_shared_resource_domain() -> None:
 def test_parent_completion_requires_all_current_intent_evidence() -> None:
     decision = module.completion_gate(
         _ledger(),
+        execution_revision=EXECUTION_REVISION,
+        evidence_bindings=_bindings(),
         capability_evidence={"repository.write": ["git:abc"], "deployment.execute": []},
         method_evidence={"protected-release": []},
         acceptance_evidence={"tests pass": ["junit:1"], "runtime identity verified": []},
@@ -229,11 +320,26 @@ def test_parent_completion_requires_all_current_intent_evidence() -> None:
     assert "method:protected-release:missing-evidence" in decision.blockers
 
 
+def test_empty_ledger_cannot_false_green() -> None:
+    decision = module.completion_gate(
+        {},
+        execution_revision=EXECUTION_REVISION,
+        evidence_bindings={},
+        capability_evidence={},
+        method_evidence={},
+        acceptance_evidence={},
+    )
+    assert decision.completed is False
+    assert "ledger:missing:intent_revision" in decision.blockers
+
+
 def test_superseded_requirement_does_not_block_but_current_requirements_do() -> None:
     ledger = _ledger()
     ledger["requirements"][1].update({"status": "satisfied", "evidence_refs": ["deploy:receipt"]})
     decision = module.completion_gate(
         ledger,
+        execution_revision=EXECUTION_REVISION,
+        evidence_bindings=_bindings(),
         capability_evidence={"repository.write": ["git:abc"], "deployment.execute": ["deploy:receipt"]},
         method_evidence={"protected-release": ["lease:1"]},
         acceptance_evidence={"tests pass": ["junit:1"], "runtime identity verified": ["runtime:1"]},
