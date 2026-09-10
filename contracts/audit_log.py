@@ -1,4 +1,4 @@
-"""Deterministic semantic validation for append-only agentic audit histories."""
+"""Semantic validation for append-only agentic audit event streams."""
 
 from __future__ import annotations
 
@@ -7,136 +7,143 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 
-def _mapping(value: object) -> Mapping[str, Any]:
-    return value if isinstance(value, Mapping) else {}
+def _stable_value(value: object) -> str:
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
 
 
-def _text(value: object) -> str:
-    return value if isinstance(value, str) else ""
+def _event_fingerprint(event: Mapping[str, Any]) -> str:
+    return _stable_value(event)
 
 
-def _canonical_event(event: Mapping[str, object]) -> str:
-    return json.dumps(event, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
-
-
-def _action_binding(event: Mapping[str, object]) -> tuple[str, str, str, str, str, str]:
-    actor = _mapping(event.get("actor"))
-    action = _mapping(event.get("action"))
-    return (
-        _text(actor.get("principal")),
-        _text(actor.get("session")),
-        _text(action.get("capability")),
-        _text(action.get("operation")),
-        _text(action.get("target")),
-        _text(action.get("normalized_args_digest")),
-    )
-
-
-def _idempotency_identity(event: Mapping[str, object]) -> tuple[str, str, str] | None:
-    actor = _mapping(event.get("actor"))
-    action = _mapping(event.get("action"))
-    key_ref = _text(action.get("idempotency_key_ref"))
-    if not key_ref:
+def _idempotency_identity(event: Mapping[str, Any]) -> tuple[str, str, str, str] | None:
+    key = event.get("idempotency_key")
+    if not isinstance(key, str) or not key:
         return None
-    return (_text(actor.get("principal")), _text(actor.get("session")), key_ref)
+    actor = event.get("actor")
+    actor_principal = actor.get("principal_id") if isinstance(actor, Mapping) else None
+    capability = event.get("capability")
+    target = event.get("target")
+    target_identity = target.get("identity") if isinstance(target, Mapping) else None
+    if not all(isinstance(value, str) and value for value in (actor_principal, capability, target_identity)):
+        return None
+    return actor_principal, capability, target_identity, key
 
 
-def _successful_terminal(event: Mapping[str, object]) -> bool:
-    outcome = _mapping(event.get("outcome"))
+def _operation_identity(event: Mapping[str, Any]) -> tuple[str, str, str] | None:
+    operation = event.get("operation")
+    target = event.get("target")
+    target_identity = target.get("identity") if isinstance(target, Mapping) else None
+    arguments = event.get("normalized_arguments_digest")
+    if not all(isinstance(value, str) and value for value in (operation, target_identity, arguments)):
+        return None
+    return operation, target_identity, arguments
+
+
+def _successful_terminal(event: Mapping[str, Any]) -> bool:
+    outcome = event.get("outcome")
+    if not isinstance(outcome, Mapping):
+        return False
     return outcome.get("disposition") == "completed" and outcome.get("execution") == "succeeded"
 
 
-def _side_effect(event: Mapping[str, object]) -> str:
-    return _text(_mapping(event.get("outcome")).get("side_effect"))
+def _side_effect(event: Mapping[str, Any]) -> str | None:
+    outcome = event.get("outcome")
+    if not isinstance(outcome, Mapping):
+        return None
+    value = outcome.get("side_effect")
+    return value if isinstance(value, str) else None
 
 
-def _success_effects_conflict(left: str, right: str) -> bool:
-    if left == right:
+def _success_effects_conflict(left: Mapping[str, Any], right: Mapping[str, Any]) -> bool:
+    left_effect = _side_effect(left)
+    right_effect = _side_effect(right)
+    if left_effect == right_effect:
         return False
-    positive = {"published", "confirmed", "partial"}
-    negative = {"none", "not_started", "disproven"}
-    return (left in positive and right in negative) or (right in positive and left in negative)
+    positive = {"confirmed", "published"}
+    negative = {"none", "disproven"}
+    return (left_effect in positive and right_effect in negative) or (
+        right_effect in positive and left_effect in negative
+    )
 
 
-def validate_audit_sequence(events: Sequence[Mapping[str, object]]) -> list[str]:
-    """Validate cross-event identity, idempotency, and terminal-success semantics.
+def validate_audit_sequence(events: Sequence[Mapping[str, Any]]) -> list[str]:
+    """Validate cross-event idempotency, identity, and terminal-success semantics.
 
     Args:
-        events: Audit events in append order after structural schema validation.
+        events: Ordered append-only audit events that already satisfy the event schema.
 
     Returns:
-        Stable human-readable findings. An empty list means the sequence satisfies
-        the reusable audit-history invariants checked by this module.
+        Semantic findings. An empty list means the sequence is internally consistent.
     """
     findings: list[str] = []
-    event_by_id: dict[str, str] = {}
-    binding_by_key: dict[tuple[str, str, str], tuple[str, str, str, str, str, str]] = {}
-    successful_effect_by_key: dict[tuple[str, str, str], str] = {}
+    event_fingerprints: dict[str, str] = {}
+    key_bindings: dict[tuple[str, str, str, str], tuple[str, str, str]] = {}
+    successful_event_by_key: dict[tuple[str, str, str, str], Mapping[str, Any]] = {}
 
     for index, event in enumerate(events):
-        event_id = _text(event.get("event_id"))
-        if not event_id:
-            findings.append(f"event[{index}]: event_id is required for semantic validation")
-        else:
-            canonical = _canonical_event(event)
-            previous = event_by_id.get(event_id)
-            if previous is not None:
-                kind = "DUPLICATE_EVENT_ID" if previous == canonical else "EVENT_ID_CONFLICT"
-                findings.append(f"event[{index}]: {kind}: {event_id}")
+        event_id = event.get("event_id")
+        if not isinstance(event_id, str) or not event_id:
+            findings.append(f"event[{index}]: event_id is required")
+            continue
+        fingerprint = _event_fingerprint(event)
+        previous_fingerprint = event_fingerprints.get(event_id)
+        if previous_fingerprint is not None:
+            label = "DUPLICATE_EVENT_ID" if previous_fingerprint == fingerprint else "EVENT_ID_REBOUND"
+            findings.append(f"{label}: {event_id}")
+            continue
+        event_fingerprints[event_id] = fingerprint
+
+        identity = _idempotency_identity(event)
+        operation = _operation_identity(event)
+        if identity is not None and operation is not None:
+            previous_operation = key_bindings.get(identity)
+            if previous_operation is None:
+                key_bindings[identity] = operation
+            elif previous_operation != operation:
+                findings.append(
+                    "IDEMPOTENCY_KEY_REBOUND: "
+                    f"{identity[3]} moved from {_stable_value(previous_operation)} to {_stable_value(operation)}"
+                )
+
+        if identity is not None and _successful_terminal(event):
+            previous_success = successful_event_by_key.get(identity)
+            if previous_success is not None:
+                if _success_effects_conflict(previous_success, event):
+                    findings.append(
+                        "CONFLICTING_TERMINAL_SUCCESS: "
+                        f"idempotency identity {identity[3]} has contradictory successful side effects"
+                    )
+                else:
+                    findings.append(
+                        "DUPLICATE_TERMINAL_SUCCESS: "
+                        f"idempotency identity {identity[3]} already has a canonical successful result"
+                    )
             else:
-                event_by_id[event_id] = canonical
-
-        key_identity = _idempotency_identity(event)
-        if key_identity is None:
-            continue
-
-        binding = _action_binding(event)
-        previous_binding = binding_by_key.get(key_identity)
-        if previous_binding is None:
-            binding_by_key[key_identity] = binding
-        elif previous_binding != binding:
-            findings.append(
-                f"event[{index}]: IDEMPOTENCY_KEY_REBOUND: {key_identity[2]} is bound to a different action identity"
-            )
-            continue
-
-        if not _successful_terminal(event):
-            continue
-
-        effect = _side_effect(event)
-        previous_effect = successful_effect_by_key.get(key_identity)
-        if previous_effect is not None and _success_effects_conflict(previous_effect, effect):
-            findings.append(
-                f"event[{index}]: CONFLICTING_TERMINAL_SUCCESS: {key_identity[2]} reports incompatible side effects"
-            )
-        else:
-            successful_effect_by_key.setdefault(key_identity, effect)
+                successful_event_by_key[identity] = event
 
     return findings
 
 
-def validate_audit_append(
-    previous_events: Sequence[Mapping[str, object]],
-    candidate_events: Sequence[Mapping[str, object]],
+def validate_append_only_audit(
+    previous: Sequence[Mapping[str, Any]],
+    current: Sequence[Mapping[str, Any]],
 ) -> list[str]:
-    """Validate that a candidate history is an append-only extension of a prior history.
+    """Validate that a candidate audit stream only appends to the accepted prefix.
 
     Args:
-        previous_events: Previously accepted immutable audit history.
-        candidate_events: Candidate history after appending zero or more events.
+        previous: Previously accepted durable audit sequence.
+        current: Candidate successor sequence.
 
     Returns:
-        Append-only and sequence-semantic findings. Any finding must block
-        publication of the candidate history.
+        Findings for truncation, prefix mutation, or semantic inconsistency.
     """
-    findings: list[str] = []
-    if len(candidate_events) < len(previous_events):
-        findings.append("AUDIT_HISTORY_TRUNCATED: candidate history removed accepted events")
-    else:
-        for index, previous in enumerate(previous_events):
-            if _canonical_event(previous) != _canonical_event(candidate_events[index]):
-                findings.append(f"AUDIT_HISTORY_REWRITTEN: accepted event at index {index} changed")
-                break
-
-    findings.extend(validate_audit_sequence(candidate_events))
+    findings = validate_audit_sequence(current)
+    if len(current) < len(previous):
+        findings.append("AUDIT_TRUNCATED: candidate history is shorter than accepted history")
+        return findings
+    for index, event in enumerate(previous):
+        if index >= len(current):
+            break
+        if _event_fingerprint(current[index]) != _event_fingerprint(event):
+            findings.append(f"AUDIT_PREFIX_MUTATED: event at index {index} changed")
     return findings
