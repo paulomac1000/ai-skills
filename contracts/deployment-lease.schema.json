@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/paulomac1000/ai-skills/blob/main/contracts/deployment-lease.schema.json",
+  "title": "Deployment lease",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "lease_id", "principal", "target", "artifact_digest", "action", "normalized_args_digest", "policy_revision", "issued_at", "expires_at", "state"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "lease_id": {"type": "string", "minLength": 1, "maxLength": 256},
+    "principal": {"type": "string", "minLength": 1, "maxLength": 256},
+    "session": {"type": ["string", "null"], "maxLength": 256},
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["project", "environment", "resource"],
+      "properties": {
+        "project": {"type": "string", "minLength": 1, "maxLength": 512},
+        "environment": {"type": "string", "minLength": 1, "maxLength": 256},
+        "resource": {"type": "string", "minLength": 1, "maxLength": 2048}
+      }
+    },
+    "artifact_digest": {"type": "string", "pattern": "^sha256:[0-9a-fA-F]{64}$"},
+    "source_revision": {"type": ["string", "null"], "pattern": "^[0-9a-fA-F]{40}$"},
+    "action": {"enum": ["deploy", "rollback", "restart", "promote", "migrate"]},
+    "normalized_args_digest": {"type": "string", "pattern": "^hmac-sha256:[0-9a-fA-F]{64}$"},
+    "policy_revision": {"type": "string", "minLength": 1, "maxLength": 256},
+    "issued_at": {"type": "string", "format": "date-time"},
+    "expires_at": {"type": "string", "format": "date-time"},
+    "state": {"enum": ["active", "used", "revoked", "expired"]},
+    "evidence_refs": {"type": "array", "items": {"type": "string", "minLength": 1, "maxLength": 2048}, "uniqueItems": true}
+  }
+}
