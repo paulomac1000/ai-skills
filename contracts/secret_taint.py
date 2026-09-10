@@ -144,7 +144,7 @@ class TaintGuard:
             sanitized: dict[Any, Any] = {}
             for key, item in value.items():
                 safe_key = self.sanitize_text(key, sink=sink) if isinstance(key, str) else key
-                if safe_key in sanitized and safe_key != key:
+                if safe_key in sanitized:
                     raise TaintViolation("taint redaction would collapse distinct mapping keys")
                 sanitized[safe_key] = self.sanitize_value(item, sink=sink)
             return sanitized
