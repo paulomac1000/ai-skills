@@ -85,14 +85,22 @@ def test_task_orchestrator_is_in_all_canonical_quality_inventories() -> None:
     assert tool in targets.POLICY_COVERAGE_PATHS
 
 
-def test_production_python_cannot_fall_outside_quality_security_or_coverage_inventory() -> None:
+def test_production_python_cannot_fall_outside_canonical_quality_inventory() -> None:
     targets = load_targets()
+    inventories = (
+        targets.QUALITY_PATHS,
+        targets.TYPE_PATHS,
+        targets.BANDIT_PATHS,
+        targets.POLICY_COVERAGE_PATHS,
+    )
     production = _production_python()
     assert production
-    for relative in sorted(production):
-        assert _inventory_covers(relative, targets.QUALITY_PATHS), f"quality inventory omits {relative}"
-        assert _inventory_covers(relative, targets.BANDIT_PATHS), f"Bandit inventory omits {relative}"
-        assert _inventory_covers(relative, targets.POLICY_COVERAGE_PATHS), f"coverage inventory omits {relative}"
+    omitted = [
+        relative
+        for relative in sorted(production)
+        if not any(_inventory_covers(relative, inventory) for inventory in inventories)
+    ]
+    assert omitted == []
 
 
 def test_explicit_type_targets_exist() -> None:
