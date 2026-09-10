@@ -451,6 +451,7 @@ def classify_terminal(
     requires_work: bool,
     child_disposition: str,
     expected_outputs: Collection[str],
+    task_id: str | None = None,
     intent_revision: int | None = None,
     execution_revision: str | None = None,
     evidence_bindings: Mapping[str, Mapping[str, Any]] | None = None,
@@ -458,7 +459,7 @@ def classify_terminal(
     published_revision: str | None = None,
     no_change_evidence_refs: Collection[str] = (),
 ) -> TerminalDecision:
-    """Accept terminal work evidence only when bound to current intent, execution, and expected outputs."""
+    """Accept terminal work evidence only when bound to current intent, execution, task, and outputs."""
     evidence = tuple(sorted(_strings(evidence_refs, label="evidence_refs")))
     no_change = tuple(sorted(_strings(no_change_evidence_refs, label="no_change_evidence_refs")))
     expected = _strings(expected_outputs, label="expected_outputs")
@@ -492,15 +493,22 @@ def classify_terminal(
             for ref in refs
         ):
             return TerminalDecision("COMPLETED_NO_EVIDENCE", ())
-    if not expected and not refs and published_revision != execution_revision:
-        return TerminalDecision("COMPLETED_NO_EVIDENCE", ())
-    if not expected and refs and not any(
-        isinstance(evidence_bindings.get(ref), Mapping)
-        and evidence_bindings[ref].get("intent_revision") == intent_revision
-        and evidence_bindings[ref].get("execution_revision") == execution_revision
-        for ref in refs
-    ):
-        return TerminalDecision("COMPLETED_NO_EVIDENCE", ())
+    if not expected:
+        if published_revision == execution_revision:
+            return TerminalDecision("TERMINAL_EVIDENCE_PRESENT", combined)
+        if not task_id or not refs:
+            return TerminalDecision("COMPLETED_NO_EVIDENCE", ())
+        if not any(
+            _bound_evidence(
+                ref,
+                evidence_bindings,
+                intent_revision=intent_revision,
+                execution_revision=execution_revision,
+                subject=f"task:{task_id}",
+            )
+            for ref in refs
+        ):
+            return TerminalDecision("COMPLETED_NO_EVIDENCE", ())
     return TerminalDecision("TERMINAL_EVIDENCE_PRESENT", combined)
 
 
