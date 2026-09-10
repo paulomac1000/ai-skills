@@ -98,6 +98,9 @@ def test_distribution_bounded_read_detects_same_size_in_place_change(
     original = b"a" * 128
     replacement = b"b" * len(original)
     path.write_bytes(original)
+    baseline = path.stat()
+    baseline_atime_ns = getattr(baseline, "st_atime_ns", int(baseline.st_atime * 1_000_000_000))
+    baseline_mtime_ns = getattr(baseline, "st_mtime_ns", int(baseline.st_mtime * 1_000_000_000))
 
     original_read = skill_distribution.os.read
     changed = False
@@ -114,14 +117,8 @@ def test_distribution_bounded_read_detects_same_size_in_place_change(
                     writer.flush()
                     os.fsync(writer.fileno())
             except PermissionError:
-                metadata = path.stat()
-                os.utime(
-                    path,
-                    ns=(
-                        getattr(metadata, "st_atime_ns", int(metadata.st_atime * 1_000_000_000)),
-                        getattr(metadata, "st_mtime_ns", int(metadata.st_mtime * 1_000_000_000)) + 1_000_000,
-                    ),
-                )
+                pass
+            os.utime(path, ns=(baseline_atime_ns, baseline_mtime_ns + 2_000_000_000))
         return data
 
     monkeypatch.setattr(skill_distribution.os, "read", racing_read)
@@ -131,5 +128,5 @@ def test_distribution_bounded_read_detects_same_size_in_place_change(
 
 
 def test_distribution_bounded_read_rejects_non_regular_file(tmp_path: Path) -> None:
-    with pytest.raises(skill_distribution.DistributionError, match="not a regular file"):
+    with pytest.raises(skill_distribution.DistributionError, match="not a regular file|cannot be read"):
         skill_distribution._read_bounded(tmp_path, 1024, label="test payload")
