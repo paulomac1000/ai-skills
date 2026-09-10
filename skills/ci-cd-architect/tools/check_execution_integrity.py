@@ -5,10 +5,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
+import stat
 from pathlib import Path
 
 MAX_LOG_BYTES = 16 * 1024 * 1024
+READ_CHUNK_BYTES = 64 * 1024
 
 BLOCKING_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("pytest_unhandled_thread", re.compile(r"PytestUnhandledThreadExceptionWarning")),
@@ -32,17 +35,40 @@ GENERIC_WARNING = re.compile(r"\b[A-Za-z][A-Za-z0-9_]*Warning\s*:")
 
 
 def _read(path: Path) -> str:
-    if path.is_symlink() or not path.is_file():
-        raise ValueError("log must be a regular file")
-    size = path.stat().st_size
-    if size > MAX_LOG_BYTES:
-        raise ValueError("log exceeds maximum supported size")
-    with path.open("rb") as handle:
-        data = handle.read(MAX_LOG_BYTES + 1)
-    if len(data) > MAX_LOG_BYTES:
-        raise ValueError("log exceeds maximum supported size")
-    if len(data) != size:
-        raise ValueError("log changed while being read")
+    nofollow = getattr(os, "O_NOFOLLOW", 0)
+    expected: os.stat_result | None = None
+    if not nofollow:
+        expected = os.lstat(path)
+        if stat.S_ISLNK(expected.st_mode):
+            raise ValueError("log must be a regular file")
+    flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | nofollow
+    try:
+        descriptor = os.open(path, flags)
+    except OSError as error:
+        raise ValueError(f"log cannot be opened safely: {error}") from error
+    try:
+        metadata = os.fstat(descriptor)
+        if not stat.S_ISREG(metadata.st_mode):
+            raise ValueError("log must be a regular file")
+        if expected is not None and not os.path.samestat(expected, metadata):
+            raise ValueError("log path identity changed while opening")
+        if metadata.st_size > MAX_LOG_BYTES:
+            raise ValueError("log exceeds maximum supported size")
+        remaining = MAX_LOG_BYTES + 1
+        chunks: list[bytes] = []
+        while remaining > 0:
+            chunk = os.read(descriptor, min(READ_CHUNK_BYTES, remaining))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        data = b"".join(chunks)
+        if len(data) > MAX_LOG_BYTES:
+            raise ValueError("log exceeds maximum supported size")
+        if len(data) != metadata.st_size:
+            raise ValueError("log changed while being read")
+    finally:
+        os.close(descriptor)
     return data.decode("utf-8")
 
 
