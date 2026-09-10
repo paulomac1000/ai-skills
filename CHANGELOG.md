@@ -1,5 +1,31 @@
 # Changelog
 
+## 2.0.0 - 2026-09-10
+
+### Added
+
+- Added `agent-task-orchestrator` as the canonical owner of durable task intent, immutable planning and execution bases, bounded delegation, least-authority admission, progress reconciliation, and evidence-backed completion.
+- Added shared agentic action contracts for layered outcomes, runtime identity, deployment leases, audit events, tool-result provenance, diagnostic state, task intent, and delegation state so skills compose around one machine-readable source of truth.
+- Added governed skill distribution and consumption contracts with explicit GLOBAL, VENDORED, and EPHEMERAL modes, repository-shaped bundle construction, provenance/digest ownership, clean uninstall, runtime visibility/loadability checks, and exact loaded-artifact identity.
+- Added CI verification-integrity tooling for declared-dependency bootstrap, test-corpus discovery/execution accounting, runtime-exception detection, local/hosted gate parity, state-isolation preflight, and canonical verification receipts.
+- Added machine-readable gate-source inventory for `agents-md-architect` so true CI/task entrypoints consume the audit budget while helper/library files remain visible without creating false source-count failures.
+
+### Changed
+
+- Published all bundled skills as version `2.0.0` and aligned the skill catalog, conformance template, lock template, README, and release metadata to one major release boundary.
+- Changed agent-instruction auditing to preserve the established import/API facade while moving bounded implementation details into canonical helper modules; repository-shaped bundles now run under isolated Python without ambient `PYTHONPATH` assumptions.
+- Changed verification policy to distinguish selected tests from observed execution, reject incomplete discovery/execution evidence, classify background runtime failures separately from ordinary warnings, and require merge-blocking hosted gates to have a faithful local entrypoint or explicit hosted-only rationale.
+- Changed task orchestration to record both planning and execution bases and require explicit revalidation when execution advances beyond the planned immutable base rather than silently rebasing delegated work.
+- Changed repository-shared contracts to keep one canonical schema/helper owner per durable semantic instead of parallel skill-private copies.
+
+### Security and correctness
+
+- Bound deployment lease admission to the declared principal, session, target, artifact, action, argument digest, policy revision, validity window, and one-use state; a lease for one session or delegated principal cannot authorize another.
+- Sanitized tainted mapping keys as well as values before external egress and fail closed when redaction would collapse two distinct keys.
+- Hardened governed skill uninstall against absolute paths, parent traversal, state-file self-ownership, duplicate owned paths, Windows-path aliases, final symlinks, and intermediate symlink redirection before any managed file is removed.
+- Required both installed and loaded artifact digests before a skill can report `LOADED`, preventing revision-only identity from optimistically accepting a different artifact.
+- Strengthened verification receipts with observed-execution/completeness fields, producer-computed accounted-file counts, and an executable semantic validator that recomputes corpus accounting before accepting `pass`.
+
 ## 1.4.0 - 2026-08-28
 
 ### Added
