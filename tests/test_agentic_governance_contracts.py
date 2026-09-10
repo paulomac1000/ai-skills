@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 import pytest
@@ -9,6 +10,10 @@ from referencing import Registry, Resource
 
 ROOT = Path(__file__).resolve().parents[1]
 CONTRACTS = ROOT / "contracts"
+if str(CONTRACTS) not in sys.path:
+    sys.path.insert(0, str(CONTRACTS))
+
+from verification_receipt import VerificationReceiptError, validate_receipt_semantics  # noqa: E402
 
 
 def _load(name: str) -> dict:
@@ -35,7 +40,10 @@ def _receipt() -> dict:
             "discovered_files": 34,
             "executed_files": 34,
             "excluded_files": [],
+            "accounted_files": 34,
             "discovery_drift": 0,
+            "execution_evidence": "observed",
+            "completeness": "complete",
         },
         "execution_integrity": {
             "cancelled": 0,
@@ -50,12 +58,38 @@ def _receipt() -> dict:
     }
 
 
+def test_valid_pass_receipt_is_schema_and_semantically_complete() -> None:
+    receipt = _receipt()
+    _validator("verification-receipt.schema.json").validate(receipt)
+    validate_receipt_semantics(receipt)
+
+
 def test_historical_34_23_test_corpus_shape_cannot_pass() -> None:
     receipt = _receipt()
     receipt["test_corpus"]["executed_files"] = 23
+    receipt["test_corpus"]["accounted_files"] = 23
     receipt["test_corpus"]["discovery_drift"] = 11
     with pytest.raises(ValidationError):
         _validator("verification-receipt.schema.json").validate(receipt)
+
+
+def test_zero_execution_cannot_pass_for_nonempty_discovery_even_with_zero_drift() -> None:
+    receipt = _receipt()
+    receipt["test_corpus"]["executed_files"] = 0
+    receipt["test_corpus"]["accounted_files"] = 0
+    receipt["test_corpus"]["discovery_drift"] = 0
+    with pytest.raises(ValidationError):
+        _validator("verification-receipt.schema.json").validate(receipt)
+
+
+def test_semantic_validator_recomputes_accounted_test_files() -> None:
+    receipt = _receipt()
+    receipt["test_corpus"]["executed_files"] = 23
+    receipt["test_corpus"]["accounted_files"] = 34
+    receipt["test_corpus"]["discovery_drift"] = 0
+    _validator("verification-receipt.schema.json").validate(receipt)
+    with pytest.raises(VerificationReceiptError, match="accounted_files"):
+        validate_receipt_semantics(receipt)
 
 
 @pytest.mark.parametrize(
@@ -176,11 +210,30 @@ def test_diagnostic_state_preserves_multiple_contributing_causes() -> None:
     state = {
         "schema_version": 1,
         "observations": [
-            {"id": "O1", "claim": "action-specific probe failed", "evidence_ref": "probe:1", "classification": "OBSERVATION"}
+            {
+                "id": "O1",
+                "claim": "action-specific probe failed",
+                "evidence_ref": "probe:1",
+                "classification": "OBSERVATION",
+            }
         ],
         "hypotheses": [
-            {"id": "H1", "claim": "runtime binding is stale", "status": "supported", "supporting_evidence": ["probe:2"], "contradicting_evidence": [], "next_discriminating_probe": None},
-            {"id": "H2", "claim": "provider is degraded", "status": "supported", "supporting_evidence": ["probe:3"], "contradicting_evidence": [], "next_discriminating_probe": None},
+            {
+                "id": "H1",
+                "claim": "runtime binding is stale",
+                "status": "supported",
+                "supporting_evidence": ["probe:2"],
+                "contradicting_evidence": [],
+                "next_discriminating_probe": None,
+            },
+            {
+                "id": "H2",
+                "claim": "provider is degraded",
+                "status": "supported",
+                "supporting_evidence": ["probe:3"],
+                "contradicting_evidence": [],
+                "next_discriminating_probe": None,
+            },
         ],
         "causal_assessment": {
             "status": "partial",
