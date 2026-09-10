@@ -300,34 +300,40 @@ def reserve_dispatch(
         "child_job_id": None,
     }
     payload = (json.dumps(record, sort_keys=True, separators=(",", ":")) + "\n").encode("utf-8")
+    temp_path = store / f".{record_path.name}.{secrets.token_hex(8)}.tmp"
     flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
     try:
-        descriptor = os.open(record_path, flags, 0o600)
-    except FileExistsError:
-        existing = _read_attempt_record(record_path)
-        child_job_id = existing.get("child_job_id")
-        code = "ALREADY_DISPATCHED" if isinstance(child_job_id, str) and child_job_id else "ATTEMPT_ALREADY_RESERVED"
-        return DispatchReservation(
-            False,
-            code,
-            attempt_id,
-            None,
-            child_job_id if isinstance(child_job_id, str) else None,
-        )
-    except OSError as error:
-        raise OrchestrationError(f"attempt reservation failed: {error}") from error
-
-    try:
+        descriptor = os.open(temp_path, flags, 0o600)
         with os.fdopen(descriptor, "wb") as handle:
             handle.write(payload)
             handle.flush()
             os.fsync(handle.fileno())
-    except Exception:
         try:
-            record_path.unlink()
+            os.link(temp_path, record_path)
+        except FileExistsError:
+            existing = _read_attempt_record(record_path)
+            child_job_id = existing.get("child_job_id")
+            code = (
+                "ALREADY_DISPATCHED"
+                if isinstance(child_job_id, str) and child_job_id
+                else "ATTEMPT_ALREADY_RESERVED"
+            )
+            return DispatchReservation(
+                False,
+                code,
+                attempt_id,
+                None,
+                child_job_id if isinstance(child_job_id, str) else None,
+            )
+    except OSError as error:
+        raise OrchestrationError(f"attempt reservation failed: {error}") from error
+    finally:
+        try:
+            temp_path.unlink()
+        except FileNotFoundError:
+            pass
         except OSError:
             pass
-        raise
     return DispatchReservation(True, "DISPATCH_RESERVED", attempt_id, reservation_token, None)
 
 
