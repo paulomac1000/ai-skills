@@ -20,6 +20,15 @@ PATH_SOURCE_TYPES = {"lockfile", "manifest", "tool-version-file", "bootstrap-scr
 SOURCE_TYPES = PATH_SOURCE_TYPES | {"immutable-image"}
 
 
+def _metadata_changed(before: os.stat_result, after: os.stat_result) -> bool:
+    return (
+        not os.path.samestat(before, after)
+        or before.st_size != after.st_size
+        or getattr(before, "st_mtime_ns", None) != getattr(after, "st_mtime_ns", None)
+        or getattr(before, "st_ctime_ns", None) != getattr(after, "st_ctime_ns", None)
+    )
+
+
 def _read_bounded(path: Path, maximum: int, *, label: str) -> bytes:
     nofollow = getattr(os, "O_NOFOLLOW", 0)
     expected: os.stat_result | None = None
@@ -27,7 +36,7 @@ def _read_bounded(path: Path, maximum: int, *, label: str) -> bytes:
         expected = os.lstat(path)
         if stat.S_ISLNK(expected.st_mode):
             raise ValueError(f"{label} is not a regular file: {path}")
-    flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | nofollow
+    flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NONBLOCK", 0) | nofollow
     try:
         descriptor = os.open(path, flags)
     except OSError as error:
@@ -51,7 +60,7 @@ def _read_bounded(path: Path, maximum: int, *, label: str) -> bytes:
         data = b"".join(chunks)
         if len(data) > maximum:
             raise ValueError(f"{label} exceeds maximum size")
-        if len(data) != metadata.st_size:
+        if len(data) != metadata.st_size or _metadata_changed(metadata, os.fstat(descriptor)):
             raise ValueError(f"{label} changed while being read")
         return data
     finally:
