@@ -9,6 +9,7 @@
     "schema_version": {"const": 1},
     "observations": {"type": "array", "items": {"$ref": "#/$defs/observation"}},
     "hypotheses": {"type": "array", "items": {"$ref": "#/$defs/hypothesis"}},
+    "probes": {"type": "array", "items": {"$ref": "#/$defs/probe"}},
     "causal_assessment": {"$ref": "#/$defs/causalAssessment"},
     "effective_config_provenance": {"type": "array", "items": {"$ref": "#/$defs/configSource"}},
     "remediation_attempts": {"type": "array", "items": {"$ref": "#/$defs/remediationAttempt"}},
@@ -29,6 +30,38 @@
         "scope": {"enum": ["process", "capability", "dependency", "configuration", "external", "unknown"]},
         "source_group": {"type": ["string", "null"], "minLength": 1, "maxLength": 256}
       }
+    },
+    "probe": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "description", "source_group", "predictions", "observed_outcome", "evidence_ref"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1, "maxLength": 128},
+        "description": {"type": "string", "minLength": 1, "maxLength": 4096},
+        "source_group": {"type": "string", "minLength": 1, "maxLength": 256},
+        "predictions": {
+          "type": "object",
+          "minProperties": 2,
+          "maxProperties": 64,
+          "additionalProperties": {"type": "string", "minLength": 1, "maxLength": 2048}
+        },
+        "observed_outcome": {"type": ["string", "null"], "minLength": 1, "maxLength": 2048},
+        "evidence_ref": {"type": ["string", "null"], "minLength": 1, "maxLength": 2048}
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "observed_outcome": {"type": "null"},
+            "evidence_ref": {"type": "null"}
+          }
+        },
+        {
+          "properties": {
+            "observed_outcome": {"type": "string", "minLength": 1},
+            "evidence_ref": {"type": "string", "minLength": 1}
+          }
+        }
+      ]
     },
     "hypothesis": {
       "type": "object",
