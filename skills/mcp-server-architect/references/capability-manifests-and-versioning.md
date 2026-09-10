@@ -5,7 +5,7 @@ type: reference
 status: active
 rigor: normative
 owners: [repository-maintainers]
-verification: Enumerate every public tool through a supported client API and validate manifest coverage, schema identity, multi-axis consistency, active-profile state, target binding, version compatibility, and runtime policy enforcement.
+verification: Enumerate every public tool through a supported client API and validate manifest coverage, schema identity, orchestration semantics, multi-axis consistency, active-profile state, target binding, version compatibility, and runtime policy enforcement.
 ---
 
 # MCP capability manifests and versioning
@@ -39,9 +39,28 @@ At L2 and above, every registered public tool has exactly one manifest. Registra
 | `impact` | `none`, `transient`, `persistent`, `service_outage`, `financial`, or stricter class |
 | `reversible` | Whether application-level compensation can undo the effect |
 | `target_binding` | Stable identity and revalidation rule used before execution |
-| `active_state` | `active`, `disabled`, `degraded`, `unavailable`, or `deprecated` |
+| `active_state` | Artifact lifecycle state: `active`, `disabled`, `degraded`, `unavailable`, or `deprecated` |
 
 Servers may add fields such as required scopes, output limit, data provenance, freshness, retention, cache policy, capability-health identifier, long-running mode, expected-disconnect state, and deprecation window.
+
+## Canonical orchestration projection
+
+`contracts/capability-manifest.schema.json` is the shared machine-readable orchestration projection. Schema version 2 makes lifecycle behavior explicit so consumers do not infer semantics from names, prose, latency labels, or provider-specific conventions.
+
+Every canonical capability declares:
+
+- `contract_revision`, an immutable semantic revision for the projected contract;
+- `async_model`: `synchronous`, `task`, `stream`, or `external-job`;
+- `outcome_contract`: `simple` or `layered`;
+- `idempotency.mode` and `idempotency.scope` independently from the compatibility booleans;
+- `reconciliation.supported`, `reconciliation.required_after_ambiguous_dispatch`, and a machine-readable reconciliation `method`;
+- `publication.model` and whether publication itself `implies_verification`;
+- `result_bounded` together with `max_response_bytes`;
+- `runtime_identity.supported` and the strongest available identity level.
+
+Unknown or absent support is never interpreted as supported. A non-idempotent mutation MUST set `reconciliation.required_after_ambiguous_dispatch: true`; it may simultaneously declare `supported: false` and `method: none`, which tells a consumer that reconciliation is required but not supplied by that capability. In that state the consumer blocks blind replay rather than guessing a status method.
+
+The canonical manifest describes stable capability semantics. It MUST NOT contain current-principal authorization, current dependency readiness, transient health, current target availability, or current instance identity. `authorization_scopes` declares scopes required by the capability; it does not claim the current principal possesses them. `runtime_identity` advertises whether an identity mechanism exists; the live identity itself is returned separately. Supported/active runtime catalogs and health endpoints remain runtime projections.
 
 ## Risk is multi-axis
 
@@ -82,7 +101,8 @@ An ambiguous timeout after a mutation returns an unknown-outcome state when comp
 - `timeout_ms` maps to a real deadline passed to downstream I/O and task execution.
 - `retry_conditions` map to explicit error categories, idempotency checks, and upstream hints.
 - `confidentiality` maps to minimization, redaction, retention, cache, and audit policy.
-- `active_state` maps to discovery and readiness; inactive capabilities cannot remain silently invokable.
+- `active_state` maps to artifact discovery policy; live readiness and current authorization remain separate runtime state.
+- `async_model`, `outcome_contract`, reconciliation, publication, result bounds, and runtime-identity support map to executable consumer behavior rather than prose heuristics.
 
 Tests prove these mappings. Merely returning the manifest is not compliance.
 
@@ -91,6 +111,8 @@ Tests prove these mappings. Merely returning the manifest is not compliance.
 The supported catalog describes every capability implemented by the artifact. The active catalog is the subset enabled for the current configuration, dependency health, profile, principal, and operator policy.
 
 Discovery returns both states or enough information to distinguish them. A profile that hides tools, an unavailable optional backend, or an isolated privileged adapter cannot create orphaned manifests or misleading counts. Zero-I/O capability discovery must not contact sensitive or unavailable upstream systems.
+
+The stable canonical capability contract remains separate from this live catalog state. Consumers combine the two instead of writing transient readiness or authorization facts back into the manifest.
 
 ## Exposure and discovery
 
@@ -120,13 +142,14 @@ A manifest compliance test must:
 1. discover components through a supported client or compatibility adapter;
 2. compare discovered, supported, active, and governed sets;
 3. reject missing, orphaned, duplicated, and silently inactive manifests;
-4. validate required fields and allowed values;
+4. validate required fields and allowed values, including canonical orchestration semantics;
 5. enforce multi-axis consistency and conservative defaults;
-6. compare public names, schemas, descriptions, and versions;
-7. assert runtime gates for write, destructive, dangerous, confidential, expensive, and unavailable capabilities;
-8. prove authentication precedes network-backed resolution, then prove exact target authorization, identity revalidation, no-silent-fallback, timeout, and concurrency behavior;
-9. prove every positive idempotency, retry, reversibility, cache, and long-running claim;
-10. inspect the manifest through a real client on every advertised transport.
+6. prove consumers can select synchronous/task/stream/external-job handling, reconciliation, publication verification, result bounds, and runtime-identity verification from the manifest without prose inference;
+7. compare public names, schemas, descriptions, and versions;
+8. assert runtime gates for write, destructive, dangerous, confidential, expensive, and unavailable capabilities;
+9. prove authentication precedes network-backed resolution, then prove exact target authorization, identity revalidation, no-silent-fallback, timeout, and concurrency behavior;
+10. prove every positive idempotency, retry, reversibility, cache, reconciliation, runtime-identity, and long-running claim;
+11. inspect the manifest through a real client on every advertised transport.
 
 ## Verification
 
