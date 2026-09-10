@@ -9,8 +9,8 @@ import json
 import shutil
 import tempfile
 from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
-from pathlib import Path
+from datetime import UTC, datetime
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Literal
 
 DistributionMode = Literal["GLOBAL", "VENDORED", "EPHEMERAL"]
@@ -59,8 +59,11 @@ def _resolved_directory(path: Path) -> Path:
 
 
 def _resolved_target(path: Path) -> Path:
+    expanded = path.expanduser()
+    if expanded.is_symlink():
+        raise DistributionError(f"installation target must not be a symlink: {path}")
     try:
-        return path.expanduser().resolve(strict=False)
+        return expanded.resolve(strict=False)
     except (OSError, RuntimeError) as error:
         raise DistributionError(f"target cannot be resolved: {path}: {error}") from error
 
@@ -73,6 +76,38 @@ def _is_within(path: Path, root: Path) -> bool:
         return False
 
 
+def _owned_relative_path(value: str) -> Path:
+    if not isinstance(value, str) or not value or "\x00" in value:
+        raise DistributionError("owned file path must be a non-empty text path")
+    if "\\" in value:
+        raise DistributionError(f"owned file path must use canonical '/' separators: {value!r}")
+    posix = PurePosixPath(value)
+    windows = PureWindowsPath(value)
+    if posix.is_absolute() or windows.is_absolute() or windows.drive:
+        raise DistributionError(f"owned file path must be relative: {value!r}")
+    segments = value.split("/")
+    if any(segment in {"", ".", ".."} for segment in segments):
+        raise DistributionError(f"owned file path contains an unsafe segment: {value!r}")
+    if value == STATE_FILENAME:
+        raise DistributionError("installation state file cannot be listed as an owned payload file")
+    return Path(*segments)
+
+
+def _managed_file_path(target: Path, relative: str) -> Path:
+    safe_relative = _owned_relative_path(relative)
+    current = target
+    for segment in safe_relative.parts[:-1]:
+        current = current / segment
+        if current.is_symlink():
+            raise DistributionError(f"managed path contains a symlink component: {relative}")
+        if not current.is_dir():
+            raise DistributionError(f"managed path parent is missing or not a directory: {relative}")
+    candidate = target / safe_relative
+    if candidate.is_symlink() or not candidate.is_file():
+        raise DistributionError(f"managed file is missing or replaced: {relative}")
+    return candidate
+
+
 def _source_inventory(source: Path) -> tuple[tuple[OwnedFile, bytes], ...]:
     rows: list[tuple[OwnedFile, bytes]] = []
     total = 0
@@ -82,6 +117,7 @@ def _source_inventory(source: Path) -> tuple[tuple[OwnedFile, bytes], ...]:
             raise DistributionError(f"skill source contains symlink: {relative}")
         if not candidate.is_file():
             continue
+        _owned_relative_path(relative)
         data = candidate.read_bytes()
         total += len(data)
         if len(rows) + 1 > MAX_FILES:
@@ -112,10 +148,7 @@ def _gitignore_covers_ephemeral(project_root: Path) -> bool:
         for line in ignore.read_text(encoding="utf-8").splitlines()
         if line.strip() and not line.lstrip().startswith("#")
     }
-    return any(
-        pattern.rstrip("/") in {".ai-skills", ".ai-skills/ephemeral"}
-        for pattern in patterns
-    )
+    return any(pattern.rstrip("/") in {".ai-skills", ".ai-skills/ephemeral"} for pattern in patterns)
 
 
 def _validate_scope(mode: DistributionMode, project_root: Path, target: Path) -> None:
@@ -131,9 +164,7 @@ def _validate_scope(mode: DistributionMode, project_root: Path, target: Path) ->
     if mode == "EPHEMERAL":
         expected = project_root / EPHEMERAL_ROOT
         if not _is_within(target, expected) or target == expected:
-            raise DistributionError(
-                f"EPHEMERAL installation target must be below {EPHEMERAL_ROOT.as_posix()}/"
-            )
+            raise DistributionError(f"EPHEMERAL installation target must be below {EPHEMERAL_ROOT.as_posix()}/")
         if not _gitignore_covers_ephemeral(project_root):
             raise DistributionError(
                 f"EPHEMERAL root {EPHEMERAL_ROOT.as_posix()}/ must be ignored by project .gitignore"
@@ -150,8 +181,33 @@ def _load_state(target: Path) -> InstallationState | None:
         raise DistributionError(f"invalid installation state path: {state_path}")
     try:
         raw = json.loads(state_path.read_text(encoding="utf-8"))
-        owned = tuple(OwnedFile(**item) for item in raw.pop("owned_files"))
-        return InstallationState(owned_files=owned, **raw)
+        if not isinstance(raw, dict):
+            raise DistributionError("installation state root must be an object")
+        raw_owned = raw.pop("owned_files")
+        if not isinstance(raw_owned, list) or not raw_owned:
+            raise DistributionError("installation state owned_files must be a non-empty list")
+        owned: list[OwnedFile] = []
+        seen: set[str] = set()
+        for item in raw_owned:
+            if not isinstance(item, dict):
+                raise DistributionError("installation state owned_files entries must be objects")
+            owned_file = OwnedFile(**item)
+            _owned_relative_path(owned_file.path)
+            if owned_file.path in seen:
+                raise DistributionError(f"installation state contains duplicate owned path: {owned_file.path}")
+            if (
+                not isinstance(owned_file.sha256, str)
+                or len(owned_file.sha256) != 64
+                or any(character not in "0123456789abcdef" for character in owned_file.sha256)
+            ):
+                raise DistributionError(f"installation state has invalid digest for {owned_file.path}")
+            if not isinstance(owned_file.size, int) or isinstance(owned_file.size, bool) or owned_file.size < 0:
+                raise DistributionError(f"installation state has invalid size for {owned_file.path}")
+            seen.add(owned_file.path)
+            owned.append(owned_file)
+        return InstallationState(owned_files=tuple(owned), **raw)
+    except DistributionError:
+        raise
     except (OSError, UnicodeError, json.JSONDecodeError, KeyError, TypeError) as error:
         raise DistributionError(f"invalid installation state: {error}") from error
 
@@ -159,19 +215,19 @@ def _load_state(target: Path) -> InstallationState | None:
 def _verify_owned_files(target: Path, state: InstallationState) -> None:
     expected = {item.path: item for item in state.owned_files}
     for relative, item in expected.items():
-        candidate = target / relative
-        if candidate.is_symlink() or not candidate.is_file():
-            raise DistributionError(f"managed file is missing or replaced: {relative}")
+        candidate = _managed_file_path(target, relative)
         data = candidate.read_bytes()
         if len(data) != item.size or hashlib.sha256(data).hexdigest() != item.sha256:
             raise DistributionError(f"managed file was modified outside installer ownership: {relative}")
 
     allowed = set(expected) | {STATE_FILENAME}
-    unexpected = [
-        path.relative_to(target).as_posix()
-        for path in target.rglob("*")
-        if path.is_file() and path.relative_to(target).as_posix() not in allowed
-    ]
+    unexpected: list[str] = []
+    for path in target.rglob("*"):
+        relative = path.relative_to(target).as_posix()
+        if path.is_symlink():
+            raise DistributionError(f"installation target contains a symlink: {relative}")
+        if path.is_file() and relative not in allowed:
+            unexpected.append(relative)
     if unexpected:
         raise DistributionError(
             "installation target contains user/project-owned files: " + ", ".join(sorted(unexpected)[:10])
@@ -217,7 +273,7 @@ def install(
     elif target_root.exists() and any(target_root.iterdir()):
         raise DistributionError("refusing to install into a non-empty unowned target")
 
-    stamp = installed_at or datetime.now(timezone.utc).isoformat()
+    stamp = installed_at or datetime.now(UTC).isoformat()
     state = InstallationState(
         schema_version=1,
         skill_id=skill_id,
@@ -239,7 +295,7 @@ def install(
     staging = Path(tempfile.mkdtemp(prefix=f".{target_root.name}.install-", dir=parent))
     try:
         for item, data in inventory:
-            destination = staging / item.path
+            destination = staging / _owned_relative_path(item.path)
             destination.parent.mkdir(parents=True, exist_ok=True)
             destination.write_bytes(data)
         (staging / STATE_FILENAME).write_text(_state_json(state), encoding="utf-8")
@@ -274,10 +330,10 @@ def uninstall(*, target: Path, project_root: Path, mode: DistributionMode) -> In
     _verify_owned_files(target_root, state)
 
     for item in sorted(state.owned_files, key=lambda value: value.path.count("/"), reverse=True):
-        (target_root / item.path).unlink()
+        _managed_file_path(target_root, item.path).unlink()
     (target_root / STATE_FILENAME).unlink()
     for directory in sorted(
-        (path for path in target_root.rglob("*") if path.is_dir()),
+        (path for path in target_root.rglob("*") if path.is_dir() and not path.is_symlink()),
         key=lambda path: len(path.parts),
         reverse=True,
     ):
