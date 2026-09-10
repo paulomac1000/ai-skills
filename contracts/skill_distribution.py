@@ -6,7 +6,9 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import shutil
+import stat
 import subprocess
 import tempfile
 from dataclasses import asdict, dataclass
@@ -21,6 +23,7 @@ MAX_FILES = 4096
 MAX_TOTAL_BYTES = 32 * 1024 * 1024
 MAX_STATE_BYTES = 4 * 1024 * 1024
 MAX_GITIGNORE_BYTES = 1024 * 1024
+READ_CHUNK_BYTES = 64 * 1024
 
 
 class DistributionError(ValueError):
@@ -96,25 +99,58 @@ def _owned_relative_path(value: str) -> Path:
     return Path(*segments)
 
 
+def _metadata_changed(before: os.stat_result, after: os.stat_result) -> bool:
+    return (
+        not os.path.samestat(before, after)
+        or before.st_size != after.st_size
+        or getattr(before, "st_mtime_ns", None) != getattr(after, "st_mtime_ns", None)
+        or getattr(before, "st_ctime_ns", None) != getattr(after, "st_ctime_ns", None)
+    )
+
+
 def _read_bounded(path: Path, maximum: int, *, label: str) -> bytes:
-    if path.is_symlink() or not path.is_file():
-        raise DistributionError(f"{label} is not a regular file: {path}")
+    nofollow = getattr(os, "O_NOFOLLOW", 0)
+    expected: os.stat_result | None = None
+    if not nofollow:
+        try:
+            expected = os.lstat(path)
+        except OSError as error:
+            raise DistributionError(f"{label} cannot be inspected: {path}: {error}") from error
+        if stat.S_ISLNK(expected.st_mode):
+            raise DistributionError(f"{label} is not a regular file: {path}")
+
+    flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NONBLOCK", 0) | nofollow
     try:
-        size = path.stat().st_size
-    except OSError as error:
-        raise DistributionError(f"{label} cannot be inspected: {path}: {error}") from error
-    if size > maximum:
-        raise DistributionError(f"{label} exceeds byte limit {maximum}: {path}")
-    try:
-        with path.open("rb") as handle:
-            data = handle.read(maximum + 1)
+        descriptor = os.open(path, flags)
     except OSError as error:
         raise DistributionError(f"{label} cannot be read: {path}: {error}") from error
-    if len(data) > maximum:
-        raise DistributionError(f"{label} exceeds byte limit {maximum}: {path}")
-    if len(data) != size:
-        raise DistributionError(f"{label} changed while being read: {path}")
-    return data
+    try:
+        metadata = os.fstat(descriptor)
+        if not stat.S_ISREG(metadata.st_mode):
+            raise DistributionError(f"{label} is not a regular file: {path}")
+        if expected is not None and not os.path.samestat(expected, metadata):
+            raise DistributionError(f"{label} path identity changed while opening: {path}")
+        if metadata.st_size > maximum:
+            raise DistributionError(f"{label} exceeds byte limit {maximum}: {path}")
+
+        remaining = maximum + 1
+        chunks: list[bytes] = []
+        while remaining > 0:
+            chunk = os.read(descriptor, min(READ_CHUNK_BYTES, remaining))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        data = b"".join(chunks)
+        if len(data) > maximum:
+            raise DistributionError(f"{label} exceeds byte limit {maximum}: {path}")
+        if len(data) != metadata.st_size or _metadata_changed(metadata, os.fstat(descriptor)):
+            raise DistributionError(f"{label} changed while being read: {path}")
+        return data
+    except OSError as error:
+        raise DistributionError(f"{label} cannot be read: {path}: {error}") from error
+    finally:
+        os.close(descriptor)
 
 
 def _managed_file_path(target: Path, relative: str) -> Path:
