@@ -126,6 +126,9 @@ class TaintGuard:
     def _contains_registered_secret(self, value: object) -> bool:
         if isinstance(value, str):
             return any(observed.raw in value for observed in self._values.values())
+        if isinstance(value, (bytes, bytearray)):
+            binary = bytes(value)
+            return any(observed.raw.encode("utf-8") in binary for observed in self._values.values())
         if isinstance(value, Mapping):
             return any(
                 self._contains_registered_secret(key) or self._contains_registered_secret(item)
