@@ -20,7 +20,7 @@ Provider-specific job APIs, agent transports, and UI concepts are adapters. They
 
 Maintain one compact authoritative ledger using `contracts/intent-ledger.schema.json`. Record a stable task identity, monotonic `intent_revision`, goal, stable requirement IDs and source, required capabilities, required execution methods, acceptance criteria, prohibitions, authorized operations, scope, open questions, and unresolved conflicts.
 
-Requirements remain `pending`, `satisfied`, `blocked`, or `superseded`. A satisfied requirement carries evidence. Superseding a requirement names its replacement and the authority that permitted the change. Strategy changes, context compaction, resource pressure, or delegation must not silently erase a mandatory requirement, required capability, required execution method, prohibition, or acceptance criterion.
+Requirements remain `pending`, `satisfied`, `blocked`, or `superseded`. A satisfied requirement carries evidence. Superseding a requirement names its real replacement and the independently verified authority that permitted the change. A self-declared `superseded` status is not authority and cannot weaken the completion gate. Strategy changes, context compaction, resource pressure, or delegation must not silently erase a mandatory requirement, required capability, required execution method, prohibition, or acceptance criterion.
 
 User changes produce a new intent revision. Preserve provenance so an older plan or child result cannot silently overwrite newer intent.
 
@@ -52,7 +52,9 @@ The child contract is sufficient to perform its bounded task but does not transf
 
 Assign a durable `attempt_id` before dispatch and record the returned durable child/job identity exactly once. Launch acceptance proves only that the provider accepted a job; it does not prove the child started useful work or completed the task.
 
-Do not redispatch an existing attempt merely because polling was ambiguous. Reconcile the durable child identity first. Continuing an existing child uses a bounded delta containing only new facts, decisions, or evidence. Do not replay the full task history or raw secrets. A genuine fresh dispatch receives a new attempt identity.
+The external-dispatch/local-binding boundary is recoverable. If the provider returns a durable child identity but local binding fails, preserve that observed identity under `dispatch_ambiguous`/`RECONCILE_REQUIRED`; never discard it and never launch a replacement child for the same attempt. Reconciliation binds the preserved identity to the original durable reservation before normal continuation. If ambiguity-state persistence itself fails, the caller still receives the observed child identity and reservation token needed to retry the binding safely.
+
+Do not redispatch an existing attempt merely because polling or local persistence was ambiguous. Reconcile the durable child identity first. Continuing an existing child uses a bounded delta containing only new facts, decisions, or evidence. Do not replay the full task history or raw secrets. A genuine fresh dispatch receives a new attempt identity.
 
 Ambiguous dispatch or terminal outcomes use the canonical layered action outcome and reconciliation semantics before retry.
 
@@ -78,7 +80,7 @@ Only the parent/task owner decides overall completion. Compare the current inten
 
 A requirement is not complete because a child said `done`, a command returned zero, a transport ACK arrived, or an artifact was merely published. Use the canonical layered outcome and verification contracts. Missing, stale, ambiguous, or identity-mismatched evidence blocks completion or requires reconciliation.
 
-Superseded requirements stop blocking only when the ledger records the replacement and valid superseding authority. Newer intent invalidates an older completion decision until the new revision is evaluated.
+Superseded requirements stop blocking only when the ledger names an existing non-superseded replacement and the transition validator verifies `superseded_by_authority` against trusted authority supplied outside the candidate ledger. Newer intent invalidates an older completion decision until the new revision is evaluated.
 
 ## Parallel resource domains
 
@@ -88,14 +90,14 @@ Read-only work may run concurrently when it cannot mutate shared state and its e
 
 ## Handoff and compaction
 
-Handoff preserves compact authoritative state: ledger/task identity, `intent_revision`, unresolved requirement IDs, required capabilities/methods, scope boundaries, active durable child identities, admitted execution revisions, and evidence references needed to continue safely.
+Handoff preserves compact authoritative state: ledger/task identity, `intent_revision`, every unresolved requirement with its full requirement context, acceptance criteria, prohibitions, authorized operations, open questions, required capabilities/methods, scope boundaries, active durable child identities, admitted execution revisions, and evidence references needed to continue safely.
 
-Do not replay the entire chat, satisfied requirement prose, full child prompts, or raw credentials when stable IDs and opaque references suffice. Compaction never converts `pending` or `blocked` into satisfied and never drops scope/prohibition state.
+Do not replay the entire chat, satisfied requirement prose, full child prompts, or raw credentials when stable IDs and opaque references suffice. Compaction never converts `pending` or `blocked` into satisfied and never drops unresolved requirement context, acceptance criteria, scope, prohibition, authority, or open-question state.
 
 Secret taint survives handoff as metadata/opaque reference. Loaded skill identity and other runtime capabilities are reconciled separately against their current live state.
 
 ## Verification
 
-Verification includes regressions for exact scope admission, protected/out-of-scope targets, no resource-pressure bypass, base drift and revalidation, least-authority child admission, dispatch-once, delta-only continuation, bounded no-progress, parent no-stall scheduling, parallel resource conflicts, terminal no-evidence detection, legitimate no-change evidence, compact handoff, and the parent completion gate.
+Verification includes regressions for exact scope admission, protected/out-of-scope targets, no resource-pressure bypass, base drift and revalidation, least-authority child admission, dispatch-once, external-dispatch/local-bind fault recovery, delta-only continuation, bounded no-progress, parent no-stall scheduling, parallel resource conflicts, terminal no-evidence detection, legitimate no-change evidence, lossless compact handoff, authority-backed supersession transitions, and the parent completion gate.
 
 Final evidence binds the current intent revision to the exact relevant source/artifact/runtime identities. Provider adapters are tested separately for truthful mapping into these portable contracts.
