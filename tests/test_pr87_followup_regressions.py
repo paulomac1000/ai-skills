@@ -131,6 +131,7 @@ def test_session_bound_deployment_lease_rejects_other_session() -> None:
             artifact_digest=digest,
             action="deploy",
             normalized_args_digest=args_digest,
+            policy_revision="policy-1",
             now=datetime(2026, 9, 10, 11, 0, tzinfo=UTC),
         )
 
