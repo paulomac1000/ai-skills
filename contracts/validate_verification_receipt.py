@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import stat
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
@@ -15,30 +17,56 @@ from referencing import Registry, Resource
 CONTRACTS = Path(__file__).resolve().parent
 DEFAULT_SCHEMA = CONTRACTS / "verification-receipt.schema.json"
 MAX_RECEIPT_BYTES = 2 * 1024 * 1024
+READ_CHUNK_BYTES = 64 * 1024
 
 
 class VerificationReceiptError(ValueError):
     """Raised when a verification receipt overstates its evidence."""
 
 
+def _read_file_bounded(path: Path, *, max_bytes: int) -> bytes:
+    nofollow = getattr(os, "O_NOFOLLOW", 0)
+    expected: os.stat_result | None = None
+    if not nofollow:
+        try:
+            expected = os.lstat(path)
+        except OSError as error:
+            raise VerificationReceiptError(f"file cannot be inspected: {path}: {error}") from error
+        if stat.S_ISLNK(expected.st_mode):
+            raise VerificationReceiptError(f"not a regular file: {path}")
+    flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | nofollow
+    try:
+        descriptor = os.open(path, flags)
+    except OSError as error:
+        raise VerificationReceiptError(f"file cannot be opened safely: {path}: {error}") from error
+    try:
+        metadata = os.fstat(descriptor)
+        if not stat.S_ISREG(metadata.st_mode):
+            raise VerificationReceiptError(f"not a regular file: {path}")
+        if expected is not None and not os.path.samestat(expected, metadata):
+            raise VerificationReceiptError(f"file path identity changed while opening: {path}")
+        if metadata.st_size > max_bytes:
+            raise VerificationReceiptError(f"file exceeds {max_bytes} bytes: {path}")
+        remaining = max_bytes + 1
+        chunks: list[bytes] = []
+        while remaining > 0:
+            chunk = os.read(descriptor, min(READ_CHUNK_BYTES, remaining))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        data = b"".join(chunks)
+        if len(data) > max_bytes:
+            raise VerificationReceiptError(f"file exceeds {max_bytes} bytes: {path}")
+        if len(data) != metadata.st_size:
+            raise VerificationReceiptError(f"file changed while being read: {path}")
+        return data
+    finally:
+        os.close(descriptor)
+
+
 def _load_mapping(path: Path, *, max_bytes: int = MAX_RECEIPT_BYTES) -> Mapping[str, Any]:
-    if path.is_symlink() or not path.is_file():
-        raise VerificationReceiptError(f"not a regular file: {path}")
-    try:
-        size = path.stat().st_size
-    except OSError as error:
-        raise VerificationReceiptError(f"file cannot be inspected: {path}: {error}") from error
-    if size > max_bytes:
-        raise VerificationReceiptError(f"file exceeds {max_bytes} bytes: {path}")
-    try:
-        with path.open("rb") as handle:
-            data = handle.read(max_bytes + 1)
-    except OSError as error:
-        raise VerificationReceiptError(f"file cannot be read: {path}: {error}") from error
-    if len(data) > max_bytes:
-        raise VerificationReceiptError(f"file exceeds {max_bytes} bytes: {path}")
-    if len(data) != size:
-        raise VerificationReceiptError(f"file changed while being read: {path}")
+    data = _read_file_bounded(path, max_bytes=max_bytes)
     try:
         value = json.loads(data.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as error:
