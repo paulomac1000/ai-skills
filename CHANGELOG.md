@@ -17,6 +17,7 @@
 - Changed verification policy to distinguish selected tests from observed execution, reject incomplete discovery/execution evidence, classify background runtime failures separately from ordinary warnings, and require merge-blocking hosted gates to have a faithful local entrypoint or explicit hosted-only rationale.
 - Changed task orchestration to record both planning and execution bases and require explicit revalidation when execution advances beyond the planned immutable base rather than silently rebasing delegated work.
 - Changed repository-shared contracts to keep one canonical schema/helper owner per durable semantic instead of parallel skill-private copies.
+- Made generic adoption evidence runtime-neutral for explicitly opted-in consumer runtimes: Node/TypeScript repositories can submit provider-backed compatibility claims and exact JUnit-style testcase identities without representing those consumer runs as combinations tested by the `ai-skills` repository itself.
 
 ### Security and correctness
 
@@ -66,7 +67,7 @@
 - Added a materialized reusable consumer-acceptance workflow, external authority binding for candidate trust locks and adoption assessments, provider-control preflight, trusted-source lock generation, and explicit no-runner evidence classification for real provider-backed adoption.
 - Added an `agents-md-architect` migration-diff workflow that compares normative, validator, evidence, template, and reference surfaces before rewriting an existing canonical `AGENTS.md`.
 - Added mutation outcome taxonomy for independently recording completion, returned identity, representation, and reconciliation requirements.
-- Added conservative stage-local container provenance guidance and practical consumer regressions covering disposable live targets, README preservation, lifecycle separation, moving-head freshness, review freshness, and reproducibility claims.
+- Added conservative stage-local container provenance guidance and practical consumer regressions covering disposable live targets, README preservation, lifecycle separation, moving-head freshness, review freshness, reproducibility claims.
 
 ### Changed
 
