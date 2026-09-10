@@ -419,8 +419,12 @@ def test_distribution_uninstall_requires_managed_state_and_matching_mode(tmp_pat
     source = _source(tmp_path)
     target = project / "vendor/managed"
     distribution.install(**_install_kwargs(source, target, project))
+    state_path = target / distribution.STATE_FILENAME
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state["distribution_mode"] = "GLOBAL"
+    state_path.write_text(json.dumps(state), encoding="utf-8")
     with pytest.raises(distribution.DistributionError, match="mode does not match"):
-        distribution.uninstall(target=target, project_root=project, mode="EPHEMERAL")
+        distribution.uninstall(target=target, project_root=project, mode="VENDORED")
 
 
 @pytest.mark.parametrize("value", [-1, True, 1.5, "1", None])
