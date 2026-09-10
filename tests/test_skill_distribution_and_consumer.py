@@ -101,7 +101,7 @@ def test_vendored_install_is_idempotent_and_modified_copy_blocks_update(tmp_path
 
     (target / "SKILL.md").write_text("user modification\n", encoding="utf-8")
     (source / "SKILL.md").write_text("upstream update\n", encoding="utf-8")
-    with pytest.raises(DistributionError, match="modified outside installer ownership"):
+    with pytest.raises(DistributionError, match="managed file"):
         install(**{**_install_kwargs(source, target, project, "VENDORED"), "source_revision": "b" * 40})
 
 
@@ -169,6 +169,15 @@ def _entry(skill_id: str, capability: str) -> dict:
     }
 
 
+def _runtime(*skills: dict) -> dict:
+    return {
+        "schema_version": 1,
+        "runtime_id": "test",
+        "observed_at": "2026-09-10T00:00:00Z",
+        "skills": list(skills),
+    }
+
+
 def _state(skill_id: str, **overrides: object) -> dict:
     item = {
         "skill_id": skill_id,
@@ -182,13 +191,13 @@ def _state(skill_id: str, **overrides: object) -> dict:
         "loaded_artifact_digest": None,
     }
     item.update(overrides)
-    return {"schema_version": 1, "runtime_id": "test", "observed_at": "2026-09-10T00:00:00Z", "skills": [item]}
+    return _runtime(item)
 
 
 def test_catalogued_but_not_installed_is_not_a_name_guess_loop() -> None:
     result = resolve_skill(
         catalog=_catalog(_entry("exact-skill", "release-verification")),
-        runtime={"skills": []},
+        runtime=_runtime(),
         capability="release-verification",
     )
     assert result.status == "NOT_INSTALLED"
@@ -244,7 +253,7 @@ def test_loaded_revision_is_invalidated_when_installed_artifact_changes() -> Non
 def test_explicit_required_skill_unavailable_is_blocked_deviation() -> None:
     result = resolve_skill(
         catalog=_catalog(_entry("other-skill", "analysis")),
-        runtime={"skills": []},
+        runtime=_runtime(),
         capability="analysis",
         required_skill="required-skill",
     )
