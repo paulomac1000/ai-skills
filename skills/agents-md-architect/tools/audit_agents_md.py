@@ -5,14 +5,27 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from collections.abc import Iterable, Sequence
 from dataclasses import asdict
 from pathlib import Path
 
-import audit_agents_md_impl as _impl
-from agents_md_gate_sources import GateSourceInventory, classify_gate_sources
-from agents_md_types import MAX_GATE_FILE_BYTES, MAX_GATE_FILES, MAX_GATE_TOTAL_BYTES, LanguageName, LayoutName
-from confined_io import ConfinedReadError, read_utf8_bounded
+_TOOLS = Path(__file__).resolve().parent
+_CONTRACTS = _TOOLS.parents[2] / "contracts"
+for _candidate in (_TOOLS, _CONTRACTS):
+    if str(_candidate) not in sys.path:
+        sys.path.insert(0, str(_candidate))
+
+import audit_agents_md_impl as _impl  # noqa: E402
+from agents_md_gate_sources import GateSourceInventory, classify_gate_sources  # noqa: E402
+from agents_md_types import (  # noqa: E402
+    MAX_GATE_FILE_BYTES,
+    MAX_GATE_FILES,
+    MAX_GATE_TOTAL_BYTES,
+    LanguageName,
+    LayoutName,
+)
+from confined_io import ConfinedReadError, read_utf8_bounded  # noqa: E402
 
 AuditFinding = _impl.AuditFinding
 CommandEvidence = _impl.CommandEvidence
@@ -21,8 +34,18 @@ Finding = _impl.Finding
 PlatformName = _impl.PlatformName
 CODEX_DEFAULT_PROJECT_DOC_MAX_BYTES = _impl.CODEX_DEFAULT_PROJECT_DOC_MAX_BYTES
 
+# Preserve the tested facade surface while the implementation is split into
+# bounded helper modules. Consumers that import the audit entrypoint must not
+# have to know the internal module topology.
+_extract_python_invocations = _impl._extract_python_invocations
+_extract_gate_invocations = _impl._extract_gate_invocations
+_extract_yaml_invocations = _impl._extract_yaml_invocations
+_extract_shell_invocations = _impl._extract_shell_invocations
+_read_text = _impl._read_text
+discover = _impl.discover
 
-def _known_gate_commands(
+
+def _known_gate_commands_with_inventory(
     root: Path,
     discovery: _impl.Discovery,
 ) -> tuple[KnownCommands, GateSourceInventory, list[AuditFinding]]:
@@ -78,11 +101,23 @@ def _known_gate_commands(
                 findings.append(AuditFinding(relative, "error", "evidence.invalid-yaml", 1, syntax_error))
                 continue
         public_commands.update(
-            _impl._parse_many(_impl.public_task_invocations(relative, text), _impl._source_working_directory(relative))
+            _impl._parse_many(
+                _impl.public_task_invocations(relative, text),
+                _impl._source_working_directory(relative),
+            )
         )
         if relative in gate_sources:
             executed_commands.update(_impl._executed_source_evidence(relative, text))
     return KnownCommands(frozenset(public_commands), frozenset(executed_commands)), inventory, findings
+
+
+def _known_gate_commands(
+    root: Path,
+    discovery: _impl.Discovery,
+) -> tuple[KnownCommands, list[AuditFinding]]:
+    """Return the compatibility facade used by existing audit consumers."""
+    known, _inventory, findings = _known_gate_commands_with_inventory(root, discovery)
+    return known, findings
 
 
 def audit(
@@ -96,7 +131,7 @@ def audit(
 ) -> tuple[_impl.Discovery, list[AuditFinding]]:
     """Audit root and nested instructions using only static, repository-confined reads."""
     domain_profile, selected_layout = _impl.normalize_selection(profile, layout)
-    discovery = _impl.discover(root)
+    discovery = discover(root)
     safe_root = Path(discovery.root)
     findings: list[AuditFinding] = [
         AuditFinding(safe_root.as_posix(), "error", "discovery.incomplete", 1, issue) for issue in discovery.issues
@@ -132,12 +167,12 @@ def audit(
         if reference not in discovery.files:
             continue
         try:
-            for paragraph, paragraph_line in _impl._paragraphs(_impl._read_text(safe_root, reference)).items():
+            for paragraph, paragraph_line in _impl._paragraphs(_read_text(safe_root, reference)).items():
                 reference_paragraphs.setdefault(paragraph, (reference, paragraph_line))
         except ValueError:
             continue
 
-    known_commands, _inventory, gate_findings = _known_gate_commands(safe_root, discovery)
+    known_commands, _inventory, gate_findings = _known_gate_commands_with_inventory(safe_root, discovery)
     findings.extend(gate_findings)
     for document in documents:
         relative = document.relative_path
