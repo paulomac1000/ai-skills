@@ -15,11 +15,19 @@ BLOCKING_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("pytest_unraisable", re.compile(r"PytestUnraisableExceptionWarning")),
     ("python_unawaited_coroutine", re.compile(r"coroutine .* was never awaited", re.IGNORECASE)),
     ("python_pending_task", re.compile(r"Task was destroyed but it is pending", re.IGNORECASE)),
-    ("node_cancelled_file", re.compile(r"\bcancelled\b", re.IGNORECASE)),
+    (
+        "node_cancelled_file",
+        re.compile(
+            r"(?:^\s*cancelled\s*:|^\s*not ok\b.*#\s*cancelled\b|"
+            r"failureType\s*[:=]\s*['\"]cancelled(?:ByParent)?['\"])",
+            re.IGNORECASE,
+        ),
+    ),
     ("node_pending_promise", re.compile(r"Promise resolution is still pending", re.IGNORECASE)),
-    ("node_unhandled_rejection", re.compile(r"unhandledRejection", re.IGNORECASE)),
-    ("node_uncaught_exception", re.compile(r"uncaughtException", re.IGNORECASE)),
+    ("node_unhandled_rejection", re.compile(r"\bunhandledRejection\b", re.IGNORECASE)),
+    ("node_uncaught_exception", re.compile(r"\buncaughtException\b", re.IGNORECASE)),
 )
+GENERIC_WARNING = re.compile(r"\b[A-Za-z][A-Za-z0-9_]*Warning\s*:")
 
 
 def _read(path: Path) -> str:
@@ -40,43 +48,65 @@ def evaluate(text: str, allowed_patterns: tuple[re.Pattern[str], ...] = ()) -> d
         "leaked_async_work": 0,
         "allowed_warnings": 0,
     }
+
     for line_number, line in enumerate(text.splitlines(), 1):
-        if any(pattern.search(line) for pattern in allowed_patterns):
-            counts["allowed_warnings"] += 1
+        kinds = [kind for kind, pattern in BLOCKING_PATTERNS if pattern.search(line)]
+        if kinds:
+            for kind in kinds:
+                hits.append({"line": line_number, "kind": kind, "text": line[:1000]})
+                if kind == "node_cancelled_file":
+                    counts["cancelled"] += 1
+                elif kind in {"node_pending_promise", "python_pending_task"}:
+                    counts["pending"] += 1
+                    counts["leaked_async_work"] += 1
+                elif kind == "python_unawaited_coroutine":
+                    counts["blocking_warnings"] += 1
+                    counts["leaked_async_work"] += 1
+                elif kind == "pytest_unraisable":
+                    counts["unraisable"] += 1
+                else:
+                    counts["unhandled_exceptions"] += 1
             continue
-        for kind, pattern in BLOCKING_PATTERNS:
-            if not pattern.search(line):
-                continue
-            hits.append({"line": line_number, "kind": kind, "text": line[:1000]})
-            if kind == "node_cancelled_file":
-                counts["cancelled"] += 1
-            elif kind in {"node_pending_promise", "python_pending_task"}:
-                counts["pending"] += 1
-                counts["leaked_async_work"] += 1
-            elif kind == "pytest_unraisable":
-                counts["unraisable"] += 1
-            elif kind in {"pytest_unhandled_thread", "node_unhandled_rejection", "node_uncaught_exception"}:
-                counts["unhandled_exceptions"] += 1
+
+        if GENERIC_WARNING.search(line):
+            if any(pattern.search(line) for pattern in allowed_patterns):
+                counts["allowed_warnings"] += 1
             else:
                 counts["blocking_warnings"] += 1
-            break
+                hits.append({"line": line_number, "kind": "unclassified_warning", "text": line[:1000]})
 
-    blocking = sum(int(counts[key]) for key in ("cancelled", "pending", "unhandled_exceptions", "unraisable", "blocking_warnings"))
+    blocking = sum(
+        int(counts[key])
+        for key in (
+            "cancelled",
+            "pending",
+            "unhandled_exceptions",
+            "unraisable",
+            "blocking_warnings",
+            "leaked_async_work",
+        )
+    )
     return {"schema_version": 1, **counts, "findings": hits, "verdict": "pass" if blocking == 0 else "fail"}
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("log", type=Path)
-    parser.add_argument("--allow", action="append", default=[], help="reviewed non-blocking regex")
+    parser.add_argument(
+        "--allow",
+        action="append",
+        default=[],
+        help="reviewed non-blocking warning regex; cannot suppress runtime failures",
+    )
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
+
     try:
-        allowed = tuple(re.compile(value) for value in args.allow)
-        result = evaluate(_read(args.log), allowed)
+        result = evaluate(_read(args.log), tuple(re.compile(value) for value in args.allow))
     except (OSError, UnicodeError, ValueError, re.error) as error:
         print(json.dumps({"verdict": "fail", "error": str(error)}, sort_keys=True))
         return 2
+
     payload = json.dumps(result, indent=2, sort_keys=True) + "\n"
     if args.output:
         args.output.write_text(payload, encoding="utf-8")

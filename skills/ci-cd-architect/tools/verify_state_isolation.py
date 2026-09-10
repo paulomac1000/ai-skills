@@ -6,15 +6,22 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Iterable
 
 MAX_FILES = 100_000
 MAX_FILE_BYTES = 128 * 1024 * 1024
 
 
-def _resolved(path: Path) -> Path:
-    return path.expanduser().resolve(strict=True)
+def _resolved_existing(path: Path) -> Path:
+    raw = path.expanduser()
+    if raw.is_symlink():
+        raise ValueError(f"protected path must not be a symlink: {path}")
+    return raw.resolve(strict=True)
+
+
+def _resolved_declared(path: Path) -> Path:
+    return path.expanduser().resolve(strict=False)
 
 
 def _is_within(child: Path, parent: Path) -> bool:
@@ -26,8 +33,8 @@ def _is_within(child: Path, parent: Path) -> bool:
 
 
 def prove_disjoint(writable: Iterable[Path], protected: Iterable[Path]) -> None:
-    writes = [_resolved(path) for path in writable]
-    protects = [_resolved(path) for path in protected]
+    writes = [_resolved_declared(path) for path in writable]
+    protects = [_resolved_existing(path) for path in protected]
     for write in writes:
         for protect in protects:
             if _is_within(write, protect) or _is_within(protect, write):
@@ -50,8 +57,16 @@ def snapshot(paths: Iterable[Path]) -> dict[str, str]:
     result: dict[str, str] = {}
     count = 0
     for raw in paths:
-        path = _resolved(raw)
-        candidates = [path] if path.is_file() else sorted(item for item in path.rglob("*") if item.is_file())
+        path = _resolved_existing(raw)
+        if path.is_file():
+            candidates = [path]
+        else:
+            candidates = []
+            for item in sorted(path.rglob("*")):
+                if item.is_symlink():
+                    raise ValueError(f"protected tree contains symlink: {item}")
+                if item.is_file():
+                    candidates.append(item)
         for item in candidates:
             count += 1
             if count > MAX_FILES:
@@ -73,6 +88,7 @@ def main() -> int:
     check.add_argument("--protected", action="append", type=Path, required=True)
     check.add_argument("--snapshot", type=Path, required=True)
     args = parser.parse_args()
+
     try:
         if args.command == "preflight":
             prove_disjoint(args.writable, args.protected)

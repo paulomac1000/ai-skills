@@ -78,6 +78,7 @@ required:
 - tools/check_test_corpus.py
 - tools/check_execution_integrity.py
 - tools/check_local_ci_parity.py
+- tools/check_verification_bootstrap.py
 - tools/verify_state_isolation.py
 categories:
 - core
