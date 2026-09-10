@@ -1,0 +1,99 @@
+# ai-skills-policy-profile: trusted-ci
+name: Lock regeneration
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/lock-regeneration.yml
+      - .github/workflow-policy.yaml
+      - requirements-dev.in
+      - scripts/compile_locks.py
+      - scripts/select_lock.py
+      - skills/mcp-server-architect/locks/python-dev.in
+      - skills/mcp-server-architect/locks/python-runtime.in
+  push:
+    branches: [main]
+    paths:
+      - requirements-dev.in
+      - scripts/compile_locks.py
+      - scripts/select_lock.py
+      - skills/mcp-server-architect/locks/python-dev.in
+      - skills/mcp-server-architect/locks/python-runtime.in
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lock-regeneration-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  regenerate:
+    name: Regenerate locks (${{ matrix.lock_id }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            architecture: x64
+            python: "3.12"
+            lock_id: linux-x64-py312
+          - os: ubuntu-24.04
+            architecture: x64
+            python: "3.13"
+            lock_id: linux-x64-py313
+          - os: ubuntu-24.04
+            architecture: x64
+            python: "3.14"
+            lock_id: linux-x64-py314
+          - os: macos-15
+            architecture: arm64
+            python: "3.12"
+            lock_id: macos-arm64-py312
+          - os: windows-2025
+            architecture: x64
+            python: "3.12"
+            lock_id: windows-x64-py312
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: ${{ matrix.python }}
+          architecture: ${{ matrix.architecture }}
+          cache: pip
+          cache-dependency-path: requirements-dev-${{ matrix.lock_id }}.lock
+      - name: Install locked generator toolchain
+        run: python scripts/install_locked.py
+      - name: Regenerate native locks
+        run: >-
+          python scripts/compile_locks.py
+          --python-version "${{ matrix.python }}"
+          --architecture "${{ matrix.architecture }}"
+      - name: Upload regenerated locks
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: regenerated-locks-${{ matrix.lock_id }}-${{ github.run_id }}
+          path: |
+            requirements-dev-${{ matrix.lock_id }}.lock
+            skills/mcp-server-architect/locks/runtime-${{ matrix.lock_id }}.lock
+            skills/mcp-server-architect/locks/dev-${{ matrix.lock_id }}.lock
+          if-no-files-found: error
+          retention-days: 14
+      - name: Archive exact source for repair diagnostics
+        if: matrix.lock_id == 'linux-x64-py312'
+        shell: bash
+        run: git archive --format=zip --output=exact-source.zip HEAD
+      - name: Upload exact source diagnostics
+        if: matrix.lock_id == 'linux-x64-py312'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: exact-source-${{ github.run_id }}
+          path: exact-source.zip
+          if-no-files-found: error
+          retention-days: 2

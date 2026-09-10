@@ -45,7 +45,7 @@ skills:
   version: 2.0.0
   manifest_path: skills/mcp-server-architect/manifest.yaml
   skill_entrypoint: skills/mcp-server-architect/SKILL.md
-  capabilities: [mcp-server-design, mcp-server-generation, mcp-provider-compatibility]
+  capabilities: [mcp-server-design, mcp-server-generation]
   use_when: [building, migrating, or validating MCP servers and their public contracts]
   do_not_use_when: [the task only consumes an existing MCP server]
   loading: {modes: [runtime_tool, preload, vendored]}
