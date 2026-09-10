@@ -41,6 +41,7 @@ _extract_python_invocations = _impl._extract_python_invocations
 _extract_gate_invocations = _impl._extract_gate_invocations
 _extract_yaml_invocations = _impl._extract_yaml_invocations
 _extract_shell_invocations = _impl._extract_shell_invocations
+_command_reference_status = _impl._command_reference_status
 _read_text = _impl._read_text
 discover = _impl.discover
 
@@ -203,7 +204,7 @@ def audit(
 
         for command_rule in _impl.completion_command_rules(document.text):
             command_directory = _impl._normalized_working_directory(Path(relative).parent)
-            status = _impl._command_reference_status(
+            status = _command_reference_status(
                 safe_root,
                 command_rule.command,
                 known_commands,
