@@ -4,8 +4,9 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
-from typing import Any, Callable, Literal
+from typing import Any, Literal
 
 Sensitivity = Literal["credential", "secret", "personal", "sensitive", "public", "unknown"]
 ExposureState = Literal["not_model_visible", "model_visible", "externally_exposed"]
@@ -127,14 +128,12 @@ class TaintGuard:
                 continue
             metadata = observed.metadata
             if sink == "protected_runtime_channel" and sink in metadata.allowed_sinks:
-                raise TaintViolation(
-                    "raw protected-channel transfer must use use_protected(), not model-visible text"
-                )
+                raise TaintViolation("raw protected-channel transfer must use use_protected(), not model-visible text")
             output = output.replace(observed.raw, self._replacement(observed))
         return output
 
     def sanitize_value(self, value: Any, *, sink: Sink) -> Any:
-        """Recursively redact tainted strings before model-visible/tool/durable sinks."""
+        """Recursively redact tainted strings, including mapping keys, before external sinks."""
         if isinstance(value, str):
             return self.sanitize_text(value, sink=sink)
         if isinstance(value, list):
@@ -142,16 +141,20 @@ class TaintGuard:
         if isinstance(value, tuple):
             return tuple(self.sanitize_value(item, sink=sink) for item in value)
         if isinstance(value, dict):
-            return {key: self.sanitize_value(item, sink=sink) for key, item in value.items()}
+            sanitized: dict[Any, Any] = {}
+            for key, item in value.items():
+                safe_key = self.sanitize_text(key, sink=sink) if isinstance(key, str) else key
+                if safe_key in sanitized and safe_key != key:
+                    raise TaintViolation("taint redaction would collapse distinct mapping keys")
+                sanitized[safe_key] = self.sanitize_value(item, sink=sink)
+            return sanitized
         return value
 
     def guard_unknown(self, *, sensitivity: Sensitivity, sink: Sink, opaque_ref: str | None = None) -> None:
         """Fail conservatively for unknown-sensitive material at external egress."""
         if sink in EXTERNAL_SINKS and sensitivity == "unknown":
             reference = opaque_ref or "unclassified"
-            raise TaintViolation(
-                f"unknown-sensitive material {reference} cannot cross external sink {sink}"
-            )
+            raise TaintViolation(f"unknown-sensitive material {reference} cannot cross external sink {sink}")
 
     def protected_binding(self, opaque_ref: str, *, channel: str, purpose: str) -> ProtectedBinding:
         metadata = self.metadata(opaque_ref)
