@@ -6,6 +6,8 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
+import stat
 from pathlib import Path
 from typing import Any
 
@@ -13,23 +15,47 @@ import yaml
 
 MAX_POLICY_BYTES = 256 * 1024
 MAX_SOURCE_BYTES = 64 * 1024 * 1024
+READ_CHUNK_BYTES = 64 * 1024
 PATH_SOURCE_TYPES = {"lockfile", "manifest", "tool-version-file", "bootstrap-script"}
 SOURCE_TYPES = PATH_SOURCE_TYPES | {"immutable-image"}
 
 
 def _read_bounded(path: Path, maximum: int, *, label: str) -> bytes:
-    if path.is_symlink() or not path.is_file():
-        raise ValueError(f"{label} is not a regular file: {path}")
-    size = path.stat().st_size
-    if size > maximum:
-        raise ValueError(f"{label} exceeds maximum size")
-    with path.open("rb") as handle:
-        data = handle.read(maximum + 1)
-    if len(data) > maximum:
-        raise ValueError(f"{label} exceeds maximum size")
-    if len(data) != size:
-        raise ValueError(f"{label} changed while being read")
-    return data
+    nofollow = getattr(os, "O_NOFOLLOW", 0)
+    expected: os.stat_result | None = None
+    if not nofollow:
+        expected = os.lstat(path)
+        if stat.S_ISLNK(expected.st_mode):
+            raise ValueError(f"{label} is not a regular file: {path}")
+    flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | nofollow
+    try:
+        descriptor = os.open(path, flags)
+    except OSError as error:
+        raise ValueError(f"{label} cannot be opened safely: {path}: {error}") from error
+    try:
+        metadata = os.fstat(descriptor)
+        if not stat.S_ISREG(metadata.st_mode):
+            raise ValueError(f"{label} is not a regular file: {path}")
+        if expected is not None and not os.path.samestat(expected, metadata):
+            raise ValueError(f"{label} path identity changed while opening: {path}")
+        if metadata.st_size > maximum:
+            raise ValueError(f"{label} exceeds maximum size")
+        remaining = maximum + 1
+        chunks: list[bytes] = []
+        while remaining > 0:
+            chunk = os.read(descriptor, min(READ_CHUNK_BYTES, remaining))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        data = b"".join(chunks)
+        if len(data) > maximum:
+            raise ValueError(f"{label} exceeds maximum size")
+        if len(data) != metadata.st_size:
+            raise ValueError(f"{label} changed while being read")
+        return data
+    finally:
+        os.close(descriptor)
 
 
 def _load(path: Path) -> dict[str, Any]:
