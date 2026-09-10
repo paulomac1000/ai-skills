@@ -349,35 +349,49 @@ def bind_dispatched_child(
         raise OrchestrationError("reservation_token and child_job_id are required")
     store = _prepare_attempt_store(attempt_store)
     path = _attempt_record_path(store, attempt_id)
-    record = _read_attempt_record(path)
-    if record.get("attempt_id") != attempt_id:
-        raise OrchestrationError("attempt record identity does not match requested attempt")
-    existing_child = record.get("child_job_id")
-    if isinstance(existing_child, str) and existing_child:
-        if existing_child != child_job_id:
-            raise OrchestrationError("attempt is already bound to a different child job")
-        return DispatchReservation(False, "ALREADY_DISPATCHED", attempt_id, None, existing_child)
-    if record.get("state") != "reserved" or record.get("reservation_token") != reservation_token:
-        raise OrchestrationError("attempt reservation token does not authorize child binding")
-
-    updated = {**record, "state": "dispatched", "child_job_id": child_job_id}
-    payload = (json.dumps(updated, sort_keys=True, separators=(",", ":")) + "\n").encode("utf-8")
-    temp_path = store / f".{path.name}.{secrets.token_hex(8)}.tmp"
-    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    lock_path = store / f".{path.name}.bind.lock"
     try:
-        descriptor = os.open(temp_path, flags, 0o600)
-        with os.fdopen(descriptor, "wb") as handle:
-            handle.write(payload)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(temp_path, path)
+        lock_path.mkdir(mode=0o700)
+    except FileExistsError as error:
+        raise OrchestrationError("child binding is already in progress; reconcile before retry") from error
     except OSError as error:
+        raise OrchestrationError(f"child binding lock could not be acquired: {error}") from error
+
+    try:
+        record = _read_attempt_record(path)
+        if record.get("attempt_id") != attempt_id:
+            raise OrchestrationError("attempt record identity does not match requested attempt")
+        existing_child = record.get("child_job_id")
+        if isinstance(existing_child, str) and existing_child:
+            if existing_child != child_job_id:
+                raise OrchestrationError("attempt is already bound to a different child job")
+            return DispatchReservation(False, "ALREADY_DISPATCHED", attempt_id, None, existing_child)
+        if record.get("state") != "reserved" or record.get("reservation_token") != reservation_token:
+            raise OrchestrationError("attempt reservation token does not authorize child binding")
+
+        updated = {**record, "state": "dispatched", "child_job_id": child_job_id}
+        payload = (json.dumps(updated, sort_keys=True, separators=(",", ":")) + "\n").encode("utf-8")
+        temp_path = store / f".{path.name}.{secrets.token_hex(8)}.tmp"
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
         try:
-            temp_path.unlink()
+            descriptor = os.open(temp_path, flags, 0o600)
+            with os.fdopen(descriptor, "wb") as handle:
+                handle.write(payload)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temp_path, path)
+        except OSError as error:
+            try:
+                temp_path.unlink()
+            except OSError:
+                pass
+            raise OrchestrationError(f"child binding could not be persisted: {error}") from error
+        return DispatchReservation(False, "ALREADY_DISPATCHED", attempt_id, None, child_job_id)
+    finally:
+        try:
+            lock_path.rmdir()
         except OSError:
             pass
-        raise OrchestrationError(f"child binding could not be persisted: {error}") from error
-    return DispatchReservation(False, "ALREADY_DISPATCHED", attempt_id, None, child_job_id)
 
 
 def dispatch_once(
