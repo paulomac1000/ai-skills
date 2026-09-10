@@ -18,6 +18,8 @@ STATE_FILENAME = ".ai-skill-installation.json"
 EPHEMERAL_ROOT = Path(".ai-skills/ephemeral")
 MAX_FILES = 4096
 MAX_TOTAL_BYTES = 32 * 1024 * 1024
+MAX_STATE_BYTES = 4 * 1024 * 1024
+MAX_GITIGNORE_BYTES = 1024 * 1024
 
 
 class DistributionError(ValueError):
@@ -93,6 +95,27 @@ def _owned_relative_path(value: str) -> Path:
     return Path(*segments)
 
 
+def _read_bounded(path: Path, maximum: int, *, label: str) -> bytes:
+    if path.is_symlink() or not path.is_file():
+        raise DistributionError(f"{label} is not a regular file: {path}")
+    try:
+        size = path.stat().st_size
+    except OSError as error:
+        raise DistributionError(f"{label} cannot be inspected: {path}: {error}") from error
+    if size > maximum:
+        raise DistributionError(f"{label} exceeds byte limit {maximum}: {path}")
+    try:
+        with path.open("rb") as handle:
+            data = handle.read(maximum + 1)
+    except OSError as error:
+        raise DistributionError(f"{label} cannot be read: {path}: {error}") from error
+    if len(data) > maximum:
+        raise DistributionError(f"{label} exceeds byte limit {maximum}: {path}")
+    if len(data) != size:
+        raise DistributionError(f"{label} changed while being read: {path}")
+    return data
+
+
 def _managed_file_path(target: Path, relative: str) -> Path:
     safe_relative = _owned_relative_path(relative)
     current = target
@@ -118,12 +141,17 @@ def _source_inventory(source: Path) -> tuple[tuple[OwnedFile, bytes], ...]:
         if not candidate.is_file():
             continue
         _owned_relative_path(relative)
-        data = candidate.read_bytes()
-        total += len(data)
         if len(rows) + 1 > MAX_FILES:
             raise DistributionError(f"skill source exceeds file limit {MAX_FILES}")
-        if total > MAX_TOTAL_BYTES:
+        try:
+            announced_size = candidate.stat().st_size
+        except OSError as error:
+            raise DistributionError(f"skill source file cannot be inspected: {relative}: {error}") from error
+        remaining = MAX_TOTAL_BYTES - total
+        if announced_size > remaining:
             raise DistributionError(f"skill source exceeds byte limit {MAX_TOTAL_BYTES}")
+        data = _read_bounded(candidate, remaining, label="skill source file")
+        total += len(data)
         rows.append((OwnedFile(relative, hashlib.sha256(data).hexdigest(), len(data)), data))
     if not rows:
         raise DistributionError("skill source contains no files")
@@ -141,14 +169,24 @@ def _source_digest(inventory: tuple[tuple[OwnedFile, bytes], ...]) -> str:
 
 def _gitignore_covers_ephemeral(project_root: Path) -> bool:
     ignore = project_root / ".gitignore"
-    if not ignore.is_file() or ignore.is_symlink():
+    if ignore.is_symlink() or not ignore.is_file():
         return False
-    patterns = {
-        line.strip().lstrip("/")
-        for line in ignore.read_text(encoding="utf-8").splitlines()
-        if line.strip() and not line.lstrip().startswith("#")
-    }
-    return any(pattern.rstrip("/") in {".ai-skills", ".ai-skills/ephemeral"} for pattern in patterns)
+    try:
+        text = _read_bounded(ignore, MAX_GITIGNORE_BYTES, label=".gitignore").decode("utf-8")
+    except (DistributionError, UnicodeDecodeError):
+        return False
+
+    ignored = False
+    for raw_line in text.splitlines():
+        stripped = raw_line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        negated = stripped.startswith("!")
+        pattern = stripped[1:] if negated else stripped
+        normalized = pattern.lstrip("/").rstrip("/")
+        if normalized in {".ai-skills", ".ai-skills/ephemeral"}:
+            ignored = not negated
+    return ignored
 
 
 def _validate_scope(mode: DistributionMode, project_root: Path, target: Path) -> None:
@@ -177,10 +215,9 @@ def _load_state(target: Path) -> InstallationState | None:
     state_path = target / STATE_FILENAME
     if not state_path.exists():
         return None
-    if state_path.is_symlink() or not state_path.is_file():
-        raise DistributionError(f"invalid installation state path: {state_path}")
     try:
-        raw = json.loads(state_path.read_text(encoding="utf-8"))
+        data = _read_bounded(state_path, MAX_STATE_BYTES, label="installation state")
+        raw = json.loads(data.decode("utf-8"))
         if not isinstance(raw, dict):
             raise DistributionError("installation state root must be an object")
         raw_owned = raw.pop("owned_files")
@@ -216,7 +253,7 @@ def _verify_owned_files(target: Path, state: InstallationState) -> None:
     expected = {item.path: item for item in state.owned_files}
     for relative, item in expected.items():
         candidate = _managed_file_path(target, relative)
-        data = candidate.read_bytes()
+        data = _read_bounded(candidate, item.size, label="managed file")
         if len(data) != item.size or hashlib.sha256(data).hexdigest() != item.sha256:
             raise DistributionError(f"managed file was modified outside installer ownership: {relative}")
 
@@ -259,6 +296,8 @@ def install(
     project = _resolved_directory(project_root)
     target_root = _resolved_target(target)
     _validate_scope(mode, project, target_root)
+    if _is_within(target_root, source_root) or _is_within(source_root, target_root):
+        raise DistributionError("skill source and installation target must not contain each other")
 
     inventory = _source_inventory(source_root)
     digest = _source_digest(inventory)
@@ -388,11 +427,7 @@ def main() -> int:
                 cleanup_policy=args.cleanup_policy,
             )
         else:
-            state = uninstall(
-                target=args.target,
-                project_root=args.project_root,
-                mode=args.mode,
-            )
+            state = uninstall(target=args.target, project_root=args.project_root, mode=args.mode)
     except DistributionError as error:
         print(json.dumps({"verdict": "fail", "error": str(error)}, sort_keys=True))
         return 2
