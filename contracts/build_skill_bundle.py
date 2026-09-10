@@ -96,7 +96,7 @@ def build_bundle(
         raise BundleError("skill manifest identity does not match requested skill")
 
     rows = _collect_tree(root, skill_relative)
-    shared = ((manifest.get("dependencies") or {}).get("shared_resources") or [])
+    shared = (manifest.get("dependencies") or {}).get("shared_resources") or []
     if not isinstance(shared, list):
         raise BundleError("dependencies.shared_resources must be a list")
 
