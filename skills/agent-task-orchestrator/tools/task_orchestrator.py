@@ -482,6 +482,8 @@ def classify_terminal(
     for output in expected:
         if output == "published-revision" and published_revision == execution_revision:
             continue
+        if not task_id:
+            return TerminalDecision("COMPLETED_NO_EVIDENCE", ())
         if not any(
             _bound_evidence(
                 ref,
@@ -489,6 +491,13 @@ def classify_terminal(
                 intent_revision=intent_revision,
                 execution_revision=execution_revision,
                 subject=f"output:{output}",
+            )
+            and _bound_evidence(
+                ref,
+                evidence_bindings,
+                intent_revision=intent_revision,
+                execution_revision=execution_revision,
+                subject=f"task:{task_id}",
             )
             for ref in refs
         ):
