@@ -6,6 +6,8 @@ from __future__ import annotations
 import argparse
 from collections.abc import Sequence
 
+TASK_ORCHESTRATOR = "skills/agent-task-orchestrator/tools/task_orchestrator.py"
+
 QUALITY_PATHS = (
     "contracts",
     "scripts/ci.py",
@@ -14,6 +16,7 @@ QUALITY_PATHS = (
     "scripts/quality_targets.py",
     "scripts/select_lock.py",
     "skills/afds-doc-writer/validate.py",
+    TASK_ORCHESTRATOR,
     "skills/agents-md-architect/tools",
     "skills/changelog-release-architect/tools",
     "skills/ci-cd-architect/tools",
@@ -58,6 +61,7 @@ TYPE_PATHS = (
     "scripts/select_lock.py",
     "scripts/check_release_version.py",
     "skills/afds-doc-writer/validate.py",
+    TASK_ORCHESTRATOR,
     "skills/agents-md-architect/tools/audit_agents_md.py",
     "skills/agents-md-architect/tools/discover_repository.py",
     "skills/agents-md-architect/tools/validate_agents_md.py",
@@ -81,6 +85,7 @@ TYPE_PATHS = (
 BANDIT_PATHS = (
     "contracts",
     "scripts",
+    TASK_ORCHESTRATOR,
     "skills/afds-doc-writer",
     "skills/agents-md-architect/tools",
     "skills/changelog-release-architect/tools",
@@ -91,6 +96,7 @@ BANDIT_PATHS = (
 )
 POLICY_COVERAGE_PATHS = (
     "contracts/*.py",
+    TASK_ORCHESTRATOR,
     "skills/afds-doc-writer/*.py",
     "skills/agents-md-architect/tools/*.py",
     "skills/ci-cd-architect/tools/*.py",
