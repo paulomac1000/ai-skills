@@ -16,7 +16,7 @@ class DiagnosticReasoningError(ValueError):
 
 
 def _clone_state(state: Mapping[str, object]) -> dict[str, object]:
-    return cast(dict[str, object], deepcopy(dict(state)))
+    return deepcopy(dict(state))
 
 
 def _mapping_list(value: object, label: str) -> list[dict[str, object]]:
@@ -92,9 +92,7 @@ def record_probe_result(
 
     if verdict == "supports":
         if status == "disproven":
-            raise DiagnosticReasoningError(
-                "disproven hypothesis requires explicit reopen_hypothesis with new evidence"
-            )
+            raise DiagnosticReasoningError("disproven hypothesis requires explicit reopen_hypothesis with new evidence")
         _append_evidence(hypothesis, "supporting_evidence", evidence_ref)
         hypothesis["status"] = "supported"
     elif verdict == "contradicts":
@@ -201,9 +199,7 @@ def record_remediation_result(
         hypothesis["status"] = "disproven"
     elif status == "verified":
         if hypothesis.get("status") == "disproven":
-            raise DiagnosticReasoningError(
-                "verified remediation cannot silently resurrect a disproven hypothesis"
-            )
+            raise DiagnosticReasoningError("verified remediation cannot silently resurrect a disproven hypothesis")
         _append_evidence(hypothesis, "supporting_evidence", evidence_ref)
         hypothesis["status"] = "supported"
     elif status in {"partial", "unknown"} and hypothesis.get("status") not in {"disproven"}:
@@ -296,16 +292,14 @@ def validate_diagnostic_state(state: Mapping[str, object]) -> list[str]:
         if not isinstance(hypothesis_id, str) or hypothesis_id not in hypothesis_by_id:
             findings.append(f"UNKNOWN_CAUSAL_HYPOTHESIS: {hypothesis_id}")
             continue
-        hypothesis = hypothesis_by_id[hypothesis_id]
-        if hypothesis.get("status") == "disproven":
+        cause_hypothesis = hypothesis_by_id[hypothesis_id]
+        if cause_hypothesis.get("status") == "disproven":
             findings.append(f"DISPROVEN_CAUSAL_HYPOTHESIS: {hypothesis_id}")
-        source_refs = hypothesis.get("config_source_refs", [])
+        source_refs = cause_hypothesis.get("config_source_refs", [])
         if isinstance(source_refs, list):
             for source_ref in source_refs:
                 if not isinstance(source_ref, str) or config_status.get(source_ref) != "runtime-proven":
-                    findings.append(
-                        f"CONFIG_SOURCE_NOT_RUNTIME_PROVEN: {hypothesis_id} -> {source_ref}"
-                    )
+                    findings.append(f"CONFIG_SOURCE_NOT_RUNTIME_PROVEN: {hypothesis_id} -> {source_ref}")
 
     unresolved = causal.get("unresolved_alternatives")
     if causal.get("status") == "proven":
@@ -339,11 +333,7 @@ def validate_diagnostic_transition(
     except DiagnosticReasoningError as error:
         return findings + [str(error)]
 
-    current_by_id = {
-        item["id"]: item
-        for item in current_hypotheses
-        if isinstance(item.get("id"), str)
-    }
+    current_by_id = {item["id"]: item for item in current_hypotheses if isinstance(item.get("id"), str)}
     for old in previous_hypotheses:
         hypothesis_id = old.get("id")
         if old.get("status") != "disproven" or not isinstance(hypothesis_id, str):
