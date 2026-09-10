@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import sys
 import threading
 from concurrent.futures import ThreadPoolExecutor
@@ -32,17 +33,31 @@ def _ledger() -> dict:
         "requirements": [
             {"id": "R1", "mandatory": True, "status": "satisfied", "evidence_refs": ["git:abc"]},
             {"id": "R2", "mandatory": True, "status": "pending", "evidence_refs": []},
-            {"id": "R3", "mandatory": True, "status": "superseded", "evidence_refs": []},
+            {
+                "id": "R3",
+                "mandatory": True,
+                "status": "superseded",
+                "evidence_refs": [],
+                "superseded_by": "R2",
+                "superseded_by_authority": "user:task-owner",
+            },
         ],
         "required_capabilities": ["repository.write", "deployment.execute"],
         "required_execution_methods": ["protected-release"],
         "acceptance_criteria": ["tests pass", "runtime identity verified"],
+        "prohibitions": ["do not touch service-b"],
+        "authorized_operations": ["repository.write", "deployment.execute"],
+        "open_questions": ["is provider reconciliation required?"],
         "scope": {
             "in_scope_targets": ["app-a"],
             "protected_or_out_of_scope_targets": ["service-b"],
             "allowed_side_effect_classes": ["repository-write", "deploy"],
         },
     }
+
+
+def _supersession_authorities() -> dict[str, list[str]]:
+    return {"user:task-owner": ["R3"]}
 
 
 def _bindings() -> dict[str, dict[str, object]]:
@@ -113,8 +128,19 @@ def test_symbolic_revision_is_not_an_immutable_base() -> None:
 def test_descendant_requires_explicit_nonoverlap_revalidation() -> None:
     planning = _base("a" * 40)
     execution = _base("b" * 40)
-    assert module.admit_base(planning, execution, base_relationship="descendant", overlapping_upstream_change=None).admission == "BASE_UNKNOWN"
-    assert module.admit_base(planning, execution, base_relationship="descendant", overlapping_upstream_change=False, revalidated_assumptions=[]).admission == "BASE_UNKNOWN"
+    assert module.admit_base(
+        planning,
+        execution,
+        base_relationship="descendant",
+        overlapping_upstream_change=None,
+    ).admission == "BASE_UNKNOWN"
+    assert module.admit_base(
+        planning,
+        execution,
+        base_relationship="descendant",
+        overlapping_upstream_change=False,
+        revalidated_assumptions=[],
+    ).admission == "BASE_UNKNOWN"
     assert module.admit_base(
         planning,
         execution,
@@ -221,6 +247,78 @@ def test_dispatch_once_is_atomic_for_concurrent_callers(tmp_path: Path) -> None:
     assert {result.code for result in results} <= {"ALREADY_DISPATCHED", "ATTEMPT_ALREADY_RESERVED"}
 
 
+def test_external_dispatch_success_plus_local_bind_failure_is_recoverable(tmp_path: Path, monkeypatch) -> None:
+    attempts = tmp_path / "attempts"
+    original_bind = module.bind_dispatched_child
+    calls = 0
+
+    def fail_first_bind(**kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise OrchestrationError("injected local bind failure")
+        return original_bind(**kwargs)
+
+    monkeypatch.setattr(module, "bind_dispatched_child", fail_first_bind)
+    result = module.dispatch_once(
+        attempt_store=attempts,
+        attempt_id="attempt-fault",
+        intent_revision=4,
+        execution_revision=EXECUTION_REVISION,
+        dispatch=lambda: "child-external-77",
+    )
+    assert result.code == "RECONCILE_REQUIRED"
+    assert result.child_job_id == "child-external-77"
+
+    repeated = module.dispatch_once(
+        attempt_store=attempts,
+        attempt_id="attempt-fault",
+        intent_revision=4,
+        execution_revision=EXECUTION_REVISION,
+        dispatch=lambda: pytest.fail("ambiguous attempt must not redispatch"),
+    )
+    assert repeated.code == "RECONCILE_REQUIRED"
+    assert repeated.child_job_id == "child-external-77"
+
+    monkeypatch.setattr(module, "bind_dispatched_child", original_bind)
+    reconciled = module.reconcile_dispatch(
+        attempt_store=attempts,
+        attempt_id="attempt-fault",
+        child_job_id="child-external-77",
+    )
+    assert reconciled.code == "ALREADY_DISPATCHED"
+    final = module.reserve_dispatch(
+        attempt_store=attempts,
+        attempt_id="attempt-fault",
+        intent_revision=4,
+        execution_revision=EXECUTION_REVISION,
+    )
+    assert final.code == "ALREADY_DISPATCHED"
+    assert final.child_job_id == "child-external-77"
+
+
+def test_dispatch_ambiguous_state_persists_observed_child_identity(tmp_path: Path, monkeypatch) -> None:
+    attempts = tmp_path / "attempts"
+    monkeypatch.setattr(
+        module,
+        "bind_dispatched_child",
+        lambda **_: (_ for _ in ()).throw(OrchestrationError("fault")),
+    )
+    result = module.dispatch_once(
+        attempt_store=attempts,
+        attempt_id="attempt-persisted",
+        intent_revision=4,
+        execution_revision=EXECUTION_REVISION,
+        dispatch=lambda: "child-99",
+    )
+    record_files = list(attempts.glob("*.json"))
+    assert len(record_files) == 1
+    record = json.loads(record_files[0].read_text(encoding="utf-8"))
+    assert result.code == "RECONCILE_REQUIRED"
+    assert record["state"] == "dispatch_ambiguous"
+    assert record["child_job_id"] == "child-99"
+
+
 def test_continuation_is_delta_only_for_existing_child() -> None:
     value = module.build_continuation(
         attempt_id="attempt-1",
@@ -315,6 +413,7 @@ def test_parent_completion_requires_all_current_intent_evidence() -> None:
         capability_evidence={"repository.write": ["git:abc"], "deployment.execute": []},
         method_evidence={"protected-release": []},
         acceptance_evidence={"tests pass": ["junit:1"], "runtime identity verified": []},
+        supersession_authorities=_supersession_authorities(),
     )
     assert decision.completed is False
     assert "requirement:R2:pending" in decision.blockers
@@ -335,27 +434,60 @@ def test_empty_ledger_cannot_false_green() -> None:
     assert "ledger:missing:intent_revision" in decision.blockers
 
 
-def test_superseded_requirement_does_not_block_but_current_requirements_do() -> None:
+def test_superseded_requirement_needs_real_replacement_and_verified_authority() -> None:
     ledger = _ledger()
     ledger["requirements"][1].update({"status": "satisfied", "evidence_refs": ["deploy:receipt"]})
-    decision = module.completion_gate(
-        ledger,
-        execution_revision=EXECUTION_REVISION,
-        evidence_bindings=_bindings(),
-        capability_evidence={"repository.write": ["git:abc"], "deployment.execute": ["deploy:receipt"]},
-        method_evidence={"protected-release": ["lease:1"]},
-        acceptance_evidence={"tests pass": ["junit:1"], "runtime identity verified": ["runtime:1"]},
-    )
-    assert decision.completed is True
+    evidence = {
+        "execution_revision": EXECUTION_REVISION,
+        "evidence_bindings": _bindings(),
+        "capability_evidence": {"repository.write": ["git:abc"], "deployment.execute": ["deploy:receipt"]},
+        "method_evidence": {"protected-release": ["lease:1"]},
+        "acceptance_evidence": {"tests pass": ["junit:1"], "runtime identity verified": ["runtime:1"]},
+    }
+    denied = module.completion_gate(ledger, **evidence)
+    assert denied.completed is False
+    assert any("unverified-supersession-authority" in blocker for blocker in denied.blockers)
+
+    allowed = module.completion_gate(ledger, supersession_authorities=_supersession_authorities(), **evidence)
+    assert allowed.completed is True
+
+    ledger["requirements"][2]["superseded_by"] = "R-missing"
+    invalid = module.completion_gate(ledger, supersession_authorities=_supersession_authorities(), **evidence)
+    assert invalid.completed is False
+    assert any("invalid-superseded-by" in blocker for blocker in invalid.blockers)
 
 
-def test_handoff_is_compact_and_preserves_intent_revision_scope_and_active_child_identity() -> None:
+def test_ledger_transition_rejects_self_declared_supersession() -> None:
+    previous = _ledger()
+    previous["requirements"][2].update({"status": "pending"})
+    previous["requirements"][2].pop("superseded_by")
+    previous["requirements"][2].pop("superseded_by_authority")
+    current = _ledger()
+    denied = module.validate_ledger_transition(previous, current, supersession_authorities=None)
+    assert any("unverified-supersession-authority" in finding for finding in denied)
+    assert module.validate_ledger_transition(
+        previous,
+        current,
+        supersession_authorities=_supersession_authorities(),
+    ) == []
+
+
+def test_handoff_preserves_full_unresolved_intent_and_active_child_identity() -> None:
     handoff = module.compact_handoff(
         _ledger(),
         active_children=[{"attempt_id": "attempt-1", "child_job_id": "child-42", "execution_revision": "b" * 40}],
     )
     assert handoff["intent_revision"] == 4
     assert handoff["unresolved_requirement_ids"] == ["R2"]
+    assert handoff["unresolved_requirements"] == [
+        {"id": "R2", "mandatory": True, "status": "pending", "evidence_refs": []}
+    ]
+    assert handoff["acceptance_criteria"] == ["tests pass", "runtime identity verified"]
+    assert handoff["prohibitions"] == ["do not touch service-b"]
+    assert handoff["authorized_operations"] == ["repository.write", "deployment.execute"]
+    assert handoff["open_questions"] == ["is provider reconciliation required?"]
+    assert handoff["required_capabilities"] == ["repository.write", "deployment.execute"]
+    assert handoff["required_execution_methods"] == ["protected-release"]
     assert handoff["scope"]["protected_or_out_of_scope_targets"] == ["service-b"]
     assert handoff["active_children"][0]["child_job_id"] == "child-42"
     assert "requirements" not in handoff
