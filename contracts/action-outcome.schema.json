@@ -1,7 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/paulomac1000/ai-skills/contracts/action-outcome.schema.json",
-  "title": "Agentic Action Outcome",
+  "$id": "https://github.com/paulomac1000/ai-skills/blob/main/contracts/action-outcome.schema.json",
+  "title": "Layered action outcome",
+  "description": "Separates transport, execution, side effect, publication and verification so a derived disposition cannot erase ambiguity.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -9,97 +10,41 @@
     "transport",
     "execution",
     "side_effect",
-    "artifact_publication",
+    "artifact",
     "verification",
     "disposition",
     "safe_to_retry"
   ],
   "properties": {
     "schema_version": {"const": 1},
-    "transport": {
-      "enum": ["succeeded", "failed", "timed_out", "unknown"]
-    },
-    "execution": {
-      "enum": ["not_started", "running", "succeeded", "failed", "unknown"]
-    },
-    "side_effect": {
-      "enum": ["none", "published", "confirmed", "disproven", "unknown"]
-    },
-    "artifact_publication": {
-      "enum": ["not_applicable", "not_published", "published", "unknown"]
-    },
-    "verification": {
-      "enum": ["not_run", "passed", "failed", "partial", "stale", "unknown"]
-    },
-    "disposition": {
-      "enum": ["completed", "pending", "reconcile_required", "failed", "blocked"]
-    },
-    "safe_to_retry": {
-      "enum": ["yes", "no", "unknown"]
-    },
-    "result_ref": {
-      "type": ["string", "null"],
-      "minLength": 1,
-      "maxLength": 512
-    },
-    "reconciliation_ref": {
-      "type": ["string", "null"],
-      "minLength": 1,
-      "maxLength": 512
-    },
-    "details": {
-      "type": "object",
-      "additionalProperties": true,
-      "maxProperties": 32
-    }
+    "transport": {"enum": ["not_attempted", "accepted", "succeeded", "failed", "timed_out", "unknown"]},
+    "execution": {"enum": ["not_started", "accepted", "running", "succeeded", "failed", "cancelled", "unknown"]},
+    "side_effect": {"enum": ["none", "not_started", "published", "confirmed", "disproven", "partial", "unknown"]},
+    "artifact": {"enum": ["none", "expected", "published", "missing", "unknown"]},
+    "verification": {"enum": ["not_run", "passed", "failed", "partial", "stale", "unknown"]},
+    "disposition": {"enum": ["completed", "pending", "reconcile_required", "failed", "blocked", "cancelled"]},
+    "safe_to_retry": {"enum": ["yes", "no", "unknown"]},
+    "operation_id": {"type": ["string", "null"], "minLength": 1, "maxLength": 256},
+    "artifact_refs": {"type": "array", "items": {"type": "string", "minLength": 1, "maxLength": 2048}, "uniqueItems": true},
+    "evidence_refs": {"type": "array", "items": {"type": "string", "minLength": 1, "maxLength": 2048}, "uniqueItems": true},
+    "notes": {"type": "array", "items": {"type": "string", "minLength": 1, "maxLength": 2048}}
   },
   "allOf": [
     {
-      "if": {"properties": {"execution": {"const": "running"}}, "required": ["execution"]},
-      "then": {
-        "properties": {
-          "disposition": {"enum": ["pending", "reconcile_required"]}
-        }
-      }
+      "if": {"properties": {"disposition": {"const": "completed"}}, "required": ["disposition"]},
+      "then": {"properties": {"execution": {"const": "succeeded"}, "verification": {"enum": ["passed", "not_run"]}}}
     },
     {
       "if": {"properties": {"side_effect": {"const": "unknown"}}, "required": ["side_effect"]},
-      "then": {
-        "properties": {
-          "disposition": {"enum": ["reconcile_required", "pending"]},
-          "safe_to_retry": {"enum": ["no", "unknown"]}
-        }
-      }
+      "then": {"properties": {"disposition": {"enum": ["reconcile_required", "pending"]}, "safe_to_retry": {"enum": ["no", "unknown"]}}}
     },
     {
-      "if": {
-        "properties": {"artifact_publication": {"const": "published"}},
-        "required": ["artifact_publication"]
-      },
-      "then": {
-        "required": ["result_ref"]
-      }
+      "if": {"properties": {"verification": {"const": "stale"}}, "required": ["verification"]},
+      "then": {"properties": {"disposition": {"not": {"const": "completed"}}}}
     },
     {
-      "if": {
-        "properties": {"verification": {"const": "stale"}},
-        "required": ["verification"]
-      },
-      "then": {
-        "not": {"properties": {"disposition": {"const": "completed"}}, "required": ["disposition"]}
-      }
-    },
-    {
-      "if": {
-        "properties": {"disposition": {"const": "completed"}},
-        "required": ["disposition"]
-      },
-      "then": {
-        "properties": {
-          "execution": {"const": "succeeded"},
-          "side_effect": {"enum": ["none", "confirmed", "published"]}
-        }
-      }
+      "if": {"properties": {"artifact": {"const": "missing"}}, "required": ["artifact"]},
+      "then": {"properties": {"disposition": {"not": {"const": "completed"}}}}
     }
   ]
 }
