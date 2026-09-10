@@ -9,6 +9,14 @@ skills:
   use_when: [authoring or validating governed AFDS documents]
   do_not_use_when: [the task is only README, changelog, CI, or MCP architecture]
   loading: {modes: [runtime_tool, preload, vendored]}
+- skill_id: agent-task-orchestrator
+  version: 1.4.0
+  manifest_path: skills/agent-task-orchestrator/manifest.yaml
+  skill_entrypoint: skills/agent-task-orchestrator/SKILL.md
+  capabilities: [task-intent-orchestration, delegated-agent-coordination, task-completion-reconciliation]
+  use_when: [a task spans phases, continuations, or delegated agents and must preserve scope, methods, authority, and evidence]
+  do_not_use_when: [the task is a single bounded operation with no mutable task state or delegation lifecycle]
+  loading: {modes: [runtime_tool, preload, vendored]}
 - skill_id: agents-md-architect
   version: 1.4.0
   manifest_path: skills/agents-md-architect/manifest.yaml
