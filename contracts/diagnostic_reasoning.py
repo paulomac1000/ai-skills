@@ -56,6 +56,13 @@ def _evidence_values(hypothesis: Mapping[str, object]) -> set[str]:
     return values
 
 
+def _supporting_evidence_values(hypothesis: Mapping[str, object]) -> set[str]:
+    raw = hypothesis.get("supporting_evidence")
+    if not isinstance(raw, list):
+        return set()
+    return {item for item in raw if isinstance(item, str)}
+
+
 def _append_evidence(hypothesis: dict[str, object], field: str, evidence_ref: str) -> None:
     other = "contradicting_evidence" if field == "supporting_evidence" else "supporting_evidence"
     other_values = hypothesis.get(other)
@@ -309,11 +316,12 @@ def _evidence_registry(
             predicted = predictions.get(hypothesis_id)
             if predicted != observed:
                 continue
-            for alternative in hypothesis_ids - {hypothesis_id}:
-                alternative_prediction = predictions.get(alternative)
-                if isinstance(alternative_prediction, str) and alternative_prediction != predicted:
-                    discriminates_for.add(hypothesis_id)
-                    break
+            alternatives = hypothesis_ids - {hypothesis_id}
+            if all(
+                isinstance(predictions.get(alternative), str) and predictions[alternative] != predicted
+                for alternative in alternatives
+            ):
+                discriminates_for.add(hypothesis_id)
         add(
             evidence_ref,
             EvidenceBinding(
@@ -341,7 +349,8 @@ def validate_diagnostic_state(state: Mapping[str, object]) -> list[str]:
     Returns:
         Semantic findings. A ``proven`` causal assessment is accepted only when
         its evidence exists, is independently sourced, and includes an executed
-        probe whose prediction discriminates the winning hypothesis.
+        probe whose prediction discriminates the winning hypothesis from every
+        still-credible alternative.
     """
     findings: list[str] = []
     try:
@@ -369,8 +378,16 @@ def validate_diagnostic_state(state: Mapping[str, object]) -> list[str]:
                 findings.append(f"DUPLICATE_OBSERVATION_ID: {observation_id}")
             observation_ids.add(observation_id)
 
-    hypothesis_ids = set(hypothesis_by_id)
-    evidence, evidence_findings = _evidence_registry(observations, probes, hypothesis_ids)
+    non_disproven_hypothesis_ids = {
+        hypothesis_id
+        for hypothesis_id, hypothesis in hypothesis_by_id.items()
+        if hypothesis.get("status") != "disproven"
+    }
+    evidence, evidence_findings = _evidence_registry(
+        observations,
+        probes,
+        non_disproven_hypothesis_ids,
+    )
     findings.extend(evidence_findings)
 
     causal = state.get("causal_assessment")
@@ -433,7 +450,7 @@ def validate_diagnostic_state(state: Mapping[str, object]) -> list[str]:
                 source_groups = {binding.source_group for binding in bindings if binding.source_group is not None}
                 if len(source_groups) < 2:
                     findings.append(f"PROVEN_WITHOUT_INDEPENDENT_CONFIRMATION: {winner}")
-                supporting = _evidence_values(hypothesis_by_id[winner])
+                supporting = _supporting_evidence_values(hypothesis_by_id[winner])
                 missing_support = sorted(ref for ref in refs if ref not in supporting)
                 if missing_support:
                     findings.append(f"PROVEN_EVIDENCE_NOT_BOUND_TO_HYPOTHESIS: {winner} -> {missing_support}")
