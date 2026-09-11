@@ -51,19 +51,19 @@ A lower-ranked resource cannot weaken a higher-ranked requirement. A generator i
 
 ### Production runtime/API invariants
 
-Every L2+ design tests positive and negative cases for seven invariants. **RuntimeIdentity** binds exact version/source/artifact/config/instance generation. **Diagnostic parity** gives callers and operators the same safe actionable failure class. **Actionable preconditions** expose all knowable violations before side effects. **Managed-resource ownership** blocks raw mutation and names the owner route. **Durable async progress** exposes durable operation ID/status; timeout is not terminal failure. **Bounded results** expose partial/truncation plus continuation, with full detail opt-in. **Scoped health** separates process/transport/auth/read/write/provider/action readiness and binds freshness/generation; read-good/write-bad stays degraded.
+Every L2+ design has positive/negative evidence for seven invariants: **RuntimeIdentity** binds version/source/artifact/config/generation; **diagnostic parity** keeps caller/operator failure classes actionable and equal; **actionable preconditions** expose all knowable violations before side effects; **managed-resource ownership** blocks raw mutation and names the owner route; **durable async progress** exposes durable operation ID/status and treats timeout as non-terminal; **bounded results** mark partial/truncation with continuation and opt-in detail; **scoped health** separates process/transport/auth/read/write/provider/action readiness with freshness/generation, so read-good/write-bad stays degraded.
 
 ### Canonical control plane and projections
 
-Use one canonical store/authority unless multi-master is explicit; provider objects are projections/evidence. Ingress records both observation context and affected canonical owner. Projection writes use a durable idempotent outbox with generation identity and reconciliation after ambiguity. Raw provider adapters refuse mutation of managed resources before side effects. Retargeting preserves canonical entity identity/history. Work completed externally or by an operator uses evidence-backed completion. Human/agent projections expose a bounded actionable brief/status and reference full evidence.
+Use one canonical store/authority unless multi-master is explicit; provider objects are projections/evidence. Ingress records both observation context and affected canonical owner. Projection writes use a durable idempotent outbox and reconcile ambiguity. Raw provider adapters refuse mutation of managed resources. Retargeting preserves canonical entity identity/history. Work completed externally or by an operator uses evidence-backed completion. Human/agent projections expose a bounded actionable brief/status and reference full evidence.
 
 ### Provider schema compatibility
 
-Validate public schemas recursively against a versioned profile containing provider, contract revision, schema restrictions, and source evidence. Check nested nullable object/array forms, unions, `anyOf`/`oneOf`, `$ref`, defaults, `additionalProperties`, `properties`/`required`, and `items`. Unknown rules fail closed. Release evidence binds exact artifact/source, official-client/protocol, serialized public contract, and provider-profile revision.
+Validate recursively against a versioned profile with provider, contract revision, schema restrictions, and source evidence. Cover nested nullable objects/arrays, unions, `anyOf`/`oneOf`, `$ref`, defaults, `additionalProperties`, `properties`/`required`, and `items`; unknown rules fail closed. Bind release evidence to exact artifact/source, official client/protocol, serialized public contract, and provider-profile revision.
 
 ### Semantic façade profile
 
-Keep low-level upstream tools internal. The public budget is at most ten semantic operations plus positive `max_public_schema_bytes`; CI fails count/byte overflow. Use deterministic discovery/probes/policy → evidence → optional bounded LLM → deterministic authorization/execution/verification → bounded synthesis; the LLM cannot authorize mutation or prove state. Long work uses durable jobs. Privileged mutations use typed targets/actions/constraints and layered outcomes. Persist detailed evidence by reference.
+Keep upstream tools internal. The public budget is at most ten semantic operations plus positive `max_public_schema_bytes`; overflow fails CI. Use deterministic discovery/probes/policy → evidence → optional bounded LLM → deterministic execution/verification → bounded synthesis; the LLM cannot authorize or prove state. Long work uses durable jobs; privileged mutations use typed targets/actions/constraints and layered outcomes; persist detailed evidence by reference.
 
 ## Configuration and identity
 
