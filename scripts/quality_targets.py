@@ -30,6 +30,7 @@ QUALITY_PATHS = (
     "skills/mcp-server-architect/tools/server_invariants.py",
     "skills/mcp-server-architect/tools/control_plane_invariants.py",
     "skills/mcp-server-architect/tools/provider_schema_compat.py",
+    "skills/mcp-server-architect/tools/semantic_facade.py",
     "scripts/check_release_version.py",
 )
 TYPE_PATHS = (
@@ -86,6 +87,7 @@ TYPE_PATHS = (
     "skills/mcp-server-architect/tools/server_invariants.py",
     "skills/mcp-server-architect/tools/control_plane_invariants.py",
     "skills/mcp-server-architect/tools/provider_schema_compat.py",
+    "skills/mcp-server-architect/tools/semantic_facade.py",
 )
 BANDIT_PATHS = (
     "contracts",
@@ -109,6 +111,7 @@ POLICY_COVERAGE_PATHS = (
     "skills/mcp-server-architect/tools/server_invariants.py",
     "skills/mcp-server-architect/tools/control_plane_invariants.py",
     "skills/mcp-server-architect/tools/provider_schema_compat.py",
+    "skills/mcp-server-architect/tools/semantic_facade.py",
 )
 SECURITY_BOUNDARY_COVERAGE_FLOORS = (
     ("contracts/validate_external_adoption.py", 60),
