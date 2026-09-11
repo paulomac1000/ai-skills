@@ -98,12 +98,18 @@ def _exact_revision(value: object) -> str | None:
 
 def _bound_evidence(
     ref: str,
-    bindings: Mapping[str, Mapping[str, Any]],
+    bindings: object,
     *,
-    intent_revision: int,
-    execution_revision: str,
+    intent_revision: object,
+    execution_revision: object,
     subject: str,
 ) -> bool:
+    if not isinstance(bindings, Mapping):
+        return False
+    if not isinstance(intent_revision, int) or isinstance(intent_revision, bool):
+        return False
+    if not isinstance(execution_revision, str):
+        return False
     binding = bindings.get(ref)
     if not isinstance(binding, Mapping):
         return False
@@ -213,7 +219,9 @@ def admit_child(
         raise OrchestrationError("child authority must be a strict subset of parent authority")
     if missing_resources:
         raise OrchestrationError(f"child resource domain exceeds parent admission: {sorted(missing_resources)}")
-    return ChildAdmission(tuple(sorted(requested_caps)), tuple(sorted(requested_auth)), tuple(sorted(requested_resources)))
+    return ChildAdmission(
+        tuple(sorted(requested_caps)), tuple(sorted(requested_auth)), tuple(sorted(requested_resources))
+    )
 
 
 def admit_dispatch(*, attempt_id: str, known_attempts: Mapping[str, str]) -> DispatchDecision:
@@ -650,7 +658,11 @@ def _supersession_findings(
             continue
         replacement_id = requirement.get("superseded_by")
         authority = requirement.get("superseded_by_authority")
-        if not isinstance(replacement_id, str) or replacement_id not in requirements or replacement_id == requirement_id:
+        if (
+            not isinstance(replacement_id, str)
+            or replacement_id not in requirements
+            or replacement_id == requirement_id
+        ):
             findings.append(f"{requirement_id}:invalid-superseded-by")
             continue
         if requirements[replacement_id].get("status") == "superseded":
