@@ -64,15 +64,16 @@ class VerificationPlan:
 
 
 def _risk_level(change: ChangeRisk) -> RiskLevel:
-    surface_weight = {"docs": 0, "internal": 1, "public_contract": 3}.get(
-        change.change_surface, 2
+    surface_weight = {"docs": 0, "internal": 1, "public_contract": 3}.get(change.change_surface, 2)
+    blast_weight = {"local": 0, "component": 1, "multi_component": 2, "external": 3}.get(change.blast_radius, 2)
+    score = (
+        surface_weight
+        + blast_weight
+        + int(change.stateful)
+        + 2 * int(change.security_sensitive)
+        + int(change.external_dependency)
+        + int(change.post_deploy_observable)
     )
-    blast_weight = {"local": 0, "component": 1, "multi_component": 2, "external": 3}.get(
-        change.blast_radius, 2
-    )
-    score = surface_weight + blast_weight + int(change.stateful) + 2 * int(
-        change.security_sensitive
-    ) + int(change.external_dependency) + int(change.post_deploy_observable)
     if change.security_sensitive or change.change_surface == "public_contract" or score >= 6:
         return RiskLevel.HIGH
     if score >= 2:
@@ -102,6 +103,7 @@ def validate_exact_evidence(binding: ExactEvidenceBinding, *, artifact_required:
 def plan_verification(change: ChangeRisk) -> VerificationPlan:
     """Return deterministic low/medium/high verification layers for one change."""
     risk = _risk_level(change)
+    layers: tuple[str, ...]
     if risk is RiskLevel.LOW:
         layers = LAYERS[:2]
     elif risk is RiskLevel.MEDIUM:

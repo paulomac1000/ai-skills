@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import PurePosixPath
-from typing import Mapping
 
 _REQUIRED_ENV = ("HOME", "XDG_CONFIG_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME")
 _REQUIRED_TRANSPORTS = frozenset({"stdio", "streamable-http"})
@@ -72,9 +72,7 @@ def validate_transport_dogfood(evidence: TransportDogfoodEvidence) -> TransportD
     failed = [name for name, passed in checks.items() if not passed]
     if failed:
         raise TransportDogfoodError(f"dogfood check failed: {','.join(failed)}")
-    if not evidence.created_id or not (
-        evidence.created_id == evidence.status_id == evidence.read_id
-    ):
+    if not evidence.created_id or not (evidence.created_id == evidence.status_id == evidence.read_id):
         raise TransportDogfoodError("public lifecycle ID chain is inconsistent")
     if not evidence.async_statuses or evidence.async_statuses[-1] not in _TERMINAL_SUCCESS:
         raise TransportDogfoodError("async status polling did not reach successful terminal state")
@@ -82,8 +80,6 @@ def validate_transport_dogfood(evidence: TransportDogfoodEvidence) -> TransportD
         not _under(evidence.sandbox_root, path) for path in evidence.persistence_roots
     ):
         raise TransportDogfoodError("persistence roots escaped the disposable sandbox")
-    if evidence.max_diagnostics_bytes <= 0 or not (
-        0 <= evidence.diagnostics_bytes <= evidence.max_diagnostics_bytes
-    ):
+    if evidence.max_diagnostics_bytes <= 0 or not (0 <= evidence.diagnostics_bytes <= evidence.max_diagnostics_bytes):
         raise TransportDogfoodError("diagnostics exceeded the declared byte bound")
     return evidence

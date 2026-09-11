@@ -38,11 +38,28 @@ def _covered(targets: tuple[str, ...], path: str) -> bool:
 
 def test_runtime_fact_classes_cover_stable_compat_owner_volatile_and_private() -> None:
     module = _load("wave3_runtime_fact_classes", TOOL)
-    assert module.classify_runtime_fact("Stable invariant: writes require explicit authority.") == module.RuntimeFactClass.STABLE_INVARIANT
-    assert module.classify_runtime_fact("Compatibility contract: supported versions >= 2.0.") == module.RuntimeFactClass.COMPATIBILITY_CONTRACT
-    assert module.classify_runtime_fact("Logical capability owner: billing-mcp; resolve through RuntimeIdentity.") == module.RuntimeFactClass.LOGICAL_CAPABILITY_OWNER
-    assert module.classify_runtime_fact("Current MCP host/version: gateway.internal v3.2.1.") == module.RuntimeFactClass.VOLATILE_OBSERVATION
-    assert module.classify_runtime_fact("Use 10.0.0.5:8123 for MCP.") == module.RuntimeFactClass.PRIVATE_BINDING
+    assert (
+        module.classify_runtime_fact("Stable invariant: writes require explicit authority.")
+        == module.RuntimeFactClass.STABLE_INVARIANT
+    )
+    assert (
+        module.classify_runtime_fact("Compatibility contract: supported versions >= 2.0.")
+        == module.RuntimeFactClass.COMPATIBILITY_CONTRACT
+    )
+    assert (
+        module.classify_runtime_fact(
+            "Logical capability owner: billing-mcp; resolve through RuntimeIdentity."
+        )
+        == module.RuntimeFactClass.LOGICAL_CAPABILITY_OWNER
+    )
+    assert (
+        module.classify_runtime_fact("Current MCP host/version: gateway.internal v3.2.1.")
+        == module.RuntimeFactClass.VOLATILE_OBSERVATION
+    )
+    assert (
+        module.classify_runtime_fact("Use 10.0.0.5:8123 for MCP.")
+        == module.RuntimeFactClass.PRIVATE_BINDING
+    )
 
 
 def test_current_mcp_host_or_version_as_timeless_truth_requires_owner() -> None:
@@ -53,22 +70,41 @@ def test_current_mcp_host_or_version_as_timeless_truth_requires_owner() -> None:
     assert "RuntimeIdentity" in message
 
 
+def test_repository_release_version_language_is_not_a_runtime_binding() -> None:
+    module = _load("wave3_runtime_fact_repository_version", TOOL)
+    line = (
+        "Preserve prerelease examples only when they test generic SemVer behavior and cannot be "
+        "confused with the current repository version."
+    )
+    assert module.classify_runtime_fact(line) == module.RuntimeFactClass.STABLE_INVARIANT
+    assert module.volatile_binding_message(line) is None
+
+
 def test_unjustified_ip_or_port_requires_owner_but_scoped_observation_is_allowed() -> None:
     module = _load("wave3_runtime_fact_private", TOOL)
     assert module.volatile_binding_message("Connect to MCP at 10.0.0.5:8123.") is not None
-    assert module.volatile_binding_message(
-        "Volatile observation: local development only endpoint is 10.0.0.5:8123."
-    ) is None
+    assert (
+        module.volatile_binding_message(
+            "Volatile observation: local development only endpoint is 10.0.0.5:8123."
+        )
+        is None
+    )
 
 
 def test_symbolic_capability_owner_and_compatibility_contract_are_stable() -> None:
     module = _load("wave3_runtime_fact_symbolic", TOOL)
-    assert module.volatile_binding_message(
-        "Logical capability owner: inventory-mcp; resolve the live target through RuntimeIdentity before use."
-    ) is None
-    assert module.volatile_binding_message(
-        "Compatibility contract: supported MCP protocol versions are 2026-07-28 and 2025-11-25."
-    ) is None
+    assert (
+        module.volatile_binding_message(
+            "Logical capability owner: inventory-mcp; resolve the live target through RuntimeIdentity before use."
+        )
+        is None
+    )
+    assert (
+        module.volatile_binding_message(
+            "Compatibility contract: supported MCP protocol versions are 2026-07-28 and 2025-11-25."
+        )
+        is None
+    )
 
 
 def test_main_agents_audit_emits_stable_runtime_binding_finding(tmp_path: Path) -> None:

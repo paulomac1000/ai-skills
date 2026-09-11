@@ -81,8 +81,9 @@ def compose_release_receipt(
 
     ordered: list[PhaseResult] = []
     for name in REQUIRED_PHASES:
-        phase = by_name.pop(name, None)
-        if phase is None:
+        if name in by_name:
+            phase = by_name.pop(name)
+        else:
             phase = PhaseResult(
                 name=name,
                 status="not_run",

@@ -19,12 +19,10 @@ class RuntimeFactClass(StrEnum):
 _IPV4 = re.compile(r"(?<![\d.])(?:\d{1,3}\.){3}\d{1,3}(?![\d.])")
 _PORT = re.compile(r"(?i)(?:\bport\s*[=:]?\s*|https?://[^\s/:]+:|\b[a-z0-9.-]+:)(\d{2,5})\b")
 _CURRENT_RUNTIME = re.compile(
-    r"(?i)\bcurrent\b.{0,40}\b(?:mcp|runtime|host|server|endpoint|version|port)\b|"
+    r"(?i)\bcurrent\b.{0,40}\b(?:mcp|runtime|host|server|endpoint|port)\b|"
     r"\b(?:mcp|runtime|host|server|endpoint)\b.{0,40}\bcurrent\b"
 )
-_VERSION_BINDING = re.compile(
-    r"(?i)\b(?:mcp|server|runtime|gateway|host)\b.{0,32}\bv?\d+(?:\.\d+){1,3}\b"
-)
+_VERSION_BINDING = re.compile(r"(?i)\b(?:mcp|server|runtime|gateway|host)\b.{0,32}\bv?\d+(?:\.\d+){1,3}\b")
 _OWNER = re.compile(r"(?i)\b(?:logical\s+)?capability\s+owner\b")
 _RUNTIME_IDENTITY = re.compile(r"(?i)\bruntimeidentity\b|\bruntime identity\b")
 _COMPAT = re.compile(r"(?i)\bcompatibility contract\b|\bsupported versions?\b|\bversion range\b")
