@@ -1,11 +1,14 @@
 # Changelog
 
-## 2.0.0 - 2026-09-10
+## 2.0.0 - 2026-09-11
 
 ### Added
 
 - Added `agent-task-orchestrator` as the canonical owner of durable task intent, immutable planning and execution bases, bounded delegation, least-authority admission, progress reconciliation, and evidence-backed completion.
 - Added shared agentic action contracts for layered outcomes, runtime identity, deployment leases, audit events, tool-result provenance, diagnostic state, task intent, and delegation state so skills compose around one machine-readable source of truth.
+- Added Capability Manifest v2 as the canonical `capability-manifest.schema.json` contract with schema version 2: explicit contract revision, async model, outcome contract, declared idempotency and reconciliation, publication semantics, bounded results, and runtime-identity advertisement, with the Python and .NET MCP generators migrated to emit the v2 manifest.
+- Added cross-event audit-log semantics that enforce append-only history and reject duplicate or conflicting event identifiers, idempotency-key rebinding, conflicting terminal outcomes, and a second equivalent canonical success for the same idempotency identity.
+- Added evidence-derived diagnostic reasoning: a `proven` root cause requires existing, hypothesis-bound supporting evidence from independent source groups and separation from every non-disproven alternative by discriminating probes ranked by separation power; reopening a disproven hypothesis requires a matching source revision and fresh evidence attached to the reopened hypothesis.
 - Added governed skill distribution and consumption contracts with explicit GLOBAL, VENDORED, and EPHEMERAL modes, repository-shaped bundle construction, provenance/digest ownership, clean uninstall, runtime visibility/loadability checks, and exact loaded-artifact identity.
 - Added CI verification-integrity tooling for declared-dependency bootstrap, test-corpus discovery/execution accounting, runtime-exception detection, local/hosted gate parity, state-isolation preflight, and canonical verification receipts.
 - Added machine-readable gate-source inventory for `agents-md-architect` so true CI/task entrypoints consume the audit budget while helper/library files remain visible without creating false source-count failures.
@@ -16,6 +19,8 @@
 - Changed agent-instruction auditing to preserve the established import/API facade while moving bounded implementation details into canonical helper modules; repository-shaped bundles now run under isolated Python without ambient `PYTHONPATH` assumptions.
 - Changed verification policy to distinguish selected tests from observed execution, reject incomplete discovery/execution evidence, classify background runtime failures separately from ordinary warnings, and require merge-blocking hosted gates to have a faithful local entrypoint or explicit hosted-only rationale.
 - Changed task orchestration to record both planning and execution bases and require explicit revalidation when execution advances beyond the planned immutable base rather than silently rebasing delegated work.
+- Changed task handoff to be lossless across compaction: handoffs retain unresolved requirements with full context, acceptance criteria, prohibitions, authorized operations, and open questions, and mandatory requirements can be superseded only by a real replacement requirement backed by verified superseding authority.
+- Admitted the `agent-task-orchestrator` tooling into the canonical quality inventory (lint, typing, security scanning, and policy-critical coverage) with a fail-closed regression that rejects ungated production Python tools.
 - Changed repository-shared contracts to keep one canonical schema/helper owner per durable semantic instead of parallel skill-private copies.
 - Made generic adoption evidence runtime-neutral for explicitly opted-in consumer runtimes: Node/TypeScript repositories can submit provider-backed compatibility claims and exact JUnit-style testcase identities without representing those consumer runs as combinations tested by the `ai-skills` repository itself.
 
@@ -26,6 +31,13 @@
 - Hardened governed skill uninstall against absolute paths, parent traversal, state-file self-ownership, duplicate owned paths, Windows-path aliases, final symlinks, and intermediate symlink redirection before any managed file is removed.
 - Required both installed and loaded artifact digests before a skill can report `LOADED`, preventing revision-only identity from optimistically accepting a different artifact.
 - Strengthened verification receipts with observed-execution/completeness fields, producer-computed accounted-file counts, and an executable semantic validator that recomputes corpus accounting before accepting `pass`.
+- Made delegated dispatch recoverable when an external dispatch succeeds but the local bind fails: the observed child identity is preserved and the attempt becomes reconciliation-required instead of stranded or silently redispatched.
+- Made dispatch state publication crash-durable with directory-fsynced records, an fsynced durability-uncertain marker serialized under the same transition lock as binding, and compound durability failures that preserve uncertainty so observers receive reconciliation-required rather than a false already-dispatched verdict; abandoned stale locks are recovered instead of permanently blocking reconciliation.
+- Restricted ambiguous action outcomes: an unknown side effect can no longer yield a terminal `failed` disposition; the outcome requires reconciliation or remains pending until the external effect is established.
+
+### Dependencies
+
+- Regenerated the committed native lockfiles for every supported platform/runtime target and moved `httpx2`/`httpcore2` from the advisory-affected 2.9.1 graph to 2.12.0, aligning the generated Python MCP package metadata with the canonical runtime lock.
 
 ## 1.4.0 - 2026-08-28
 
