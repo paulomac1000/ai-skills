@@ -23,6 +23,9 @@ MAX_DISPATCH_RECORD_BYTES = 64 * 1024
 BIND_LOCK_TIMEOUT_SECONDS = 5.0
 BIND_LOCK_RETRY_SECONDS = 0.01
 LEGACY_BIND_LOCK_STALE_SECONDS = 30.0
+BIND_LOCK_DURABILITY_MARKER_OFFSET = 1
+BIND_LOCK_DURABILITY_CONFIRMED = b"\0"
+BIND_LOCK_DURABILITY_UNCERTAIN = b"\1"
 
 
 class OrchestrationError(ValueError):
@@ -386,13 +389,37 @@ def _try_acquire_bind_lock(descriptor: int) -> None:
             time.sleep(BIND_LOCK_RETRY_SECONDS)
 
 
+def _bind_lock_durability_uncertain(descriptor: int) -> bool:
+    try:
+        os.lseek(descriptor, BIND_LOCK_DURABILITY_MARKER_OFFSET, os.SEEK_SET)
+        marker = os.read(descriptor, 1)
+    except OSError as error:
+        raise OrchestrationError(f"child binding durability marker could not be read: {error}") from error
+    if marker in {b"", BIND_LOCK_DURABILITY_CONFIRMED}:
+        return False
+    if marker == BIND_LOCK_DURABILITY_UNCERTAIN:
+        return True
+    raise OrchestrationError("child binding lock contains an invalid durability marker")
+
+
+def _set_bind_lock_durability_uncertain(descriptor: int, *, uncertain: bool) -> None:
+    marker = BIND_LOCK_DURABILITY_UNCERTAIN if uncertain else BIND_LOCK_DURABILITY_CONFIRMED
+    try:
+        os.lseek(descriptor, BIND_LOCK_DURABILITY_MARKER_OFFSET, os.SEEK_SET)
+        if os.write(descriptor, marker) != 1:
+            raise OSError("short durability-marker write")
+        os.fsync(descriptor)
+    except OSError as error:
+        raise OrchestrationError(f"child binding durability marker could not be persisted: {error}") from error
+
+
 @contextmanager
-def _attempt_transition_lock(store: Path, record_path: Path) -> Iterator[None]:
+def _attempt_transition_lock(store: Path, record_path: Path) -> Iterator[int]:
     lock_path = store / f".{record_path.name}.bind.lock"
     descriptor = _open_bind_lock(lock_path, store)
     try:
         _try_acquire_bind_lock(descriptor)
-        yield
+        yield descriptor
     finally:
         os.close(descriptor)
 
@@ -436,11 +463,14 @@ def reserve_dispatch(
             os.link(temp_path, record_path)
             _fsync_directory(store)
         except FileExistsError:
-            with _attempt_transition_lock(store, record_path):
+            with _attempt_transition_lock(store, record_path) as transition_lock:
+                durability_uncertain = _bind_lock_durability_uncertain(transition_lock)
                 existing = _read_attempt_record(record_path)
                 child_job_id = existing.get("child_job_id")
                 state = existing.get("state")
-                if isinstance(child_job_id, str) and child_job_id:
+                if durability_uncertain:
+                    code = "RECONCILE_REQUIRED"
+                elif isinstance(child_job_id, str) and child_job_id:
                     code = "RECONCILE_REQUIRED" if state == "dispatch_ambiguous" else "ALREADY_DISPATCHED"
                 else:
                     code = "ATTEMPT_ALREADY_RESERVED"
@@ -475,7 +505,8 @@ def _bind_dispatched_child(
         raise OrchestrationError("reservation_token and child_job_id are required")
     store = _prepare_attempt_store(attempt_store)
     path = _attempt_record_path(store, attempt_id)
-    with _attempt_transition_lock(store, path):
+    with _attempt_transition_lock(store, path) as transition_lock:
+        durability_uncertain = _bind_lock_durability_uncertain(transition_lock)
         record = _read_attempt_record(path)
         if record.get("attempt_id") != attempt_id:
             raise OrchestrationError("attempt record identity does not match requested attempt")
@@ -484,7 +515,17 @@ def _bind_dispatched_child(
         if isinstance(existing_child, str) and existing_child and existing_child != child_job_id:
             raise OrchestrationError("attempt is already bound to a different child job")
         if state == "dispatched" and existing_child == child_job_id:
+            if durability_uncertain:
+                return DispatchReservation(
+                    False,
+                    "RECONCILE_REQUIRED",
+                    attempt_id,
+                    reservation_token,
+                    child_job_id,
+                )
             return DispatchReservation(False, "ALREADY_DISPATCHED", attempt_id, None, child_job_id)
+        if reconcile_ambiguous and state == "reserved":
+            raise OrchestrationError("attempt is not awaiting dispatch reconciliation")
         if state not in {"reserved", "dispatch_ambiguous"} or record.get("reservation_token") != reservation_token:
             raise OrchestrationError("attempt reservation token does not authorize child binding")
         if state == "dispatch_ambiguous":
@@ -501,9 +542,20 @@ def _bind_dispatched_child(
         dispatched_record = {**record, "state": "dispatched", "child_job_id": child_job_id}
         try:
             _write_attempt_record(path, dispatched_record)
-        except DispatchDurabilityError:
+        except DispatchDurabilityError as durability_error:
+            try:
+                _set_bind_lock_durability_uncertain(transition_lock, uncertain=True)
+            except OrchestrationError as marker_error:
+                raise DispatchDurabilityError(
+                    "dispatched replace durability is unconfirmed and its durable uncertainty marker could not be persisted"
+                ) from marker_error
             ambiguous_record = {**record, "state": "dispatch_ambiguous", "child_job_id": child_job_id}
-            _write_attempt_record(path, ambiguous_record)
+            try:
+                _write_attempt_record(path, ambiguous_record)
+            except OrchestrationError as recovery_error:
+                raise DispatchDurabilityError(
+                    "dispatched replace durability remains unconfirmed because ambiguity recovery could not be persisted"
+                ) from recovery_error
             return DispatchReservation(
                 False,
                 "RECONCILE_REQUIRED",
@@ -511,6 +563,8 @@ def _bind_dispatched_child(
                 reservation_token,
                 child_job_id,
             )
+        if durability_uncertain:
+            _set_bind_lock_durability_uncertain(transition_lock, uncertain=False)
         return DispatchReservation(False, "ALREADY_DISPATCHED", attempt_id, None, child_job_id)
 
 
@@ -541,7 +595,12 @@ def _mark_dispatch_ambiguous(
 ) -> DispatchReservation:
     store = _prepare_attempt_store(attempt_store)
     path = _attempt_record_path(store, attempt_id)
-    with _attempt_transition_lock(store, path):
+    with _attempt_transition_lock(store, path) as transition_lock:
+        marker_uncertain = _bind_lock_durability_uncertain(transition_lock)
+        if dispatched_durability_uncertain and not marker_uncertain:
+            _set_bind_lock_durability_uncertain(transition_lock, uncertain=True)
+            marker_uncertain = True
+        durability_uncertain = dispatched_durability_uncertain or marker_uncertain
         record = _read_attempt_record(path)
         if record.get("attempt_id") != attempt_id or record.get("reservation_token") != reservation_token:
             raise OrchestrationError("attempt reservation changed before ambiguity could be persisted")
@@ -552,9 +611,14 @@ def _mark_dispatch_ambiguous(
         if state == "dispatched":
             if existing_child != child_job_id:
                 raise OrchestrationError("dispatched attempt cannot be downgraded to dispatch_ambiguous")
-            if not dispatched_durability_uncertain:
+            if not durability_uncertain:
                 return DispatchReservation(False, "ALREADY_DISPATCHED", attempt_id, None, child_job_id)
-            _write_attempt_record(path, {**record, "state": "dispatch_ambiguous", "child_job_id": child_job_id})
+            try:
+                _write_attempt_record(path, {**record, "state": "dispatch_ambiguous", "child_job_id": child_job_id})
+            except OrchestrationError as recovery_error:
+                raise DispatchDurabilityError(
+                    "dispatched durability remains unconfirmed because ambiguity recovery could not be persisted"
+                ) from recovery_error
             return DispatchReservation(False, "RECONCILE_REQUIRED", attempt_id, reservation_token, child_job_id)
         if state == "dispatch_ambiguous":
             if existing_child == child_job_id:
@@ -562,7 +626,14 @@ def _mark_dispatch_ambiguous(
             raise OrchestrationError("ambiguous attempt child identity does not match observed child")
         if state != "reserved":
             raise OrchestrationError("only a reserved attempt may transition to dispatch_ambiguous")
-        _write_attempt_record(path, {**record, "state": "dispatch_ambiguous", "child_job_id": child_job_id})
+        try:
+            _write_attempt_record(path, {**record, "state": "dispatch_ambiguous", "child_job_id": child_job_id})
+        except OrchestrationError as recovery_error:
+            if durability_uncertain:
+                raise DispatchDurabilityError(
+                    "dispatch durability remains unconfirmed because ambiguity recovery could not be persisted"
+                ) from recovery_error
+            raise
         return DispatchReservation(False, "RECONCILE_REQUIRED", attempt_id, reservation_token, child_job_id)
 
 
@@ -577,9 +648,7 @@ def reconcile_dispatch(
     record = _read_attempt_record(_attempt_record_path(store, attempt_id))
     recorded_child = record.get("child_job_id")
     token = record.get("reservation_token")
-    if record.get("state") != "dispatch_ambiguous":
-        if record.get("state") == "dispatched" and recorded_child == child_job_id:
-            return DispatchReservation(False, "ALREADY_DISPATCHED", attempt_id, None, child_job_id)
+    if record.get("state") not in {"dispatch_ambiguous", "dispatched"}:
         raise OrchestrationError("attempt is not awaiting dispatch reconciliation")
     if recorded_child != child_job_id or not isinstance(token, str) or not token:
         raise OrchestrationError("reconciliation child identity does not match preserved dispatch evidence")
