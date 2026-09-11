@@ -482,11 +482,9 @@ def validate_diagnostic_transition(
     except DiagnosticReasoningError as error:
         return findings + [str(error)]
 
-    current_by_id = {item["id"]: item for item in current_hypotheses if isinstance(item.get("id"), str)}
+    current_by_id = {str(item["id"]): item for item in current_hypotheses if isinstance(item.get("id"), str)}
     current_non_disproven_ids = {
-        hypothesis_id
-        for hypothesis_id, hypothesis in current_by_id.items()
-        if hypothesis.get("status") != "disproven"
+        hypothesis_id for hypothesis_id, hypothesis in current_by_id.items() if hypothesis.get("status") != "disproven"
     }
     current_evidence, _ = _evidence_registry(current_observations, current_probes, current_non_disproven_ids)
     for old in previous_hypotheses:
