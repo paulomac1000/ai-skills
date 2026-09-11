@@ -51,6 +51,7 @@ required:
 - SKILL.md
 - STANDARD.md
 - tools/decision_engine.py
+- tools/runtime_identity_ref.py
 categories:
 - core
 - references

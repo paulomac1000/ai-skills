@@ -22,6 +22,7 @@ from .decision_engine import (
     select_efficient_tool,
     should_retry,
 )
+from .runtime_identity_ref import RuntimeIdentityRef, runtime_instance_key, validate_runtime_identity_ref
 
 __all__ = [
     "CapabilityIdentity",
@@ -32,6 +33,7 @@ __all__ = [
     "PaginationDecision",
     "ResponseResult",
     "Risk",
+    "RuntimeIdentityRef",
     "TrustedCapabilityContract",
     "TrustedCapabilityPolicy",
     "TrustedPolicyBinding",
@@ -42,6 +44,8 @@ __all__ = [
     "get_pagination_decision",
     "handle_response",
     "infer_capability_profile",
+    "runtime_instance_key",
     "select_efficient_tool",
     "should_retry",
+    "validate_runtime_identity_ref",
 ]
