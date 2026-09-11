@@ -29,6 +29,10 @@ class OrchestrationError(ValueError):
     """Raised when a requested orchestration transition violates the task contract."""
 
 
+class DispatchDurabilityError(OrchestrationError):
+    """Raised when a visible dispatch-state replace lacks confirmed directory durability."""
+
+
 @dataclass(frozen=True)
 class ScopeAdmission:
     allowed: bool
@@ -308,7 +312,12 @@ def _write_attempt_record(path: Path, record: Mapping[str, Any]) -> None:
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(temp_path, path)
-        _fsync_directory(path.parent)
+        try:
+            _fsync_directory(path.parent)
+        except OrchestrationError as error:
+            raise DispatchDurabilityError(
+                "attempt record replace is visible but parent-directory durability is unconfirmed"
+            ) from error
     except OSError as error:
         try:
             temp_path.unlink()
@@ -489,6 +498,7 @@ def _mark_dispatch_ambiguous(
     attempt_id: str,
     reservation_token: str,
     child_job_id: str,
+    dispatched_durability_uncertain: bool = False,
 ) -> DispatchReservation:
     store = _prepare_attempt_store(attempt_store)
     path = _attempt_record_path(store, attempt_id)
@@ -501,9 +511,12 @@ def _mark_dispatch_ambiguous(
             raise OrchestrationError("attempt already records a different child identity")
         state = record.get("state")
         if state == "dispatched":
-            if existing_child == child_job_id:
+            if existing_child != child_job_id:
+                raise OrchestrationError("dispatched attempt cannot be downgraded to dispatch_ambiguous")
+            if not dispatched_durability_uncertain:
                 return DispatchReservation(False, "ALREADY_DISPATCHED", attempt_id, None, child_job_id)
-            raise OrchestrationError("dispatched attempt cannot be downgraded to dispatch_ambiguous")
+            _write_attempt_record(path, {**record, "state": "dispatch_ambiguous", "child_job_id": child_job_id})
+            return DispatchReservation(False, "RECONCILE_REQUIRED", attempt_id, reservation_token, child_job_id)
         if state == "dispatch_ambiguous":
             if existing_child == child_job_id:
                 return DispatchReservation(False, "RECONCILE_REQUIRED", attempt_id, reservation_token, child_job_id)
@@ -574,13 +587,14 @@ def dispatch_once(
             reservation_token=reservation.reservation_token,
             child_job_id=child_job_id,
         )
-    except OrchestrationError:
+    except OrchestrationError as error:
         try:
             return _mark_dispatch_ambiguous(
                 attempt_store=attempt_store,
                 attempt_id=attempt_id,
                 reservation_token=reservation.reservation_token,
                 child_job_id=child_job_id,
+                dispatched_durability_uncertain=isinstance(error, DispatchDurabilityError),
             )
         except OrchestrationError:
             return DispatchReservation(
