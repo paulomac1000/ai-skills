@@ -1,12 +1,10 @@
-"""Focused regressions for the final PR #87 hardening review."""
+"""Focused regressions for application-contract hardening retained in ai-skills."""
 
 from __future__ import annotations
 
 import importlib.util
 import json
 import os
-import shutil
-import subprocess
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
@@ -18,9 +16,6 @@ from jsonschema import Draft202012Validator
 
 from contracts.deployment_lease import DeploymentLeaseError, admit_lease
 from contracts.evidence import GitHubEvidenceVerifier
-from contracts.secret_taint import TaintGuard, TaintViolation
-from contracts.skill_consumer import SkillConsumerError, load_catalog, resolve_skill
-from contracts.skill_distribution import DistributionError, install
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -34,10 +29,6 @@ def _load_module(name: str, path: Path) -> ModuleType:
     return module
 
 
-TASK_ORCHESTRATOR = _load_module(
-    "pr87_task_orchestrator",
-    ROOT / "skills/agent-task-orchestrator/tools/task_orchestrator.py",
-)
 EXECUTION_INTEGRITY = _load_module(
     "pr87_execution_integrity",
     ROOT / "skills/ci-cd-architect/tools/check_execution_integrity.py",
@@ -50,60 +41,6 @@ RECEIPT_VALIDATOR = _load_module(
     "pr87_receipt_validator",
     ROOT / "contracts/validate_verification_receipt.py",
 )
-
-
-def _taint_guard() -> TaintGuard:
-    guard = TaintGuard()
-    guard.observe(
-        "s3cr3t-token",
-        sensitivity="secret",
-        source_boundary="environment",
-        opaque_ref="secret:token",
-    )
-    return guard
-
-
-def test_protected_callback_rejects_direct_and_nested_binary_secret_results() -> None:
-    guard = _taint_guard()
-    with pytest.raises(TaintViolation, match="contains tainted material"):
-        guard.use_protected(
-            "secret:token",
-            channel="credential-broker",
-            purpose="authenticate",
-            operation=lambda raw: raw.encode("utf-8"),
-        )
-    with pytest.raises(TaintViolation, match="contains tainted material"):
-        guard.use_protected(
-            "secret:token",
-            channel="credential-broker",
-            purpose="authenticate",
-            operation=lambda raw: {"nested": [bytearray(f"prefix:{raw}:suffix", "utf-8")]},
-        )
-
-
-def test_catalog_loader_and_in_memory_resolver_reject_scalar_capabilities(tmp_path: Path) -> None:
-    malformed = {
-        "schema_version": 1,
-        "catalog_revision": "test",
-        "skills": [
-            {
-                "skill_id": "analysis-skill",
-                "version": "2.0.0",
-                "manifest_path": "skills/analysis-skill/manifest.yaml",
-                "skill_entrypoint": "skills/analysis-skill/SKILL.md",
-                "capabilities": "analysis",
-                "use_when": ["analysis requested"],
-                "do_not_use_when": ["different capability requested"],
-                "loading": {"modes": ["runtime_tool"]},
-            }
-        ],
-    }
-    path = tmp_path / "catalog.yaml"
-    path.write_text(json.dumps(malformed), encoding="utf-8")
-    with pytest.raises(SkillConsumerError, match="capabilities"):
-        load_catalog(path)
-    with pytest.raises(SkillConsumerError, match="capabilities"):
-        resolve_skill(catalog=malformed, runtime={"skills": []}, capability="ana")
 
 
 def test_session_bound_deployment_lease_rejects_other_session() -> None:
@@ -133,32 +70,6 @@ def test_session_bound_deployment_lease_rejects_other_session() -> None:
             normalized_args_digest=args_digest,
             policy_revision="policy-1",
             now=datetime(2026, 9, 10, 11, 0, tzinfo=UTC),
-        )
-
-
-@pytest.mark.skipif(shutil.which("git") is None, reason="git is required for EPHEMERAL ignore verification")
-def test_ephemeral_install_rejects_wildcard_reinclude(tmp_path: Path) -> None:
-    project = tmp_path / "project"
-    project.mkdir()
-    subprocess.run(["git", "init", "-q"], cwd=project, check=True)
-    (project / ".gitignore").write_text(".ai-skills/ephemeral/\n!*/ephemeral/\n", encoding="utf-8")
-    source = tmp_path / "source"
-    source.mkdir()
-    (source / "SKILL.md").write_text("# Example\n", encoding="utf-8")
-
-    with pytest.raises(DistributionError, match="must be ignored"):
-        install(
-            source=source,
-            target=project / ".ai-skills/ephemeral/example-skill",
-            project_root=project,
-            mode="EPHEMERAL",
-            skill_id="example-skill",
-            canonical_source="github:example/skills/example-skill",
-            source_revision="a" * 40,
-            managed_by="ai-skills",
-            update_policy="explicit",
-            cleanup_policy="owner-digest-verified",
-            installed_at="2026-09-10T00:00:00+00:00",
         )
 
 
@@ -222,82 +133,6 @@ def test_provider_verifier_maps_pytest_and_exact_non_python_junit_identities() -
         claim,
         "tests/adoption.test.ts::adoption contract",
     )
-
-
-def test_terminal_evidence_without_outputs_must_bind_the_current_task() -> None:
-    revision = "a" * 40
-    bindings = {
-        "evidence:other": {
-            "intent_revision": 3,
-            "execution_revision": revision,
-            "subjects": ["task:other-task"],
-        },
-        "evidence:task": {
-            "intent_revision": 3,
-            "execution_revision": revision,
-            "subjects": ["task:task-1"],
-        },
-    }
-    rejected = TASK_ORCHESTRATOR.classify_terminal(
-        requires_work=True,
-        child_disposition="completed",
-        expected_outputs=[],
-        task_id="task-1",
-        intent_revision=3,
-        execution_revision=revision,
-        evidence_bindings=bindings,
-        evidence_refs=["evidence:other"],
-    )
-    assert rejected.code == "COMPLETED_NO_EVIDENCE"
-    accepted = TASK_ORCHESTRATOR.classify_terminal(
-        requires_work=True,
-        child_disposition="completed",
-        expected_outputs=[],
-        task_id="task-1",
-        intent_revision=3,
-        execution_revision=revision,
-        evidence_bindings=bindings,
-        evidence_refs=["evidence:task"],
-    )
-    assert accepted.code == "TERMINAL_EVIDENCE_PRESENT"
-
-
-def test_expected_output_evidence_must_bind_output_and_current_task() -> None:
-    revision = "a" * 40
-    bindings = {
-        "evidence:other": {
-            "intent_revision": 3,
-            "execution_revision": revision,
-            "subjects": ["output:artifact", "task:task-2"],
-        },
-        "evidence:task": {
-            "intent_revision": 3,
-            "execution_revision": revision,
-            "subjects": ["output:artifact", "task:task-1"],
-        },
-    }
-    rejected = TASK_ORCHESTRATOR.classify_terminal(
-        requires_work=True,
-        child_disposition="completed",
-        expected_outputs=["artifact"],
-        task_id="task-1",
-        intent_revision=3,
-        execution_revision=revision,
-        evidence_bindings=bindings,
-        evidence_refs=["evidence:other"],
-    )
-    assert rejected.code == "COMPLETED_NO_EVIDENCE"
-    accepted = TASK_ORCHESTRATOR.classify_terminal(
-        requires_work=True,
-        child_disposition="completed",
-        expected_outputs=["artifact"],
-        task_id="task-1",
-        intent_revision=3,
-        execution_revision=revision,
-        evidence_bindings=bindings,
-        evidence_refs=["evidence:task"],
-    )
-    assert accepted.code == "TERMINAL_EVIDENCE_PRESENT"
 
 
 def _swap_path_after_open(

@@ -12,20 +12,6 @@ skills:
       canonical-ownership-and-lifecycle: {rule_id: afds.ownership.lifecycle, primary: true}
       quality-gate: {rule_id: afds.quality.executable, primary: true}
       verification: {rule_id: afds.verification.recorded, primary: true}
-  agent-task-orchestrator:
-    headings:
-      purpose: {excluded: true, rationale: Informational scope heading, not an independently assessable invariant.}
-      intent-ledger: {rule_id: orchestrator.intent.preserved, primary: true}
-      scope-and-authority: {rule_id: orchestrator.scope.authority, primary: true}
-      planning-and-execution-bases: {rule_id: orchestrator.base.revalidated, primary: true}
-      delegation-admission: {rule_id: orchestrator.delegation.least-authority, primary: true}
-      dispatch-and-continuation: {rule_id: orchestrator.dispatch.once, primary: true}
-      progress-and-no-stall-scheduling: {rule_id: orchestrator.progress.no-stall, primary: true}
-      terminal-reconciliation: {rule_id: orchestrator.reconciliation.evidenced, primary: true}
-      parent-completion-gate: {rule_id: orchestrator.completion.intent, primary: true}
-      parallel-resource-domains: {rule_id: orchestrator.parallel.resources, primary: true}
-      handoff-and-compaction: {rule_id: orchestrator.handoff.compact, primary: true}
-      verification: {rule_id: orchestrator.verification.adversarial, primary: true}
   agents-md-architect:
     headings:
       purpose: {excluded: true, rationale: Informational scope heading, not an independently assessable invariant.}

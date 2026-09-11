@@ -24,41 +24,6 @@ skills:
     - id: afds.verification.recorded
       source: STANDARD.md#verification
       description: Verification commands and observed results are recorded.
-  agent-task-orchestrator:
-    rules:
-    - id: orchestrator.intent.preserved
-      source: STANDARD.md#intent-ledger
-      description: Mutable task intent preserves stable requirements, required capabilities and methods, provenance, and monotonic revisions through the full task lifecycle.
-    - id: orchestrator.scope.authority
-      source: STANDARD.md#scope-and-authority
-      description: Side effects stay within explicit targets and effect classes, while delegated authority remains a strict subset of parent authority.
-    - id: orchestrator.base.revalidated
-      source: STANDARD.md#planning-and-execution-bases
-      description: Planning and execution bases remain immutable identities and advanced descendants require explicit non-overlap assumption revalidation.
-    - id: orchestrator.delegation.least-authority
-      source: STANDARD.md#delegation-admission
-      description: Delegated work is admitted only with the minimum capabilities, authority, resource domains, and expected outputs needed for the bounded subtask.
-    - id: orchestrator.dispatch.once
-      source: STANDARD.md#dispatch-and-continuation
-      description: Durable attempts dispatch once, ambiguous jobs reconcile before retry, and existing children receive bounded delta-only continuation.
-    - id: orchestrator.progress.no-stall
-      source: STANDARD.md#progress-and-no-stall-scheduling
-      description: Meaningful progress is evidence-backed, no-progress loops are bounded, and parents continue independent runnable work while children execute.
-    - id: orchestrator.reconciliation.evidenced
-      source: STANDARD.md#terminal-reconciliation
-      description: Child terminal labels reconcile against expected artifacts, side effects, published revisions, verification, and exact execution identity.
-    - id: orchestrator.completion.intent
-      source: STANDARD.md#parent-completion-gate
-      description: Only the parent completes a task after all current mandatory requirements, capabilities, methods, and acceptance criteria have valid evidence.
-    - id: orchestrator.parallel.resources
-      source: STANDARD.md#parallel-resource-domains
-      description: Parallel delegates declare resource domains and overlapping writers serialize unless stronger concurrency evidence proves independence.
-    - id: orchestrator.handoff.compact
-      source: STANDARD.md#handoff-and-compaction
-      description: Handoff preserves current intent revision, unresolved requirements, scope, child identities, and opaque references without replaying full history or secrets.
-    - id: orchestrator.verification.adversarial
-      source: STANDARD.md#verification
-      description: Scope, drift, delegation, progress, no-stall, reconciliation, handoff, and completion invariants have executable adversarial regressions.
   agents-md-architect:
     rules:
     - id: agents.scope.precedence
