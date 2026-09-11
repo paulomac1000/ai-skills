@@ -436,20 +436,21 @@ def reserve_dispatch(
             os.link(temp_path, record_path)
             _fsync_directory(store)
         except FileExistsError:
-            existing = _read_attempt_record(record_path)
-            child_job_id = existing.get("child_job_id")
-            state = existing.get("state")
-            if isinstance(child_job_id, str) and child_job_id:
-                code = "RECONCILE_REQUIRED" if state == "dispatch_ambiguous" else "ALREADY_DISPATCHED"
-            else:
-                code = "ATTEMPT_ALREADY_RESERVED"
-            return DispatchReservation(
-                False,
-                code,
-                attempt_id,
-                None,
-                child_job_id if isinstance(child_job_id, str) else None,
-            )
+            with _attempt_transition_lock(store, record_path):
+                existing = _read_attempt_record(record_path)
+                child_job_id = existing.get("child_job_id")
+                state = existing.get("state")
+                if isinstance(child_job_id, str) and child_job_id:
+                    code = "RECONCILE_REQUIRED" if state == "dispatch_ambiguous" else "ALREADY_DISPATCHED"
+                else:
+                    code = "ATTEMPT_ALREADY_RESERVED"
+                return DispatchReservation(
+                    False,
+                    code,
+                    attempt_id,
+                    None,
+                    child_job_id if isinstance(child_job_id, str) else None,
+                )
     except OSError as error:
         raise OrchestrationError(f"attempt reservation failed: {error}") from error
     finally:
@@ -462,14 +463,14 @@ def reserve_dispatch(
     return DispatchReservation(True, "DISPATCH_RESERVED", attempt_id, reservation_token, None)
 
 
-def bind_dispatched_child(
+def _bind_dispatched_child(
     *,
     attempt_store: Path,
     attempt_id: str,
     reservation_token: str,
     child_job_id: str,
+    reconcile_ambiguous: bool,
 ) -> DispatchReservation:
-    """Bind the exact durable child identity to a reserved or ambiguous attempt."""
     if not reservation_token or not child_job_id:
         raise OrchestrationError("reservation_token and child_job_id are required")
     store = _prepare_attempt_store(attempt_store)
@@ -486,10 +487,48 @@ def bind_dispatched_child(
             return DispatchReservation(False, "ALREADY_DISPATCHED", attempt_id, None, child_job_id)
         if state not in {"reserved", "dispatch_ambiguous"} or record.get("reservation_token") != reservation_token:
             raise OrchestrationError("attempt reservation token does not authorize child binding")
-        if state == "dispatch_ambiguous" and existing_child != child_job_id:
-            raise OrchestrationError("ambiguous attempt child identity does not match observed child")
-        _write_attempt_record(path, {**record, "state": "dispatched", "child_job_id": child_job_id})
+        if state == "dispatch_ambiguous":
+            if existing_child != child_job_id:
+                raise OrchestrationError("ambiguous attempt child identity does not match observed child")
+            if not reconcile_ambiguous:
+                return DispatchReservation(
+                    False,
+                    "RECONCILE_REQUIRED",
+                    attempt_id,
+                    reservation_token,
+                    child_job_id,
+                )
+        dispatched_record = {**record, "state": "dispatched", "child_job_id": child_job_id}
+        try:
+            _write_attempt_record(path, dispatched_record)
+        except DispatchDurabilityError:
+            ambiguous_record = {**record, "state": "dispatch_ambiguous", "child_job_id": child_job_id}
+            _write_attempt_record(path, ambiguous_record)
+            return DispatchReservation(
+                False,
+                "RECONCILE_REQUIRED",
+                attempt_id,
+                reservation_token,
+                child_job_id,
+            )
         return DispatchReservation(False, "ALREADY_DISPATCHED", attempt_id, None, child_job_id)
+
+
+def bind_dispatched_child(
+    *,
+    attempt_store: Path,
+    attempt_id: str,
+    reservation_token: str,
+    child_job_id: str,
+) -> DispatchReservation:
+    """Bind a reserved child; ambiguous records require explicit reconciliation."""
+    return _bind_dispatched_child(
+        attempt_store=attempt_store,
+        attempt_id=attempt_id,
+        reservation_token=reservation_token,
+        child_job_id=child_job_id,
+        reconcile_ambiguous=False,
+    )
 
 
 def _mark_dispatch_ambiguous(
@@ -544,11 +583,12 @@ def reconcile_dispatch(
         raise OrchestrationError("attempt is not awaiting dispatch reconciliation")
     if recorded_child != child_job_id or not isinstance(token, str) or not token:
         raise OrchestrationError("reconciliation child identity does not match preserved dispatch evidence")
-    return bind_dispatched_child(
+    return _bind_dispatched_child(
         attempt_store=store,
         attempt_id=attempt_id,
         reservation_token=token,
         child_job_id=child_job_id,
+        reconcile_ambiguous=True,
     )
 
 
