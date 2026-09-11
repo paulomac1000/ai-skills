@@ -179,7 +179,7 @@ def test_parity_evaluate_classifies_duplicate_and_invalid_gate_contracts() -> No
     result = PARITY.evaluate(policy)
     assert result["verdict"] == "fail"
     assert set(result["invalid_gates"]) == {"a", "b"}
-    assert result["missing_local_entrypoints"] == ["c"]
+    assert result["missing_local_entrypoints"] == ["a", "c"]
 
 
 def test_parity_evaluate_valid_hosted_only_and_local_gate(tmp_path: Path) -> None:
