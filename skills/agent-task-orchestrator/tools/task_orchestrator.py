@@ -4,11 +4,15 @@
 from __future__ import annotations
 
 import hashlib
+import importlib
 import json
 import os
 import re
 import secrets
-from collections.abc import Callable, Collection, Mapping, Sequence
+import stat
+import time
+from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -16,6 +20,9 @@ from typing import Any
 FULL_REVISION = re.compile(r"^[0-9a-fA-F]{40}$")
 FORBIDDEN_CONTINUATION_FIELDS = frozenset({"full_prompt", "full_task", "task_history", "raw_secret"})
 MAX_DISPATCH_RECORD_BYTES = 64 * 1024
+BIND_LOCK_TIMEOUT_SECONDS = 5.0
+BIND_LOCK_RETRY_SECONDS = 0.01
+LEGACY_BIND_LOCK_STALE_SECONDS = 30.0
 
 
 class OrchestrationError(ValueError):
@@ -252,6 +259,22 @@ def _prepare_attempt_store(attempt_store: Path) -> Path:
     return resolved
 
 
+def _fsync_directory(path: Path) -> None:
+    if os.name == "nt":
+        return
+    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+    try:
+        descriptor = os.open(path, flags)
+    except OSError as error:
+        raise OrchestrationError(f"attempt store directory cannot be opened for durability sync: {error}") from error
+    try:
+        os.fsync(descriptor)
+    except OSError as error:
+        raise OrchestrationError(f"attempt store directory durability sync failed: {error}") from error
+    finally:
+        os.close(descriptor)
+
+
 def _read_attempt_record(path: Path) -> dict[str, Any]:
     if path.is_symlink() or not path.is_file():
         raise OrchestrationError("attempt record is missing or not a regular file")
@@ -285,12 +308,84 @@ def _write_attempt_record(path: Path, record: Mapping[str, Any]) -> None:
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(temp_path, path)
+        _fsync_directory(path.parent)
     except OSError as error:
         try:
             temp_path.unlink()
         except OSError:
             pass
         raise OrchestrationError(f"attempt record could not be persisted: {error}") from error
+
+
+def _recover_stale_legacy_bind_lock(lock_path: Path, store: Path) -> None:
+    if lock_path.is_symlink():
+        raise OrchestrationError("child binding lock must not be a symlink")
+    if not lock_path.is_dir():
+        return
+    try:
+        age_seconds = max(0.0, time.time() - lock_path.stat().st_mtime)
+    except OSError as error:
+        raise OrchestrationError(f"legacy child binding lock cannot be inspected: {error}") from error
+    if age_seconds < LEGACY_BIND_LOCK_STALE_SECONDS:
+        raise OrchestrationError("child binding is already in progress; reconcile before retry")
+    try:
+        lock_path.rmdir()
+        _fsync_directory(store)
+    except OSError as error:
+        raise OrchestrationError(f"stale child binding lock could not be recovered: {error}") from error
+
+
+def _open_bind_lock(lock_path: Path, store: Path) -> int:
+    _recover_stale_legacy_bind_lock(lock_path, store)
+    flags = os.O_RDWR | os.O_CREAT | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        descriptor = os.open(lock_path, flags, 0o600)
+    except OSError as error:
+        raise OrchestrationError(f"child binding lock could not be opened: {error}") from error
+    metadata = os.fstat(descriptor)
+    if not stat.S_ISREG(metadata.st_mode):
+        os.close(descriptor)
+        raise OrchestrationError("child binding lock must be a regular file")
+    if metadata.st_size == 0:
+        try:
+            os.write(descriptor, b"\0")
+            os.fsync(descriptor)
+            _fsync_directory(store)
+        except OSError as error:
+            os.close(descriptor)
+            raise OrchestrationError(f"child binding lock could not be initialized: {error}") from error
+    return descriptor
+
+
+def _try_acquire_bind_lock(descriptor: int) -> None:
+    deadline = time.monotonic() + BIND_LOCK_TIMEOUT_SECONDS
+    try:
+        locking = importlib.import_module("msvcrt" if os.name == "nt" else "fcntl")
+    except ImportError as error:
+        raise OrchestrationError("platform does not provide a recoverable child binding lock") from error
+    while True:
+        try:
+            if os.name == "nt":
+                os.lseek(descriptor, 0, os.SEEK_SET)
+                locking.locking(descriptor, locking.LK_NBLCK, 1)
+            else:
+                locking.flock(descriptor, locking.LOCK_EX | locking.LOCK_NB)
+            return
+        except OSError as error:
+            if time.monotonic() >= deadline:
+                raise OrchestrationError("child binding is already in progress; reconcile before retry") from error
+            time.sleep(BIND_LOCK_RETRY_SECONDS)
+
+
+@contextmanager
+def _attempt_transition_lock(store: Path, record_path: Path) -> Iterator[None]:
+    lock_path = store / f".{record_path.name}.bind.lock"
+    descriptor = _open_bind_lock(lock_path, store)
+    try:
+        _try_acquire_bind_lock(descriptor)
+        yield
+    finally:
+        os.close(descriptor)
 
 
 def reserve_dispatch(
@@ -330,6 +425,7 @@ def reserve_dispatch(
             os.fsync(handle.fileno())
         try:
             os.link(temp_path, record_path)
+            _fsync_directory(store)
         except FileExistsError:
             existing = _read_attempt_record(record_path)
             child_job_id = existing.get("child_job_id")
@@ -369,14 +465,7 @@ def bind_dispatched_child(
         raise OrchestrationError("reservation_token and child_job_id are required")
     store = _prepare_attempt_store(attempt_store)
     path = _attempt_record_path(store, attempt_id)
-    lock_path = store / f".{path.name}.bind.lock"
-    try:
-        lock_path.mkdir(mode=0o700)
-    except FileExistsError as error:
-        raise OrchestrationError("child binding is already in progress; reconcile before retry") from error
-    except OSError as error:
-        raise OrchestrationError(f"child binding lock could not be acquired: {error}") from error
-    try:
+    with _attempt_transition_lock(store, path):
         record = _read_attempt_record(path)
         if record.get("attempt_id") != attempt_id:
             raise OrchestrationError("attempt record identity does not match requested attempt")
@@ -392,11 +481,6 @@ def bind_dispatched_child(
             raise OrchestrationError("ambiguous attempt child identity does not match observed child")
         _write_attempt_record(path, {**record, "state": "dispatched", "child_job_id": child_job_id})
         return DispatchReservation(False, "ALREADY_DISPATCHED", attempt_id, None, child_job_id)
-    finally:
-        try:
-            lock_path.rmdir()
-        except OSError:
-            pass
 
 
 def _mark_dispatch_ambiguous(
@@ -408,14 +492,26 @@ def _mark_dispatch_ambiguous(
 ) -> DispatchReservation:
     store = _prepare_attempt_store(attempt_store)
     path = _attempt_record_path(store, attempt_id)
-    record = _read_attempt_record(path)
-    if record.get("attempt_id") != attempt_id or record.get("reservation_token") != reservation_token:
-        raise OrchestrationError("attempt reservation changed before ambiguity could be persisted")
-    existing_child = record.get("child_job_id")
-    if isinstance(existing_child, str) and existing_child not in {"", child_job_id}:
-        raise OrchestrationError("attempt already records a different child identity")
-    _write_attempt_record(path, {**record, "state": "dispatch_ambiguous", "child_job_id": child_job_id})
-    return DispatchReservation(False, "RECONCILE_REQUIRED", attempt_id, reservation_token, child_job_id)
+    with _attempt_transition_lock(store, path):
+        record = _read_attempt_record(path)
+        if record.get("attempt_id") != attempt_id or record.get("reservation_token") != reservation_token:
+            raise OrchestrationError("attempt reservation changed before ambiguity could be persisted")
+        existing_child = record.get("child_job_id")
+        if isinstance(existing_child, str) and existing_child not in {"", child_job_id}:
+            raise OrchestrationError("attempt already records a different child identity")
+        state = record.get("state")
+        if state == "dispatched":
+            if existing_child == child_job_id:
+                return DispatchReservation(False, "ALREADY_DISPATCHED", attempt_id, None, child_job_id)
+            raise OrchestrationError("dispatched attempt cannot be downgraded to dispatch_ambiguous")
+        if state == "dispatch_ambiguous":
+            if existing_child == child_job_id:
+                return DispatchReservation(False, "RECONCILE_REQUIRED", attempt_id, reservation_token, child_job_id)
+            raise OrchestrationError("ambiguous attempt child identity does not match observed child")
+        if state != "reserved":
+            raise OrchestrationError("only a reserved attempt may transition to dispatch_ambiguous")
+        _write_attempt_record(path, {**record, "state": "dispatch_ambiguous", "child_job_id": child_job_id})
+        return DispatchReservation(False, "RECONCILE_REQUIRED", attempt_id, reservation_token, child_job_id)
 
 
 def reconcile_dispatch(
