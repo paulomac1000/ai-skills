@@ -182,6 +182,8 @@ def test_correlated_evidence_is_not_independent_confirmation() -> None:
 
 def test_proven_requires_executed_probe_that_discriminates_winner() -> None:
     state = _diagnostic_state()
+    billing = _hypothesis(state, "H-billing")
+    billing["status"] = "active"
     probes = state["probes"]
     assert isinstance(probes, list) and isinstance(probes[1], dict)
     probes[1]["predictions"] = {"H-billing": "route-fails", "H-route": "route-fails"}
