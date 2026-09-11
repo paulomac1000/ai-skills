@@ -71,6 +71,7 @@ TYPE_PATHS = (
     "skills/mcp-server-consumer/tools/admission.py",
     "skills/mcp-server-consumer/tools/consumer_contracts.py",
     "skills/mcp-server-consumer/tools/delivery_reconciliation.py",
+    "skills/mcp-server-consumer/tools/extraction.py",
     "skills/readme-architect/tools/audit_readme.py",
     "skills/readme-architect/tools/collect_readme_evidence.py",
     "skills/mcp-server-architect/tools/generate_python_server.py",

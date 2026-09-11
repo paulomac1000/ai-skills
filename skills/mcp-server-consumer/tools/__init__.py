@@ -32,6 +32,13 @@ from .delivery_reconciliation import (
     apply_authoritative_read_back,
     should_resend,
 )
+from .extraction import (
+    ExtractionProvenance,
+    ExtractionResult,
+    ExtractionState,
+    extract_semantic_content,
+    require_extracted_text,
+)
 from .runtime_identity_ref import (
     RuntimeIdentityRef,
     runtime_instance_key,
@@ -49,6 +56,9 @@ __all__ = [
     "DeliveryState",
     "ErrorAction",
     "ErrorStrategy",
+    "ExtractionProvenance",
+    "ExtractionResult",
+    "ExtractionState",
     "HealthState",
     "PaginationDecision",
     "ProviderHealth",
@@ -65,11 +75,13 @@ __all__ = [
     "choose_initial_detail_params",
     "classify_admission",
     "evaluate_decision",
+    "extract_semantic_content",
     "get_error_strategy",
     "get_pagination_decision",
     "handle_response",
     "infer_capability_profile",
     "mutation_allowed",
+    "require_extracted_text",
     "runtime_instance_key",
     "select_efficient_tool",
     "should_resend",

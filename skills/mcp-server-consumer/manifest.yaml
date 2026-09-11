@@ -55,6 +55,7 @@ required:
 - tools/admission.py
 - tools/consumer_contracts.py
 - tools/delivery_reconciliation.py
+- tools/extraction.py
 categories:
 - core
 - references
