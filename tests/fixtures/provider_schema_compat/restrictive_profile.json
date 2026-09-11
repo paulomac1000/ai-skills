@@ -1,0 +1,14 @@
+{
+  "provider": "provider-a",
+  "contractRevision": "2026-09-01",
+  "schemaRestrictions": {
+    "allowTypeUnions": false,
+    "allowNullableObjectArray": false,
+    "allowAnyOf": false,
+    "allowOneOf": false,
+    "allowRef": false,
+    "allowDefaults": false,
+    "allowAdditionalProperties": false
+  },
+  "sourceEvidence": ["provider-docs@2026-09-01"]
+}

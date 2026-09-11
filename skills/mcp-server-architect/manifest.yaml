@@ -143,6 +143,7 @@ required:
 - tools/action_outcome.py
 - tools/server_invariants.py
 - tools/control_plane_invariants.py
+- tools/provider_schema_compat.py
 - tools/generate_python_server.py
 - tools/generate_dotnet_server.py
 - locks/python-runtime.in
