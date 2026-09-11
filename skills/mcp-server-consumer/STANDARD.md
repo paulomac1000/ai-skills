@@ -50,13 +50,9 @@ Unknown remains unknown and defers rather than invokes. See [Risk and trust](ref
 
 ## Runtime identity references
 
-`RuntimeIdentityRef` is a consumer-side name for the canonical object defined by [`../../contracts/runtime-identity.schema.json`](../../contracts/runtime-identity.schema.json); it is not a second wire model or a compatibility DTO. Consumers preserve the canonical field names and validate the object before using it for freshness, health, handoff, retry, or mutation decisions.
+`RuntimeIdentityRef` is the canonical object from `contracts/runtime-identity.schema.json`, not a second DTO. Preserve and validate `schema_version`, `runtime_id`, `instance_generation`, and canonical provenance fields. Do not translate them to alternate keys such as `server_id`, `generation`, or a synthetic `provenance` object.
 
-The identity key is the canonical `schema_version`, `runtime_id`, and `instance_generation`. Runtime provenance remains in the same object through the canonical `source_revision`, `artifact_digest`, `artifact_version`, `config_revision`, `started_at`, `owner`, and `provenance_refs` fields. Consumers MUST NOT translate those fields into alternate identity keys such as `server_id`, `generation`, or a synthetic `provenance` object and then treat that projection as equivalent evidence.
-
-When a runtime identity is persisted in client state or attached to a public identifier handoff, preserve the validated canonical object or an immutable reference to it. A changed `runtime_id` or `instance_generation` invalidates generation-bound health and readiness evidence. Missing or stale provenance may qualify low-risk reads, but it cannot be upgraded into proof of the current runtime for a mutation that depends on exact deployed state.
-
-`tools/runtime_identity_ref.py` provides fail-closed validation and canonical `(runtime_id, instance_generation)` comparison without introducing another representation.
+A changed `runtime_id` or `instance_generation` invalidates generation-bound evidence. `tools/runtime_identity_ref.py` validates the canonical object and returns its canonical runtime/generation key.
 
 ## Decision policy
 
