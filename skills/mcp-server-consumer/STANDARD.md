@@ -50,25 +50,23 @@ Unknown remains unknown and defers rather than invokes. See [Risk and trust](ref
 
 ## Runtime identity references
 
-`RuntimeIdentityRef` is the canonical object from `contracts/runtime-identity.schema.json`, not a second DTO. Preserve and validate `schema_version`, `runtime_id`, `instance_generation`, and canonical provenance fields. Do not translate them to alternate keys such as `server_id`, `generation`, or a synthetic `provenance` object.
-
-A changed `runtime_id` or `instance_generation` invalidates generation-bound evidence. `tools/runtime_identity_ref.py` validates the canonical object and returns its canonical runtime/generation key.
+`RuntimeIdentityRef` is canonical `contracts/runtime-identity.schema.json`, not a second DTO. Preserve/validate `schema_version`, `runtime_id`, `instance_generation`, canonical provenance; never remap to `server_id`, `generation`, or synthetic `provenance`. Runtime/generation change invalidates bound evidence.
 
 ### Pre-mutation admission
 
-Resolve owner/target, observe canonical runtime/artifact/config/generation and action readiness, then compare live with expected evidence. Classify only as `MATCH`, `SUSPECTED_DRIFT`, `CONFIRMED_DRIFT`, `OWNER_UNKNOWN`, `RUNTIME_STALE_OR_UNKNOWN`, or `CAPABILITY_DEGRADED`. Unknown owner or ambiguous target blocks mutation; stale/unknown runtime and degraded capability are non-green; disagreement without exact identity is suspected drift. Fallback preserves target, identity, authority, and policy.
+Compare owner/target, runtime/artifact/config/generation, and action readiness with expected evidence. Return only `MATCH`, `SUSPECTED_DRIFT`, `CONFIRMED_DRIFT`, `OWNER_UNKNOWN`, `RUNTIME_STALE_OR_UNKNOWN`, `CAPABILITY_DEGRADED`. Unknown/ambiguous owner blocks mutation; stale runtime/degraded capability is non-green; identity-incomplete disagreement is suspected drift. Fallback preserves target, identity, authority, policy.
 
 ### Scoped health and public identifier integrity
 
-Health is per-provider `process/transport/auth/read/write`, freshness, and canonical runtime provenance. Read-ready/write-degraded remains mutation-degraded, never whole-service green. Public IDs carry kind, source operation, and canonical runtime identity; create → status → read/result preserves the same ID/kind/runtime key. Unknown or mismatched handoff fails closed.
+Track per-provider `process/transport/auth/read/write`, freshness, runtime provenance. Read-good/write-bad is mutation-degraded, not globally green. Public IDs carry kind, source operation, runtime identity; create → status → read/result preserves ID/kind/runtime key. Unknown/mismatch fails closed.
 
 ### Ambiguous delivery reconciliation
 
-`NO_ACK`, post-dispatch timeout, or connection loss means `RECONCILE_REQUIRED`, never speculative resend. Authoritative provider/resource read-back uses the same target, runtime, operation/resource identity, and idempotency context. Confirmed delivery stops; disproven delivery may enter reviewed retry policy; unknown stays reconciliation-required. Replay requires disproven delivery or an exact reviewed replay-safe contract.
+`NO_ACK`, post-dispatch timeout, or connection loss means `RECONCILE_REQUIRED`, never speculative resend. Authoritative read-back preserves target, runtime, operation/resource identity, idempotency context. Confirmed stops; disproven may retry under reviewed policy; unknown remains reconciliation-required. Replay requires disproven delivery or exact reviewed replay safety.
 
 ### Extracted content evidence
 
-Transport success is not semantic evidence: validate status/type → extract by format → bound semantic text → attach source, type, hash, truncation/coverage, and extractor version. States are `EXTRACTED`, `PARTIAL`, `UNEXTRACTED`, `UNSUPPORTED_FORMAT`. A chrome-only first 4 KiB of HTML is `UNEXTRACTED`, not a summary; unsupported binary stays `UNSUPPORTED_FORMAT`. Claims may require extracted text and fail closed otherwise.
+Transport success is not semantic evidence: status/type → format extraction → bounded text → source/type/hash/truncation/coverage/extractor version. States: `EXTRACTED`, `PARTIAL`, `UNEXTRACTED`, `UNSUPPORTED_FORMAT`. Chrome-only first 4 KiB HTML is `UNEXTRACTED`, not a summary; binary is `UNSUPPORTED_FORMAT`. Claims requiring extracted text fail closed.
 
 ## Decision policy
 
