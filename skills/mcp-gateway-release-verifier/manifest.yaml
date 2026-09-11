@@ -25,6 +25,7 @@ required:
 - SKILL.md
 - STANDARD.md
 - tools/compose_release_verdict.py
+- tools/local_candidate_lane.py
 categories:
 - core
 - tools
