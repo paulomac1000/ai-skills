@@ -12,7 +12,6 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 EXPECTED_SKILLS = {
     "afds-doc-writer",
-    "agent-task-orchestrator",
     "agents-md-architect",
     "changelog-release-architect",
     "ci-cd-architect",

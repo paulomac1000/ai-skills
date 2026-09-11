@@ -76,15 +76,6 @@ def test_agents_tools_are_in_every_policy_critical_target_set() -> None:
     assert "contracts" in mypy_path
 
 
-def test_task_orchestrator_is_in_all_canonical_quality_inventories() -> None:
-    targets = load_targets()
-    tool = "skills/agent-task-orchestrator/tools/task_orchestrator.py"
-    assert tool in targets.QUALITY_PATHS
-    assert tool in targets.TYPE_PATHS
-    assert tool in targets.BANDIT_PATHS
-    assert tool in targets.POLICY_COVERAGE_PATHS
-
-
 def test_production_python_cannot_fall_outside_canonical_quality_inventory() -> None:
     targets = load_targets()
     inventories = (
