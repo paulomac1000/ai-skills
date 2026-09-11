@@ -196,6 +196,18 @@ def test_disproven_hypothesis_requires_new_evidence_and_revision_to_reopen() -> 
         "ev:new-account-state",
         next_discriminating_probe="Probe exact provider route again.",
     )
+    observations = reopened["observations"]
+    assert isinstance(observations, list)
+    observations.append(
+        {
+            "id": "O-new-account-state",
+            "claim": "Fresh account observation supports reconsidering billing.",
+            "evidence_ref": "ev:new-account-state",
+            "classification": "FACT",
+            "scope": "external",
+            "source_group": "fresh-account-state",
+        }
+    )
     billing = _hypothesis(reopened, "H-billing")
     assert billing["status"] == "active"
     assert billing["revision"] == 2
@@ -282,15 +294,49 @@ def test_probe_selection_ignores_disproven_hypotheses_and_is_deterministic() -> 
 
 def test_multi_causal_assessment_keeps_independently_evidenced_contributors() -> None:
     state = _diagnostic_state()
+    observations = state["observations"]
+    assert isinstance(observations, list)
+    observations.extend(
+        [
+            {
+                "id": "O-billing-support",
+                "claim": "Independent billing evidence supports the billing contributor.",
+                "evidence_ref": "ev:billing-support",
+                "classification": "OBSERVATION",
+                "scope": "external",
+                "source_group": "billing-support",
+            },
+            {
+                "id": "O-route-support",
+                "claim": "Independent route evidence supports the route contributor.",
+                "evidence_ref": "ev:route-support",
+                "classification": "OBSERVATION",
+                "scope": "capability",
+                "source_group": "route-support",
+            },
+        ]
+    )
     billing = _hypothesis(state, "H-billing")
     route = _hypothesis(state, "H-route")
     billing["status"] = "supported"
     route["status"] = "supported"
+    billing["supporting_evidence"] = ["ev:billing-support"]
+    route["supporting_evidence"] = ["ev:route-support"]
     state["causal_assessment"] = {
         "status": "partial",
         "causes": [
-            {"hypothesis_id": "H-billing", "role": "contributing", "support": "supported", "evidence_refs": ["ev:credit"]},
-            {"hypothesis_id": "H-route", "role": "contributing", "support": "supported", "evidence_refs": ["ev:route-success"]},
+            {
+                "hypothesis_id": "H-billing",
+                "role": "contributing",
+                "support": "supported",
+                "evidence_refs": ["ev:billing-support"],
+            },
+            {
+                "hypothesis_id": "H-route",
+                "role": "contributing",
+                "support": "supported",
+                "evidence_refs": ["ev:route-support"],
+            },
         ],
         "unresolved_alternatives": [],
     }
