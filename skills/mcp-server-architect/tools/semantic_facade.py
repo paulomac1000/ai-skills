@@ -31,7 +31,9 @@ def semantic_facade_violations(design: SemanticFacadeDesign) -> tuple[str, ...]:
         violations.append("public tool count exceeds declared semantic-facade budget")
     if design.public_schema_bytes < 0 or design.public_schema_bytes > design.max_public_schema_bytes:
         violations.append("public schema bytes exceed declared semantic-facade budget")
-    if len(set(design.public_tools)) != len(design.public_tools) or any(not name.strip() for name in design.public_tools):
+    if len(set(design.public_tools)) != len(design.public_tools) or any(
+        not name.strip() for name in design.public_tools
+    ):
         violations.append("public semantic tool names must be unique and non-empty")
     if not design.upstream_tools_internal:
         violations.append("low-level upstream tools must remain internal by default")

@@ -65,10 +65,7 @@ def evaluate_runtime_api_invariants(design: Mapping[str, object]) -> dict[str, b
         ),
         "managed_resource_ownership": (
             not governed
-            or (
-                ownership.get("raw_mutation_blocked") is True
-                and _truthy_text(ownership.get("owner_route"))
-            )
+            or (ownership.get("raw_mutation_blocked") is True and _truthy_text(ownership.get("owner_route")))
         ),
         "durable_async_progress": (
             not may_outlive
