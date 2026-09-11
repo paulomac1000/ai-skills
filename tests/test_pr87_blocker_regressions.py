@@ -240,6 +240,18 @@ def test_ambiguity_mark_and_bind_share_one_serialized_transition(tmp_path: Path)
     store = attempts.resolve()
     record_path = module._attempt_record_path(store, "attempt-transition-race")
     record = json.loads(record_path.read_text(encoding="utf-8"))
+    assert record["state"] in {"dispatched", "dispatch_ambiguous"}
+    assert record["child_job_id"] == "child-race"
+
+    if record["state"] == "dispatch_ambiguous":
+        reconciled = module.reconcile_dispatch(
+            attempt_store=attempts,
+            attempt_id="attempt-transition-race",
+            child_job_id="child-race",
+        )
+        assert reconciled.code == "ALREADY_DISPATCHED"
+        record = json.loads(record_path.read_text(encoding="utf-8"))
+
     assert record["state"] == "dispatched"
     assert record["child_job_id"] == "child-race"
 
