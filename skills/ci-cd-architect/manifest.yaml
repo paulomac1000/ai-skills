@@ -68,6 +68,8 @@ required:
 - references/finding-triage.md
 - references/on-demand-ci.md
 - references/verification-integrity.md
+- references/adversarial-state-transition-review.md
+- references/adversarial-state-transition-fixtures.yaml
 - templates/publish.yml.template
 - templates/trusted-workflow-audit.yml.template
 - templates/on-demand-ci.yaml.template
@@ -84,6 +86,7 @@ required:
 - tools/check_local_ci_parity.py
 - tools/check_verification_bootstrap.py
 - tools/verify_state_isolation.py
+- tools/review_state_transitions.py
 categories:
 - core
 - references

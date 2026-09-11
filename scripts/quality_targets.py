@@ -74,6 +74,7 @@ TYPE_PATHS = (
     "skills/ci-cd-architect/tools/check_github_actions_policy.py",
     "skills/ci-cd-architect/tools/check_github_actions_policy_impl.py",
     "skills/ci-cd-architect/tools/check_consumer_trust_hygiene.py",
+    "skills/ci-cd-architect/tools/review_state_transitions.py",
     "skills/mcp-gateway-release-verifier/tools",
     "skills/mcp-server-consumer/tools/decision_engine.py",
     "skills/mcp-server-consumer/tools/admission.py",

@@ -1,0 +1,29 @@
+schema_version: 1
+cases:
+  - name: illegal-state-graph-edge
+    field: illegal_transition
+    expected: STATE_GRAPH_VIOLATION
+  - name: stale-generation
+    field: stale_generation
+    expected: STALE_GENERATION_ACCEPTED
+  - name: replay
+    field: unsafe_replay
+    expected: UNSAFE_REPLAY_ACCEPTED
+  - name: timeout-after-effect
+    field: timeout_after_effect_unreconciled
+    expected: TIMEOUT_AFTER_EFFECT_UNRECONCILED
+  - name: concurrent-writers
+    field: concurrent_writers_unserialized
+    expected: CONCURRENT_WRITERS_UNSERIALIZED
+  - name: tombstones
+    field: tombstone_reused
+    expected: TOMBSTONE_REUSE
+  - name: lease-reuse
+    field: lease_reused_across_generation
+    expected: LEASE_REUSE_ACROSS_GENERATION
+  - name: partial-effects
+    field: partial_effect_unrecovered
+    expected: PARTIAL_EFFECT_UNRECOVERED
+  - name: recovery-on-new-generation
+    field: recovery_on_new_generation_unbound
+    expected: RECOVERY_NEW_GENERATION_UNBOUND
