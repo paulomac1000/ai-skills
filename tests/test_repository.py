@@ -18,6 +18,7 @@ EXPECTED_SKILLS = {
     "mcp-gateway-release-verifier",
     "mcp-server-architect",
     "mcp-server-consumer",
+    "qa-change-verifier",
     "readme-architect",
 }
 ALLOWED_CATEGORIES = {"core", "references", "templates", "examples", "tools", "locks"}
