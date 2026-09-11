@@ -1,0 +1,36 @@
+schema_version: 1
+name: mcp-gateway-release-verifier
+version: 2.0.0
+maturity: stable
+skill_format: ai-skills/v1
+normative_entrypoint: STANDARD.md
+compatibility:
+  agent_contract: tool-capable-instruction-agent
+  operating_systems:
+  - linux
+  - macos
+  - windows
+  runtimes:
+    python: '>=3.12,<3.15'
+dependencies:
+  skills:
+  - mcp-server-architect
+  - ci-cd-architect
+  tools:
+  - python
+deprecation:
+  policy: semantic-versioning
+  minimum_notice: one-minor-release
+required:
+- SKILL.md
+- STANDARD.md
+- tools/compose_release_verdict.py
+categories:
+- core
+- tools
+adoption:
+  template: contracts/adoption-assessment.yaml.template
+  validator: contracts/validate_adoption.py
+  rule_catalog: contracts/rule-catalog.yaml
+  extension: generic
+  rule_map: contracts/standard-rule-map.yaml

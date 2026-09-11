@@ -15,6 +15,7 @@ EXPECTED_SKILLS = {
     "agents-md-architect",
     "changelog-release-architect",
     "ci-cd-architect",
+    "mcp-gateway-release-verifier",
     "mcp-server-architect",
     "mcp-server-consumer",
     "readme-architect",
