@@ -7,6 +7,7 @@ import argparse
 import fnmatch
 import json
 from collections.abc import Collection
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -73,13 +74,30 @@ def _paths(root: Path, values: Collection[str]) -> set[str]:
     return result
 
 
+def _expiry(value: object) -> datetime | None:
+    if value in {None, ""}:
+        return None
+    if not isinstance(value, str):
+        raise ValueError("expires_at must be an RFC3339 timestamp")
+    normalized = value[:-1] + "+00:00" if value.endswith("Z") else value
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError as error:
+        raise ValueError("expires_at must be an RFC3339 timestamp") from error
+    if parsed.tzinfo is None:
+        raise ValueError("expires_at must include a timezone")
+    return parsed.astimezone(UTC)
+
+
 def evaluate(
     root: Path,
     policy: dict[str, Any],
     *,
     observed_executed: Collection[str] | None = None,
+    now: datetime | None = None,
 ) -> dict[str, Any]:
     root = root.resolve()
+    current = (now or datetime.now(UTC)).astimezone(UTC)
     patterns = policy.get("include")
     if not isinstance(patterns, list) or not patterns or not all(isinstance(x, str) and x for x in patterns):
         raise ValueError("include must be a non-empty string list")
@@ -96,6 +114,8 @@ def evaluate(
         raise ValueError("exclusions must be a list")
 
     exclusions: dict[str, dict[str, Any]] = {}
+    active_exclusions: dict[str, dict[str, Any]] = {}
+    expired_exclusions: set[str] = set()
     for item in exclusions_raw:
         if not isinstance(item, dict):
             raise ValueError("each exclusion must be a mapping")
@@ -107,10 +127,16 @@ def evaluate(
         if path in exclusions:
             raise ValueError(f"duplicate exclusion: {path}")
         exclusions[path] = item
+        expires_at = _expiry(item.get("expires_at"))
+        if expires_at is not None and expires_at <= current:
+            expired_exclusions.add(path)
+        else:
+            active_exclusions[path] = item
 
-    excluded_discovered = discovered & exclusions.keys()
-    stale_exclusions = set(exclusions) - discovered
-    expected = discovered - set(exclusions)
+    excluded_discovered = discovered & active_exclusions.keys()
+    stale_exclusions = set(active_exclusions) - discovered
+    expired_discovered = discovered & expired_exclusions
+    expected = discovered - set(active_exclusions)
 
     if mode == "automatic":
         selected = set(expected)
@@ -122,7 +148,7 @@ def evaluate(
 
     missing_selection = expected - selected
     unexpected_selection = selected - expected
-    selection_drift = missing_selection | unexpected_selection | stale_exclusions
+    selection_drift = missing_selection | unexpected_selection | stale_exclusions | expired_discovered
 
     execution_evidence = "unknown" if observed_executed is None else "observed"
     observed = set() if observed_executed is None else _paths(root, observed_executed)
@@ -150,13 +176,14 @@ def evaluate(
         "excluded_files": [
             {
                 "path": path,
-                "reason": str(exclusions[path]["reason"]),
-                "owner": exclusions[path].get("owner"),
-                "expires_at": exclusions[path].get("expires_at"),
+                "reason": str(active_exclusions[path]["reason"]),
+                "owner": active_exclusions[path].get("owner"),
+                "expires_at": active_exclusions[path].get("expires_at"),
             }
             for path in sorted(excluded_discovered)
         ],
         "accounted_files": accounted_files,
+        "expired_exclusions": sorted(expired_discovered),
         "stale_exclusions": sorted(stale_exclusions),
         "missing_from_selection": sorted(missing_selection),
         "unexpected_in_selection": sorted(unexpected_selection),

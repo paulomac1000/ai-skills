@@ -89,6 +89,18 @@ def test_executable_bit_alone_does_not_reclassify_helper(tmp_path: Path) -> None
     assert row.counted is False
 
 
+@pytest.mark.skipif(os.name == "nt", reason="portable chmod semantics are not available on Windows")
+def test_executable_shebang_script_counts_without_reference(tmp_path: Path) -> None:
+    entrypoint = _write_script(tmp_path, "release.sh", "#!/bin/sh\nexit 0\n", executable=True)
+    assert os.access(entrypoint, os.X_OK)
+
+    inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
+    row = next(item for item in inventory.sources if item.path == "scripts/release.sh")
+    assert row.classification == "task_entrypoint"
+    assert row.counted is True
+    assert "shebang" in row.reason
+
+
 def test_sixty_four_true_entrypoints_plus_helpers_has_zero_headroom_not_failure(tmp_path: Path) -> None:
     for index in range(64):
         _write_script(

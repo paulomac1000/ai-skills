@@ -87,6 +87,18 @@ def _referenced_task_paths(root: Path, discovery: Discovery) -> set[str]:
     return references
 
 
+def _is_executable_shebang_script(root: Path, relative: str) -> bool:
+    if not relative.startswith("scripts/"):
+        return False
+    path = root / relative
+    try:
+        if path.is_symlink() or path.stat().st_mode & 0o111 == 0:
+            return False
+        return _read_bounded(root, relative).startswith("#!")
+    except (OSError, UnicodeError, ValueError):
+        return False
+
+
 def classify_gate_sources(
     root: Path,
     discovery: Discovery,
@@ -124,6 +136,16 @@ def classify_gate_sources(
                     "task_entrypoint",
                     True,
                     "referenced by CI or another public repository task surface",
+                )
+            )
+            continue
+        if _is_executable_shebang_script(safe_root, relative):
+            rows.append(
+                GateSource(
+                    relative,
+                    "task_entrypoint",
+                    True,
+                    "executable scripts/ file has a shebang and is independently runnable",
                 )
             )
             continue

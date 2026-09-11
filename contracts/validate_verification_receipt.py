@@ -8,6 +8,7 @@ import json
 import os
 import stat
 from collections.abc import Mapping, Sequence
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -91,9 +92,29 @@ def _non_negative_int(value: object, field: str) -> int:
     return value
 
 
-def validate_receipt_semantics(receipt: Mapping[str, Any]) -> list[str]:
+def _expiry(value: object) -> datetime | None:
+    if value in {None, ""}:
+        return None
+    if not isinstance(value, str):
+        raise VerificationReceiptError("test_corpus exclusion expires_at must be an RFC3339 timestamp")
+    normalized = value[:-1] + "+00:00" if value.endswith("Z") else value
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError as error:
+        raise VerificationReceiptError("test_corpus exclusion expires_at must be an RFC3339 timestamp") from error
+    if parsed.tzinfo is None:
+        raise VerificationReceiptError("test_corpus exclusion expires_at must include a timezone")
+    return parsed.astimezone(UTC)
+
+
+def validate_receipt_semantics(
+    receipt: Mapping[str, Any],
+    *,
+    now: datetime | None = None,
+) -> list[str]:
     """Return deterministic semantic findings that JSON Schema arithmetic cannot express."""
     findings: list[str] = []
+    current = (now or datetime.now(UTC)).astimezone(UTC)
     corpus = receipt.get("test_corpus")
     if not isinstance(corpus, Mapping):
         return ["test_corpus must be an object"]
@@ -109,7 +130,8 @@ def validate_receipt_semantics(receipt: Mapping[str, Any]) -> list[str]:
     if not isinstance(excluded, Sequence) or isinstance(excluded, (str, bytes, bytearray)):
         return ["test_corpus.excluded_files must be an array"]
 
-    paths: set[str] = set()
+    seen_paths: set[str] = set()
+    active_paths: set[str] = set()
     for item in excluded:
         if not isinstance(item, Mapping):
             findings.append("test_corpus.excluded_files entries must be objects")
@@ -118,20 +140,29 @@ def validate_receipt_semantics(receipt: Mapping[str, Any]) -> list[str]:
         if not isinstance(path, str) or not path:
             findings.append("test_corpus exclusion path must be non-empty")
             continue
-        if path in paths:
+        if path in seen_paths:
             findings.append(f"duplicate test-corpus exclusion: {path}")
             continue
-        paths.add(path)
+        seen_paths.add(path)
+        try:
+            expires_at = _expiry(item.get("expires_at"))
+        except VerificationReceiptError as error:
+            findings.append(str(error))
+            continue
+        if expires_at is not None and expires_at <= current:
+            findings.append(f"expired test-corpus exclusion: {path}")
+            continue
+        active_paths.add(path)
 
-    computed = executed + len(paths)
+    computed = executed + len(active_paths)
     if accounted != computed:
-        findings.append("test_corpus.accounted_files must equal executed_files plus unique excluded_files")
+        findings.append("test_corpus.accounted_files must equal executed_files plus active unique excluded_files")
     if accounted > discovered:
         findings.append("test_corpus accounts for more files than were discovered")
 
     if receipt.get("verdict") == "pass":
         if accounted != discovered:
-            findings.append("pass requires every discovered file to be executed or explicitly excluded")
+            findings.append("pass requires every discovered file to be executed or covered by an active exclusion")
         if corpus.get("execution_evidence") != "observed":
             findings.append("pass requires observed execution evidence")
         if corpus.get("completeness") != "complete":
@@ -145,6 +176,7 @@ def validate_receipt(
     receipt: Mapping[str, Any],
     *,
     schema: Mapping[str, Any] | None = None,
+    now: datetime | None = None,
 ) -> list[str]:
     """Return schema and semantic findings for one receipt."""
     active_schema = schema or _load_mapping(DEFAULT_SCHEMA)
@@ -166,7 +198,7 @@ def validate_receipt(
             key=lambda item: tuple(str(part) for part in item.absolute_path),
         )
     ]
-    findings.extend(validate_receipt_semantics(receipt))
+    findings.extend(validate_receipt_semantics(receipt, now=now))
     return sorted(set(findings))
 
 
