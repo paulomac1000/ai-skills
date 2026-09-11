@@ -52,6 +52,7 @@ required:
 - STANDARD.md
 - tools/decision_engine.py
 - tools/runtime_identity_ref.py
+- tools/admission.py
 categories:
 - core
 - references

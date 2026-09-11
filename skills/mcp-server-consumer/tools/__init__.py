@@ -1,5 +1,6 @@
 """Reusable pure-logic helpers for MCP consumers."""
 
+from .admission import AdmissionClass, AdmissionEvidence, classify_admission, mutation_allowed
 from .decision_engine import (
     CapabilityIdentity,
     CapabilityProfile,
@@ -29,6 +30,8 @@ from .runtime_identity_ref import (
 )
 
 __all__ = [
+    "AdmissionClass",
+    "AdmissionEvidence",
     "CapabilityIdentity",
     "CapabilityProfile",
     "Decision",
@@ -43,11 +46,13 @@ __all__ = [
     "TrustedPolicyBinding",
     "UserIntent",
     "choose_initial_detail_params",
+    "classify_admission",
     "evaluate_decision",
     "get_error_strategy",
     "get_pagination_decision",
     "handle_response",
     "infer_capability_profile",
+    "mutation_allowed",
     "runtime_instance_key",
     "select_efficient_tool",
     "should_retry",
