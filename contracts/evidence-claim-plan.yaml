@@ -466,6 +466,7 @@ profiles:
     subject: adoption-contract-schema
     selectors:
     - '*test_adoption_contract*'
+    - '*test_adoption_node_consumer*'
     result_files:
     - repository-junit.xml
     content_path: contracts/adoption-assessment.schema.json
