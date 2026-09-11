@@ -54,6 +54,24 @@ Unknown remains unknown and defers rather than invokes. See [Risk and trust](ref
 
 A changed `runtime_id` or `instance_generation` invalidates generation-bound evidence. `tools/runtime_identity_ref.py` validates the canonical object and returns its canonical runtime/generation key.
 
+### Pre-mutation admission
+
+Before a high-impact operation, resolve canonical owner and target, observe current runtime/artifact/config/instance identity, inspect readiness for the required action class, then compare live evidence with expected evidence. Classify deterministically as `MATCH`, `SUSPECTED_DRIFT`, `CONFIRMED_DRIFT`, `OWNER_UNKNOWN`, `RUNTIME_STALE_OR_UNKNOWN`, or `CAPABILITY_DEGRADED`. Incomplete identity plus disagreement is suspected rather than fabricated certainty. Unknown owner or ambiguous target blocks mutation; stale/unknown runtime and degraded required capability are non-green. Live runtime evidence outranks stale documentation, and fallback must preserve target, identity, credentials/authority, and policy rather than switching endpoints to make the call succeed.
+
+### Scoped health and public identifier integrity
+
+Health is a typed per-provider matrix: process, transport, auth, read, and write/action-class state remain distinct and carry freshness plus canonical runtime/generation provenance when available. A successful read cannot imply write readiness; `read=ready, write=degraded` remains degraded for mutation and never becomes whole-service `healthy=true`. Stale or unknown health is non-authoritative.
+
+A public identifier is handed off with its namespace/kind, source operation, and canonical runtime identity. A documented create → status → read/result lifecycle must preserve the same typed resource identity; equal-looking strings from different namespaces are not interchangeable. An immediate unknown/mismatched ID after successful creation is a contract failure unless documented namespace/retention semantics explain it, and consumers fail closed rather than guessing an alternate identifier.
+
+### Ambiguous delivery reconciliation
+
+Transport acknowledgement is evidence, not final side-effect truth. After `NO_ACK`, timeout-after-dispatch, connection loss, or another ambiguous send/write outcome, the consumer enters `RECONCILE_REQUIRED` and must not speculatively resend. Use the authoritative provider/resource read-back with bounded waiting and the same target, canonical runtime identity, operation/resource identity, and idempotency context. Read-back-confirmed delivery stops with no duplicate retry; disproven delivery may enter normal retry policy; still-unknown state remains reconciliation-required. Retry is allowed only after delivery is disproven or an exact reviewed idempotency contract proves replay safe.
+
+### Extracted content evidence
+
+For research/content tools, HTTP success and raw bytes are not semantic evidence. The flow is transport response → status/content-type validation → format-appropriate extraction → bounded semantic text → evidence with source locator, fetched freshness where available, content type, extractor/method version, extraction state, truncation/coverage, and content hash. States are `EXTRACTED`, `PARTIAL`, `UNEXTRACTED`, and `UNSUPPORTED_FORMAT`. An arbitrary HTML prefix—such as the first 4 KiB containing navigation/chrome—remains `UNEXTRACTED`, never a summary. Extractor failure is typed partial/unextracted, and binary/non-text content follows a format-specific path or remains `UNSUPPORTED_FORMAT`; downstream claims may require extracted content and fail closed otherwise.
+
 ## Decision policy
 
 | Risk | Default behavior |
@@ -116,4 +134,4 @@ Inspect protocol and capability versions before relying on optional fields. Pref
 
 ## Verification
 
-Run decision-engine and scenario tests covering boolean trust-channel rejection, exact binding matches and mismatches, trust downgrade attempts, conflicting retry signals, nested retry constraints, conflict refresh, independent reconciliation proof, native and malformed error content, nullable SDK fields, annotation validation, schema-aware detail selection, catalog invalidation, pagination limits, partial execution, cross-server data boundaries, and canonical runtime-identity reference validation. Add organization-specific tests for every risk axis and authorization boundary not represented by the reference helper.
+Run decision-engine and scenario tests covering boolean trust-channel rejection, exact binding matches and mismatches, trust downgrade attempts, conflicting retry signals, nested retry constraints, conflict refresh, independent reconciliation proof, native and malformed error content, nullable SDK fields, annotation validation, schema-aware detail selection, catalog invalidation, pagination limits, partial execution, cross-server data boundaries, canonical runtime-identity reference validation, all six admission classifications, scoped read/write health, public-ID handoff integrity, NO_ACK reconciliation, and extraction-state/provenance handling. Add organization-specific tests for every risk axis and authorization boundary not represented by the reference helper.
