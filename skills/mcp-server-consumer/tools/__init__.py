@@ -1,6 +1,7 @@
 """Reusable pure-logic helpers for MCP consumers."""
 
 from .admission import AdmissionClass, AdmissionEvidence, classify_admission, mutation_allowed
+from .consumer_contracts import HealthState, ProviderHealth, PublicResourceRef, verify_public_id_handoff
 from .decision_engine import (
     CapabilityIdentity,
     CapabilityProfile,
@@ -37,7 +38,10 @@ __all__ = [
     "Decision",
     "ErrorAction",
     "ErrorStrategy",
+    "HealthState",
     "PaginationDecision",
+    "ProviderHealth",
+    "PublicResourceRef",
     "ResponseResult",
     "Risk",
     "RuntimeIdentityRef",
@@ -57,4 +61,5 @@ __all__ = [
     "select_efficient_tool",
     "should_retry",
     "validate_runtime_identity_ref",
+    "verify_public_id_handoff",
 ]

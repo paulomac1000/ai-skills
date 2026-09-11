@@ -68,6 +68,7 @@ TYPE_PATHS = (
     "skills/ci-cd-architect/tools/check_consumer_trust_hygiene.py",
     "skills/mcp-server-consumer/tools/decision_engine.py",
     "skills/mcp-server-consumer/tools/admission.py",
+    "skills/mcp-server-consumer/tools/consumer_contracts.py",
     "skills/readme-architect/tools/audit_readme.py",
     "skills/readme-architect/tools/collect_readme_evidence.py",
     "skills/mcp-server-architect/tools/generate_python_server.py",

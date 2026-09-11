@@ -53,6 +53,7 @@ required:
 - tools/decision_engine.py
 - tools/runtime_identity_ref.py
 - tools/admission.py
+- tools/consumer_contracts.py
 categories:
 - core
 - references
