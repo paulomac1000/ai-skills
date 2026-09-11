@@ -1,0 +1,4 @@
+{
+  "positive": {"runtime_identity": {"version": "2.0.0", "source_revision": "abc123", "artifact_digest": "sha256:beef", "config_revision": "cfg-7", "instance_generation": "gen-4"}},
+  "negative": {"runtime_identity": {"version": "2.0.0", "source_revision": "abc123", "artifact_digest": "sha256:beef", "config_revision": "cfg-7", "instance_generation": ""}}
+}

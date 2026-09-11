@@ -1,0 +1,4 @@
+{
+  "positive": {"diagnostics": {"public_failure_class": "AUTH_EXPIRED", "log_failure_class": "AUTH_EXPIRED", "actionable": true}},
+  "negative": {"diagnostics": {"public_failure_class": "UPSTREAM_FAILURE", "log_failure_class": "AUTH_EXPIRED", "actionable": true}}
+}

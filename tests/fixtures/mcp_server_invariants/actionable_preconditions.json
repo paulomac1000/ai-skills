@@ -1,0 +1,4 @@
+{
+  "positive": {"mutation": {"preconditions_exposed_before_execution": true, "reports_all_independent_violations": true}},
+  "negative": {"mutation": {"preconditions_exposed_before_execution": true, "reports_all_independent_violations": false}}
+}

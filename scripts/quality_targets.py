@@ -27,6 +27,7 @@ QUALITY_PATHS = (
     "skills/mcp-server-architect/tools/check_consumer_canaries.py",
     "skills/mcp-server-architect/tools/capture_mcp_contract.py",
     "skills/mcp-server-architect/tools/compare_mcp_contracts.py",
+    "skills/mcp-server-architect/tools/server_invariants.py",
     "scripts/check_release_version.py",
 )
 TYPE_PATHS = (
@@ -76,6 +77,7 @@ TYPE_PATHS = (
     "skills/mcp-server-architect/tools/check_consumer_canaries.py",
     "skills/mcp-server-architect/tools/capture_mcp_contract.py",
     "skills/mcp-server-architect/tools/compare_mcp_contracts.py",
+    "skills/mcp-server-architect/tools/server_invariants.py",
 )
 BANDIT_PATHS = (
     "contracts",
@@ -96,6 +98,7 @@ POLICY_COVERAGE_PATHS = (
     "skills/mcp-server-consumer/tools/*.py",
     "skills/mcp-server-architect/tools/check_consumer_canaries.py",
     "skills/mcp-server-architect/tools/inspect_existing_project.py",
+    "skills/mcp-server-architect/tools/server_invariants.py",
 )
 SECURITY_BOUNDARY_COVERAGE_FLOORS = (
     ("contracts/validate_external_adoption.py", 60),
