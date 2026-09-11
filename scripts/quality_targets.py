@@ -69,6 +69,7 @@ TYPE_PATHS = (
     "skills/afds-doc-writer/validate.py",
     "skills/agents-md-architect/tools/audit_agents_md.py",
     "skills/agents-md-architect/tools/discover_repository.py",
+    "skills/agents-md-architect/tools/runtime_fact_classification.py",
     "skills/agents-md-architect/tools/validate_agents_md.py",
     "skills/changelog-release-architect/tools/check_release_branch.py",
     "skills/ci-cd-architect/tools/check_ci_execution_policy.py",

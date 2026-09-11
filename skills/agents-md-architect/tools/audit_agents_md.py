@@ -26,6 +26,7 @@ from agents_md_types import (  # noqa: E402
     LayoutName,
 )
 from confined_io import ConfinedReadError, read_utf8_bounded  # noqa: E402
+from runtime_fact_classification import FINDING_CODE, volatile_binding_message  # noqa: E402
 
 AuditFinding = _impl.AuditFinding
 CommandEvidence = _impl.CommandEvidence
@@ -191,6 +192,17 @@ def audit(
                 )
 
         for line_number, line in document.visible_lines:
+            runtime_message = volatile_binding_message(line)
+            if runtime_message is not None:
+                findings.append(
+                    AuditFinding(
+                        relative,
+                        "warning",
+                        FINDING_CODE,
+                        line_number,
+                        runtime_message,
+                    )
+                )
             if _impl.LINT_LEAKAGE.search(line):
                 findings.append(
                     AuditFinding(

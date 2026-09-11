@@ -68,6 +68,7 @@ required:
 - references/instruction-precedence-and-platforms.md
 - references/migration-and-upgrade.md
 - references/gate-source-budget.md
+- references/runtime-fact-classification.md
 - templates/AGENTS.md.template
 - templates/nested-AGENTS.md.template
 - tools/discover_repository.py
@@ -77,6 +78,7 @@ required:
 - tools/agents_md_types.py
 - tools/agents_md_parse.py
 - tools/agents_md_completion_evidence.py
+- tools/runtime_fact_classification.py
 - tools/validate_agents_md.py
 categories:
 - core
