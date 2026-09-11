@@ -17,7 +17,7 @@
   "idempotency_key_required": false,
   "idempotency": {"mode": "none", "scope": "principal-target"},
   "async_model": "synchronous",
-  "outcome_contract": "simple",
+  "outcome_contract": "layered",
   "reconciliation": {"supported": false, "required_after_ambiguous_dispatch": true, "method": "none"},
   "publication": {"model": "inline", "implies_verification": false},
   "result_bounded": true,

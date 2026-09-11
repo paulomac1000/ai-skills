@@ -6,7 +6,7 @@ from __future__ import annotations
 import json
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, TypeAlias
+from typing import Any
 
 from jsonschema import Draft202012Validator, FormatChecker
 
@@ -15,7 +15,7 @@ RUNTIME_IDENTITY_SCHEMA = REPOSITORY_ROOT / "contracts/runtime-identity.schema.j
 
 # Consumer code may use this name for typing, but the value itself is the
 # canonical runtime-identity object. There is deliberately no second DTO.
-RuntimeIdentityRef: TypeAlias = Mapping[str, Any]
+type RuntimeIdentityRef = Mapping[str, Any]
 
 
 def _validator(schema_path: Path = RUNTIME_IDENTITY_SCHEMA) -> Draft202012Validator:

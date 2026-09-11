@@ -22,7 +22,11 @@ from .decision_engine import (
     select_efficient_tool,
     should_retry,
 )
-from .runtime_identity_ref import RuntimeIdentityRef, runtime_instance_key, validate_runtime_identity_ref
+from .runtime_identity_ref import (
+    RuntimeIdentityRef,
+    runtime_instance_key,
+    validate_runtime_identity_ref,
+)
 
 __all__ = [
     "CapabilityIdentity",

@@ -140,6 +140,7 @@ required:
 - tools/check_consumer_canaries.py
 - tools/capture_mcp_contract.py
 - tools/compare_mcp_contracts.py
+- tools/action_outcome.py
 - tools/generate_python_server.py
 - tools/generate_dotnet_server.py
 - locks/python-runtime.in

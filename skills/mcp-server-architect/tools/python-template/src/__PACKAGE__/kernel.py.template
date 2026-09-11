@@ -357,5 +357,19 @@ def put_item(
             _ITEM_VERSIONS[item_id] = next_version
         return _bounded_payload(
             "put_item",
-            {"item_id": item_id, "updated": True, "version": next_version},
+            {
+                "item_id": item_id,
+                "updated": True,
+                "version": next_version,
+                "outcome": {
+                    "schema_version": 1,
+                    "transport": "succeeded",
+                    "execution": "succeeded",
+                    "side_effect": "confirmed",
+                    "artifact": "none",
+                    "verification": "not_run",
+                    "disposition": "completed",
+                    "safe_to_retry": "no",
+                },
+            },
         )

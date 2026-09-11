@@ -35,7 +35,10 @@ LOCK_NAMES = (
     "runtime-macos-arm64-py312.lock",
     "runtime-windows-x64-py312.lock",
 )
-COPIED_CONTRACTS = ("capability-manifest.schema.json",)
+COPIED_CONTRACTS = (
+    "action-outcome.schema.json",
+    "capability-manifest.schema.json",
+)
 TOKENS = ("__PACKAGE__", "__DISTRIBUTION__", "__SERVER_NAME__")
 _LEGACY_CAPABILITY_FIELDS = {"operational_impact", "active", "side_effects"}
 
@@ -132,6 +135,15 @@ def project_files(package_name: str, server_name: str) -> dict[str, str]:
     return rendered
 
 
+def _validate_copied_contracts(
+    files: Mapping[str, str],
+    package_name: str,
+) -> None:
+    for contract_name in COPIED_CONTRACTS:
+        schema_path = f"src/{package_name}/contracts/{contract_name}"
+        Draft202012Validator.check_schema(json.loads(files[schema_path]))
+
+
 def _validate_capabilities(
     files: Mapping[str, str],
     package_name: str,
@@ -188,6 +200,7 @@ def validate_generated_project(
     for path, content in files.items():
         if path.endswith(".py"):
             compile(content, path, "exec")
+    _validate_copied_contracts(files, package_name)
     _validate_capabilities(files, package_name)
 
     workflow = files[".github/workflows/ci.yml"]
