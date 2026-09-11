@@ -118,7 +118,7 @@ def test_parity_reference_and_entrypoint_confinement(tmp_path: Path) -> None:
 
     assert PARITY._entrypoint_path(tmp_path, "") is None
     assert PARITY._entrypoint_path(tmp_path, "python -m package") is None
-    assert PARITY._entrypoint_path(tmp_path, "python '../escape.py'") is None
+    assert PARITY._entrypoint_path(tmp_path, "python ../escape.py") is None
     assert PARITY._entrypoint_path(tmp_path, "python 'unterminated") is None
     assert PARITY._entrypoint_path(tmp_path, "python -I scripts/check.py") == (tmp_path / "scripts/check.py").resolve()
 
