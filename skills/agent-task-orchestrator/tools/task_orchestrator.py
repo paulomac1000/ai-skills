@@ -516,13 +516,17 @@ def _bind_dispatched_child(
             raise OrchestrationError("attempt is already bound to a different child job")
         if state == "dispatched" and existing_child == child_job_id:
             if durability_uncertain:
-                return DispatchReservation(
-                    False,
-                    "RECONCILE_REQUIRED",
-                    attempt_id,
-                    reservation_token,
-                    child_job_id,
-                )
+                if not reconcile_ambiguous:
+                    return DispatchReservation(
+                        False,
+                        "RECONCILE_REQUIRED",
+                        attempt_id,
+                        reservation_token,
+                        child_job_id,
+                    )
+                _write_attempt_record(path, record)
+                _set_bind_lock_durability_uncertain(transition_lock, uncertain=False)
+                return DispatchReservation(False, "ALREADY_DISPATCHED", attempt_id, None, child_job_id)
             return DispatchReservation(False, "ALREADY_DISPATCHED", attempt_id, None, child_job_id)
         if reconcile_ambiguous and state == "reserved":
             raise OrchestrationError("attempt is not awaiting dispatch reconciliation")
@@ -542,7 +546,7 @@ def _bind_dispatched_child(
         dispatched_record = {**record, "state": "dispatched", "child_job_id": child_job_id}
         try:
             _write_attempt_record(path, dispatched_record)
-        except DispatchDurabilityError as durability_error:
+        except DispatchDurabilityError:
             try:
                 _set_bind_lock_durability_uncertain(transition_lock, uncertain=True)
             except OrchestrationError as marker_error:
