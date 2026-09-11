@@ -426,6 +426,10 @@ def validate_diagnostic_state(state: Mapping[str, object]) -> list[str]:
                 if not isinstance(source_ref, str) or config_status.get(source_ref) != "runtime-proven":
                     findings.append(f"CONFIG_SOURCE_NOT_RUNTIME_PROVEN: {hypothesis_id} -> {source_ref}")
         cause_refs = _string_list(cause.get("evidence_refs"), f"cause {hypothesis_id} evidence_refs", findings)
+        supporting = _supporting_evidence_values(cause_hypothesis)
+        missing_support = sorted(ref for ref in cause_refs if ref not in supporting)
+        if missing_support:
+            findings.append(f"PROVEN_EVIDENCE_NOT_BOUND_TO_HYPOTHESIS: {hypothesis_id} -> {missing_support}")
         for evidence_ref in cause_refs:
             if evidence_ref not in evidence:
                 findings.append(f"UNKNOWN_CAUSAL_EVIDENCE: {hypothesis_id} -> {evidence_ref}")
@@ -450,10 +454,6 @@ def validate_diagnostic_state(state: Mapping[str, object]) -> list[str]:
                 source_groups = {binding.source_group for binding in bindings if binding.source_group is not None}
                 if len(source_groups) < 2:
                     findings.append(f"PROVEN_WITHOUT_INDEPENDENT_CONFIRMATION: {winner}")
-                supporting = _supporting_evidence_values(hypothesis_by_id[winner])
-                missing_support = sorted(ref for ref in refs if ref not in supporting)
-                if missing_support:
-                    findings.append(f"PROVEN_EVIDENCE_NOT_BOUND_TO_HYPOTHESIS: {winner} -> {missing_support}")
                 if not any(winner in binding.discriminates_for for binding in bindings):
                     findings.append(f"PROVEN_WITHOUT_DISCRIMINATING_EVIDENCE: {winner}")
 
@@ -477,10 +477,18 @@ def validate_diagnostic_transition(
     try:
         previous_hypotheses = _mapping_list(previous.get("hypotheses"), "hypotheses")
         current_hypotheses = _mapping_list(current.get("hypotheses"), "hypotheses")
+        current_observations = _mapping_list(current.get("observations"), "observations")
+        current_probes = _mapping_list(current.get("probes", []), "probes")
     except DiagnosticReasoningError as error:
         return findings + [str(error)]
 
     current_by_id = {item["id"]: item for item in current_hypotheses if isinstance(item.get("id"), str)}
+    current_non_disproven_ids = {
+        hypothesis_id
+        for hypothesis_id, hypothesis in current_by_id.items()
+        if hypothesis.get("status") != "disproven"
+    }
+    current_evidence, _ = _evidence_registry(current_observations, current_probes, current_non_disproven_ids)
     for old in previous_hypotheses:
         hypothesis_id = old.get("id")
         if old.get("status") != "disproven" or not isinstance(hypothesis_id, str):
@@ -504,8 +512,16 @@ def validate_diagnostic_transition(
         if not isinstance(reopen, Mapping):
             findings.append(f"DISPROVEN_HYPOTHESIS_MISSING_REOPEN_EVIDENCE: {hypothesis_id}")
             continue
+        from_revision = reopen.get("from_revision")
+        if from_revision != old_revision:
+            findings.append(f"DISPROVEN_HYPOTHESIS_REOPEN_REVISION_MISMATCH: {hypothesis_id}")
         evidence_ref = reopen.get("evidence_ref")
         if not isinstance(evidence_ref, str) or evidence_ref in _evidence_values(old):
             findings.append(f"DISPROVEN_HYPOTHESIS_REUSED_OLD_EVIDENCE: {hypothesis_id}")
+            continue
+        if evidence_ref not in current_evidence:
+            findings.append(f"DISPROVEN_HYPOTHESIS_UNREGISTERED_REOPEN_EVIDENCE: {hypothesis_id} -> {evidence_ref}")
+        if evidence_ref not in _supporting_evidence_values(new):
+            findings.append(f"DISPROVEN_HYPOTHESIS_REOPEN_EVIDENCE_NOT_SUPPORTING: {hypothesis_id} -> {evidence_ref}")
 
     return findings
