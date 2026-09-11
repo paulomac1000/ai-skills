@@ -34,10 +34,17 @@ class LocalCandidateEvidence:
     release_verifier_verdict: str
     durable_polling_verdict: str
     migration_invariants_verdict: str
+    artifact_digest: str = ""
+    probe_client_receipt: dict[str, object] | None = None
 
 
 def compose_local_lane_receipt(evidence: LocalCandidateEvidence) -> dict[str, object]:
-    """Return a deterministic fail-closed local candidate lane receipt."""
+    """Return a deterministic fail-closed local candidate lane receipt.
+
+    A passing lane requires a canonical probe client receipt: the candidate
+    must have been launched through the pinned official MCP client, not
+    evaluated from caller-asserted phase verdicts alone.
+    """
     failures: list[str] = []
     if not evidence.clean_candidate:
         failures.append("candidate_not_clean")
@@ -53,12 +60,47 @@ def compose_local_lane_receipt(evidence: LocalCandidateEvidence) -> dict[str, ob
     for field in _REQUIRED_PASS_FIELDS:
         if getattr(evidence, field) != "pass":
             failures.append(field)
-    return {
+    receipt: dict[str, object] = {
         "schema_version": 1,
         "verdict": "pass" if not failures else "fail",
         "ports": list(evidence.ports),
         "failures": failures,
     }
+    probe_receipt = evidence.probe_client_receipt
+    if probe_receipt is None:
+        if not failures:
+            failures.append("probe_client_receipt_missing")
+        receipt["verdict"] = "fail"
+        receipt["failures"] = failures
+        return receipt
+    artifact_digest = evidence.artifact_digest
+    if not artifact_digest:
+        failures.append("artifact_digest_missing")
+        receipt["verdict"] = "fail"
+        receipt["failures"] = failures
+        return receipt
+    if probe_receipt.get("artifact_digest") != artifact_digest:
+        failures.append("probe_client_receipt_digest_mismatch")
+        receipt["verdict"] = "fail"
+        receipt["failures"] = failures
+        return receipt
+    import importlib.util
+    import sys
+    from pathlib import Path
+
+    probe_path = Path(__file__).resolve().parents[2] / "mcp-server-architect" / "tools" / "mcp_exact_candidate_probe.py"
+    spec = importlib.util.spec_from_file_location("local_lane_probe", probe_path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    try:
+        module.validate_client_provenance(probe_receipt, artifact_digest)
+    except module.ExactCandidateAcceptanceError as exc:
+        failures.append(f"probe_client_receipt_rejected:{exc}")
+    receipt["verdict"] = "pass" if not failures else "fail"
+    receipt["failures"] = failures
+    return receipt
 
 
 def cleanup_owned_resources(

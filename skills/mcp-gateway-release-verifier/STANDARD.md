@@ -21,6 +21,8 @@ This verifier MUST consume, not redefine, the canonical evidence for source/arti
 
 The baseline order is preflight, bootstrap, exact-artifact launch, schema acceptance, lifecycle chain, degraded-health probe, runtime identity, execution integrity, and cleanup. Every required phase is `pass`, `fail`, or `not_run`; any value other than `pass` makes the release verdict fail closed.
 
+Exact-artifact-launch and schema phases may only be `pass` when a canonical probe client receipt is provided: it must name the pinned official client, carry a well-formed initialize payload, and include a session receipt that matches the recorded payload and artifact digest. Evidence derived without the pinned official MCP client cannot satisfy the composition.
+
 Public lifecycle evidence must exercise an identifier produced by one operation as input to its documented status/read consumer. Degraded-health evidence must come from an injected downstream failure, not process liveness alone.
 
 ## Local candidate lane

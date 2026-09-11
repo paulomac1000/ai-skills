@@ -30,6 +30,22 @@ def _load(name: str, path: Path) -> ModuleType:
     return module
 
 
+def _provenance(module: ModuleType, artifact_digest: str) -> object:
+    payload = {
+        "protocolVersion": "2025-06-18",
+        "serverInfo": {"name": "candidate", "version": "1.0.0"},
+    }
+    receipt = module.canonical_receipt(payload, artifact_digest, "2.0.0")
+    return module.ClientProvenance(
+        package="mcp",
+        version="2.0.0",
+        protocol_revision="2025-06-18",
+        transport="stdio",
+        initialize_payload=payload,
+        session_receipt=receipt,
+    )
+
+
 def _evidence(module: ModuleType, **changes: object) -> object:
     values: dict[str, object] = {
         "source_sha": SHA,
@@ -42,6 +58,7 @@ def _evidence(module: ModuleType, **changes: object) -> object:
         "schema_compatible": True,
         "representative_invocation_ok": True,
         "runtime_source_sha": SHA,
+        "client_provenance": _provenance(module, DIGEST),
     }
     values.update(changes)
     return module.ExactCandidateEvidence(**values)
@@ -49,9 +66,7 @@ def _evidence(module: ModuleType, **changes: object) -> object:
 
 def _covered(targets: tuple[str, ...], path: str) -> bool:
     return any(
-        path == target
-        or path.startswith(f"{target.rstrip('/')}/")
-        or ("*" in target and fnmatch.fnmatch(path, target))
+        path == target or path.startswith(f"{target.rstrip('/')}/") or ("*" in target and fnmatch.fnmatch(path, target))
         for target in targets
     )
 

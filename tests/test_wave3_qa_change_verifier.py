@@ -28,18 +28,14 @@ def _load(name: str, path: Path) -> ModuleType:
 
 def _covered(targets: tuple[str, ...], path: str) -> bool:
     return any(
-        path == target
-        or path.startswith(f"{target.rstrip('/')}/")
-        or ("*" in target and fnmatch.fnmatch(path, target))
+        path == target or path.startswith(f"{target.rstrip('/')}/") or ("*" in target and fnmatch.fnmatch(path, target))
         for target in targets
     )
 
 
 def test_low_risk_plan_requires_static_and_unit_only() -> None:
     module = _load("wave3_qa_low", TOOL)
-    plan = module.plan_verification(
-        module.ChangeRisk(change_surface="docs", blast_radius="local")
-    )
+    plan = module.plan_verification(module.ChangeRisk(change_surface="docs", blast_radius="local"))
     assert plan.risk == module.RiskLevel.LOW
     assert plan.required_layers == ("static", "unit")
 
@@ -99,9 +95,7 @@ def test_stale_simulator_is_invalidated_for_candidate() -> None:
 def test_exact_evidence_binding_rejects_stale_revision_or_missing_digest() -> None:
     module = _load("wave3_qa_evidence", TOOL)
     digest = "sha256:" + "a" * 64
-    assert module.validate_exact_evidence(
-        module.ExactEvidenceBinding("sha-1", "sha-1", digest), artifact_required=True
-    )
+    assert module.validate_exact_evidence(module.ExactEvidenceBinding("sha-1", "sha-1", digest), artifact_required=True)
     assert not module.validate_exact_evidence(
         module.ExactEvidenceBinding("sha-1", "sha-0", digest), artifact_required=True
     )

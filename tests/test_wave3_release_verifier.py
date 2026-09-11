@@ -28,9 +28,7 @@ def _load(name: str, path: Path) -> ModuleType:
 
 def _covered(targets: tuple[str, ...], path: str) -> bool:
     return any(
-        path == target
-        or path.startswith(f"{target.rstrip('/')}/")
-        or ("*" in target and fnmatch.fnmatch(path, target))
+        path == target or path.startswith(f"{target.rstrip('/')}/") or ("*" in target and fnmatch.fnmatch(path, target))
         for target in targets
     )
 
@@ -48,30 +46,78 @@ def _phases(module: ModuleType, **status_overrides: str) -> tuple[object, ...]:
     )
 
 
+def _probe_receipt(artifact_digest: str) -> dict[str, object]:
+    import hashlib
+    import json
+
+    payload = {
+        "protocolVersion": "2025-06-18",
+        "serverInfo": {"name": "candidate", "version": "1.0.0"},
+    }
+    canonical = json.dumps(
+        {
+            "artifact_digest": artifact_digest,
+            "client_version": "2.0.0",
+            "initialize": payload,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+    )
+    return {
+        "package": "mcp",
+        "version": "2.0.0",
+        "protocol_revision": "2025-06-18",
+        "transport": "stdio",
+        "initialize_payload": payload,
+        "session_receipt": hashlib.sha256(canonical.encode()).hexdigest(),
+        "artifact_digest": artifact_digest,
+    }
+
+
 def test_all_composed_phases_produce_bounded_pass_receipt() -> None:
     module = _load("wave3_release_verifier_happy", TOOL)
+    digest = "sha256:" + "b" * 64
     receipt = module.compose_release_receipt(
         source_revision="a" * 40,
-        artifact_digest="sha256:" + "b" * 64,
+        artifact_digest=digest,
         phases=_phases(module),
+        probe_client_receipt=_probe_receipt(digest),
     )
     assert receipt["verdict"] == "pass"
     assert [phase["name"] for phase in receipt["phases"]] == list(module.REQUIRED_PHASES)
     assert len(str(receipt)) < module.MAX_RECEIPT_BYTES
 
 
+def test_passing_exact_artifact_phase_requires_probe_receipt() -> None:
+    module = _load("wave3_release_verifier_probe_required", TOOL)
+    try:
+        module.compose_release_receipt(
+            source_revision="a" * 40,
+            artifact_digest="sha256:" + "b" * 64,
+            phases=_phases(module),
+        )
+    except module.ReleaseCompositionError as exc:
+        assert "probe client receipt" in str(exc)
+    else:
+        raise AssertionError("composition passed without a canonical probe receipt")
+
+
 def test_any_failed_or_missing_required_phase_fails_closed() -> None:
     module = _load("wave3_release_verifier_fail", TOOL)
+    digest = "sha256:" + "b" * 64
     failed = module.compose_release_receipt(
         source_revision="a" * 40,
-        artifact_digest="sha256:" + "b" * 64,
+        artifact_digest=digest,
         phases=_phases(module, lifecycle="fail"),
+        probe_client_receipt=_probe_receipt(digest),
     )
     assert failed["verdict"] == "fail"
     missing = module.compose_release_receipt(
         source_revision="a" * 40,
-        artifact_digest="sha256:" + "b" * 64,
+        artifact_digest=digest,
         phases=tuple(phase for phase in _phases(module) if phase.name != "cleanup"),
+        probe_client_receipt=_probe_receipt(digest),
     )
     assert missing["verdict"] == "fail"
     assert next(phase for phase in missing["phases"] if phase["name"] == "cleanup")["status"] == "not_run"

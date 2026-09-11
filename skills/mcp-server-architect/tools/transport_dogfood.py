@@ -37,6 +37,22 @@ class TransportDogfoodEvidence:
     persistence_roots: tuple[str, ...]
     diagnostics_bytes: int
     max_diagnostics_bytes: int
+    artifact_digest: str
+    client_provenance: Mapping[str, object] | None = None
+
+
+def _load_probe_module():
+    import importlib.util
+    import sys
+    from pathlib import Path
+
+    probe_path = Path(__file__).resolve().parent / "mcp_exact_candidate_probe.py"
+    spec = importlib.util.spec_from_file_location("transport_dogfood_probe", probe_path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
 
 
 def _under(root: str, candidate: str) -> bool:
@@ -49,6 +65,16 @@ def validate_transport_dogfood(evidence: TransportDogfoodEvidence) -> TransportD
     """Fail closed unless the exact candidate survives realistic transport dogfood."""
     if evidence.exact_candidate_verdict != "pass":
         raise TransportDogfoodError("exact-candidate acceptance did not pass")
+    if not evidence.client_provenance:
+        raise TransportDogfoodError(
+            "dogfood evidence requires client provenance from the canonical probe; "
+            "caller-asserted official_client flags are rejected"
+        )
+    _probe = _load_probe_module()
+    try:
+        _probe.validate_client_provenance(evidence.client_provenance, evidence.artifact_digest)
+    except _probe.ExactCandidateAcceptanceError as exc:
+        raise TransportDogfoodError(f"client provenance rejected: {exc}") from exc
     if evidence.execution_integrity_verdict != "pass":
         raise TransportDogfoodError("blocking background/runtime exception evidence")
     if not evidence.sandbox_root.startswith("/"):

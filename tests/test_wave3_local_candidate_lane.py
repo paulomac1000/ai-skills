@@ -27,11 +27,38 @@ def _load(name: str, path: Path) -> ModuleType:
 
 def _covered(targets: tuple[str, ...], path: str) -> bool:
     return any(
-        path == target
-        or path.startswith(f"{target.rstrip('/')}/")
-        or ("*" in target and fnmatch.fnmatch(path, target))
+        path == target or path.startswith(f"{target.rstrip('/')}/") or ("*" in target and fnmatch.fnmatch(path, target))
         for target in targets
     )
+
+
+def _probe_receipt(artifact_digest: str) -> dict[str, object]:
+    import hashlib
+    import json
+
+    payload = {
+        "protocolVersion": "2025-06-18",
+        "serverInfo": {"name": "candidate", "version": "1.0.0"},
+    }
+    canonical = json.dumps(
+        {
+            "artifact_digest": artifact_digest,
+            "client_version": "2.0.0",
+            "initialize": payload,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+    )
+    return {
+        "package": "mcp",
+        "version": "2.0.0",
+        "protocol_revision": "2025-06-18",
+        "transport": "stdio",
+        "initialize_payload": payload,
+        "session_receipt": hashlib.sha256(canonical.encode()).hexdigest(),
+        "artifact_digest": artifact_digest,
+    }
 
 
 def _evidence(module: ModuleType, **changes: object) -> object:
@@ -49,6 +76,8 @@ def _evidence(module: ModuleType, **changes: object) -> object:
         "release_verifier_verdict": "pass",
         "durable_polling_verdict": "pass",
         "migration_invariants_verdict": "pass",
+        "artifact_digest": "sha256:" + "d" * 64,
+        "probe_client_receipt": _probe_receipt("sha256:" + "d" * 64),
     }
     values.update(changes)
     return module.LocalCandidateEvidence(**values)
@@ -67,9 +96,7 @@ def test_complete_local_candidate_lane_passes() -> None:
 
 def test_port_conflict_fails_closed_before_release_confidence() -> None:
     module = _load("wave3_local_lane_port", TOOL)
-    receipt = module.compose_local_lane_receipt(
-        _evidence(module, occupied_ports=frozenset({43102}))
-    )
+    receipt = module.compose_local_lane_receipt(_evidence(module, occupied_ports=frozenset({43102})))
     assert receipt["verdict"] == "fail"
     assert receipt["failures"] == ["port_conflict:43102"]
 

@@ -27,8 +27,38 @@ def _load(name: str, path: Path) -> ModuleType:
     return module
 
 
+def _probe_receipt(artifact_digest: str) -> dict[str, object]:
+    import hashlib
+    import json
+
+    payload = {
+        "protocolVersion": "2025-06-18",
+        "serverInfo": {"name": "candidate", "version": "1.0.0"},
+    }
+    canonical = json.dumps(
+        {
+            "artifact_digest": artifact_digest,
+            "client_version": "2.0.0",
+            "initialize": payload,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+    )
+    return {
+        "package": "mcp",
+        "version": "2.0.0",
+        "protocol_revision": "2025-06-18",
+        "transport": "stdio",
+        "initialize_payload": payload,
+        "session_receipt": hashlib.sha256(canonical.encode()).hexdigest(),
+        "artifact_digest": artifact_digest,
+    }
+
+
 def _evidence(module: ModuleType, **changes: object) -> object:
     root = "/tmp/mcp-dogfood"
+    digest = "sha256:" + "b" * 64
     values: dict[str, object] = {
         "exact_candidate_verdict": "pass",
         "execution_integrity_verdict": "pass",
@@ -55,6 +85,8 @@ def _evidence(module: ModuleType, **changes: object) -> object:
         "persistence_roots": (f"{root}/state/jobs",),
         "diagnostics_bytes": 2048,
         "max_diagnostics_bytes": 4096,
+        "artifact_digest": digest,
+        "client_provenance": _probe_receipt(digest),
     }
     values.update(changes)
     return module.TransportDogfoodEvidence(**values)
@@ -62,9 +94,7 @@ def _evidence(module: ModuleType, **changes: object) -> object:
 
 def _covered(targets: tuple[str, ...], path: str) -> bool:
     return any(
-        path == target
-        or path.startswith(f"{target.rstrip('/')}/")
-        or ("*" in target and fnmatch.fnmatch(path, target))
+        path == target or path.startswith(f"{target.rstrip('/')}/") or ("*" in target and fnmatch.fnmatch(path, target))
         for target in targets
     )
 
@@ -138,3 +168,39 @@ def test_transport_tool_is_manifested_and_in_all_quality_inventories() -> None:
         inventories.POLICY_COVERAGE_PATHS,
     ):
         assert _covered(targets, path)
+
+
+def test_dogfood_without_canonical_probe_client_provenance_fails_closed() -> None:
+    module = _load("wave3_dogfood_masquerade", TOOL)
+    try:
+        module.validate_transport_dogfood(_evidence(module, client_provenance=None))
+    except module.TransportDogfoodError as exc:
+        assert "client provenance" in str(exc)
+    else:
+        raise AssertionError("dogfood passed without canonical probe client provenance")
+
+
+def test_dogfood_rejects_inconsistent_probe_receipt() -> None:
+    module = _load("wave3_dogfood_bad_receipt", TOOL)
+    receipt = dict(_probe_receipt("sha256:" + "b" * 64))
+    receipt["session_receipt"] = "f" * 64
+    try:
+        module.validate_transport_dogfood(
+            _evidence(module, artifact_digest="sha256:" + "b" * 64, client_provenance=receipt)
+        )
+    except module.TransportDogfoodError as exc:
+        assert "rejected" in str(exc)
+    else:
+        raise AssertionError("dogfood accepted an inconsistent probe receipt")
+
+
+def test_dogfood_rejects_unpinned_client_version() -> None:
+    module = _load("wave3_dogfood_bad_client", TOOL)
+    receipt = _probe_receipt("sha256:" + "b" * 64)
+    receipt["version"] = "9.9.9"
+    try:
+        module.validate_transport_dogfood(_evidence(module, client_provenance=receipt))
+    except module.TransportDogfoodError as exc:
+        assert "pinned official client" in str(exc)
+    else:
+        raise AssertionError("dogfood accepted an unpinned client version")

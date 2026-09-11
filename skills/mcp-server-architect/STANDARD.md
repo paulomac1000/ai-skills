@@ -176,6 +176,8 @@ Health reports mandatory and optional dependencies separately. Circuit breakers 
 
 ## Generated project acceptance
 
+Exact-candidate evidence is only valid when produced by the canonical probe (`tools/mcp_exact_candidate_probe.py`) running the pinned official client (`mcp==2.0.0`): the probe launches the digest-bound artifact, negotiates a real session, and derives client provenance and the session receipt from that session. Caller-asserted session facts, evidence without provenance, receipts inconsistent with the recorded initialize payload, or non-pinned client versions fail closed. Contract capture commands must run the canonical probe module; arbitrary evidence producers are rejected.
+
 The bundled Python and .NET generators are part of the standard, not illustrative snippets. A clean invocation creates a deterministic, installable or restore-ready project containing typed immutable settings, application-owned manifests, a transport-independent domain service, one invocation kernel, official SDK registration, stdio and loopback Streamable HTTP, structured output, protocol-native errors, conservative write controls, CI, packaging, security guidance, and tests.
 
 Each generated project must compile and pass its own tests through an official MCP client using the stable production SDK lane. Tests prove public tool listing with real schemas, representative invocation, complete manifest coverage, fail-closed writes, principal-bound approval, optimistic conflict handling, bounded HTTP input, action pinning, deterministic generation, and smoke of the exact published artifact.

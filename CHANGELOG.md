@@ -8,6 +8,7 @@
 - Added Capability Manifest v2 as the canonical `capability-manifest.schema.json` contract with schema version 2: explicit contract revision, async model, outcome contract, declared idempotency and reconciliation, publication semantics, bounded results, and runtime-identity advertisement, with the Python and .NET MCP generators migrated to emit the v2 manifest.
 - Added cross-event audit-log semantics that enforce append-only history and reject duplicate or conflicting event identifiers, idempotency-key rebinding, conflicting terminal outcomes, and a second equivalent canonical success for the same idempotency identity.
 - Added CI verification-integrity tooling for declared-dependency bootstrap, test-corpus discovery/execution accounting, runtime-exception detection, local/hosted gate parity, state-isolation preflight, and canonical verification receipts.
+- Added the canonical exact-candidate MCP probe: acceptance evidence is derived from a real session through the pinned official `mcp==2.0.0` client launched against the digest-bound artifact, with client provenance receipts required by exact-candidate acceptance, transport dogfood, contract capture, the release verifier, the local candidate lane, and provider-schema compatibility; fixture- or caller-asserted session facts fail closed.
 - Added machine-readable gate-source inventory for `agents-md-architect` so true CI/task entrypoints consume the audit budget while helper/library files remain visible without creating false source-count failures.
 
 ### Changed

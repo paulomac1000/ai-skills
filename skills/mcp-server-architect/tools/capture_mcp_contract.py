@@ -175,6 +175,27 @@ def _run_probe(argv: list[str], working_directory: Path, timeout_seconds: int) -
     return bytes(stdout_capture.data)
 
 
+CANONICAL_PROBE_MODULE = "mcp_exact_candidate_probe"
+
+
+def _require_canonical_probe_command(command: list[str], parser: argparse.ArgumentParser) -> None:
+    """Fail closed unless the client command runs the canonical exact-candidate probe.
+
+    A custom JSON producer cannot masquerade as the pinned official MCP client:
+    only the canonical probe binds the artifact digest and derives evidence from
+    a real client session.
+    """
+    joined = " ".join(command)
+    if CANONICAL_PROBE_MODULE in joined:
+        return
+    parser.error(
+        "the probe command must run the canonical "
+        f"{CANONICAL_PROBE_MODULE} module so evidence is derived from a real "
+        "session through the pinned official MCP client; arbitrary commands are "
+        "rejected"
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
@@ -190,6 +211,7 @@ def main(argv: list[str] | None = None) -> int:
         command = command[1:]
     if not command or any(not item for item in command):
         parser.error("an exact probe argv is required after --")
+    _require_canonical_probe_command(command, parser)
     if not (1 <= args.timeout_seconds <= 600):
         parser.error("--timeout-seconds must be between 1 and 600")
     if os.path.lexists(args.output):

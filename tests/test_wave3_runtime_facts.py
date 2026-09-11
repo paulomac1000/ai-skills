@@ -29,9 +29,7 @@ def _load(name: str, path: Path) -> ModuleType:
 
 def _covered(targets: tuple[str, ...], path: str) -> bool:
     return any(
-        path == target
-        or path.startswith(f"{target.rstrip('/')}/")
-        or ("*" in target and fnmatch.fnmatch(path, target))
+        path == target or path.startswith(f"{target.rstrip('/')}/") or ("*" in target and fnmatch.fnmatch(path, target))
         for target in targets
     )
 
@@ -47,19 +45,14 @@ def test_runtime_fact_classes_cover_stable_compat_owner_volatile_and_private() -
         == module.RuntimeFactClass.COMPATIBILITY_CONTRACT
     )
     assert (
-        module.classify_runtime_fact(
-            "Logical capability owner: billing-mcp; resolve through RuntimeIdentity."
-        )
+        module.classify_runtime_fact("Logical capability owner: billing-mcp; resolve through RuntimeIdentity.")
         == module.RuntimeFactClass.LOGICAL_CAPABILITY_OWNER
     )
     assert (
         module.classify_runtime_fact("Current MCP host/version: gateway.internal v3.2.1.")
         == module.RuntimeFactClass.VOLATILE_OBSERVATION
     )
-    assert (
-        module.classify_runtime_fact("Use 10.0.0.5:8123 for MCP.")
-        == module.RuntimeFactClass.PRIVATE_BINDING
-    )
+    assert module.classify_runtime_fact("Use 10.0.0.5:8123 for MCP.") == module.RuntimeFactClass.PRIVATE_BINDING
 
 
 def test_current_mcp_host_or_version_as_timeless_truth_requires_owner() -> None:
@@ -84,9 +77,7 @@ def test_unjustified_ip_or_port_requires_owner_but_scoped_observation_is_allowed
     module = _load("wave3_runtime_fact_private", TOOL)
     assert module.volatile_binding_message("Connect to MCP at 10.0.0.5:8123.") is not None
     assert (
-        module.volatile_binding_message(
-            "Volatile observation: local development only endpoint is 10.0.0.5:8123."
-        )
+        module.volatile_binding_message("Volatile observation: local development only endpoint is 10.0.0.5:8123.")
         is None
     )
 

@@ -29,9 +29,7 @@ def _load(name: str, path: Path) -> ModuleType:
 
 def _covered(targets: tuple[str, ...], path: str) -> bool:
     return any(
-        path == target
-        or path.startswith(f"{target.rstrip('/')}/")
-        or ("*" in target and fnmatch.fnmatch(path, target))
+        path == target or path.startswith(f"{target.rstrip('/')}/") or ("*" in target and fnmatch.fnmatch(path, target))
         for target in targets
     )
 
@@ -71,9 +69,7 @@ def test_playbook_and_tool_are_governed_and_quality_gated() -> None:
         "tools/review_state_transitions.py",
     ):
         assert path in manifest["required"]
-    text = (CI_SKILL / "references/adversarial-state-transition-review.md").read_text(
-        encoding="utf-8"
-    )
+    text = (CI_SKILL / "references/adversarial-state-transition-review.md").read_text(encoding="utf-8")
     for phrase in (
         "stale generation",
         "timeout after an effect",
