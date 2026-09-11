@@ -56,6 +56,7 @@ required:
 - tools/consumer_contracts.py
 - tools/delivery_reconciliation.py
 - tools/extraction.py
+- tools/contract_refs.py
 categories:
 - core
 - references

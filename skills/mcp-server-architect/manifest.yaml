@@ -142,6 +142,7 @@ required:
 - tools/compare_mcp_contracts.py
 - tools/exact_candidate_acceptance.py
 - tools/transport_dogfood.py
+- tools/skill_schema_contract.py
 - tools/action_outcome.py
 - tools/server_invariants.py
 - tools/control_plane_invariants.py
