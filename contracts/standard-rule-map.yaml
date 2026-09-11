@@ -80,6 +80,7 @@ skills:
       scope-and-non-goals: {excluded: true, rationale: Scope declaration constrains the helper but is not a separate adoption rule.}
       outcome-before-capability: {rule_id: consumer.outcome.first, primary: true}
       trust-and-provenance: {rule_id: consumer.trust.provenance, primary: true}
+      runtime-identity-references: {rule_id: consumer.trust.provenance}
       decision-policy: {rule_id: consumer.policy.fail-closed, primary: true}
       efficient-selection: {rule_id: consumer.selection.efficient, primary: true}
       response-contract: {rule_id: consumer.response.validated, primary: true}
