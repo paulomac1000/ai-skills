@@ -24,6 +24,14 @@ from .decision_engine import (
     select_efficient_tool,
     should_retry,
 )
+from .delivery_reconciliation import (
+    DeliveryContext,
+    DeliveryDecision,
+    DeliveryState,
+    ambiguous_transport_outcome,
+    apply_authoritative_read_back,
+    should_resend,
+)
 from .runtime_identity_ref import (
     RuntimeIdentityRef,
     runtime_instance_key,
@@ -36,6 +44,9 @@ __all__ = [
     "CapabilityIdentity",
     "CapabilityProfile",
     "Decision",
+    "DeliveryContext",
+    "DeliveryDecision",
+    "DeliveryState",
     "ErrorAction",
     "ErrorStrategy",
     "HealthState",
@@ -49,6 +60,8 @@ __all__ = [
     "TrustedCapabilityPolicy",
     "TrustedPolicyBinding",
     "UserIntent",
+    "ambiguous_transport_outcome",
+    "apply_authoritative_read_back",
     "choose_initial_detail_params",
     "classify_admission",
     "evaluate_decision",
@@ -59,6 +72,7 @@ __all__ = [
     "mutation_allowed",
     "runtime_instance_key",
     "select_efficient_tool",
+    "should_resend",
     "should_retry",
     "validate_runtime_identity_ref",
     "verify_public_id_handoff",
