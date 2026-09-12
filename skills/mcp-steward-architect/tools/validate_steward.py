@@ -177,9 +177,6 @@ def _handoff_findings(value: dict[str, Any]) -> list[str]:
         findings.append("handoff: completed-with-gaps requires at least one gap")
     if status in {"completed", "completed-with-gaps"} and value.get("outcome") is None:
         findings.append("handoff: completed handoff requires a domain outcome")
-    expected = compute_handoff_digest(value)
-    if value["digest"] != expected:
-        findings.append(f"handoff: digest mismatch; expected {expected}")
     return findings
 
 
@@ -239,6 +236,11 @@ def validate_handoff_current(
         findings.append("handoff: stale job/generation cannot be actionable")
     if value["actionable"] and value["subject"] != current_subject:
         findings.append("handoff: stale subject identity cannot be actionable")
+    if findings:
+        return findings
+    expected = compute_handoff_digest(value)
+    if value["digest"] != expected:
+        findings.append(f"handoff: digest mismatch; expected {expected}")
     return findings
 
 
