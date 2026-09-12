@@ -158,6 +158,11 @@ class StewardStore:
                     (now, previous_job_id),
                 )
                 if superseded.rowcount:
+                    db.execute(
+                        "UPDATE external_operations SET state='abandoned',observed_at=? "
+                        "WHERE job_id=? AND state='reserved' AND delivery='not-delivered'",
+                        (now, previous_job_id),
+                    )
                     self._audit(
                         db,
                         previous_job_id,
@@ -213,32 +218,133 @@ class StewardStore:
             db.execute("UPDATE steward_jobs SET stage='external-reserved',version=version+1,updated_at=? WHERE job_id=?", (now,job_id))
             self._audit(db, job_id, "external-reserved", {"operationId": op})
 
-    def record_dispatch(self, operation_id: str, delivery: str, remote_handle: str | None) -> None:
-        status = "reconciling" if delivery == "delivery-unknown" else "waiting-external"
-        retry = "reconcile-first" if delivery == "delivery-unknown" else "forbidden"
+    def _is_current_tx(self, db: sqlite3.Connection, job_id: str, generation: int) -> bool:
+        row = db.execute(
+            "SELECT j.status,l.current_job_id,l.current_generation FROM steward_jobs j "
+            "JOIN steward_lineages l ON l.lineage_id=j.lineage_id WHERE j.job_id=?",
+            (job_id,),
+        ).fetchone()
+        return bool(
+            row is not None
+            and row["status"] not in _TERMINAL
+            and str(row["current_job_id"]) == job_id
+            and int(row["current_generation"]) == generation
+        )
+
+    def begin_dispatch(self, operation_id: str) -> None:
         now = _iso(self.clock.now())
         with self._write() as db:
-            row = db.execute("SELECT job_id FROM external_operations WHERE operation_id=?", (operation_id,)).fetchone()
-            if row is None: raise KeyError(operation_id)
-            job_id = str(row[0])
-            db.execute("UPDATE external_operations SET state='dispatched',delivery=?,retry_disposition=?,remote_handle=?,observed_at=? WHERE operation_id=?",
-                       (delivery,retry,remote_handle,now,operation_id))
-            db.execute("UPDATE steward_jobs SET status=?,stage='external-dispatched',version=version+1,updated_at=? WHERE job_id=?",
-                       (status,now,job_id))
-            self._audit(db, job_id, "external-dispatched", {"delivery": delivery})
+            row = db.execute(
+                "SELECT job_id,generation FROM external_operations WHERE operation_id=?",
+                (operation_id,),
+            ).fetchone()
+            if row is None:
+                raise KeyError(operation_id)
+            job_id, generation = str(row["job_id"]), int(row["generation"])
+            if not self._is_current_tx(db, job_id, generation):
+                raise RuntimeError("stale lineage dispatch")
+            db.execute(
+                "UPDATE external_operations SET state='dispatching',delivery='delivery-unknown',"
+                "retry_disposition='reconcile-first',observed_at=? WHERE operation_id=?",
+                (now, operation_id),
+            )
+            db.execute(
+                "UPDATE steward_jobs SET status='reconciling',stage='dispatch-started',version=version+1,updated_at=? "
+                "WHERE job_id=?",
+                (now, job_id),
+            )
+            self._audit(db, job_id, "dispatch-started", {"operationId": operation_id})
+
+    def record_dispatch(self, operation_id: str, remote_handle: str) -> None:
+        now = _iso(self.clock.now())
+        with self._write() as db:
+            row = db.execute(
+                "SELECT job_id,generation FROM external_operations WHERE operation_id=?",
+                (operation_id,),
+            ).fetchone()
+            if row is None:
+                raise KeyError(operation_id)
+            job_id, generation = str(row["job_id"]), int(row["generation"])
+            db.execute(
+                "UPDATE external_operations SET state='dispatched',delivery='delivered',retry_disposition='forbidden',"
+                "remote_handle=?,observed_at=? WHERE operation_id=?",
+                (remote_handle, now, operation_id),
+            )
+            current = self._is_current_tx(db, job_id, generation)
+            if current:
+                db.execute(
+                    "UPDATE steward_jobs SET status='waiting-external',stage='external-dispatched',"
+                    "version=version+1,updated_at=? WHERE job_id=?",
+                    (now, job_id),
+                )
+            self._audit(
+                db,
+                job_id,
+                "external-dispatched" if current else "late-dispatch-observed",
+                {"delivery": "delivered", "operationId": operation_id},
+            )
 
     def reconcile(self, operation_id: str, remote_handle: str) -> None:
         now = _iso(self.clock.now())
         with self._write() as db:
-            row = db.execute("SELECT job_id FROM external_operations WHERE operation_id=?", (operation_id,)).fetchone()
-            if row is None: raise KeyError(operation_id)
-            job_id = str(row[0])
-            db.execute("UPDATE external_operations SET state='observed',delivery='delivered',retry_disposition='forbidden',"
-                       "remote_handle=?,observed_at=?,reconcile_count=reconcile_count+1 WHERE operation_id=?", (remote_handle,now,operation_id))
-            db.execute("UPDATE steward_jobs SET status='waiting-external',stage='reconciled',version=version+1,updated_at=? WHERE job_id=?", (now,job_id))
+            row = db.execute(
+                "SELECT job_id,generation FROM external_operations WHERE operation_id=?",
+                (operation_id,),
+            ).fetchone()
+            if row is None:
+                raise KeyError(operation_id)
+            job_id, generation = str(row["job_id"]), int(row["generation"])
+            db.execute(
+                "UPDATE external_operations SET state='dispatched',delivery='delivered',retry_disposition='forbidden',"
+                "remote_handle=?,observed_at=?,reconcile_count=reconcile_count+1 WHERE operation_id=?",
+                (remote_handle, now, operation_id),
+            )
+            if self._is_current_tx(db, job_id, generation):
+                db.execute(
+                    "UPDATE steward_jobs SET status='waiting-external',stage='reconciled',version=version+1,updated_at=? "
+                    "WHERE job_id=?",
+                    (now, job_id),
+                )
             self._audit(db, job_id, "reconciled", {"operationId": operation_id})
 
-    def evidence(self, job_id: str) -> list[dict[str, Any]]:
+    def mark_operation_observed(self, operation_id: str, *, require_current: bool = False) -> None:
+        now = _iso(self.clock.now())
+        with self._write() as db:
+            row = db.execute(
+                "SELECT job_id,generation FROM external_operations WHERE operation_id=?",
+                (operation_id,),
+            ).fetchone()
+            if row is None:
+                raise KeyError(operation_id)
+            if require_current and not self._is_current_tx(db, str(row["job_id"]), int(row["generation"])):
+                raise RuntimeError("stale lineage result")
+            db.execute(
+                "UPDATE external_operations SET state='observed',observed_at=? WHERE operation_id=?",
+                (now, operation_id),
+            )
+
+    def next_superseded_operation(self) -> dict[str, Any] | None:
+        with self._connect() as db:
+            row = db.execute(
+                "SELECT o.* FROM external_operations o JOIN steward_jobs j ON j.job_id=o.job_id "
+                "WHERE j.status='superseded' AND o.state NOT IN ('observed','abandoned') "
+                "AND o.delivery IN ('delivery-unknown','delivered') ORDER BY o.observed_at,o.operation_id LIMIT 1"
+            ).fetchone()
+        return None if row is None else dict(row)
+
+    def unresolved_lineage_operations(self, job_id: str) -> list[str]:
+        with self._connect() as db:
+            rows = db.execute(
+                "SELECT o.operation_id FROM external_operations o "
+                "JOIN steward_jobs owner ON owner.job_id=o.job_id "
+                "JOIN steward_jobs current ON current.job_id=? "
+                "WHERE owner.lineage_id=current.lineage_id AND o.state NOT IN ('observed','abandoned') "
+                "ORDER BY o.operation_id",
+                (job_id,),
+            ).fetchall()
+        return [str(row[0]) for row in rows]
+
+    def evidence    def evidence(self, job_id: str) -> list[dict[str, Any]]:
         with self._connect() as db:
             rows = db.execute("SELECT * FROM steward_evidence WHERE job_id=? ORDER BY observed_at", (job_id,)).fetchall()
         return [{"evidenceId":r["evidence_id"],"jobId":r["job_id"],"lineageId":r["lineage_id"],"generation":r["generation"],
@@ -251,6 +357,8 @@ class StewardStore:
         job, observed = self.job(job_id), self.clock.now()
         evidence_id = f"evidence-{uuid.uuid4().hex}"
         with self._write() as db:
+            if not self._is_current_tx(db, job_id, int(job["generation"])):
+                raise RuntimeError("stale lineage evidence")
             db.execute("INSERT INTO steward_evidence VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
                        (evidence_id,job_id,job["lineageId"],job["generation"],_canonical(job["subject"]),requirement["id"],
                         requirement["evidence_class"],criterion["required_authority"],producer_id,recipe_id,_iso(observed),
@@ -260,17 +368,21 @@ class StewardStore:
             self._audit(db, job_id, "evidence-persisted", {"evidenceId": evidence_id})
 
     def ambiguous(self, job_id: str) -> list[str]:
-        with self._connect() as db:
-            rows = db.execute("SELECT operation_id FROM external_operations WHERE job_id=? AND delivery='delivery-unknown'", (job_id,)).fetchall()
-        return [str(r[0]) for r in rows]
+        return self.unresolved_lineage_operations(job_id)
 
     def save_terminal(self, job_id: str, completion: dict[str, Any], handoff: dict[str, Any]) -> None:
         with self._write() as db:
             row = db.execute("SELECT j.generation,l.current_generation,l.current_job_id FROM steward_jobs j JOIN steward_lineages l ON l.lineage_id=j.lineage_id WHERE j.job_id=?", (job_id,)).fetchone()
             if row is None or row[0] != row[1] or row[2] != job_id:
                 raise RuntimeError("stale lineage publication")
-            count = db.execute("SELECT COUNT(*) FROM external_operations WHERE job_id=? AND delivery='delivery-unknown'", (job_id,)).fetchone()[0]
-            if count: raise RuntimeError("completion blocked by ambiguous delivery")
+            count = db.execute(
+                "SELECT COUNT(*) FROM external_operations o JOIN steward_jobs owner ON owner.job_id=o.job_id "
+                "JOIN steward_jobs current ON current.job_id=? "
+                "WHERE owner.lineage_id=current.lineage_id AND o.state NOT IN ('observed','abandoned')",
+                (job_id,),
+            ).fetchone()[0]
+            if count:
+                raise RuntimeError("completion blocked by unresolved lineage operation")
             db.execute("INSERT OR REPLACE INTO completion_evaluations VALUES(?,?)", (job_id,_canonical(completion)))
             db.execute("INSERT OR REPLACE INTO steward_handoffs VALUES(?,?)", (job_id,_canonical(handoff)))
             db.execute("UPDATE steward_jobs SET status='completed',stage='completed',version=version+1,updated_at=? WHERE job_id=?", (_iso(self.clock.now()),job_id))
@@ -338,7 +450,8 @@ class StewardRuntime:
             raise RuntimeError("stale lineage publication")
         if lineage["subject"] != job["subject"]: raise RuntimeError("stale subject identity")
         now, evidence = self.store.clock.now(), self.store.evidence(job_id)
-        obligations, blocked = [], bool(self.store.ambiguous(job_id))
+        unresolved = self.store.unresolved_lineage_operations(job_id)
+        obligations, blocked = [], bool(unresolved)
         for requirement in self.profile["completion"]["obligations"]:
             criterion, refs = self._criterion(requirement["id"]), []
             for item in evidence:
@@ -357,7 +470,7 @@ class StewardRuntime:
                 "generation":job["generation"],"subject":job["subject"],"decisionIdentity":{"generation":job["generation"],
                 "profileRevision":self.profile["steward"]["contract_revision"],"proofRecipeRevision":self.proof_recipe["revision"],
                 "subjectRevision":job["subject"].get("revision") or "none"},"disposition":"blocked" if blocked else "eligible",
-                "obligations":obligations,"ambiguousOperationRefs":self.store.ambiguous(job_id),"evaluatedAt":_iso(now)}
+                "obligations":obligations,"ambiguousOperationRefs":unresolved,"evaluatedAt":_iso(now)}
 
     def finalize_with_gate(self, job_id: str) -> None:
         completion=self.completion_gate(job_id)
@@ -373,6 +486,20 @@ class StewardRuntime:
         self.store.save_terminal(job_id,completion,handoff)
 
     def run_once(self) -> bool:
+        stale_operation = self.store.next_superseded_operation()
+        if stale_operation is not None:
+            stale_job = self.store.job(str(stale_operation["job_id"]))
+            operation_id = str(stale_operation["operation_id"])
+            if stale_operation["delivery"] == "delivery-unknown":
+                handle = self.provider.reconcile(operation_id, stale_job["subject"])
+                self.store.reconcile(operation_id, handle)
+                return True
+            payload = self.provider.poll(str(stale_operation["remote_handle"]), stale_job["subject"])
+            if payload.get("state") != "completed":
+                return False
+            self.store.mark_operation_observed(operation_id)
+            return True
+
         job=self.store.next_job()
         if job is None: return False
         if job["cancellation"]=="requested": self.store.finish_cancel(job["jobId"]); return True
@@ -381,17 +508,23 @@ class StewardRuntime:
             self.store.reserve_external(job["jobId"])
             self.faults.trip("after-reservation")
             return True
+        operation_id = str(operation["operation_id"])
         if operation["delivery"]=="not-delivered":
-            handle=self.provider.dispatch(operation["operation_id"],job["subject"])
-            unknown=self.faults.trip("after-dispatch") or self.faults.trip("before-handle-persist")
-            self.store.record_dispatch(operation["operation_id"],"delivery-unknown" if unknown else "delivered",None if unknown else handle)
+            self.store.begin_dispatch(operation_id)
+            if self.faults.trip("after-dispatch-start"):
+                return True
+            handle=self.provider.dispatch(operation_id,job["subject"])
+            if self.faults.trip("after-dispatch") or self.faults.trip("before-handle-persist"):
+                return True
+            self.store.record_dispatch(operation_id,handle)
             return True
         if operation["delivery"]=="delivery-unknown":
-            self.store.reconcile(operation["operation_id"],self.provider.reconcile(operation["operation_id"],job["subject"])); return True
+            self.store.reconcile(operation_id,self.provider.reconcile(operation_id,job["subject"])); return True
         if not self.store.evidence(job["jobId"]):
             payload=self.provider.poll(str(operation["remote_handle"]),job["subject"])
             if payload.get("state")!="completed": return False
             if self.faults.trip("before-result-persist"): return True
+            self.store.mark_operation_observed(operation_id, require_current=True)
             for req in self.profile["completion"]["obligations"]:
                 criterion=self._criterion(req["id"])
                 if criterion.get("approved_producers") and self.provider.producer_id not in criterion["approved_producers"]: continue
@@ -401,7 +534,10 @@ class StewardRuntime:
 
     def recover_until_idle(self, max_steps: int = 100) -> None:
         for _ in range(max_steps):
-            if not self.run_once() or self.store.next_job() is None: return
+            if not self.run_once():
+                return
+            if self.store.next_job() is None and self.store.next_superseded_operation() is None:
+                return
         raise RuntimeError("recovery supervisor exceeded bounded step budget")
 
     def start_background(self, interval_seconds: float = 0.05) -> None:

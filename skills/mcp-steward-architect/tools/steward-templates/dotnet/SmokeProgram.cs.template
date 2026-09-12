@@ -68,6 +68,35 @@ static void VerifyStewardSeed()
                 throw new InvalidOperationException("Handoff digest did not bind canonical handoff content.");
         }
 
+        var countingProvider = new CountingSeedProvider();
+        var dispatchStartRoot = Path.Combine(root, "dispatch-start");
+        using (var beforeDispatch = new StewardSeedRuntime(
+            dispatchStartRoot,
+            clock,
+            countingProvider,
+            new SeedFaultInjector(["after-dispatch-start"]),
+            profile,
+            proof))
+        {
+            var pending = beforeDispatch.Submit("repo-3", "abc", "dispatch-start-1");
+            beforeDispatch.RunOneDue();
+            beforeDispatch.RunOneDue();
+            if (countingProvider.DispatchCount != 0 || beforeDispatch.Status(pending.JobId).Status != "reconciling")
+                throw new InvalidOperationException("Dispatch start was not persisted before remote I/O.");
+        }
+        using (var recoveredBeforeDispatch = new StewardSeedRuntime(
+            dispatchStartRoot,
+            clock,
+            countingProvider,
+            new SeedFaultInjector(),
+            profile,
+            proof))
+        {
+            recoveredBeforeDispatch.RecoverUntilIdle();
+            if (countingProvider.DispatchCount != 0 || countingProvider.ReconcileCount == 0)
+                throw new InvalidOperationException("Recovery replayed a dispatch instead of reconciling durable ambiguity.");
+        }
+
         using (var current = new StewardSeedRuntime(
             Path.Combine(root, "supersession"),
             clock,
@@ -291,3 +320,33 @@ static int IntProperty(JsonElement root, string camel, string pascal)
     var value = ObjectProperty(root, camel, pascal);
     return value.GetInt32();
 }
+
+sealed class CountingSeedProvider : ISeedProvider
+{
+    public int DispatchCount { get; private set; }
+    public int ReconcileCount { get; private set; }
+    public string ProducerId => "seed-provider";
+
+    public string Dispatch(string operationId, StewardSubject subject)
+    {
+        _ = subject;
+        DispatchCount++;
+        return $"remote-{operationId}";
+    }
+
+    public string Reconcile(string operationId, StewardSubject subject)
+    {
+        _ = subject;
+        ReconcileCount++;
+        return $"remote-{operationId}";
+    }
+
+    public SeedPollResult Poll(string remoteHandle, StewardSubject subject) =>
+        new(true, JsonSerializer.SerializeToElement(new
+        {
+            state = "completed",
+            remoteHandle,
+            subject,
+        }));
+}
+

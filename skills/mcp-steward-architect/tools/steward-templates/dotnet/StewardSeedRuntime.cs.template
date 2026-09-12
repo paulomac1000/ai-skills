@@ -342,6 +342,19 @@ public sealed class StewardSeedRuntime : IDisposable
                     UpdatedAt = now,
                 };
                 _state.Jobs[previousJob.JobId] = previousJob;
+                foreach (var operationRef in previousJob.ExternalOperationRefs)
+                {
+                    if (_state.Operations.TryGetValue(operationRef, out var previousOperation) &&
+                        previousOperation.State == "reserved" &&
+                        previousOperation.Delivery == "not-delivered")
+                    {
+                        _state.Operations[operationRef] = previousOperation with
+                        {
+                            State = "abandoned",
+                            ObservedAt = now,
+                        };
+                    }
+                }
                 AuditLocked(previousJob.JobId, "superseded", new Dictionary<string, string>
                 {
                     ["byJobId"] = jobId,
@@ -442,65 +455,81 @@ public sealed class StewardSeedRuntime : IDisposable
         SeedAction? action = null;
         lock (_gate)
         {
-            var job = NextJobLocked();
-            if (job is null)
-                return false;
-            if (job.Cancellation == "requested")
+            var staleOperation = NextSupersededOperationLocked();
+            if (staleOperation is not null)
             {
-                _state.Jobs[job.JobId] = job with
-                {
-                    Version = job.Version + 1,
-                    Status = "cancelled",
-                    Stage = "cancelled",
-                    Cancellation = "completed",
-                    UpdatedAt = _clock.UtcNow,
-                };
-                AuditLocked(job.JobId, "cancelled", new Dictionary<string, string>());
-                SaveLocked();
-                return true;
+                var staleJob = CurrentJobLocked(staleOperation.JobId);
+                action = new(
+                    staleOperation.Delivery == "delivery-unknown" ? "stale-reconcile" : "stale-poll",
+                    staleJob,
+                    staleOperation);
             }
-            var operation = _state.Operations.Values
-                .FirstOrDefault(item => item.JobId == job.JobId);
-            if (operation is null)
-            {
-                ReserveExternalLocked(job);
-                _faults.Trip("after-reservation");
-                SaveLocked();
-                return true;
-            }
-            if (operation.Delivery == "not-delivered")
-                action = new("dispatch", job, operation);
-            else if (operation.Delivery == "delivery-unknown")
-                action = new("reconcile", job, operation);
-            else if (!_state.Evidence.Values.Any(item => item.JobId == job.JobId))
-                action = new("poll", job, operation);
             else
             {
-                FinalizeLocked(job);
-                SaveLocked();
-                return true;
+                var job = NextJobLocked();
+                if (job is null)
+                    return false;
+                if (job.Cancellation == "requested")
+                {
+                    _state.Jobs[job.JobId] = job with
+                    {
+                        Version = job.Version + 1,
+                        Status = "cancelled",
+                        Stage = "cancelled",
+                        Cancellation = "completed",
+                        UpdatedAt = _clock.UtcNow,
+                    };
+                    AuditLocked(job.JobId, "cancelled", new Dictionary<string, string>());
+                    SaveLocked();
+                    return true;
+                }
+                var operation = _state.Operations.Values
+                    .FirstOrDefault(item => item.JobId == job.JobId);
+                if (operation is null)
+                {
+                    ReserveExternalLocked(job);
+                    _faults.Trip("after-reservation");
+                    SaveLocked();
+                    return true;
+                }
+                if (operation.Delivery == "not-delivered")
+                {
+                    BeginDispatchLocked(operation.OperationId);
+                    SaveLocked();
+                    action = new("dispatch", job, _state.Operations[operation.OperationId]);
+                }
+                else if (operation.Delivery == "delivery-unknown")
+                    action = new("reconcile", job, operation);
+                else if (!_state.Evidence.Values.Any(item => item.JobId == job.JobId))
+                    action = new("poll", job, operation);
+                else
+                {
+                    FinalizeLocked(job);
+                    SaveLocked();
+                    return true;
+                }
             }
         }
 
-        // Provider I/O deliberately runs outside the durable state lock.
         if (action.Kind == "dispatch")
         {
+            if (_faults.Trip("after-dispatch-start"))
+                return true;
             var handle = _provider.Dispatch(action.Operation.OperationId, action.Job.Subject);
+            if (_faults.Trip("after-dispatch") || _faults.Trip("before-handle-persist"))
+                return true;
             lock (_gate)
             {
-                RequireCurrentLocked(action.Job);
-                var unknown = _faults.Trip("after-dispatch") || _faults.Trip("before-handle-persist");
-                ApplyDispatchLocked(action.Operation.OperationId, unknown ? null : handle, unknown);
+                ApplyDispatchLocked(action.Operation.OperationId, handle);
                 SaveLocked();
             }
             return true;
         }
-        if (action.Kind == "reconcile")
+        if (action.Kind is "reconcile" or "stale-reconcile")
         {
             var handle = _provider.Reconcile(action.Operation.OperationId, action.Job.Subject);
             lock (_gate)
             {
-                RequireCurrentLocked(action.Job);
                 ApplyReconcileLocked(action.Operation.OperationId, handle);
                 SaveLocked();
             }
@@ -512,9 +541,20 @@ public sealed class StewardSeedRuntime : IDisposable
             return false;
         lock (_gate)
         {
+            if (action.Kind == "stale-poll")
+            {
+                MarkOperationObservedLocked(action.Operation.OperationId);
+                AuditLocked(action.Job.JobId, "late-result-discarded", new Dictionary<string, string>
+                {
+                    ["operationId"] = action.Operation.OperationId,
+                });
+                SaveLocked();
+                return true;
+            }
             RequireCurrentLocked(action.Job);
             if (_faults.Trip("before-result-persist"))
                 return true;
+            MarkOperationObservedLocked(action.Operation.OperationId);
             PersistEvidenceLocked(action.Job, result.Payload);
             SaveLocked();
         }
@@ -529,7 +569,7 @@ public sealed class StewardSeedRuntime : IDisposable
                 return;
             lock (_gate)
             {
-                if (NextJobLocked() is null)
+                if (NextJobLocked() is null && NextSupersededOperationLocked() is null)
                     return;
             }
         }
@@ -574,55 +614,101 @@ public sealed class StewardSeedRuntime : IDisposable
         });
     }
 
-    private void ApplyDispatchLocked(string operationId, string? remoteHandle, bool unknown)
+    private void BeginDispatchLocked(string operationId)
     {
         var operation = _state.Operations[operationId];
         var job = CurrentJobLocked(operation.JobId);
+        RequireCurrentLocked(job);
+        var now = _clock.UtcNow;
         _state.Operations[operationId] = operation with
         {
-            State = "dispatched",
-            Delivery = unknown ? "delivery-unknown" : "delivered",
-            RetryDisposition = unknown ? "reconcile-first" : "forbidden",
-            RemoteHandle = remoteHandle,
-            ObservedAt = _clock.UtcNow,
+            State = "dispatching",
+            Delivery = "delivery-unknown",
+            RetryDisposition = "reconcile-first",
+            ObservedAt = now,
         };
         _state.Jobs[job.JobId] = job with
         {
             Version = job.Version + 1,
-            Status = unknown ? "reconciling" : "waiting-external",
-            Stage = "external-dispatched",
-            UpdatedAt = _clock.UtcNow,
+            Status = "reconciling",
+            Stage = "dispatch-started",
+            UpdatedAt = now,
         };
-        AuditLocked(job.JobId, "external-dispatched", new Dictionary<string, string>
+        AuditLocked(job.JobId, "dispatch-started", new Dictionary<string, string>
         {
-            ["delivery"] = unknown ? "delivery-unknown" : "delivered",
+            ["operationId"] = operationId,
         });
+    }
+
+    private void ApplyDispatchLocked(string operationId, string remoteHandle)
+    {
+        var operation = _state.Operations[operationId];
+        var job = CurrentJobLocked(operation.JobId);
+        var now = _clock.UtcNow;
+        _state.Operations[operationId] = operation with
+        {
+            State = "dispatched",
+            Delivery = "delivered",
+            RetryDisposition = "forbidden",
+            RemoteHandle = remoteHandle,
+            ObservedAt = now,
+        };
+        if (IsCurrentLocked(job) && !Terminal.Contains(job.Status))
+        {
+            _state.Jobs[job.JobId] = job with
+            {
+                Version = job.Version + 1,
+                Status = "waiting-external",
+                Stage = "external-dispatched",
+                UpdatedAt = now,
+            };
+        }
+        AuditLocked(job.JobId, IsCurrentLocked(job) ? "external-dispatched" : "late-dispatch-observed",
+            new Dictionary<string, string>
+            {
+                ["delivery"] = "delivered",
+                ["operationId"] = operationId,
+            });
     }
 
     private void ApplyReconcileLocked(string operationId, string remoteHandle)
     {
         var operation = _state.Operations[operationId];
         var job = CurrentJobLocked(operation.JobId);
+        var now = _clock.UtcNow;
         _state.Operations[operationId] = operation with
         {
-            State = "observed",
+            State = "dispatched",
             Delivery = "delivered",
             RetryDisposition = "forbidden",
             RemoteHandle = remoteHandle,
-            ObservedAt = _clock.UtcNow,
+            ObservedAt = now,
             ReconcileCount = operation.ReconcileCount + 1,
         };
-        _state.Jobs[job.JobId] = job with
+        if (IsCurrentLocked(job) && !Terminal.Contains(job.Status))
         {
-            Version = job.Version + 1,
-            Status = "waiting-external",
-            Stage = "reconciled",
-            UpdatedAt = _clock.UtcNow,
-        };
+            _state.Jobs[job.JobId] = job with
+            {
+                Version = job.Version + 1,
+                Status = "waiting-external",
+                Stage = "reconciled",
+                UpdatedAt = now,
+            };
+        }
         AuditLocked(job.JobId, "reconciled", new Dictionary<string, string>
         {
             ["operationId"] = operationId,
         });
+    }
+
+    private void MarkOperationObservedLocked(string operationId)
+    {
+        var operation = _state.Operations[operationId];
+        _state.Operations[operationId] = operation with
+        {
+            State = "observed",
+            ObservedAt = _clock.UtcNow,
+        };
     }
 
     private void PersistEvidenceLocked(StewardSeedJob job, JsonElement payload)
@@ -674,7 +760,11 @@ public sealed class StewardSeedRuntime : IDisposable
         if (lineage.Subject != job.Subject)
             throw new InvalidOperationException("stale subject identity");
         var ambiguous = _state.Operations.Values
-            .Where(item => item.JobId == job.JobId && item.Delivery == "delivery-unknown")
+            .Where(item =>
+                _state.Jobs.TryGetValue(item.JobId, out var operationJob) &&
+                operationJob.LineageId == job.LineageId &&
+                item.State != "observed" &&
+                item.State != "abandoned")
             .Select(item => item.OperationId)
             .Order(StringComparer.Ordinal)
             .ToArray();
@@ -822,6 +912,24 @@ public sealed class StewardSeedRuntime : IDisposable
             .OrderBy(item => item.CreatedAt)
             .ThenBy(item => item.JobId, StringComparer.Ordinal)
             .FirstOrDefault();
+
+    private StewardOperation? NextSupersededOperationLocked() =>
+        _state.Operations.Values
+            .Where(item =>
+                _state.Jobs.TryGetValue(item.JobId, out var job) &&
+                job.Status == "superseded" &&
+                item.State != "observed" &&
+                item.State != "abandoned" &&
+                (item.Delivery == "delivery-unknown" || item.Delivery == "delivered"))
+            .OrderBy(item => item.ObservedAt)
+            .ThenBy(item => item.OperationId, StringComparer.Ordinal)
+            .FirstOrDefault();
+
+    private bool IsCurrentLocked(StewardSeedJob job) =>
+        _state.Lineages.TryGetValue(job.LineageId, out var lineage) &&
+        lineage.CurrentJobId == job.JobId &&
+        lineage.CurrentGeneration == job.Generation &&
+        CurrentJobLocked(job.JobId).AttemptId == job.AttemptId;
 
     private StewardSeedJob CurrentJobLocked(string jobId) =>
         _state.Jobs.TryGetValue(jobId, out var job)

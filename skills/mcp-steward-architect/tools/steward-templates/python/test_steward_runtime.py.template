@@ -59,3 +59,46 @@ def test_new_generation_supersedes_nonterminal_predecessor(tmp_path: Path) -> No
     assert runtime.status(latest["jobId"])["status"] == "completed"
     assert runtime.get(stale["jobId"])["handoff"] is None
 
+class _CountingProvider:
+    producer_id = "seed-provider"
+
+    def __init__(self) -> None:
+        self.dispatch_count = 0
+        self.reconcile_count = 0
+
+    def dispatch(self, operation_id: str, subject: dict[str, object]) -> str:
+        self.dispatch_count += 1
+        return f"remote-{operation_id}"
+
+    def reconcile(self, operation_id: str, subject: dict[str, object]) -> str:
+        self.reconcile_count += 1
+        return f"remote-{operation_id}"
+
+    def poll(self, remote_handle: str, subject: dict[str, object]) -> dict[str, object]:
+        return {"state": "completed", "remoteHandle": remote_handle, "subject": subject}
+
+
+def test_dispatch_start_is_durable_before_remote_io(tmp_path: Path) -> None:
+    profile, proof = _policy()
+    provider = _CountingProvider()
+    state_path = tmp_path / "dispatch-start.db"
+    clock = FakeClock(datetime(2026, 1, 1, tzinfo=UTC))
+    first = StewardRuntime(
+        StewardStore(state_path, clock),
+        profile,
+        proof,
+        provider=provider,
+        faults=FaultInjector({"after-dispatch-start"}),
+    )
+    admitted = first.submit("repo-3", "abc", "dispatch-start-1")
+    first.run_once()
+    first.run_once()
+    assert provider.dispatch_count == 0
+    assert first.status(admitted["jobId"])["status"] == "reconciling"
+
+    recovered = StewardRuntime(StewardStore(state_path, clock), profile, proof, provider=provider)
+    recovered.recover_until_idle()
+    assert provider.dispatch_count == 0
+    assert provider.reconcile_count >= 1
+    assert recovered.status(admitted["jobId"])["status"] == "completed"
+
