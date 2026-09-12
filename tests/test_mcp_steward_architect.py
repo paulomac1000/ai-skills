@@ -256,10 +256,15 @@ def test_python_generator_publishes_without_overwrite_and_runtime_recovers(
         credential_slot_id="primary",
     )
     store.mark_delivery_unknown("op1")
-    assert runtime.StewardStore(database).receipt("op1") == (
+    recovered = runtime.StewardStore(database)
+    assert recovered.receipt("op1") == (
         "delivery-unknown",
         "reconcile-first",
     )
+    with pytest.raises(RuntimeError, match="ambiguous delivery"):
+        recovered.finalize("j1", 1, "a1")
+    recovered.mark_delivered("op1", "remote-1")
+    recovered.finalize("j1", 1, "a1")
 
     with pytest.raises(FileExistsError):
         generator.generate_project(
