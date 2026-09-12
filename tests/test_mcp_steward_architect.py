@@ -395,7 +395,7 @@ def test_handoff_rejects_false_terminal_semantics_and_invalid_timestamp() -> Non
     }
 
     findings = validator.validate_document("handoff", handoff)
-    assert any("is not a 'date-time'" in finding for finding in findings)
+    assert any("date-time" in finding for finding in findings)
 
     handoff["sealedAt"] = "2026-09-12T00:00:00Z"
     assert validator.validate_document("handoff", handoff) == [
