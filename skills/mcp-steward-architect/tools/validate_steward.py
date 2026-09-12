@@ -197,12 +197,20 @@ def _completion_findings(value: dict[str, Any]) -> list[str]:
     return findings
 
 
-def validate_handoff_current(value: dict[str, Any], *, current_job_id: str, current_generation: int) -> list[str]:
+def validate_handoff_current(
+    value: dict[str, Any],
+    *,
+    current_job_id: str,
+    current_generation: int,
+    current_subject: dict[str, Any],
+) -> list[str]:
     findings = validate_document("handoff", value)
     if findings:
         return findings
     if value["actionable"] and (value["jobId"] != current_job_id or value["generation"] != current_generation):
         findings.append("handoff: stale job/generation cannot be actionable")
+    if value["actionable"] and value["subject"] != current_subject:
+        findings.append("handoff: stale subject identity cannot be actionable")
     if value["status"] == "superseded" and value["actionable"]:
         findings.append("handoff: superseded handoff cannot be actionable")
     return findings
