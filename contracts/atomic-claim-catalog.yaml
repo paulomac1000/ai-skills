@@ -230,7 +230,7 @@ controls:
     severity: blocking
     waivable: false
     required_evidence: [unit]
-    test_selectors: [tests/test_mcp_steward_architect.py::test_stale_generation_handoff_cannot_be_actionable]
+    test_selectors: [tests/test_mcp_steward_architect.py::test_stale_generation_handoff_cannot_be_actionable_before_digest_check]
   - id: steward.credentials.no-privilege-failover
     parent_rule_id: steward.credentials.fail-closed
     skill: mcp-steward-architect
