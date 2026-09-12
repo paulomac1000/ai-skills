@@ -124,17 +124,13 @@ def _inject_dotnet_smoke(files: dict[str, str], namespace: str) -> None:
     marker = "await VerifyConcurrencyContractAsync();\n"
     program = files.get(program_path)
     if program is None or marker not in program:
-        raise RuntimeError(
-            "canonical .NET smoke entrypoint changed; Steward overlay must be reviewed"
-        )
+        raise RuntimeError("canonical .NET smoke entrypoint changed; Steward overlay must be reviewed")
     files[program_path] = program.replace(
         marker,
         marker + "StewardRuntimeRegressions.Verify();\n",
         1,
     )
-    files[f"tests/{namespace}.Mcp.Smoke/StewardRuntimeRegressions.cs"] = (
-        _dotnet_smoke_regression(namespace)
-    )
+    files[f"tests/{namespace}.Mcp.Smoke/StewardRuntimeRegressions.cs"] = _dotnet_smoke_regression(namespace)
 
 
 def steward_files(
@@ -155,12 +151,8 @@ def steward_files(
         files["tests/test_steward_runtime.py"] = _python_test(identity)
     else:
         durability_profile = "constrained-file"
-        files[f"src/{identity}.Mcp.Domain/StewardContracts.cs"] = _dotnet_contracts(
-            identity
-        )
-        files[f"src/{identity}.Mcp.Server/StewardFileStore.cs"] = _dotnet_store(
-            identity
-        )
+        files[f"src/{identity}.Mcp.Domain/StewardContracts.cs"] = _dotnet_contracts(identity)
+        files[f"src/{identity}.Mcp.Server/StewardFileStore.cs"] = _dotnet_store(identity)
         _inject_dotnet_smoke(files, identity)
 
     overlay = {
@@ -191,14 +183,10 @@ def steward_files(
         ),
     }
     for contract_name in STEWARD_CONTRACTS:
-        overlay[f"steward/contracts/{contract_name}"] = (
-            CONTRACTS / contract_name
-        ).read_text(encoding="utf-8")
+        overlay[f"steward/contracts/{contract_name}"] = (CONTRACTS / contract_name).read_text(encoding="utf-8")
     collisions = sorted(set(files) & set(overlay))
     if collisions:
-        raise ValueError(
-            "Steward overlay collides with base generator: " + ", ".join(collisions)
-        )
+        raise ValueError("Steward overlay collides with base generator: " + ", ".join(collisions))
     files.update(overlay)
     return files
 
@@ -215,9 +203,7 @@ def _publish_no_replace(
     else:
         rename = getattr(base, "_rename_noreplace", None)
     if not callable(rename):
-        raise RuntimeError(
-            "canonical MCP generator no-replace publication primitive is unavailable"
-        )
+        raise RuntimeError("canonical MCP generator no-replace publication primitive is unavailable")
     rename(staging, destination)
 
 
