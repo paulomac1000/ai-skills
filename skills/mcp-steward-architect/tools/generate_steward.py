@@ -220,9 +220,7 @@ def _apply_python_overlay(
     for path in list(files):
         if path.startswith(f"src/{package}/capabilities/"):
             del files[path]
-    files[f"src/{package}/steward_runtime.py"] = _read_template(
-        "python/steward_runtime.py.template"
-    )
+    files[f"src/{package}/steward_runtime.py"] = _read_template("python/steward_runtime.py.template")
     files[f"src/{package}/kernel.py"] = _read_template("python/kernel.py.template")
     files[f"src/{package}/server.py"] = _read_template(
         "python/server.py.template",
@@ -232,19 +230,69 @@ def _apply_python_overlay(
         "python/test_steward_runtime.py.template",
         PACKAGE=package,
     )
-    files[f"src/{package}/steward_profile.json"] = (
-        json.dumps(profile, indent=2, sort_keys=True) + "\n"
-    )
-    files[f"src/{package}/steward_proof_recipe.json"] = (
-        json.dumps(proof, indent=2, sort_keys=True) + "\n"
-    )
+    files[f"src/{package}/steward_profile.json"] = json.dumps(profile, indent=2, sort_keys=True) + "\n"
+    files[f"src/{package}/steward_proof_recipe.json"] = json.dumps(proof, indent=2, sort_keys=True) + "\n"
     capabilities = (
-        ("describe_capabilities", "Describe capabilities", "Returns the governed Steward capability catalog.", "read", "low", "none", True, False),
-        ("steward_submit", "Submit Steward job", "Durably admits an idempotent Steward job and returns its stable job ID.", "write", "medium", "local", True, True),
-        ("steward_status", "Steward status", "Returns bounded operational status for one durable Steward job.", "read", "low", "none", True, False),
-        ("steward_get", "Get Steward result", "Returns bounded evidence, completion evaluation and terminal handoff for one job.", "read", "low", "none", True, False),
-        ("steward_cancel", "Cancel Steward job", "Persists cancellation intent for one non-terminal Steward job.", "write", "medium", "local", True, False),
-        ("steward_doctor", "Steward doctor", "Returns bounded durable diagnostics, ambiguity and recovery state.", "read", "low", "none", True, False),
+        (
+            "describe_capabilities",
+            "Describe capabilities",
+            "Returns the governed Steward capability catalog.",
+            "read",
+            "low",
+            "none",
+            True,
+            False,
+        ),
+        (
+            "steward_submit",
+            "Submit Steward job",
+            "Durably admits an idempotent Steward job and returns its stable job ID.",
+            "write",
+            "medium",
+            "local",
+            True,
+            True,
+        ),
+        (
+            "steward_status",
+            "Steward status",
+            "Returns bounded operational status for one durable Steward job.",
+            "read",
+            "low",
+            "none",
+            True,
+            False,
+        ),
+        (
+            "steward_get",
+            "Get Steward result",
+            "Returns bounded evidence, completion evaluation and terminal handoff for one job.",
+            "read",
+            "low",
+            "none",
+            True,
+            False,
+        ),
+        (
+            "steward_cancel",
+            "Cancel Steward job",
+            "Persists cancellation intent for one non-terminal Steward job.",
+            "write",
+            "medium",
+            "local",
+            True,
+            False,
+        ),
+        (
+            "steward_doctor",
+            "Steward doctor",
+            "Returns bounded durable diagnostics, ambiguity and recovery state.",
+            "read",
+            "low",
+            "none",
+            True,
+            False,
+        ),
     )
     for capability in capabilities:
         capability_id, name, description, operation_kind, risk, impact, idempotent, keyed = capability
@@ -261,8 +309,7 @@ def _apply_python_overlay(
     pyproject = files["pyproject.toml"]
     marker = f'{package} = ["capabilities/*.json", "contracts/*.json"]'
     replacement = (
-        f'{package} = ["capabilities/*.json", "contracts/*.json", '
-        '"steward_profile.json", "steward_proof_recipe.json"]'
+        f'{package} = ["capabilities/*.json", "contracts/*.json", "steward_profile.json", "steward_proof_recipe.json"]'
     )
     if marker not in pyproject:
         raise RuntimeError("canonical Python package-data marker changed")
@@ -328,12 +375,8 @@ def _apply_dotnet_overlay(
     files[f"{server_root}/Program.cs"] = _patch_program(files[f"{server_root}/Program.cs"])
     project_path = f"{server_root}/{namespace}.Mcp.Server.csproj"
     files[project_path] = _patch_server_project(files[project_path])
-    files[f"{server_root}/steward_profile.json"] = (
-        json.dumps(profile, indent=2, sort_keys=True) + "\n"
-    )
-    files[f"{server_root}/steward_proof_recipe.json"] = (
-        json.dumps(proof, indent=2, sort_keys=True) + "\n"
-    )
+    files[f"{server_root}/steward_profile.json"] = json.dumps(profile, indent=2, sort_keys=True) + "\n"
+    files[f"{server_root}/steward_proof_recipe.json"] = json.dumps(proof, indent=2, sort_keys=True) + "\n"
     files[f"tests/{namespace}.Mcp.Smoke/Program.cs"] = _read_template(
         "dotnet/SmokeProgram.cs.template",
         NAMESPACE=namespace,
@@ -400,9 +443,7 @@ def steward_files(
         ),
     }
     for contract_name in STEWARD_CONTRACTS:
-        overlay[f"steward/contracts/{contract_name}"] = (
-            CONTRACTS / contract_name
-        ).read_text(encoding="utf-8")
+        overlay[f"steward/contracts/{contract_name}"] = (CONTRACTS / contract_name).read_text(encoding="utf-8")
     collisions = sorted(set(files) & set(overlay))
     if collisions:
         raise ValueError("Steward overlay collides with base generator: " + ", ".join(collisions))

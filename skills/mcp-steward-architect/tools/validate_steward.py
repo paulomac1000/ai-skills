@@ -64,10 +64,7 @@ def _schema_findings(kind: str, value: Any) -> list[str]:
         ).iter_errors(value),
         key=lambda item: tuple(str(part) for part in item.absolute_path),
     )
-    return [
-        f"schema:{'.'.join(map(str, error.absolute_path)) or '<root>'}: {error.message}"
-        for error in errors
-    ]
+    return [f"schema:{'.'.join(map(str, error.absolute_path)) or '<root>'}: {error.message}" for error in errors]
 
 
 def _parse_timestamp(value: str) -> datetime:
@@ -108,29 +105,21 @@ def _profile_findings(value: dict[str, Any]) -> list[str]:
     if overlap:
         findings.append("authority: owns and never_claims overlap: " + ", ".join(overlap))
     durability = value["durability"]
-    if (
-        durability["profile"] != "constrained-file"
-        and not durability["transactional_store_required"]
-    ):
+    if durability["profile"] != "constrained-file" and not durability["transactional_store_required"]:
         findings.append("durability: durable profiles require a transactional store")
     required = set(value["subject_identity"]["required_dimensions"])
     freshness = set(value["subject_identity"]["freshness_dimensions"])
     unknown = sorted(freshness - required)
     if unknown:
         findings.append(
-            "subject_identity: freshness dimensions must also be required dimensions: "
-            + ", ".join(unknown)
+            "subject_identity: freshness dimensions must also be required dimensions: " + ", ".join(unknown)
         )
     obligation_ids = [item["id"] for item in value["completion"]["obligations"]]
-    duplicates = sorted(
-        item for item in set(obligation_ids) if obligation_ids.count(item) > 1
-    )
+    duplicates = sorted(item for item in set(obligation_ids) if obligation_ids.count(item) > 1)
     if duplicates:
         findings.append("completion: duplicate obligation ids: " + ", ".join(duplicates))
     fallback = value["credentials"]["fallback"]
-    if fallback["enabled"] and (
-        not fallback["preserve_principal_scope"] or not fallback["preserve_target"]
-    ):
+    if fallback["enabled"] and (not fallback["preserve_principal_scope"] or not fallback["preserve_target"]):
         findings.append("credentials: fallback must preserve principal/scope and target")
     return findings
 
@@ -153,9 +142,7 @@ def _receipt_findings(value: dict[str, Any]) -> list[str]:
     delivery = value["delivery"]
     retry = value["retryDisposition"]
     if delivery == "delivery-unknown" and retry != "reconcile-first":
-        findings.append(
-            "receipt: delivery-unknown requires retryDisposition=reconcile-first"
-        )
+        findings.append("receipt: delivery-unknown requires retryDisposition=reconcile-first")
     if delivery == "not-delivered" and value.get("remoteHandle"):
         findings.append("receipt: not-delivered cannot claim a remote handle")
     if value["state"] == "reserved" and delivery != "not-delivered":
@@ -163,18 +150,14 @@ def _receipt_findings(value: dict[str, Any]) -> list[str]:
     if value["state"] == "reserved" and retry != "forbidden":
         findings.append("receipt: reserved operation cannot be retry-eligible")
     if delivery == "delivery-unknown" and value.get("nextRetryAt") is not None:
-        findings.append(
-            "receipt: delivery-unknown cannot schedule retry before reconciliation"
-        )
+        findings.append("receipt: delivery-unknown cannot schedule retry before reconciliation")
     return findings
 
 
 def _handoff_semantic_findings(value: dict[str, Any]) -> list[str]:
     findings: list[str] = []
     status = value["status"]
-    if status in {"failed", "cancelled", "blocked", "superseded"} and value[
-        "actionable"
-    ]:
+    if status in {"failed", "cancelled", "blocked", "superseded"} and value["actionable"]:
         findings.append(f"handoff: {status} handoff cannot be actionable")
     if status == "completed" and value["gaps"]:
         findings.append("handoff: completed handoff cannot retain unresolved gaps")
@@ -202,19 +185,12 @@ def _upstream_findings(value: dict[str, Any]) -> list[str]:
         }
         reconcilable = value["reconciliation"]["ambiguous_delivery"] != "unsupported"
         if not recoverable or not reconcilable:
-            findings.append(
-                "upstream: stateful capability requires recovery and "
-                "ambiguous-delivery reconciliation"
-            )
+            findings.append("upstream: stateful capability requires recovery and ambiguous-delivery reconciliation")
     if value["delivery"] == "durable-async":
         if value["recovery"] not in {"status-by-handle", "resume-by-handle"}:
-            findings.append(
-                "upstream: durable-async capability requires status/resume by handle"
-            )
+            findings.append("upstream: durable-async capability requires status/resume by handle")
         if value["progress"] == "none":
-            findings.append(
-                "upstream: durable-async capability requires progress semantics"
-            )
+            findings.append("upstream: durable-async capability requires progress semantics")
     return findings
 
 
@@ -228,9 +204,7 @@ def _completion_findings(value: dict[str, Any]) -> list[str]:
     findings: list[str] = []
     obligations = value["obligations"]
     obligation_ids = [item["id"] for item in obligations]
-    duplicates = sorted(
-        item for item in set(obligation_ids) if obligation_ids.count(item) > 1
-    )
+    duplicates = sorted(item for item in set(obligation_ids) if obligation_ids.count(item) > 1)
     if duplicates:
         findings.append("completion: duplicate obligation ids: " + ", ".join(duplicates))
     for obligation in obligations:
@@ -291,10 +265,7 @@ def validate_handoff_current(
     findings.extend(_handoff_semantic_findings(value))
     if findings:
         return findings
-    if value["actionable"] and (
-        value["jobId"] != current_job_id
-        or value["generation"] != current_generation
-    ):
+    if value["actionable"] and (value["jobId"] != current_job_id or value["generation"] != current_generation):
         return ["handoff: stale job/generation cannot be actionable"]
     if value["actionable"] and value["subject"] != current_subject:
         return ["handoff: stale subject identity cannot be actionable"]
@@ -335,23 +306,14 @@ def validate_completion_context(
 
     criteria = _proof_criteria(proof_recipe)
     recipe_id = f"{proof_recipe.get('recipe_id')}@{proof_recipe.get('revision')}"
-    requirements = {
-        str(item["id"]): item
-        for item in profile["completion"]["obligations"]
-        if isinstance(item, dict)
-    }
-    completion_obligations = {
-        str(item["id"]): item
-        for item in value["obligations"]
-        if isinstance(item, dict)
-    }
+    requirements = {str(item["id"]): item for item in profile["completion"]["obligations"] if isinstance(item, dict)}
+    completion_obligations = {str(item["id"]): item for item in value["obligations"] if isinstance(item, dict)}
     evidence_by_id: dict[str, dict[str, Any]] = {}
     for evidence_document in evidence_documents:
         evidence_findings = validate_document("evidence", evidence_document)
         if evidence_findings:
             findings.extend(
-                f"evidence {evidence_document.get('evidenceId', '<unknown>')}: {item}"
-                for item in evidence_findings
+                f"evidence {evidence_document.get('evidenceId', '<unknown>')}: {item}" for item in evidence_findings
             )
         else:
             evidence_by_id[str(evidence_document["evidenceId"])] = evidence_document
@@ -378,21 +340,12 @@ def validate_completion_context(
         for evidence_ref in completion_obligation["evidenceRefs"]:
             resolved_evidence = evidence_by_id.get(str(evidence_ref))
             if resolved_evidence is None:
-                findings.append(
-                    f"completion: obligation {obligation_id} references missing evidence "
-                    f"{evidence_ref}"
-                )
+                findings.append(f"completion: obligation {obligation_id} references missing evidence {evidence_ref}")
                 continue
             reasons: list[str] = []
-            if (
-                resolved_evidence["jobId"] != current_job_id
-                or resolved_evidence["generation"] != current_generation
-            ):
+            if resolved_evidence["jobId"] != current_job_id or resolved_evidence["generation"] != current_generation:
                 reasons.append("stale job/generation")
-            if (
-                resolved_evidence["lineageId"] != value["lineageId"]
-                or resolved_evidence["subject"] != current_subject
-            ):
+            if resolved_evidence["lineageId"] != value["lineageId"] or resolved_evidence["subject"] != current_subject:
                 reasons.append("subject/lineage mismatch")
             if resolved_evidence["criterionId"] != obligation_id:
                 reasons.append("criterion mismatch")
@@ -404,37 +357,25 @@ def validate_completion_context(
             if approved and resolved_evidence["producerId"] not in approved:
                 reasons.append("producer not approved")
             required_rank = _AUTHORITY_RANK.get(str(criterion["required_authority"]), 99)
-            if (
-                _AUTHORITY_RANK.get(str(resolved_evidence["authorityClass"]), -1)
-                < required_rank
-            ):
+            if _AUTHORITY_RANK.get(str(resolved_evidence["authorityClass"]), -1) < required_rank:
                 reasons.append("insufficient authority")
             observed = _parse_timestamp(str(resolved_evidence["observedAt"]))
             if observed > selected_now:
                 reasons.append("observation is from the future")
-            elif (selected_now - observed).total_seconds() > int(
-                criterion["freshness_seconds"]
-            ):
+            elif (selected_now - observed).total_seconds() > int(criterion["freshness_seconds"]):
                 reasons.append("evidence is stale")
             expires = resolved_evidence.get("expiresAt")
             if expires is not None and _parse_timestamp(str(expires)) < selected_now:
                 reasons.append("evidence is expired")
             if reasons:
-                findings.append(
-                    f"completion: evidence {evidence_ref} for {obligation_id}: "
-                    + ", ".join(reasons)
-                )
+                findings.append(f"completion: evidence {evidence_ref} for {obligation_id}: " + ", ".join(reasons))
             else:
                 valid_evidence = True
         if not valid_evidence:
             resolved_required = False
 
-    if value["disposition"] == "eligible" and (
-        not resolved_required or bool(value["ambiguousOperationRefs"])
-    ):
-        findings.append(
-            "completion: eligible disposition is not supported by current resolved evidence"
-        )
+    if value["disposition"] == "eligible" and (not resolved_required or bool(value["ambiguousOperationRefs"])):
+        findings.append("completion: eligible disposition is not supported by current resolved evidence")
     return findings
 
 
@@ -457,11 +398,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _context_complete(args: argparse.Namespace) -> bool:
-    return (
-        args.current_job_id is not None
-        and args.current_generation is not None
-        and args.current_subject is not None
-    )
+    return args.current_job_id is not None and args.current_generation is not None and args.current_subject is not None
 
 
 def main() -> int:
@@ -472,10 +409,7 @@ def main() -> int:
     elif args.kind == "handoff" and value.get("actionable") is True:
         if not _context_complete(args):
             findings = validate_document("handoff", value)
-            findings.append(
-                "handoff: actionable validation requires current job, generation, "
-                "and subject context"
-            )
+            findings.append("handoff: actionable validation requires current job, generation, and subject context")
         else:
             current_subject = _load(args.current_subject)
             if not isinstance(current_subject, dict):
@@ -488,16 +422,11 @@ def main() -> int:
                     current_subject=current_subject,
                 )
     elif args.kind == "completion" and value.get("disposition") == "eligible":
-        missing = (
-            not _context_complete(args)
-            or args.profile is None
-            or args.proof_recipe is None
-        )
+        missing = not _context_complete(args) or args.profile is None or args.proof_recipe is None
         if missing:
             findings = validate_document("completion", value)
             findings.append(
-                "completion: eligible validation requires current lineage, profile, "
-                "proof recipe, and evidence context"
+                "completion: eligible validation requires current lineage, profile, proof recipe, and evidence context"
             )
         else:
             current_subject = _load(args.current_subject)
