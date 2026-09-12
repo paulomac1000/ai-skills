@@ -1,0 +1,417 @@
+"""Durable Steward seed with scheduler/recovery, evidence resolution and completion gate enforcement."""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+import sqlite3
+import threading
+import uuid
+from contextlib import contextmanager
+from datetime import UTC, datetime, timedelta
+from importlib.resources import files
+from pathlib import Path
+from typing import Any, Iterator
+
+_AUTHORITY_RANK = {"advisory": 0, "observed": 1, "verified": 2, "independent": 3}
+_TERMINAL = {"completed", "completed-with-gaps", "failed", "cancelled", "superseded"}
+
+
+def _canonical(value: object) -> str:
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+
+
+def _digest(value: object) -> str:
+    return "sha256:" + hashlib.sha256(_canonical(value).encode()).hexdigest()
+
+
+def compute_handoff_digest(value: dict[str, Any]) -> str:
+    return _digest({key: item for key, item in value.items() if key != "digest"})
+
+
+def _iso(value: datetime) -> str:
+    return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
+
+
+class SystemClock:
+    def now(self) -> datetime:
+        return datetime.now(UTC)
+
+
+class FakeClock:
+    def __init__(self, value: datetime) -> None:
+        if value.tzinfo is None:
+            raise ValueError("FakeClock requires timezone-aware datetime")
+        self._value = value.astimezone(UTC)
+
+    def now(self) -> datetime:
+        return self._value
+
+    def advance(self, seconds: float) -> None:
+        self._value += timedelta(seconds=seconds)
+
+
+class FaultInjector:
+    def __init__(self, faults: set[str] | None = None) -> None:
+        self._faults = set(faults or ())
+
+    def trip(self, name: str) -> bool:
+        if name not in self._faults:
+            return False
+        self._faults.remove(name)
+        return True
+
+
+class FakeProvider:
+    producer_id = "seed-provider"
+
+    def dispatch(self, operation_id: str, subject: dict[str, Any]) -> str:
+        del subject
+        return f"remote-{operation_id}"
+
+    def reconcile(self, operation_id: str, subject: dict[str, Any]) -> str:
+        del subject
+        return f"remote-{operation_id}"
+
+    def poll(self, remote_handle: str, subject: dict[str, Any]) -> dict[str, Any]:
+        return {"state": "completed", "remoteHandle": remote_handle, "subject": subject}
+
+
+class StewardStore:
+    def __init__(self, path: Path, clock: SystemClock | FakeClock | None = None) -> None:
+        self.path = path
+        self.clock = clock or SystemClock()
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self._init()
+
+    def _connect(self) -> sqlite3.Connection:
+        db = sqlite3.connect(self.path, timeout=10, isolation_level=None)
+        db.row_factory = sqlite3.Row
+        db.execute("PRAGMA journal_mode=WAL")
+        db.execute("PRAGMA foreign_keys=ON")
+        return db
+
+    @contextmanager
+    def _write(self) -> Iterator[sqlite3.Connection]:
+        with self._connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            try:
+                yield db
+            except BaseException:
+                db.rollback()
+                raise
+            else:
+                db.commit()
+
+    def _init(self) -> None:
+        with self._connect() as db:
+            db.executescript("""
+            CREATE TABLE IF NOT EXISTS steward_jobs(
+              job_id TEXT PRIMARY KEY,lineage_id TEXT,generation INTEGER,attempt_id TEXT,version INTEGER,
+              subject_json TEXT,request_digest TEXT,status TEXT,stage TEXT,cancellation TEXT,created_at TEXT,updated_at TEXT);
+            CREATE TABLE IF NOT EXISTS steward_lineages(
+              lineage_id TEXT PRIMARY KEY,current_generation INTEGER,current_job_id TEXT,subject_json TEXT,version INTEGER);
+            CREATE TABLE IF NOT EXISTS intake_idempotency(
+              idempotency_key TEXT PRIMARY KEY,request_digest TEXT,job_id TEXT);
+            CREATE TABLE IF NOT EXISTS external_operations(
+              operation_id TEXT PRIMARY KEY,job_id TEXT,generation INTEGER,attempt_id TEXT,request_digest TEXT,
+              state TEXT,delivery TEXT,retry_disposition TEXT,credential_slot_id TEXT,remote_handle TEXT,
+              created_at TEXT,observed_at TEXT,reconcile_count INTEGER);
+            CREATE TABLE IF NOT EXISTS steward_evidence(
+              evidence_id TEXT PRIMARY KEY,job_id TEXT,lineage_id TEXT,generation INTEGER,subject_json TEXT,
+              criterion_id TEXT,evidence_class TEXT,authority_class TEXT,producer_id TEXT,proof_recipe_id TEXT,
+              observed_at TEXT,expires_at TEXT,payload_digest TEXT);
+            CREATE TABLE IF NOT EXISTS completion_evaluations(job_id TEXT PRIMARY KEY,value_json TEXT);
+            CREATE TABLE IF NOT EXISTS steward_handoffs(job_id TEXT PRIMARY KEY,value_json TEXT);
+            CREATE TABLE IF NOT EXISTS audit_events(
+              sequence INTEGER PRIMARY KEY AUTOINCREMENT,job_id TEXT,event_type TEXT,at TEXT,detail_json TEXT);
+            """)
+
+    def _audit(self, db: sqlite3.Connection, job_id: str | None, event: str, detail: dict[str, Any]) -> None:
+        db.execute("INSERT INTO audit_events(job_id,event_type,at,detail_json) VALUES(?,?,?,?)",
+                   (job_id, event, _iso(self.clock.now()), _canonical(detail)))
+
+    def admit(self, subject: dict[str, Any], idempotency_key: str) -> dict[str, Any]:
+        subject = {"type": "target", "id": str(subject["id"]), "revision": subject.get("revision")}
+        request_digest = _digest(subject)
+        lineage_id = "lineage-" + hashlib.sha256(_canonical(subject).encode()).hexdigest()[:24]
+        now = _iso(self.clock.now())
+        with self._write() as db:
+            previous = db.execute("SELECT request_digest,job_id FROM intake_idempotency WHERE idempotency_key=?",
+                                  (idempotency_key,)).fetchone()
+            if previous:
+                if previous["request_digest"] != request_digest:
+                    raise RuntimeError("idempotency key is bound to a different request digest")
+                return {"jobId": previous["job_id"], "duplicate": True}
+            lineage = db.execute("SELECT current_generation FROM steward_lineages WHERE lineage_id=?", (lineage_id,)).fetchone()
+            generation = 1 if lineage is None else int(lineage[0]) + 1
+            job_id, attempt_id = f"job-{uuid.uuid4().hex}", f"attempt-{uuid.uuid4().hex}"
+            db.execute("INSERT INTO steward_jobs VALUES(?,?,?,?,0,?,?,?,?,?,?,?)",
+                       (job_id,lineage_id,generation,attempt_id,_canonical(subject),request_digest,
+                        "queued","admitted","none",now,now))
+            db.execute("INSERT INTO steward_lineages VALUES(?,?,?,?,0) ON CONFLICT(lineage_id) DO UPDATE SET "
+                       "current_generation=excluded.current_generation,current_job_id=excluded.current_job_id,"
+                       "subject_json=excluded.subject_json,version=version+1",
+                       (lineage_id,generation,job_id,_canonical(subject)))
+            db.execute("INSERT INTO intake_idempotency VALUES(?,?,?)", (idempotency_key,request_digest,job_id))
+            self._audit(db, job_id, "admitted", {"generation": generation})
+        return {"jobId": job_id, "duplicate": False}
+
+    def job(self, job_id: str) -> dict[str, Any]:
+        with self._connect() as db:
+            row = db.execute("SELECT * FROM steward_jobs WHERE job_id=?", (job_id,)).fetchone()
+        if row is None:
+            raise KeyError(job_id)
+        return {"jobId":row["job_id"],"lineageId":row["lineage_id"],"generation":row["generation"],
+                "attemptId":row["attempt_id"],"version":row["version"],"subject":json.loads(row["subject_json"]),
+                "requestDigest":row["request_digest"],"status":row["status"],"stage":row["stage"],
+                "cancellation":row["cancellation"],"createdAt":row["created_at"],"updatedAt":row["updated_at"]}
+
+    def next_job(self) -> dict[str, Any] | None:
+        marks = ",".join("?" for _ in _TERMINAL)
+        with self._connect() as db:
+            row = db.execute(f"SELECT job_id FROM steward_jobs WHERE status NOT IN ({marks}) ORDER BY created_at,job_id LIMIT 1",
+                             tuple(sorted(_TERMINAL))).fetchone()
+        return None if row is None else self.job(str(row[0]))
+
+    def current_lineage(self, lineage_id: str) -> dict[str, Any]:
+        with self._connect() as db:
+            row = db.execute("SELECT * FROM steward_lineages WHERE lineage_id=?", (lineage_id,)).fetchone()
+        if row is None:
+            raise KeyError(lineage_id)
+        return {"currentGeneration":row["current_generation"],"currentJobId":row["current_job_id"],
+                "subject":json.loads(row["subject_json"])}
+
+    def operation_for_job(self, job_id: str) -> dict[str, Any] | None:
+        with self._connect() as db:
+            row = db.execute("SELECT * FROM external_operations WHERE job_id=? ORDER BY created_at LIMIT 1", (job_id,)).fetchone()
+        return None if row is None else dict(row)
+
+    def reserve_external(self, job_id: str) -> None:
+        job, now, op = self.job(job_id), _iso(self.clock.now()), f"operation-{uuid.uuid4().hex}"
+        with self._write() as db:
+            db.execute("INSERT INTO external_operations VALUES(?,?,?,?,?,'reserved','not-delivered','forbidden','primary',NULL,?,?,0)",
+                       (op,job_id,job["generation"],job["attemptId"],job["requestDigest"],now,now))
+            db.execute("UPDATE steward_jobs SET stage='external-reserved',version=version+1,updated_at=? WHERE job_id=?", (now,job_id))
+            self._audit(db, job_id, "external-reserved", {"operationId": op})
+
+    def record_dispatch(self, operation_id: str, delivery: str, remote_handle: str | None) -> None:
+        status = "reconciling" if delivery == "delivery-unknown" else "waiting-external"
+        retry = "reconcile-first" if delivery == "delivery-unknown" else "forbidden"
+        now = _iso(self.clock.now())
+        with self._write() as db:
+            row = db.execute("SELECT job_id FROM external_operations WHERE operation_id=?", (operation_id,)).fetchone()
+            if row is None: raise KeyError(operation_id)
+            job_id = str(row[0])
+            db.execute("UPDATE external_operations SET state='dispatched',delivery=?,retry_disposition=?,remote_handle=?,observed_at=? WHERE operation_id=?",
+                       (delivery,retry,remote_handle,now,operation_id))
+            db.execute("UPDATE steward_jobs SET status=?,stage='external-dispatched',version=version+1,updated_at=? WHERE job_id=?",
+                       (status,now,job_id))
+            self._audit(db, job_id, "external-dispatched", {"delivery": delivery})
+
+    def reconcile(self, operation_id: str, remote_handle: str) -> None:
+        now = _iso(self.clock.now())
+        with self._write() as db:
+            row = db.execute("SELECT job_id FROM external_operations WHERE operation_id=?", (operation_id,)).fetchone()
+            if row is None: raise KeyError(operation_id)
+            job_id = str(row[0])
+            db.execute("UPDATE external_operations SET state='observed',delivery='delivered',retry_disposition='forbidden',"
+                       "remote_handle=?,observed_at=?,reconcile_count=reconcile_count+1 WHERE operation_id=?", (remote_handle,now,operation_id))
+            db.execute("UPDATE steward_jobs SET status='waiting-external',stage='reconciled',version=version+1,updated_at=? WHERE job_id=?", (now,job_id))
+            self._audit(db, job_id, "reconciled", {"operationId": operation_id})
+
+    def evidence(self, job_id: str) -> list[dict[str, Any]]:
+        with self._connect() as db:
+            rows = db.execute("SELECT * FROM steward_evidence WHERE job_id=? ORDER BY observed_at", (job_id,)).fetchall()
+        return [{"evidenceId":r["evidence_id"],"jobId":r["job_id"],"lineageId":r["lineage_id"],"generation":r["generation"],
+                 "subject":json.loads(r["subject_json"]),"criterionId":r["criterion_id"],"evidenceClass":r["evidence_class"],
+                 "authorityClass":r["authority_class"],"producerId":r["producer_id"],"proofRecipeId":r["proof_recipe_id"],
+                 "observedAt":r["observed_at"],"expiresAt":r["expires_at"],"payloadDigest":r["payload_digest"]} for r in rows]
+
+    def persist_evidence(self, job_id: str, requirement: dict[str, Any], criterion: dict[str, Any],
+                         producer_id: str, payload: dict[str, Any], recipe_id: str) -> None:
+        job, observed = self.job(job_id), self.clock.now()
+        evidence_id = f"evidence-{uuid.uuid4().hex}"
+        with self._write() as db:
+            db.execute("INSERT INTO steward_evidence VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                       (evidence_id,job_id,job["lineageId"],job["generation"],_canonical(job["subject"]),requirement["id"],
+                        requirement["evidence_class"],criterion["required_authority"],producer_id,recipe_id,_iso(observed),
+                        _iso(observed+timedelta(seconds=int(criterion["freshness_seconds"]))),_digest(payload)))
+            db.execute("UPDATE steward_jobs SET status='finalizing',stage='evidence-persisted',version=version+1,updated_at=? WHERE job_id=?",
+                       (_iso(self.clock.now()),job_id))
+            self._audit(db, job_id, "evidence-persisted", {"evidenceId": evidence_id})
+
+    def ambiguous(self, job_id: str) -> list[str]:
+        with self._connect() as db:
+            rows = db.execute("SELECT operation_id FROM external_operations WHERE job_id=? AND delivery='delivery-unknown'", (job_id,)).fetchall()
+        return [str(r[0]) for r in rows]
+
+    def save_terminal(self, job_id: str, completion: dict[str, Any], handoff: dict[str, Any]) -> None:
+        with self._write() as db:
+            row = db.execute("SELECT j.generation,l.current_generation,l.current_job_id FROM steward_jobs j JOIN steward_lineages l ON l.lineage_id=j.lineage_id WHERE j.job_id=?", (job_id,)).fetchone()
+            if row is None or row[0] != row[1] or row[2] != job_id:
+                raise RuntimeError("stale lineage publication")
+            count = db.execute("SELECT COUNT(*) FROM external_operations WHERE job_id=? AND delivery='delivery-unknown'", (job_id,)).fetchone()[0]
+            if count: raise RuntimeError("completion blocked by ambiguous delivery")
+            db.execute("INSERT OR REPLACE INTO completion_evaluations VALUES(?,?)", (job_id,_canonical(completion)))
+            db.execute("INSERT OR REPLACE INTO steward_handoffs VALUES(?,?)", (job_id,_canonical(handoff)))
+            db.execute("UPDATE steward_jobs SET status='completed',stage='completed',version=version+1,updated_at=? WHERE job_id=?", (_iso(self.clock.now()),job_id))
+            self._audit(db, job_id, "handoff-sealed", {"digest": handoff["digest"]})
+
+    def result(self, job_id: str) -> dict[str, Any]:
+        with self._connect() as db:
+            completion = db.execute("SELECT value_json FROM completion_evaluations WHERE job_id=?", (job_id,)).fetchone()
+            handoff = db.execute("SELECT value_json FROM steward_handoffs WHERE job_id=?", (job_id,)).fetchone()
+        op = self.operation_for_job(job_id)
+        return {"job":self.job(job_id),"operations":[] if op is None else [op],"evidence":self.evidence(job_id),
+                "completion":None if completion is None else json.loads(completion[0]),
+                "handoff":None if handoff is None else json.loads(handoff[0])}
+
+    def cancel(self, job_id: str) -> dict[str, Any]:
+        job = self.job(job_id)
+        if job["status"] in _TERMINAL: return job
+        with self._write() as db:
+            db.execute("UPDATE steward_jobs SET cancellation='requested',stage='cancel-requested',version=version+1,updated_at=? WHERE job_id=?", (_iso(self.clock.now()),job_id))
+            self._audit(db, job_id, "cancel-requested", {})
+        return self.job(job_id)
+
+    def finish_cancel(self, job_id: str) -> None:
+        with self._write() as db:
+            db.execute("UPDATE steward_jobs SET status='cancelled',cancellation='completed',stage='cancelled',version=version+1,updated_at=? WHERE job_id=?", (_iso(self.clock.now()),job_id))
+            self._audit(db, job_id, "cancelled", {})
+
+    def audit(self, job_id: str | None) -> list[dict[str, Any]]:
+        with self._connect() as db:
+            if job_id is None: rows=db.execute("SELECT * FROM audit_events ORDER BY sequence DESC LIMIT 50").fetchall()
+            else: rows=db.execute("SELECT * FROM audit_events WHERE job_id=? ORDER BY sequence DESC LIMIT 50", (job_id,)).fetchall()
+        return [dict(r) for r in rows]
+
+
+class StewardRuntime:
+    def __init__(self, store: StewardStore, profile: dict[str, Any], proof_recipe: dict[str, Any], *,
+                 provider: FakeProvider | None = None, faults: FaultInjector | None = None) -> None:
+        self.store, self.profile, self.proof_recipe = store, profile, proof_recipe
+        self.provider, self.faults = provider or FakeProvider(), faults or FaultInjector()
+        self._stop, self._thread = threading.Event(), None
+
+    @property
+    def recipe_id(self) -> str:
+        return f"{self.proof_recipe['recipe_id']}@{self.proof_recipe['revision']}"
+
+    def submit(self, subject_id: str, subject_revision: str | None, idempotency_key: str) -> dict[str, Any]:
+        if not idempotency_key: raise ValueError("idempotency_key is required")
+        return self.store.admit({"id":subject_id,"revision":subject_revision}, idempotency_key)
+
+    def status(self, job_id: str) -> dict[str, Any]: return self.store.job(job_id)
+    def get(self, job_id: str) -> dict[str, Any]: return self.store.result(job_id)
+    def cancel(self, job_id: str) -> dict[str, Any]: return self.store.cancel(job_id)
+    def doctor(self, job_id: str | None = None) -> dict[str, Any]:
+        return {"job":None if job_id is None else self.store.job(job_id),
+                "deliveryUnknown":0 if job_id is None else len(self.store.ambiguous(job_id)),"audit":self.store.audit(job_id)}
+
+    def _criterion(self, obligation_id: str) -> dict[str, Any]:
+        for criterion in self.proof_recipe["criteria"]:
+            if criterion["criterion_id"] == obligation_id: return criterion
+        raise RuntimeError(f"proof recipe has no criterion for obligation {obligation_id}")
+
+    def completion_gate(self, job_id: str) -> dict[str, Any]:
+        job, lineage = self.store.job(job_id), self.store.current_lineage(self.store.job(job_id)["lineageId"])
+        if lineage["currentJobId"] != job_id or lineage["currentGeneration"] != job["generation"]:
+            raise RuntimeError("stale lineage publication")
+        if lineage["subject"] != job["subject"]: raise RuntimeError("stale subject identity")
+        now, evidence = self.store.clock.now(), self.store.evidence(job_id)
+        obligations, blocked = [], bool(self.store.ambiguous(job_id))
+        for requirement in self.profile["completion"]["obligations"]:
+            criterion, refs = self._criterion(requirement["id"]), []
+            for item in evidence:
+                observed=datetime.fromisoformat(item["observedAt"].replace("Z","+00:00"))
+                expires=datetime.fromisoformat(item["expiresAt"].replace("Z","+00:00")) if item["expiresAt"] else None
+                approved=set(criterion.get("approved_producers",[]))
+                valid=(item["jobId"]==job_id and item["generation"]==job["generation"] and item["lineageId"]==job["lineageId"] and
+                       item["subject"]==job["subject"] and item["criterionId"]==requirement["id"] and item["evidenceClass"]==requirement["evidence_class"] and
+                       item["proofRecipeId"]==self.recipe_id and (not approved or item["producerId"] in approved) and
+                       _AUTHORITY_RANK.get(item["authorityClass"],-1)>=_AUTHORITY_RANK[criterion["required_authority"]] and observed<=now and
+                       (now-observed).total_seconds()<=criterion["freshness_seconds"] and (expires is None or expires>=now))
+                if valid: refs.append(item["evidenceId"])
+            if requirement["required"] and not refs: blocked=True
+            obligations.append({"id":requirement["id"],"state":"satisfied" if refs else "unsatisfied","evidenceRefs":refs})
+        return {"schema_version":1,"evaluationId":f"completion-{uuid.uuid4().hex}","jobId":job_id,"lineageId":job["lineageId"],
+                "generation":job["generation"],"subject":job["subject"],"decisionIdentity":{"generation":job["generation"],
+                "profileRevision":self.profile["steward"]["contract_revision"],"proofRecipeRevision":self.proof_recipe["revision"],
+                "subjectRevision":job["subject"].get("revision") or "none"},"disposition":"blocked" if blocked else "eligible",
+                "obligations":obligations,"ambiguousOperationRefs":self.store.ambiguous(job_id),"evaluatedAt":_iso(now)}
+
+    def finalize_with_gate(self, job_id: str) -> None:
+        completion=self.completion_gate(job_id)
+        if completion["disposition"]!="eligible": raise RuntimeError("completion gate blocked terminal publication")
+        job=self.store.job(job_id)
+        handoff={"schema_version":1,"handoffId":f"handoff-{uuid.uuid4().hex}","jobId":job_id,"lineageId":job["lineageId"],
+                 "generation":job["generation"],"subject":job["subject"],"status":"completed","actionable":True,
+                 "outcome":"seed-provider-completed","evidenceRefs":[r for o in completion["obligations"] for r in o["evidenceRefs"]],
+                 "artifactRefs":[],"externalOperationRefs":[o["operation_id"] for o in self.store.result(job_id)["operations"]],
+                 "gaps":[],"correlationId":job_id,"sealedAt":_iso(self.store.clock.now())}
+        handoff["digest"]=compute_handoff_digest(handoff)
+        if self.faults.trip("before-terminal-publication"): return
+        self.store.save_terminal(job_id,completion,handoff)
+
+    def run_once(self) -> bool:
+        job=self.store.next_job()
+        if job is None: return False
+        if job["cancellation"]=="requested": self.store.finish_cancel(job["jobId"]); return True
+        operation=self.store.operation_for_job(job["jobId"])
+        if operation is None:
+            self.store.reserve_external(job["jobId"])
+            self.faults.trip("after-reservation")
+            return True
+        if operation["delivery"]=="not-delivered":
+            handle=self.provider.dispatch(operation["operation_id"],job["subject"])
+            unknown=self.faults.trip("after-dispatch") or self.faults.trip("before-handle-persist")
+            self.store.record_dispatch(operation["operation_id"],"delivery-unknown" if unknown else "delivered",None if unknown else handle)
+            return True
+        if operation["delivery"]=="delivery-unknown":
+            self.store.reconcile(operation["operation_id"],self.provider.reconcile(operation["operation_id"],job["subject"])); return True
+        if not self.store.evidence(job["jobId"]):
+            payload=self.provider.poll(str(operation["remote_handle"]),job["subject"])
+            if payload.get("state")!="completed": return False
+            if self.faults.trip("before-result-persist"): return True
+            for req in self.profile["completion"]["obligations"]:
+                criterion=self._criterion(req["id"])
+                if criterion.get("approved_producers") and self.provider.producer_id not in criterion["approved_producers"]: continue
+                self.store.persist_evidence(job["jobId"],req,criterion,self.provider.producer_id,payload,self.recipe_id)
+            return True
+        self.finalize_with_gate(job["jobId"]); return True
+
+    def recover_until_idle(self, max_steps: int = 100) -> None:
+        for _ in range(max_steps):
+            if not self.run_once() or self.store.next_job() is None: return
+        raise RuntimeError("recovery supervisor exceeded bounded step budget")
+
+    def start_background(self, interval_seconds: float = 0.05) -> None:
+        if self._thread is not None and self._thread.is_alive(): return
+        self._stop.clear()
+        def worker() -> None:
+            while not self._stop.is_set():
+                try: progressed=self.run_once()
+                except Exception: progressed=False
+                if not progressed: self._stop.wait(interval_seconds)
+        self._thread=threading.Thread(target=worker,name="steward-recovery",daemon=True); self._thread.start()
+
+    def stop_background(self) -> None:
+        self._stop.set()
+        if self._thread is not None: self._thread.join(timeout=2); self._thread=None
+
+
+_DEFAULT_RUNTIME: StewardRuntime | None = None
+_DEFAULT_LOCK = threading.Lock()
+
+
+def default_runtime() -> StewardRuntime:
+    global _DEFAULT_RUNTIME
+    with _DEFAULT_LOCK:
+        if _DEFAULT_RUNTIME is None:
+            package=files(__package__)
+            profile=json.loads(package.joinpath("steward_profile.json").read_text(encoding="utf-8"))
+            proof=json.loads(package.joinpath("steward_proof_recipe.json").read_text(encoding="utf-8"))
+            _DEFAULT_RUNTIME=StewardRuntime(StewardStore(Path(os.environ.get("STEWARD_STATE_PATH","steward-state.db"))),profile,proof)
+        return _DEFAULT_RUNTIME
