@@ -91,6 +91,25 @@ skills:
       partial-execution-and-compensation: {rule_id: consumer.workflow.compensated, primary: true}
       compatibility-and-negotiation: {rule_id: consumer.compatibility.negotiated, primary: true}
       verification: {rule_id: consumer.verification.adversarial, primary: true}
+  mcp-steward-architect:
+    headings:
+      purpose: {excluded: true, rationale: Informational scope heading, not an independently assessable invariant.}
+      base-standards-and-precedence: {rule_id: steward.precedence.composed, primary: true}
+      authority-boundary: {rule_id: steward.authority.bounded, primary: true}
+      durable-job-and-state-ownership: {rule_id: steward.lifecycle.durable, primary: true}
+      lineage-generations-attempts-and-leases: {rule_id: steward.lineage.fenced, primary: true}
+      external-operations-and-reconciliation: {rule_id: steward.delivery.reconciled, primary: true}
+      evidence-identity-and-authority: {rule_id: steward.evidence.provenance, primary: true}
+      completion-and-handoff: {rule_id: steward.completion.gated, primary: true}
+      ports-adapters-and-capability-admission: {rule_id: steward.ports.semantic, primary: true}
+      credentials-and-provider-failover: {rule_id: steward.credentials.fail-closed, primary: true}
+      progress-deadlines-budgets-and-finalization: {rule_id: steward.progress.semantic, primary: true}
+      persistence-recovery-and-shutdown: {rule_id: steward.persistence.authoritative, primary: true}
+      observability-and-diagnostics: {rule_id: steward.observability.reconstructable, primary: true}
+      public-mcp-surface: {rule_id: steward.api.semantic, primary: true}
+      testing-and-acceptance: {rule_id: steward.testing.adversarial, primary: true}
+      generated-baseline: {rule_id: steward.generator.durable, primary: true}
+      verification: {rule_id: steward.testing.adversarial}
   readme-architect:
     headings:
       purpose: {excluded: true, rationale: Informational scope heading, not an independently assessable invariant.}
