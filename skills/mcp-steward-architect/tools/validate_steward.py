@@ -18,6 +18,8 @@ _SCHEMA_FILES = {
     "job": "steward-job.schema.json",
     "receipt": "external-operation-receipt.schema.json",
     "handoff": "steward-handoff.schema.json",
+    "lineage": "steward-lineage.schema.json",
+    "completion": "steward-completion.schema.json",
     "upstream": "upstream-capability.schema.json",
 }
 
@@ -59,6 +61,10 @@ def validate_document(kind: str, value: Any) -> list[str]:
         findings.extend(_handoff_findings(value))
     elif kind == "upstream":
         findings.extend(_upstream_findings(value))
+    elif kind == "lineage":
+        findings.extend(_lineage_findings(value))
+    elif kind == "completion":
+        findings.extend(_completion_findings(value))
     return findings
 
 
@@ -156,6 +162,38 @@ def _upstream_findings(value: dict[str, Any]) -> list[str]:
             )
         if value["progress"] == "none":
             findings.append("upstream: durable-async capability requires progress semantics")
+    return findings
+
+
+def _lineage_findings(value: dict[str, Any]) -> list[str]:
+    if value["currentJobId"] in value["supersededJobIds"]:
+        return ["lineage: current job cannot also be superseded"]
+    return []
+
+
+def _completion_findings(value: dict[str, Any]) -> list[str]:
+    findings: list[str] = []
+    obligations = value["obligations"]
+    obligation_ids = [item["id"] for item in obligations]
+    duplicates = sorted(
+        item for item in set(obligation_ids) if obligation_ids.count(item) > 1
+    )
+    if duplicates:
+        findings.append("completion: duplicate obligation ids: " + ", ".join(duplicates))
+    for obligation in obligations:
+        location = f"completion: obligation {obligation['id']}"
+        state = obligation["state"]
+        if state == "satisfied" and not obligation["evidenceRefs"]:
+            findings.append(f"{location} satisfied without evidence")
+        if state == "not-applicable" and not obligation.get("rationale"):
+            findings.append(f"{location} not-applicable without rationale")
+        if state == "waived" and not obligation.get("authorityRef"):
+            findings.append(f"{location} waived without authority")
+    unresolved = any(item["state"] == "unsatisfied" for item in obligations)
+    if value["disposition"] == "eligible" and unresolved:
+        findings.append("completion: eligible disposition has unsatisfied obligations")
+    if value["disposition"] == "eligible" and value["ambiguousOperationRefs"]:
+        findings.append("completion: eligible disposition has ambiguous operations")
     return findings
 
 
