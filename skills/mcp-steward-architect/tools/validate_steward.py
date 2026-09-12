@@ -84,17 +84,12 @@ def _profile_findings(value: dict[str, Any]) -> list[str]:
     unknown_freshness = sorted(freshness_dimensions - required_dimensions)
     if unknown_freshness:
         findings.append(
-            "subject_identity: freshness dimensions must also be required dimensions: "
-            + ", ".join(unknown_freshness)
+            "subject_identity: freshness dimensions must also be required dimensions: " + ", ".join(unknown_freshness)
         )
     obligation_ids = [item["id"] for item in value["completion"]["obligations"]]
-    duplicate_obligations = sorted(
-        item for item in set(obligation_ids) if obligation_ids.count(item) > 1
-    )
+    duplicate_obligations = sorted(item for item in set(obligation_ids) if obligation_ids.count(item) > 1)
     if duplicate_obligations:
-        findings.append(
-            "completion: duplicate obligation ids: " + ", ".join(duplicate_obligations)
-        )
+        findings.append("completion: duplicate obligation ids: " + ", ".join(duplicate_obligations))
     fallback = value["credentials"]["fallback"]
     if fallback["enabled"] and (not fallback["preserve_principal_scope"] or not fallback["preserve_target"]):
         findings.append("credentials: fallback must preserve principal/scope and target")
@@ -152,14 +147,10 @@ def _upstream_findings(value: dict[str, Any]) -> list[str]:
         }
         reconcilable = value["reconciliation"]["ambiguous_delivery"] != "unsupported"
         if not recoverable or not reconcilable:
-            findings.append(
-                "upstream: stateful capability requires recovery and ambiguous-delivery reconciliation"
-            )
+            findings.append("upstream: stateful capability requires recovery and ambiguous-delivery reconciliation")
     if value["delivery"] == "durable-async":
         if value["recovery"] not in {"status-by-handle", "resume-by-handle"}:
-            findings.append(
-                "upstream: durable-async capability requires status/resume by handle"
-            )
+            findings.append("upstream: durable-async capability requires status/resume by handle")
         if value["progress"] == "none":
             findings.append("upstream: durable-async capability requires progress semantics")
     return findings
@@ -175,9 +166,7 @@ def _completion_findings(value: dict[str, Any]) -> list[str]:
     findings: list[str] = []
     obligations = value["obligations"]
     obligation_ids = [item["id"] for item in obligations]
-    duplicates = sorted(
-        item for item in set(obligation_ids) if obligation_ids.count(item) > 1
-    )
+    duplicates = sorted(item for item in set(obligation_ids) if obligation_ids.count(item) > 1)
     if duplicates:
         findings.append("completion: duplicate obligation ids: " + ", ".join(duplicates))
     for obligation in obligations:
