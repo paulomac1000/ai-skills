@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://paulomac1000.github.io/ai-skills/contracts/steward-evidence.schema.json",
+  "title": "StewardEvidence",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "evidenceId", "jobId", "lineageId", "generation", "subject", "criterionId", "evidenceClass", "authorityClass", "producerId", "proofRecipeId", "observedAt", "expiresAt", "payloadDigest"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "evidenceId": {"type": "string", "minLength": 1, "maxLength": 200},
+    "jobId": {"type": "string", "minLength": 1, "maxLength": 200},
+    "lineageId": {"type": "string", "minLength": 1, "maxLength": 200},
+    "generation": {"type": "integer", "minimum": 1},
+    "subject": {"$ref": "#/$defs/identity"},
+    "criterionId": {"type": "string", "minLength": 1, "maxLength": 200},
+    "evidenceClass": {"type": "string", "minLength": 1, "maxLength": 200},
+    "authorityClass": {"enum": ["advisory", "observed", "verified", "independent"]},
+    "producerId": {"type": "string", "minLength": 1, "maxLength": 200},
+    "proofRecipeId": {"type": "string", "minLength": 1, "maxLength": 200},
+    "observedAt": {"type": "string", "format": "date-time"},
+    "expiresAt": {"type": ["string", "null"], "format": "date-time"},
+    "payloadDigest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+  },
+  "$defs": {
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "id", "revision"],
+      "properties": {
+        "type": {"type": "string", "minLength": 1},
+        "id": {"type": "string", "minLength": 1},
+        "revision": {"type": ["string", "null"]},
+        "digest": {"type": ["string", "null"]}
+      }
+    }
+  }
+}
