@@ -42,3 +42,20 @@ def test_seed_recovers_ambiguous_delivery_and_runs_completion_gate(tmp_path: Pat
     assert result["completion"]["disposition"] == "eligible"
     assert result["evidence"][0]["producerId"] == "seed-provider"
     assert result["handoff"]["digest"] == compute_handoff_digest(result["handoff"])
+
+def test_new_generation_supersedes_nonterminal_predecessor(tmp_path: Path) -> None:
+    profile, proof = _policy()
+    runtime = StewardRuntime(
+        StewardStore(tmp_path / "supersession.db", FakeClock(datetime(2026, 1, 1, tzinfo=UTC))),
+        profile,
+        proof,
+    )
+    stale = runtime.submit("repo-2", "abc", "supersede-1")
+    runtime.run_once()
+    runtime.run_once()
+    latest = runtime.submit("repo-2", "abc", "supersede-2")
+    assert runtime.status(stale["jobId"])["status"] == "superseded"
+    runtime.recover_until_idle()
+    assert runtime.status(latest["jobId"])["status"] == "completed"
+    assert runtime.get(stale["jobId"])["handoff"] is None
+

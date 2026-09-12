@@ -144,9 +144,26 @@ class StewardStore:
                 if previous["request_digest"] != request_digest:
                     raise RuntimeError("idempotency key is bound to a different request digest")
                 return {"jobId": previous["job_id"], "duplicate": True}
-            lineage = db.execute("SELECT current_generation FROM steward_lineages WHERE lineage_id=?", (lineage_id,)).fetchone()
-            generation = 1 if lineage is None else int(lineage[0]) + 1
+            lineage = db.execute(
+                "SELECT current_generation,current_job_id FROM steward_lineages WHERE lineage_id=?",
+                (lineage_id,),
+            ).fetchone()
+            generation = 1 if lineage is None else int(lineage["current_generation"]) + 1
             job_id, attempt_id = f"job-{uuid.uuid4().hex}", f"attempt-{uuid.uuid4().hex}"
+            if lineage is not None:
+                previous_job_id = str(lineage["current_job_id"])
+                superseded = db.execute(
+                    "UPDATE steward_jobs SET status='superseded',stage='superseded',version=version+1,updated_at=? "
+                    "WHERE job_id=? AND status NOT IN ('completed','completed-with-gaps','failed','cancelled','superseded')",
+                    (now, previous_job_id),
+                )
+                if superseded.rowcount:
+                    self._audit(
+                        db,
+                        previous_job_id,
+                        "superseded",
+                        {"byJobId": job_id, "generation": generation},
+                    )
             db.execute("INSERT INTO steward_jobs VALUES(?,?,?,?,0,?,?,?,?,?,?,?)",
                        (job_id,lineage_id,generation,attempt_id,_canonical(subject),request_digest,
                         "queued","admitted","none",now,now))

@@ -74,9 +74,7 @@ def _completion() -> dict[str, Any]:
             "subjectRevision": "abc",
         },
         "disposition": "eligible",
-        "obligations": [
-            {"id": "provider-result", "state": "satisfied", "evidenceRefs": ["e1"]}
-        ],
+        "obligations": [{"id": "provider-result", "state": "satisfied", "evidenceRefs": ["e1"]}],
         "ambiguousOperationRefs": [],
         "evaluatedAt": "2026-09-12T00:05:00Z",
     }
@@ -243,16 +241,19 @@ def test_completion_gate_resolves_subject_authority_freshness_producer_and_recip
     evidence = _evidence()
     current_subject = {"type": "target", "id": "repo", "revision": "abc"}
 
-    assert validator.validate_completion_context(
-        completion,
-        profile=profile,
-        proof_recipe=proof,
-        evidence_documents=[evidence],
-        current_job_id="j1",
-        current_generation=2,
-        current_subject=current_subject,
-        now=datetime(2026, 9, 12, 0, 5, tzinfo=UTC),
-    ) == []
+    assert (
+        validator.validate_completion_context(
+            completion,
+            profile=profile,
+            proof_recipe=proof,
+            evidence_documents=[evidence],
+            current_job_id="j1",
+            current_generation=2,
+            current_subject=current_subject,
+            now=datetime(2026, 9, 12, 0, 5, tzinfo=UTC),
+        )
+        == []
+    )
 
     for field, bad_value, expected in (
         ("producerId", "untrusted-producer", "producer not approved"),
@@ -407,6 +408,15 @@ def test_generated_python_runtime_recovers_unknown_delivery_and_mandatory_gate(t
     assert result["evidence"][0]["producerId"] == "seed-provider"
     assert result["handoff"]["digest"] == runtime_module.compute_handoff_digest(result["handoff"])
 
+    stale = recovered.submit("repo-2", "abc", "supersede-1")
+    recovered.run_once()
+    recovered.run_once()
+    latest = recovered.submit("repo-2", "abc", "supersede-2")
+    assert recovered.status(stale["jobId"])["status"] == "superseded"
+    recovered.recover_until_idle()
+    assert recovered.status(latest["jobId"])["status"] == "completed"
+    assert recovered.get(stale["jobId"])["handoff"] is None
+
     with pytest.raises(FileExistsError):
         generator.generate_project(
             destination,
@@ -438,7 +448,9 @@ async def test_generated_public_mcp_controls_durable_steward_workflow(
     )
     monkeypatch.syspath_prepend(str(destination / "src"))
     monkeypatch.setenv("STEWARD_STATE_PATH", str(tmp_path / "mcp-state.db"))
-    for name in [key for key in list(sys.modules) if key == "acceptance_steward" or key.startswith("acceptance_steward.")]:
+    for name in [
+        key for key in list(sys.modules) if key == "acceptance_steward" or key.startswith("acceptance_steward.")
+    ]:
         del sys.modules[name]
     server = importlib.import_module("acceptance_steward.server")
     runtime_module = importlib.import_module("acceptance_steward.steward_runtime")

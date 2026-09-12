@@ -330,6 +330,24 @@ public sealed class StewardSeedRuntime : IDisposable
                 : 1;
             var jobId = $"job-{Guid.NewGuid():N}";
             var now = _clock.UtcNow;
+            if (lineage is not null &&
+                _state.Jobs.TryGetValue(lineage.CurrentJobId, out var previousJob) &&
+                !Terminal.Contains(previousJob.Status))
+            {
+                previousJob = previousJob with
+                {
+                    Version = previousJob.Version + 1,
+                    Status = "superseded",
+                    Stage = "superseded",
+                    UpdatedAt = now,
+                };
+                _state.Jobs[previousJob.JobId] = previousJob;
+                AuditLocked(previousJob.JobId, "superseded", new Dictionary<string, string>
+                {
+                    ["byJobId"] = jobId,
+                    ["generation"] = generation.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                });
+            }
             var job = new StewardSeedJob(
                 jobId,
                 lineageId,
@@ -396,7 +414,7 @@ public sealed class StewardSeedRuntime : IDisposable
                 UpdatedAt = _clock.UtcNow,
             };
             _state.Jobs[jobId] = job;
-            AuditLocked(jobId, "cancel-requested", []);
+            AuditLocked(jobId, "cancel-requested", new Dictionary<string, string>());
             SaveLocked();
             return job;
         }
@@ -437,7 +455,7 @@ public sealed class StewardSeedRuntime : IDisposable
                     Cancellation = "completed",
                     UpdatedAt = _clock.UtcNow,
                 };
-                AuditLocked(job.JobId, "cancelled", []);
+                AuditLocked(job.JobId, "cancelled", new Dictionary<string, string>());
                 SaveLocked();
                 return true;
             }
@@ -495,8 +513,9 @@ public sealed class StewardSeedRuntime : IDisposable
         lock (_gate)
         {
             RequireCurrentLocked(action.Job);
+            if (_faults.Trip("before-result-persist"))
+                return true;
             PersistEvidenceLocked(action.Job, result.Payload);
-            _faults.Trip("before-result-persist");
             SaveLocked();
         }
         return true;

@@ -67,6 +67,27 @@ static void VerifyStewardSeed()
             if (result.Handoff is null || !StewardSeedRuntime.VerifyHandoffDigest(result.Handoff))
                 throw new InvalidOperationException("Handoff digest did not bind canonical handoff content.");
         }
+
+        using (var current = new StewardSeedRuntime(
+            Path.Combine(root, "supersession"),
+            clock,
+            new FakeSeedProvider(),
+            new SeedFaultInjector(),
+            profile,
+            proof))
+        {
+            var stale = current.Submit("repo-2", "abc", "supersede-1");
+            current.RunOneDue();
+            current.RunOneDue();
+            var latest = current.Submit("repo-2", "abc", "supersede-2");
+            if (current.Status(stale.JobId).Status != "superseded")
+                throw new InvalidOperationException("Previous lineage generation was not superseded atomically.");
+            current.RecoverUntilIdle();
+            if (current.Status(latest.JobId).Status != "completed")
+                throw new InvalidOperationException("Current lineage generation was starved by stale work.");
+            if (current.Get(stale.JobId).Handoff is not null)
+                throw new InvalidOperationException("Superseded lineage generation published a terminal handoff.");
+        }
     }
     finally
     {
