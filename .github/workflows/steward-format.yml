@@ -1,0 +1,39 @@
+name: Steward one-shot format
+
+on:
+  push:
+    branches: [feat/mcp-steward-architect]
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: feat/mcp-steward-architect
+          fetch-depth: 1
+          persist-credentials: true
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+      - run: python scripts/install_locked.py
+      - name: Format Steward Python sources
+        run: >-
+          python -m ruff format
+          skills/mcp-steward-architect/tools/generate_steward.py
+          skills/mcp-steward-architect/tools/validate_steward.py
+      - name: Commit formatter result when needed
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- skills/mcp-steward-architect/tools/generate_steward.py skills/mcp-steward-architect/tools/validate_steward.py; then
+            exit 0
+          fi
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add skills/mcp-steward-architect/tools/generate_steward.py skills/mcp-steward-architect/tools/validate_steward.py
+          git commit -m "chore: format Steward sources"
+          git push origin HEAD:feat/mcp-steward-architect
