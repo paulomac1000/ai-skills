@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://paulomac1000.github.io/ai-skills/contracts/steward-job.schema.json",
+  "title": "StewardJob",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "jobId", "lineageId", "generation", "attemptId", "version", "subject", "status", "stage", "createdAt", "updatedAt", "heartbeatAt", "progressAt", "deadlineAt", "cancellation", "externalOperationRefs", "evidenceRefs", "artifactRefs"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "jobId": {"type": "string", "minLength": 1, "maxLength": 200},
+    "lineageId": {"type": "string", "minLength": 1, "maxLength": 200},
+    "generation": {"type": "integer", "minimum": 1},
+    "attemptId": {"type": "string", "minLength": 1, "maxLength": 200},
+    "version": {"type": "integer", "minimum": 0},
+    "subject": {"$ref": "#/$defs/identity"},
+    "status": {"enum": ["queued", "running", "waiting-external", "waiting-retry", "reconciling", "blocked", "finalizing", "completed", "completed-with-gaps", "failed", "cancelled", "superseded"]},
+    "stage": {"type": "string", "minLength": 1, "maxLength": 120},
+    "domainOutcome": {"type": ["string", "null"], "maxLength": 120},
+    "createdAt": {"type": "string", "format": "date-time"},
+    "updatedAt": {"type": "string", "format": "date-time"},
+    "heartbeatAt": {"type": "string", "format": "date-time"},
+    "progressAt": {"type": "string", "format": "date-time"},
+    "progressMarker": {"type": ["string", "null"], "maxLength": 300},
+    "deadlineAt": {"type": "string", "format": "date-time"},
+    "finalizationStartsAt": {"type": ["string", "null"], "format": "date-time"},
+    "lease": {"anyOf": [{"type": "null"}, {"$ref": "#/$defs/lease"}]},
+    "cancellation": {"enum": ["none", "requested", "fenced", "completed"]},
+    "externalOperationRefs": {"type": "array", "maxItems": 256, "items": {"type": "string", "minLength": 1}},
+    "evidenceRefs": {"type": "array", "maxItems": 1024, "items": {"type": "string", "minLength": 1}},
+    "artifactRefs": {"type": "array", "maxItems": 1024, "items": {"type": "string", "minLength": 1}},
+    "failure": {"anyOf": [{"type": "null"}, {"$ref": "#/$defs/failure"}]}
+  },
+  "$defs": {
+    "identity": {"type": "object", "additionalProperties": false, "required": ["type", "id", "revision"], "properties": {"type": {"type": "string", "minLength": 1}, "id": {"type": "string", "minLength": 1}, "revision": {"type": ["string", "null"]}, "digest": {"type": ["string", "null"]}}},
+    "lease": {"type": "object", "additionalProperties": false, "required": ["owner", "fencingToken", "expiresAt"], "properties": {"owner": {"type": "string", "minLength": 1}, "fencingToken": {"type": "integer", "minimum": 1}, "expiresAt": {"type": "string", "format": "date-time"}}},
+    "failure": {"type": "object", "additionalProperties": false, "required": ["class", "phase", "completionKnown", "sideEffectsKnown"], "properties": {"class": {"type": "string", "minLength": 1}, "phase": {"type": "string", "minLength": 1}, "completionKnown": {"type": "boolean"}, "sideEffectsKnown": {"type": "boolean"}, "diagnosticRef": {"type": ["string", "null"]}}}
+  }
+}

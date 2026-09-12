@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://paulomac1000.github.io/ai-skills/contracts/steward-profile.schema.json",
+  "title": "StewardProfile",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "steward", "authority", "subject_identity", "durability", "external_operations", "credentials", "model", "completion", "observability"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "steward": {"type": "object", "additionalProperties": false, "required": ["id", "kind", "contract_revision"], "properties": {"id": {"type": "string", "minLength": 1}, "kind": {"enum": ["generic", "diagnostic", "verification", "research-evidence", "release-ops", "change-manager"]}, "contract_revision": {"type": "integer", "minimum": 1}}},
+    "authority": {"type": "object", "additionalProperties": false, "required": ["owns", "observes", "may_mutate", "verifies", "parent_completion", "never_claims"], "properties": {"owns": {"$ref": "#/$defs/stringSet"}, "observes": {"$ref": "#/$defs/stringSet"}, "may_mutate": {"$ref": "#/$defs/stringSet"}, "verifies": {"$ref": "#/$defs/stringSet"}, "parent_completion": {"enum": ["none", "explicit-contract-only"]}, "never_claims": {"$ref": "#/$defs/stringSet"}}},
+    "subject_identity": {"type": "object", "additionalProperties": false, "required": ["required_dimensions", "freshness_dimensions"], "properties": {"required_dimensions": {"$ref": "#/$defs/nonEmptyStringSet"}, "freshness_dimensions": {"$ref": "#/$defs/stringSet"}}},
+    "durability": {"type": "object", "additionalProperties": false, "required": ["profile", "crash_model", "transactional_store_required", "lineage_fencing", "attempt_fencing"], "properties": {"profile": {"enum": ["constrained-file", "single-node-durable", "multi-worker-durable"]}, "crash_model": {"$ref": "#/$defs/nonEmptyStringSet"}, "transactional_store_required": {"type": "boolean"}, "lineage_fencing": {"const": true}, "attempt_fencing": {"const": true}}},
+    "external_operations": {"type": "object", "additionalProperties": false, "required": ["receipt_before_stateful_dispatch", "ambiguous_delivery"], "properties": {"receipt_before_stateful_dispatch": {"const": true}, "ambiguous_delivery": {"const": "reconcile-before-retry"}}},
+    "credentials": {"type": "object", "additionalProperties": false, "required": ["secret_source", "persist_secret", "fallback"], "properties": {"secret_source": {"type": "string", "minLength": 1}, "persist_secret": {"const": false}, "fallback": {"type": "object", "additionalProperties": false, "required": ["enabled", "preserve_principal_scope", "preserve_target"], "properties": {"enabled": {"type": "boolean"}, "preserve_principal_scope": {"const": true}, "preserve_target": {"const": true}}}}},
+    "model": {"type": "object", "additionalProperties": false, "required": ["authority_ceiling"], "properties": {"authority_ceiling": {"enum": ["none", "advisory"]}}},
+    "completion": {"type": "object", "additionalProperties": false, "required": ["obligations", "handoff_digest"], "properties": {"obligations": {"type": "array", "maxItems": 256, "items": {"type": "object", "additionalProperties": false, "required": ["id", "required", "evidence_class"], "properties": {"id": {"type": "string", "minLength": 1}, "required": {"type": "boolean"}, "evidence_class": {"type": "string", "minLength": 1}}}}, "handoff_digest": {"const": "sha256"}}},
+    "observability": {"type": "object", "additionalProperties": false, "required": ["durable_timeline", "doctor"], "properties": {"durable_timeline": {"const": true}, "doctor": {"type": "boolean"}}}
+  },
+  "$defs": {
+    "stringSet": {"type": "array", "uniqueItems": true, "maxItems": 256, "items": {"type": "string", "minLength": 1}},
+    "nonEmptyStringSet": {"type": "array", "uniqueItems": true, "minItems": 1, "maxItems": 256, "items": {"type": "string", "minLength": 1}}
+  }
+}
