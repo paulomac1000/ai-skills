@@ -207,7 +207,7 @@ def test_generator_extends_canonical_dotnet_generator() -> None:
     profile = yaml.safe_load(files["steward/steward-profile.yaml"])
     assert profile["durability"]["profile"] == "constrained-file"
     assert profile["durability"]["transactional_store_required"] is False
-    assert any(path.endswith(".slnx") or path.endswith(".sln") for path in files)
+    assert any(path.endswith(".csproj") for path in files)
 
 
 def test_python_generator_publishes_without_overwrite_and_runtime_recovers(
