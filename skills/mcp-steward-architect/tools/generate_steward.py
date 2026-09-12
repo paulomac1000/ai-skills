@@ -342,8 +342,8 @@ def _patch_program(program: str) -> str:
 def _patch_server_project(project: str) -> str:
     marker = "</Project>\n"
     content = """  <ItemGroup>
-    <Content Include="steward_profile.json" CopyToOutputDirectory="PreserveNewest" />
-    <Content Include="steward_proof_recipe.json" CopyToOutputDirectory="PreserveNewest" />
+    <Content Update="steward_profile.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Update="steward_proof_recipe.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>
 """
