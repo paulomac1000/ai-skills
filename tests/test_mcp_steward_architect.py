@@ -119,6 +119,7 @@ def test_stale_generation_handoff_cannot_be_actionable() -> None:
         handoff,
         current_job_id="new",
         current_generation=2,
+        current_subject={"type": "repo", "id": "r", "revision": "abc"},
     ) == ["handoff: stale job/generation cannot be actionable"]
 
 
@@ -396,6 +397,15 @@ def test_handoff_rejects_false_terminal_semantics_and_invalid_timestamp() -> Non
         "handoff: completed handoff cannot retain unresolved gaps",
         "handoff: completed handoff requires a domain outcome",
     ]
+
+    handoff["gaps"] = []
+    handoff["outcome"] = "verified"
+    assert validator.validate_handoff_current(
+        handoff,
+        current_job_id="j1",
+        current_generation=1,
+        current_subject={"type": "repo", "id": "r", "revision": "def"},
+    ) == ["handoff: stale subject identity cannot be actionable"]
 
 
 
