@@ -30,6 +30,13 @@ def test_manifest_composes_server_and_consumer_standards() -> None:
     for required in manifest["required"]:
         assert (SKILL / required).is_file(), required
 
+    credential_policy = yaml.safe_load((SKILL / "templates" / "credential-policy.yaml.template").read_text(encoding="utf-8"))
+    forbidden = set(credential_policy["fallback"]["forbidden_failure_classes"])
+    assert {"authorization-denied", "policy-denied", "delivery-unknown"} <= forbidden
+    assert credential_policy["fallback"]["require_equivalent_principal_scope"] is True
+    assert credential_policy["fallback"]["require_same_target"] is True
+    assert credential_policy["fallback"]["require_replay_safe"] is True
+
 
 def test_public_contract_schemas_are_draft_2020_12_and_closed() -> None:
     for name in (
@@ -148,7 +155,7 @@ def test_standard_names_cross_product_invariants() -> None:
         "heartbeatAt",
         "progressAt",
         "completion obligations",
-        "credential failover",
+        "Credential failover",
         "controllable clock",
         "exact packaged/deployed artifact",
     ):
