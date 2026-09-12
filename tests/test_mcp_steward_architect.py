@@ -25,7 +25,7 @@ def _load(path: Path, name: str) -> ModuleType:
 
 def test_manifest_composes_server_and_consumer_standards() -> None:
     manifest = yaml.safe_load((SKILL / "manifest.yaml").read_text(encoding="utf-8"))
-    assert manifest["version"] == "2.0.0"
+    assert manifest["version"] == "2.1.0"
     assert manifest["maturity"] == "stable"
     assert manifest["dependencies"]["skills"] == [
         "mcp-server-architect",
