@@ -334,6 +334,53 @@ skills:
     - id: consumer.verification.adversarial
       source: STANDARD.md#verification
       description: Adversarial trust, retry, response, and pagination cases are executable.
+  mcp-steward-architect:
+    rules:
+    - id: steward.precedence.composed
+      source: STANDARD.md#base-standards-and-precedence
+      description: Steward architecture composes the server and consumer standards without bypassing or weakening either kernel boundary.
+    - id: steward.authority.bounded
+      source: STANDARD.md#authority-boundary
+      description: Steward ownership, observation, mutation, verification, parent-completion authority, and forbidden claims are explicit and fail closed.
+    - id: steward.lifecycle.durable
+      source: STANDARD.md#durable-job-and-state-ownership
+      description: Long-running work uses durable authoritative job state with orthogonal operational, outcome, and failure semantics.
+    - id: steward.lineage.fenced
+      source: STANDARD.md#lineage-generations-attempts-and-leases
+      description: Attempts and lineage generations are fenced so stale workers and superseded jobs cannot publish current results.
+    - id: steward.delivery.reconciled
+      source: STANDARD.md#external-operations-and-reconciliation
+      description: Stateful dispatch is durably identified before execution and ambiguous delivery requires reconciliation before replay.
+    - id: steward.evidence.provenance
+      source: STANDARD.md#evidence-identity-and-authority
+      description: Material evidence binds exact subject identity, producer, provenance, freshness, authority, and proof identity without promoting advisory claims.
+    - id: steward.completion.gated
+      source: STANDARD.md#completion-and-handoff
+      description: Completion is admitted only from satisfied machine-readable obligations and a current lineage-bound bounded handoff.
+    - id: steward.ports.semantic
+      source: STANDARD.md#ports-adapters-and-capability-admission
+      description: Semantic ports declare distributed-operation behavior and required capabilities are admitted before durable work starts.
+    - id: steward.credentials.fail-closed
+      source: STANDARD.md#credentials-and-provider-failover
+      description: Credential and provider/model fallback preserve authority and target semantics and never replay ambiguous stateful work.
+    - id: steward.progress.semantic
+      source: STANDARD.md#progress-deadlines-budgets-and-finalization
+      description: Semantic progress is distinct from liveness and bounded work reserves deterministic finalization and cleanup capacity.
+    - id: steward.persistence.authoritative
+      source: STANDARD.md#persistence-recovery-and-shutdown
+      description: Durable storage is authoritative, wakeups are recoverable hints, and the declared crash/concurrency model has matching primitives.
+    - id: steward.observability.reconstructable
+      source: STANDARD.md#observability-and-diagnostics
+      description: Durable structured events and bounded diagnostics reconstruct ownership, ambiguity, progress, decisions, and recovery without secrets.
+    - id: steward.api.semantic
+      source: STANDARD.md#public-mcp-surface
+      description: Public MCP exposes bounded domain outcomes and durable control roles rather than raw upstream mechanics or request-lived workflows.
+    - id: steward.testing.adversarial
+      source: STANDARD.md#testing-and-acceptance
+      description: Deterministic race, crash, replay, recovery, fallback, official-client, and exact-artifact tests cover each applicable invariant.
+    - id: steward.generator.durable
+      source: STANDARD.md#generated-baseline
+      description: The Steward generator extends canonical MCP generators and emits a durable recovery-oriented architecture seed rather than a hello-world server.
   readme-architect:
     rules:
     - id: readme.evidence.owned
