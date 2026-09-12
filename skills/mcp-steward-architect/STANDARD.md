@@ -1,3 +1,13 @@
+---
+description: Normative architecture and production rules for durable MCP Steward control planes.
+doc_id: reference.mcp-steward-standard
+type: reference
+status: active
+rigor: normative
+owners: [repository-maintainers]
+verification: Validate Steward schemas and rule-map coverage, execute state-machine, persistence, recovery, reconciliation, credential-failover, generator, official-client, and exact-artifact tests, and require independent acceptance where the profile declares it.
+---
+
 # MCP Steward architecture standard
 
 ## Purpose
