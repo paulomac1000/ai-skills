@@ -52,6 +52,7 @@ def test_public_contract_schemas_are_draft_2020_12_and_closed() -> None:
         "steward-job.schema.json",
         "external-operation-receipt.schema.json",
         "steward-handoff.schema.json",
+        "upstream-capability.schema.json",
     ):
         schema = json.loads((ROOT / "contracts" / name).read_text(encoding="utf-8"))
         Draft202012Validator.check_schema(schema)
@@ -204,6 +205,7 @@ def test_generator_extends_canonical_dotnet_generator() -> None:
         "tests/Example.Mcp.Smoke/Program.cs"
     ]
     assert "steward/contracts/steward-job.schema.json" in files
+    assert "steward/contracts/upstream-capability.schema.json" in files
     profile = yaml.safe_load(files["steward/steward-profile.yaml"])
     assert profile["durability"]["profile"] == "constrained-file"
     assert profile["durability"]["transactional_store_required"] is False
@@ -278,3 +280,115 @@ def test_standard_names_cross_product_invariants() -> None:
         "exact packaged/deployed artifact",
     ):
         assert phrase in standard
+
+
+
+def test_profile_rejects_duplicate_obligations_and_unknown_freshness_dimensions() -> None:
+    validator = _load(
+        SKILL / "tools" / "validate_steward.py",
+        "validate_steward_profile_semantics",
+    )
+    profile = yaml.safe_load(
+        (SKILL / "templates" / "steward-profile.yaml.template").read_text(
+            encoding="utf-8"
+        )
+    )
+    profile["subject_identity"]["freshness_dimensions"] = ["runtime-generation"]
+    obligation = {"id": "proof", "required": True, "evidence_class": "observed"}
+    profile["completion"]["obligations"] = [
+        obligation,
+        {**obligation, "required": False},
+    ]
+
+    assert validator.validate_document("profile", profile) == [
+        "subject_identity: freshness dimensions must also be required dimensions: "
+        "runtime-generation",
+        "completion: duplicate obligation ids: proof",
+    ]
+
+
+def test_stateful_and_durable_async_capabilities_fail_closed_without_recovery() -> None:
+    validator = _load(
+        SKILL / "tools" / "validate_steward.py",
+        "validate_steward_upstream_semantics",
+    )
+    capability = yaml.safe_load(
+        (SKILL / "templates" / "upstream-capability.yaml.template").read_text(
+            encoding="utf-8"
+        )
+    )
+    capability["interaction"] = "stateful"
+    capability["delivery"] = "durable-async"
+
+    assert validator.validate_document("upstream", capability) == [
+        "upstream: stateful capability requires recovery and "
+        "ambiguous-delivery reconciliation",
+        "upstream: durable-async capability requires status/resume by handle",
+        "upstream: durable-async capability requires progress semantics",
+    ]
+
+
+def test_receipt_rejects_reserved_delivery_and_pre_reconciliation_retry() -> None:
+    validator = _load(
+        SKILL / "tools" / "validate_steward.py",
+        "validate_steward_receipt_cross_product",
+    )
+    receipt = {
+        "schema_version": 1,
+        "operationId": "op1",
+        "jobId": "j1",
+        "lineageId": "l1",
+        "generation": 1,
+        "attemptId": "a1",
+        "capabilityIdentity": "deploy:v1",
+        "targetIdentity": "prod:1",
+        "requestDigest": "sha256:" + "0" * 64,
+        "state": "reserved",
+        "delivery": "delivery-unknown",
+        "retryDisposition": "reconcile-first",
+        "credentialSlotId": "primary",
+        "createdAt": "2026-09-12T00:00:00Z",
+        "observedAt": "2026-09-12T00:00:01Z",
+        "retryCount": 0,
+        "reconcileCount": 0,
+        "nextRetryAt": "2026-09-12T00:00:02Z",
+    }
+
+    assert validator.validate_document("receipt", receipt) == [
+        "receipt: reserved operation cannot claim delivery",
+        "receipt: reserved operation cannot be retry-eligible",
+        "receipt: delivery-unknown cannot schedule retry before reconciliation",
+    ]
+
+
+def test_handoff_rejects_false_terminal_semantics_and_invalid_timestamp() -> None:
+    validator = _load(
+        SKILL / "tools" / "validate_steward.py",
+        "validate_steward_handoff_semantics",
+    )
+    handoff = {
+        "schema_version": 1,
+        "handoffId": "h1",
+        "jobId": "j1",
+        "lineageId": "l1",
+        "generation": 1,
+        "subject": {"type": "repo", "id": "r", "revision": "abc"},
+        "status": "completed",
+        "actionable": True,
+        "outcome": None,
+        "evidenceRefs": [],
+        "artifactRefs": [],
+        "externalOperationRefs": [],
+        "gaps": ["missing-live-proof"],
+        "sealedAt": "not-a-date",
+        "digest": "sha256:" + "1" * 64,
+    }
+
+    findings = validator.validate_document("handoff", handoff)
+    assert any("is not a 'date-time'" in finding for finding in findings)
+
+    handoff["sealedAt"] = "2026-09-12T00:00:00Z"
+    assert validator.validate_document("handoff", handoff) == [
+        "handoff: completed handoff cannot retain unresolved gaps",
+        "handoff: completed handoff requires a domain outcome",
+    ]
