@@ -100,7 +100,7 @@ Fallback attempts MUST be bounded and MUST prevent credential ping-pong.
 
 ## Progress deadlines budgets and finalization
 
-Worker/process liveness and semantic workflow progress are separate signals. `heartbeatAt` MUST NOT reset the semantic-progress watchdog unless the underlying progress marker actually advances. Remote polling that repeatedly returns the same state is liveness, not progress.
+Worker/process liveness and semantic workflow progress are separate signals. Durable jobs MUST record `heartbeatAt`, `progressAt`, and a progress marker or sequence. `heartbeatAt` MUST NOT reset the semantic-progress watchdog or advance `progressAt` unless the underlying progress marker actually advances. Remote polling that repeatedly returns the same state is liveness, not progress.
 
 The Steward MUST bound connect timeout, idle/progress timeout, operation deadline, parent deadline, retries, concurrency, external calls, and potentially unbounded output/artifacts. Token/cost/browser/research budgets are profile-specific but MUST be explicit when they can exhaust resources.
 
