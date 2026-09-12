@@ -52,6 +52,8 @@ def test_public_contract_schemas_are_draft_2020_12_and_closed() -> None:
         "steward-job.schema.json",
         "external-operation-receipt.schema.json",
         "steward-handoff.schema.json",
+        "steward-lineage.schema.json",
+        "steward-completion.schema.json",
         "upstream-capability.schema.json",
     ):
         schema = json.loads((ROOT / "contracts" / name).read_text(encoding="utf-8"))
@@ -206,6 +208,8 @@ def test_generator_extends_canonical_dotnet_generator() -> None:
     ]
     assert "steward/contracts/steward-job.schema.json" in files
     assert "steward/contracts/upstream-capability.schema.json" in files
+    assert "steward/contracts/steward-lineage.schema.json" in files
+    assert "steward/contracts/steward-completion.schema.json" in files
     profile = yaml.safe_load(files["steward/steward-profile.yaml"])
     assert profile["durability"]["profile"] == "constrained-file"
     assert profile["durability"]["transactional_store_required"] is False
@@ -391,4 +395,57 @@ def test_handoff_rejects_false_terminal_semantics_and_invalid_timestamp() -> Non
     assert validator.validate_document("handoff", handoff) == [
         "handoff: completed handoff cannot retain unresolved gaps",
         "handoff: completed handoff requires a domain outcome",
+    ]
+
+
+
+def test_lineage_rejects_current_job_in_superseded_set() -> None:
+    validator = _load(
+        SKILL / "tools" / "validate_steward.py",
+        "validate_steward_lineage_semantics",
+    )
+    lineage = {
+        "schema_version": 1,
+        "lineageId": "l1",
+        "version": 2,
+        "subject": {"type": "repo", "id": "r", "revision": "abc"},
+        "currentGeneration": 2,
+        "currentJobId": "j2",
+        "supersededJobIds": ["j1", "j2"],
+        "updatedAt": "2026-09-12T00:00:00Z",
+    }
+
+    assert validator.validate_document("lineage", lineage) == [
+        "lineage: current job cannot also be superseded"
+    ]
+
+
+def test_completion_gate_rejects_unproved_waived_and_ambiguous_success() -> None:
+    validator = _load(
+        SKILL / "tools" / "validate_steward.py",
+        "validate_steward_completion_semantics",
+    )
+    completion = {
+        "schema_version": 1,
+        "evaluationId": "e1",
+        "jobId": "j1",
+        "lineageId": "l1",
+        "generation": 1,
+        "subject": {"type": "repo", "id": "r", "revision": "abc"},
+        "decisionIdentity": {"repositoryRevision": "abc", "policyRevision": 1},
+        "disposition": "eligible",
+        "obligations": [
+            {"id": "tests", "state": "satisfied", "evidenceRefs": []},
+            {"id": "approval", "state": "waived", "evidenceRefs": []},
+            {"id": "live", "state": "unsatisfied", "evidenceRefs": []},
+        ],
+        "ambiguousOperationRefs": ["op1"],
+        "evaluatedAt": "2026-09-12T00:00:00Z",
+    }
+
+    assert validator.validate_document("completion", completion) == [
+        "completion: obligation tests satisfied without evidence",
+        "completion: obligation approval waived without authority",
+        "completion: eligible disposition has unsatisfied obligations",
+        "completion: eligible disposition has ambiguous operations",
     ]
