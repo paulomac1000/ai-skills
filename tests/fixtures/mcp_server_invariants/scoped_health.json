@@ -1,0 +1,4 @@
+{
+  "positive": {"health": {"dimensions": ["process", "transport", "auth", "read", "write", "provider"], "freshness_bound": true, "generation_bound": true, "single_green_boolean": false}},
+  "negative": {"health": {"dimensions": ["process", "transport", "auth", "read", "write", "provider"], "freshness_bound": true, "generation_bound": true, "single_green_boolean": true}}
+}

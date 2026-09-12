@@ -10,12 +10,12 @@ import time
 from importlib.resources import files
 
 import pytest
+from jsonschema import Draft202012Validator
 from mcp import Client
 
 from __PACKAGE__.kernel import describe_capabilities, list_items, put_item
 from __PACKAGE__.manifest import MANIFESTS
 from __PACKAGE__.security import BearerAuthMiddleware, current_principal
-from __PACKAGE__.server import mcp
 
 
 def _approval_record(
@@ -60,6 +60,20 @@ def _approval_record(
     return f"{encode(payload)}.{encode(signature)}"
 
 
+def _assert_layered_outcome(outcome: object) -> None:
+    schema = json.loads(
+        files("__PACKAGE__")
+        .joinpath("contracts/action-outcome.schema.json")
+        .read_text(encoding="utf-8")
+    )
+    Draft202012Validator.check_schema(schema)
+    errors = sorted(
+        Draft202012Validator(schema).iter_errors(outcome),
+        key=lambda item: tuple(item.absolute_path),
+    )
+    assert errors == []
+
+
 def test_manifest_catalog_matches_registered_tools() -> None:
     assert set(MANIFESTS) == {"describe_capabilities", "list_items", "put_item"}
     schema = json.loads(
@@ -68,6 +82,8 @@ def test_manifest_catalog_matches_registered_tools() -> None:
         .read_text(encoding="utf-8")
     )
     assert set(schema["required"]) <= set(MANIFESTS["list_items"])
+    assert MANIFESTS["put_item"]["outcome_contract"] == "layered"
+    assert MANIFESTS["list_items"]["outcome_contract"] == "simple"
 
 
 def test_final_payload_contains_provenance_and_respects_bound() -> None:
@@ -102,6 +118,9 @@ def test_write_rejects_stale_expected_version(monkeypatch: pytest.MonkeyPatch) -
     )
     first = put_item(item_id, "first", initial, expected_version=0)
     assert first["version"] == 1
+    _assert_layered_outcome(first["outcome"])
+    assert first["outcome"]["disposition"] == "completed"
+    assert first["outcome"]["safe_to_retry"] == "no"
 
     stale = _approval_record(
         item_id=item_id,
@@ -122,6 +141,7 @@ def test_write_rejects_stale_expected_version(monkeypatch: pytest.MonkeyPatch) -
     )
     second = put_item(item_id, "second", fresh, expected_version=1)
     assert second["version"] == 2
+    _assert_layered_outcome(second["outcome"])
     assert {
         "item_id": item_id,
         "value": "second",

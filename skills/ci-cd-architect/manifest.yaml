@@ -1,6 +1,6 @@
 schema_version: 1
 name: ci-cd-architect
-version: 1.4.0
+version: 2.0.0
 maturity: stable
 skill_format: ai-skills/v1
 normative_entrypoint: STANDARD.md
@@ -51,6 +51,10 @@ dependencies:
   packages:
     python:
     - PyYAML>=6.0.3,<7
+  shared_resources:
+  - contracts/verification-receipt.schema.json
+  - contracts/runtime-identity.schema.json
+  - contracts/validate_verification_receipt.py
 deprecation:
   policy: semantic-versioning
   minimum_notice: one-minor-release
@@ -63,6 +67,9 @@ required:
 - references/provider-trust-bootstrap.md
 - references/finding-triage.md
 - references/on-demand-ci.md
+- references/verification-integrity.md
+- references/adversarial-state-transition-review.md
+- references/adversarial-state-transition-fixtures.yaml
 - templates/publish.yml.template
 - templates/trusted-workflow-audit.yml.template
 - templates/on-demand-ci.yaml.template
@@ -74,6 +81,12 @@ required:
 - tools/check_github_provider_controls.py
 - tools/classify_github_run_evidence.py
 - tools/generate_trusted_executable_sources.py
+- tools/check_test_corpus.py
+- tools/check_execution_integrity.py
+- tools/check_local_ci_parity.py
+- tools/check_verification_bootstrap.py
+- tools/verify_state_isolation.py
+- tools/review_state_transitions.py
 categories:
 - core
 - references
@@ -89,3 +102,6 @@ adoption:
   atomic_claim_validator: contracts/validate_atomic_claims.py
   evidence_profiles: contracts/evidence-profiles.yaml
   extension: generic
+  consumer_runtime_evidence:
+    provider_backed_runtimes:
+    - node

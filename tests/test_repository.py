@@ -15,8 +15,10 @@ EXPECTED_SKILLS = {
     "agents-md-architect",
     "changelog-release-architect",
     "ci-cd-architect",
+    "mcp-gateway-release-verifier",
     "mcp-server-architect",
     "mcp-server-consumer",
+    "qa-change-verifier",
     "readme-architect",
 }
 ALLOWED_CATEGORIES = {"core", "references", "templates", "examples", "tools", "locks"}

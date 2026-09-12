@@ -1,6 +1,6 @@
 schema_version: 1
 name: afds-doc-writer
-version: 1.4.0
+version: 2.0.0
 maturity: stable
 skill_format: ai-skills/v1
 normative_entrypoint: STANDARD.md
@@ -70,3 +70,6 @@ adoption:
   rule_catalog: contracts/rule-catalog.yaml
   extension: generic
   rule_map: contracts/standard-rule-map.yaml
+  consumer_runtime_evidence:
+    provider_backed_runtimes:
+    - node

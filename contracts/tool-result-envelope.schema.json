@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/paulomac1000/ai-skills/blob/main/contracts/tool-result-envelope.schema.json",
+  "title": "Provenance-preserving tool result",
+  "description": "Keeps provider/tool source material structurally separate from runtime-authored annotations.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "annotations"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "data": {},
+    "data_sha256": {"type": ["string", "null"], "pattern": "^[0-9a-fA-F]{64}$"},
+    "provenance": {"$ref": "#/$defs/provenance"},
+    "parts": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/part"}},
+    "annotations": {"type": "array", "items": {"$ref": "#/$defs/annotation"}}
+  },
+  "oneOf": [
+    {"required": ["data", "provenance"], "not": {"required": ["parts"]}},
+    {"required": ["parts"], "not": {"anyOf": [{"required": ["data"]}, {"required": ["provenance"]}, {"required": ["data_sha256"]}]}}
+  ],
+  "$defs": {
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["data_source"],
+      "properties": {
+        "data_source": {"enum": ["tool", "provider", "runtime", "synthetic", "user"]},
+        "source_id": {"type": ["string", "null"], "maxLength": 512},
+        "runtime_identity": {"anyOf": [{"$ref": "runtime-identity.schema.json"}, {"type": "null"}]},
+        "fetched_at": {"type": ["string", "null"], "format": "date-time"},
+        "content_type": {"type": ["string", "null"], "maxLength": 256},
+        "extraction": {"type": ["object", "null"]}
+      }
+    },
+    "annotation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "kind", "text"],
+      "properties": {
+        "source": {"const": "runtime"},
+        "kind": {"enum": ["reminder", "policy", "routing", "warning", "degradation"]},
+        "text": {"type": "string", "minLength": 1, "maxLength": 4096}
+      }
+    },
+    "part": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["data", "provenance", "annotations"],
+      "properties": {
+        "data": {},
+        "data_sha256": {"type": ["string", "null"], "pattern": "^[0-9a-fA-F]{64}$"},
+        "provenance": {"$ref": "#/$defs/provenance"},
+        "annotations": {"type": "array", "items": {"$ref": "#/$defs/annotation"}}
+      }
+    }
+  }
+}

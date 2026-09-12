@@ -1,5 +1,48 @@
 # Changelog
 
+## 2.0.0 - 2026-09-11
+
+### Added
+
+- Added shared application contracts for layered action outcomes, runtime identity, deployment leases, audit events, and tool-result provenance so repository and MCP implementation guidance composes around one machine-readable source of truth.
+- Added Capability Manifest v2 as the canonical `capability-manifest.schema.json` contract with schema version 2: explicit contract revision, async model, outcome contract, declared idempotency and reconciliation, publication semantics, bounded results, and runtime-identity advertisement, with the Python and .NET MCP generators migrated to emit the v2 manifest.
+- Added cross-event audit-log semantics that enforce append-only history and reject duplicate or conflicting event identifiers, idempotency-key rebinding, conflicting terminal outcomes, and a second equivalent canonical success for the same idempotency identity.
+- Added CI verification-integrity tooling for declared-dependency bootstrap, test-corpus discovery/execution accounting, runtime-exception detection, local/hosted gate parity, state-isolation preflight, and canonical verification receipts.
+- Added the canonical exact-candidate MCP probe: acceptance evidence is derived from a real session through the pinned official `mcp==2.0.0` client launched against the digest-bound artifact, with client provenance receipts required by exact-candidate acceptance, transport dogfood, contract capture, the release verifier, the local candidate lane, and provider-schema compatibility; fixture- or caller-asserted session facts fail closed.
+- Added seven provider-neutral runtime/API invariants to `mcp-server-architect` with positive and negative fixtures: runtime identity, diagnostic parity, actionable preconditions, managed-resource ownership, durable async progress, bounded results, and scoped health.
+- Added deterministic consumer pre-mutation admission (`MATCH`, `SUSPECTED_DRIFT`, `CONFIRMED_DRIFT`, `OWNER_UNKNOWN`, `RUNTIME_STALE_OR_UNKNOWN`, `CAPABILITY_DEGRADED`) where an unknown owner blocks mutation, and authoritative delivery reconciliation in which a missing acknowledgement yields reconciliation-required instead of a speculative resend.
+- Added scoped consumer health/readiness per process, transport, auth, read, and write dimension, plus typed public-identifier provenance with create→status→read referential integrity.
+- Added canonical control-plane projection invariants (durable outbox, ambiguous reconciliation, managed-resource guards, identity-preserving retarget) and the agent-backed semantic façade profile with a bounded public tool surface and schema-byte budget.
+- Added semantic content extraction with `EXTRACTED`/`PARTIAL`/`UNEXTRACTED`/`UNSUPPORTED_FORMAT` states and extraction provenance, so chrome-first HTML or binary payloads cannot pass as summaries.
+- Added provider schema compatibility profiles validating public tool schemas against model-provider restrictions (nullable arrays/objects, unions, defaults, additionalProperties); unknown compatibility refuses optimistic capability activation.
+- Added real-transport dogfooding acceptance and the reusable `mcp-gateway-release-verifier` skill with a local candidate acceptance lane, composing preflight, bootstrap, exact-artifact launch, schema, lifecycle, degraded-health, identity, execution-integrity, and cleanup phases into one bounded fail-closed receipt.
+- Added the `qa-change-verifier` skill deriving risk-based LOW/MEDIUM/HIGH verification plans with exact-evidence binding, stale-simulator invalidation, and harness-versus-product failure attribution.
+- Added the adversarial state-transition review playbook with executable fixture classes for stale generations, replay, timeout-after-effect, concurrent writers, tombstones, lease reuse, partial effects, and recovery on a new generation.
+- Added machine-readable gate-source inventory for `agents-md-architect` so true CI/task entrypoints consume the audit budget while helper/library files remain visible without creating false source-count failures.
+
+### Changed
+
+- Published the bundled application/repository-authoring skills as version `2.0.0` and aligned the conformance template, README, and release metadata to one major release boundary.
+- Changed agent-instruction auditing to preserve the established import/API facade while moving bounded implementation details into canonical helper modules.
+- Changed verification policy to distinguish selected tests from observed execution, reject incomplete discovery/execution evidence, classify background runtime failures separately from ordinary warnings, and require merge-blocking hosted gates discovered from pull-request workflows to have a parity-policy entry with a faithful local entrypoint or explicit hosted-only rationale.
+- Changed local/hosted parity validation to verify that local entrypoint, policy, and dependency references exist and that local Python entrypoints parse successfully or executable scripts are actually executable.
+- Changed test-corpus and verification-receipt accounting so expired exclusions are fail-closed drift and cannot satisfy completeness; the current time is injectable for deterministic verification.
+- Changed gate-source classification so an executable `scripts/*` file with a shebang is independently classified as a real task entrypoint even after rename/move and without a separate CI reference.
+- Changed `agents-md-architect` to classify durable versus volatile runtime facts and to require a stable compatibility contract or a logical capability owner whenever host, version, IP, or port claims would otherwise become timeless instructions (`VOLATILE_RUNTIME_BINDING_REQUIRES_OWNER`).
+- Changed repository-shared contracts to keep one canonical schema/helper owner per durable application semantic instead of parallel skill-private copies.
+- Made generic adoption evidence runtime-neutral for explicitly opted-in consumer runtimes: Node/TypeScript repositories can submit provider-backed compatibility claims and exact JUnit-style testcase identities without representing those consumer runs as combinations tested by the `ai-skills` repository itself.
+- Moved runtime-agent orchestration, mutable intent/session state, delegation lifecycle, diagnostic reasoning, secret-taint runtime handling, and skill distribution/runtime-consumption machinery to `opencode-stack-guides` under migration owner OSG #140; those components are not part of the `ai-skills` 2.0.0 release boundary.
+
+### Security and correctness
+
+- Bound deployment lease admission to the declared principal, session, target, artifact, action, argument digest, policy revision, validity window, and one-use state; a lease for one session or principal cannot authorize another.
+- Strengthened verification receipts with observed-execution/completeness fields, producer-computed accounted-file counts, expiry-aware exclusions, and an executable semantic validator that recomputes corpus accounting before accepting `pass`.
+- Restricted ambiguous action outcomes: an unknown side effect can no longer yield a terminal `failed` disposition; the outcome requires reconciliation or remains pending until the external effect is established.
+
+### Dependencies
+
+- Regenerated the committed native lockfiles for every supported platform/runtime target and moved `httpx2`/`httpcore2` from the advisory-affected 2.9.1 graph to 2.12.0, aligning the generated Python MCP package metadata with the canonical runtime lock.
+
 ## 1.4.0 - 2026-08-28
 
 ### Added
@@ -40,7 +83,7 @@
 - Added a materialized reusable consumer-acceptance workflow, external authority binding for candidate trust locks and adoption assessments, provider-control preflight, trusted-source lock generation, and explicit no-runner evidence classification for real provider-backed adoption.
 - Added an `agents-md-architect` migration-diff workflow that compares normative, validator, evidence, template, and reference surfaces before rewriting an existing canonical `AGENTS.md`.
 - Added mutation outcome taxonomy for independently recording completion, returned identity, representation, and reconciliation requirements.
-- Added conservative stage-local container provenance guidance and practical consumer regressions covering disposable live targets, README preservation, lifecycle separation, moving-head freshness, review freshness, and reproducibility claims.
+- Added conservative stage-local container provenance guidance and practical consumer regressions covering disposable live targets, README preservation, lifecycle separation, moving-head freshness, review freshness, reproducibility claims.
 
 ### Changed
 

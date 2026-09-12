@@ -1,6 +1,6 @@
 schema_version: 1
 name: mcp-server-architect
-version: 1.4.0
+version: 2.0.0
 maturity: stable
 skill_format: ai-skills/v1
 normative_entrypoint: STANDARD.md
@@ -140,6 +140,15 @@ required:
 - tools/check_consumer_canaries.py
 - tools/capture_mcp_contract.py
 - tools/compare_mcp_contracts.py
+- tools/exact_candidate_acceptance.py
+- tools/mcp_exact_candidate_probe.py
+- tools/transport_dogfood.py
+- tools/skill_schema_contract.py
+- tools/action_outcome.py
+- tools/server_invariants.py
+- tools/control_plane_invariants.py
+- tools/provider_schema_compat.py
+- tools/semantic_facade.py
 - tools/generate_python_server.py
 - tools/generate_dotnet_server.py
 - locks/python-runtime.in

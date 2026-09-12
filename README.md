@@ -1,8 +1,8 @@
 # AI Skills
 
-A production-oriented collection of reusable standards, agent workflows, implementation playbooks, executable policy helpers, and tested templates for AI-assisted software engineering.
+A production-oriented collection of reusable standards, implementation playbooks, executable policy helpers, and tested templates for AI-assisted software engineering.
 
-The current repository release is `1.4.0`. All bundled skills are published with `maturity: stable` and are intended for production adoption. Each skill declares its compatibility, dependencies, evidence lanes, and required entry points in `manifest.yaml`.
+The current repository release is `2.0.0`. All bundled skills are published with `maturity: stable` and are intended for production adoption. Each skill declares its compatibility, dependencies, evidence lanes, and required entry points in `manifest.yaml`.
 
 ## Included skills
 
@@ -12,11 +12,13 @@ The current repository release is `1.4.0`. All bundled skills are published with
 | `agents-md-architect` | Create, audit, split, and validate concise repository instruction systems for coding agents. | Root and nested templates, profile and routing playbooks, drift guidance, executable validator |
 | `changelog-release-architect` | Curate human-facing changelogs and choose one evidence-based repository SemVer transition per release boundary. | Release-boundary standard and history-aware validator |
 | `ci-cd-architect` | Design secure and reproducible local and hosted quality gates. | Python, .NET, MCP, documentation, security, packaging, dependency, and container workflows |
+| `mcp-gateway-release-verifier` | Compose exact-artifact MCP identity, schema, transport, lifecycle, health, integrity, and cleanup evidence into a bounded release verdict. | Release-verdict composer and local candidate acceptance lane |
 | `mcp-server-architect` | Design secure, observable, and agent-friendly MCP servers. | Language-neutral core, Python/FastMCP and .NET profiles, testing, security, operations, examples |
 | `mcp-server-consumer` | Select and invoke MCP capabilities safely and efficiently. | Deterministic decision engine and workflow, retry, pagination, and trust playbooks |
+| `qa-change-verifier` | Select risk-based verification layers and bind confidence to exact candidate evidence. | Risk planner, simulator freshness, evidence binding, and failure attribution |
 | `readme-architect` | Create and audit evidence-backed, user-facing repository READMEs without duplicating volatile project truth. | Evidence source map, structure profiles, visual guidance, templates, collector, and auditor |
 
-Local pre-commit and pre-push design belongs to `ci-cd-architect`; it is not a separate architectural domain.
+Local pre-commit and pre-push design belongs to `ci-cd-architect`; it is not a separate architectural domain. Runtime-agent orchestration, mutable intent/session state, delegation lifecycle, and agent diagnostic state are intentionally outside this repository and are owned by `opencode-stack-guides` under OSG #140.
 
 ## Start here
 

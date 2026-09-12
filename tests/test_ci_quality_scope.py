@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import fnmatch
 import importlib.util
 import sys
 import tomllib
@@ -19,6 +20,29 @@ def load_targets() -> Any:
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
+
+
+def _inventory_covers(relative: str, inventory: tuple[str, ...]) -> bool:
+    path = Path(relative)
+    for target in inventory:
+        if "*" in target:
+            if fnmatch.fnmatch(relative, target):
+                return True
+            continue
+        target_path = Path(target)
+        if relative == target or target_path in path.parents:
+            return True
+    return False
+
+
+def _production_python() -> set[str]:
+    contracts = {path.relative_to(ROOT).as_posix() for path in (ROOT / "contracts").glob("*.py")}
+    skill_tools = {
+        path.relative_to(ROOT).as_posix()
+        for path in (ROOT / "skills").glob("*/tools/*.py")
+        if path.is_file()
+    }
+    return contracts | skill_tools
 
 
 def test_agents_tools_are_in_every_policy_critical_target_set() -> None:
@@ -50,6 +74,30 @@ def test_agents_tools_are_in_every_policy_critical_target_set() -> None:
     mypy_path = config["tool"]["mypy"]["mypy_path"]
     assert tools in mypy_path
     assert "contracts" in mypy_path
+
+
+def test_production_python_cannot_fall_outside_canonical_quality_inventory() -> None:
+    targets = load_targets()
+    inventories = (
+        targets.QUALITY_PATHS,
+        targets.TYPE_PATHS,
+        targets.BANDIT_PATHS,
+        targets.POLICY_COVERAGE_PATHS,
+    )
+    production = _production_python()
+    assert production
+    omitted = [
+        relative
+        for relative in sorted(production)
+        if not any(_inventory_covers(relative, inventory) for inventory in inventories)
+    ]
+    assert omitted == []
+
+
+def test_explicit_type_targets_exist() -> None:
+    targets = load_targets()
+    missing = [target for target in targets.TYPE_PATHS if not (ROOT / target).is_file()]
+    assert missing == []
 
 
 def test_hosted_workflow_consumes_canonical_target_inventory() -> None:

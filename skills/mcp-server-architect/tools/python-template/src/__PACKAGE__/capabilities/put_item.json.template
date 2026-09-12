@@ -1,5 +1,6 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
+  "contract_revision": 2,
   "id": "put_item",
   "name": "Put item",
   "description": "Writes one item only after a server-verifiable approval record is consumed and the expected item version still matches.",
@@ -14,6 +15,13 @@
   "reversible": false,
   "requires_confirmation": true,
   "idempotency_key_required": false,
+  "idempotency": {"mode": "none", "scope": "principal-target"},
+  "async_model": "synchronous",
+  "outcome_contract": "layered",
+  "reconciliation": {"supported": false, "required_after_ambiguous_dispatch": true, "method": "none"},
+  "publication": {"model": "inline", "implies_verification": false},
+  "result_bounded": true,
+  "runtime_identity": {"supported": false, "level": "none"},
   "authorization_scopes": ["inventory:write"],
   "approval": {
     "enforcement": "server-side",

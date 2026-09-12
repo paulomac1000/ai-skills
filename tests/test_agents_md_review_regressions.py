@@ -189,8 +189,9 @@ def test_macos_host_path_is_reported(tmp_path: Path) -> None:
 
 
 def test_gate_source_aggregate_is_bounded(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    write(tmp_path / "scripts/ci.py", "print('ci')\n")
-    write(tmp_path / "scripts/other.py", "print('other')\n")
+    entrypoint = "if __name__ == '__main__':\n    print('gate')\n"
+    write(tmp_path / "scripts/ci.py", entrypoint)
+    write(tmp_path / "scripts/other.py", entrypoint)
     write(tmp_path / "AGENTS.md", valid_application())
     monkeypatch.setattr(audit_module, "MAX_GATE_FILES", 1)
     _, findings = audit_module.audit(tmp_path, "application", "single", "en")

@@ -131,7 +131,7 @@ def test_contract_capture_uses_exact_probe_and_strips_provider_credentials(
     snapshot = _contract(revision="c" * 40)
     input_path = tmp_path / "snapshot.json"
     input_path.write_text(json.dumps(snapshot), encoding="utf-8")
-    probe = tmp_path / "probe.py"
+    probe = tmp_path / "mcp_exact_candidate_probe_wrapper.py"
     probe.write_text(
         "import json, os, pathlib, sys\n"
         "doc=json.loads(pathlib.Path(sys.argv[1]).read_text())\n"

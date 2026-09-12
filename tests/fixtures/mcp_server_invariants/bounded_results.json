@@ -1,0 +1,4 @@
+{
+  "positive": {"results": {"default_bounded": true, "partial_marker": true, "continuation": true, "full_detail_opt_in": true}},
+  "negative": {"results": {"default_bounded": true, "partial_marker": true, "continuation": false, "full_detail_opt_in": true}}
+}

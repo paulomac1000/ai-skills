@@ -138,7 +138,8 @@ def expected_rules(
     return result
 
 
-TEST_CASE_IDENTITY = re.compile(r"^(tests/[A-Za-z0-9_./-]+[.]py)::(test_[A-Za-z0-9_]+)$")
+PYTHON_TEST_CASE = re.compile(r"^test_[A-Za-z0-9_]+$")
+MAX_TEST_CASE_IDENTITY_CHARS = 2048
 _TestCaseSourceLoader = Callable[[str], str]
 _TEST_CASE_SOURCE_LOADER: ContextVar[_TestCaseSourceLoader | None] = ContextVar(
     "ai_skills_test_case_source_loader",
@@ -201,30 +202,44 @@ def _test_tree(source: str, raw_path: str) -> ast.Module | str:
         return f"cannot inspect test file: {exc}"
 
 
-def test_case_identity_finding(value: object, repository_root: Path) -> str | None:
-    """Validate one exact repository test identity without executing candidate code."""
-    if not isinstance(value, str):
-        return "must be an exact tests/file.py::test_name identity"
-    match = TEST_CASE_IDENTITY.fullmatch(value)
-    if match is None:
-        return "must be an exact tests/file.py::test_name identity"
-    raw_path, function_name = match.groups()
+def _portable_test_identity(value: object) -> tuple[str, str] | str:
+    if not isinstance(value, str) or not value or len(value) > MAX_TEST_CASE_IDENTITY_CHARS:
+        return "must be an exact repository test identity in tests/path::case form"
+    if any(character in value for character in ("\x00", "\r", "\n", "\\")):
+        return "test identity contains a prohibited control character or path separator"
+    raw_path, separator, case_identity = value.partition("::")
+    if not separator or not raw_path or not case_identity:
+        return "must be an exact repository test identity in tests/path::case form"
+    if not raw_path.startswith("tests/"):
+        return "test identity must be rooted below tests/"
+    if case_identity != case_identity.strip() or not case_identity.strip():
+        return "test case selector must be non-empty and canonical"
     pure = PurePosixPath(raw_path)
     if pure.is_absolute() or any(part in {"", ".", ".."} for part in pure.parts):
         return "test path must remain inside the repository"
+    return raw_path, case_identity
+
+
+def test_case_identity_finding(value: object, repository_root: Path) -> str | None:
+    """Validate one ecosystem-neutral repository test identity without executing candidate code."""
+    parsed_identity = _portable_test_identity(value)
+    if isinstance(parsed_identity, str):
+        return parsed_identity
+    raw_path, case_identity = parsed_identity
+    pure = PurePosixPath(raw_path)
 
     loader = _TEST_CASE_SOURCE_LOADER.get()
+    source: str | None = None
     if loader is not None:
         try:
             source = loader(raw_path)
         except (OSError, UnicodeDecodeError, ValueError) as exc:
             return f"cannot inspect immutable test file: {exc}"
-        parsed = _test_tree(source, raw_path)
-        if isinstance(parsed, str):
-            return parsed
-        tree = parsed
     else:
-        root = repository_root.resolve(strict=True)
+        try:
+            root = repository_root.resolve(strict=True)
+        except (OSError, RuntimeError) as exc:
+            return f"cannot resolve repository root: {exc}"
         current = root
         for part in pure.parts:
             current /= part
@@ -232,16 +247,22 @@ def test_case_identity_finding(value: object, repository_root: Path) -> str | No
                 return "test path must not contain symlinks"
         if not current.is_file():
             return "test file does not exist"
-        try:
-            source = current.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError) as exc:
-            return f"cannot inspect test file: {exc}"
-        parsed = _test_tree(source, raw_path)
-        if isinstance(parsed, str):
-            return parsed
-        tree = parsed
+        if current.suffix.casefold() == ".py":
+            try:
+                source = current.read_text(encoding="utf-8")
+            except (OSError, UnicodeDecodeError) as exc:
+                return f"cannot inspect test file: {exc}"
 
-    functions = {node.name for node in tree.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))}
-    if function_name not in functions:
-        return f"test function {function_name!r} does not exist"
+    if pure.suffix.casefold() != ".py":
+        return None
+    if PYTHON_TEST_CASE.fullmatch(case_identity) is None:
+        return "Python test identities must use tests/file.py::test_name"
+    if source is None:
+        return "cannot inspect Python test file"
+    parsed = _test_tree(source, raw_path)
+    if isinstance(parsed, str):
+        return parsed
+    functions = {node.name for node in parsed.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))}
+    if case_identity not in functions:
+        return f"test function {case_identity!r} does not exist"
     return None

@@ -1,0 +1,4 @@
+{
+  "positive": {"async_progress": {"may_outlive_request": true, "durable_operation_id": true, "status_surface": true, "timeout_is_terminal_failure": false}},
+  "negative": {"async_progress": {"may_outlive_request": true, "durable_operation_id": false, "status_surface": true, "timeout_is_terminal_failure": false}}
+}

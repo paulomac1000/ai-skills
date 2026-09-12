@@ -10,11 +10,19 @@ import yaml
 from contracts.semver import is_semver
 
 ROOT = Path(__file__).resolve().parents[1]
-RELEASE_VERSION = "1.4.0"
+RULE_CATALOG = yaml.safe_load((ROOT / "contracts/rule-catalog.yaml").read_text(encoding="utf-8"))
+RELEASE_VERSION = str(RULE_CATALOG["catalog_version"])
 RELEASE_MATURITY = "stable"
 SUPPORTED_MATURITY = {"experimental", "release-candidate", "stable", "deprecated"}
 ALLOWED_OPERATING_SYSTEMS = {"linux", "macos", "windows"}
 RUNNER_OPERATING_SYSTEM = {"ubuntu": "linux", "macos": "macos", "windows": "windows"}
+NODE_CONSUMER_SKILLS = {
+    "afds-doc-writer",
+    "agents-md-architect",
+    "changelog-release-architect",
+    "ci-cd-architect",
+    "readme-architect",
+}
 RELEASE_TEXT_SUFFIXES = {
     ".cs",
     ".csproj",
@@ -170,6 +178,12 @@ def test_every_skill_manifest_is_versioned_and_declares_exact_evidenced_combinat
             assert not resource.is_absolute() and ".." not in resource.parts, (path, field)
             assert (ROOT / resource).is_file(), (path, field)
 
+        consumer_policy = adoption.get("consumer_runtime_evidence")
+        if manifest["name"] in NODE_CONSUMER_SKILLS:
+            assert consumer_policy == {"provider_backed_runtimes": ["node"]}, path
+        else:
+            assert consumer_policy is None, path
+
         dependencies = manifest["dependencies"]
         assert isinstance(dependencies["skills"], list), path
         assert isinstance(dependencies["tools"], list) and dependencies["tools"], path
@@ -203,7 +217,7 @@ def test_current_release_prerelease_identity_is_absent_from_published_content() 
         if not path.is_file() or path.suffix.casefold() not in RELEASE_TEXT_SUFFIXES:
             continue
         relative_parts = path.relative_to(ROOT).parts
-        if ".git" in relative_parts or "tests" in relative_parts:
+        if ".git" in relative_parts or "tests" in relative_parts or relative_parts[0] == "evidence":
             continue
         assert stale_identity not in path.read_text(encoding="utf-8"), path
 

@@ -1,6 +1,6 @@
 schema_version: 1
 name: agents-md-architect
-version: 1.4.0
+version: 2.0.0
 maturity: stable
 skill_format: ai-skills/v1
 normative_entrypoint: STANDARD.md
@@ -47,6 +47,8 @@ dependencies:
   packages:
     python:
     - PyYAML>=6.0.3,<7
+  shared_resources:
+  - contracts/confined_io.py
 conditional_dependencies:
   profiles:
     mcp-server:
@@ -65,13 +67,18 @@ required:
 - references/lifecycle-and-evidence.md
 - references/instruction-precedence-and-platforms.md
 - references/migration-and-upgrade.md
+- references/gate-source-budget.md
+- references/runtime-fact-classification.md
 - templates/AGENTS.md.template
 - templates/nested-AGENTS.md.template
 - tools/discover_repository.py
 - tools/audit_agents_md.py
+- tools/audit_agents_md_impl.py
+- tools/agents_md_gate_sources.py
 - tools/agents_md_types.py
 - tools/agents_md_parse.py
 - tools/agents_md_completion_evidence.py
+- tools/runtime_fact_classification.py
 - tools/validate_agents_md.py
 categories:
 - core
@@ -84,3 +91,6 @@ adoption:
   rule_catalog: contracts/rule-catalog.yaml
   extension: generic
   rule_map: contracts/standard-rule-map.yaml
+  consumer_runtime_evidence:
+    provider_backed_runtimes:
+    - node

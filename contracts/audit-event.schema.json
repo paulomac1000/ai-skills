@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/paulomac1000/ai-skills/blob/main/contracts/audit-event.schema.json",
+  "title": "Agentic audit event",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "event_id", "correlation_id", "timestamp", "actor", "action", "outcome", "retention_class"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "event_id": {"type": "string", "minLength": 1, "maxLength": 256},
+    "correlation_id": {"type": "string", "minLength": 1, "maxLength": 256},
+    "timestamp": {"type": "string", "format": "date-time"},
+    "actor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["principal"],
+      "properties": {
+        "principal": {"type": "string", "minLength": 1, "maxLength": 256},
+        "session": {"type": ["string", "null"], "maxLength": 256}
+      }
+    },
+    "action": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["capability", "operation", "target"],
+      "properties": {
+        "capability": {"type": "string", "minLength": 1, "maxLength": 256},
+        "operation": {"type": "string", "minLength": 1, "maxLength": 256},
+        "target": {"type": "string", "minLength": 1, "maxLength": 2048},
+        "normalized_args_digest": {"type": ["string", "null"], "pattern": "^hmac-sha256:[0-9a-fA-F]{64}$"},
+        "idempotency_key_ref": {"type": ["string", "null"], "maxLength": 512}
+      }
+    },
+    "runtime": {"anyOf": [{"$ref": "runtime-identity.schema.json"}, {"type": "null"}]},
+    "outcome": {"$ref": "action-outcome.schema.json"},
+    "artifact_refs": {"type": "array", "items": {"type": "string", "minLength": 1, "maxLength": 2048}, "uniqueItems": true},
+    "evidence_refs": {"type": "array", "items": {"type": "string", "minLength": 1, "maxLength": 2048}, "uniqueItems": true},
+    "policy_refs": {"type": "array", "items": {"type": "string", "minLength": 1, "maxLength": 2048}, "uniqueItems": true},
+    "approval_refs": {"type": "array", "items": {"type": "string", "minLength": 1, "maxLength": 2048}, "uniqueItems": true},
+    "retention_class": {"type": "string", "minLength": 1, "maxLength": 128},
+    "extensions": {"type": "object"}
+  }
+}

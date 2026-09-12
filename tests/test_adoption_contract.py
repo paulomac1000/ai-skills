@@ -109,10 +109,21 @@ def _minimal_catalog(skill_name: str) -> dict[str, Any]:
     }
 
 
-def _write_skill(tmp_path: Path, skill_name: str, combination: dict[str, str]) -> Path:
+def _write_skill(
+    tmp_path: Path,
+    skill_name: str,
+    combination: dict[str, str],
+    *,
+    consumer_runtimes: Sequence[str] = (),
+) -> Path:
     skills = tmp_path / "skills"
     skill = skills / skill_name
     skill.mkdir(parents=True)
+    adoption: dict[str, Any] = {}
+    if consumer_runtimes:
+        adoption["consumer_runtime_evidence"] = {
+            "provider_backed_runtimes": list(consumer_runtimes),
+        }
     (skill / "manifest.yaml").write_text(
         yaml.safe_dump(
             {
@@ -120,6 +131,7 @@ def _write_skill(tmp_path: Path, skill_name: str, combination: dict[str, str]) -
                 "version": "1.1.0-rc.1",
                 "maturity": "release-candidate",
                 "compatibility": {"tested_combinations": [combination]},
+                "adoption": adoption,
             },
             sort_keys=False,
         ),
@@ -133,6 +145,7 @@ def assessment_for(
     skill_name: str = "example-skill",
     *,
     mcp: bool = False,
+    consumer_runtimes: Sequence[str] = (),
 ) -> tuple[dict[str, Any], dict[str, Any], Path]:
     artifact = tmp_path / "artifact.txt"
     artifact.write_text("immutable artifact\n", encoding="utf-8")
@@ -146,7 +159,12 @@ def assessment_for(
         "version": "3.12",
         "lane": "python-compatibility",
     }
-    skills = _write_skill(tmp_path, skill_name, combination)
+    skills = _write_skill(
+        tmp_path,
+        skill_name,
+        combination,
+        consumer_runtimes=consumer_runtimes,
+    )
     catalog = _minimal_catalog(skill_name)
     rule_id = catalog["skills"][skill_name]["rules"][0]["id"]
     document: dict[str, Any] = {
@@ -277,8 +295,68 @@ def findings(
     ]
 
 
+def _node_consumer_document(document: dict[str, Any], root: Path) -> dict[str, str]:
+    node_test = root / "tests" / "adoption.test.ts"
+    node_test.write_text("test('adoption contract', () => expect(true).toBe(true));\n", encoding="utf-8")
+    combination = {
+        "operating_system": "linux",
+        "architecture": "x64",
+        "runtime": "node",
+        "version": "24.15.0",
+        "lane": "quality",
+    }
+    document["compatibility_claims"]["combinations"] = [combination]
+    document["compatibility_results"] = [
+        {
+            **combination,
+            "command": "npm test -- --runInBand",
+            "evidence": evidence(3, lane="quality"),
+            "result": "passed",
+        }
+    ]
+    verification = document["applicability"][0]["verification"][0]
+    verification.update(
+        {
+            "command": "npm test -- tests/adoption.test.ts",
+            "test_case": "tests/adoption.test.ts::adoption contract",
+            "evidence": evidence(1, lane="quality"),
+        }
+    )
+    document["artifact_verification"]["artifacts"][0]["commands"] = ["npm test"]
+    return combination
+
+
 def test_public_schema_is_valid() -> None:
     Draft202012Validator.check_schema(SCHEMA)
+
+
+def test_provider_backed_node_consumer_is_accepted_only_with_manifest_opt_in(tmp_path: Path) -> None:
+    document, catalog, skills = assessment_for(tmp_path, consumer_runtimes=("node",))
+    combination = _node_consumer_document(document, tmp_path)
+    verifier = FakeVerifier()
+
+    assert findings(document, catalog, skills, tmp_path, verifier) == []
+    compatibility_claims = [
+        reference["_expected_claim"]
+        for reference in verifier.action_references
+        if reference["_expected_claim"]["kind"] == "compatibility"
+    ]
+    assert compatibility_claims == [
+        {
+            "kind": "compatibility",
+            "subject": "linux|x64|node|24.15.0|quality",
+            "result": "passed",
+            "command_digest": compatibility_claims[0]["command_digest"],
+            "combination": combination,
+        }
+    ]
+
+    without_opt_in = tmp_path / "without-opt-in"
+    without_opt_in.mkdir()
+    rejected, rejected_catalog, rejected_skills = assessment_for(without_opt_in)
+    _node_consumer_document(rejected, without_opt_in)
+    result = "\n".join(findings(rejected, rejected_catalog, rejected_skills, without_opt_in))
+    assert "unsupported combinations" in result
 
 
 def test_provider_backed_assessment_binds_exact_claims(tmp_path: Path) -> None:

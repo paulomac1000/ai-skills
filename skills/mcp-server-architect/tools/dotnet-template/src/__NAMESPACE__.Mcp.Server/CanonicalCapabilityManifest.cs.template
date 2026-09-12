@@ -22,9 +22,37 @@ internal sealed record CanonicalApproval(
     [property: JsonPropertyName("binds")]
     IReadOnlyList<string> Binds);
 
+internal sealed record CanonicalIdempotency(
+    [property: JsonPropertyName("mode")]
+    string Mode,
+    [property: JsonPropertyName("scope")]
+    string Scope);
+
+internal sealed record CanonicalReconciliation(
+    [property: JsonPropertyName("supported")]
+    bool Supported,
+    [property: JsonPropertyName("required_after_ambiguous_dispatch")]
+    bool RequiredAfterAmbiguousDispatch,
+    [property: JsonPropertyName("method")]
+    string Method);
+
+internal sealed record CanonicalPublication(
+    [property: JsonPropertyName("model")]
+    string Model,
+    [property: JsonPropertyName("implies_verification")]
+    bool ImpliesVerification);
+
+internal sealed record CanonicalRuntimeIdentity(
+    [property: JsonPropertyName("supported")]
+    bool Supported,
+    [property: JsonPropertyName("level")]
+    string Level);
+
 internal sealed record CanonicalCapabilityManifest(
     [property: JsonPropertyName("schema_version")]
     int SchemaVersion,
+    [property: JsonPropertyName("contract_revision")]
+    int ContractRevision,
     [property: JsonPropertyName("id")]
     string Id,
     [property: JsonPropertyName("name")]
@@ -53,6 +81,20 @@ internal sealed record CanonicalCapabilityManifest(
     bool RequiresConfirmation,
     [property: JsonPropertyName("idempotency_key_required")]
     bool IdempotencyKeyRequired,
+    [property: JsonPropertyName("idempotency")]
+    CanonicalIdempotency Idempotency,
+    [property: JsonPropertyName("async_model")]
+    string AsyncModel,
+    [property: JsonPropertyName("outcome_contract")]
+    string OutcomeContract,
+    [property: JsonPropertyName("reconciliation")]
+    CanonicalReconciliation Reconciliation,
+    [property: JsonPropertyName("publication")]
+    CanonicalPublication Publication,
+    [property: JsonPropertyName("result_bounded")]
+    bool ResultBounded,
+    [property: JsonPropertyName("runtime_identity")]
+    CanonicalRuntimeIdentity RuntimeIdentity,
     [property: JsonPropertyName("authorization_scopes")]
     IReadOnlyList<string> AuthorizationScopes,
     [property: JsonPropertyName("concurrency")]
@@ -163,6 +205,13 @@ internal static class CanonicalCapabilityManifestContract
                 "target",
             _ => "capability",
         };
+        var idempotencyMode = manifest.Idempotent
+            ? manifest.IdempotencyMechanism is IdempotencyMechanism.IdempotencyKey
+                ? "keyed"
+                : "intrinsic"
+            : "none";
+        var idempotencyScope = operationKind == "read" ? "invocation" : "principal-target";
+        var reconciliationRequired = operationKind != "read" && !manifest.Idempotent;
         var approval = manifest.RequiresConfirmation
             ? new CanonicalApproval(
                 "server-side",
@@ -192,7 +241,8 @@ internal static class CanonicalCapabilityManifestContract
         };
 
         return new CanonicalCapabilityManifest(
-            1,
+            2,
+            2,
             manifest.Name,
             manifest.Name.Replace('_', ' '),
             $"Generated capability contract for {manifest.Name}.",
@@ -207,6 +257,13 @@ internal static class CanonicalCapabilityManifestContract
             manifest.Reversible,
             manifest.RequiresConfirmation,
             manifest.IdempotencyMechanism is IdempotencyMechanism.IdempotencyKey,
+            new CanonicalIdempotency(idempotencyMode, idempotencyScope),
+            "synchronous",
+            "simple",
+            new CanonicalReconciliation(false, reconciliationRequired, "none"),
+            new CanonicalPublication("inline", false),
+            true,
+            new CanonicalRuntimeIdentity(false, "none"),
             [manifest.RequiredScope],
             new CanonicalConcurrency(
                 concurrencyScope,
@@ -267,6 +324,8 @@ internal static class CanonicalCapabilityManifestContract
             "latency",
             "impact",
             "active_state",
+            "async_model",
+            "outcome_contract",
         })
         {
             RequireAllowedEnum(
@@ -277,14 +336,33 @@ internal static class CanonicalCapabilityManifestContract
         }
 
         RequireAllowedEnum(
-            properties
-                .GetProperty("concurrency")
-                .GetProperty("properties")
-                .GetProperty("scope"),
-            document
-                .GetProperty("concurrency")
-                .GetProperty("scope")
-                .GetString(),
+            properties.GetProperty("idempotency").GetProperty("properties").GetProperty("mode"),
+            document.GetProperty("idempotency").GetProperty("mode").GetString(),
+            capabilityId,
+            "idempotency.mode");
+        RequireAllowedEnum(
+            properties.GetProperty("idempotency").GetProperty("properties").GetProperty("scope"),
+            document.GetProperty("idempotency").GetProperty("scope").GetString(),
+            capabilityId,
+            "idempotency.scope");
+        RequireAllowedEnum(
+            properties.GetProperty("reconciliation").GetProperty("properties").GetProperty("method"),
+            document.GetProperty("reconciliation").GetProperty("method").GetString(),
+            capabilityId,
+            "reconciliation.method");
+        RequireAllowedEnum(
+            properties.GetProperty("publication").GetProperty("properties").GetProperty("model"),
+            document.GetProperty("publication").GetProperty("model").GetString(),
+            capabilityId,
+            "publication.model");
+        RequireAllowedEnum(
+            properties.GetProperty("runtime_identity").GetProperty("properties").GetProperty("level"),
+            document.GetProperty("runtime_identity").GetProperty("level").GetString(),
+            capabilityId,
+            "runtime_identity.level");
+        RequireAllowedEnum(
+            properties.GetProperty("concurrency").GetProperty("properties").GetProperty("scope"),
+            document.GetProperty("concurrency").GetProperty("scope").GetString(),
             capabilityId,
             "concurrency.scope");
     }
@@ -311,7 +389,8 @@ internal static class CanonicalCapabilityManifestContract
     private static void ValidateSemantics(
         CanonicalCapabilityManifest manifest)
     {
-        if (manifest.SchemaVersion != 1
+        if (manifest.SchemaVersion != 2
+            || manifest.ContractRevision < 2
             || string.IsNullOrWhiteSpace(manifest.Id)
             || string.IsNullOrWhiteSpace(manifest.Name)
             || string.IsNullOrWhiteSpace(manifest.Description))
@@ -326,7 +405,7 @@ internal static class CanonicalCapabilityManifestContract
                 $"{manifest.Id}: only active capabilities may be registered.");
         }
 
-        if (manifest.MaxResponseBytes is < 1 or > 16_777_216)
+        if (!manifest.ResultBounded || manifest.MaxResponseBytes is < 1 or > 16_777_216)
         {
             throw new InvalidOperationException(
                 $"{manifest.Id}: canonical response bound is invalid.");
@@ -339,12 +418,34 @@ internal static class CanonicalCapabilityManifestContract
                 $"{manifest.Id}: canonical concurrency contract is invalid.");
         }
 
+        if (manifest.Idempotent == (manifest.Idempotency.Mode == "none")
+            || (manifest.IdempotencyKeyRequired && manifest.Idempotency.Mode != "keyed"))
+        {
+            throw new InvalidOperationException(
+                $"{manifest.Id}: canonical idempotency semantics are inconsistent.");
+        }
+
+        if ((!manifest.Reconciliation.Supported && manifest.Reconciliation.Method != "none")
+            || (manifest.Reconciliation.Supported && manifest.Reconciliation.Method == "none"))
+        {
+            throw new InvalidOperationException(
+                $"{manifest.Id}: canonical reconciliation semantics are inconsistent.");
+        }
+
+        if (!manifest.RuntimeIdentity.Supported && manifest.RuntimeIdentity.Level != "none"
+            || manifest.RuntimeIdentity.Supported && manifest.RuntimeIdentity.Level == "none")
+        {
+            throw new InvalidOperationException(
+                $"{manifest.Id}: canonical runtime identity semantics are inconsistent.");
+        }
+
         if (manifest.OperationKind == "read"
             && (manifest.Impact != "none"
                 || manifest.Retryable
                 || manifest.Reversible
                 || manifest.RequiresConfirmation
-                || manifest.IdempotencyKeyRequired))
+                || manifest.IdempotencyKeyRequired
+                || manifest.Idempotency.Mode != "intrinsic"))
         {
             throw new InvalidOperationException(
                 $"{manifest.Id}: read capability carries write/retry flags.");
@@ -357,6 +458,11 @@ internal static class CanonicalCapabilityManifestContract
             {
                 throw new InvalidOperationException(
                     $"{manifest.Id}: mutation lacks scopes or impact.");
+            }
+            if (!manifest.Idempotent && !manifest.Reconciliation.RequiredAfterAmbiguousDispatch)
+            {
+                throw new InvalidOperationException(
+                    $"{manifest.Id}: non-idempotent mutation must require ambiguous-outcome reconciliation.");
             }
         }
 

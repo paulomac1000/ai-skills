@@ -1,6 +1,6 @@
 schema_version: 1
 name: mcp-server-consumer
-version: 1.4.0
+version: 2.0.0
 maturity: stable
 skill_format: ai-skills/v1
 normative_entrypoint: STANDARD.md
@@ -51,6 +51,12 @@ required:
 - SKILL.md
 - STANDARD.md
 - tools/decision_engine.py
+- tools/runtime_identity_ref.py
+- tools/admission.py
+- tools/consumer_contracts.py
+- tools/delivery_reconciliation.py
+- tools/extraction.py
+- tools/contract_refs.py
 categories:
 - core
 - references

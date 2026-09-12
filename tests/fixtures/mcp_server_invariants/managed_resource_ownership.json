@@ -1,0 +1,4 @@
+{
+  "positive": {"managed_resource": {"governed": true, "raw_mutation_blocked": true, "owner_route": "canonical-control-plane"}},
+  "negative": {"managed_resource": {"governed": true, "raw_mutation_blocked": false, "owner_route": "canonical-control-plane"}}
+}

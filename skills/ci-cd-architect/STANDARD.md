@@ -8,7 +8,7 @@ rigor: normative
 owners: [repository-maintainers]
 verification:
   kind: command
-  value: Render every bundled template, parse it as YAML, run `python scripts/ci.py`, execute the trusted workflow-policy auditor and the on-demand execution-policy validator against a candidate tree, and review permissions, trigger policy, provider controls, authority binding, evidence identity, and release identity manually.
+  value: Render every bundled template, parse it as YAML, run `python scripts/ci.py`, execute the trusted workflow-policy auditor, execution-policy validator, and verification-integrity checks against a candidate tree, and review permissions, trigger policy, provider controls, authority binding, evidence identity, test-corpus completeness, execution integrity, state isolation, and release identity manually.
 ---
 
 # CI/CD standard
@@ -39,6 +39,11 @@ Define stable delivery invariants for Python, .NET, MCP, documentation, package,
 - Reusable templates parameterize the default branch, runtime version, install command, test command, and relevant paths.
 - GitHub-hosted runners use a concrete image label such as `ubuntu-24.04`; moving `*-latest` labels are not accepted as reproducible execution identities. A `${{ matrix.os }}` runner is accepted only when every generated matrix value is a concrete literal runner and no expression or moving label can enter the axis.
 - A workflow run is evidence only when a runner actually executed the required steps. A created job with no assigned runner, `steps: []`, or no command output is infrastructure/provider failure, not a passed quality gate.
+- An authoritative verification gate also proves **selection integrity** and **execution integrity**. Every test matching the repository's intended corpus is executed or appears as an explicit reviewed exclusion; a conforming but unexecuted test makes the verdict incomplete or failed. Green assertion counts and exit code zero do not override file-level cancellation, pending/leaked async work, unhandled thread/task/process exceptions, unraisable exceptions, or equivalent executable failures.
+- Verdict-affecting dependencies come from repository-declared locks, manifests, tool-version files, immutable images, or an explicit deterministic bootstrap. Ambient host packages are not reproducible evidence merely because they happen to satisfy an invocation.
+- Ordinary validation is read-only with respect to production-effective runtime state. Test fixtures, generated env/config, databases, caches, sockets, work directories, identities, and credentials use isolated run-owned state. A validation run that mutates the production-effective state it was meant to observe is invalid evidence even if its assertions pass.
+
+The canonical machine-readable semantics for test-corpus completeness, execution integrity, dependency bootstrap, local/hosted parity, and protected-state isolation are described in `references/verification-integrity.md` and compose into the repository-level `contracts/verification-receipt.schema.json`. Individual language or MCP profiles consume those semantics rather than inventing private definitions of `PASS`.
 
 ## Workflow policy profiles
 
@@ -107,6 +112,8 @@ The validator defaults automatic push allowlisting to `main` and `master`; repos
 
 A production Python full gate includes, when applicable: dependency installation from the repository source of truth, Ruff lint and format checks, type checking, Bandit or equivalent security checks, unit tests, coverage reports, integration tests, and test artifacts. Missing stubs and exclusions are configured in project files, not hidden in CI command lines. Under on-demand execution, a fast manual job may run a strict subset, but it does not replace the full gate required for acceptance.
 
+Pytest warning policy distinguishes informational/deprecation warnings from warnings that encode an executable failure. `PytestUnhandledThreadExceptionWarning`, `PytestUnraisableExceptionWarning`, meaningful never-awaited coroutines, pending/destroyed tasks, and equivalent background failures are blocking. A repository MAY keep known dependency deprecations non-blocking through a narrow reviewed allowlist; it MUST NOT convert all warnings to success or hide the underlying exception trace. The same classification policy is used by the local and hosted entrypoints.
+
 ## .NET quality
 
 A production .NET full gate includes restore, `dotnet format --verify-no-changes`, analyzer-enabled release build, tests with TRX and XPlat coverage, coverage report generation, and uploaded test artifacts. Package publication is a separate protected workflow or job and uses a version derived from the validated tag. Under on-demand execution, expensive restore/build/test matrices may be manual during branch iteration but remain mandatory when the repository acceptance policy requires them.
@@ -114,6 +121,8 @@ A production .NET full gate includes restore, `dotnet format --verify-no-changes
 ## MCP-specific assurance
 
 MCP repositories additionally test public tool registration, schema exposure, representative client invocation, protocol error shape, cancellation, and the built server artifact. Tool-count assertions are useful only when the expected count is intentionally controlled; capability or contract assertions are preferred when registration is dynamic.
+
+MCP candidate gates consume the same verification-integrity contract. A transport smoke whose selected tests later cancel, leak async work, or raise a background exception is non-green; MCP-specific acceptance must not duplicate or weaken that rule.
 
 ## Documentation and security
 
@@ -142,13 +151,19 @@ The publisher verifies that every promoted production tag resolves to the expect
 
 `docker push --all-tags` is forbidden because unrelated local tags may be promoted accidentally. `docker image load` or candidate execution in the privileged publisher is forbidden because it reintroduces candidate-controlled execution after the trust boundary. A short SHA may be a human alias but is not the durable source identity.
 
+A deployment authority, where required, is bound to an exact principal/session, target/environment/resource, candidate digest/revision, action, normalized arguments/policy revision, and validity window. Repository source or generic write credentials cannot mint or widen that authority. Timeout after dispatch is reconciled against target RuntimeIdentity before any retry; rollback is separately authorized unless the governing lease explicitly includes it. The common lease and audit semantics live in `contracts/deployment-lease.schema.json` and `contracts/audit-event.schema.json`.
+
 ## Local quality gates
 
 Pre-commit runs only deterministic, fast, secret-free checks. Pre-push may run the bounded repository parity runner. Network, deployment, integration environments, and privileged publication remain in CI. In an on-demand repository, local and pre-push gates carry more of the iterative feedback load but never manufacture hosted evidence. See [Local quality gates](references/local-quality-gates.md).
 
+Every merge-blocking hosted gate maps to one supported local entrypoint or an explicit `hosted_only` classification with rationale. The local entrypoint uses the same policy/configuration and pinned dependency source where feasible; unavailable provider-only checks remain visible as not executed. Use `tools/check_local_ci_parity.py` for the mapping, `tools/check_verification_bootstrap.py` for dependency provenance, `tools/check_test_corpus.py` for corpus completeness, `tools/check_execution_integrity.py` for hidden runtime failures, and `tools/verify_state_isolation.py` when validation can run near protected state.
+
 ## Verification
 
 Render every workflow with representative values, parse the YAML, inspect each job and `uses` reference, and run the workflow-policy auditor under the declared trust profile. For workflows carrying `ai-skills-execution-policy: on-demand`, also run `check_ci_execution_policy.py`, dispatch the fast and full paths, prove a feature-branch push and PR synchronization do not start the workflow, and prove an integration-branch push runs the full path. Every bundled workflow template must pass its declared policy after rendering.
+
+For every authoritative gate, prove that intended test discovery equals executed tests plus reviewed exclusions; inspect execution logs/results for blocking asynchronous/background failures; verify the dependency bootstrap is repository-declared; and, where runtime state is nearby, prove writable test state is disjoint from protected production-effective state and unchanged afterward. A gate with unknown discovery completeness, selected-but-cancelled/pending tests, unhandled executable failure, undeclared ambient dependency, or production-state mutation cannot report `PASS/verified`.
 
 For provider-backed adoption, dispatch from a protected authority ref, prove caller and reusable-workflow repository/SHA equality, compare the candidate trust declaration with that authority, run provider-control preflight, correlate provider evidence to the exact candidate SHA, and require independent review. Classify incomplete migrations as `structurally-conformant`, `provider-preflight-blocked`, `provider-validation-pending`, or `independent-review-pending`; use `adopted` only after all provider-backed gates pass. Use `tools/classify_github_run_evidence.py` when a run result may be a zero-step/no-runner provider failure.
 

@@ -260,18 +260,21 @@ class GitHubEvidenceVerifier:
 
     @staticmethod
     def _junit_identity_for_test_case(value: object) -> str | None:
-        """Translate one validated pytest node id into its default JUnit identity."""
+        """Translate a validated repository test id into its exact JUnit identity."""
         if not isinstance(value, str):
             return None
-        path, separator, function_name = value.partition("::")
-        if not separator or not path.startswith("tests/") or not path.endswith(".py"):
+        path, separator, case_name = value.partition("::")
+        if not separator or not path.startswith("tests/") or not case_name:
             return None
-        if not function_name.startswith("test_") or "::" in function_name:
-            return None
-        parts = path[:-3].split("/")
+        parts = path.split("/")
         if any(not part or part in {".", ".."} for part in parts):
             return None
-        return f"{'.'.join(parts)}::{function_name}"
+        if path.endswith(".py"):
+            if not case_name.startswith("test_") or "::" in case_name:
+                return None
+            module_parts = path[:-3].split("/")
+            return f"{'.'.join(module_parts)}::{case_name}"
+        return f"{path}::{case_name}"
 
     @staticmethod
     def _claim_binds_test_case(claim: Mapping[str, Any], test_case: object) -> bool:

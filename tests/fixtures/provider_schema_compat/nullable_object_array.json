@@ -1,0 +1,11 @@
+{
+  "type": "object",
+  "properties": {
+    "options": {
+      "type": ["object", "null"],
+      "properties": {
+        "tags": {"type": ["array", "null"], "items": {"type": "string"}}
+      }
+    }
+  }
+}

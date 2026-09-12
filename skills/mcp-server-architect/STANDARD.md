@@ -49,6 +49,22 @@ A lower-ranked resource cannot weaken a higher-ranked requirement. A generator i
 - Optional integrations fail independently; mandatory dependency failure prevents readiness.
 - SDK compatibility logic is isolated behind one adapter and never spread through domain code.
 
+### Production runtime/API invariants
+
+Every L2+ design has positive/negative evidence for seven invariants: **RuntimeIdentity** binds version/source/artifact/config/generation; **diagnostic parity** keeps caller/operator failure classes actionable and equal; **actionable preconditions** expose all knowable violations before side effects; **managed-resource ownership** blocks raw mutation and names the owner route; **durable async progress** exposes durable operation ID/status and treats timeout as non-terminal; **bounded results** mark partial/truncation with continuation and opt-in detail; **scoped health** separates process/transport/auth/read/write/provider/action readiness with freshness/generation, so read-good/write-bad stays degraded.
+
+### Canonical control plane and projections
+
+Use one canonical store/authority unless multi-master is explicit; provider objects are projections/evidence. Ingress records both observation context and affected canonical owner. Projection writes use a durable idempotent outbox and reconcile ambiguity. Raw provider adapters refuse mutation of managed resources. Retargeting preserves canonical entity identity/history. Work completed externally or by an operator uses evidence-backed completion. Human/agent projections expose a bounded actionable brief/status and reference full evidence.
+
+### Provider schema compatibility
+
+Validate recursively against a versioned profile with provider, contract revision, schema restrictions, and source evidence. Cover nested nullable objects/arrays, unions, `anyOf`/`oneOf`, `$ref`, defaults, `additionalProperties`, `properties`/`required`, and `items`; unknown rules fail closed. Bind release evidence to exact artifact/source, official client/protocol, serialized public contract, and provider-profile revision.
+
+### Semantic façade profile
+
+Keep upstream tools internal. The public budget is at most ten semantic operations plus positive `max_public_schema_bytes`; overflow fails CI. Use deterministic discovery/probes/policy → evidence → optional bounded LLM → deterministic execution/verification → bounded synthesis; the LLM cannot authorize or prove state. Long work uses durable jobs; privileged mutations use typed targets/actions/constraints and layered outcomes; persist detailed evidence by reference.
+
 ## Configuration and identity
 
 Load and validate configuration before modules create clients or capture environment values. Freeze one typed settings snapshot for the process. Runtime mutation requires an explicit reload transaction and revalidation.
@@ -159,6 +175,8 @@ Emit structured logs, traces, duration, result category, resolved target, depend
 Health reports mandatory and optional dependencies separately. Circuit breakers and graceful degradation prevent cascading failure. Audit failures are observable but follow an explicit fail-open or fail-closed policy. Full repository suites are CI or deployment gates, not unbounded production startup checks.
 
 ## Generated project acceptance
+
+Exact-candidate evidence is only valid when produced by the canonical probe (`tools/mcp_exact_candidate_probe.py`) running the pinned official client (`mcp==2.0.0`): the probe launches the digest-bound artifact, negotiates a real session, and derives client provenance and the session receipt from that session. Caller-asserted session facts, evidence without provenance, receipts inconsistent with the recorded initialize payload, or non-pinned client versions fail closed. Contract capture commands must run the canonical probe module; arbitrary evidence producers are rejected.
 
 The bundled Python and .NET generators are part of the standard, not illustrative snippets. A clean invocation creates a deterministic, installable or restore-ready project containing typed immutable settings, application-owned manifests, a transport-independent domain service, one invocation kernel, official SDK registration, stdio and loopback Streamable HTTP, structured output, protocol-native errors, conservative write controls, CI, packaging, security guidance, and tests.
 

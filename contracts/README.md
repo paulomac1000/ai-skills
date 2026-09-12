@@ -34,6 +34,14 @@ The artifact download follows GitHub's signed redirect without forwarding the Gi
 
 The validator never treats a free-form URI, screenshot, aggregate badge, or self-declared `passed` value as verified remote evidence.
 
+## Consumer runtime evidence
+
+A skill manifest may opt into provider-backed adoption evidence from consumer runtimes through `adoption.consumer_runtime_evidence.provider_backed_runtimes`. This is intentionally separate from `compatibility.tested_combinations`: the latter describes combinations executed by this `ai-skills` repository, while the former allows an adopting repository to prove its own runtime-specific compatibility tuple through the external provider-backed evidence chain.
+
+An opted-in consumer tuple is admissible only when the assessment uses a provider verifier, the runtime is explicitly listed by the skill, and its operating-system and architecture pair is already supported by the skill. The provider report must still bind the exact runtime/version/lane combination, command, result bytes, immutable revision, and passed testcase identity. Structural attestation alone cannot manufacture support for an unlisted tuple.
+
+Python pytest node IDs retain their canonical JUnit translation. Other runtimes, including Node/TypeScript test stacks such as Vitest, use the exact JUnit `classname::name` identity emitted by the evidence-producing execution. This keeps the assessment schema runtime-neutral without guessing framework-specific test naming conventions.
+
 ## Acceptance root of trust
 
 Candidate-produced reports and `contracts/validate_adoption.py` are diagnostic. The assessed revision MUST NOT supply the authoritative verifier, claim catalog, or acceptance workflow used to approve itself. Final acceptance MUST run through a protected reusable workflow or separately published verifier pinned by full commit SHA, with a claim catalog pinned independently from the assessed repository. The external verifier executes exact argv, records the working directory and exit status, binds every selected testcase to one result path and digest, and emits the final provider-backed decision.
