@@ -21,6 +21,7 @@ STEWARD_CONTRACTS = (
     "steward-job.schema.json",
     "external-operation-receipt.schema.json",
     "steward-handoff.schema.json",
+    "upstream-capability.schema.json",
 )
 PROFILES = {
     "generic",
