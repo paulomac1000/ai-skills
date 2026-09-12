@@ -1,3 +1,13 @@
+---
+description: Operational durability, storage, leasing, wake-up, fencing, and crash-recovery guidance for MCP Stewards.
+doc_id: reference.mcp-steward-durable-state-recovery
+type: reference
+status: active
+rigor: operational
+owners: [repository-maintainers]
+verification: Exercise lease loss, lost wakeups, stale attempts, restart checkpoints, storage corruption, and the declared single- or multi-instance crash model with deterministic fault injection.
+---
+
 # Durable state and recovery
 
 A Steward's core promise is continuity across request, worker, provider, and process failures. Treat storage as the authority and queues as wake-up hints.

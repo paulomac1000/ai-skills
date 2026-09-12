@@ -1,3 +1,13 @@
+---
+description: Credential isolation, authority-preserving API-key failover, affinity, and provider/model substitution policy for MCP Stewards.
+doc_id: reference.mcp-steward-credentials-failover
+type: reference
+status: active
+rigor: operational
+owners: [repository-maintainers]
+verification: Test rate-limit and credential-specific fallback, denied authorization/policy fallback, delivery-unknown veto, remote-handle affinity, bounded cooldown, and provider/model provenance without exposing secret values.
+---
+
 # Credentials and failover
 
 Credential routing is policy, not exception handling.

@@ -1,3 +1,13 @@
+---
+description: Layered deterministic race, crash-window, replay, recovery, security, and exact-artifact testing strategy for MCP Stewards.
+doc_id: reference.mcp-steward-testing-strategy
+type: reference
+status: active
+rigor: operational
+owners: [repository-maintainers]
+verification: Execute schema, state-machine, port, adapter, persistence, concurrency, fault-injection, replay, official-client, exact-artifact, and explicitly scoped live-provider lanes with a controllable clock and named fault points.
+---
+
 # Steward testing strategy
 
 Stewards are state machines under failure, not CRUD APIs. The highest-value tests force interleavings and crash windows deterministically.

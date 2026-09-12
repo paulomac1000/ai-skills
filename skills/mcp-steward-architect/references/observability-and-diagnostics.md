@@ -1,3 +1,13 @@
+---
+description: Structured correlation, durable event timelines, redaction boundaries, and operator diagnostics for MCP Stewards.
+doc_id: reference.mcp-steward-observability-diagnostics
+type: reference
+status: active
+rigor: operational
+owners: [repository-maintainers]
+verification: Reconstruct representative normal, ambiguous, cancelled, superseded, credential-fallback, and recovery flows from durable events while confirming secrets and protected raw payloads remain absent.
+---
+
 # Observability and diagnostics
 
 Use three separate data classes: diagnostic telemetry, durable audit events, and decision evidence. They may reference one another but one does not substitute for another.

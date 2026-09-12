@@ -1,3 +1,13 @@
+---
+description: Evidence classes, proof authority, subject binding, completion obligations, and bounded authority for MCP Stewards.
+doc_id: reference.mcp-steward-evidence-completion
+type: reference
+status: active
+rigor: operational
+owners: [repository-maintainers]
+verification: Test exact-subject and freshness mismatches, lower-authority evidence, advisory model findings, unresolved ambiguities, completion waivers, and parent-authority boundaries against the configured proof recipes.
+---
+
 # Evidence, authority, and completion
 
 A Steward must be able to answer two different questions: `what happened?` and `who/what is allowed to prove that claim?`.

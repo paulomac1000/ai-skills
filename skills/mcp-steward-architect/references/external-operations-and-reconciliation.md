@@ -1,3 +1,13 @@
+---
+description: Operational contract for stateful upstream dispatch, delivery ambiguity, reconciliation, recovery, and retry safety.
+doc_id: reference.mcp-steward-external-reconciliation
+type: reference
+status: active
+rigor: operational
+owners: [repository-maintainers]
+verification: Inject failures around receipt persistence, provider dispatch, acknowledgement loss, remote-handle persistence, and replay, then prove delivery-unknown never becomes an unverified resend.
+---
+
 # External operations and reconciliation
 
 The hardest Steward failures occur after a side effect may have crossed the process boundary but before local state can prove what happened.
