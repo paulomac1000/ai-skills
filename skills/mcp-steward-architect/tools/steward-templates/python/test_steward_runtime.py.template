@@ -1,0 +1,44 @@
+from __future__ import annotations
+
+import json
+from datetime import UTC, datetime
+from pathlib import Path
+
+from __PACKAGE__.steward_runtime import (
+    FakeClock,
+    FaultInjector,
+    StewardRuntime,
+    StewardStore,
+    compute_handoff_digest,
+)
+
+
+def _policy() -> tuple[dict[str, object], dict[str, object]]:
+    package_root = Path(__file__).resolve().parents[1] / "src" / "__PACKAGE__"
+    profile = json.loads((package_root / "steward_profile.json").read_text(encoding="utf-8"))
+    proof = json.loads((package_root / "steward_proof_recipe.json").read_text(encoding="utf-8"))
+    return profile, proof
+
+
+def test_seed_recovers_ambiguous_delivery_and_runs_completion_gate(tmp_path: Path) -> None:
+    profile, proof = _policy()
+    state_path = tmp_path / "steward.db"
+    clock = FakeClock(datetime(2026, 1, 1, tzinfo=UTC))
+    first = StewardRuntime(
+        StewardStore(state_path, clock),
+        profile,
+        proof,
+        faults=FaultInjector({"after-dispatch"}),
+    )
+    admitted = first.submit("repo", "abc", "idem-1")
+    first.run_once()
+    first.run_once()
+    assert first.status(admitted["jobId"])["status"] == "reconciling"
+
+    recovered = StewardRuntime(StewardStore(state_path, clock), profile, proof)
+    recovered.recover_until_idle()
+    result = recovered.get(admitted["jobId"])
+    assert result["job"]["status"] == "completed"
+    assert result["completion"]["disposition"] == "eligible"
+    assert result["evidence"][0]["producerId"] == "seed-provider"
+    assert result["handoff"]["digest"] == compute_handoff_digest(result["handoff"])

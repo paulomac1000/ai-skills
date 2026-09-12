@@ -1,0 +1,272 @@
+using ModelContextProtocol.Client;
+using System.Diagnostics;
+using System.Net;
+using System.Net.Http.Headers;
+using System.Net.Sockets;
+using System.Text.Json;
+using __NAMESPACE__.Mcp.Server;
+
+if (args.Length is < 1 or > 2 ||
+    (args.Length == 2 && !string.Equals(args[1], "--http", StringComparison.Ordinal)))
+    throw new InvalidOperationException("Expected server DLL and optional --http.");
+var dll = Path.GetFullPath(args[0]);
+if (!File.Exists(dll))
+    throw new FileNotFoundException("Server DLL not found.", dll);
+
+VerifyStewardSeed();
+if (args.Length == 2)
+    await RunHttpAsync(dll);
+else
+    await RunStdioAsync(dll);
+
+static void VerifyStewardSeed()
+{
+    var root = Path.Combine(Path.GetTempPath(), "__NAMESPACE__.steward-" + Guid.NewGuid().ToString("N"));
+    Directory.CreateDirectory(root);
+    var profile = Path.GetFullPath("src/__NAMESPACE__.Mcp.Server/steward_profile.json");
+    var proof = Path.GetFullPath("src/__NAMESPACE__.Mcp.Server/steward_proof_recipe.json");
+    var clock = new FakeSeedClock(new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero));
+    string jobId;
+    try
+    {
+        using (var first = new StewardSeedRuntime(
+            root,
+            clock,
+            new FakeSeedProvider(),
+            new SeedFaultInjector(["after-dispatch"]),
+            profile,
+            proof))
+        {
+            var admitted = first.Submit("repo", "abc", "idem-1");
+            jobId = admitted.JobId;
+            var duplicate = first.Submit("repo", "abc", "idem-1");
+            if (!duplicate.Duplicate || duplicate.JobId != jobId)
+                throw new InvalidOperationException("Idempotent admission did not reuse the durable job.");
+            first.RunOneDue();
+            first.RunOneDue();
+            if (first.Status(jobId).Status != "reconciling")
+                throw new InvalidOperationException("Ambiguous dispatch did not enter reconciliation.");
+        }
+
+        using (var recovered = new StewardSeedRuntime(
+            root,
+            clock,
+            new FakeSeedProvider(),
+            new SeedFaultInjector(),
+            profile,
+            proof))
+        {
+            recovered.RecoverUntilIdle();
+            var result = recovered.Get(jobId);
+            if (result.Job.Status != "completed")
+                throw new InvalidOperationException("Recovered Steward did not complete.");
+            if (result.Completion?.Disposition != "eligible")
+                throw new InvalidOperationException("Completion Gate did not produce eligible disposition.");
+            if (result.Evidence.Count == 0 || result.Evidence[0].ProducerId != "seed-provider")
+                throw new InvalidOperationException("Completion was not bound to resolved provider evidence.");
+            if (result.Handoff is null || !StewardSeedRuntime.VerifyHandoffDigest(result.Handoff))
+                throw new InvalidOperationException("Handoff digest did not bind canonical handoff content.");
+        }
+    }
+    finally
+    {
+        Directory.Delete(root, recursive: true);
+    }
+}
+
+static async Task RunStdioAsync(string dll)
+{
+    var state = Path.Combine(Path.GetTempPath(), "__NAMESPACE__.stdio-" + Guid.NewGuid().ToString("N"));
+    var environment = StdioClientTransportOptions.GetDefaultEnvironmentVariables();
+    environment["STEWARD_STATE_DIR"] = state;
+    var transport = new StdioClientTransport(new StdioClientTransportOptions
+    {
+        Name = "__SERVER_NAME__ Steward stdio smoke",
+        Command = "dotnet",
+        Arguments = [dll],
+        InheritEnvironmentVariables = false,
+        EnvironmentVariables = environment,
+        ShutdownTimeout = TimeSpan.FromSeconds(10),
+    });
+    await using var client = await McpClient.CreateAsync(transport);
+    await VerifyPublicContractAsync(client);
+}
+
+static async Task RunHttpAsync(string dll)
+{
+    var listener = new TcpListener(IPAddress.Loopback, 0);
+    listener.Start();
+    var port = ((IPEndPoint)listener.LocalEndpoint).Port;
+    listener.Stop();
+    var token = Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32));
+    var state = Path.Combine(Path.GetTempPath(), "__NAMESPACE__.http-" + Guid.NewGuid().ToString("N"));
+    using var process = Process.Start(new ProcessStartInfo
+    {
+        FileName = "dotnet",
+        UseShellExecute = false,
+        Arguments = $"\"{dll}\" --http",
+        Environment =
+        {
+            ["MCP_HTTP_PORT"] = port.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            ["MCP_HTTP_BEARER_TOKEN"] = token,
+            ["STEWARD_STATE_DIR"] = state,
+        },
+    }) ?? throw new InvalidOperationException("HTTP server process did not start.");
+
+    try
+    {
+        using var probe = new HttpClient { Timeout = TimeSpan.FromSeconds(1) };
+        var ready = false;
+        for (var attempt = 0; attempt < 40; attempt++)
+        {
+            try
+            {
+                ready = (await probe.GetAsync($"http://127.0.0.1:{port}/health/ready")).IsSuccessStatusCode;
+                if (ready)
+                    break;
+            }
+            catch (HttpRequestException)
+            {
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            await Task.Delay(250);
+        }
+        if (!ready)
+            throw new InvalidOperationException("HTTP server did not become ready.");
+
+        using var unauthorized = await probe.GetAsync($"http://127.0.0.1:{port}/mcp");
+        if (unauthorized.StatusCode != HttpStatusCode.Unauthorized)
+            throw new InvalidOperationException("Unauthenticated MCP request was not rejected.");
+
+        using var foreignOriginRequest = new HttpRequestMessage(HttpMethod.Get, $"http://127.0.0.1:{port}/mcp");
+        foreignOriginRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        foreignOriginRequest.Headers.TryAddWithoutValidation("Origin", "https://attacker.invalid");
+        using var foreignOriginResponse = await probe.SendAsync(foreignOriginRequest);
+        if (foreignOriginResponse.StatusCode != HttpStatusCode.Forbidden)
+            throw new InvalidOperationException("Foreign Origin was not rejected.");
+
+        var transport = new HttpClientTransport(new HttpClientTransportOptions
+        {
+            Name = "__SERVER_NAME__ Steward HTTP smoke",
+            Endpoint = new Uri($"http://127.0.0.1:{port}/mcp"),
+            TransportMode = HttpTransportMode.StreamableHttp,
+            AdditionalHeaders = new Dictionary<string, string>
+            {
+                ["Authorization"] = $"bearer {token}",
+            },
+        });
+        await using var client = await McpClient.CreateAsync(transport);
+        await VerifyPublicContractAsync(client);
+    }
+    finally
+    {
+        if (!process.HasExited)
+            process.Kill(entireProcessTree: true);
+        await process.WaitForExitAsync();
+    }
+}
+
+static async Task VerifyPublicContractAsync(McpClient client)
+{
+    var tools = await client.ListToolsAsync();
+    var names = tools.Select(tool => tool.Name).ToHashSet(StringComparer.Ordinal);
+    var expected = new HashSet<string>(StringComparer.Ordinal)
+    {
+        "describe_capabilities",
+        "steward_submit",
+        "steward_status",
+        "steward_get",
+        "steward_cancel",
+        "steward_doctor",
+    };
+    if (!names.SetEquals(expected))
+        throw new InvalidOperationException($"Steward tool catalog mismatch: {string.Join(',', names)}");
+
+    var submitted = await client.CallToolAsync(
+        "steward_submit",
+        new Dictionary<string, object?>
+        {
+            ["subjectId"] = "repo",
+            ["subjectRevision"] = "abc",
+            ["idempotencyKey"] = "public-idem-1",
+        },
+        cancellationToken: CancellationToken.None);
+    var submittedRoot = Structured(submitted, "submit");
+    var jobId = TextProperty(submittedRoot, "jobId", "JobId");
+
+    var duplicate = await client.CallToolAsync(
+        "steward_submit",
+        new Dictionary<string, object?>
+        {
+            ["subjectId"] = "repo",
+            ["subjectRevision"] = "abc",
+            ["idempotencyKey"] = "public-idem-1",
+        },
+        cancellationToken: CancellationToken.None);
+    var duplicateRoot = Structured(duplicate, "duplicate submit");
+    if (TextProperty(duplicateRoot, "jobId", "JobId") != jobId)
+        throw new InvalidOperationException("Public idempotent submit changed the job identity.");
+
+    JsonElement resultRoot = default;
+    var completed = false;
+    for (var attempt = 0; attempt < 100; attempt++)
+    {
+        var result = await client.CallToolAsync(
+            "steward_get",
+            new Dictionary<string, object?> { ["jobId"] = jobId },
+            cancellationToken: CancellationToken.None);
+        resultRoot = Structured(result, "get");
+        var job = ObjectProperty(resultRoot, "job", "Job");
+        if (TextProperty(job, "status", "Status") == "completed")
+        {
+            completed = true;
+            break;
+        }
+        await Task.Delay(50);
+    }
+    if (!completed)
+        throw new InvalidOperationException("Hosted recovery supervisor did not complete public Steward work.");
+
+    var completion = ObjectProperty(resultRoot, "completion", "Completion");
+    if (TextProperty(completion, "disposition", "Disposition") != "eligible")
+        throw new InvalidOperationException("Public result bypassed the Completion Gate.");
+    var handoff = ObjectProperty(resultRoot, "handoff", "Handoff");
+    if (string.IsNullOrWhiteSpace(TextProperty(handoff, "digest", "Digest")))
+        throw new InvalidOperationException("Public handoff did not contain its canonical digest.");
+
+    var doctor = await client.CallToolAsync(
+        "steward_doctor",
+        new Dictionary<string, object?> { ["jobId"] = jobId },
+        cancellationToken: CancellationToken.None);
+    var doctorRoot = Structured(doctor, "doctor");
+    if (IntProperty(doctorRoot, "deliveryUnknown", "DeliveryUnknown") != 0)
+        throw new InvalidOperationException("Doctor retained unresolved delivery ambiguity after completion.");
+}
+
+static JsonElement Structured(dynamic result, string operation)
+{
+    if (result.IsError == true || result.StructuredContent is null)
+        throw new InvalidOperationException($"{operation} did not return structured success.");
+    return JsonSerializer.SerializeToElement(result.StructuredContent);
+}
+
+static JsonElement ObjectProperty(JsonElement root, string camel, string pascal)
+{
+    if (root.TryGetProperty(camel, out var value) || root.TryGetProperty(pascal, out value))
+        return value;
+    throw new InvalidOperationException($"Missing property {camel}/{pascal}: {root}");
+}
+
+static string TextProperty(JsonElement root, string camel, string pascal)
+{
+    var value = ObjectProperty(root, camel, pascal);
+    return value.GetString() ?? throw new InvalidOperationException($"Property {camel} was null.");
+}
+
+static int IntProperty(JsonElement root, string camel, string pascal)
+{
+    var value = ObjectProperty(root, camel, pascal);
+    return value.GetInt32();
+}
