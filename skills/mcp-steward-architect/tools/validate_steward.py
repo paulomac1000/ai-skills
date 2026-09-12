@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -51,6 +52,10 @@ def validate_document(kind: str, value: Any) -> list[str]:
     if errors or not isinstance(value, dict):
         return findings
 
+    findings.extend(_timestamp_findings(kind, value))
+    if findings:
+        return findings
+
     if kind == "profile":
         findings.extend(_profile_findings(value))
     elif kind == "job":
@@ -65,6 +70,38 @@ def validate_document(kind: str, value: Any) -> list[str]:
         findings.extend(_lineage_findings(value))
     elif kind == "completion":
         findings.extend(_completion_findings(value))
+    return findings
+
+
+_TIMESTAMP_FIELDS = {
+    "job": (
+        "createdAt",
+        "updatedAt",
+        "heartbeatAt",
+        "progressAt",
+        "deadlineAt",
+        "finalizationStartsAt",
+    ),
+    "receipt": ("createdAt", "observedAt", "nextRetryAt", "nextReconcileAt"),
+    "handoff": ("sealedAt",),
+    "lineage": ("updatedAt",),
+    "completion": ("evaluatedAt",),
+}
+
+
+def _timestamp_findings(kind: str, value: dict[str, Any]) -> list[str]:
+    findings: list[str] = []
+    for field in _TIMESTAMP_FIELDS.get(kind, ()):
+        timestamp = value.get(field)
+        if timestamp is None:
+            continue
+        try:
+            parsed = datetime.fromisoformat(str(timestamp).replace("Z", "+00:00"))
+        except ValueError:
+            findings.append(f"schema:{field}: value is not a valid date-time")
+            continue
+        if parsed.tzinfo is None:
+            findings.append(f"schema:{field}: date-time must include a timezone")
     return findings
 
 
