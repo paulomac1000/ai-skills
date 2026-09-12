@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://paulomac1000.github.io/ai-skills/contracts/steward-handoff.schema.json",
+  "title": "StewardHandoff",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "handoffId", "jobId", "lineageId", "generation", "subject", "status", "actionable", "outcome", "evidenceRefs", "artifactRefs", "externalOperationRefs", "gaps", "sealedAt", "digest"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "handoffId": {"type": "string", "minLength": 1},
+    "jobId": {"type": "string", "minLength": 1},
+    "lineageId": {"type": "string", "minLength": 1},
+    "generation": {"type": "integer", "minimum": 1},
+    "subject": {"type": "object", "additionalProperties": false, "required": ["type", "id", "revision"], "properties": {"type": {"type": "string", "minLength": 1}, "id": {"type": "string", "minLength": 1}, "revision": {"type": ["string", "null"]}, "digest": {"type": ["string", "null"]}}},
+    "status": {"enum": ["completed", "completed-with-gaps", "failed", "cancelled", "blocked", "superseded"]},
+    "actionable": {"type": "boolean"},
+    "outcome": {"type": ["string", "null"], "maxLength": 200},
+    "evidenceRefs": {"type": "array", "maxItems": 1024, "items": {"type": "string", "minLength": 1}},
+    "artifactRefs": {"type": "array", "maxItems": 1024, "items": {"type": "string", "minLength": 1}},
+    "externalOperationRefs": {"type": "array", "maxItems": 256, "items": {"type": "string", "minLength": 1}},
+    "gaps": {"type": "array", "maxItems": 256, "items": {"type": "string", "minLength": 1}},
+    "failureClass": {"type": ["string", "null"], "maxLength": 120},
+    "correlationId": {"type": ["string", "null"], "maxLength": 200},
+    "sealedAt": {"type": "string", "format": "date-time"},
+    "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+  }
+}

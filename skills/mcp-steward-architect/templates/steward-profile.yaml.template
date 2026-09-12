@@ -1,0 +1,39 @@
+schema_version: 1
+steward:
+  id: __STEWARD_ID__
+  kind: generic
+  contract_revision: 1
+authority:
+  owns: [durable-job-state]
+  observes: []
+  may_mutate: []
+  verifies: []
+  parent_completion: none
+  never_claims: []
+subject_identity:
+  required_dimensions: [target]
+  freshness_dimensions: []
+durability:
+  profile: single-node-durable
+  crash_model: [process-restart]
+  transactional_store_required: true
+  lineage_fencing: true
+  attempt_fencing: true
+external_operations:
+  receipt_before_stateful_dispatch: true
+  ambiguous_delivery: reconcile-before-retry
+credentials:
+  secret_source: intentional-provider
+  persist_secret: false
+  fallback:
+    enabled: false
+    preserve_principal_scope: true
+    preserve_target: true
+model:
+  authority_ceiling: advisory
+completion:
+  obligations: []
+  handoff_digest: sha256
+observability:
+  durable_timeline: true
+  doctor: true

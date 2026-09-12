@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://paulomac1000.github.io/ai-skills/contracts/steward-completion.schema.json",
+  "title": "StewardCompletionEvaluation",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "evaluationId", "jobId", "lineageId", "generation", "subject", "decisionIdentity", "disposition", "obligations", "ambiguousOperationRefs", "evaluatedAt"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "evaluationId": {"type": "string", "minLength": 1},
+    "jobId": {"type": "string", "minLength": 1},
+    "lineageId": {"type": "string", "minLength": 1},
+    "generation": {"type": "integer", "minimum": 1},
+    "subject": {"$ref": "#/$defs/identity"},
+    "decisionIdentity": {
+      "type": "object",
+      "minProperties": 1,
+      "maxProperties": 32,
+      "propertyNames": {"pattern": "^[A-Za-z][A-Za-z0-9_.-]{0,119}$"},
+      "additionalProperties": {"type": ["string", "integer"], "minLength": 1}
+    },
+    "disposition": {"enum": ["eligible", "partial", "blocked"]},
+    "obligations": {
+      "type": "array",
+      "maxItems": 256,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "state", "evidenceRefs"],
+        "properties": {
+          "id": {"type": "string", "minLength": 1},
+          "state": {"enum": ["satisfied", "not-applicable", "waived", "unsatisfied"]},
+          "evidenceRefs": {"type": "array", "uniqueItems": true, "maxItems": 1024, "items": {"type": "string", "minLength": 1}},
+          "rationale": {"type": ["string", "null"], "maxLength": 2000},
+          "authorityRef": {"type": ["string", "null"], "maxLength": 500}
+        }
+      }
+    },
+    "ambiguousOperationRefs": {"type": "array", "uniqueItems": true, "maxItems": 256, "items": {"type": "string", "minLength": 1}},
+    "evaluatedAt": {"type": "string", "format": "date-time"}
+  },
+  "$defs": {
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "id", "revision"],
+      "properties": {
+        "type": {"type": "string", "minLength": 1},
+        "id": {"type": "string", "minLength": 1},
+        "revision": {"type": ["string", "null"]},
+        "digest": {"type": ["string", "null"]}
+      }
+    }
+  }
+}

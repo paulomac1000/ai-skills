@@ -1,0 +1,1004 @@
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
+
+namespace __NAMESPACE__.Mcp.Server;
+
+public interface ISeedClock
+{
+    DateTimeOffset UtcNow { get; }
+}
+
+public sealed class SystemSeedClock : ISeedClock
+{
+    public static readonly SystemSeedClock Instance = new();
+    private SystemSeedClock() { }
+    public DateTimeOffset UtcNow => DateTimeOffset.UtcNow;
+}
+
+public sealed class FakeSeedClock(DateTimeOffset initial) : ISeedClock
+{
+    private DateTimeOffset _value = initial;
+    public DateTimeOffset UtcNow => _value;
+    public void Advance(TimeSpan value) => _value += value;
+}
+
+public sealed record SeedPollResult(bool Completed, JsonElement Payload);
+
+public interface ISeedProvider
+{
+    string ProducerId { get; }
+    string Dispatch(string operationId, StewardSubject subject);
+    string Reconcile(string operationId, StewardSubject subject);
+    SeedPollResult Poll(string remoteHandle, StewardSubject subject);
+}
+
+public sealed class FakeSeedProvider : ISeedProvider
+{
+    public string ProducerId => "seed-provider";
+
+    public string Dispatch(string operationId, StewardSubject subject)
+    {
+        _ = subject;
+        return $"remote-{operationId}";
+    }
+
+    public string Reconcile(string operationId, StewardSubject subject)
+    {
+        _ = subject;
+        return $"remote-{operationId}";
+    }
+
+    public SeedPollResult Poll(string remoteHandle, StewardSubject subject)
+    {
+        var payload = JsonSerializer.SerializeToElement(new
+        {
+            state = "completed",
+            remoteHandle,
+            subject,
+        });
+        return new(true, payload);
+    }
+}
+
+public sealed class SeedFaultInjector
+{
+    private readonly HashSet<string> _faults;
+
+    public SeedFaultInjector()
+        : this((Environment.GetEnvironmentVariable("STEWARD_FAULTS") ?? string.Empty)
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+    {
+    }
+
+    public SeedFaultInjector(IEnumerable<string> faults) =>
+        _faults = new HashSet<string>(faults, StringComparer.Ordinal);
+
+    public bool Trip(string name) => _faults.Remove(name);
+}
+
+public sealed record StewardSubject(string Type, string Id, string? Revision);
+
+public sealed record StewardSeedJob(
+    string JobId,
+    string LineageId,
+    long Generation,
+    string AttemptId,
+    long Version,
+    StewardSubject Subject,
+    string RequestDigest,
+    string Status,
+    string Stage,
+    string Cancellation,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset UpdatedAt,
+    IReadOnlyList<string> EvidenceRefs,
+    IReadOnlyList<string> ExternalOperationRefs);
+
+public sealed record StewardAdmission(string JobId, bool Duplicate);
+
+public sealed record StewardOperation(
+    string OperationId,
+    string JobId,
+    long Generation,
+    string AttemptId,
+    string RequestDigest,
+    string State,
+    string Delivery,
+    string RetryDisposition,
+    string CredentialSlotId,
+    string? RemoteHandle,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset ObservedAt,
+    int ReconcileCount);
+
+public sealed record StewardEvidence(
+    string EvidenceId,
+    string JobId,
+    string LineageId,
+    long Generation,
+    StewardSubject Subject,
+    string CriterionId,
+    string EvidenceClass,
+    string AuthorityClass,
+    string ProducerId,
+    string ProofRecipeId,
+    DateTimeOffset ObservedAt,
+    DateTimeOffset? ExpiresAt,
+    string PayloadDigest);
+
+public sealed record StewardCompletionObligation(
+    string Id,
+    string State,
+    IReadOnlyList<string> EvidenceRefs);
+
+public sealed record StewardCompletionEvaluation(
+    string EvaluationId,
+    string JobId,
+    string LineageId,
+    long Generation,
+    StewardSubject Subject,
+    IReadOnlyDictionary<string, object> DecisionIdentity,
+    string Disposition,
+    IReadOnlyList<StewardCompletionObligation> Obligations,
+    IReadOnlyList<string> AmbiguousOperationRefs,
+    DateTimeOffset EvaluatedAt);
+
+public sealed record StewardHandoff(
+    int SchemaVersion,
+    string HandoffId,
+    string JobId,
+    string LineageId,
+    long Generation,
+    StewardSubject Subject,
+    string Status,
+    bool Actionable,
+    string? Outcome,
+    IReadOnlyList<string> EvidenceRefs,
+    IReadOnlyList<string> ArtifactRefs,
+    IReadOnlyList<string> ExternalOperationRefs,
+    IReadOnlyList<string> Gaps,
+    string? CorrelationId,
+    DateTimeOffset SealedAt,
+    string Digest);
+
+public sealed record StewardResult(
+    StewardSeedJob Job,
+    IReadOnlyList<StewardOperation> Operations,
+    IReadOnlyList<StewardEvidence> Evidence,
+    StewardCompletionEvaluation? Completion,
+    StewardHandoff? Handoff);
+
+public sealed record StewardAuditEvent(
+    long Sequence,
+    string? JobId,
+    string EventType,
+    DateTimeOffset At,
+    IReadOnlyDictionary<string, string> Detail);
+
+public sealed record StewardDoctorResult(
+    StewardSeedJob? Job,
+    int DeliveryUnknown,
+    IReadOnlyList<StewardAuditEvent> Audit);
+
+internal sealed record SeedIdempotency(string RequestDigest, string JobId);
+internal sealed record SeedLineage(string CurrentJobId, long CurrentGeneration, StewardSubject Subject, long Version);
+internal sealed record SeedRequirement(
+    string Id,
+    bool Required,
+    string EvidenceClass,
+    string RequiredAuthority,
+    int FreshnessSeconds,
+    IReadOnlySet<string> ApprovedProducers);
+internal sealed record SeedAction(string Kind, StewardSeedJob Job, StewardOperation Operation);
+
+internal sealed class StewardSeedState
+{
+    public Dictionary<string, StewardSeedJob> Jobs { get; init; } = [];
+    public Dictionary<string, SeedLineage> Lineages { get; init; } = [];
+    public Dictionary<string, SeedIdempotency> Idempotency { get; init; } = [];
+    public Dictionary<string, StewardOperation> Operations { get; init; } = [];
+    public Dictionary<string, StewardEvidence> Evidence { get; init; } = [];
+    public Dictionary<string, StewardCompletionEvaluation> Completions { get; init; } = [];
+    public Dictionary<string, StewardHandoff> Handoffs { get; init; } = [];
+    public List<StewardAuditEvent> Audit { get; init; } = [];
+    public long AuditSequence { get; set; }
+}
+
+internal sealed class SeedPolicy
+{
+    public required int ProfileRevision { get; init; }
+    public required string RecipeId { get; init; }
+    public required int ProofRevision { get; init; }
+    public required IReadOnlyList<SeedRequirement> Requirements { get; init; }
+
+    public static SeedPolicy Load(string profilePath, string proofPath)
+    {
+        using var profile = JsonDocument.Parse(File.ReadAllText(profilePath));
+        using var proof = JsonDocument.Parse(File.ReadAllText(proofPath));
+        var proofRoot = proof.RootElement;
+        var criteria = proofRoot.GetProperty("criteria")
+            .EnumerateArray()
+            .ToDictionary(
+                item => item.GetProperty("criterion_id").GetString()!,
+                item => item.Clone(),
+                StringComparer.Ordinal);
+        var requirements = new List<SeedRequirement>();
+        foreach (var obligation in profile.RootElement
+            .GetProperty("completion")
+            .GetProperty("obligations")
+            .EnumerateArray())
+        {
+            var id = obligation.GetProperty("id").GetString()!;
+            if (!criteria.TryGetValue(id, out var criterion))
+                throw new InvalidOperationException($"proof recipe has no criterion for obligation {id}");
+            requirements.Add(new SeedRequirement(
+                id,
+                obligation.GetProperty("required").GetBoolean(),
+                obligation.GetProperty("evidence_class").GetString()!,
+                criterion.GetProperty("required_authority").GetString()!,
+                criterion.GetProperty("freshness_seconds").GetInt32(),
+                criterion.GetProperty("approved_producers")
+                    .EnumerateArray()
+                    .Select(item => item.GetString()!)
+                    .ToHashSet(StringComparer.Ordinal)));
+        }
+        var revision = proofRoot.GetProperty("revision").GetInt32();
+        return new SeedPolicy
+        {
+            ProfileRevision = profile.RootElement.GetProperty("steward").GetProperty("contract_revision").GetInt32(),
+            RecipeId = $"{proofRoot.GetProperty("recipe_id").GetString()}@{revision}",
+            ProofRevision = revision,
+            Requirements = requirements,
+        };
+    }
+}
+
+public sealed class StewardSeedRuntime : IDisposable
+{
+    private static readonly HashSet<string> Terminal =
+        ["completed", "completed-with-gaps", "failed", "cancelled", "superseded"];
+    private static readonly IReadOnlyDictionary<string, int> AuthorityRank =
+        new Dictionary<string, int>(StringComparer.Ordinal)
+        {
+            ["advisory"] = 0,
+            ["observed"] = 1,
+            ["verified"] = 2,
+            ["independent"] = 3,
+        };
+
+    private readonly object _gate = new();
+    private readonly string _snapshotPath;
+    private readonly FileStream _ownerLock;
+    private readonly ISeedClock _clock;
+    private readonly ISeedProvider _provider;
+    private readonly SeedFaultInjector _faults;
+    private readonly SeedPolicy _policy;
+    private StewardSeedState _state;
+
+    public StewardSeedRuntime(ISeedClock clock, ISeedProvider provider, SeedFaultInjector faults)
+        : this(
+            Environment.GetEnvironmentVariable("STEWARD_STATE_DIR")
+                ?? Path.Combine(AppContext.BaseDirectory, ".steward-state"),
+            clock,
+            provider,
+            faults,
+            Path.Combine(AppContext.BaseDirectory, "steward_profile.json"),
+            Path.Combine(AppContext.BaseDirectory, "steward_proof_recipe.json"))
+    {
+    }
+
+    public StewardSeedRuntime(
+        string stateDirectory,
+        ISeedClock clock,
+        ISeedProvider provider,
+        SeedFaultInjector faults,
+        string profilePath,
+        string proofPath)
+    {
+        Directory.CreateDirectory(stateDirectory);
+        _snapshotPath = Path.Combine(stateDirectory, "steward-state.json");
+        _ownerLock = new FileStream(
+            Path.Combine(stateDirectory, "steward-state.lock"),
+            FileMode.OpenOrCreate,
+            FileAccess.ReadWrite,
+            FileShare.None);
+        _clock = clock;
+        _provider = provider;
+        _faults = faults;
+        _policy = SeedPolicy.Load(profilePath, proofPath);
+        _state = LoadOrQuarantine();
+    }
+
+    public StewardAdmission Submit(string subjectId, string? subjectRevision, string idempotencyKey)
+    {
+        if (string.IsNullOrWhiteSpace(idempotencyKey))
+            throw new ArgumentException("idempotencyKey is required", nameof(idempotencyKey));
+        var subject = new StewardSubject("target", subjectId, subjectRevision);
+        var requestDigest = Digest(subject);
+        var lineageId = "lineage-" + Sha256Hex(JsonSerializer.SerializeToUtf8Bytes(subject))[..24];
+        lock (_gate)
+        {
+            if (_state.Idempotency.TryGetValue(idempotencyKey, out var existing))
+            {
+                if (!string.Equals(existing.RequestDigest, requestDigest, StringComparison.Ordinal))
+                    throw new InvalidOperationException("idempotency key is bound to a different request digest");
+                return new(existing.JobId, true);
+            }
+            var generation = _state.Lineages.TryGetValue(lineageId, out var lineage)
+                ? lineage.CurrentGeneration + 1
+                : 1;
+            var jobId = $"job-{Guid.NewGuid():N}";
+            var now = _clock.UtcNow;
+            if (lineage is not null &&
+                _state.Jobs.TryGetValue(lineage.CurrentJobId, out var previousJob) &&
+                !Terminal.Contains(previousJob.Status))
+            {
+                previousJob = previousJob with
+                {
+                    Version = previousJob.Version + 1,
+                    Status = "superseded",
+                    Stage = "superseded",
+                    UpdatedAt = now,
+                };
+                _state.Jobs[previousJob.JobId] = previousJob;
+                foreach (var operationRef in previousJob.ExternalOperationRefs)
+                {
+                    if (_state.Operations.TryGetValue(operationRef, out var previousOperation) &&
+                        previousOperation.State == "reserved" &&
+                        previousOperation.Delivery == "not-delivered")
+                    {
+                        _state.Operations[operationRef] = previousOperation with
+                        {
+                            State = "abandoned",
+                            ObservedAt = now,
+                        };
+                    }
+                }
+                AuditLocked(previousJob.JobId, "superseded", new Dictionary<string, string>
+                {
+                    ["byJobId"] = jobId,
+                    ["generation"] = generation.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                });
+            }
+            var job = new StewardSeedJob(
+                jobId,
+                lineageId,
+                generation,
+                $"attempt-{Guid.NewGuid():N}",
+                0,
+                subject,
+                requestDigest,
+                "queued",
+                "admitted",
+                "none",
+                now,
+                now,
+                [],
+                []);
+            _state.Jobs.Add(jobId, job);
+            _state.Lineages[lineageId] = new(
+                jobId,
+                generation,
+                subject,
+                (lineage?.Version ?? -1) + 1);
+            _state.Idempotency.Add(idempotencyKey, new(requestDigest, jobId));
+            AuditLocked(jobId, "admitted", new Dictionary<string, string>
+            {
+                ["generation"] = generation.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            });
+            SaveLocked();
+            return new(jobId, false);
+        }
+    }
+
+    public StewardSeedJob Status(string jobId)
+    {
+        lock (_gate)
+            return CurrentJobLocked(jobId);
+    }
+
+    public StewardResult Get(string jobId)
+    {
+        lock (_gate)
+        {
+            var job = CurrentJobLocked(jobId);
+            return new(
+                job,
+                _state.Operations.Values.Where(item => item.JobId == jobId).OrderBy(item => item.CreatedAt).ToArray(),
+                _state.Evidence.Values.Where(item => item.JobId == jobId).OrderBy(item => item.ObservedAt).ToArray(),
+                _state.Completions.GetValueOrDefault(jobId),
+                _state.Handoffs.GetValueOrDefault(jobId));
+        }
+    }
+
+    public StewardSeedJob Cancel(string jobId)
+    {
+        lock (_gate)
+        {
+            var job = CurrentJobLocked(jobId);
+            if (Terminal.Contains(job.Status))
+                return job;
+            job = job with
+            {
+                Version = job.Version + 1,
+                Cancellation = "requested",
+                Stage = "cancel-requested",
+                UpdatedAt = _clock.UtcNow,
+            };
+            _state.Jobs[jobId] = job;
+            AuditLocked(jobId, "cancel-requested", new Dictionary<string, string>());
+            SaveLocked();
+            return job;
+        }
+    }
+
+    public StewardDoctorResult Doctor(string? jobId = null)
+    {
+        lock (_gate)
+        {
+            StewardSeedJob? job = jobId is null ? NextJobLocked() : CurrentJobLocked(jobId);
+            var unknown = jobId is null
+                ? _state.Operations.Values.Count(item => item.Delivery == "delivery-unknown")
+                : _state.Operations.Values.Count(item => item.JobId == jobId && item.Delivery == "delivery-unknown");
+            var audit = _state.Audit
+                .Where(item => jobId is null || item.JobId == jobId)
+                .OrderByDescending(item => item.Sequence)
+                .Take(50)
+                .ToArray();
+            return new(job, unknown, audit);
+        }
+    }
+
+    public bool RunOneDue()
+    {
+        SeedAction? action = null;
+        lock (_gate)
+        {
+            var staleOperation = NextSupersededOperationLocked();
+            if (staleOperation is not null)
+            {
+                var staleJob = CurrentJobLocked(staleOperation.JobId);
+                action = new(
+                    staleOperation.Delivery == "delivery-unknown" ? "stale-reconcile" : "stale-poll",
+                    staleJob,
+                    staleOperation);
+            }
+            else
+            {
+                var job = NextJobLocked();
+                if (job is null)
+                    return false;
+                if (job.Cancellation == "requested")
+                {
+                    _state.Jobs[job.JobId] = job with
+                    {
+                        Version = job.Version + 1,
+                        Status = "cancelled",
+                        Stage = "cancelled",
+                        Cancellation = "completed",
+                        UpdatedAt = _clock.UtcNow,
+                    };
+                    AuditLocked(job.JobId, "cancelled", new Dictionary<string, string>());
+                    SaveLocked();
+                    return true;
+                }
+                var operation = _state.Operations.Values
+                    .FirstOrDefault(item => item.JobId == job.JobId);
+                if (operation is null)
+                {
+                    ReserveExternalLocked(job);
+                    _faults.Trip("after-reservation");
+                    SaveLocked();
+                    return true;
+                }
+                if (operation.Delivery == "not-delivered")
+                {
+                    BeginDispatchLocked(operation.OperationId);
+                    SaveLocked();
+                    action = new("dispatch", job, _state.Operations[operation.OperationId]);
+                }
+                else if (operation.Delivery == "delivery-unknown")
+                    action = new("reconcile", job, operation);
+                else if (!_state.Evidence.Values.Any(item => item.JobId == job.JobId))
+                    action = new("poll", job, operation);
+                else
+                {
+                    FinalizeLocked(job);
+                    SaveLocked();
+                    return true;
+                }
+            }
+        }
+
+        if (action.Kind == "dispatch")
+        {
+            if (_faults.Trip("after-dispatch-start"))
+                return true;
+            var handle = _provider.Dispatch(action.Operation.OperationId, action.Job.Subject);
+            if (_faults.Trip("after-dispatch") || _faults.Trip("before-handle-persist"))
+                return true;
+            lock (_gate)
+            {
+                ApplyDispatchLocked(action.Operation.OperationId, handle);
+                SaveLocked();
+            }
+            return true;
+        }
+        if (action.Kind is "reconcile" or "stale-reconcile")
+        {
+            var handle = _provider.Reconcile(action.Operation.OperationId, action.Job.Subject);
+            lock (_gate)
+            {
+                ApplyReconcileLocked(action.Operation.OperationId, handle);
+                SaveLocked();
+            }
+            return true;
+        }
+
+        var result = _provider.Poll(action.Operation.RemoteHandle!, action.Job.Subject);
+        if (!result.Completed)
+            return false;
+        lock (_gate)
+        {
+            if (action.Kind == "stale-poll")
+            {
+                MarkOperationObservedLocked(action.Operation.OperationId);
+                AuditLocked(action.Job.JobId, "late-result-discarded", new Dictionary<string, string>
+                {
+                    ["operationId"] = action.Operation.OperationId,
+                });
+                SaveLocked();
+                return true;
+            }
+            RequireCurrentLocked(action.Job);
+            if (_faults.Trip("before-result-persist"))
+                return true;
+            MarkOperationObservedLocked(action.Operation.OperationId);
+            PersistEvidenceLocked(action.Job, result.Payload);
+            SaveLocked();
+        }
+        return true;
+    }
+
+    public void RecoverUntilIdle(int maxSteps = 100)
+    {
+        for (var step = 0; step < maxSteps; step++)
+        {
+            if (!RunOneDue())
+                return;
+            lock (_gate)
+            {
+                if (NextJobLocked() is null && NextSupersededOperationLocked() is null)
+                    return;
+            }
+        }
+        throw new InvalidOperationException("recovery supervisor exceeded bounded step budget");
+    }
+
+    public static bool VerifyHandoffDigest(StewardHandoff handoff) =>
+        string.Equals(handoff.Digest, ComputeHandoffDigest(handoff), StringComparison.Ordinal);
+
+    public void Dispose() => _ownerLock.Dispose();
+
+    private void ReserveExternalLocked(StewardSeedJob job)
+    {
+        RequireCurrentLocked(job);
+        var operationId = $"operation-{Guid.NewGuid():N}";
+        var now = _clock.UtcNow;
+        var operation = new StewardOperation(
+            operationId,
+            job.JobId,
+            job.Generation,
+            job.AttemptId,
+            job.RequestDigest,
+            "reserved",
+            "not-delivered",
+            "forbidden",
+            "primary",
+            null,
+            now,
+            now,
+            0);
+        _state.Operations.Add(operationId, operation);
+        _state.Jobs[job.JobId] = job with
+        {
+            Version = job.Version + 1,
+            Stage = "external-reserved",
+            ExternalOperationRefs = [.. job.ExternalOperationRefs, operationId],
+            UpdatedAt = now,
+        };
+        AuditLocked(job.JobId, "external-reserved", new Dictionary<string, string>
+        {
+            ["operationId"] = operationId,
+        });
+    }
+
+    private void BeginDispatchLocked(string operationId)
+    {
+        var operation = _state.Operations[operationId];
+        var job = CurrentJobLocked(operation.JobId);
+        RequireCurrentLocked(job);
+        var now = _clock.UtcNow;
+        _state.Operations[operationId] = operation with
+        {
+            State = "dispatching",
+            Delivery = "delivery-unknown",
+            RetryDisposition = "reconcile-first",
+            ObservedAt = now,
+        };
+        _state.Jobs[job.JobId] = job with
+        {
+            Version = job.Version + 1,
+            Status = "reconciling",
+            Stage = "dispatch-started",
+            UpdatedAt = now,
+        };
+        AuditLocked(job.JobId, "dispatch-started", new Dictionary<string, string>
+        {
+            ["operationId"] = operationId,
+        });
+    }
+
+    private void ApplyDispatchLocked(string operationId, string remoteHandle)
+    {
+        var operation = _state.Operations[operationId];
+        var job = CurrentJobLocked(operation.JobId);
+        var now = _clock.UtcNow;
+        _state.Operations[operationId] = operation with
+        {
+            State = "dispatched",
+            Delivery = "delivered",
+            RetryDisposition = "forbidden",
+            RemoteHandle = remoteHandle,
+            ObservedAt = now,
+        };
+        if (IsCurrentLocked(job) && !Terminal.Contains(job.Status))
+        {
+            _state.Jobs[job.JobId] = job with
+            {
+                Version = job.Version + 1,
+                Status = "waiting-external",
+                Stage = "external-dispatched",
+                UpdatedAt = now,
+            };
+        }
+        AuditLocked(job.JobId, IsCurrentLocked(job) ? "external-dispatched" : "late-dispatch-observed",
+            new Dictionary<string, string>
+            {
+                ["delivery"] = "delivered",
+                ["operationId"] = operationId,
+            });
+    }
+
+    private void ApplyReconcileLocked(string operationId, string remoteHandle)
+    {
+        var operation = _state.Operations[operationId];
+        var job = CurrentJobLocked(operation.JobId);
+        var now = _clock.UtcNow;
+        _state.Operations[operationId] = operation with
+        {
+            State = "dispatched",
+            Delivery = "delivered",
+            RetryDisposition = "forbidden",
+            RemoteHandle = remoteHandle,
+            ObservedAt = now,
+            ReconcileCount = operation.ReconcileCount + 1,
+        };
+        if (IsCurrentLocked(job) && !Terminal.Contains(job.Status))
+        {
+            _state.Jobs[job.JobId] = job with
+            {
+                Version = job.Version + 1,
+                Status = "waiting-external",
+                Stage = "reconciled",
+                UpdatedAt = now,
+            };
+        }
+        AuditLocked(job.JobId, "reconciled", new Dictionary<string, string>
+        {
+            ["operationId"] = operationId,
+        });
+    }
+
+    private void MarkOperationObservedLocked(string operationId)
+    {
+        var operation = _state.Operations[operationId];
+        _state.Operations[operationId] = operation with
+        {
+            State = "observed",
+            ObservedAt = _clock.UtcNow,
+        };
+    }
+
+    private void PersistEvidenceLocked(StewardSeedJob job, JsonElement payload)
+    {
+        foreach (var requirement in _policy.Requirements)
+        {
+            if (requirement.ApprovedProducers.Count > 0 &&
+                !requirement.ApprovedProducers.Contains(_provider.ProducerId))
+                continue;
+            var observed = _clock.UtcNow;
+            var evidence = new StewardEvidence(
+                $"evidence-{Guid.NewGuid():N}",
+                job.JobId,
+                job.LineageId,
+                job.Generation,
+                job.Subject,
+                requirement.Id,
+                requirement.EvidenceClass,
+                requirement.RequiredAuthority,
+                _provider.ProducerId,
+                _policy.RecipeId,
+                observed,
+                observed.AddSeconds(requirement.FreshnessSeconds),
+                "sha256:" + Sha256Hex(JsonSerializer.SerializeToUtf8Bytes(payload)));
+            _state.Evidence.Add(evidence.EvidenceId, evidence);
+            job = job with
+            {
+                EvidenceRefs = [.. job.EvidenceRefs, evidence.EvidenceId],
+            };
+            AuditLocked(job.JobId, "evidence-persisted", new Dictionary<string, string>
+            {
+                ["evidenceId"] = evidence.EvidenceId,
+                ["criterionId"] = evidence.CriterionId,
+            });
+        }
+        _state.Jobs[job.JobId] = job with
+        {
+            Version = job.Version + 1,
+            Status = "finalizing",
+            Stage = "evidence-persisted",
+            UpdatedAt = _clock.UtcNow,
+        };
+    }
+
+    private StewardCompletionEvaluation EvaluateCompletionLocked(StewardSeedJob job)
+    {
+        RequireCurrentLocked(job);
+        var lineage = _state.Lineages[job.LineageId];
+        if (lineage.Subject != job.Subject)
+            throw new InvalidOperationException("stale subject identity");
+        var ambiguous = _state.Operations.Values
+            .Where(item =>
+                _state.Jobs.TryGetValue(item.JobId, out var operationJob) &&
+                operationJob.LineageId == job.LineageId &&
+                item.State != "observed" &&
+                item.State != "abandoned")
+            .Select(item => item.OperationId)
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+        var blocked = ambiguous.Length > 0;
+        var obligations = new List<StewardCompletionObligation>();
+        foreach (var requirement in _policy.Requirements)
+        {
+            var evidenceRefs = _state.Evidence.Values
+                .Where(item => EvidenceSatisfies(job, requirement, item))
+                .Select(item => item.EvidenceId)
+                .Order(StringComparer.Ordinal)
+                .ToArray();
+            if (requirement.Required && evidenceRefs.Length == 0)
+                blocked = true;
+            obligations.Add(new(
+                requirement.Id,
+                evidenceRefs.Length == 0 ? "unsatisfied" : "satisfied",
+                evidenceRefs));
+        }
+        return new(
+            $"completion-{Guid.NewGuid():N}",
+            job.JobId,
+            job.LineageId,
+            job.Generation,
+            job.Subject,
+            new Dictionary<string, object>
+            {
+                ["generation"] = job.Generation,
+                ["profileRevision"] = _policy.ProfileRevision,
+                ["proofRecipeRevision"] = _policy.ProofRevision,
+                ["subjectRevision"] = job.Subject.Revision ?? "none",
+            },
+            blocked ? "blocked" : "eligible",
+            obligations,
+            ambiguous,
+            _clock.UtcNow);
+    }
+
+    private bool EvidenceSatisfies(
+        StewardSeedJob job,
+        SeedRequirement requirement,
+        StewardEvidence evidence)
+    {
+        if (evidence.JobId != job.JobId || evidence.Generation != job.Generation ||
+            evidence.LineageId != job.LineageId || evidence.Subject != job.Subject)
+            return false;
+        if (evidence.CriterionId != requirement.Id || evidence.EvidenceClass != requirement.EvidenceClass ||
+            evidence.ProofRecipeId != _policy.RecipeId)
+            return false;
+        if (requirement.ApprovedProducers.Count > 0 && !requirement.ApprovedProducers.Contains(evidence.ProducerId))
+            return false;
+        var requiredRank = AuthorityRank.GetValueOrDefault(requirement.RequiredAuthority, int.MaxValue);
+        if (AuthorityRank.GetValueOrDefault(evidence.AuthorityClass, -1) < requiredRank)
+            return false;
+        if (evidence.ObservedAt > _clock.UtcNow ||
+            _clock.UtcNow - evidence.ObservedAt > TimeSpan.FromSeconds(requirement.FreshnessSeconds))
+            return false;
+        return evidence.ExpiresAt is null || evidence.ExpiresAt >= _clock.UtcNow;
+    }
+
+    private void FinalizeLocked(StewardSeedJob job)
+    {
+        var completion = EvaluateCompletionLocked(job);
+        if (completion.Disposition != "eligible")
+            throw new InvalidOperationException("completion gate blocked terminal publication");
+        var unsigned = new
+        {
+            schema_version = 1,
+            handoffId = $"handoff-{Guid.NewGuid():N}",
+            jobId = job.JobId,
+            lineageId = job.LineageId,
+            generation = job.Generation,
+            subject = job.Subject,
+            status = "completed",
+            actionable = true,
+            outcome = "seed-provider-completed",
+            evidenceRefs = completion.Obligations.SelectMany(item => item.EvidenceRefs).ToArray(),
+            artifactRefs = Array.Empty<string>(),
+            externalOperationRefs = job.ExternalOperationRefs.ToArray(),
+            gaps = Array.Empty<string>(),
+            correlationId = job.JobId,
+            sealedAt = _clock.UtcNow,
+        };
+        var digest = "sha256:" + Sha256Hex(JsonSerializer.SerializeToUtf8Bytes(unsigned));
+        var handoff = new StewardHandoff(
+            unsigned.schema_version,
+            unsigned.handoffId,
+            unsigned.jobId,
+            unsigned.lineageId,
+            unsigned.generation,
+            unsigned.subject,
+            unsigned.status,
+            unsigned.actionable,
+            unsigned.outcome,
+            unsigned.evidenceRefs,
+            unsigned.artifactRefs,
+            unsigned.externalOperationRefs,
+            unsigned.gaps,
+            unsigned.correlationId,
+            unsigned.sealedAt,
+            digest);
+        if (_faults.Trip("before-terminal-publication"))
+            return;
+        _state.Completions[job.JobId] = completion;
+        _state.Handoffs[job.JobId] = handoff;
+        _state.Jobs[job.JobId] = job with
+        {
+            Version = job.Version + 1,
+            Status = "completed",
+            Stage = "completed",
+            UpdatedAt = _clock.UtcNow,
+        };
+        AuditLocked(job.JobId, "handoff-sealed", new Dictionary<string, string>
+        {
+            ["digest"] = digest,
+        });
+    }
+
+    private static string ComputeHandoffDigest(StewardHandoff handoff)
+    {
+        var unsigned = new
+        {
+            schema_version = handoff.SchemaVersion,
+            handoffId = handoff.HandoffId,
+            jobId = handoff.JobId,
+            lineageId = handoff.LineageId,
+            generation = handoff.Generation,
+            subject = handoff.Subject,
+            status = handoff.Status,
+            actionable = handoff.Actionable,
+            outcome = handoff.Outcome,
+            evidenceRefs = handoff.EvidenceRefs,
+            artifactRefs = handoff.ArtifactRefs,
+            externalOperationRefs = handoff.ExternalOperationRefs,
+            gaps = handoff.Gaps,
+            correlationId = handoff.CorrelationId,
+            sealedAt = handoff.SealedAt,
+        };
+        return "sha256:" + Sha256Hex(JsonSerializer.SerializeToUtf8Bytes(unsigned));
+    }
+
+    private StewardSeedJob? NextJobLocked() =>
+        _state.Jobs.Values
+            .Where(item => !Terminal.Contains(item.Status))
+            .OrderBy(item => item.CreatedAt)
+            .ThenBy(item => item.JobId, StringComparer.Ordinal)
+            .FirstOrDefault();
+
+    private StewardOperation? NextSupersededOperationLocked() =>
+        _state.Operations.Values
+            .Where(item =>
+                _state.Jobs.TryGetValue(item.JobId, out var job) &&
+                job.Status == "superseded" &&
+                item.State != "observed" &&
+                item.State != "abandoned" &&
+                (item.Delivery == "delivery-unknown" || item.Delivery == "delivered"))
+            .OrderBy(item => item.ObservedAt)
+            .ThenBy(item => item.OperationId, StringComparer.Ordinal)
+            .FirstOrDefault();
+
+    private bool IsCurrentLocked(StewardSeedJob job) =>
+        _state.Lineages.TryGetValue(job.LineageId, out var lineage) &&
+        lineage.CurrentJobId == job.JobId &&
+        lineage.CurrentGeneration == job.Generation &&
+        CurrentJobLocked(job.JobId).AttemptId == job.AttemptId;
+
+    private StewardSeedJob CurrentJobLocked(string jobId) =>
+        _state.Jobs.TryGetValue(jobId, out var job)
+            ? job
+            : throw new KeyNotFoundException(jobId);
+
+    private void RequireCurrentLocked(StewardSeedJob job)
+    {
+        var current = CurrentJobLocked(job.JobId);
+        if (current.Generation != job.Generation || current.AttemptId != job.AttemptId)
+            throw new InvalidOperationException("stale generation/attempt");
+        if (!_state.Lineages.TryGetValue(job.LineageId, out var lineage) ||
+            lineage.CurrentJobId != job.JobId || lineage.CurrentGeneration != job.Generation)
+            throw new InvalidOperationException("stale lineage publication");
+    }
+
+    private void AuditLocked(string? jobId, string eventType, IReadOnlyDictionary<string, string> detail)
+    {
+        _state.AuditSequence++;
+        _state.Audit.Add(new(_state.AuditSequence, jobId, eventType, _clock.UtcNow, detail));
+        if (_state.Audit.Count > 1000)
+            _state.Audit.RemoveRange(0, _state.Audit.Count - 1000);
+    }
+
+    private StewardSeedState LoadOrQuarantine()
+    {
+        if (!File.Exists(_snapshotPath))
+            return new StewardSeedState();
+        try
+        {
+            return JsonSerializer.Deserialize<StewardSeedState>(File.ReadAllText(_snapshotPath))
+                ?? throw new JsonException("null Steward snapshot");
+        }
+        catch (JsonException)
+        {
+            var quarantine = _snapshotPath + $".corrupt-{DateTimeOffset.UtcNow:yyyyMMddHHmmssfff}";
+            File.Move(_snapshotPath, quarantine);
+            return new StewardSeedState();
+        }
+    }
+
+    private void SaveLocked()
+    {
+        var temp = _snapshotPath + $".tmp-{Guid.NewGuid():N}";
+        try
+        {
+            using (var stream = new FileStream(
+                temp,
+                FileMode.CreateNew,
+                FileAccess.Write,
+                FileShare.None,
+                4096,
+                FileOptions.WriteThrough))
+            {
+                JsonSerializer.Serialize(stream, _state);
+                stream.Flush(flushToDisk: true);
+            }
+            File.Move(temp, _snapshotPath, overwrite: true);
+        }
+        finally
+        {
+            if (File.Exists(temp))
+                File.Delete(temp);
+        }
+    }
+
+    private static string Digest<T>(T value) =>
+        "sha256:" + Sha256Hex(JsonSerializer.SerializeToUtf8Bytes(value));
+
+    private static string Sha256Hex(ReadOnlySpan<byte> value) =>
+        Convert.ToHexStringLower(SHA256.HashData(value));
+}

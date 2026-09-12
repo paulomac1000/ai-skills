@@ -1,0 +1,29 @@
+namespace __NAMESPACE__.Mcp.Server;
+
+public sealed class StewardRecoveryService(
+    StewardSeedRuntime runtime,
+    ILogger<StewardRecoveryService> logger) : BackgroundService
+{
+    private static readonly Action<ILogger, Exception?> LogRecoveryFailure = LoggerMessage.Define(
+        LogLevel.Error,
+        new EventId(1, nameof(StewardRecoveryService)),
+        "Steward recovery iteration failed");
+
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        while (!stoppingToken.IsCancellationRequested)
+        {
+            try
+            {
+                if (runtime.RunOneDue())
+                    continue;
+            }
+            catch (Exception exception)
+            {
+                LogRecoveryFailure(logger, exception);
+            }
+
+            await Task.Delay(TimeSpan.FromMilliseconds(50), stoppingToken);
+        }
+    }
+}

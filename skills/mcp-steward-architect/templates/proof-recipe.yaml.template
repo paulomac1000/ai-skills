@@ -1,0 +1,14 @@
+schema_version: 1
+recipe_id: __RECIPE_ID__
+revision: 1
+criteria:
+  - criterion_id: __CRITERION_ID__
+    subject_dimensions: [target]
+    required_authority: observed
+    freshness_seconds: 300
+    approved_producers: []
+    probes: []
+    sufficiency: all-required
+completion:
+  unresolved_required_criterion: blocked
+  advisory_model_findings_require_reproduction: true

@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://paulomac1000.github.io/ai-skills/contracts/upstream-capability.schema.json",
+  "title": "StewardUpstreamCapability",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "capability_id", "subject_types", "target_types", "identity_dimensions_observed", "evidence_classes_produced", "interaction", "delivery", "idempotency", "recovery", "cancellation", "progress", "reconciliation", "credential_affinity", "bounds", "confidentiality"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "capability_id": {"type": "string", "minLength": 1, "maxLength": 300},
+    "subject_types": {"$ref": "#/$defs/stringSet"},
+    "target_types": {"$ref": "#/$defs/stringSet"},
+    "identity_dimensions_observed": {"$ref": "#/$defs/stringSet"},
+    "evidence_classes_produced": {"$ref": "#/$defs/stringSet"},
+    "interaction": {"enum": ["stateless", "stateful"]},
+    "delivery": {"enum": ["synchronous", "durable-async"]},
+    "idempotency": {"enum": ["none", "caller-key", "provider-key"]},
+    "recovery": {"enum": ["none", "replay-safe", "status-by-handle", "resume-by-handle"]},
+    "cancellation": {"enum": ["none", "best-effort", "confirmed"]},
+    "progress": {"enum": ["none", "heartbeat", "sequence", "percent"]},
+    "reconciliation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ambiguous_delivery"],
+      "properties": {"ambiguous_delivery": {"enum": ["unsupported", "lookup-by-idempotency-key", "status-by-handle", "independent-read-back"]}}
+    },
+    "credential_affinity": {"enum": ["none", "operation", "job"]},
+    "bounds": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["max_request_bytes", "max_result_bytes", "concurrency_scope", "rate_limit_scope"],
+      "properties": {
+        "max_request_bytes": {"type": ["integer", "null"], "minimum": 1},
+        "max_result_bytes": {"type": ["integer", "null"], "minimum": 1},
+        "concurrency_scope": {"type": "string", "minLength": 1},
+        "rate_limit_scope": {"type": "string", "minLength": 1}
+      }
+    },
+    "confidentiality": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["egress_class"],
+      "properties": {"egress_class": {"enum": ["local", "private-network", "approved-external", "public"]}}
+    }
+  },
+  "$defs": {
+    "stringSet": {"type": "array", "uniqueItems": true, "maxItems": 256, "items": {"type": "string", "minLength": 1}}
+  }
+}

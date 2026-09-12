@@ -1,0 +1,22 @@
+schema_version: 1
+capability_id: __CAPABILITY_ID__
+subject_types: []
+target_types: []
+identity_dimensions_observed: []
+evidence_classes_produced: []
+interaction: stateless # stateless | stateful
+delivery: synchronous # synchronous | durable-async
+idempotency: none # none | caller-key | provider-key
+recovery: none # none | replay-safe | status-by-handle | resume-by-handle
+cancellation: none # none | best-effort | confirmed
+progress: none # none | heartbeat | sequence | percent
+reconciliation:
+  ambiguous_delivery: unsupported
+credential_affinity: none
+bounds:
+  max_request_bytes: null
+  max_result_bytes: null
+  concurrency_scope: capability
+  rate_limit_scope: provider
+confidentiality:
+  egress_class: local

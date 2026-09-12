@@ -1,0 +1,98 @@
+name: Steward .NET artifact
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: steward-dotnet-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  steward-dotnet:
+    name: Steward .NET artifact (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            operating_system: linux
+            architecture: x64
+            lock_id: linux-x64-py312
+          - os: macos-15
+            operating_system: macos
+            architecture: arm64
+            lock_id: macos-arm64-py312
+          - os: windows-2025
+            operating_system: windows
+            architecture: x64
+            lock_id: windows-x64-py312
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+          architecture: ${{ matrix.architecture }}
+          cache: pip
+          cache-dependency-path: requirements-dev-${{ matrix.lock_id }}.lock
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68
+        with:
+          dotnet-version: "10.0.302"
+      - run: python scripts/install_locked.py
+      - name: Generate, build, publish, and smoke exact Steward artifact
+        run: >-
+          python contracts/run_evidence_command.py
+          --execution-id steward-dotnet
+          --result-file steward-dotnet-${{ matrix.operating_system }}-${{ matrix.architecture }}.xml
+          --output evidence/executions/steward-dotnet.json
+          -- python -m pytest tests/test_mcp_steward_dotnet_generator.py
+          --junitxml=steward-dotnet-${{ matrix.operating_system }}-${{ matrix.architecture }}.xml
+      - name: Write machine-bound Steward .NET evidence
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          SOURCE_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          EVIDENCE_SUBJECT: ${{ matrix.operating_system }}|${{ matrix.architecture }}|dotnet|10.0.302|steward-exact-artifact
+        run: |
+          set -euo pipefail
+          python contracts/write_evidence_report.py \
+            --repository "$GITHUB_REPOSITORY" \
+            --source-head-sha "$SOURCE_HEAD_SHA" \
+            --tested-checkout-sha "$(git rev-parse HEAD)" \
+            --run-id "$GITHUB_RUN_ID" \
+            --workflow-path .github/workflows/steward-dotnet.yml \
+            --workflow-name "Steward .NET artifact" \
+            --event "$GITHUB_EVENT_NAME" \
+            --job-name "Steward .NET artifact (${{ matrix.os }})" \
+            --lane steward-dotnet-exact-artifact \
+            --dynamic-kind compatibility \
+            --dynamic-subject "$EVIDENCE_SUBJECT" \
+            --dynamic-execution-id steward-dotnet \
+            --dynamic-operating-system "${{ matrix.operating_system }}" \
+            --dynamic-architecture "${{ matrix.architecture }}" \
+            --dynamic-runtime dotnet \
+            --dynamic-version 10.0.302 \
+            --dynamic-lane steward-dotnet-exact-artifact \
+            --execution-record evidence/executions/steward-dotnet.json \
+            --output evidence/report.json
+      - name: Upload Steward .NET evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: steward-dotnet-${{ matrix.operating_system }}-${{ matrix.architecture }}-${{ github.run_id }}
+          path: |
+            steward-dotnet-${{ matrix.operating_system }}-${{ matrix.architecture }}.xml
+            evidence/
+          if-no-files-found: error
+          retention-days: 90

@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.1.0 - 2026-09-12
+
+### Added
+
+- Added `mcp-steward-architect`, a durable MCP control-plane architecture skill that composes inbound server and outbound consumer standards with receipts, reconciliation, lineage fencing, evidence authority, completion gates, recovery, and adversarial conformance tests.
+
+### Changed
+
+- Strengthened shared capability, evidence, exact-artifact, and verification-integrity contracts across the bundled architecture skills.
+
 ## 2.0.0 - 2026-09-11
 
 ### Added

@@ -211,3 +211,33 @@ controls:
     waivable: false
     required_evidence: [artifact, review]
     test_selectors: [tests/test_atomic_claim_contract.py::test_multiarch_identity_is_an_immutable_graph]
+  - id: steward.delivery.ambiguous-reconcile
+    parent_rule_id: steward.delivery.reconciled
+    skill: mcp-steward-architect
+    source: skills/mcp-steward-architect/STANDARD.md#external-operations-and-reconciliation
+    description: Delivery-unknown state cannot authorize replay and must enter bounded reconciliation before any stateful resend.
+    applies_when: {maturity_at_least: L2}
+    severity: blocking
+    waivable: false
+    required_evidence: [unit, integration]
+    test_selectors: [tests/test_mcp_steward_architect.py::test_delivery_unknown_is_reconciliation_not_retry]
+  - id: steward.lineage.current-publication
+    parent_rule_id: steward.lineage.fenced
+    skill: mcp-steward-architect
+    source: skills/mcp-steward-architect/STANDARD.md#lineage-generations-attempts-and-leases
+    description: Only the current lineage generation/current job may publish an actionable terminal handoff.
+    applies_when: {maturity_at_least: L2}
+    severity: blocking
+    waivable: false
+    required_evidence: [unit]
+    test_selectors: [tests/test_mcp_steward_architect.py::test_stale_generation_handoff_cannot_be_actionable_before_digest_check]
+  - id: steward.credentials.no-privilege-failover
+    parent_rule_id: steward.credentials.fail-closed
+    skill: mcp-steward-architect
+    source: skills/mcp-steward-architect/STANDARD.md#credentials-and-provider-failover
+    description: Credential failover cannot bypass authorization/policy or turn ambiguous stateful delivery into a fresh submit.
+    applies_when: {maturity_at_least: L2}
+    severity: blocking
+    waivable: false
+    required_evidence: [unit, security]
+    test_selectors: [tests/test_mcp_steward_architect.py::test_manifest_composes_server_and_consumer_standards]

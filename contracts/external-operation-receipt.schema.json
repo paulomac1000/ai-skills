@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://paulomac1000.github.io/ai-skills/contracts/external-operation-receipt.schema.json",
+  "title": "ExternalOperationReceipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "operationId", "jobId", "lineageId", "generation", "attemptId", "capabilityIdentity", "targetIdentity", "requestDigest", "state", "delivery", "retryDisposition", "credentialSlotId", "createdAt", "observedAt", "retryCount", "reconcileCount"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "operationId": {"type": "string", "minLength": 1},
+    "jobId": {"type": "string", "minLength": 1},
+    "lineageId": {"type": "string", "minLength": 1},
+    "generation": {"type": "integer", "minimum": 1},
+    "attemptId": {"type": "string", "minLength": 1},
+    "capabilityIdentity": {"type": "string", "minLength": 1},
+    "targetIdentity": {"type": "string", "minLength": 1},
+    "requestDigest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "idempotencyKeyDigest": {"type": ["string", "null"], "pattern": "^sha256:[0-9a-f]{64}$"},
+    "state": {"enum": ["reserved", "dispatched", "running", "result-ready", "captured", "reconciled", "failed", "abandoned"]},
+    "delivery": {"enum": ["not-delivered", "delivered", "delivery-unknown"]},
+    "retryDisposition": {"enum": ["forbidden", "eligible", "reconcile-first"]},
+    "remoteHandle": {"type": ["string", "null"], "maxLength": 1000},
+    "credentialSlotId": {"type": "string", "minLength": 1, "maxLength": 200},
+    "providerIdentity": {"type": ["string", "null"], "maxLength": 300},
+    "createdAt": {"type": "string", "format": "date-time"},
+    "observedAt": {"type": "string", "format": "date-time"},
+    "retryCount": {"type": "integer", "minimum": 0},
+    "reconcileCount": {"type": "integer", "minimum": 0},
+    "nextRetryAt": {"type": ["string", "null"], "format": "date-time"},
+    "nextReconcileAt": {"type": ["string", "null"], "format": "date-time"},
+    "failureClass": {"type": ["string", "null"], "maxLength": 120}
+  }
+}
