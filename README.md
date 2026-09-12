@@ -15,10 +15,11 @@ The current repository release is `2.0.0`. All bundled skills are published with
 | `mcp-gateway-release-verifier` | Compose exact-artifact MCP identity, schema, transport, lifecycle, health, integrity, and cleanup evidence into a bounded release verdict. | Release-verdict composer and local candidate acceptance lane |
 | `mcp-server-architect` | Design secure, observable, and agent-friendly MCP servers. | Language-neutral core, Python/FastMCP and .NET profiles, testing, security, operations, examples |
 | `mcp-server-consumer` | Select and invoke MCP capabilities safely and efficiently. | Deterministic decision engine and workflow, retry, pagination, and trust playbooks |
+| `mcp-steward-architect` | Design durable MCP control planes that own bounded workflows, survive ambiguous external work, and publish provenance-bound handoffs. | Steward/job/receipt/handoff contracts, reconciliation and authority playbooks, validator, Python/.NET generator overlay, failure regressions |
 | `qa-change-verifier` | Select risk-based verification layers and bind confidence to exact candidate evidence. | Risk planner, simulator freshness, evidence binding, and failure attribution |
 | `readme-architect` | Create and audit evidence-backed, user-facing repository READMEs without duplicating volatile project truth. | Evidence source map, structure profiles, visual guidance, templates, collector, and auditor |
 
-Local pre-commit and pre-push design belongs to `ci-cd-architect`; it is not a separate architectural domain. Runtime-agent orchestration, mutable intent/session state, delegation lifecycle, and agent diagnostic state are intentionally outside this repository and are owned by `opencode-stack-guides` under OSG #140.
+Local pre-commit and pre-push design belongs to `ci-cd-architect`; it is not a separate architectural domain. `mcp-steward-architect` owns the reusable service/runtime architecture of durable Steward control planes. Mutable user-intent/session state, agent-session rotation, delegation lifecycle, and model-routing workflow state remain outside this repository and are owned by `opencode-stack-guides` under OSG #140.
 
 ## Start here
 
