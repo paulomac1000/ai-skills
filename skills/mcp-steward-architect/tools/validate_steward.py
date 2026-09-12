@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from jsonschema import Draft202012Validator
+from jsonschema import Draft202012Validator, FormatChecker
 
 ROOT = Path(__file__).resolve().parents[3]
 CONTRACTS = ROOT / "contracts"
@@ -18,6 +18,7 @@ _SCHEMA_FILES = {
     "job": "steward-job.schema.json",
     "receipt": "external-operation-receipt.schema.json",
     "handoff": "steward-handoff.schema.json",
+    "upstream": "upstream-capability.schema.json",
 }
 
 
@@ -37,7 +38,13 @@ def _schema(kind: str) -> dict[str, Any]:
 def validate_document(kind: str, value: Any) -> list[str]:
     if kind not in _SCHEMA_FILES:
         raise ValueError(f"unknown document kind: {kind}")
-    errors = sorted(Draft202012Validator(_schema(kind)).iter_errors(value), key=lambda item: tuple(item.absolute_path))
+    errors = sorted(
+        Draft202012Validator(
+            _schema(kind),
+            format_checker=FormatChecker(),
+        ).iter_errors(value),
+        key=lambda item: tuple(item.absolute_path),
+    )
     findings = [f"schema:{'.'.join(map(str, error.absolute_path)) or '<root>'}: {error.message}" for error in errors]
     if errors or not isinstance(value, dict):
         return findings
@@ -48,6 +55,10 @@ def validate_document(kind: str, value: Any) -> list[str]:
         findings.extend(_job_findings(value))
     elif kind == "receipt":
         findings.extend(_receipt_findings(value))
+    elif kind == "handoff":
+        findings.extend(_handoff_findings(value))
+    elif kind == "upstream":
+        findings.extend(_upstream_findings(value))
     return findings
 
 
@@ -62,6 +73,22 @@ def _profile_findings(value: dict[str, Any]) -> list[str]:
     durability = value["durability"]
     if durability["profile"] != "constrained-file" and not durability["transactional_store_required"]:
         findings.append("durability: durable profiles require a transactional store")
+    required_dimensions = set(value["subject_identity"]["required_dimensions"])
+    freshness_dimensions = set(value["subject_identity"]["freshness_dimensions"])
+    unknown_freshness = sorted(freshness_dimensions - required_dimensions)
+    if unknown_freshness:
+        findings.append(
+            "subject_identity: freshness dimensions must also be required dimensions: "
+            + ", ".join(unknown_freshness)
+        )
+    obligation_ids = [item["id"] for item in value["completion"]["obligations"]]
+    duplicate_obligations = sorted(
+        item for item in set(obligation_ids) if obligation_ids.count(item) > 1
+    )
+    if duplicate_obligations:
+        findings.append(
+            "completion: duplicate obligation ids: " + ", ".join(duplicate_obligations)
+        )
     fallback = value["credentials"]["fallback"]
     if fallback["enabled"] and (not fallback["preserve_principal_scope"] or not fallback["preserve_target"]):
         findings.append("credentials: fallback must preserve principal/scope and target")
@@ -86,6 +113,49 @@ def _receipt_findings(value: dict[str, Any]) -> list[str]:
         findings.append("receipt: delivery-unknown requires retryDisposition=reconcile-first")
     if delivery == "not-delivered" and value.get("remoteHandle"):
         findings.append("receipt: not-delivered cannot claim a remote handle")
+    if value["state"] == "reserved" and delivery != "not-delivered":
+        findings.append("receipt: reserved operation cannot claim delivery")
+    if value["state"] == "reserved" and retry != "forbidden":
+        findings.append("receipt: reserved operation cannot be retry-eligible")
+    if delivery == "delivery-unknown" and value.get("nextRetryAt") is not None:
+        findings.append("receipt: delivery-unknown cannot schedule retry before reconciliation")
+    return findings
+
+
+def _handoff_findings(value: dict[str, Any]) -> list[str]:
+    findings: list[str] = []
+    status = value["status"]
+    if status in {"failed", "cancelled", "blocked", "superseded"} and value["actionable"]:
+        findings.append(f"handoff: {status} handoff cannot be actionable")
+    if status == "completed" and value["gaps"]:
+        findings.append("handoff: completed handoff cannot retain unresolved gaps")
+    if status == "completed-with-gaps" and not value["gaps"]:
+        findings.append("handoff: completed-with-gaps requires at least one gap")
+    if status in {"completed", "completed-with-gaps"} and value.get("outcome") is None:
+        findings.append("handoff: completed handoff requires a domain outcome")
+    return findings
+
+
+def _upstream_findings(value: dict[str, Any]) -> list[str]:
+    findings: list[str] = []
+    if value["interaction"] == "stateful":
+        recoverable = value["recovery"] in {
+            "replay-safe",
+            "status-by-handle",
+            "resume-by-handle",
+        }
+        reconcilable = value["reconciliation"]["ambiguous_delivery"] != "unsupported"
+        if not recoverable or not reconcilable:
+            findings.append(
+                "upstream: stateful capability requires recovery and ambiguous-delivery reconciliation"
+            )
+    if value["delivery"] == "durable-async":
+        if value["recovery"] not in {"status-by-handle", "resume-by-handle"}:
+            findings.append(
+                "upstream: durable-async capability requires status/resume by handle"
+            )
+        if value["progress"] == "none":
+            findings.append("upstream: durable-async capability requires progress semantics")
     return findings
 
 
