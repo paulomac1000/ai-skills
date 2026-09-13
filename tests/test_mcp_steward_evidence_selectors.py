@@ -71,3 +71,22 @@ def test_atomic_steward_evidence_selectors_match_all_required_junit_case_identit
         for module, test_name in cases:
             identity = f"{module}::{test_name}"
             assert any(fnmatchcase(identity, selector) for selector in selectors), (subject, identity, selectors)
+
+
+def test_steward_mutation_and_claim_rules_bind_cross_product_runtime_regressions() -> None:
+    document = yaml.safe_load(PLAN.read_text(encoding="utf-8"))
+    claims = {claim["subject"]: claim for claim in document["profiles"]["repository-rules"]}
+    required = {
+        "steward.mutation.admitted": {
+            "test_real_dispatch_gate_rejects_full_receipt_subject_lease_request_and_budget_cross_product",
+            "test_dispatch_commit_closes_toctou_and_stale_generation_reconciles_without_redispatch",
+        },
+        "steward.claim.bound": {
+            "test_completion_rejects_persisted_authority_above_producer_ceiling",
+        },
+    }
+    for subject, names in required.items():
+        selectors = claims[subject]["selectors"]
+        for name in names:
+            identity = f"tests.test_mcp_steward_runtime_security::{name}"
+            assert any(fnmatchcase(identity, selector) for selector in selectors), (subject, name)

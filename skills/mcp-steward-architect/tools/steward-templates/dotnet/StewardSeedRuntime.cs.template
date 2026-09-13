@@ -79,8 +79,9 @@ internal sealed record SeedIdempotency(string RequestDigest, string JobId);
 internal sealed record SeedLineage(string CurrentJobId, long CurrentGeneration, StewardSubject Subject, StewardCandidate Candidate, long Version);
 internal sealed record SeedRequirement(string Id, bool Required, string EvidenceClass, string CanonicalClaim, string RequiredAuthority, int FreshnessSeconds, IReadOnlySet<string> ApprovedProducers, IReadOnlyList<string> BindingRequirements, string CoverageSemantics);
 internal sealed record SeedProducer(string Id, string AuthorityCeiling, IReadOnlySet<string> BindingRequirements, IReadOnlySet<string> SubjectDimensions);
-internal sealed record SeedMutationEffect(string Id, string AuthoritySource, bool LeaseRequired, bool CandidateRequired, string CapabilityRef, bool DurableOperationRequired, int MinimumBudgetMs);
 internal sealed record SeedCapability(string Id, string Source, string Revision, string Digest);
+internal sealed record SeedMutationEffect(string Id, string OperationKind, string AuthoritySource, bool LeaseRequired, bool CandidateRequired, string CapabilityRef, SeedCapability CapabilityContract, bool DurableOperationRequired, int MinimumBudgetMs, int FinalizationReserveMs);
+internal sealed record SeedAuthority(string Source, string Principal, string Scope, string Target, string AttemptId, long JobVersion, string? LeaseOwner, long? LeaseFencingToken);
 internal sealed record SeedAction(string Kind, StewardSeedJob Job, StewardOperation Operation);
 
 internal sealed class StewardSeedState
@@ -144,11 +145,20 @@ internal sealed class SeedPolicy
         }
         var effects = mutation.RootElement.GetProperty("effects").EnumerateArray().ToDictionary(
             item => item.GetProperty("id").GetString()!,
-            item => new SeedMutationEffect(
-                item.GetProperty("id").GetString()!, item.GetProperty("authority_source").GetString()!,
-                item.GetProperty("lease_required").GetBoolean(), item.GetProperty("candidate_required").GetBoolean(),
-                item.GetProperty("capability_ref").GetString()!, item.GetProperty("durable_operation_required").GetBoolean(),
-                item.GetProperty("minimum_budget_ms").GetInt32()), StringComparer.Ordinal);
+            item => {
+                var effectContract = item.GetProperty("capability_contract");
+                var pinned = new SeedCapability(
+                    effectContract.GetProperty("id").GetString()!, effectContract.GetProperty("source").GetString()!,
+                    effectContract.GetProperty("revision").GetString()!, effectContract.GetProperty("digest").GetString()!);
+                if (!string.Equals(CapabilityDigest(pinned.Source, pinned.Id, pinned.Revision), pinned.Digest, StringComparison.Ordinal))
+                    throw new InvalidOperationException("mutation effect capability contract identity/digest is invalid");
+                return new SeedMutationEffect(
+                    item.GetProperty("id").GetString()!, item.GetProperty("operation_kind").GetString()!,
+                    item.GetProperty("authority_source").GetString()!, item.GetProperty("lease_required").GetBoolean(),
+                    item.GetProperty("candidate_required").GetBoolean(), item.GetProperty("capability_ref").GetString()!, pinned,
+                    item.GetProperty("durable_operation_required").GetBoolean(), item.GetProperty("minimum_budget_ms").GetInt32(),
+                    item.GetProperty("finalization_reserve_ms").GetInt32());
+            }, StringComparer.Ordinal);
         var contract = upstream.RootElement.GetProperty("contract");
         var capability = new SeedCapability(
             upstream.RootElement.GetProperty("capability_id").GetString()!, contract.GetProperty("source").GetString()!,
@@ -320,7 +330,7 @@ public sealed class StewardSeedRuntime : IDisposable
         if (action.Kind == "cancel-dispatch")
         {
             if (_faults.Trip("after-cancel-start")) return true;
-            var submit = OperationById(action.Operation.RequestDigest);
+            var submit = OperationLocked(action.Job.JobId, "submit") ?? throw new InvalidOperationException("submit operation missing");
             var handle = _provider.Cancel(action.Operation.OperationId, submit.RemoteHandle ?? throw new InvalidOperationException("submit handle missing"), action.Job.Subject);
             if (_faults.Trip("after-cancel-dispatch") || _faults.Trip("before-cancel-bind")) return true;
             lock (_gate) { BindDispatchLocked(action.Operation.OperationId, handle, true); MarkSubmitCancelledLocked(submit.OperationId); SaveLocked(); }
@@ -328,7 +338,7 @@ public sealed class StewardSeedRuntime : IDisposable
         }
         if (action.Kind is "cancel-reconcile" or "stale-cancel-reconcile")
         {
-            var submit = OperationById(action.Operation.RequestDigest);
+            var submit = OperationLocked(action.Job.JobId, "submit") ?? throw new InvalidOperationException("submit operation missing");
             var handle = _provider.ReconcileCancel(action.Operation.OperationId, submit.RemoteHandle ?? throw new InvalidOperationException("submit handle missing"), action.Job.Subject);
             lock (_gate) { ReconcileLocked(action.Operation.OperationId, handle, true); MarkSubmitCancelledLocked(submit.OperationId); SaveLocked(); }
             return true;
@@ -386,7 +396,8 @@ public sealed class StewardSeedRuntime : IDisposable
     {
         RequireCurrentLocked(job);
         var id = $"operation-{Guid.NewGuid():N}"; var now = _clock.UtcNow;
-        var requestDigest = submitOperationId ?? job.RequestDigest;
+        _ = submitOperationId;
+        var requestDigest = OperationRequestDigest(job, kind);
         var op = new StewardOperation(id, kind, job.JobId, job.LineageId, job.Generation, job.AttemptId, job.Version + 1,
             _policy.Capability.Id, _policy.Capability.Digest, $"target:{job.Subject.Id}:{job.Subject.Revision ?? "none"}",
             job.Candidate.Digest, requestDigest, "reserved", "not-delivered", "forbidden", "primary", null, null, now, now, 0, null);
@@ -399,7 +410,8 @@ public sealed class StewardSeedRuntime : IDisposable
     private bool BeginDispatchLocked(string operationId, string effectId)
     {
         var op = _state.Operations[operationId]; var job = CurrentJobLocked(op.JobId);
-        var decision = EvaluateMutationLocked(effectId, job, op, "steward-runtime");
+        var effect = _policy.Effects.GetValueOrDefault(effectId) ?? throw new InvalidOperationException($"mutation policy has no effect {effectId}");
+        var decision = EvaluateMutationLocked(effectId, job, op, effect.CapabilityContract, AuthorityFor(effectId, job, effect.AuthoritySource));
         if (decision != "Admitted")
         {
             var reason = $"mutation-admission:{decision}";
@@ -416,32 +428,48 @@ public sealed class StewardSeedRuntime : IDisposable
         return true;
     }
 
-    private string EvaluateMutationLocked(string effectId, StewardSeedJob job, StewardOperation? operation, string actualSource)
+    private static SeedAuthority AuthorityFor(string effectId, StewardSeedJob job, string source)
+    {
+        var target = $"target:{job.Subject.Id}:{job.Subject.Revision ?? "none"}";
+        var principal = $"{source}:{job.AttemptId}";
+        return new(source, principal, effectId, target, job.AttemptId, job.Version, job.Lease?.Owner, job.Lease?.FencingToken);
+    }
+
+    private static string OperationRequestDigest(StewardSeedJob job, string kind) => Digest(new { kind, subject = job.Subject, candidate = job.Candidate });
+
+    private string EvaluateMutationLocked(string effectId, StewardSeedJob job, StewardOperation? operation, SeedCapability actualCapability, SeedAuthority authority)
     {
         if (!_policy.Effects.TryGetValue(effectId, out var effect)) return "CapabilityUnavailable";
         if (!IsCurrentLocked(job)) return "LostAuthority";
+        var lineage = _state.Lineages[job.LineageId];
+        if (lineage.Subject != job.Subject) return "LostAuthority";
         var cancellationDispatch = effectId == "cancellation-dispatch";
         var cancellationFenced = job.Cancellation is "requested" or "fenced" or "reconciling";
         if (Terminal.Contains(job.Status) || (!cancellationDispatch && cancellationFenced)) return "LostAuthority";
         if (cancellationDispatch && job.Cancellation is not ("requested" or "reconciling")) return "LostAuthority";
-        if (!string.Equals(actualSource, effect.AuthoritySource, StringComparison.Ordinal)) return "LostAuthority";
+        var target = $"target:{job.Subject.Id}:{job.Subject.Revision ?? "none"}";
+        if (!string.Equals(authority.Source, effect.AuthoritySource, StringComparison.Ordinal)
+            || string.IsNullOrWhiteSpace(authority.Principal) || authority.Principal is "unknown" or "HEAD" or "latest"
+            || authority.Scope != effectId || authority.Target != target || authority.AttemptId != job.AttemptId || authority.JobVersion != job.Version)
+            return "LostAuthority";
         if (effect.LeaseRequired)
         {
-            var expectedOwner = $"steward-runtime:{job.AttemptId}";
-            if (job.Lease is null || job.Lease.Owner != expectedOwner || job.Lease.FencingToken != job.Generation || job.Lease.ExpiresAt <= _clock.UtcNow)
+            var expectedOwner = $"{effect.AuthoritySource}:{job.AttemptId}";
+            if (job.Lease is null || authority.Principal != expectedOwner || job.Lease.Owner != expectedOwner || authority.LeaseOwner != expectedOwner
+                || job.Lease.FencingToken != job.Generation || authority.LeaseFencingToken != job.Generation || job.Lease.ExpiresAt <= _clock.UtcNow)
                 return "LostAuthority";
         }
         if (effect.CandidateRequired && string.IsNullOrWhiteSpace(job.Candidate.Digest)) return "StaleCandidate";
-        if (job.DeadlineAt - _clock.UtcNow < TimeSpan.FromMilliseconds(effect.MinimumBudgetMs)) return "BudgetUnavailable";
+        if (actualCapability != effect.CapabilityContract || actualCapability.Id != effect.CapabilityRef) return "CapabilityUnavailable";
+        if (job.DeadlineAt - _clock.UtcNow < TimeSpan.FromMilliseconds(effect.MinimumBudgetMs + effect.FinalizationReserveMs)) return "BudgetUnavailable";
         if (effect.DurableOperationRequired)
         {
             if (operation is null || operation.State != "reserved" || operation.Delivery != "not-delivered") return "ReconciliationRequired";
-            if (operation.JobId != job.JobId || operation.Generation != job.Generation || operation.AttemptId != job.AttemptId || operation.JobVersion != job.Version)
-                return "LostAuthority";
+            if (operation.OperationKind != effect.OperationKind || operation.JobId != job.JobId || operation.LineageId != job.LineageId
+                || operation.Generation != job.Generation || operation.AttemptId != job.AttemptId || operation.JobVersion != job.Version) return "LostAuthority";
+            if (operation.RequestDigest != OperationRequestDigest(job, operation.OperationKind)) return "LostAuthority";
             if (operation.CandidateDigest != job.Candidate.Digest) return "StaleCandidate";
-            if (operation.CapabilityIdentity != effect.CapabilityRef || operation.CapabilityIdentity != _policy.Capability.Id
-                || operation.CapabilityContractDigest != _policy.Capability.Digest) return "CapabilityUnavailable";
-            var target = $"target:{job.Subject.Id}:{job.Subject.Revision ?? "none"}";
+            if (operation.CapabilityIdentity != actualCapability.Id || operation.CapabilityContractDigest != actualCapability.Digest) return "CapabilityUnavailable";
             if (operation.TargetIdentity != target) return "LostAuthority";
         }
         return "Admitted";
@@ -568,7 +596,10 @@ public sealed class StewardSeedRuntime : IDisposable
         if (ev.JobId != job.JobId || ev.Generation != job.Generation || ev.LineageId != job.LineageId || ev.Subject != job.Subject || ev.Candidate != job.Candidate) return false;
         if (ev.CriterionId != req.Id || ev.ClaimId != req.CanonicalClaim || ev.EvidenceClass != req.EvidenceClass || ev.ProofRecipeId != _policy.RecipeId) return false;
         if (req.ApprovedProducers.Count > 0 && !req.ApprovedProducers.Contains(ev.ProducerId)) return false;
-        if (AuthorityRank.GetValueOrDefault(ev.AuthorityClass, -1) < AuthorityRank.GetValueOrDefault(req.RequiredAuthority, int.MaxValue)) return false;
+        if (!_policy.Producers.TryGetValue(ev.ProducerId, out var producer)) return false;
+        var evidenceRank = AuthorityRank.GetValueOrDefault(ev.AuthorityClass, -1);
+        if (evidenceRank > AuthorityRank.GetValueOrDefault(producer.AuthorityCeiling, -1)) return false;
+        if (evidenceRank < AuthorityRank.GetValueOrDefault(req.RequiredAuthority, int.MaxValue)) return false;
         if (ev.Binding.Status != "complete" || !req.BindingRequirements.All(ev.Binding.Satisfied.Contains)) return false;
         if ((req.CoverageSemantics is "all-required" or "complete-negative-coverage") && (ev.Coverage.State != "complete" || ev.Coverage.Observed < ev.Coverage.Required)) return false;
         if (req.CoverageSemantics == "any-sufficient" && ev.Coverage.Observed <= 0) return false;
@@ -584,7 +615,9 @@ public sealed class StewardSeedRuntime : IDisposable
             _state.Jobs[job.JobId] = Advance(job, "blocked", "blocked", "blocked:completion-obligations-unresolved", cancellation: job.Cancellation, blockedReason: "completion-obligations-unresolved");
             return;
         }
-        var publicationAdmission = EvaluateMutationLocked("terminal-publication", job, null, "completion-gate");
+        var publicationEffect = _policy.Effects["terminal-publication"];
+        var publicationAdmission = EvaluateMutationLocked("terminal-publication", job, null, publicationEffect.CapabilityContract,
+            AuthorityFor("terminal-publication", job, "completion-gate"));
         if (publicationAdmission != "Admitted")
         {
             var reason = $"mutation-admission:{publicationAdmission}";
@@ -619,10 +652,15 @@ public sealed class StewardSeedRuntime : IDisposable
     private StewardSeedJob Advance(StewardSeedJob job, string status, string stage, string marker, string cancellation, string? blockedReason = null) => job with { Version = job.Version + 1, Status = status, Stage = stage, Cancellation = cancellation, BlockedReason = blockedReason, Lease = Terminal.Contains(status) ? null : job.Lease, UpdatedAt = _clock.UtcNow, HeartbeatAt = _clock.UtcNow, ProgressAt = _clock.UtcNow, ProgressRevision = job.ProgressRevision + 1, ProgressMarker = marker };
     private StewardSeedJob? NextJobLocked() => _state.Jobs.Values.Where(item => Runnable.Contains(item.Status)).OrderBy(item => item.CreatedAt).ThenBy(item => item.JobId, StringComparer.Ordinal).FirstOrDefault();
     private StewardOperation? OperationLocked(string jobId, string kind) => _state.Operations.Values.Where(item => item.JobId == jobId && item.OperationKind == kind).OrderBy(item => item.CreatedAt).FirstOrDefault();
-    private StewardOperation OperationById(string id) => _state.Operations.TryGetValue(id, out var op) ? op : throw new KeyNotFoundException(id);
     private bool HasEvidenceLocked(string jobId) => _state.Evidence.Values.Any(item => item.JobId == jobId);
     private StewardOperation? NextSupersededOperationLocked() => _state.Operations.Values.Where(item => _state.Jobs.TryGetValue(item.JobId, out var job) && job.Status == "superseded" && item.State is not ("captured" or "abandoned" or "failed") && item.Delivery is "delivery-unknown" or "delivered").OrderBy(item => item.ObservedAt).FirstOrDefault();
-    private bool IsCurrentLocked(StewardSeedJob job) => _state.Lineages.TryGetValue(job.LineageId, out var lineage) && lineage.CurrentJobId == job.JobId && lineage.CurrentGeneration == job.Generation && lineage.Candidate == job.Candidate && CurrentJobLocked(job.JobId).AttemptId == job.AttemptId;
+    private bool IsCurrentLocked(StewardSeedJob job)
+    {
+        if (!_state.Lineages.TryGetValue(job.LineageId, out var lineage) || lineage.CurrentJobId != job.JobId
+            || lineage.CurrentGeneration != job.Generation || lineage.Subject != job.Subject || lineage.Candidate != job.Candidate) return false;
+        var current = CurrentJobLocked(job.JobId);
+        return current.AttemptId == job.AttemptId && current.Version == job.Version;
+    }
     private StewardSeedJob CurrentJobLocked(string jobId) => _state.Jobs.TryGetValue(jobId, out var job) ? job : throw new KeyNotFoundException(jobId);
     private void RequireCurrentLocked(StewardSeedJob job) { if (!IsCurrentLocked(job)) throw new InvalidOperationException("stale lineage/generation/attempt/candidate"); }
     private void AuditLocked(string? jobId, string eventType, IReadOnlyDictionary<string, string> detail) { _state.AuditSequence++; _state.Audit.Add(new(_state.AuditSequence, jobId, eventType, _clock.UtcNow, detail)); if (_state.Audit.Count > 1000) _state.Audit.RemoveRange(0, _state.Audit.Count - 1000); }

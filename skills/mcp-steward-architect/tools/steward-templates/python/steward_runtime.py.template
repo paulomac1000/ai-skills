@@ -17,6 +17,7 @@ from typing import Any, Iterator
 _AUTHORITY_RANK = {"advisory": 0, "observed": 1, "verified": 2, "independent": 3}
 _TERMINAL = {"completed", "completed-with-gaps", "failed", "cancelled", "superseded"}
 _RUNNABLE = {"queued", "reconciling", "waiting-external", "cancelling", "finalizing"}
+_PLACEHOLDER_AUTHORITY = {"", "unknown", "head", "latest", "default", "unset", "none"}
 
 
 def _canonical(value: object) -> str:
@@ -55,11 +56,15 @@ def _target_identity(job: dict[str, Any]) -> str:
     return f"{subject['type']}:{subject['id']}:{subject.get('revision') or 'none'}"
 
 
+def _operation_request_digest(job: dict[str, Any], kind: str) -> str:
+    return _digest({"kind": kind, "subject": job["subject"], "candidate": job["candidate"]})
+
+
 def _evaluate_mutation(
     effect: dict[str, Any], job: dict[str, Any], capability: dict[str, Any], authority: dict[str, Any],
     *, current_job_id: str, current_generation: int, current_attempt_id: str, current_version: int,
-    remaining_budget_ms: int, receipt: dict[str, Any] | None, candidate: dict[str, Any] | None,
-    now: datetime,
+    current_subject: dict[str, Any], remaining_budget_ms: int, expected_request_digest: str | None,
+    receipt: dict[str, Any] | None, candidate: dict[str, Any] | None, now: datetime,
 ) -> dict[str, Any]:
     reasons: list[tuple[str, str]] = []
     if job["jobId"] != current_job_id or job["generation"] != current_generation:
@@ -73,10 +78,13 @@ def _evaluate_mutation(
         reasons.append(("LostAuthority", "job is terminal or cancellation-fenced"))
     if cancellation_dispatch and job["cancellation"] not in {"requested", "reconciling"}:
         reasons.append(("LostAuthority", "cancellation dispatch requires an active cancellation request"))
+    if job["subject"] != current_subject:
+        reasons.append(("LostAuthority", "subject identity differs from current authoritative subject"))
     target = _target_identity(job)
     if authority.get("source") != effect["authority_source"]:
         reasons.append(("LostAuthority", "authority source mismatch"))
-    if not authority.get("principal") or authority.get("scope") != effect["id"] or authority.get("target") != target:
+    principal = str(authority.get("principal", ""))
+    if principal.casefold() in _PLACEHOLDER_AUTHORITY or authority.get("scope") != effect["id"] or authority.get("target") != target:
         reasons.append(("LostAuthority", "authority principal/scope/target mismatch"))
     if authority.get("attemptId") != current_attempt_id or int(authority.get("jobVersion", -1)) != int(current_version):
         reasons.append(("LostAuthority", "authority attempt/version fence mismatch"))
@@ -87,28 +95,35 @@ def _evaluate_mutation(
         else:
             if _parse(str(lease["expiresAt"])) <= now:
                 reasons.append(("LostAuthority", "required lease expired"))
-            if authority.get("principal") != lease.get("owner") or authority.get("leaseOwner") != lease.get("owner"):
-                reasons.append(("LostAuthority", "lease owner mismatch"))
-            if authority.get("leaseFencingToken") != lease.get("fencingToken"):
-                reasons.append(("LostAuthority", "lease fencing token mismatch"))
+            expected_owner = f"{effect['authority_source']}:{current_attempt_id}"
+            if authority.get("principal") != expected_owner or lease.get("owner") != expected_owner or authority.get("leaseOwner") != expected_owner:
+                reasons.append(("LostAuthority", "lease owner does not match admitted runtime principal"))
+            if lease.get("fencingToken") != current_generation or authority.get("leaseFencingToken") != current_generation:
+                reasons.append(("LostAuthority", "lease fencing token does not match current generation"))
     if effect["candidate_required"]:
         if candidate is None or candidate != job.get("candidate"):
             reasons.append(("StaleCandidate", "exact candidate mismatch"))
     contract = capability.get("contract") if isinstance(capability.get("contract"), dict) else {}
     if capability.get("capability_id") != effect["capability_ref"] or contract.get("id") != capability.get("capability_id"):
         reasons.append(("CapabilityUnavailable", "capability identity mismatch"))
-    if _capability_digest(capability) != contract.get("digest"):
-        reasons.append(("CapabilityUnavailable", "capability contract provenance/digest mismatch"))
-    if remaining_budget_ms < int(effect["minimum_budget_ms"]):
-        reasons.append(("BudgetUnavailable", "remaining budget below mutation minimum"))
+    if _capability_digest(capability) != contract.get("digest") or contract != effect["capability_contract"]:
+        reasons.append(("CapabilityUnavailable", "capability contract differs from exact reviewed source/id/revision/digest"))
+    required_budget_ms = int(effect["minimum_budget_ms"]) + int(effect["finalization_reserve_ms"])
+    if remaining_budget_ms < required_budget_ms:
+        reasons.append(("BudgetUnavailable", "remaining budget cannot cover operation plus deterministic finalization reserve"))
     if effect["durable_operation_required"]:
         if receipt is None:
             reasons.append(("ReconciliationRequired", "durable receipt missing"))
         else:
-            if receipt.get("jobId") != current_job_id or receipt.get("generation") != current_generation or receipt.get("attemptId") != current_attempt_id:
-                reasons.append(("LostAuthority", "receipt stale job/generation/attempt"))
+            if (receipt.get("jobId") != current_job_id or receipt.get("lineageId") != job["lineageId"]
+                    or receipt.get("generation") != current_generation or receipt.get("attemptId") != current_attempt_id):
+                reasons.append(("LostAuthority", "receipt stale job/lineage/generation/attempt"))
             if int(receipt.get("jobVersion", -1)) != int(current_version):
                 reasons.append(("LostAuthority", "receipt stale optimistic version"))
+            if receipt.get("operationKind") != effect["operation_kind"]:
+                reasons.append(("LostAuthority", "receipt operation kind mismatch"))
+            if expected_request_digest is None or receipt.get("requestDigest") != expected_request_digest:
+                reasons.append(("LostAuthority", "receipt request digest mismatch"))
             if receipt.get("targetIdentity") != target:
                 reasons.append(("LostAuthority", "receipt target mismatch"))
             if receipt.get("capabilityIdentity") != capability.get("capability_id") or receipt.get("capabilityContractDigest") != contract.get("digest"):
@@ -213,7 +228,7 @@ class StewardStore:
               job_id TEXT PRIMARY KEY,lineage_id TEXT,generation INTEGER,attempt_id TEXT,version INTEGER,
               subject_json TEXT,candidate_json TEXT,request_digest TEXT,status TEXT,stage TEXT,cancellation TEXT,
               blocked_reason TEXT,created_at TEXT,updated_at TEXT,heartbeat_at TEXT,progress_at TEXT,progress_revision INTEGER,
-              progress_marker TEXT,deadline_at TEXT,finalization_starts_at TEXT);
+              progress_marker TEXT,deadline_at TEXT,finalization_starts_at TEXT,lease_owner TEXT,lease_fencing_token INTEGER,lease_expires_at TEXT);
             CREATE TABLE IF NOT EXISTS steward_lineages(
               lineage_id TEXT PRIMARY KEY,current_generation INTEGER,current_job_id TEXT,subject_json TEXT,candidate_json TEXT,version INTEGER);
             CREATE TABLE IF NOT EXISTS intake_idempotency(
@@ -279,9 +294,13 @@ class StewardStore:
                     )
                     self._audit(db, previous_job_id, "superseded", {"byJobId": job_id, "generation": generation})
             db.execute(
-                "INSERT INTO steward_jobs VALUES(?,?,?,?,0,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                (job_id, lineage_id, generation, attempt_id, _canonical(subject), _canonical(candidate), request_digest,
-                 "queued", "admitted", "none", None, now, now, now, now, 1, "admitted", deadline, None),
+                "INSERT INTO steward_jobs("
+                "job_id,lineage_id,generation,attempt_id,version,subject_json,candidate_json,request_digest,status,stage,cancellation,"
+                "blocked_reason,created_at,updated_at,heartbeat_at,progress_at,progress_revision,progress_marker,deadline_at,"
+                "finalization_starts_at,lease_owner,lease_fencing_token,lease_expires_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (job_id, lineage_id, generation, attempt_id, 0, _canonical(subject), _canonical(candidate), request_digest,
+                 "queued", "admitted", "none", None, now, now, now, now, 1, "admitted", deadline, None,
+                 f"steward-runtime:{attempt_id}", generation, deadline),
             )
             db.execute(
                 "INSERT INTO steward_lineages VALUES(?,?,?,?,?,0) ON CONFLICT(lineage_id) DO UPDATE SET "
@@ -300,8 +319,8 @@ class StewardStore:
             evrefs = db.execute("SELECT evidence_id FROM steward_evidence WHERE job_id=? ORDER BY observed_at", (job_id,)).fetchall()
         if row is None:
             raise KeyError(job_id)
-        lease = None if row["status"] in _TERMINAL else {
-            "owner": f"steward-runtime:{row['attempt_id']}", "fencingToken": row["generation"], "expiresAt": row["deadline_at"]
+        lease = None if row["status"] in _TERMINAL or row["lease_owner"] is None else {
+            "owner": row["lease_owner"], "fencingToken": row["lease_fencing_token"], "expiresAt": row["lease_expires_at"]
         }
         return {
             "schema_version": 2, "jobId": row["job_id"], "lineageId": row["lineage_id"], "generation": row["generation"],
@@ -352,11 +371,20 @@ class StewardStore:
 
     def operation_for_job(self, job_id: str, kind: str = "submit") -> dict[str, Any] | None:
         with self._connect() as db:
-            row = db.execute(
-                "SELECT * FROM external_operations WHERE job_id=? AND operation_kind=? ORDER BY created_at LIMIT 1",
-                (job_id, kind),
-            ).fetchone()
-        return None if row is None else dict(row)
+            rows = db.execute(
+                "SELECT * FROM external_operations WHERE job_id=? ORDER BY created_at,operation_id", (job_id,)
+            ).fetchall()
+        exact = [row for row in rows if row["operation_kind"] == kind]
+        if exact:
+            return dict(exact[0])
+        # A persisted receipt whose self-declared kind was corrupted must still reach
+        # the compositional gate; otherwise the scheduler would silently reserve a
+        # replacement and turn a typed admission failure into an identity bypass.
+        if kind == "submit" and rows:
+            return dict(rows[0])
+        if kind == "cancel" and len(rows) > 1:
+            return dict(rows[-1])
+        return None
 
     def _is_current_tx(self, db: sqlite3.Connection, job_id: str, generation: int, attempt_id: str) -> bool:
         row = db.execute(
@@ -374,7 +402,7 @@ class StewardStore:
         operation_id = f"operation-{uuid.uuid4().hex}"
         now = _iso(self.clock.now())
         target = _target_identity(job)
-        request = {"kind": kind, "subject": job["subject"], "candidate": job["candidate"]}
+        request_digest = _operation_request_digest(job, kind)
         with self._write() as db:
             if not self._is_current_tx(db, job_id, int(job["generation"]), str(job["attemptId"])):
                 raise RuntimeError("stale lineage operation reservation")
@@ -382,7 +410,7 @@ class StewardStore:
                 "INSERT INTO external_operations VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,NULL)",
                 (operation_id, kind, job_id, job["lineageId"], job["generation"], job["attemptId"], int(job["version"]) + 1,
                  capability["capability_id"], capability["contract"]["digest"], target, job["candidate"]["digest"],
-                 _digest(request), "reserved", "not-delivered", "forbidden", "primary", None, None, now, now),
+                 request_digest, "reserved", "not-delivered", "forbidden", "primary", None, None, now, now),
             )
             self._advance(db, job_id, stage=f"{kind}-reserved", marker=f"{kind}-reserved")
             self._audit(db, job_id, "external-reserved", {"operationId": operation_id, "kind": kind,
@@ -392,8 +420,9 @@ class StewardStore:
     @staticmethod
     def _receipt_view(op: sqlite3.Row | dict[str, Any]) -> dict[str, Any]:
         return {
-            "jobId": op["job_id"], "generation": op["generation"], "attemptId": op["attempt_id"],
-            "jobVersion": op["job_version"], "capabilityIdentity": op["capability_identity"],
+            "jobId": op["job_id"], "lineageId": op["lineage_id"], "generation": op["generation"],
+            "attemptId": op["attempt_id"], "jobVersion": op["job_version"], "operationKind": op["operation_kind"],
+            "requestDigest": op["request_digest"], "capabilityIdentity": op["capability_identity"],
             "capabilityContractDigest": op["capability_contract_digest"], "targetIdentity": op["target_identity"],
             "candidateDigest": op["candidate_digest"], "state": op["state"], "delivery": op["delivery"],
         }
@@ -407,11 +436,11 @@ class StewardStore:
             if op is None:
                 raise KeyError(operation_id)
             row = db.execute("SELECT * FROM steward_jobs WHERE job_id=?", (op["job_id"],)).fetchone()
-            lineage = db.execute("SELECT * FROM steward_lineages WHERE lineage_id=?", (op["lineage_id"],)).fetchone()
+            lineage = db.execute("SELECT * FROM steward_lineages WHERE lineage_id=?", (row["lineage_id"],)).fetchone()
             if row is None or lineage is None:
                 raise RuntimeError("mutation admission lost canonical job/lineage")
-            lease = None if row["status"] in _TERMINAL else {
-                "owner": f"steward-runtime:{row['attempt_id']}", "fencingToken": row["generation"], "expiresAt": row["deadline_at"]
+            lease = None if row["status"] in _TERMINAL or row["lease_owner"] is None else {
+                "owner": row["lease_owner"], "fencingToken": row["lease_fencing_token"], "expiresAt": row["lease_expires_at"]
             }
             job = {
                 "jobId": row["job_id"], "lineageId": row["lineage_id"], "generation": row["generation"],
@@ -424,7 +453,9 @@ class StewardStore:
                 effect, job, capability, authority,
                 current_job_id=str(lineage["current_job_id"]), current_generation=int(lineage["current_generation"]),
                 current_attempt_id=str(row["attempt_id"]), current_version=int(row["version"]),
-                remaining_budget_ms=budget_ms, receipt=self._receipt_view(op), candidate=job["candidate"], now=now,
+                current_subject=json.loads(lineage["subject_json"]), remaining_budget_ms=budget_ms,
+                expected_request_digest=_operation_request_digest(job, str(op["operation_kind"])),
+                receipt=self._receipt_view(op), candidate=job["candidate"], now=now,
             )
             if decision["disposition"] != "Admitted":
                 reason = f"mutation-admission:{decision['disposition']}"
@@ -713,7 +744,10 @@ class StewardRuntime:
 
     def _authority(self, effect_id: str, job: dict[str, Any], *, source: str, target: str) -> dict[str, Any]:
         lease = job.get("lease") if isinstance(job.get("lease"), dict) else None
-        principal = lease["owner"] if lease is not None else f"{source}:{job['attemptId']}"
+        # Authority is derived from the admitted runtime principal, never from the
+        # lease payload being proven. Otherwise a forged lease owner could mint its
+        # own matching authority by construction.
+        principal = f"{source}:{job['attemptId']}"
         return {
             "source": source, "principal": principal, "scope": effect_id, "target": target,
             "attemptId": job["attemptId"], "jobVersion": job["version"],
@@ -783,6 +817,8 @@ class StewardRuntime:
                     and item["criterionId"] == requirement["id"] and item["claimId"] == criterion["canonical_claim"]
                     and item["evidenceClass"] == requirement["evidence_class"] and item["proofRecipeId"] == self.recipe_id
                     and (not criterion["approved_producers"] or item["producerId"] in criterion["approved_producers"])
+                    and self._producer(item["producerId"]) is not None
+                    and _AUTHORITY_RANK[item["authorityClass"]] <= _AUTHORITY_RANK[self._producer(item["producerId"])["authority_ceiling"]]
                     and _AUTHORITY_RANK[item["authorityClass"]] >= _AUTHORITY_RANK[criterion["required_authority"]]
                     and item["binding"]["status"] == "complete"
                     and set(criterion["binding_requirements"]) <= set(item["binding"]["satisfied"])
@@ -818,7 +854,8 @@ class StewardRuntime:
             effect, job, capability,
             self._authority("terminal-publication", job, source="completion-gate", target=_target_identity(job)),
             current_job_id=job_id, current_generation=int(job["generation"]), current_attempt_id=str(job["attemptId"]),
-            current_version=int(job["version"]), remaining_budget_ms=budget_ms, receipt=None,
+            current_version=int(job["version"]), current_subject=self.store.current_lineage(job["lineageId"])["subject"],
+            remaining_budget_ms=budget_ms, expected_request_digest=None, receipt=None,
             candidate=job["candidate"], now=self.store.clock.now(),
         )
         if admission["disposition"] != "Admitted":

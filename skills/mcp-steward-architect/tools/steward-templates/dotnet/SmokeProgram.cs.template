@@ -4,6 +4,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Sockets;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using __NAMESPACE__.Mcp.Server;
 
 if (args.Length is < 1 or > 2 || (args.Length == 2 && args[1] != "--http"))
@@ -76,6 +77,25 @@ static void VerifyStewardSeed()
         catch (InvalidDataException exc) when (exc.Message.Contains("STORE_CORRUPT", StringComparison.Ordinal)) { corruptRejected = true; }
         if (!corruptRejected || corruptProvider.DispatchCount != 0) throw new InvalidOperationException("Corrupt canonical state did not fail closed before external mutation.");
 
+        VerifyMutationRejection("wrong-request", profile, proof, clock, static root =>
+        {
+            var operations = root["Operations"]!.AsObject();
+            var operation = operations.First().Value!.AsObject();
+            operation["RequestDigest"] = "sha256:" + new string('8', 64);
+        });
+        VerifyMutationRejection("wrong-lease-fence", profile, proof, clock, static root =>
+        {
+            var jobs = root["Jobs"]!.AsObject();
+            var job = jobs.First().Value!.AsObject();
+            job["Lease"]!["FencingToken"] = 999;
+        });
+        VerifyMutationRejection("wrong-subject", profile, proof, clock, static root =>
+        {
+            var lineages = root["Lineages"]!.AsObject();
+            var lineage = lineages.First().Value!.AsObject();
+            lineage["Subject"]!["Revision"] = "other";
+        });
+
         var blockedProvider = new UnapprovedSeedProvider();
         using (var blocked = new StewardSeedRuntime(Path.Combine(root, "blocked"), clock, blockedProvider, new SeedFaultInjector(), profile, proof))
         {
@@ -86,6 +106,31 @@ static void VerifyStewardSeed()
                 throw new InvalidOperationException("Insufficient proof authority did not produce typed blocked state.");
             if (blockedProvider.PollCount != 1) throw new InvalidOperationException("Terminal provider observation was polled more than once.");
         }
+    }
+    finally { Directory.Delete(root, recursive: true); }
+}
+
+static void VerifyMutationRejection(string name, string profile, string proof, FakeSeedClock clock, Action<JsonObject> tamper)
+{
+    var root = Path.Combine(Path.GetTempPath(), "__NAMESPACE__.gate-" + name + "-" + Guid.NewGuid().ToString("N"));
+    Directory.CreateDirectory(root);
+    try
+    {
+        using (var reserve = new StewardSeedRuntime(root, clock, new FakeSeedProvider(), new SeedFaultInjector(), profile, proof))
+        {
+            reserve.Submit("repo", "abc", "idem-" + name);
+            reserve.RunOneDue();
+        }
+        var snapshot = Path.Combine(root, "steward-state.json");
+        var json = JsonNode.Parse(File.ReadAllText(snapshot))!.AsObject();
+        tamper(json);
+        File.WriteAllText(snapshot, json.ToJsonString());
+        var provider = new CountingSeedProvider();
+        using var runtime = new StewardSeedRuntime(root, clock, provider, new SeedFaultInjector(), profile, proof);
+        runtime.RunOneDue();
+        if (provider.DispatchCount != 0) throw new InvalidOperationException($"{name}: rejected mutation reached provider dispatch.");
+        if (runtime.Doctor().Audit.All(item => item.EventType != "mutation-admission-rejected"))
+            throw new InvalidOperationException($"{name}: rejected mutation did not emit durable admission rejection.");
     }
     finally { Directory.Delete(root, recursive: true); }
 }

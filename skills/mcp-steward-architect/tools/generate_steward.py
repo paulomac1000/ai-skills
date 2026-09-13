@@ -178,7 +178,11 @@ def _state_machine_document(steward_id: str) -> dict[str, Any]:
     return yaml.safe_load(text.replace("__STEWARD_ID__", steward_id))
 
 
-def _mutation_policy_document(steward_id: str, capability_id: str) -> dict[str, Any]:
+def _mutation_policy_document(steward_id: str, capability: dict[str, Any]) -> dict[str, Any]:
+    capability_id = str(capability["capability_id"])
+    capability_contract = dict(capability["contract"])
+    local_identity = {"source": "local", "id": "local:handoff@1", "revision": "1"}
+    local_contract = {**local_identity, "digest": _sha256(local_identity)}
     return {
         "schema_version": 1,
         "policy_id": f"{steward_id}-mutation-policy",
@@ -186,16 +190,19 @@ def _mutation_policy_document(steward_id: str, capability_id: str) -> dict[str, 
         "effects": [
             {
                 "id": "external-dispatch",
+                "operation_kind": "submit",
                 "transition": "dispatch-start",
                 "authority_source": "steward-runtime",
                 "lease_required": True,
                 "subject_dimensions": ["target"],
                 "candidate_required": True,
                 "capability_ref": capability_id,
+                "capability_contract": capability_contract,
                 "durable_operation_required": True,
                 "pre_dispatch_commit_required": True,
                 "budget_reservation_required": True,
                 "minimum_budget_ms": 1000,
+                "finalization_reserve_ms": 500,
                 "ambiguity_disposition": "reconcile",
                 "typed_outcomes": [
                     "Admitted",
@@ -208,16 +215,19 @@ def _mutation_policy_document(steward_id: str, capability_id: str) -> dict[str, 
             },
             {
                 "id": "cancellation-dispatch",
+                "operation_kind": "cancel",
                 "transition": "cancel-start",
                 "authority_source": "steward-runtime",
                 "lease_required": True,
                 "subject_dimensions": ["target"],
                 "candidate_required": True,
                 "capability_ref": capability_id,
+                "capability_contract": capability_contract,
                 "durable_operation_required": True,
                 "pre_dispatch_commit_required": True,
                 "budget_reservation_required": True,
                 "minimum_budget_ms": 1000,
+                "finalization_reserve_ms": 500,
                 "ambiguity_disposition": "reconcile",
                 "typed_outcomes": [
                     "Admitted",
@@ -229,16 +239,19 @@ def _mutation_policy_document(steward_id: str, capability_id: str) -> dict[str, 
             },
             {
                 "id": "terminal-publication",
+                "operation_kind": "publication",
                 "transition": "completion-publish",
                 "authority_source": "completion-gate",
                 "lease_required": False,
                 "subject_dimensions": ["target"],
                 "candidate_required": True,
                 "capability_ref": "local:handoff@1",
+                "capability_contract": local_contract,
                 "durable_operation_required": False,
                 "pre_dispatch_commit_required": False,
                 "budget_reservation_required": True,
                 "minimum_budget_ms": 100,
+                "finalization_reserve_ms": 100,
                 "ambiguity_disposition": "block",
                 "typed_outcomes": [
                     "Admitted",
@@ -380,7 +393,7 @@ def _embedded_docs(steward_id: str, profile: str, durability: str) -> dict[str, 
     return {
         "steward_profile": _profile_document(steward_id, profile, durability_profile=durability),
         "steward_state_machine": _state_machine_document(steward_id),
-        "steward_mutation_policy": _mutation_policy_document(steward_id, upstream["capability_id"]),
+        "steward_mutation_policy": _mutation_policy_document(steward_id, upstream),
         "steward_proof_recipe": _proof_recipe_document(steward_id),
         "steward_upstream_capability": upstream,
         "steward_acceptance": _acceptance_document(steward_id),

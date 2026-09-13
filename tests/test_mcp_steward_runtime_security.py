@@ -280,3 +280,116 @@ def test_runtime_requires_explicit_reviewed_mutation_policy_and_upstream(tmp_pat
         runtime.StewardRuntime(store, profile, proof, mutation)  # type: ignore[call-arg]
     with pytest.raises(ValueError, match="explicit reviewed upstream"):
         runtime.StewardRuntime(store, profile, proof, None, upstream=upstream)  # type: ignore[arg-type]
+
+
+def test_real_dispatch_gate_rejects_full_receipt_subject_lease_request_and_budget_cross_product(tmp_path: Path) -> None:
+    runtime, profile, proof, mutation, upstream = _generated_runtime(tmp_path)
+
+    class CountingProvider(runtime.FakeProvider):
+        def __init__(self) -> None:
+            self.dispatch_count = 0
+
+        def dispatch(self, operation_id: str, subject: dict[str, Any]) -> str:
+            self.dispatch_count += 1
+            return super().dispatch(operation_id, subject)
+
+    cases = {
+        "foreign-lineage": ("UPDATE external_operations SET lineage_id='foreign' WHERE job_id=?", ()),
+        "foreign-generation": ("UPDATE external_operations SET generation=generation+1 WHERE job_id=?", ()),
+        "foreign-attempt": ("UPDATE external_operations SET attempt_id='foreign' WHERE job_id=?", ()),
+        "stale-job-version": ("UPDATE external_operations SET job_version=job_version-1 WHERE job_id=?", ()),
+        "wrong-target": ("UPDATE external_operations SET target_identity='target:other:abc' WHERE job_id=?", ()),
+        "wrong-candidate": (
+            "UPDATE external_operations SET candidate_digest=? WHERE job_id=?",
+            ("sha256:" + "7" * 64,),
+        ),
+        "wrong-request": ("UPDATE external_operations SET request_digest=? WHERE job_id=?", ("sha256:" + "8" * 64,)),
+        "wrong-kind": ("UPDATE external_operations SET operation_kind='cancel' WHERE job_id=?", ()),
+        "wrong-lease-owner": ("UPDATE steward_jobs SET lease_owner='foreign-owner' WHERE job_id=?", ()),
+        "wrong-lease-fence": ("UPDATE steward_jobs SET lease_fencing_token=lease_fencing_token+1 WHERE job_id=?", ()),
+        "wrong-subject": (
+            "UPDATE steward_lineages SET subject_json=? WHERE current_job_id=?",
+            (json.dumps({"type": "target", "id": "repo", "revision": "other"}, sort_keys=True, separators=(",", ":")),),
+        ),
+    }
+    for name, (sql, prefix) in cases.items():
+        clock = runtime.FakeClock(datetime(2026, 9, 13, tzinfo=UTC))
+        provider = CountingProvider()
+        store = runtime.StewardStore(tmp_path / f"{name}.db", clock)
+        steward = runtime.StewardRuntime(store, profile, proof, mutation, upstream=upstream, provider=provider)
+        job_id = steward.submit("repo", "abc", f"idem-{name}")["jobId"]
+        assert steward.run_once() is True
+        with store._write() as db:
+            db.execute(sql, (*prefix, job_id))
+        assert steward.run_once() is True
+        assert provider.dispatch_count == 0, name
+        assert steward.status(job_id)["status"] == "blocked", name
+
+    clock = runtime.FakeClock(datetime(2026, 9, 13, tzinfo=UTC))
+    provider = CountingProvider()
+    store = runtime.StewardStore(tmp_path / "budget-reserve.db", clock)
+    steward = runtime.StewardRuntime(store, profile, proof, mutation, upstream=upstream, provider=provider)
+    job_id = steward.submit("repo", "abc", "idem-budget-reserve")["jobId"]
+    assert steward.run_once() is True
+    deadline = runtime._parse(steward.status(job_id)["deadlineAt"])
+    clock.advance((deadline - clock.now()).total_seconds() - 1.499)
+    assert steward.run_once() is True
+    assert provider.dispatch_count == 0
+    assert steward.status(job_id)["blockedReason"] == "mutation-admission:BudgetUnavailable"
+
+
+def test_dispatch_commit_closes_toctou_and_stale_generation_reconciles_without_redispatch(tmp_path: Path) -> None:
+    runtime, profile, proof, mutation, upstream = _generated_runtime(tmp_path)
+
+    class CountingProvider(runtime.FakeProvider):
+        def __init__(self) -> None:
+            self.dispatch_count = 0
+            self.reconcile_count = 0
+
+        def dispatch(self, operation_id: str, subject: dict[str, Any]) -> str:
+            self.dispatch_count += 1
+            return super().dispatch(operation_id, subject)
+
+        def reconcile(self, operation_id: str, subject: dict[str, Any]) -> str:
+            self.reconcile_count += 1
+            return super().reconcile(operation_id, subject)
+
+    provider = CountingProvider()
+    steward = runtime.StewardRuntime(
+        runtime.StewardStore(tmp_path / "toctou.db", runtime.FakeClock(datetime(2026, 9, 13, tzinfo=UTC))),
+        profile,
+        proof,
+        mutation,
+        upstream=upstream,
+        provider=provider,
+        faults=runtime.FaultInjector({"after-dispatch-start"}),
+    )
+    old_job = steward.submit("repo", "abc", "toctou-old")["jobId"]
+    steward.run_once()
+    steward.run_once()
+    old_op = steward.get(old_job)["operations"][0]
+    assert old_op["delivery"] == "delivery-unknown"
+    assert old_op["mutation_decision_ref"]
+    assert provider.dispatch_count == 0
+    steward.submit("repo", "abc", "toctou-new")
+    assert steward.run_once() is True
+    assert provider.dispatch_count == 0
+    assert provider.reconcile_count == 1
+
+
+def test_completion_rejects_persisted_authority_above_producer_ceiling(tmp_path: Path) -> None:
+    runtime, profile, proof, mutation, upstream = _generated_runtime(tmp_path)
+    clock = runtime.FakeClock(datetime(2026, 9, 13, tzinfo=UTC))
+    store = runtime.StewardStore(tmp_path / "authority-ceiling.db", clock)
+    steward = runtime.StewardRuntime(store, profile, proof, mutation, upstream=upstream)
+    job_id = steward.submit("repo", "abc", "authority-ceiling")["jobId"]
+    for _ in range(8):
+        steward.run_once()
+        if steward.status(job_id)["status"] == "finalizing":
+            break
+    evidence_id = steward.get(job_id)["evidence"][0]["evidenceId"]
+    with store._write() as db:
+        db.execute("UPDATE steward_evidence SET authority_class='independent' WHERE evidence_id=?", (evidence_id,))
+    evaluation = steward.completion_gate(job_id)
+    assert evaluation["disposition"] == "blocked"
+    assert evaluation["obligations"][0]["state"] == "unsatisfied"

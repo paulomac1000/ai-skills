@@ -304,6 +304,18 @@ def _mutation_policy_findings(value: dict[str, Any]) -> list[str]:
             findings.append(f"{location} stateful effect requires ambiguity disposition")
         if effect["durable_operation_required"] and not effect["budget_reservation_required"]:
             findings.append(f"{location} must reserve budget before start")
+        if effect["budget_reservation_required"] and int(effect["finalization_reserve_ms"]) <= 0:
+            findings.append(f"{location} must reserve deterministic finalization budget")
+        contract = effect["capability_contract"]
+        identity = {"source": contract["source"], "id": contract["id"], "revision": contract["revision"]}
+        expected = (
+            "sha256:"
+            + hashlib.sha256(
+                json.dumps(identity, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode("utf-8")
+            ).hexdigest()
+        )
+        if contract["id"] != effect["capability_ref"] or contract["digest"] != expected:
+            findings.append(f"{location} capability contract must exactly bind source/id/revision/digest")
     return findings
 
 
@@ -507,8 +519,17 @@ def validate_completion_context(
             if selected_evidence["proofRecipeId"] != recipe_id:
                 reasons.append("proof recipe mismatch")
             approved = set(criterion["approved_producers"])
+            producer_by_id = {str(item["producer_id"]): item for item in proof_recipe["producers"]}
+            selected_producer = producer_by_id.get(str(selected_evidence["producerId"]))
             if approved and selected_evidence["producerId"] not in approved:
                 reasons.append("producer not approved")
+            if selected_producer is None:
+                reasons.append("producer contract missing")
+            elif (
+                _AUTHORITY_RANK.get(selected_evidence["authorityClass"], -1)
+                > _AUTHORITY_RANK[selected_producer["authority_ceiling"]]
+            ):
+                reasons.append("authority exceeds producer ceiling")
             if (
                 _AUTHORITY_RANK.get(selected_evidence["authorityClass"], -1)
                 < _AUTHORITY_RANK[criterion["required_authority"]]
@@ -572,8 +593,10 @@ def evaluate_mutation_admission(
     current_generation: int,
     current_attempt_id: str,
     current_version: int,
+    current_subject: dict[str, Any],
     effective_authority: dict[str, Any] | None,
     remaining_budget_ms: int,
+    expected_request_digest: str | None = None,
     receipt: dict[str, Any] | None = None,
     candidate: dict[str, Any] | None = None,
     now: datetime | None = None,
@@ -589,8 +612,14 @@ def evaluate_mutation_admission(
         reasons.append(("LostAuthority", "stale attempt"))
     if int(job["version"]) != int(current_version):
         reasons.append(("LostAuthority", "stale optimistic version"))
-    if job["status"] in _TERMINAL or job["cancellation"] in {"requested", "fenced", "reconciling"}:
+    cancellation_dispatch = effect_id == "cancellation-dispatch"
+    cancellation_fenced = job["cancellation"] in {"requested", "fenced", "reconciling"}
+    if job["status"] in _TERMINAL or (not cancellation_dispatch and cancellation_fenced):
         reasons.append(("LostAuthority", "job is terminal or cancellation-fenced"))
+    if cancellation_dispatch and job["cancellation"] not in {"requested", "reconciling"}:
+        reasons.append(("LostAuthority", "cancellation dispatch requires an active cancellation request"))
+    if job["subject"] != current_subject:
+        reasons.append(("LostAuthority", "subject identity differs from current authoritative subject"))
 
     target_identity = _target_identity(job)
     authority = effective_authority or {}
@@ -618,10 +647,18 @@ def evaluate_mutation_admission(
                     reasons.append(("LostAuthority", "required lease is expired"))
             except (KeyError, ValueError):
                 reasons.append(("LostAuthority", "required lease expiry is invalid"))
-            if lease.get("owner") != principal or authority.get("leaseOwner") != lease.get("owner"):
-                reasons.append(("LostAuthority", "lease owner does not match effective authority"))
-            if authority.get("leaseFencingToken") != lease.get("fencingToken"):
-                reasons.append(("LostAuthority", "lease fencing token is stale"))
+            expected_owner = f"{effect['authority_source']}:{current_attempt_id}"
+            if (
+                principal != expected_owner
+                or lease.get("owner") != expected_owner
+                or authority.get("leaseOwner") != expected_owner
+            ):
+                reasons.append(("LostAuthority", "lease owner does not match admitted runtime principal"))
+            if (
+                lease.get("fencingToken") != current_generation
+                or authority.get("leaseFencingToken") != current_generation
+            ):
+                reasons.append(("LostAuthority", "lease fencing token does not match current generation"))
 
     if effect["candidate_required"]:
         if candidate is None or not candidate.get("digest"):
@@ -630,24 +667,41 @@ def evaluate_mutation_admission(
             reasons.append(("StaleCandidate", "candidate differs from admitted job candidate"))
 
     expected_contract_digest = _capability_contract_digest(capability)
-    contract = capability.get("contract") if isinstance(capability.get("contract"), dict) else {}
+    raw_contract = capability.get("contract")
+    contract: dict[str, Any] = raw_contract if isinstance(raw_contract, dict) else {}
+    reviewed_contract = effect["capability_contract"]
     if capability.get("capability_id") != effect["capability_ref"]:
         reasons.append(("CapabilityUnavailable", "capability identity does not match mutation policy"))
     if contract.get("id") != capability.get("capability_id") or expected_contract_digest != contract.get("digest"):
         reasons.append(("CapabilityUnavailable", "capability contract provenance/digest is invalid"))
+    if contract != reviewed_contract:
+        reasons.append(("CapabilityUnavailable", "capability does not match the exact reviewed mutation contract"))
 
-    if remaining_budget_ms < int(effect["minimum_budget_ms"]):
-        reasons.append(("BudgetUnavailable", "remaining budget is below mutation minimum"))
+    required_budget_ms = int(effect["minimum_budget_ms"]) + int(effect["finalization_reserve_ms"])
+    if remaining_budget_ms < required_budget_ms:
+        reasons.append(
+            ("BudgetUnavailable", "remaining budget cannot cover operation plus deterministic finalization reserve")
+        )
     if effect["durable_operation_required"]:
         if receipt is None:
             reasons.append(("ReconciliationRequired", "durable operation receipt is missing"))
         else:
             if (
                 receipt.get("jobId") != current_job_id
+                or receipt.get("lineageId") != job["lineageId"]
                 or receipt.get("generation") != current_generation
                 or receipt.get("attemptId") != current_attempt_id
+                or int(receipt.get("jobVersion", -1)) != int(current_version)
             ):
-                reasons.append(("LostAuthority", "operation receipt belongs to stale job/generation/attempt"))
+                reasons.append(
+                    ("LostAuthority", "operation receipt belongs to stale job/lineage/generation/attempt/version")
+                )
+            if receipt.get("operationKind") != effect["operation_kind"]:
+                reasons.append(("LostAuthority", "operation receipt kind differs from mutation effect"))
+            if expected_request_digest is None or receipt.get("requestDigest") != expected_request_digest:
+                reasons.append(
+                    ("LostAuthority", "operation receipt request digest differs from exact admitted mutation")
+                )
             if receipt.get("targetIdentity") != target_identity:
                 reasons.append(("LostAuthority", "operation receipt target differs from current subject"))
             if receipt.get("capabilityIdentity") != capability.get("capability_id") or receipt.get(
@@ -688,6 +742,21 @@ def validate_design_pack(
     for index, upstream in enumerate(upstreams):
         findings.extend(f"upstream[{index}]: {item}" for item in validate_document("upstream", upstream))
     if findings:
+        # Preserve cross-contract diagnostics even when an internally valid-looking
+        # mutation effect also violates its own exact capability binding. This keeps
+        # the caller from having to repair errors serially to discover deterministic
+        # admission preconditions.
+        upstream_ids = [str(item.get("capability_id", "")) for item in upstreams if isinstance(item, dict)]
+        effects = mutation_policy.get("effects", []) if isinstance(mutation_policy, dict) else []
+        if isinstance(effects, list):
+            for effect in effects:
+                if not isinstance(effect, dict) or not effect.get("durable_operation_required"):
+                    continue
+                ref = str(effect.get("capability_ref", ""))
+                if upstream_ids.count(ref) != 1:
+                    findings.append(
+                        f"design-pack: mutation effect {effect.get('id', '<unknown>')} capability_ref must resolve to exactly one reviewed upstream contract"
+                    )
         return findings
 
     expected_refs = {
@@ -718,6 +787,12 @@ def validate_design_pack(
             findings.append(
                 f"design-pack: mutation effect {effect['id']} capability_ref must resolve to exactly one reviewed upstream contract"
             )
+        if effect["durable_operation_required"]:
+            matches = upstream_by_id.get(str(effect["capability_ref"]), [])
+            if len(matches) == 1 and effect["capability_contract"] != matches[0]["contract"]:
+                findings.append(
+                    f"design-pack: mutation effect {effect['id']} capability contract must equal the reviewed upstream source/id/revision/digest"
+                )
 
     criteria = {item["criterion_id"] for item in proof_recipe["criteria"]}
     for obligation in profile["completion"]["obligations"]:

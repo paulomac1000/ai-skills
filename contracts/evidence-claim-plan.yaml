@@ -701,6 +701,8 @@ profiles:
     selectors:
     - '*test_mcp_steward_architect::test_mutation_admission_fails_closed_on_authority_fences_capability_candidate_budget_and_ambiguity'
     - '*test_mcp_steward_runtime_security::test_real_dispatch_gate_rejects_capability_drift_and_stale_fence_with_zero_provider_calls'
+    - '*test_mcp_steward_runtime_security::test_real_dispatch_gate_rejects_full_receipt_subject_lease_request_and_budget_cross_product'
+    - '*test_mcp_steward_runtime_security::test_dispatch_commit_closes_toctou_and_stale_generation_reconciles_without_redispatch'
     result_files:
     - repository-junit.xml
     execution_id: repository
@@ -716,6 +718,7 @@ profiles:
     selectors:
     - '*test_mcp_steward_architect::test_completion_resolves_candidate_binding_producer_authority_and_freshness'
     - '*test_mcp_steward_runtime_security::test_evidence_promotion_uses_observed_binding_coverage_and_authority_without_minting'
+    - '*test_mcp_steward_runtime_security::test_completion_rejects_persisted_authority_above_producer_ceiling'
     result_files:
     - repository-junit.xml
     execution_id: repository

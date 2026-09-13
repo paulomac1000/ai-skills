@@ -54,6 +54,7 @@ def _job(docs: dict[str, dict[str, Any]]) -> dict[str, Any]:
         "version": 1,
         "subject": subject,
         "candidate": candidate,
+        "requestDigest": "sha256:" + "4" * 64,
         "status": "queued",
         "stage": "admitted",
         "createdAt": now,
@@ -84,6 +85,7 @@ def _receipt(docs: dict[str, dict[str, Any]], job: dict[str, Any]) -> dict[str, 
         "lineageId": "l1",
         "generation": 2,
         "attemptId": "a1",
+        "jobVersion": 1,
         "capabilityIdentity": upstream["capability_id"],
         "capabilityContractDigest": upstream["contract"]["digest"],
         "targetIdentity": "target:repo:abc",
@@ -254,8 +256,10 @@ def test_mutation_admission_fails_closed_on_authority_fences_capability_candidat
         current_generation=2,
         current_attempt_id="a1",
         current_version=1,
+        current_subject=job["subject"],
         effective_authority=authority,
         remaining_budget_ms=5000,
+        expected_request_digest=receipt["requestDigest"],
         receipt=receipt,
         candidate=job["candidate"],
         now=datetime(2026, 9, 12, tzinfo=UTC),
@@ -267,8 +271,17 @@ def test_mutation_admission_fails_closed_on_authority_fences_capability_candidat
         ({"effective_authority": {**authority, "leaseFencingToken": 1}}, "LostAuthority"),
         ({"current_attempt_id": "a2"}, "LostAuthority"),
         ({"current_version": 2}, "LostAuthority"),
+        ({"current_subject": {**job["subject"], "revision": "def"}}, "LostAuthority"),
         ({"candidate": {**job["candidate"], "digest": "sha256:" + "9" * 64}}, "StaleCandidate"),
-        ({"remaining_budget_ms": 10}, "BudgetUnavailable"),
+        ({"receipt": {**receipt, "jobId": "foreign-job"}}, "LostAuthority"),
+        ({"receipt": {**receipt, "lineageId": "foreign-lineage"}}, "LostAuthority"),
+        ({"receipt": {**receipt, "generation": 1}}, "LostAuthority"),
+        ({"receipt": {**receipt, "attemptId": "foreign-attempt"}}, "LostAuthority"),
+        ({"receipt": {**receipt, "jobVersion": 0}}, "LostAuthority"),
+        ({"receipt": {**receipt, "operationKind": "cancel"}}, "LostAuthority"),
+        ({"receipt": {**receipt, "requestDigest": "sha256:" + "8" * 64}}, "LostAuthority"),
+        ({"receipt": {**receipt, "candidateDigest": "sha256:" + "7" * 64}}, "StaleCandidate"),
+        ({"remaining_budget_ms": 1499}, "BudgetUnavailable"),
         (
             {
                 "receipt": {
@@ -296,6 +309,36 @@ def test_mutation_admission_fails_closed_on_authority_fences_capability_candidat
         validator.evaluate_mutation_admission(**{**base, "capability": drift})["disposition"] == "CapabilityUnavailable"
     )
 
+    cancel_effect = next(
+        item for item in docs["steward_mutation_policy"]["effects"] if item["id"] == "cancellation-dispatch"
+    )
+    cancel_job = {**job, "cancellation": "requested"}
+    cancel_authority = {**authority, "scope": "cancellation-dispatch"}
+    cancel_receipt = {**receipt, "operationKind": "cancel"}
+    cancel_request_digest = "sha256:" + "6" * 64
+    cancel_receipt["requestDigest"] = cancel_request_digest
+    assert cancel_effect["operation_kind"] == "cancel"
+    assert (
+        validator.evaluate_mutation_admission(
+            effect_id="cancellation-dispatch",
+            mutation_policy=docs["steward_mutation_policy"],
+            job=cancel_job,
+            capability=docs["steward_upstream_capability"],
+            current_job_id="j1",
+            current_generation=2,
+            current_attempt_id="a1",
+            current_version=1,
+            current_subject=job["subject"],
+            effective_authority=cancel_authority,
+            remaining_budget_ms=5000,
+            expected_request_digest=cancel_request_digest,
+            receipt=cancel_receipt,
+            candidate=job["candidate"],
+            now=datetime(2026, 9, 12, tzinfo=UTC),
+        )["disposition"]
+        == "Admitted"
+    )
+
 
 def test_design_pack_rejects_unresolved_capability_profile_ref_and_producer_dimension_drift() -> None:
     generator, validator = _generator("gen_design_negative"), _validator("val_design_negative")
@@ -311,6 +354,18 @@ def test_design_pack_rejects_unresolved_capability_profile_ref_and_producer_dime
         upstreams=[docs["steward_upstream_capability"]],
     )
     assert any("capability_ref must resolve" in item for item in findings)
+
+    contract_drift = json.loads(json.dumps(docs["steward_mutation_policy"]))
+    contract_drift["effects"][0]["capability_contract"]["revision"] = "2"
+    findings = validator.validate_design_pack(
+        profile=docs["steward_profile"],
+        state_machine=docs["steward_state_machine"],
+        mutation_policy=contract_drift,
+        proof_recipe=docs["steward_proof_recipe"],
+        acceptance=docs["steward_acceptance"],
+        upstreams=[docs["steward_upstream_capability"]],
+    )
+    assert any("capability contract" in item for item in findings)
 
     profile = json.loads(json.dumps(docs["steward_profile"]))
     profile["contracts"]["proof_recipe"] = "wrong-proof@1"

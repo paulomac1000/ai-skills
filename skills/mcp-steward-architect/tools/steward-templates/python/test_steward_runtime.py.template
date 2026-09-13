@@ -123,3 +123,18 @@ def test_superseded_generation_never_publishes_handoff(tmp_path: Path) -> None:
     runtime.recover_until_idle()
     assert runtime.status(latest["jobId"])["status"] == "completed"
     assert runtime.get(stale["jobId"])["handoff"] is None
+
+
+def test_dispatch_budget_includes_deterministic_finalization_reserve(tmp_path: Path) -> None:
+    provider = CountingProvider()
+    profile, proof, mutation, upstream = _docs()
+    clock = FakeClock(datetime(2026, 1, 1, tzinfo=UTC))
+    store = StewardStore(tmp_path / "budget-reserve.db", clock)
+    runtime = StewardRuntime(store, profile, proof, mutation, upstream=upstream, provider=provider)
+    job_id = runtime.submit("repo", "abc", "idem-budget-reserve")["jobId"]
+    runtime.run_once()
+    deadline = datetime.fromisoformat(runtime.status(job_id)["deadlineAt"].replace("Z", "+00:00"))
+    clock.advance((deadline - clock.now()).total_seconds() - 1.499)
+    runtime.run_once()
+    assert provider.dispatch_count == 0
+    assert runtime.status(job_id)["blockedReason"] == "mutation-admission:BudgetUnavailable"
