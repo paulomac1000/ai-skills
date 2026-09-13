@@ -387,6 +387,16 @@ def _proof_criteria(proof_recipe: dict[str, Any]) -> dict[str, dict[str, Any]]:
     return {str(item["criterion_id"]): item for item in proof_recipe.get("criteria", []) if isinstance(item, dict)}
 
 
+def _coverage_satisfies(criterion: dict[str, Any], evidence: dict[str, Any]) -> bool:
+    coverage = evidence["coverage"]
+    semantics = criterion["coverage_semantics"]
+    if semantics in {"all-required", "complete-negative-coverage"}:
+        return coverage["state"] == "complete" and coverage["observed"] >= coverage["required"]
+    if semantics == "any-sufficient":
+        return coverage["observed"] > 0
+    return False
+
+
 def validate_completion_context(
     value: dict[str, Any],
     *,
@@ -422,12 +432,14 @@ def validate_completion_context(
     requirements = {str(item["id"]): item for item in profile["completion"]["obligations"]}
     completion_obligations = {str(item["id"]): item for item in value["obligations"]}
     evidence_by_id: dict[str, dict[str, Any]] = {}
-    for evidence in evidence_documents:
-        evidence_findings = validate_document("evidence", evidence)
+    for evidence_document in evidence_documents:
+        evidence_findings = validate_document("evidence", evidence_document)
         if evidence_findings:
-            findings.extend(f"evidence {evidence.get('evidenceId', '<unknown>')}: {item}" for item in evidence_findings)
+            findings.extend(
+                f"evidence {evidence_document.get('evidenceId', '<unknown>')}: {item}" for item in evidence_findings
+            )
         else:
-            evidence_by_id[str(evidence["evidenceId"])] = evidence
+            evidence_by_id[str(evidence_document["evidenceId"])] = evidence_document
 
     selected_now = (now or datetime.now(UTC)).astimezone(UTC)
     resolved_required = True
@@ -449,38 +461,45 @@ def validate_completion_context(
             continue
         valid_evidence = False
         for evidence_ref in completion_obligation["evidenceRefs"]:
-            evidence = evidence_by_id.get(str(evidence_ref))
-            if evidence is None:
+            selected_evidence = evidence_by_id.get(str(evidence_ref))
+            if selected_evidence is None:
                 findings.append(f"completion: obligation {obligation_id} references missing evidence {evidence_ref}")
                 continue
             reasons: list[str] = []
-            if evidence["jobId"] != current_job_id or evidence["generation"] != current_generation:
+            if selected_evidence["jobId"] != current_job_id or selected_evidence["generation"] != current_generation:
                 reasons.append("stale job/generation")
-            if evidence["lineageId"] != value["lineageId"] or evidence["subject"] != current_subject:
+            if selected_evidence["lineageId"] != value["lineageId"] or selected_evidence["subject"] != current_subject:
                 reasons.append("subject/lineage mismatch")
-            if criterion["candidate_binding_required"] and evidence.get("candidate") != current_candidate:
+            if criterion["candidate_binding_required"] and selected_evidence.get("candidate") != current_candidate:
                 reasons.append("candidate mismatch")
-            if evidence["criterionId"] != obligation_id or evidence["claimId"] != criterion["canonical_claim"]:
+            if (
+                selected_evidence["criterionId"] != obligation_id
+                or selected_evidence["claimId"] != criterion["canonical_claim"]
+            ):
                 reasons.append("criterion/claim mismatch")
-            if evidence["evidenceClass"] != requirement["evidence_class"]:
+            if selected_evidence["evidenceClass"] != requirement["evidence_class"]:
                 reasons.append("evidence class mismatch")
-            if evidence["proofRecipeId"] != recipe_id:
+            if selected_evidence["proofRecipeId"] != recipe_id:
                 reasons.append("proof recipe mismatch")
             approved = set(criterion["approved_producers"])
-            if approved and evidence["producerId"] not in approved:
+            if approved and selected_evidence["producerId"] not in approved:
                 reasons.append("producer not approved")
-            if _AUTHORITY_RANK.get(evidence["authorityClass"], -1) < _AUTHORITY_RANK[criterion["required_authority"]]:
+            if _AUTHORITY_RANK.get(selected_evidence["authorityClass"], -1) < _AUTHORITY_RANK[
+                criterion["required_authority"]
+            ]:
                 reasons.append("insufficient authority")
-            if not set(criterion["binding_requirements"]) <= set(evidence["binding"]["satisfied"]):
+            if selected_evidence["binding"]["status"] != "complete":
                 reasons.append("incomplete claim binding")
-            if criterion["coverage_semantics"] == "complete-negative-coverage" and evidence["coverage"]["state"] != "complete":
-                reasons.append("incomplete negative coverage")
-            observed = _parse_timestamp(str(evidence["observedAt"]))
+            elif not set(criterion["binding_requirements"]) <= set(selected_evidence["binding"]["satisfied"]):
+                reasons.append("incomplete claim binding")
+            if not _coverage_satisfies(criterion, selected_evidence):
+                reasons.append("insufficient coverage")
+            observed = _parse_timestamp(str(selected_evidence["observedAt"]))
             if observed > selected_now:
                 reasons.append("observation is from the future")
             elif (selected_now - observed).total_seconds() > int(criterion["freshness_seconds"]):
                 reasons.append("evidence is stale")
-            expires = evidence.get("expiresAt")
+            expires = selected_evidence.get("expiresAt")
             if expires is not None and _parse_timestamp(str(expires)) < selected_now:
                 reasons.append("evidence is expired")
             if reasons:
@@ -540,11 +559,10 @@ def evaluate_mutation_admission(
     if effect["durable_operation_required"]:
         if receipt is None:
             reasons.append(("ReconciliationRequired", "durable operation receipt is missing"))
-        else:
-            if receipt["delivery"] == "delivery-unknown":
-                reasons.append(("ReconciliationRequired", "operation delivery is ambiguous"))
-            elif receipt["state"] != "reserved" or receipt["delivery"] != "not-delivered":
-                reasons.append(("ReconciliationRequired", "operation is not in pre-dispatch reserved state"))
+        elif receipt["delivery"] == "delivery-unknown":
+            reasons.append(("ReconciliationRequired", "operation delivery is ambiguous"))
+        elif receipt["state"] != "reserved" or receipt["delivery"] != "not-delivered":
+            reasons.append(("ReconciliationRequired", "operation is not in pre-dispatch reserved state"))
     if reasons:
         return {"disposition": reasons[0][0], "reasons": [item[1] for item in reasons]}
     return {"disposition": "Admitted", "reasons": []}
@@ -645,13 +663,13 @@ def main() -> int:
             candidate = _load(args.current_candidate) if args.current_candidate else None
             profile = _load(args.profile)
             proof = _load(args.proof_recipe)
-            evidence = [_load(path) for path in args.evidence]
+            evidence_documents = [_load(path) for path in args.evidence]
             selected_now = _parse_timestamp(args.now) if args.now else None
             findings = validate_completion_context(
                 value,
                 profile=profile,
                 proof_recipe=proof,
-                evidence_documents=evidence,
+                evidence_documents=evidence_documents,
                 current_job_id=str(args.current_job_id),
                 current_generation=int(args.current_generation),
                 current_subject=subject,
