@@ -1,0 +1,72 @@
+name: Steward semantic capability hardening
+
+on:
+  push:
+    branches: [feat/mcp-steward-architect]
+    paths:
+      - .github/workflows/steward-semantic-hardening.yml
+
+permissions:
+  contents: write
+
+jobs:
+  harden:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: feat/mcp-steward-architect
+          fetch-depth: 1
+          persist-credentials: true
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements-dev-linux-x64-py312.lock
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68
+        with:
+          dotnet-version: '10.0.302'
+      - run: python scripts/install_locked.py
+      - name: Apply fail-fast canonical source patch
+        run: python scripts/_steward_semantic_digest_patch.py
+      - name: Format touched Python sources
+        run: >-
+          python -m ruff format
+          skills/mcp-steward-architect/tools/generate_steward.py
+          skills/mcp-steward-architect/tools/validate_steward.py
+          tests/test_mcp_steward_architect.py
+          tests/test_atomic_claim_contract.py
+      - name: Focused Steward regressions including exact generated .NET
+        run: >-
+          python -m pytest
+          tests/test_mcp_steward_architect.py
+          tests/test_mcp_steward_atomic.py
+          tests/test_atomic_claim_contract.py
+          tests/test_mcp_steward_dotnet_generator.py
+      - name: Lint and type-check canonical policy code
+        run: |
+          python -m ruff check skills/mcp-steward-architect/tools tests/test_mcp_steward_architect.py tests/test_atomic_claim_contract.py
+          python -m mypy $(python scripts/quality_targets.py typing)
+      - name: Run complete canonical local gate
+        run: python scripts/ci.py
+      - name: Remove implementation-only machinery and verify final tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rm scripts/_steward_semantic_digest_patch.py .github/workflows/steward-semantic-hardening.yml
+          if git ls-files | grep -E '(^|/)(_steward_.*patch|steward-.*(repair|hardening))'; then
+            echo 'temporary Steward repair machinery remains tracked' >&2
+            exit 1
+          fi
+          git diff --check
+          git status --short
+      - name: Publish verified canonical hardening
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'fix(steward): bind capability digest to reviewed semantics'
+          git push origin HEAD:feat/mcp-steward-architect
