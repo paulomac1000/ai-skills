@@ -51,6 +51,7 @@ def _job() -> dict[str, Any]:
             "revision": "abc",
             "digest": "sha256:" + "2" * 64,
         },
+        "requestDigest": "sha256:" + "3" * 64,
         "status": "queued",
         "stage": "admitted",
         "createdAt": now,
@@ -61,7 +62,11 @@ def _job() -> dict[str, Any]:
         "progressMarker": "admitted",
         "deadlineAt": "2026-09-13T00:15:00Z",
         "finalizationStartsAt": None,
-        "lease": None,
+        "lease": {
+            "owner": "steward-runtime:attempt-1",
+            "fencingToken": 3,
+            "expiresAt": "2026-09-13T00:10:00Z",
+        },
         "cancellation": "none",
         "blockedReason": None,
         "externalOperationRefs": [],
@@ -81,6 +86,7 @@ def _receipt(documents: dict[str, dict[str, Any]], job: dict[str, Any]) -> dict[
         "lineageId": job["lineageId"],
         "generation": job["generation"],
         "attemptId": job["attemptId"],
+        "jobVersion": job["version"],
         "capabilityIdentity": upstream["capability_id"],
         "capabilityContractDigest": upstream["contract"]["digest"],
         "targetIdentity": "target:repo:abc",
@@ -104,6 +110,46 @@ def _receipt(documents: dict[str, dict[str, Any]], job: dict[str, Any]) -> dict[
     }
 
 
+def _effective_authority(job: dict[str, Any], receipt: dict[str, Any]) -> dict[str, Any]:
+    lease = job["lease"]
+    assert isinstance(lease, dict)
+    return {
+        "source": "steward-runtime",
+        "principal": f"steward-runtime:{job['attemptId']}",
+        "scope": "external-dispatch",
+        "target": receipt["targetIdentity"],
+        "attemptId": job["attemptId"],
+        "jobVersion": job["version"],
+        "leaseOwner": lease["owner"],
+        "leaseFencingToken": lease["fencingToken"],
+    }
+
+
+def _evaluate_external_dispatch(
+    validator: ModuleType,
+    documents: dict[str, dict[str, Any]],
+    job: dict[str, Any],
+    receipt: dict[str, Any],
+) -> dict[str, Any]:
+    return validator.evaluate_mutation_admission(
+        effect_id="external-dispatch",
+        mutation_policy=documents["steward_mutation_policy"],
+        job=job,
+        capability=documents["steward_upstream_capability"],
+        current_job_id=job["jobId"],
+        current_generation=job["generation"],
+        current_attempt_id=job["attemptId"],
+        current_version=job["version"],
+        current_subject=job["subject"],
+        effective_authority=_effective_authority(job, receipt),
+        remaining_budget_ms=5000,
+        expected_request_digest=receipt["requestDigest"],
+        receipt=receipt,
+        candidate=job["candidate"],
+        now=datetime(2026, 9, 13, tzinfo=UTC),
+    )
+
+
 def test_delivery_unknown_is_reconciliation_not_retry() -> None:
     validator = _validator()
     documents = _documents()
@@ -116,19 +162,7 @@ def test_delivery_unknown_is_reconciliation_not_retry() -> None:
     assert any("delivery-unknown requires retryDisposition=reconcile-first" in item for item in findings)
     assert any("cannot schedule retry before reconciliation" in item for item in findings)
 
-    decision = validator.evaluate_mutation_admission(
-        effect_id="external-dispatch",
-        mutation_policy=documents["steward_mutation_policy"],
-        job=job,
-        capability=documents["steward_upstream_capability"],
-        current_job_id=job["jobId"],
-        current_generation=job["generation"],
-        authority_ref="steward-runtime",
-        remaining_budget_ms=5000,
-        receipt=receipt,
-        candidate=job["candidate"],
-        now=datetime(2026, 9, 13, tzinfo=UTC),
-    )
+    decision = _evaluate_external_dispatch(validator, documents, job, receipt)
     assert decision["disposition"] == "ReconciliationRequired"
 
 
@@ -183,17 +217,5 @@ def test_manifest_composes_server_and_consumer_standards() -> None:
 
     job = _job()
     receipt = _receipt(documents, job)
-    decision = validator.evaluate_mutation_admission(
-        effect_id="external-dispatch",
-        mutation_policy=documents["steward_mutation_policy"],
-        job=job,
-        capability=documents["steward_upstream_capability"],
-        current_job_id=job["jobId"],
-        current_generation=job["generation"],
-        authority_ref="steward-runtime",
-        remaining_budget_ms=5000,
-        receipt=receipt,
-        candidate=job["candidate"],
-        now=datetime(2026, 9, 13, tzinfo=UTC),
-    )
+    decision = _evaluate_external_dispatch(validator, documents, job, receipt)
     assert decision["disposition"] == "ReconciliationRequired"
