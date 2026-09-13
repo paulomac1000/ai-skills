@@ -85,7 +85,7 @@ jobs:
           git rm .github/workflows/steward-terminal-read-fix.yml
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A skills/mcp-steward-architect/tools/steward-templates/python/steward_runtime.py.template .github/workflows/steward-terminal-read-fix.yml
+          git add skills/mcp-steward-architect/tools/steward-templates/python/steward_runtime.py.template
           git diff --cached --check
           git commit -m "fix(steward): make terminal result reads monotonic"
           git push origin HEAD:feat/mcp-steward-architect
