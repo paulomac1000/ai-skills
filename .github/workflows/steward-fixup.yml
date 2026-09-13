@@ -19,6 +19,9 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
           python-version: '3.12'
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68
+        with:
+          dotnet-version: '10.0.302'
       - run: python scripts/install_locked.py
       - name: Apply exact runtime hardening
         shell: python
@@ -26,26 +29,27 @@ jobs:
           import re
           from pathlib import Path
 
-          path = Path("skills/mcp-steward-architect/tools/steward-templates/python/steward_runtime.py.template")
-          text = path.read_text(encoding="utf-8")
-
+          py_path = Path("skills/mcp-steward-architect/tools/steward-templates/python/steward_runtime.py.template")
+          text = py_path.read_text(encoding="utf-8")
           helper_pattern = re.compile(
               r'(?m)^    def _provider_approved\(self, criterion: dict\[str, Any\]\) -> bool:\n'
               r'^        return not criterion\["approved_producers"\] or self\.provider\.producer_id in criterion\["approved_producers"\]$'
           )
-          helper_replacement = '''    def _provider_approved(self, criterion: dict[str, Any]) -> bool:
-              return not criterion["approved_producers"] or self.provider.producer_id in criterion["approved_producers"]
-
-              @staticmethod
-              def _coverage_satisfies(criterion: dict[str, Any], evidence: dict[str, Any]) -> bool:
-                  coverage = evidence["coverage"]
-                  semantics = criterion["coverage_semantics"]
-                  if semantics in {"all-required", "complete-negative-coverage"}:
-                      return coverage["state"] == "complete" and coverage["observed"] >= coverage["required"]
-                  if semantics == "any-sufficient":
-                      return coverage["observed"] > 0
-                  return False'''
-          text, count = helper_pattern.subn(helper_replacement, text, count=1)
+          helper_replacement = "\n".join([
+              "    def _provider_approved(self, criterion: dict[str, Any]) -> bool:",
+              "        return not criterion[\"approved_producers\"] or self.provider.producer_id in criterion[\"approved_producers\"]",
+              "",
+              "    @staticmethod",
+              "    def _coverage_satisfies(criterion: dict[str, Any], evidence: dict[str, Any]) -> bool:",
+              "        coverage = evidence[\"coverage\"]",
+              "        semantics = criterion[\"coverage_semantics\"]",
+              "        if semantics in {\"all-required\", \"complete-negative-coverage\"}:",
+              "            return coverage[\"state\"] == \"complete\" and coverage[\"observed\"] >= coverage[\"required\"]",
+              "        if semantics == \"any-sufficient\":",
+              "            return coverage[\"observed\"] > 0",
+              "        return False",
+          ])
+          text, count = helper_pattern.subn(lambda _: helper_replacement, text, count=1)
           if count != 1:
               raise SystemExit(f"provider helper replacement count={count}")
 
@@ -56,9 +60,11 @@ jobs:
               ),
               (
                   '                    and set(criterion["binding_requirements"]) <= set(item["binding"]["satisfied"])',
-                  '                    and item["binding"]["status"] == "complete"\n'
-                  '                    and set(criterion["binding_requirements"]) <= set(item["binding"]["satisfied"])\n'
-                  '                    and self._coverage_satisfies(criterion, item)',
+                  '\n'.join([
+                      '                    and item["binding"]["status"] == "complete"',
+                      '                    and set(criterion["binding_requirements"]) <= set(item["binding"]["satisfied"])',
+                      '                    and self._coverage_satisfies(criterion, item)',
+                  ]),
               ),
           )
           for old, new in replacements:
@@ -71,23 +77,119 @@ jobs:
               r'^                handle = self\.provider\.reconcile_cancel\(operation\["operation_id"\], str\(operation\.get\("remote_handle"\) or ""\), job\["subject"\]\)\n'
               r'^                self\.store\.reconcile_operation\(operation\["operation_id"\], handle, cancellation_confirmed=True\)$'
           )
-          stale_replacement = '''            if operation["operation_kind"] == "cancel":
-                  submit = self.store.operation_for_job(job["jobId"], "submit")
-                  if submit is None or not submit.get("remote_handle"):
-                      raise RuntimeError("stale cancellation reconciliation requires original submit remote handle")
-                  handle = self.provider.reconcile_cancel(
-                      operation["operation_id"], str(submit["remote_handle"]), job["subject"]
-                  )
-                  self.store.reconcile_operation(operation["operation_id"], handle, cancellation_confirmed=True)'''
-          text, count = stale_pattern.subn(stale_replacement, text, count=1)
+          stale_replacement = "\n".join([
+              '            if operation["operation_kind"] == "cancel":',
+              '                submit = self.store.operation_for_job(job["jobId"], "submit")',
+              '                if submit is None or not submit.get("remote_handle"):',
+              '                    raise RuntimeError("stale cancellation reconciliation requires original submit remote handle")',
+              '                handle = self.provider.reconcile_cancel(',
+              '                    operation["operation_id"], str(submit["remote_handle"]), job["subject"]',
+              '                )',
+              '                self.store.reconcile_operation(operation["operation_id"], handle, cancellation_confirmed=True)',
+          ])
+          text, count = stale_pattern.subn(lambda _: stale_replacement, text, count=1)
           if count != 1:
               raise SystemExit(f"stale cancellation replacement count={count}")
+          py_path.write_text(text, encoding="utf-8")
 
-          path.write_text(text, encoding="utf-8")
+          cs_path = Path("skills/mcp-steward-architect/tools/steward-templates/dotnet/StewardSeedRuntime.cs.template")
+          cs = cs_path.read_text(encoding="utf-8")
+          exact = [
+              (
+                  'internal sealed record SeedRequirement(string Id, bool Required, string EvidenceClass, string CanonicalClaim, string RequiredAuthority, int FreshnessSeconds, IReadOnlySet<string> ApprovedProducers, IReadOnlyList<string> BindingRequirements);',
+                  'internal sealed record SeedRequirement(string Id, bool Required, string EvidenceClass, string CanonicalClaim, string RequiredAuthority, int FreshnessSeconds, IReadOnlySet<string> ApprovedProducers, IReadOnlyList<string> BindingRequirements, string CoverageSemantics);',
+              ),
+              (
+                  '                criterion.GetProperty("binding_requirements").EnumerateArray().Select(item => item.GetString()!).ToArray()));',
+                  '                criterion.GetProperty("binding_requirements").EnumerateArray().Select(item => item.GetString()!).ToArray(),\n                criterion.GetProperty("coverage_semantics").GetString()!));',
+              ),
+              (
+                  '        if (!req.BindingRequirements.All(ev.Binding.Satisfied.Contains)) return false;',
+                  '        if (ev.Binding.Status != "complete" || !req.BindingRequirements.All(ev.Binding.Satisfied.Contains)) return false;\n        if (req.CoverageSemantics is "all-required" or "complete-negative-coverage" && (ev.Coverage.State != "complete" || ev.Coverage.Observed < ev.Coverage.Required)) return false;\n        if (req.CoverageSemantics == "any-sufficient" && ev.Coverage.Observed <= 0) return false;',
+              ),
+              (
+                  '            var handle = _provider.ReconcileCancel(action.Operation.OperationId, submit.RemoteHandle ?? string.Empty, action.Job.Subject);',
+                  '            var handle = _provider.ReconcileCancel(action.Operation.OperationId, submit.RemoteHandle ?? throw new InvalidOperationException("submit handle missing"), action.Job.Subject);',
+              ),
+          ]
+          for old, new in exact:
+              if cs.count(old) != 1:
+                  raise SystemExit(f"C# exact replacement count for {old!r}={cs.count(old)}")
+              cs = cs.replace(old, new, 1)
+
+          cancellation_branch = '''                if (job.Cancellation is "requested" or "reconciling" || job.Status == "cancelling") return PrepareCancellationLocked(job);
+                  var submit = OperationLocked(job.JobId, "submit");
+                  if (submit is null) { ReserveOperationLocked(job, "submit"); SaveLocked(); _faults.Trip("after-reservation"); return true; }
+                  if (submit.Delivery == "not-delivered") { BeginDispatchLocked(submit.OperationId); SaveLocked(); action = new("dispatch", job, _state.Operations[submit.OperationId]); }
+                  else if (submit.Delivery == "delivery-unknown") action = new("reconcile", job, submit);
+                  else if (submit.Result is null) action = new("poll", job, submit);
+                  else if (!HasEvidenceLocked(job.JobId)) { PromoteOrBlockLocked(job, submit.Result.Value); SaveLocked(); return true; }
+                  else if (job.Status == "finalizing") { FinalizeLocked(job); SaveLocked(); return true; }
+                  else return false;'''
+          cancellation_replacement = '''                if (job.Cancellation is "requested" or "reconciling" || job.Status == "cancelling")
+                  {
+                      action = PrepareCancellationLocked(job);
+                      if (action is null) return true;
+                  }
+                  else
+                  {
+                      var submit = OperationLocked(job.JobId, "submit");
+                      if (submit is null) { ReserveOperationLocked(job, "submit"); SaveLocked(); _faults.Trip("after-reservation"); return true; }
+                      if (submit.Delivery == "not-delivered") { BeginDispatchLocked(submit.OperationId); SaveLocked(); action = new("dispatch", job, _state.Operations[submit.OperationId]); }
+                      else if (submit.Delivery == "delivery-unknown") action = new("reconcile", job, submit);
+                      else if (submit.Result is null) action = new("poll", job, submit);
+                      else if (!HasEvidenceLocked(job.JobId)) { PromoteOrBlockLocked(job, submit.Result.Value); SaveLocked(); return true; }
+                      else if (job.Status == "finalizing") { FinalizeLocked(job); SaveLocked(); return true; }
+                      else return false;
+                  }'''
+          if cs.count(cancellation_branch) != 1:
+              raise SystemExit(f"C# cancellation branch replacement count={cs.count(cancellation_branch)}")
+          cs = cs.replace(cancellation_branch, cancellation_replacement, 1)
+
+          method_pattern = re.compile(
+              r'(?ms)^    private bool PrepareCancellationLocked\(StewardSeedJob job\)\n    \{.*?^    public void RecoverUntilIdle\(int maxSteps = 100\)'
+          )
+          method_replacement = "\n".join([
+              '    private SeedAction? PrepareCancellationLocked(StewardSeedJob job)',
+              '    {',
+              '        var submit = OperationLocked(job.JobId, "submit");',
+              '        if (submit is null || submit.Delivery == "not-delivered")',
+              '        {',
+              '            if (submit is not null) _state.Operations[submit.OperationId] = submit with { State = "abandoned", ObservedAt = _clock.UtcNow };',
+              '            _state.Jobs[job.JobId] = Advance(job, "cancelled", "cancelled", "cancelled", cancellation: "completed");',
+              '            AuditLocked(job.JobId, "cancelled", new Dictionary<string, string> { ["remoteStop"] = "not-required" }); SaveLocked(); return null;',
+              '        }',
+              '        if (submit.Delivery == "delivery-unknown") return new("reconcile", job, submit);',
+              '        if (submit.State == "captured")',
+              '        {',
+              '            _state.Jobs[job.JobId] = Advance(job, "cancelled", "cancelled", "cancelled", cancellation: "completed");',
+              '            AuditLocked(job.JobId, "cancelled", new Dictionary<string, string> { ["remoteStop"] = "already-terminal" }); SaveLocked(); return null;',
+              '        }',
+              '        var cancel = OperationLocked(job.JobId, "cancel");',
+              '        if (cancel is null) { ReserveOperationLocked(job, "cancel", submit.OperationId); SaveLocked(); return null; }',
+              '        if (cancel.Delivery == "not-delivered") { BeginDispatchLocked(cancel.OperationId); SaveLocked(); return new("cancel-dispatch", job, _state.Operations[cancel.OperationId]); }',
+              '        if (cancel.Delivery == "delivery-unknown") return new("cancel-reconcile", job, cancel);',
+              '        if (cancel.State == "captured") return null;',
+              '        throw new InvalidOperationException("unsupported cancellation state");',
+              '    }',
+              '',
+              '    public void RecoverUntilIdle(int maxSteps = 100)',
+          ])
+          cs, count = method_pattern.subn(lambda _: method_replacement, cs, count=1)
+          if count != 1:
+              raise SystemExit(f"C# PrepareCancellation replacement count={count}")
+          cs_path.write_text(cs, encoding="utf-8")
       - name: Format policy-critical Python
         run: python -m ruff format skills/mcp-steward-architect/tools/generate_steward.py skills/mcp-steward-architect/tools/validate_steward.py
-      - name: Run Steward regression slice
+      - name: Run Steward Python regression slice
         run: python -m pytest -q tests/test_mcp_steward_atomic.py tests/test_mcp_steward_runtime_security.py tests/test_mcp_steward_architect.py tests/test_mcp_steward_dotnet_generator.py
+      - name: Generate and build Steward .NET artifact
+        run: |
+          rm -rf .steward-fixup-dotnet
+          python skills/mcp-steward-architect/tools/generate_steward.py .steward-fixup-dotnet --language dotnet --identity FixupSteward --server-name "Fixup Steward" --steward-id fixup --profile verification
+          dotnet restore .steward-fixup-dotnet/FixupSteward.slnx --locked-mode
+          dotnet build .steward-fixup-dotnet/FixupSteward.slnx --no-restore -warnaserror
+          dotnet run --project .steward-fixup-dotnet/src/FixupSteward.Mcp.Smoke --no-build -- .steward-fixup-dotnet/src/FixupSteward.Mcp.Server/bin/Debug/net10.0/FixupSteward.Mcp.Server.dll
       - name: Commit verified fixup
         run: |
           git config user.name "github-actions[bot]"
@@ -97,5 +199,5 @@ jobs:
             echo "No fixup changes to commit"
             exit 0
           fi
-          git commit -m "fix(steward): harden generated evidence and cancellation recovery"
+          git commit -m "fix(steward): harden generated Python and .NET recovery"
           git push origin HEAD:feat/mcp-steward-architect
