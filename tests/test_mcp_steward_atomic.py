@@ -162,6 +162,8 @@ def test_delivery_unknown_is_reconciliation_not_retry() -> None:
     assert any("delivery-unknown requires retryDisposition=reconcile-first" in item for item in findings)
     assert any("cannot schedule retry before reconciliation" in item for item in findings)
 
+    # All authority, identity, capability, candidate and budget axes are intentionally valid here;
+    # delivery ambiguity is the sole reason fresh dispatch must be rejected in favor of reconciliation.
     decision = _evaluate_external_dispatch(validator, documents, job, receipt)
     assert decision["disposition"] == "ReconciliationRequired"
 
