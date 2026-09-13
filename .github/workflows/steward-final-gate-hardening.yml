@@ -73,7 +73,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          rm -f \
+          git rm -f \
             .github/workflows/steward-final-gate-hardening.yml \
             scripts/_steward_final_gate_patch.py \
             scripts/_steward_final_gate_patch2.py \
@@ -82,7 +82,12 @@ jobs:
           test ! -e scripts/_steward_final_gate_patch.py
           test ! -e scripts/_steward_final_gate_patch2.py
           test ! -e scripts/_steward_final_gate_patch3.py
+          ! git ls-files --error-unmatch .github/workflows/steward-final-gate-hardening.yml >/dev/null 2>&1
+          ! git ls-files --error-unmatch scripts/_steward_final_gate_patch.py >/dev/null 2>&1
+          ! git ls-files --error-unmatch scripts/_steward_final_gate_patch2.py >/dev/null 2>&1
+          ! git ls-files --error-unmatch scripts/_steward_final_gate_patch3.py >/dev/null 2>&1
           git diff --check
+          git diff --cached --check
       - name: Execute complete canonical local gate on final tree
         run: python scripts/ci.py
       - name: Publish verified final tree
