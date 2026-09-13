@@ -28,6 +28,25 @@ jobs:
         with:
           dotnet-version: '10.0.302'
       - run: python scripts/install_locked.py
+      - name: Align one fail-fast patch anchor with exact current validator
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('scripts/_steward_semantic_digest_patch.py')
+          text = path.read_text(encoding='utf-8')
+          marker = '    "validator admission digest helper",\n)\n\n# Python generated runtime'
+          marker_at = text.index(marker)
+          start = text.rfind('replace_regex_once(', 0, marker_at)
+          end = marker_at + len(marker) - len('\n\n# Python generated runtime')
+          replacement = r'''replace_regex_once(
+              validator,
+              r''' + "'''" + r'''def _capability_contract_digest\(capability: dict\[str, Any\]\) -> str \| None:\n.*?\n\n\ndef _target_identity''' + "'''" + r''',
+              ''' + "'''" + '''def _capability_contract_digest(capability: dict[str, Any]) -> str | None:\n    contract = capability.get("contract")\n    if not isinstance(contract, dict):\n        return None\n    try:\n        return compute_capability_contract_digest(capability)\n    except (TypeError, ValueError):\n        return None\n\n\ndef _target_identity''' + "'''" + r''',
+              "validator admission digest helper",
+          )'''
+          path.write_text(text[:start] + replacement + text[end:], encoding='utf-8')
+          PY
       - name: Apply fail-fast canonical source patch
         run: python scripts/_steward_semantic_digest_patch.py
       - name: Format touched Python sources
