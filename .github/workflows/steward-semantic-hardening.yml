@@ -28,13 +28,15 @@ jobs:
         with:
           dotnet-version: '10.0.302'
       - run: python scripts/install_locked.py
-      - name: Align one fail-fast patch anchor with exact current validator
+      - name: Align fail-fast patch anchors with exact current sources
         shell: bash
         run: |
           python - <<'PY'
           from pathlib import Path
+
           path = Path('scripts/_steward_semantic_digest_patch.py')
           text = path.read_text(encoding='utf-8')
+
           marker = '    "validator admission digest helper",\n)\n\n# Python generated runtime'
           marker_at = text.index(marker)
           start = text.rfind('replace_regex_once(', 0, marker_at)
@@ -45,7 +47,20 @@ jobs:
               ''' + "'''" + '''def _capability_contract_digest(capability: dict[str, Any]) -> str | None:\n    contract = capability.get("contract")\n    if not isinstance(contract, dict):\n        return None\n    try:\n        return compute_capability_contract_digest(capability)\n    except (TypeError, ValueError):\n        return None\n\n\ndef _target_identity''' + "'''" + r''',
               "validator admission digest helper",
           )'''
-          path.write_text(text[:start] + replacement + text[end:], encoding='utf-8')
+          text = text[:start] + replacement + text[end:]
+
+          marker = '    "python runtime local capability",\n)\n\n# .NET generated runtime'
+          marker_at = text.index(marker)
+          start = text.rfind('replace_regex_once(', 0, marker_at)
+          end = marker_at + len(marker) - len('\n\n# .NET generated runtime')
+          replacement = r'''replace_regex_once(
+              python_runtime,
+              r''' + "'''" + r'''    @staticmethod\n    def _local_handoff_capability\(\) -> dict\[str, Any\]:\n.*?\n\n    def _authority''' + "'''" + r''',
+              ''' + "'''" + '''    @staticmethod\n    def _local_handoff_capability() -> dict[str, Any]:\n        identity = {"source": "local", "id": "local:handoff@1", "revision": "1"}\n        capability: dict[str, Any] = {\n            "capability_id": "local:handoff@1",\n            "contract": {**identity, "digest": "sha256:" + "0" * 64},\n        }\n        digest = _capability_digest(capability)\n        if digest is None:\n            raise RuntimeError("local handoff capability digest could not be computed")\n        capability["contract"]["digest"] = digest\n        return capability\n\n    def _authority''' + "'''" + r''',
+              "python runtime local capability",
+          )'''
+          text = text[:start] + replacement + text[end:]
+          path.write_text(text, encoding='utf-8')
           PY
       - name: Apply fail-fast canonical source patch
         run: python scripts/_steward_semantic_digest_patch.py
