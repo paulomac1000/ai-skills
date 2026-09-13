@@ -198,7 +198,20 @@ public sealed class StewardSeedRuntime : IDisposable
         Directory.CreateDirectory(stateDirectory);
         _snapshotPath = Path.Combine(stateDirectory, "steward-state.json");
         _ownerLock = new FileStream(Path.Combine(stateDirectory, "steward-state.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
-        _clock = clock; _provider = provider; _faults = faults; _policy = SeedPolicy.Load(profilePath, proofPath); _state = LoadOrQuarantine();
+        _clock = clock; _provider = provider; _faults = faults;
+        try
+        {
+            _policy = SeedPolicy.Load(profilePath, proofPath);
+            _state = LoadOrQuarantine();
+        }
+        catch
+        {
+            // A constructor that fails closed must still release the single-owner lock.
+            // Otherwise the failed instance can strand the state directory on Windows
+            // even though no usable Steward runtime was ever returned to the caller.
+            _ownerLock.Dispose();
+            throw;
+        }
     }
 
     public StewardAdmission Submit(string subjectId, string? subjectRevision, string idempotencyKey)
