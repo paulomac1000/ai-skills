@@ -523,6 +523,16 @@ class StewardRuntime:
     def _provider_approved(self, criterion: dict[str, Any]) -> bool:
         return not criterion["approved_producers"] or self.provider.producer_id in criterion["approved_producers"]
 
+    @staticmethod
+    def _coverage_satisfies(criterion: dict[str, Any], evidence: dict[str, Any]) -> bool:
+        coverage = evidence["coverage"]
+        semantics = criterion["coverage_semantics"]
+        if semantics in {"all-required", "complete-negative-coverage"}:
+            return coverage["state"] == "complete" and coverage["observed"] >= coverage["required"]
+        if semantics == "any-sufficient":
+            return coverage["observed"] > 0
+        return False
+
     def completion_gate(self, job_id: str) -> dict[str, Any]:
         job = self.store.job(job_id)
         lineage = self.store.current_lineage(job["lineageId"])
@@ -544,9 +554,11 @@ class StewardRuntime:
                     and item["subject"] == job["subject"] and item["candidate"] == job["candidate"]
                     and item["criterionId"] == requirement["id"] and item["claimId"] == criterion["canonical_claim"]
                     and item["evidenceClass"] == requirement["evidence_class"] and item["proofRecipeId"] == self.recipe_id
-                    and self._provider_approved(criterion)
+                    and (not criterion["approved_producers"] or item["producerId"] in criterion["approved_producers"])
                     and _AUTHORITY_RANK[item["authorityClass"]] >= _AUTHORITY_RANK[criterion["required_authority"]]
+                    and item["binding"]["status"] == "complete"
                     and set(criterion["binding_requirements"]) <= set(item["binding"]["satisfied"])
+                    and self._coverage_satisfies(criterion, item)
                     and observed <= now and (now - observed).total_seconds() <= criterion["freshness_seconds"]
                     and (expires is None or expires >= now)
                 )
@@ -621,7 +633,12 @@ class StewardRuntime:
         job = self.store.job(str(operation["job_id"]))
         if operation["delivery"] == "delivery-unknown":
             if operation["operation_kind"] == "cancel":
-                handle = self.provider.reconcile_cancel(operation["operation_id"], str(operation.get("remote_handle") or ""), job["subject"])
+                submit = self.store.operation_for_job(job["jobId"], "submit")
+                if submit is None or not submit.get("remote_handle"):
+                    raise RuntimeError("stale cancellation reconciliation requires original submit remote handle")
+                handle = self.provider.reconcile_cancel(
+                    operation["operation_id"], str(submit["remote_handle"]), job["subject"]
+                )
                 self.store.reconcile_operation(operation["operation_id"], handle, cancellation_confirmed=True)
             else:
                 handle = self.provider.reconcile(operation["operation_id"], job["subject"])

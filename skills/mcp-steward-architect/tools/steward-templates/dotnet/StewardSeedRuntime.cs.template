@@ -75,7 +75,7 @@ public sealed record StewardDoctorResult(StewardSeedJob? Job, int DeliveryUnknow
 
 internal sealed record SeedIdempotency(string RequestDigest, string JobId);
 internal sealed record SeedLineage(string CurrentJobId, long CurrentGeneration, StewardSubject Subject, StewardCandidate Candidate, long Version);
-internal sealed record SeedRequirement(string Id, bool Required, string EvidenceClass, string CanonicalClaim, string RequiredAuthority, int FreshnessSeconds, IReadOnlySet<string> ApprovedProducers, IReadOnlyList<string> BindingRequirements);
+internal sealed record SeedRequirement(string Id, bool Required, string EvidenceClass, string CanonicalClaim, string RequiredAuthority, int FreshnessSeconds, IReadOnlySet<string> ApprovedProducers, IReadOnlyList<string> BindingRequirements, string CoverageSemantics);
 internal sealed record SeedAction(string Kind, StewardSeedJob Job, StewardOperation Operation);
 
 internal sealed class StewardSeedState
@@ -112,7 +112,8 @@ internal sealed class SeedPolicy
                 criterion.GetProperty("canonical_claim").GetString()!, criterion.GetProperty("required_authority").GetString()!,
                 criterion.GetProperty("freshness_seconds").GetInt32(),
                 criterion.GetProperty("approved_producers").EnumerateArray().Select(item => item.GetString()!).ToHashSet(StringComparer.Ordinal),
-                criterion.GetProperty("binding_requirements").EnumerateArray().Select(item => item.GetString()!).ToArray()));
+                criterion.GetProperty("binding_requirements").EnumerateArray().Select(item => item.GetString()!).ToArray(),
+                criterion.GetProperty("coverage_semantics").GetString()!));
         }
         var revision = proof.RootElement.GetProperty("revision").GetInt32();
         return new() { ProfileRevision = profile.RootElement.GetProperty("steward").GetProperty("contract_revision").GetInt32(), RecipeId = $"{proof.RootElement.GetProperty("recipe_id").GetString()}@{revision}", ProofRevision = revision, Requirements = requirements };
@@ -236,15 +237,22 @@ public sealed class StewardSeedRuntime : IDisposable
                 if (job is null) return false;
                 _state.Jobs[job.JobId] = job with { HeartbeatAt = _clock.UtcNow };
                 job = _state.Jobs[job.JobId];
-                if (job.Cancellation is "requested" or "reconciling" || job.Status == "cancelling") return PrepareCancellationLocked(job);
-                var submit = OperationLocked(job.JobId, "submit");
-                if (submit is null) { ReserveOperationLocked(job, "submit"); SaveLocked(); _faults.Trip("after-reservation"); return true; }
-                if (submit.Delivery == "not-delivered") { BeginDispatchLocked(submit.OperationId); SaveLocked(); action = new("dispatch", job, _state.Operations[submit.OperationId]); }
-                else if (submit.Delivery == "delivery-unknown") action = new("reconcile", job, submit);
-                else if (submit.Result is null) action = new("poll", job, submit);
-                else if (!HasEvidenceLocked(job.JobId)) { PromoteOrBlockLocked(job, submit.Result.Value); SaveLocked(); return true; }
-                else if (job.Status == "finalizing") { FinalizeLocked(job); SaveLocked(); return true; }
-                else return false;
+                if (job.Cancellation is "requested" or "reconciling" || job.Status == "cancelling")
+                {
+                    action = PrepareCancellationLocked(job);
+                    if (action is null) return true;
+                }
+                else
+                {
+                    var submit = OperationLocked(job.JobId, "submit");
+                    if (submit is null) { ReserveOperationLocked(job, "submit"); SaveLocked(); _faults.Trip("after-reservation"); return true; }
+                    if (submit.Delivery == "not-delivered") { BeginDispatchLocked(submit.OperationId); SaveLocked(); action = new("dispatch", job, _state.Operations[submit.OperationId]); }
+                    else if (submit.Delivery == "delivery-unknown") action = new("reconcile", job, submit);
+                    else if (submit.Result is null) action = new("poll", job, submit);
+                    else if (!HasEvidenceLocked(job.JobId)) { PromoteOrBlockLocked(job, submit.Result.Value); SaveLocked(); return true; }
+                    else if (job.Status == "finalizing") { FinalizeLocked(job); SaveLocked(); return true; }
+                    else return false;
+                }
             }
         }
 
@@ -265,7 +273,7 @@ public sealed class StewardSeedRuntime : IDisposable
         if (action.Kind == "cancel-dispatch")
         {
             if (_faults.Trip("after-cancel-start")) return true;
-            var submit = OperationById(action.Operation.RequestDigest); // cancellation request digest carries submit operation id
+            var submit = OperationById(action.Operation.RequestDigest);
             var handle = _provider.Cancel(action.Operation.OperationId, submit.RemoteHandle ?? throw new InvalidOperationException("submit handle missing"), action.Job.Subject);
             if (_faults.Trip("after-cancel-dispatch") || _faults.Trip("before-cancel-bind")) return true;
             lock (_gate) { BindDispatchLocked(action.Operation.OperationId, handle, true); MarkSubmitCancelledLocked(submit.OperationId); SaveLocked(); }
@@ -274,7 +282,7 @@ public sealed class StewardSeedRuntime : IDisposable
         if (action.Kind is "cancel-reconcile" or "stale-cancel-reconcile")
         {
             var submit = OperationById(action.Operation.RequestDigest);
-            var handle = _provider.ReconcileCancel(action.Operation.OperationId, submit.RemoteHandle ?? string.Empty, action.Job.Subject);
+            var handle = _provider.ReconcileCancel(action.Operation.OperationId, submit.RemoteHandle ?? throw new InvalidOperationException("submit handle missing"), action.Job.Subject);
             lock (_gate) { ReconcileLocked(action.Operation.OperationId, handle, true); MarkSubmitCancelledLocked(submit.OperationId); SaveLocked(); }
             return true;
         }
@@ -292,36 +300,28 @@ public sealed class StewardSeedRuntime : IDisposable
         return true;
     }
 
-    private bool PrepareCancellationLocked(StewardSeedJob job)
+    private SeedAction? PrepareCancellationLocked(StewardSeedJob job)
     {
         var submit = OperationLocked(job.JobId, "submit");
         if (submit is null || submit.Delivery == "not-delivered")
         {
             if (submit is not null) _state.Operations[submit.OperationId] = submit with { State = "abandoned", ObservedAt = _clock.UtcNow };
             _state.Jobs[job.JobId] = Advance(job, "cancelled", "cancelled", "cancelled", cancellation: "completed");
-            AuditLocked(job.JobId, "cancelled", new Dictionary<string, string> { ["remoteStop"] = "not-required" }); SaveLocked(); return true;
+            AuditLocked(job.JobId, "cancelled", new Dictionary<string, string> { ["remoteStop"] = "not-required" }); SaveLocked(); return null;
         }
-        if (submit.Delivery == "delivery-unknown") return ExecutePrepared(new("reconcile", job, submit));
+        if (submit.Delivery == "delivery-unknown") return new("reconcile", job, submit);
         if (submit.State == "captured")
         {
             _state.Jobs[job.JobId] = Advance(job, "cancelled", "cancelled", "cancelled", cancellation: "completed");
-            AuditLocked(job.JobId, "cancelled", new Dictionary<string, string> { ["remoteStop"] = "already-terminal" }); SaveLocked(); return true;
+            AuditLocked(job.JobId, "cancelled", new Dictionary<string, string> { ["remoteStop"] = "already-terminal" }); SaveLocked(); return null;
         }
         var cancel = OperationLocked(job.JobId, "cancel");
-        if (cancel is null) { ReserveOperationLocked(job, "cancel", submit.OperationId); SaveLocked(); return true; }
-        if (cancel.Delivery == "not-delivered") { BeginDispatchLocked(cancel.OperationId); SaveLocked(); return ExecutePrepared(new("cancel-dispatch", job, _state.Operations[cancel.OperationId])); }
-        if (cancel.Delivery == "delivery-unknown") return ExecutePrepared(new("cancel-reconcile", job, cancel));
-        return false;
+        if (cancel is null) { ReserveOperationLocked(job, "cancel", submit.OperationId); SaveLocked(); return null; }
+        if (cancel.Delivery == "not-delivered") { BeginDispatchLocked(cancel.OperationId); SaveLocked(); return new("cancel-dispatch", job, _state.Operations[cancel.OperationId]); }
+        if (cancel.Delivery == "delivery-unknown") return new("cancel-reconcile", job, cancel);
+        if (cancel.State == "captured") return null;
+        throw new InvalidOperationException("unsupported cancellation state");
     }
-
-    // PrepareCancellationLocked sometimes needs remote I/O; queue the action for the next scheduler iteration by encoding stage.
-    private bool ExecutePrepared(SeedAction action)
-    {
-        _state.Jobs[action.Job.JobId] = action.Job with { Stage = $"prepared:{action.Kind}", UpdatedAt = _clock.UtcNow };
-        // The next iteration will reconstruct the action from operation state. Returning true is a semantic checkpoint, not provider progress.
-        return true;
-    }
-
     public void RecoverUntilIdle(int maxSteps = 100)
     {
         for (var step = 0; step < maxSteps; step++)
@@ -448,7 +448,9 @@ public sealed class StewardSeedRuntime : IDisposable
         if (ev.CriterionId != req.Id || ev.ClaimId != req.CanonicalClaim || ev.EvidenceClass != req.EvidenceClass || ev.ProofRecipeId != _policy.RecipeId) return false;
         if (req.ApprovedProducers.Count > 0 && !req.ApprovedProducers.Contains(ev.ProducerId)) return false;
         if (AuthorityRank.GetValueOrDefault(ev.AuthorityClass, -1) < AuthorityRank.GetValueOrDefault(req.RequiredAuthority, int.MaxValue)) return false;
-        if (!req.BindingRequirements.All(ev.Binding.Satisfied.Contains)) return false;
+        if (ev.Binding.Status != "complete" || !req.BindingRequirements.All(ev.Binding.Satisfied.Contains)) return false;
+        if ((req.CoverageSemantics is "all-required" or "complete-negative-coverage") && (ev.Coverage.State != "complete" || ev.Coverage.Observed < ev.Coverage.Required)) return false;
+        if (req.CoverageSemantics == "any-sufficient" && ev.Coverage.Observed <= 0) return false;
         if (ev.ObservedAt > _clock.UtcNow || _clock.UtcNow - ev.ObservedAt > TimeSpan.FromSeconds(req.FreshnessSeconds)) return false;
         return ev.ExpiresAt is null || ev.ExpiresAt >= _clock.UtcNow;
     }

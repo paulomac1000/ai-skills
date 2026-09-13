@@ -223,7 +223,9 @@ def _upstream_findings(value: dict[str, Any]) -> list[str]:
 
 
 def _lineage_findings(value: dict[str, Any]) -> list[str]:
-    return ["lineage: current job cannot also be superseded"] if value["currentJobId"] in value["supersededJobIds"] else []
+    return (
+        ["lineage: current job cannot also be superseded"] if value["currentJobId"] in value["supersededJobIds"] else []
+    )
 
 
 def _completion_findings(value: dict[str, Any]) -> list[str]:
@@ -329,7 +331,9 @@ def _acceptance_findings(value: dict[str, Any]) -> list[str]:
         if not value["independent_required"] or not value["live_full_path_required"]:
             findings.append("acceptance: production-workflow must require independent and live full-path evidence")
         exact = value["exact_artifact"]
-        if not all((exact["full_path_required"], exact["runtime_prerequisites_declared"], exact["restart_boundary_required"])):
+        if not all(
+            (exact["full_path_required"], exact["runtime_prerequisites_declared"], exact["restart_boundary_required"])
+        ):
             findings.append("acceptance: production exact artifact must cover full path, prerequisites, and restart")
     return findings
 
@@ -484,9 +488,10 @@ def validate_completion_context(
             approved = set(criterion["approved_producers"])
             if approved and selected_evidence["producerId"] not in approved:
                 reasons.append("producer not approved")
-            if _AUTHORITY_RANK.get(selected_evidence["authorityClass"], -1) < _AUTHORITY_RANK[
-                criterion["required_authority"]
-            ]:
+            if (
+                _AUTHORITY_RANK.get(selected_evidence["authorityClass"], -1)
+                < _AUTHORITY_RANK[criterion["required_authority"]]
+            ):
                 reasons.append("insufficient authority")
             if selected_evidence["binding"]["status"] != "complete":
                 reasons.append("incomplete claim binding")
@@ -593,7 +598,9 @@ def validate_design_pack(
     transition_ids = {item["id"] for item in state_machine["transitions"]}
     for effect in mutation_policy["effects"]:
         if effect["transition"] not in transition_ids and effect["transition"] not in {"cancel-start"}:
-            findings.append(f"design-pack: mutation effect {effect['id']} references unknown transition {effect['transition']}")
+            findings.append(
+                f"design-pack: mutation effect {effect['id']} references unknown transition {effect['transition']}"
+            )
     criteria = {item["criterion_id"] for item in proof_recipe["criteria"]}
     for obligation in profile["completion"]["obligations"]:
         if obligation["id"] not in criteria:
@@ -657,7 +664,9 @@ def main() -> int:
         missing = not _context_complete(args) or args.profile is None or args.proof_recipe is None
         if missing:
             findings = validate_document("completion", value)
-            findings.append("completion: eligible validation requires current lineage, profile, proof recipe, and evidence context")
+            findings.append(
+                "completion: eligible validation requires current lineage, profile, proof recipe, and evidence context"
+            )
         else:
             subject = _load(args.current_subject)
             candidate = _load(args.current_candidate) if args.current_candidate else None
