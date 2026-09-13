@@ -58,14 +58,6 @@ Once the Steward has observed a provider-assigned remote identity or handle, a l
 
 Remote calls MUST execute outside durable-store locks/transactions. Local reservation and post-call observation are separate durable transitions.
 
-## Canonical-first execution under retry
-
-Idempotent persistence of a row is not sufficient to make a multi-stage workflow retry-safe when a stage can compute non-deterministic or otherwise attempt-local output.
-
-When a stable stage/artifact identity already has a committed canonical result, a retry that proposes a different local result MUST converge on the committed canonical result. A persistence operation that deduplicates, loses a compare-and-swap race, or observes an existing artifact MUST return or reload the canonical persisted value/reference/digest, and every downstream decision MUST consume that canonical result. Continuing with an attempt-local value after `ON CONFLICT DO NOTHING`, duplicate suppression, CAS loss, or equivalent no-op is prohibited when that value can differ from canonical state.
-
-Successor jobs, evidence, gates, and handoffs derived from such a stage MUST bind the canonical artifact/reference/digest rather than the losing attempt's transient output. Recovery after a crash between artifact persistence and successor scheduling MUST rehydrate the canonical persisted artifact before continuing.
-
 ## Evidence identity and authority
 
 Intent, performed work, observation/evidence, and policy decision are distinct objects. A provider result or model statement MUST NOT automatically satisfy an arbitrary criterion.
@@ -88,7 +80,7 @@ The terminal handoff MUST be bounded and bind the exact subject, job/lineage/gen
 
 The final publication boundary MUST re-read current lineage/subject ownership and freshness immediately before sealing when those values are mutable.
 
-## Ports adapters capability admission and disclosure
+## Ports adapters and capability admission
 
 Domain and application code MUST NOT depend on MCP SDK types, provider SDKs, raw HTTP response shapes, database implementations, filesystem APIs, environment variables, or model-provider types. Inbound MCP/CLI/webhook surfaces are adapters over semantic application operations.
 
@@ -132,6 +124,10 @@ Cleanup/control-plane work MAY have a separately bounded reserve so exhaustion o
 
 The durability claim MUST state its crash model: process restart, host crash/power loss, multi-process, and multi-node guarantees are not interchangeable.
 
+Idempotent persistence of a row is not sufficient to make a multi-stage workflow retry-safe when a stage can compute non-deterministic or otherwise attempt-local output. When a stable stage/artifact identity already has a committed canonical result, a retry that proposes a different local result MUST converge on the committed canonical result. A persistence operation that deduplicates, loses a compare-and-swap race, or observes an existing artifact MUST return or reload the canonical persisted value/reference/digest, and every downstream decision MUST consume that canonical result. Continuing with an attempt-local value after `ON CONFLICT DO NOTHING`, duplicate suppression, CAS loss, or equivalent no-op is prohibited when that value can differ from canonical state.
+
+Successor jobs, evidence, gates, and handoffs derived from such a stage MUST bind the canonical artifact/reference/digest rather than the losing attempt's transient output. Recovery after a crash between artifact persistence and successor scheduling MUST rehydrate the canonical persisted artifact before continuing.
+
 A constrained single-owner experimental profile MAY use a file-backed store only with atomic publication, corruption isolation, recovery, and exclusive ownership. New durable single-instance Steward baselines SHOULD default to a transactional store such as SQLite or equivalent. Multi-worker/multi-instance profiles MUST use a store capable of atomic leasing/compare-and-swap or equivalent concurrency control and explicit migration/version policy.
 
 Durable work and its wake-up/outbox intent SHOULD be committed atomically. The runtime MUST periodically reconcile due durable work so a lost notification cannot orphan a job. Every non-terminal job MUST have a valid owner/lease, scheduled wake-up, recoverable external handle, or explicit blocked reason.
@@ -172,7 +168,7 @@ Applicable concurrency/retry coverage MUST additionally include: a stale worker 
 
 Disclosure-bearing adapters MUST have negative tests with private/unknown sentinel data proving that blocked fields never reach the fake/provider boundary, including maintenance/recheck/recovery paths rather than only the primary happy path. Prompt-injection tests do not substitute for these egress tests.
 
-Long-running public-contract tests SHOULD prove that repeated identical status observations keep the same state/progress revision and do not masquerade as progress, and that any advertised server-side wait/next-poll hint is bounded. Transition-contract tests SHOULD prove that known exact-revision, lease, authority, verification-profile, and evidence requirements are discoverable before mutation and that false self-declared authority is rejected.
+Long-running public-contract tests SHOULD prove that repeated identical status observations keep the same state/progress revision and do not masquerade as progress, and that any advertised server-side wait/next-poll hint is bounded. Transition-contract tests SHOULD prove that known exact-revision, lease, authority, verification-profile, and evidence requirements are discoverable before mutation and that false self-declared authority cannot satisfy them.
 
 Provider adapters MUST be tested against observed upstream-contract fixtures. Test source presence is not execution evidence: canonical gates MUST demonstrate discovery/execution of required cases and distinguish product failure, harness/infrastructure failure, not-executed, stale, partial, and unknown outcomes.
 
@@ -184,7 +180,7 @@ Historical sanitized incident replays SHOULD become regression fixtures for mean
 
 A Steward generator MUST extend the canonical MCP server generator rather than fork its transport/security/SDK templates. The generated project MUST contain a working durable architecture seed: semantic domain/application/ports/adapters separation, typed Steward profile, durable job/lineage model, external-operation receipt model, idempotent intake, scheduler/recovery hooks, controllable time/fake adapters, structured audit/diagnostics, credential-policy/proof-recipe/upstream-capability templates, and failure-injection scenarios.
 
-The generated baseline MUST demonstrate at least one durable workflow that can be admitted, interrupted after a durable checkpoint, restarted, recovered, and finalized without duplicate side effects. Its sample retry path MUST consume canonical persisted stage output after deduplication/retry, and its generation fencing MUST reject a stale worker that tries to create current-generation successors after invalidation. Generated scaffolding is architecture seed evidence only, never production acceptance.
+The generated baseline MUST demonstrate at least one durable workflow that can be admitted, interrupted after a durable checkpoint, restarted, recovered, and finalized without duplicate side effects. The recovery demonstration MUST include captured-generation fencing and canonical-first retry behavior when the generated profile can produce non-deterministic stage output. Generated scaffolding is architecture seed evidence only, never production acceptance.
 
 ## Verification
 
