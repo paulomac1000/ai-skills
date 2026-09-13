@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://paulomac1000.github.io/ai-skills/contracts/steward-lineage.schema.json",
+  "title": "StewardLineage",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "lineageId", "version", "subject", "currentGeneration", "currentJobId", "supersededJobIds", "updatedAt"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "lineageId": {"type": "string", "minLength": 1, "maxLength": 200},
+    "version": {"type": "integer", "minimum": 0},
+    "subject": {"$ref": "#/$defs/identity"},
+    "currentGeneration": {"type": "integer", "minimum": 1},
+    "currentJobId": {"type": "string", "minLength": 1, "maxLength": 200},
+    "supersededJobIds": {"type": "array", "uniqueItems": true, "maxItems": 1024, "items": {"type": "string", "minLength": 1, "maxLength": 200}},
+    "updatedAt": {"type": "string", "format": "date-time"}
+  },
+  "$defs": {
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "id", "revision"],
+      "properties": {
+        "type": {"type": "string", "minLength": 1},
+        "id": {"type": "string", "minLength": 1},
+        "revision": {"type": ["string", "null"]},
+        "digest": {"type": ["string", "null"]}
+      }
+    }
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://paulomac1000.github.io/ai-skills/contracts/steward-proof-recipe.schema.json",
+  "title": "StewardProofRecipe",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "recipe_id", "revision", "producers", "criteria", "aggregation", "completion"],
+  "properties": {
+    "schema_version": {"const": 2},
+    "recipe_id": {"type": "string", "minLength": 1},
+    "revision": {"type": "integer", "minimum": 1},
+    "producers": {"type": "array", "minItems": 1, "maxItems": 256, "items": {"$ref": "#/$defs/producer"}},
+    "criteria": {"type": "array", "minItems": 1, "maxItems": 256, "items": {"$ref": "#/$defs/criterion"}},
+    "aggregation": {"type": "object", "additionalProperties": false, "required": ["unobserved_is_negative", "unknown_blocks_complete_negative"], "properties": {"unobserved_is_negative": {"const": false}, "unknown_blocks_complete_negative": {"const": true}}},
+    "completion": {"type": "object", "additionalProperties": false, "required": ["unresolved_required_criterion", "advisory_model_findings_require_reproduction"], "properties": {"unresolved_required_criterion": {"enum": ["blocked", "inconclusive", "completed-with-gaps"]}, "advisory_model_findings_require_reproduction": {"type": "boolean"}}}
+  },
+  "$defs": {
+    "stringSet": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "producer": {"type": "object", "additionalProperties": false, "required": ["producer_id", "trust_class", "observation_kind", "subject_dimensions", "claim_classes", "binding_requirements", "independence"], "properties": {"producer_id": {"type": "string", "minLength": 1}, "trust_class": {"enum": ["steward-owned", "external-trusted", "independent"]}, "observation_kind": {"type": "string", "minLength": 1}, "subject_dimensions": {"$ref": "#/$defs/stringSet"}, "claim_classes": {"$ref": "#/$defs/stringSet"}, "binding_requirements": {"$ref": "#/$defs/stringSet"}, "independence": {"enum": ["candidate-owned", "external", "independent"]}}},
+    "criterion": {"type": "object", "additionalProperties": false, "required": ["criterion_id", "canonical_claim", "subject_dimensions", "candidate_binding_required", "binding_requirements", "required_authority", "freshness_seconds", "approved_producers", "coverage_semantics", "probes", "sufficiency"], "properties": {"criterion_id": {"type": "string", "minLength": 1}, "canonical_claim": {"type": "string", "minLength": 1}, "subject_dimensions": {"$ref": "#/$defs/stringSet"}, "candidate_binding_required": {"type": "boolean"}, "binding_requirements": {"$ref": "#/$defs/stringSet"}, "required_authority": {"enum": ["advisory", "observed", "verified", "independent"]}, "freshness_seconds": {"type": "integer", "minimum": 0}, "approved_producers": {"$ref": "#/$defs/stringSet"}, "coverage_semantics": {"enum": ["all-required", "any-sufficient", "complete-negative-coverage"]}, "probes": {"type": "array", "items": {"type": "string"}}, "sufficiency": {"enum": ["all-required", "any-sufficient"]}}}
+  }
+}

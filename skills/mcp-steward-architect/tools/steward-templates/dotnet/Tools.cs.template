@@ -1,0 +1,127 @@
+using Microsoft.AspNetCore.Authorization;
+using ModelContextProtocol.Server;
+using System.ComponentModel;
+using System.Security.Claims;
+
+namespace __NAMESPACE__.Mcp.Server;
+
+public sealed record StewardCapabilityDescriptor(
+    string Name,
+    string OperationKind,
+    bool Idempotent,
+    bool Durable,
+    string Outcome);
+
+public sealed record StewardCapabilityListResult(
+    IReadOnlyList<StewardCapabilityDescriptor> Capabilities,
+    int Count);
+
+[McpServerToolType]
+public sealed class StewardTools(StewardSeedRuntime runtime)
+{
+    private static readonly StewardCapabilityDescriptor[] Capabilities =
+    [
+        new("describe_capabilities", "read", true, false, "catalog"),
+        new("steward_submit", "write", true, true, "admitted-job"),
+        new("steward_status", "read", true, true, "operational-status"),
+        new("steward_get", "read", true, true, "evidence-completion-handoff"),
+        new("steward_cancel", "write", true, true, "cancellation-intent"),
+        new("steward_doctor", "read", true, true, "diagnostics"),
+    ];
+
+    [Authorize(Policy = "steward.read")]
+    [McpServerTool(
+        Name = "describe_capabilities",
+        ReadOnly = true,
+        Destructive = false,
+        Idempotent = true,
+        OpenWorld = false,
+        UseStructuredContent = true,
+        OutputSchemaType = typeof(StewardCapabilityListResult))]
+    [Description("Returns only the semantic durable Steward lifecycle exposed by this generated seed.")]
+    public StewardCapabilityListResult DescribeCapabilities(ClaimsPrincipal? principal)
+    {
+        _ = principal;
+        return new(Capabilities, Capabilities.Length);
+    }
+
+    [Authorize(Policy = "steward.write")]
+    [McpServerTool(
+        Name = "steward_submit",
+        ReadOnly = false,
+        Destructive = false,
+        Idempotent = true,
+        OpenWorld = false,
+        UseStructuredContent = true,
+        OutputSchemaType = typeof(StewardAdmission))]
+    [Description("Durably admits one idempotent Steward workflow and returns its stable job identity.")]
+    public StewardAdmission Submit(
+        ClaimsPrincipal? principal,
+        string subjectId,
+        string idempotencyKey,
+        string? subjectRevision = null)
+    {
+        _ = principal;
+        return runtime.Submit(subjectId, subjectRevision, idempotencyKey);
+    }
+
+    [Authorize(Policy = "steward.read")]
+    [McpServerTool(
+        Name = "steward_status",
+        ReadOnly = true,
+        Destructive = false,
+        Idempotent = true,
+        OpenWorld = false,
+        UseStructuredContent = true,
+        OutputSchemaType = typeof(StewardSeedJob))]
+    public StewardSeedJob Status(ClaimsPrincipal? principal, string jobId)
+    {
+        _ = principal;
+        return runtime.Status(jobId);
+    }
+
+    [Authorize(Policy = "steward.read")]
+    [McpServerTool(
+        Name = "steward_get",
+        ReadOnly = true,
+        Destructive = false,
+        Idempotent = true,
+        OpenWorld = false,
+        UseStructuredContent = true,
+        OutputSchemaType = typeof(StewardResult))]
+    public StewardResult Get(ClaimsPrincipal? principal, string jobId)
+    {
+        _ = principal;
+        return runtime.Get(jobId);
+    }
+
+    [Authorize(Policy = "steward.write")]
+    [McpServerTool(
+        Name = "steward_cancel",
+        ReadOnly = false,
+        Destructive = false,
+        Idempotent = true,
+        OpenWorld = false,
+        UseStructuredContent = true,
+        OutputSchemaType = typeof(StewardSeedJob))]
+    public StewardSeedJob Cancel(ClaimsPrincipal? principal, string jobId)
+    {
+        _ = principal;
+        return runtime.Cancel(jobId);
+    }
+
+    [Authorize(Policy = "steward.read")]
+    [McpServerTool(
+        Name = "steward_doctor",
+        ReadOnly = true,
+        Destructive = false,
+        Idempotent = true,
+        OpenWorld = false,
+        UseStructuredContent = true,
+        OutputSchemaType = typeof(StewardDoctorResult))]
+    public StewardDoctorResult Doctor(ClaimsPrincipal? principal, string? jobId = null)
+    {
+        _ = principal;
+        return runtime.Doctor(jobId);
+    }
+}

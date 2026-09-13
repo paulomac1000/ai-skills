@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://paulomac1000.github.io/ai-skills/contracts/steward-mutation-policy.schema.json",
+  "title": "StewardMutationPolicy",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "policy_id", "revision", "effects"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "policy_id": {"type": "string", "minLength": 1},
+    "revision": {"type": "integer", "minimum": 1},
+    "effects": {"type": "array", "minItems": 1, "maxItems": 256, "items": {"$ref": "#/$defs/effect"}}
+  },
+  "$defs": {
+    "effect": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "transition", "authority_source", "lease_required", "subject_dimensions", "candidate_required", "capability_ref", "durable_operation_required", "pre_dispatch_commit_required", "budget_reservation_required", "minimum_budget_ms", "ambiguity_disposition", "typed_outcomes"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "transition": {"type": "string", "minLength": 1},
+        "authority_source": {"type": "string", "minLength": 1},
+        "lease_required": {"type": "boolean"},
+        "subject_dimensions": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "candidate_required": {"type": "boolean"},
+        "capability_ref": {"type": "string", "minLength": 1},
+        "durable_operation_required": {"type": "boolean"},
+        "pre_dispatch_commit_required": {"type": "boolean"},
+        "budget_reservation_required": {"type": "boolean"},
+        "minimum_budget_ms": {"type": "integer", "minimum": 0},
+        "ambiguity_disposition": {"enum": ["block", "reconcile", "compensate", "none"]},
+        "typed_outcomes": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
+      }
+    }
+  }
+}

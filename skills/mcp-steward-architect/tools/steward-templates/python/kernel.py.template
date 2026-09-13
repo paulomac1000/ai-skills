@@ -1,0 +1,53 @@
+"""Application-owned Steward kernel behind the public MCP adapter."""
+
+from __future__ import annotations
+
+import json
+from typing import Any
+
+from .manifest import MANIFESTS
+from .security import current_principal
+from .steward_runtime import default_runtime
+
+
+def _bounded(capability_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    result = dict(payload)
+    result["_meta"] = {
+        "capability_id": capability_id,
+        "principal": current_principal(),
+    }
+    maximum = int(MANIFESTS[capability_id]["max_response_bytes"])
+    encoded = json.dumps(result, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    if len(encoded) > maximum:
+        raise RuntimeError(f"final response exceeds {maximum} bytes")
+    return result
+
+
+def describe_capabilities() -> dict[str, Any]:
+    return _bounded(
+        "describe_capabilities",
+        {"capabilities": [dict(MANIFESTS[key]) for key in sorted(MANIFESTS)]},
+    )
+
+
+def steward_submit(subject_id: str, subject_revision: str | None, idempotency_key: str) -> dict[str, Any]:
+    return _bounded(
+        "steward_submit",
+        default_runtime().submit(subject_id, subject_revision, idempotency_key),
+    )
+
+
+def steward_status(job_id: str) -> dict[str, Any]:
+    return _bounded("steward_status", default_runtime().status(job_id))
+
+
+def steward_get(job_id: str) -> dict[str, Any]:
+    return _bounded("steward_get", default_runtime().get(job_id))
+
+
+def steward_cancel(job_id: str) -> dict[str, Any]:
+    return _bounded("steward_cancel", default_runtime().cancel(job_id))
+
+
+def steward_doctor(job_id: str | None = None) -> dict[str, Any]:
+    return _bounded("steward_doctor", default_runtime().doctor(job_id))

@@ -1,0 +1,113 @@
+"""Official MCP SDK v2 adapter over the durable Steward application kernel."""
+
+from __future__ import annotations
+
+import os
+
+import uvicorn
+from mcp.server import MCPServer
+from starlette.requests import Request
+from starlette.responses import JSONResponse, Response
+
+from . import kernel
+from .security import BearerAuthMiddleware, require_http_token
+from .steward_runtime import default_runtime
+
+mcp = MCPServer("__SERVER_NAME__")
+_runtime = default_runtime()
+_runtime.start_background()
+
+
+@mcp.tool()
+def describe_capabilities() -> dict[str, object]:
+    """Return the governed Steward capability catalog."""
+    return kernel.describe_capabilities()
+
+
+@mcp.tool()
+def steward_submit(
+    subject_id: str,
+    idempotency_key: str,
+    subject_revision: str | None = None,
+) -> dict[str, object]:
+    """Durably admit one idempotent Steward workflow."""
+    return kernel.steward_submit(subject_id, subject_revision, idempotency_key)
+
+
+@mcp.tool()
+def steward_status(job_id: str) -> dict[str, object]:
+    """Return bounded operational state for one durable job."""
+    return kernel.steward_status(job_id)
+
+
+@mcp.tool()
+def steward_get(job_id: str) -> dict[str, object]:
+    """Return bounded evidence, Completion Gate evaluation, and terminal handoff."""
+    return kernel.steward_get(job_id)
+
+
+@mcp.tool()
+def steward_cancel(job_id: str) -> dict[str, object]:
+    """Persist cancellation intent for one durable job."""
+    return kernel.steward_cancel(job_id)
+
+
+@mcp.tool()
+def steward_doctor(job_id: str | None = None) -> dict[str, object]:
+    """Return bounded durable diagnostics and reconciliation state."""
+    return kernel.steward_doctor(job_id)
+
+
+@mcp.custom_route("/health/live", methods=["GET"])
+async def health_live(request: Request) -> Response:
+    del request
+    return JSONResponse({"status": "live"})
+
+
+@mcp.custom_route("/health/ready", methods=["GET"])
+async def health_ready(request: Request) -> Response:
+    del request
+    return JSONResponse({"status": "ready"})
+
+
+def build_http_app() -> BearerAuthMiddleware:
+    """Build the authenticated Streamable HTTP application."""
+    app = mcp.streamable_http_app(
+        host="127.0.0.1",
+        stateless_http=True,
+        json_response=True,
+        max_request_body_size=1024 * 1024,
+    )
+    return BearerAuthMiddleware(app, require_http_token())
+
+
+def _http_host() -> str:
+    host = os.environ.get("MCP_HTTP_HOST", "127.0.0.1")
+    if host in {"127.0.0.1", "::1", "localhost"}:
+        return host
+    if host == "0.0.0.0" and os.environ.get("MCP_CONTAINER_BIND") == "1":
+        return host
+    raise SystemExit(
+        "generated HTTP baseline is loopback-only; 0.0.0.0 is allowed only inside an explicitly isolated container network"
+    )
+
+
+def main() -> None:
+    """Run local stdio by default or authenticated Streamable HTTP."""
+    transport = os.environ.get("MCP_TRANSPORT", "stdio")
+    if transport == "stdio":
+        mcp.run()
+        return
+    if transport != "streamable-http":
+        raise SystemExit("MCP_TRANSPORT must be stdio or streamable-http")
+    try:
+        port = int(os.environ.get("MCP_HTTP_PORT", "8000"))
+    except ValueError as exc:
+        raise SystemExit("MCP_HTTP_PORT must be an integer") from exc
+    if not 1 <= port <= 65535:
+        raise SystemExit("MCP_HTTP_PORT must be from 1 to 65535")
+    uvicorn.run(build_http_app(), host=_http_host(), port=port, log_level="info")
+
+
+if __name__ == "__main__":
+    main()

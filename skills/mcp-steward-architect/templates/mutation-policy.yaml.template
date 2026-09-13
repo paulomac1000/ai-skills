@@ -1,0 +1,43 @@
+schema_version: 1
+policy_id: __STEWARD_ID__-mutation-policy
+revision: 1
+effects:
+  - id: external-dispatch
+    transition: dispatch-start
+    authority_source: steward-runtime
+    lease_required: false
+    subject_dimensions: [target]
+    candidate_required: false
+    capability_ref: __CAPABILITY_ID__
+    durable_operation_required: true
+    pre_dispatch_commit_required: true
+    budget_reservation_required: true
+    minimum_budget_ms: 1000
+    ambiguity_disposition: reconcile
+    typed_outcomes: [Admitted, LostAuthority, CapabilityUnavailable, ReconciliationRequired, BudgetUnavailable]
+  - id: cancellation-dispatch
+    transition: cancel-start
+    authority_source: steward-runtime
+    lease_required: false
+    subject_dimensions: [target]
+    candidate_required: false
+    capability_ref: __CAPABILITY_ID__
+    durable_operation_required: true
+    pre_dispatch_commit_required: true
+    budget_reservation_required: true
+    minimum_budget_ms: 1000
+    ambiguity_disposition: reconcile
+    typed_outcomes: [Admitted, LostAuthority, ReconciliationRequired, BudgetUnavailable]
+  - id: terminal-publication
+    transition: completion-publish
+    authority_source: completion-gate
+    lease_required: false
+    subject_dimensions: [target]
+    candidate_required: false
+    capability_ref: local:handoff@1
+    durable_operation_required: false
+    pre_dispatch_commit_required: false
+    budget_reservation_required: true
+    minimum_budget_ms: 100
+    ambiguity_disposition: block
+    typed_outcomes: [Admitted, StaleCandidate, InsufficientEvidence, ReconciliationRequired, BudgetUnavailable]
