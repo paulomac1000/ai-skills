@@ -12,3 +12,10 @@ if text.count(old) != 1:
     raise RuntimeError("patch helper drift: expected exactly one helper definition")
 PATCH.write_text(text.replace(old, new, 1), encoding="utf-8", newline="\n")
 runpy.run_path(str(PATCH), run_name="__main__")
+for relative in (
+    "skills/mcp-steward-architect/tools/steward-templates/python/test_steward_runtime.py.template",
+    "tests/test_mcp_steward_runtime_security.py",
+    "tests/test_mcp_steward_evidence_selectors.py",
+):
+    target = ROOT / relative
+    target.write_text(target.read_text(encoding="utf-8").rstrip() + "\n", encoding="utf-8", newline="\n")
