@@ -10,6 +10,8 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[1]
 SKILL = ROOT / "skills" / "mcp-steward-architect"
 
@@ -148,3 +150,37 @@ def test_stale_cancel_reconciliation_uses_original_submit_handle(tmp_path: Path)
         assert steward.run_once() is True
 
     assert provider.reconcile_cancel_handles == [original_submit_handle]
+
+
+def test_result_cannot_observe_completed_before_sealed_handoff(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runtime, _, _, _ = _generated_runtime(tmp_path)
+    clock = runtime.FakeClock(datetime(2026, 9, 13, tzinfo=UTC))
+    store = runtime.StewardStore(tmp_path / "terminal-read.db", clock)
+    job_id = store.admit({"id": "repo", "revision": "abc"}, "terminal-read-1")["jobId"]
+    initial = store.job(job_id)
+    completion = {"disposition": "eligible"}
+    handoff = {
+        "digest": "sha256:" + "a" * 64,
+        "candidate": initial["candidate"],
+    }
+
+    original_job = store.job
+    published = False
+
+    def publish_before_job_read(requested_job_id: str) -> dict[str, Any]:
+        nonlocal published
+        if not published:
+            store.save_terminal(job_id, completion, handoff)
+            published = True
+        return original_job(requested_job_id)
+
+    monkeypatch.setattr(store, "job", publish_before_job_read)
+
+    result = store.result(job_id)
+
+    assert published is True
+    assert result["job"]["status"] == "completed"
+    assert result["completion"] == completion
+    assert result["handoff"] == handoff
