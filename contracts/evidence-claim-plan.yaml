@@ -688,6 +688,41 @@ profiles:
     result_files:
     - repository-junit.xml
     execution_id: repository
+  - kind: rule
+    subject: steward.design.enforced
+    selectors:
+    - 'tests/test_mcp_steward_architect.py::test_generated_design_pack_is_cross_contract_valid'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: steward.mutation.admitted
+    selectors:
+    - 'tests/test_mcp_steward_architect.py::test_mutation_admission_fails_closed_on_authority_candidate_budget_and_ambiguity'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: steward.acceptance.layered
+    selectors:
+    - 'tests/test_mcp_steward_architect.py::test_production_acceptance_cannot_skip_independent_live_or_exact_full_path'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: steward.claim.bound
+    selectors:
+    - 'tests/test_mcp_steward_architect.py::test_completion_resolves_candidate_binding_producer_authority_and_freshness'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: steward.cancellation.reconciled
+    selectors:
+    - 'tests/test_mcp_steward_architect.py::test_generated_python_runtime_imports_recovers_cancels_and_does_not_hot_poll'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
   mcp-dotnet:
   - kind: transport
     subject: stdio:capability_listing
