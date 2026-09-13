@@ -24,7 +24,7 @@ The MCP invocation kernel remains the only public execution path. The Steward ap
 
 Every Steward MUST declare a bounded responsibility before tools are designed. The profile MUST distinguish at least state it owns, state it observes, mutations it may perform, verification authority it holds, parent/system completion authority it holds, and claims it MUST NOT make.
 
-Possession of an API key, successful model output, worker self-report, caller metadata, issue/PR prose, or provider display labels MUST NOT create authority. A Steward MAY finalize its own durable job but MUST NOT infer permission to close, merge, deploy, publish, approve, or complete a parent work item unless a separate explicit contract grants that authority.
+Possession of an API key, successful model output, worker self-report, caller metadata, issue/PR prose, provider display labels, or a caller-declared evidence/authority field MUST NOT create authority. A Steward MAY finalize its own durable job but MUST NOT infer permission to close, merge, deploy, publish, approve, verify independently, or complete a parent work item unless a separate explicit contract grants that authority.
 
 ## Durable job and state ownership
 
@@ -38,6 +38,10 @@ Terminal states MUST NOT transition back to active states. In-memory queues, cha
 
 Retrying one worker attempt and creating a new semantic generation are different operations. Recheck, refresh, replan, or replacement MUST atomically advance lineage generation when prior actionable results can become stale.
 
+Optimistic state versioning and semantic work invalidation are distinct concepts. A profile MAY use different field names, but it MUST NOT overload a generic mutable-state version as the work generation when doing so can let stale work inherit the current epoch. Ordinary state/version changes MAY advance optimistic ordering without invalidating admitted work; a semantic generation/work epoch advances when previously admitted work, results, or successor decisions must become stale.
+
+A worker or stage MUST capture the semantic generation under which it was admitted or claimed. Every successor enqueue, deferred continuation, projection, externally authorized side effect, completion candidate, and actionable artifact produced by that work MUST carry or be fenced by that captured generation. Persistence code MUST NOT silently substitute the subject's latest generation when a stale worker schedules a successor. If the captured generation is no longer current, successor creation or publication MUST fail closed or be recorded as stale/superseded; old work MUST NOT adopt a newer generation merely because that generation now exists.
+
 Every mutable state update MUST be fenced by the relevant job version and attempt identity. Every actionable terminal handoff MUST additionally be fenced by the current lineage generation/current job. A stale attempt or superseded generation MAY finish bounded cleanup but MUST NOT publish a current success/failure decision or mutate canonical state.
 
 Leases MUST have explicit owner, expiry, and fencing semantics. Lease expiry means recoverable ownership loss, not domain failure. Multi-process or multi-instance deployments MUST use storage primitives that actually serialize ownership; a process-local semaphore is insufficient.
@@ -50,7 +54,17 @@ The operational model MUST distinguish at least: not dispatched/not delivered, c
 
 `delivery-unknown` MUST enter bounded reconciliation. Stateful work MUST NOT be resent until provider semantics plus Steward policy establish that replay cannot duplicate an effect. A recovered remote handle MUST be resumed/polled instead of re-submitted when the upstream contract provides that path.
 
+Once the Steward has observed a provider-assigned remote identity or handle, a later failure to persist the normal local binding MUST NOT regress the operation to `not dispatched`, plain `reserved`, or another state that permits blind redispatch. The implementation MUST preserve a recoverable `dispatch observed / binding uncertain / reconcile required` fact through a crash-durable uncertainty record, provider-side idempotent lookup keyed by the durable attempt/operation identity, or an equivalent mechanism. Reconciliation MUST prefer the observed/recovered remote handle over starting replacement work.
+
 Remote calls MUST execute outside durable-store locks/transactions. Local reservation and post-call observation are separate durable transitions.
+
+## Canonical-first execution under retry
+
+Idempotent persistence of a row is not sufficient to make a multi-stage workflow retry-safe when a stage can compute non-deterministic or otherwise attempt-local output.
+
+When a stable stage/artifact identity already has a committed canonical result, a retry that proposes a different local result MUST converge on the committed canonical result. A persistence operation that deduplicates, loses a compare-and-swap race, or observes an existing artifact MUST return or reload the canonical persisted value/reference/digest, and every downstream decision MUST consume that canonical result. Continuing with an attempt-local value after `ON CONFLICT DO NOTHING`, duplicate suppression, CAS loss, or equivalent no-op is prohibited when that value can differ from canonical state.
+
+Successor jobs, evidence, gates, and handoffs derived from such a stage MUST bind the canonical artifact/reference/digest rather than the losing attempt's transient output. Recovery after a crash between artifact persistence and successor scheduling MUST rehydrate the canonical persisted artifact before continuing.
 
 ## Evidence identity and authority
 
@@ -74,13 +88,17 @@ The terminal handoff MUST be bounded and bind the exact subject, job/lineage/gen
 
 The final publication boundary MUST re-read current lineage/subject ownership and freshness immediately before sealing when those values are mutable.
 
-## Ports adapters and capability admission
+## Ports adapters capability admission and disclosure
 
 Domain and application code MUST NOT depend on MCP SDK types, provider SDKs, raw HTTP response shapes, database implementations, filesystem APIs, environment variables, or model-provider types. Inbound MCP/CLI/webhook surfaces are adapters over semantic application operations.
 
 Outbound ports MUST describe domain needs such as observation, mutation, reconciliation, verification, reasoning, evidence/artifact storage, durable state, credentials, time, audit, or telemetry rather than vendor names.
 
 Each external adapter MUST expose a reviewed capability contract describing the subject/target identities it can actually observe, evidence classes it can produce, stateless/stateful interaction model, synchronous/durable-async delivery, idempotency support, recovery/status/resume capabilities, cancellation semantics, progress semantics, credential affinity/scope, request/result bounds, concurrency/rate-limit scope, and confidentiality/egress constraints.
+
+For any outbound port that crosses a confidentiality or trust boundary, authorization to call the port and safety against prompt injection do not authorize disclosure of arbitrary input data. Raw inbound/domain objects containing unclassified, private, mixed, unknown, or caller-controlled fields MUST NOT be passed directly to external reasoning, research, review, or other disclosure-bearing adapters unless the type itself is explicitly defined as disclosure-safe. The application MUST construct an explicit policy-approved projection such as a publication-safe/disclosure-safe context before dispatch. Unknown or mixed disclosure state MUST fail closed unless policy explicitly permits a bounded redacted projection.
+
+Prompt-role separation, instruction quoting, schema validation, or a safe prompt envelope protects instruction semantics; it is not a privacy or egress boundary. Disclosure policy MUST run before the external call and SHOULD bind the approved projection to the intended provider/capability, subject identity, relevant generation/revision, and policy revision when those dimensions affect what may be sent.
 
 Adapters normalize provider-specific results into application-owned outcomes. They MUST NOT decide business policy, silently rotate credentials, or retry stateful work on their own.
 
@@ -101,6 +119,8 @@ Fallback attempts MUST be bounded and MUST prevent credential ping-pong.
 ## Progress deadlines budgets and finalization
 
 Worker/process liveness and semantic workflow progress are separate signals. Durable jobs MUST record `heartbeatAt`, `progressAt`, and a progress marker or sequence. `heartbeatAt` MUST NOT reset the semantic-progress watchdog or advance `progressAt` unless the underlying progress marker actually advances. Remote polling that repeatedly returns the same state is liveness, not progress.
+
+When clients are expected to observe long-running work, status/result surfaces SHOULD expose a stable state/progress revision or equivalent marker so a caller can distinguish new information from an identical repeat observation. Where the upstream/workflow can support it, the Steward SHOULD expose bounded server-side wait/long-poll or an explicit `retryAfter`/`nextPollAt`/next-action hint rather than forcing model turns whose only purpose is sleeping and re-reading unchanged state. An unchanged state/progress marker MUST NOT be counted as semantic progress merely because another status request occurred.
 
 The Steward MUST bound connect timeout, idle/progress timeout, operation deadline, parent deadline, retries, concurrency, external calls, and potentially unbounded output/artifacts. Token/cost/browser/research budgets are profile-specific but MUST be explicit when they can exhaust resources.
 
@@ -136,6 +156,10 @@ Expose outcomes and hide mechanics. Long-running Steward APIs normally provide s
 
 A public long-running start MUST return after durable admission rather than retaining one MCP request for the full workflow. Status/result responses MUST remain bounded and SHOULD return counts, stage, progress class, failure/gap codes, digests, next action, and references; large evidence, timelines, provider output, and artifacts use bounded pagination or explicit artifact retrieval.
 
+When a transition has preconditions already knowable from durable state or policy, the public/task-facing contract MUST make those preconditions discoverable before the caller is expected to attempt the transition. This includes applicable exact subject/revision/generation identity, lease/assignment identity, verification/completion profile, required authority class, and required evidence axes/fields. A caller MUST NOT have to discover a deterministic verification/completion contract only by repeatedly submitting mutations and interpreting prose errors.
+
+A rejected transition SHOULD return a typed unmet-precondition result identifying the authoritative expected value/reference and the safe next semantic action when disclosure policy permits it. Caller-declared metadata such as `evidenceAuthority=peer` MUST NOT satisfy an independent-authority requirement unless the authenticated/effective authority actually has that class.
+
 Long-lived durable state MUST NOT be mirrored into an ever-growing model conversation.
 
 ## Testing and acceptance
@@ -143,6 +167,12 @@ Long-lived durable state MUST NOT be mirrored into an ever-growing model convers
 Test state-machine and policy logic independently from transports and providers. Every safety/recovery invariant MUST have a negative regression. Use a controllable clock and deterministic barriers/events/fault points for races rather than timing sleeps.
 
 Coverage MUST include applicable crash windows around durable reservation, external dispatch, response/handle persistence, evidence persistence, finalization, and cancellation; restart/lost-wakeup recovery; duplicate idempotency; delivery-unknown/reconciliation; retry exhaustion; lease and stale-generation publication races; cancellation versus completion; deadline/finalization edges; credential fallback and denied fallback; malformed/stale/contradictory provider responses; corruption isolation; and multi-instance ownership when claimed.
+
+Applicable concurrency/retry coverage MUST additionally include: a stale worker attempting to enqueue a successor after the semantic generation advances; a non-deterministic retry proposing artifact B after artifact A already owns the stable identity and proving that all downstream work consumes canonical A; successful external dispatch/remote-handle observation followed by local binding-persistence failure; cancellation/invalidation racing with successor scheduling and final publication; and crash recovery between canonical artifact persistence and successor scheduling.
+
+Disclosure-bearing adapters MUST have negative tests with private/unknown sentinel data proving that blocked fields never reach the fake/provider boundary, including maintenance/recheck/recovery paths rather than only the primary happy path. Prompt-injection tests do not substitute for these egress tests.
+
+Long-running public-contract tests SHOULD prove that repeated identical status observations keep the same state/progress revision and do not masquerade as progress, and that any advertised server-side wait/next-poll hint is bounded. Transition-contract tests SHOULD prove that known exact-revision, lease, authority, verification-profile, and evidence requirements are discoverable before mutation and that false self-declared authority is rejected.
 
 Provider adapters MUST be tested against observed upstream-contract fixtures. Test source presence is not execution evidence: canonical gates MUST demonstrate discovery/execution of required cases and distinguish product failure, harness/infrastructure failure, not-executed, stale, partial, and unknown outcomes.
 
@@ -154,7 +184,7 @@ Historical sanitized incident replays SHOULD become regression fixtures for mean
 
 A Steward generator MUST extend the canonical MCP server generator rather than fork its transport/security/SDK templates. The generated project MUST contain a working durable architecture seed: semantic domain/application/ports/adapters separation, typed Steward profile, durable job/lineage model, external-operation receipt model, idempotent intake, scheduler/recovery hooks, controllable time/fake adapters, structured audit/diagnostics, credential-policy/proof-recipe/upstream-capability templates, and failure-injection scenarios.
 
-The generated baseline MUST demonstrate at least one durable workflow that can be admitted, interrupted after a durable checkpoint, restarted, recovered, and finalized without duplicate side effects. Generated scaffolding is architecture seed evidence only, never production acceptance.
+The generated baseline MUST demonstrate at least one durable workflow that can be admitted, interrupted after a durable checkpoint, restarted, recovered, and finalized without duplicate side effects. Its sample retry path MUST consume canonical persisted stage output after deduplication/retry, and its generation fencing MUST reject a stale worker that tries to create current-generation successors after invalidation. Generated scaffolding is architecture seed evidence only, never production acceptance.
 
 ## Verification
 
