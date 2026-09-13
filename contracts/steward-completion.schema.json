@@ -21,7 +21,7 @@
     "evaluatedAt": {"type": "string", "format": "date-time"}
   },
   "$defs": {
-    "identity": {"type": "object", "additionalProperties": false, "required": ["type", "id", "revision"], "properties": {"type": {"type": "string", "minLength": 1}, "id": {"type": "string", "minLength": 1}, "revision": {"type": ["string", "null"]}, "digest": {"type": ["string", "null"]}},
+    "identity": {"type": "object", "additionalProperties": false, "required": ["type", "id", "revision"], "properties": {"type": {"type": "string", "minLength": 1}, "id": {"type": "string", "minLength": 1}, "revision": {"type": ["string", "null"]}, "digest": {"type": ["string", "null"]}}},
     "candidate": {"type": "object", "additionalProperties": false, "required": ["type", "id", "revision", "digest"], "properties": {"type": {"type": "string", "minLength": 1}, "id": {"type": "string", "minLength": 1}, "revision": {"type": ["string", "null"]}, "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}}}
   }
 }
