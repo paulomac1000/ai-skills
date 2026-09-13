@@ -31,40 +31,42 @@ jobs:
           pattern = re.compile(
               r'(?ms)^    def result\(self, job_id: str\) -> dict\[str, Any\]:\n.*?(?=^    def audit\(self, job_id: str \| None\))'
           )
-          replacement = """    def result(self, job_id: str) -> dict[str, Any]:
-              # Read the job first. Terminal publication is monotonic: save_terminal commits
-              # completion, handoff and status=completed atomically, so once completed is
-              # observed, the sealed bundle must already be visible to later reads.
-              job = self.job(job_id)
-              terminal_publication = job["status"] == "completed"
-              with self._connect() as db:
-                  completion = None
-                  handoff = None
-                  if terminal_publication:
-                      completion = db.execute(
-                          "SELECT value_json FROM completion_evaluations WHERE job_id=?", (job_id,)
-                      ).fetchone()
-                      handoff = db.execute(
-                          "SELECT value_json FROM steward_handoffs WHERE job_id=?", (job_id,)
-                      ).fetchone()
-                  operations = [
-                      dict(row)
-                      for row in db.execute(
-                          "SELECT * FROM external_operations WHERE job_id=? ORDER BY created_at", (job_id,)
-                      ).fetchall()
-                  ]
-              if terminal_publication and (completion is None or handoff is None):
-                  raise RuntimeError("completed Steward job is missing its sealed completion/handoff bundle")
-              return {
-                  "job": job,
-                  "operations": operations,
-                  "evidence": self.evidence(job_id),
-                  "completion": None if completion is None else json.loads(completion[0]),
-                  "handoff": None if handoff is None else json.loads(handoff[0]),
-              }
-
-          """
-          text, count = pattern.subn(replacement, text, count=1)
+          replacement = "\n".join([
+              '    def result(self, job_id: str) -> dict[str, Any]:',
+              '        # Read the job first. Terminal publication is monotonic: save_terminal commits',
+              '        # completion, handoff and status=completed atomically, so once completed is',
+              '        # observed, the sealed bundle must already be visible to later reads.',
+              '        job = self.job(job_id)',
+              '        terminal_publication = job["status"] == "completed"',
+              '        with self._connect() as db:',
+              '            completion = None',
+              '            handoff = None',
+              '            if terminal_publication:',
+              '                completion = db.execute(',
+              '                    "SELECT value_json FROM completion_evaluations WHERE job_id=?", (job_id,)',
+              '                ).fetchone()',
+              '                handoff = db.execute(',
+              '                    "SELECT value_json FROM steward_handoffs WHERE job_id=?", (job_id,)',
+              '                ).fetchone()',
+              '            operations = [',
+              '                dict(row)',
+              '                for row in db.execute(',
+              '                    "SELECT * FROM external_operations WHERE job_id=? ORDER BY created_at", (job_id,)',
+              '                ).fetchall()',
+              '            ]',
+              '        if terminal_publication and (completion is None or handoff is None):',
+              '            raise RuntimeError("completed Steward job is missing its sealed completion/handoff bundle")',
+              '        return {',
+              '            "job": job,',
+              '            "operations": operations,',
+              '            "evidence": self.evidence(job_id),',
+              '            "completion": None if completion is None else json.loads(completion[0]),',
+              '            "handoff": None if handoff is None else json.loads(handoff[0]),',
+              '        }',
+              '',
+              '',
+          ])
+          text, count = pattern.subn(lambda _: replacement, text, count=1)
           if count != 1:
               raise SystemExit(f"expected exactly one StewardStore.result replacement, found {count}")
           path.write_text(text, encoding="utf-8")
