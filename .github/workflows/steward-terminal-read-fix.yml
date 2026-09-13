@@ -31,7 +31,7 @@ jobs:
           pattern = re.compile(
               r'(?ms)^    def result\(self, job_id: str\) -> dict\[str, Any\]:\n.*?(?=^    def audit\(self, job_id: str \| None\))'
           )
-          replacement = '''    def result(self, job_id: str) -> dict[str, Any]:
+          replacement = """    def result(self, job_id: str) -> dict[str, Any]:
               # Read the job first. Terminal publication is monotonic: save_terminal commits
               # completion, handoff and status=completed atomically, so once completed is
               # observed, the sealed bundle must already be visible to later reads.
@@ -63,7 +63,7 @@ jobs:
                   "handoff": None if handoff is None else json.loads(handoff[0]),
               }
 
-'''
+          """
           text, count = pattern.subn(replacement, text, count=1)
           if count != 1:
               raise SystemExit(f"expected exactly one StewardStore.result replacement, found {count}")
