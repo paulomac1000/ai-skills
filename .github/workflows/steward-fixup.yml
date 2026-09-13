@@ -225,6 +225,18 @@ jobs:
           if count != 1:
               raise SystemExit(f"C# RunOneDue/PrepareCancellation replacement count={count}")
           cs_path.write_text(cs, encoding="utf-8")
+
+          gen_path = Path("skills/mcp-steward-architect/tools/generate_steward.py")
+          gen = gen_path.read_text(encoding="utf-8")
+          patch_pattern = re.compile(r'(?ms)^def _patch_dotnet_runtime\(runtime: str\) -> str:\n.*?\n\n(?=def _patch_server_project)')
+          gen, count = patch_pattern.subn('', gen, count=1)
+          if count != 1:
+              raise SystemExit(f"obsolete generator runtime patch removal count={count}")
+          old_call = 'files[f"{server_root}/StewardSeedRuntime.cs"] = _patch_dotnet_runtime(runtime)'
+          new_call = 'files[f"{server_root}/StewardSeedRuntime.cs"] = runtime'
+          if gen.count(old_call) != 1:
+              raise SystemExit(f"runtime patch call replacement count={gen.count(old_call)}")
+          gen_path.write_text(gen.replace(old_call, new_call, 1), encoding="utf-8")
       - name: Format policy-critical Python
         run: python -m ruff format skills/mcp-steward-architect/tools/generate_steward.py skills/mcp-steward-architect/tools/validate_steward.py
       - name: Run Steward Python regression slice
@@ -232,10 +244,10 @@ jobs:
       - name: Generate and build Steward .NET artifact
         run: |
           rm -rf .steward-fixup-dotnet
-          python skills/mcp-steward-architect/tools/generate_steward.py .steward-fixup-dotnet --language dotnet --identity FixupSteward --server-name "Fixup Steward" --steward-id fixup --profile verification
+          python skills/mcp-steward-architect/tools/generate_steward.py .steward-fixup-dotnet --language dotnet --identity FixupSteward --name "Fixup Steward" --steward-id fixup --profile verification
           dotnet restore .steward-fixup-dotnet/FixupSteward.slnx --locked-mode
           dotnet build .steward-fixup-dotnet/FixupSteward.slnx --no-restore -warnaserror
-          dotnet run --project .steward-fixup-dotnet/src/FixupSteward.Mcp.Smoke --no-build -- .steward-fixup-dotnet/src/FixupSteward.Mcp.Server/bin/Debug/net10.0/FixupSteward.Mcp.Server.dll
+          dotnet run --project .steward-fixup-dotnet/tests/FixupSteward.Mcp.Smoke/FixupSteward.Mcp.Smoke.csproj --no-build -- .steward-fixup-dotnet/src/FixupSteward.Mcp.Server/bin/Debug/net10.0/FixupSteward.Mcp.Server.dll
       - name: Commit verified fixup
         run: |
           git config user.name "github-actions[bot]"
