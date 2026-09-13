@@ -16,6 +16,15 @@ def replace_once(path: str, old: str, new: str, label: str) -> None:
     target.write_text(text.replace(old, new, 1), encoding="utf-8", newline="\n")
 
 
+def replace_exact(path: str, old: str, new: str, expected: int, label: str) -> None:
+    target = ROOT / path
+    text = target.read_text(encoding="utf-8")
+    count = text.count(old)
+    if count != expected:
+        raise RuntimeError(f"{label}: expected {expected} matches, found {count}")
+    target.write_text(text.replace(old, new), encoding="utf-8", newline="\n")
+
+
 runtime = "skills/mcp-steward-architect/tools/steward-templates/dotnet/StewardSeedRuntime.cs.template"
 replace_once(
     runtime,
@@ -51,21 +60,16 @@ replace_once(
 )
 replace_once(
     smoke,
-    'binding = new { satisfied = new[] { "target" } },',
-    "binding = new { satisfied = ObservedTargetBinding },",
-    "dotnet smoke counting provider avoids array allocation",
-)
-replace_once(
-    smoke,
     "sealed class UnapprovedSeedProvider : ISeedProvider\n{",
     "sealed class UnapprovedSeedProvider : ISeedProvider\n{\n    private static readonly string[] ObservedTargetBinding = [\"target\"];",
     "dotnet smoke unapproved provider binding field",
 )
-replace_once(
+replace_exact(
     smoke,
     'binding = new { satisfied = new[] { "target" } },',
     "binding = new { satisfied = ObservedTargetBinding },",
-    "dotnet smoke unapproved provider avoids array allocation",
+    2,
+    "dotnet smoke providers avoid repeated array allocation",
 )
 
 print("Steward v3 dotnet quality refinements applied")
