@@ -25,7 +25,7 @@ jobs:
           dotnet-version: '10.0.302'
       - run: python scripts/install_locked.py
       - name: Apply fail-closed Steward enforcement patch
-        run: python scripts/_steward_v3_enforcement_patch2.py
+        run: python scripts/_steward_v3_enforcement_patch3.py
       - name: Format patched Python enforcement sources
         run: >-
           python -m ruff format
@@ -51,7 +51,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git rm scripts/_steward_v3_enforcement_patch.py scripts/_steward_v3_enforcement_patch2.py .github/workflows/steward-v3-enforcement-fix.yml
+          git rm scripts/_steward_v3_enforcement_patch.py scripts/_steward_v3_enforcement_patch2.py scripts/_steward_v3_enforcement_patch3.py .github/workflows/steward-v3-enforcement-fix.yml
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
