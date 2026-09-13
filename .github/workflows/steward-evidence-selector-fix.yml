@@ -72,8 +72,7 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add contracts/evidence-claim-plan.yaml .github/workflows/steward-evidence-selector-fix.yml
+          git add contracts/evidence-claim-plan.yaml
           git diff --cached --check
-          git diff --cached --exit-code -- . ':!contracts/evidence-claim-plan.yaml' ':!.github/workflows/steward-evidence-selector-fix.yml' || true
           git commit -m "fix(steward): bind evidence claims to JUnit identities"
           git push origin HEAD:feat/mcp-steward-architect
