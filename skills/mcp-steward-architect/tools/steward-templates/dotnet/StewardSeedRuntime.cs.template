@@ -20,10 +20,11 @@ public interface ISeedProvider
 
 public sealed class FakeSeedProvider : ISeedProvider
 {
+    private static readonly string[] ObservedTargetBinding = ["target"];
     public string ProducerId => "seed-provider";
     public string Dispatch(string operationId, StewardSubject subject) { _ = subject; return $"remote-{operationId}"; }
     public string Reconcile(string operationId, StewardSubject subject) { _ = subject; return $"remote-{operationId}"; }
-    public SeedPollResult Poll(string remoteHandle, StewardSubject subject) => new(true, JsonSerializer.SerializeToElement(new { state = "completed", remoteHandle, subject, revision = "terminal-1" }));
+    public SeedPollResult Poll(string remoteHandle, StewardSubject subject) => new(true, JsonSerializer.SerializeToElement(new { state = "completed", remoteHandle, subject, revision = "terminal-1", observation = new { producerId = ProducerId, observationGrade = "observed", authorityClass = "observed", binding = new { satisfied = ObservedTargetBinding }, coverage = new { required = 1, observed = 1 } } }));
     public string Cancel(string cancellationOperationId, string remoteHandle, StewardSubject subject) { _ = remoteHandle; _ = subject; return $"cancel-{cancellationOperationId}"; }
     public string ReconcileCancel(string cancellationOperationId, string remoteHandle, StewardSubject subject) { _ = remoteHandle; _ = subject; return $"cancel-{cancellationOperationId}"; }
 }
@@ -38,19 +39,20 @@ public sealed class SeedFaultInjector
 
 public sealed record StewardSubject(string Type, string Id, string? Revision);
 public sealed record StewardCandidate(string Type, string Id, string? Revision, string Digest);
+public sealed record StewardLease(string Owner, long FencingToken, DateTimeOffset ExpiresAt);
 public sealed record StewardSeedJob(
     string JobId, string LineageId, long Generation, string AttemptId, long Version,
     StewardSubject Subject, StewardCandidate Candidate, string RequestDigest, string Status, string Stage,
     string Cancellation, string? BlockedReason, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt,
     DateTimeOffset HeartbeatAt, DateTimeOffset ProgressAt, long ProgressRevision, string ProgressMarker,
-    DateTimeOffset DeadlineAt, DateTimeOffset? FinalizationStartsAt,
+    DateTimeOffset DeadlineAt, DateTimeOffset? FinalizationStartsAt, StewardLease? Lease,
     IReadOnlyList<string> EvidenceRefs, IReadOnlyList<string> ExternalOperationRefs);
 public sealed record StewardAdmission(string JobId, bool Duplicate);
 public sealed record StewardOperation(
-    string OperationId, string OperationKind, string JobId, string LineageId, long Generation, string AttemptId,
+    string OperationId, string OperationKind, string JobId, string LineageId, long Generation, string AttemptId, long JobVersion,
     string CapabilityIdentity, string CapabilityContractDigest, string TargetIdentity, string CandidateDigest,
     string RequestDigest, string State, string Delivery, string RetryDisposition, string CredentialSlotId,
-    string? RemoteHandle, JsonElement? Result, DateTimeOffset CreatedAt, DateTimeOffset ObservedAt, int ReconcileCount);
+    string? RemoteHandle, JsonElement? Result, DateTimeOffset CreatedAt, DateTimeOffset ObservedAt, int ReconcileCount, string? MutationDecisionRef);
 public sealed record StewardBinding(IReadOnlyList<string> Required, IReadOnlyList<string> Satisfied, string Status);
 public sealed record StewardCoverage(string State, int Required, int Observed);
 public sealed record StewardEvidence(
@@ -76,6 +78,9 @@ public sealed record StewardDoctorResult(StewardSeedJob? Job, int DeliveryUnknow
 internal sealed record SeedIdempotency(string RequestDigest, string JobId);
 internal sealed record SeedLineage(string CurrentJobId, long CurrentGeneration, StewardSubject Subject, StewardCandidate Candidate, long Version);
 internal sealed record SeedRequirement(string Id, bool Required, string EvidenceClass, string CanonicalClaim, string RequiredAuthority, int FreshnessSeconds, IReadOnlySet<string> ApprovedProducers, IReadOnlyList<string> BindingRequirements, string CoverageSemantics);
+internal sealed record SeedProducer(string Id, string AuthorityCeiling, IReadOnlySet<string> BindingRequirements, IReadOnlySet<string> SubjectDimensions);
+internal sealed record SeedMutationEffect(string Id, string AuthoritySource, bool LeaseRequired, bool CandidateRequired, string CapabilityRef, bool DurableOperationRequired, int MinimumBudgetMs);
+internal sealed record SeedCapability(string Id, string Source, string Revision, string Digest);
 internal sealed record SeedAction(string Kind, StewardSeedJob Job, StewardOperation Operation);
 
 internal sealed class StewardSeedState
@@ -97,10 +102,32 @@ internal sealed class SeedPolicy
     public required string RecipeId { get; init; }
     public required int ProofRevision { get; init; }
     public required IReadOnlyList<SeedRequirement> Requirements { get; init; }
+    public required IReadOnlyDictionary<string, SeedProducer> Producers { get; init; }
+    public required IReadOnlyDictionary<string, SeedMutationEffect> Effects { get; init; }
+    public required SeedCapability Capability { get; init; }
+
+    private static string CapabilityDigest(string source, string id, string revision)
+    {
+        var identity = new SortedDictionary<string, string>(StringComparer.Ordinal) { ["id"] = id, ["revision"] = revision, ["source"] = source };
+        return "sha256:" + Convert.ToHexStringLower(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(identity)));
+    }
+
     public static SeedPolicy Load(string profilePath, string proofPath)
     {
+        var root = Path.GetDirectoryName(Path.GetFullPath(profilePath)) ?? throw new InvalidOperationException("profile path has no directory");
+        var mutationPath = Path.Combine(root, "steward_mutation_policy.json");
+        var upstreamPath = Path.Combine(root, "steward_upstream_capability.json");
         using var profile = JsonDocument.Parse(File.ReadAllText(profilePath));
         using var proof = JsonDocument.Parse(File.ReadAllText(proofPath));
+        using var mutation = JsonDocument.Parse(File.ReadAllText(mutationPath));
+        using var upstream = JsonDocument.Parse(File.ReadAllText(upstreamPath));
+        var producerMap = proof.RootElement.GetProperty("producers").EnumerateArray().ToDictionary(
+            item => item.GetProperty("producer_id").GetString()!,
+            item => new SeedProducer(
+                item.GetProperty("producer_id").GetString()!, item.GetProperty("authority_ceiling").GetString()!,
+                item.GetProperty("binding_requirements").EnumerateArray().Select(value => value.GetString()!).ToHashSet(StringComparer.Ordinal),
+                item.GetProperty("subject_dimensions").EnumerateArray().Select(value => value.GetString()!).ToHashSet(StringComparer.Ordinal)),
+            StringComparer.Ordinal);
         var criteria = proof.RootElement.GetProperty("criteria").EnumerateArray().ToDictionary(item => item.GetProperty("criterion_id").GetString()!, item => item.Clone(), StringComparer.Ordinal);
         var requirements = new List<SeedRequirement>();
         foreach (var obligation in profile.RootElement.GetProperty("completion").GetProperty("obligations").EnumerateArray())
@@ -115,8 +142,26 @@ internal sealed class SeedPolicy
                 criterion.GetProperty("binding_requirements").EnumerateArray().Select(item => item.GetString()!).ToArray(),
                 criterion.GetProperty("coverage_semantics").GetString()!));
         }
+        var effects = mutation.RootElement.GetProperty("effects").EnumerateArray().ToDictionary(
+            item => item.GetProperty("id").GetString()!,
+            item => new SeedMutationEffect(
+                item.GetProperty("id").GetString()!, item.GetProperty("authority_source").GetString()!,
+                item.GetProperty("lease_required").GetBoolean(), item.GetProperty("candidate_required").GetBoolean(),
+                item.GetProperty("capability_ref").GetString()!, item.GetProperty("durable_operation_required").GetBoolean(),
+                item.GetProperty("minimum_budget_ms").GetInt32()), StringComparer.Ordinal);
+        var contract = upstream.RootElement.GetProperty("contract");
+        var capability = new SeedCapability(
+            upstream.RootElement.GetProperty("capability_id").GetString()!, contract.GetProperty("source").GetString()!,
+            contract.GetProperty("revision").GetString()!, contract.GetProperty("digest").GetString()!);
+        if (!string.Equals(contract.GetProperty("id").GetString(), capability.Id, StringComparison.Ordinal)
+            || !string.Equals(CapabilityDigest(capability.Source, capability.Id, capability.Revision), capability.Digest, StringComparison.Ordinal))
+            throw new InvalidOperationException("reviewed upstream capability contract identity/digest is invalid");
         var revision = proof.RootElement.GetProperty("revision").GetInt32();
-        return new() { ProfileRevision = profile.RootElement.GetProperty("steward").GetProperty("contract_revision").GetInt32(), RecipeId = $"{proof.RootElement.GetProperty("recipe_id").GetString()}@{revision}", ProofRevision = revision, Requirements = requirements };
+        return new() {
+            ProfileRevision = profile.RootElement.GetProperty("steward").GetProperty("contract_revision").GetInt32(),
+            RecipeId = $"{proof.RootElement.GetProperty("recipe_id").GetString()}@{revision}", ProofRevision = revision,
+            Requirements = requirements, Producers = producerMap, Effects = effects, Capability = capability,
+        };
     }
 }
 
@@ -124,7 +169,7 @@ public sealed class StewardSeedRuntime : IDisposable
 {
     private static readonly HashSet<string> Terminal = ["completed", "completed-with-gaps", "failed", "cancelled", "superseded"];
     private static readonly HashSet<string> Runnable = ["queued", "reconciling", "waiting-external", "cancelling", "finalizing"];
-    private static readonly IReadOnlyDictionary<string, int> AuthorityRank = new Dictionary<string, int>(StringComparer.Ordinal) { ["advisory"] = 0, ["observed"] = 1, ["verified"] = 2, ["independent"] = 3 };
+    private static readonly Dictionary<string, int> AuthorityRank = new(StringComparer.Ordinal) { ["advisory"] = 0, ["observed"] = 1, ["verified"] = 2, ["independent"] = 3 };
     private readonly object _gate = new();
     private readonly string _snapshotPath;
     private readonly FileStream _ownerLock;
@@ -173,8 +218,10 @@ public sealed class StewardSeedRuntime : IDisposable
                     if (_state.Operations.TryGetValue(opId, out var op) && op.State == "reserved" && op.Delivery == "not-delivered") _state.Operations[opId] = op with { State = "abandoned", ObservedAt = now };
                 AuditLocked(previous.JobId, "superseded", new Dictionary<string, string> { ["byJobId"] = jobId });
             }
-            var job = new StewardSeedJob(jobId, lineageId, generation, $"attempt-{Guid.NewGuid():N}", 0, subject, candidate, requestDigest,
-                "queued", "admitted", "none", null, now, now, now, now, 1, "admitted", now.AddMinutes(15), null, [], []);
+            var attemptId = $"attempt-{Guid.NewGuid():N}"; var deadline = now.AddMinutes(15);
+            var lease = new StewardLease($"steward-runtime:{attemptId}", generation, deadline);
+            var job = new StewardSeedJob(jobId, lineageId, generation, attemptId, 0, subject, candidate, requestDigest,
+                "queued", "admitted", "none", null, now, now, now, now, 1, "admitted", deadline, null, lease, [], []);
             _state.Jobs[jobId] = job;
             _state.Lineages[lineageId] = new(jobId, generation, subject, candidate, (lineage?.Version ?? -1) + 1);
             _state.Idempotency[idempotencyKey] = new(requestDigest, jobId);
@@ -246,10 +293,10 @@ public sealed class StewardSeedRuntime : IDisposable
                 {
                     var submit = OperationLocked(job.JobId, "submit");
                     if (submit is null) { ReserveOperationLocked(job, "submit"); SaveLocked(); _faults.Trip("after-reservation"); return true; }
-                    if (submit.Delivery == "not-delivered") { BeginDispatchLocked(submit.OperationId); SaveLocked(); action = new("dispatch", job, _state.Operations[submit.OperationId]); }
+                    if (submit.Delivery == "not-delivered") { if (!BeginDispatchLocked(submit.OperationId, "external-dispatch")) { SaveLocked(); return true; } SaveLocked(); action = new("dispatch", _state.Jobs[job.JobId], _state.Operations[submit.OperationId]); }
                     else if (submit.Delivery == "delivery-unknown") action = new("reconcile", job, submit);
                     else if (submit.Result is null) action = new("poll", job, submit);
-                    else if (!HasEvidenceLocked(job.JobId)) { PromoteOrBlockLocked(job, submit.Result.Value); SaveLocked(); return true; }
+                    else if (!HasEvidenceLocked(job.JobId)) { PromoteOrBlockLocked(job, submit, submit.Result.Value); SaveLocked(); return true; }
                     else if (job.Status == "finalizing") { FinalizeLocked(job); SaveLocked(); return true; }
                     else return false;
                 }
@@ -317,7 +364,7 @@ public sealed class StewardSeedRuntime : IDisposable
         }
         var cancel = OperationLocked(job.JobId, "cancel");
         if (cancel is null) { ReserveOperationLocked(job, "cancel", submit.OperationId); SaveLocked(); return null; }
-        if (cancel.Delivery == "not-delivered") { BeginDispatchLocked(cancel.OperationId); SaveLocked(); return new("cancel-dispatch", job, _state.Operations[cancel.OperationId]); }
+        if (cancel.Delivery == "not-delivered") { if (!BeginDispatchLocked(cancel.OperationId, "cancellation-dispatch")) { SaveLocked(); return null; } SaveLocked(); return new("cancel-dispatch", _state.Jobs[job.JobId], _state.Operations[cancel.OperationId]); }
         if (cancel.Delivery == "delivery-unknown") return new("cancel-reconcile", job, cancel);
         if (cancel.State == "captured") return null;
         throw new InvalidOperationException("unsupported cancellation state");
@@ -340,25 +387,64 @@ public sealed class StewardSeedRuntime : IDisposable
         RequireCurrentLocked(job);
         var id = $"operation-{Guid.NewGuid():N}"; var now = _clock.UtcNow;
         var requestDigest = submitOperationId ?? job.RequestDigest;
-        var op = new StewardOperation(id, kind, job.JobId, job.LineageId, job.Generation, job.AttemptId,
-            "seed-provider-result", "sha256:" + new string('0', 64), $"target:{job.Subject.Id}:{job.Subject.Revision ?? "none"}",
-            job.Candidate.Digest, requestDigest, "reserved", "not-delivered", "forbidden", "primary", null, null, now, now, 0);
+        var op = new StewardOperation(id, kind, job.JobId, job.LineageId, job.Generation, job.AttemptId, job.Version + 1,
+            _policy.Capability.Id, _policy.Capability.Digest, $"target:{job.Subject.Id}:{job.Subject.Revision ?? "none"}",
+            job.Candidate.Digest, requestDigest, "reserved", "not-delivered", "forbidden", "primary", null, null, now, now, 0, null);
         _state.Operations[id] = op;
         var refs = job.ExternalOperationRefs.Concat([id]).ToArray();
         _state.Jobs[job.JobId] = Advance(job with { ExternalOperationRefs = refs }, job.Status, $"{kind}-reserved", $"{kind}-reserved", cancellation: job.Cancellation);
-        AuditLocked(job.JobId, "external-reserved", new Dictionary<string, string> { ["operationId"] = id, ["kind"] = kind });
+        AuditLocked(job.JobId, "external-reserved", new Dictionary<string, string> { ["operationId"] = id, ["kind"] = kind, ["capabilityContractDigest"] = _policy.Capability.Digest });
     }
 
-    private void BeginDispatchLocked(string operationId)
+    private bool BeginDispatchLocked(string operationId, string effectId)
     {
-        var op = _state.Operations[operationId]; var job = CurrentJobLocked(op.JobId); RequireCurrentLocked(job);
-        if (op.State != "reserved" || op.Delivery != "not-delivered") throw new InvalidOperationException("mutation admission requires reserved/not-delivered operation");
-        if (job.DeadlineAt - _clock.UtcNow < TimeSpan.FromSeconds(1)) throw new InvalidOperationException("BudgetUnavailable");
-        _state.Operations[operationId] = op with { State = "dispatching", Delivery = "delivery-unknown", RetryDisposition = "reconcile-first", ObservedAt = _clock.UtcNow };
+        var op = _state.Operations[operationId]; var job = CurrentJobLocked(op.JobId);
+        var decision = EvaluateMutationLocked(effectId, job, op, "steward-runtime");
+        if (decision != "Admitted")
+        {
+            var reason = $"mutation-admission:{decision}";
+            _state.Jobs[job.JobId] = Advance(job, "blocked", "mutation-admission-rejected", reason, cancellation: job.Cancellation, blockedReason: reason);
+            AuditLocked(job.JobId, "mutation-admission-rejected", new Dictionary<string, string> { ["operationId"] = operationId, ["effect"] = effectId, ["disposition"] = decision });
+            return false;
+        }
+        var decisionRef = $"admission-{Guid.NewGuid():N}";
+        _state.Operations[operationId] = op with { State = "dispatching", Delivery = "delivery-unknown", RetryDisposition = "reconcile-first", ObservedAt = _clock.UtcNow, MutationDecisionRef = decisionRef };
         var status = op.OperationKind == "cancel" ? "cancelling" : "reconciling";
         var cancellation = op.OperationKind == "cancel" ? "reconciling" : job.Cancellation;
         _state.Jobs[job.JobId] = Advance(job, status, $"{op.OperationKind}-dispatch-started", $"{op.OperationKind}-dispatch-started", cancellation: cancellation);
-        AuditLocked(job.JobId, "dispatch-started", new Dictionary<string, string> { ["operationId"] = operationId, ["kind"] = op.OperationKind });
+        AuditLocked(job.JobId, "mutation-admitted", new Dictionary<string, string> { ["operationId"] = operationId, ["effect"] = effectId, ["decisionRef"] = decisionRef });
+        return true;
+    }
+
+    private string EvaluateMutationLocked(string effectId, StewardSeedJob job, StewardOperation? operation, string actualSource)
+    {
+        if (!_policy.Effects.TryGetValue(effectId, out var effect)) return "CapabilityUnavailable";
+        if (!IsCurrentLocked(job)) return "LostAuthority";
+        var cancellationDispatch = effectId == "cancellation-dispatch";
+        var cancellationFenced = job.Cancellation is "requested" or "fenced" or "reconciling";
+        if (Terminal.Contains(job.Status) || (!cancellationDispatch && cancellationFenced)) return "LostAuthority";
+        if (cancellationDispatch && job.Cancellation is not ("requested" or "reconciling")) return "LostAuthority";
+        if (!string.Equals(actualSource, effect.AuthoritySource, StringComparison.Ordinal)) return "LostAuthority";
+        if (effect.LeaseRequired)
+        {
+            var expectedOwner = $"steward-runtime:{job.AttemptId}";
+            if (job.Lease is null || job.Lease.Owner != expectedOwner || job.Lease.FencingToken != job.Generation || job.Lease.ExpiresAt <= _clock.UtcNow)
+                return "LostAuthority";
+        }
+        if (effect.CandidateRequired && string.IsNullOrWhiteSpace(job.Candidate.Digest)) return "StaleCandidate";
+        if (job.DeadlineAt - _clock.UtcNow < TimeSpan.FromMilliseconds(effect.MinimumBudgetMs)) return "BudgetUnavailable";
+        if (effect.DurableOperationRequired)
+        {
+            if (operation is null || operation.State != "reserved" || operation.Delivery != "not-delivered") return "ReconciliationRequired";
+            if (operation.JobId != job.JobId || operation.Generation != job.Generation || operation.AttemptId != job.AttemptId || operation.JobVersion != job.Version)
+                return "LostAuthority";
+            if (operation.CandidateDigest != job.Candidate.Digest) return "StaleCandidate";
+            if (operation.CapabilityIdentity != effect.CapabilityRef || operation.CapabilityIdentity != _policy.Capability.Id
+                || operation.CapabilityContractDigest != _policy.Capability.Digest) return "CapabilityUnavailable";
+            var target = $"target:{job.Subject.Id}:{job.Subject.Revision ?? "none"}";
+            if (operation.TargetIdentity != target) return "LostAuthority";
+        }
+        return "Admitted";
     }
 
     private void BindDispatchLocked(string operationId, string handle, bool cancellationConfirmed)
@@ -405,23 +491,58 @@ public sealed class StewardSeedRuntime : IDisposable
         AuditLocked(op.JobId, "late-result-discarded", new Dictionary<string, string> { ["operationId"] = operationId });
     }
 
-    private void PromoteOrBlockLocked(StewardSeedJob job, JsonElement payload)
+    private void PromoteOrBlockLocked(StewardSeedJob job, StewardOperation operation, JsonElement payload)
     {
         var added = false;
+        if (!payload.TryGetProperty("observation", out var observation)
+            || !observation.TryGetProperty("producerId", out var producerIdElement)
+            || !observation.TryGetProperty("authorityClass", out var authorityElement)
+            || !observation.TryGetProperty("observationGrade", out var gradeElement)
+            || !observation.TryGetProperty("binding", out var bindingElement)
+            || !observation.TryGetProperty("coverage", out var coverageElement))
+        {
+            BlockObservationLocked(job); return;
+        }
+        var producerId = producerIdElement.GetString() ?? string.Empty;
+        if (!string.Equals(producerId, _provider.ProducerId, StringComparison.Ordinal) || !_policy.Producers.TryGetValue(producerId, out var producer))
+        {
+            BlockObservationLocked(job); return;
+        }
+        var claimedAuthority = authorityElement.GetString() ?? string.Empty;
+        if (!AuthorityRank.TryGetValue(claimedAuthority, out var claimedRank) || !AuthorityRank.TryGetValue(producer.AuthorityCeiling, out var ceilingRank))
+        {
+            BlockObservationLocked(job); return;
+        }
+        var actualAuthority = AuthorityRank.First(item => item.Value == Math.Min(claimedRank, ceilingRank)).Key;
+        var observedSatisfied = bindingElement.GetProperty("satisfied").EnumerateArray().Select(item => item.GetString()!).ToHashSet(StringComparer.Ordinal);
+        if (operation.CandidateDigest == job.Candidate.Digest) observedSatisfied.Add("candidate");
+        var requiredCoverage = coverageElement.GetProperty("required").GetInt32();
+        var observedCoverage = coverageElement.GetProperty("observed").GetInt32();
+        if (requiredCoverage < 1 || observedCoverage < 0 || observedCoverage > requiredCoverage) { BlockObservationLocked(job); return; }
+        var coverageState = observedCoverage >= requiredCoverage ? "complete" : observedCoverage > 0 ? "partial" : "unknown";
         foreach (var req in _policy.Requirements)
         {
-            if (req.ApprovedProducers.Count > 0 && !req.ApprovedProducers.Contains(_provider.ProducerId)) continue;
+            if (req.ApprovedProducers.Count > 0 && !req.ApprovedProducers.Contains(producerId)) continue;
             var observed = _clock.UtcNow; var id = $"evidence-{Guid.NewGuid():N}";
-            var binding = new StewardBinding(req.BindingRequirements, req.BindingRequirements, "complete");
+            var satisfied = req.BindingRequirements.Where(observedSatisfied.Contains).ToArray();
+            var bindingStatus = req.BindingRequirements.All(observedSatisfied.Contains) ? "complete" : satisfied.Length > 0 ? "partial" : "unknown";
+            var binding = new StewardBinding(req.BindingRequirements, satisfied, bindingStatus);
             var evidence = new StewardEvidence(id, job.JobId, job.LineageId, job.Generation, job.Subject, job.Candidate, req.Id, req.CanonicalClaim,
-                req.EvidenceClass, "observed", req.RequiredAuthority, _provider.ProducerId, _policy.RecipeId, binding,
-                new StewardCoverage("complete", 1, 1), observed, observed.AddSeconds(req.FreshnessSeconds), Digest(payload));
+                req.EvidenceClass, gradeElement.GetString() ?? "unknown", actualAuthority, producerId, _policy.RecipeId, binding,
+                new StewardCoverage(coverageState, requiredCoverage, observedCoverage), observed, observed.AddSeconds(req.FreshnessSeconds), Digest(payload));
             _state.Evidence[id] = evidence; job = job with { EvidenceRefs = job.EvidenceRefs.Concat([id]).ToArray() }; added = true;
-            AuditLocked(job.JobId, "evidence-persisted", new Dictionary<string, string> { ["evidenceId"] = id, ["claimId"] = req.CanonicalClaim });
+            AuditLocked(job.JobId, "evidence-persisted", new Dictionary<string, string> { ["evidenceId"] = id, ["claimId"] = req.CanonicalClaim,
+                ["authorityClass"] = actualAuthority, ["bindingStatus"] = bindingStatus, ["coverageState"] = coverageState });
         }
         _state.Jobs[job.JobId] = added ? Advance(job, "finalizing", "evidence-persisted", "evidence-persisted", cancellation: job.Cancellation)
             : Advance(job, "blocked", "blocked", "blocked:terminal-observation-insufficient-authority", cancellation: job.Cancellation, blockedReason: "terminal-observation-insufficient-authority");
         if (!added) AuditLocked(job.JobId, "blocked", new Dictionary<string, string> { ["reason"] = "terminal-observation-insufficient-authority" });
+    }
+
+    private void BlockObservationLocked(StewardSeedJob job)
+    {
+        _state.Jobs[job.JobId] = Advance(job, "blocked", "blocked", "blocked:terminal-observation-insufficient-authority", cancellation: job.Cancellation, blockedReason: "terminal-observation-insufficient-authority");
+        AuditLocked(job.JobId, "blocked", new Dictionary<string, string> { ["reason"] = "terminal-observation-insufficient-authority" });
     }
 
     private StewardCompletionEvaluation EvaluateCompletionLocked(StewardSeedJob job)
@@ -463,13 +584,22 @@ public sealed class StewardSeedRuntime : IDisposable
             _state.Jobs[job.JobId] = Advance(job, "blocked", "blocked", "blocked:completion-obligations-unresolved", cancellation: job.Cancellation, blockedReason: "completion-obligations-unresolved");
             return;
         }
+        var publicationAdmission = EvaluateMutationLocked("terminal-publication", job, null, "completion-gate");
+        if (publicationAdmission != "Admitted")
+        {
+            var reason = $"mutation-admission:{publicationAdmission}";
+            _state.Jobs[job.JobId] = Advance(job, "blocked", "mutation-admission-rejected", reason, cancellation: job.Cancellation, blockedReason: reason);
+            AuditLocked(job.JobId, "mutation-admission-rejected", new Dictionary<string, string> { ["effect"] = "terminal-publication", ["disposition"] = publicationAdmission });
+            return;
+        }
+        var publicationDecisionRef = $"admission-{Guid.NewGuid():N}";
         var handoff = CreateHandoff(job, completion);
         if (_faults.Trip("before-terminal-publication")) return;
         var lineage = _state.Lineages[job.LineageId];
         if (lineage.CurrentJobId != job.JobId || lineage.CurrentGeneration != job.Generation || lineage.Candidate != job.Candidate) throw new InvalidOperationException("stale lineage/candidate publication");
         _state.Completions[job.JobId] = completion; _state.Handoffs[job.JobId] = handoff;
         _state.Jobs[job.JobId] = Advance(job, "completed", "completed", "completed", cancellation: job.Cancellation);
-        AuditLocked(job.JobId, "handoff-sealed", new Dictionary<string, string> { ["digest"] = handoff.Digest, ["candidate"] = handoff.Candidate.Digest });
+        AuditLocked(job.JobId, "handoff-sealed", new Dictionary<string, string> { ["digest"] = handoff.Digest, ["candidate"] = handoff.Candidate.Digest, ["mutationDecisionRef"] = publicationDecisionRef });
     }
 
     private StewardHandoff CreateHandoff(StewardSeedJob job, StewardCompletionEvaluation completion)
@@ -486,7 +616,7 @@ public sealed class StewardSeedRuntime : IDisposable
         return "sha256:" + Sha256Hex(JsonSerializer.SerializeToUtf8Bytes(unsigned));
     }
 
-    private StewardSeedJob Advance(StewardSeedJob job, string status, string stage, string marker, string cancellation, string? blockedReason = null) => job with { Version = job.Version + 1, Status = status, Stage = stage, Cancellation = cancellation, BlockedReason = blockedReason, UpdatedAt = _clock.UtcNow, HeartbeatAt = _clock.UtcNow, ProgressAt = _clock.UtcNow, ProgressRevision = job.ProgressRevision + 1, ProgressMarker = marker };
+    private StewardSeedJob Advance(StewardSeedJob job, string status, string stage, string marker, string cancellation, string? blockedReason = null) => job with { Version = job.Version + 1, Status = status, Stage = stage, Cancellation = cancellation, BlockedReason = blockedReason, Lease = Terminal.Contains(status) ? null : job.Lease, UpdatedAt = _clock.UtcNow, HeartbeatAt = _clock.UtcNow, ProgressAt = _clock.UtcNow, ProgressRevision = job.ProgressRevision + 1, ProgressMarker = marker };
     private StewardSeedJob? NextJobLocked() => _state.Jobs.Values.Where(item => Runnable.Contains(item.Status)).OrderBy(item => item.CreatedAt).ThenBy(item => item.JobId, StringComparer.Ordinal).FirstOrDefault();
     private StewardOperation? OperationLocked(string jobId, string kind) => _state.Operations.Values.Where(item => item.JobId == jobId && item.OperationKind == kind).OrderBy(item => item.CreatedAt).FirstOrDefault();
     private StewardOperation OperationById(string id) => _state.Operations.TryGetValue(id, out var op) ? op : throw new KeyNotFoundException(id);
@@ -501,7 +631,7 @@ public sealed class StewardSeedRuntime : IDisposable
     {
         if (!File.Exists(_snapshotPath)) return new();
         try { return JsonSerializer.Deserialize<StewardSeedState>(File.ReadAllText(_snapshotPath)) ?? throw new JsonException("null Steward snapshot"); }
-        catch (JsonException) { var quarantine = _snapshotPath + $".corrupt-{DateTimeOffset.UtcNow:yyyyMMddHHmmssfff}"; File.Move(_snapshotPath, quarantine); return new(); }
+        catch (JsonException exc) { var quarantine = _snapshotPath + $".corrupt-{DateTimeOffset.UtcNow:yyyyMMddHHmmssfff}"; File.Move(_snapshotPath, quarantine); throw new InvalidDataException($"STORE_CORRUPT / OPERATOR_RECOVERY_REQUIRED: canonical snapshot quarantined at {quarantine}", exc); }
     }
 
     private void SaveLocked()

@@ -39,6 +39,12 @@ static void VerifyStewardSeed()
             if (result.Job.Status != "completed" || result.Completion?.Disposition != "eligible") throw new InvalidOperationException("Restart recovery/completion gate failed.");
             if (result.Job.ProgressRevision < 1 || result.Job.DeadlineAt <= result.Job.CreatedAt) throw new InvalidOperationException("Durable progress/deadline contract missing.");
             if (result.Handoff is null || result.Handoff.Candidate != result.Job.Candidate || !StewardSeedRuntime.VerifyHandoffDigest(result.Handoff)) throw new InvalidOperationException("Candidate-bound handoff verification failed.");
+            using var upstreamDoc = JsonDocument.Parse(File.ReadAllText(Path.GetFullPath("src/__NAMESPACE__.Mcp.Server/steward_upstream_capability.json")));
+            var expectedCapability = upstreamDoc.RootElement.GetProperty("capability_id").GetString();
+            var expectedDigest = upstreamDoc.RootElement.GetProperty("contract").GetProperty("digest").GetString();
+            var submitOperation = result.Operations.Single(item => item.OperationKind == "submit");
+            if (submitOperation.CapabilityIdentity != expectedCapability || submitOperation.CapabilityContractDigest != expectedDigest || string.IsNullOrWhiteSpace(submitOperation.MutationDecisionRef))
+                throw new InvalidOperationException("Mutation receipt is not bound to the reviewed capability contract/admission decision.");
         }
 
         var cancelProvider = new CountingSeedProvider();
@@ -62,6 +68,13 @@ static void VerifyStewardSeed()
             if (cancelProvider.CancelCount == 0 && cancelProvider.CancelReconcileCount == 0)
                 throw new InvalidOperationException("Stateful cancellation never crossed provider/reconciliation boundary.");
         }
+
+        var corruptRoot = Path.Combine(root, "corrupt"); Directory.CreateDirectory(corruptRoot);
+        File.WriteAllText(Path.Combine(corruptRoot, "steward-state.json"), "{ definitely-not-json");
+        var corruptProvider = new CountingSeedProvider(); var corruptRejected = false;
+        try { using var _ = new StewardSeedRuntime(corruptRoot, clock, corruptProvider, new SeedFaultInjector(), profile, proof); }
+        catch (InvalidDataException exc) when (exc.Message.Contains("STORE_CORRUPT", StringComparison.Ordinal)) { corruptRejected = true; }
+        if (!corruptRejected || corruptProvider.DispatchCount != 0) throw new InvalidOperationException("Corrupt canonical state did not fail closed before external mutation.");
 
         var blockedProvider = new UnapprovedSeedProvider();
         using (var blocked = new StewardSeedRuntime(Path.Combine(root, "blocked"), clock, blockedProvider, new SeedFaultInjector(), profile, proof))
@@ -156,6 +169,7 @@ static string Text(JsonElement root, string camel, string pascal) => Object(root
 
 sealed class CountingSeedProvider : ISeedProvider
 {
+    private static readonly string[] ObservedTargetBinding = ["target"];
     public int DispatchCount { get; private set; }
     public int PollCount { get; private set; }
     public int CancelCount { get; private set; }
@@ -163,18 +177,19 @@ sealed class CountingSeedProvider : ISeedProvider
     public string ProducerId => "seed-provider";
     public string Dispatch(string operationId, StewardSubject subject) { _ = subject; DispatchCount++; return $"remote-{operationId}"; }
     public string Reconcile(string operationId, StewardSubject subject) { _ = subject; return $"remote-{operationId}"; }
-    public SeedPollResult Poll(string remoteHandle, StewardSubject subject) { PollCount++; return new(true, JsonSerializer.SerializeToElement(new { state = "completed", remoteHandle, subject, revision = "terminal-1" })); }
+    public SeedPollResult Poll(string remoteHandle, StewardSubject subject) { PollCount++; return new(true, JsonSerializer.SerializeToElement(new { state = "completed", remoteHandle, subject, revision = "terminal-1", observation = new { producerId = ProducerId, observationGrade = "observed", authorityClass = "observed", binding = new { satisfied = ObservedTargetBinding }, coverage = new { required = 1, observed = 1 } } })); }
     public string Cancel(string cancellationOperationId, string remoteHandle, StewardSubject subject) { _ = remoteHandle; _ = subject; CancelCount++; return $"cancel-{cancellationOperationId}"; }
     public string ReconcileCancel(string cancellationOperationId, string remoteHandle, StewardSubject subject) { _ = remoteHandle; _ = subject; CancelReconcileCount++; return $"cancel-{cancellationOperationId}"; }
 }
 
 sealed class UnapprovedSeedProvider : ISeedProvider
 {
+    private static readonly string[] ObservedTargetBinding = ["target"];
     public int PollCount { get; private set; }
     public string ProducerId => "unapproved-provider";
     public string Dispatch(string operationId, StewardSubject subject) { _ = subject; return $"remote-{operationId}"; }
     public string Reconcile(string operationId, StewardSubject subject) { _ = subject; return $"remote-{operationId}"; }
-    public SeedPollResult Poll(string remoteHandle, StewardSubject subject) { PollCount++; return new(true, JsonSerializer.SerializeToElement(new { state = "completed", remoteHandle, subject })); }
+    public SeedPollResult Poll(string remoteHandle, StewardSubject subject) { PollCount++; return new(true, JsonSerializer.SerializeToElement(new { state = "completed", remoteHandle, subject, observation = new { producerId = ProducerId, observationGrade = "observed", authorityClass = "observed", binding = new { satisfied = ObservedTargetBinding }, coverage = new { required = 1, observed = 1 } } })); }
     public string Cancel(string cancellationOperationId, string remoteHandle, StewardSubject subject) { _ = remoteHandle; _ = subject; return $"cancel-{cancellationOperationId}"; }
     public string ReconcileCancel(string cancellationOperationId, string remoteHandle, StewardSubject subject) { _ = remoteHandle; _ = subject; return $"cancel-{cancellationOperationId}"; }
 }

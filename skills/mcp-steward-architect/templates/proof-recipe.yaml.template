@@ -8,6 +8,7 @@ producers:
     subject_dimensions: [target]
     claim_classes: [__CRITERION_ID__]
     binding_requirements: [target]
+    authority_ceiling: observed
     independence: external
 criteria:
   - criterion_id: __CRITERION_ID__

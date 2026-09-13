@@ -7,19 +7,20 @@ from pathlib import Path
 from __PACKAGE__.steward_runtime import FakeClock, FakeProvider, FaultInjector, StewardRuntime, StewardStore, compute_handoff_digest
 
 
-def _docs() -> tuple[dict[str, object], dict[str, object], dict[str, object]]:
+def _docs() -> tuple[dict[str, object], dict[str, object], dict[str, object], dict[str, object]]:
     root = Path(__file__).resolve().parents[1] / "src" / "__PACKAGE__"
     return (
         json.loads((root / "steward_profile.json").read_text(encoding="utf-8")),
         json.loads((root / "steward_proof_recipe.json").read_text(encoding="utf-8")),
+        json.loads((root / "steward_mutation_policy.json").read_text(encoding="utf-8")),
         json.loads((root / "steward_upstream_capability.json").read_text(encoding="utf-8")),
     )
 
 
 def _runtime(path: Path, *, faults: set[str] | None = None, provider: FakeProvider | None = None) -> StewardRuntime:
-    profile, proof, upstream = _docs()
+    profile, proof, mutation, upstream = _docs()
     return StewardRuntime(
-        StewardStore(path, FakeClock(datetime(2026, 1, 1, tzinfo=UTC))), profile, proof,
+        StewardStore(path, FakeClock(datetime(2026, 1, 1, tzinfo=UTC))), profile, proof, mutation,
         upstream=upstream, faults=FaultInjector(faults), provider=provider,
     )
 

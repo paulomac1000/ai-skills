@@ -188,7 +188,7 @@ def _mutation_policy_document(steward_id: str, capability_id: str) -> dict[str, 
                 "id": "external-dispatch",
                 "transition": "dispatch-start",
                 "authority_source": "steward-runtime",
-                "lease_required": False,
+                "lease_required": True,
                 "subject_dimensions": ["target"],
                 "candidate_required": True,
                 "capability_ref": capability_id,
@@ -210,7 +210,7 @@ def _mutation_policy_document(steward_id: str, capability_id: str) -> dict[str, 
                 "id": "cancellation-dispatch",
                 "transition": "cancel-start",
                 "authority_source": "steward-runtime",
-                "lease_required": False,
+                "lease_required": True,
                 "subject_dimensions": ["target"],
                 "candidate_required": True,
                 "capability_ref": capability_id,
@@ -265,6 +265,7 @@ def _proof_recipe_document(steward_id: str) -> dict[str, Any]:
                 "subject_dimensions": ["target"],
                 "claim_classes": ["provider-result"],
                 "binding_requirements": ["target", "candidate"],
+                "authority_ceiling": "observed",
                 "independence": "external",
             }
         ],
@@ -596,6 +597,14 @@ def _publish_no_replace(language: str, staging: Path, destination: Path) -> None
     rename(staging, destination)
 
 
+def _reject_symlink_components(path: Path) -> None:
+    canonical = _base_generator("python")
+    guard = getattr(canonical, "_reject_symlink_components", None)
+    if not callable(guard):
+        raise RuntimeError("canonical MCP generator symlink-confinement primitive is unavailable")
+    guard(path)
+
+
 def generate_project(
     destination: Path, *, language: str, identity: str, server_name: str, steward_id: str, profile: str
 ) -> list[Path]:
@@ -603,9 +612,15 @@ def generate_project(
     expanded = destination.expanduser()
     if os.path.lexists(expanded):
         raise FileExistsError(expanded)
+    _reject_symlink_components(expanded)
     parent = expanded.parent.resolve(strict=False)
     parent.mkdir(parents=True, exist_ok=True)
+    _reject_symlink_components(expanded)
+    if not parent.is_dir():
+        raise ValueError("destination parent must be a regular directory")
     destination = parent / expanded.name
+    if os.path.lexists(destination):
+        raise FileExistsError(destination)
     staging = Path(tempfile.mkdtemp(prefix=f".{destination.name}.", dir=parent))
     published = False
     try:

@@ -5,7 +5,7 @@ effects:
   - id: external-dispatch
     transition: dispatch-start
     authority_source: steward-runtime
-    lease_required: false
+    lease_required: true
     subject_dimensions: [target]
     candidate_required: false
     capability_ref: __CAPABILITY_ID__
@@ -18,7 +18,7 @@ effects:
   - id: cancellation-dispatch
     transition: cancel-start
     authority_source: steward-runtime
-    lease_required: false
+    lease_required: true
     subject_dimensions: [target]
     candidate_required: false
     capability_ref: __CAPABILITY_ID__

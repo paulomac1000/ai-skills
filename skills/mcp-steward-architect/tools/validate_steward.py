@@ -78,6 +78,11 @@ def _timestamp_findings(kind: str, value: dict[str, Any]) -> list[str]:
             _parse_timestamp(str(timestamp))
         except ValueError as exc:
             findings.append(f"schema:{field}: {exc}")
+    if kind == "job" and isinstance(value.get("lease"), dict):
+        try:
+            _parse_timestamp(str(value["lease"].get("expiresAt", "")))
+        except ValueError as exc:
+            findings.append(f"schema:lease.expiresAt: {exc}")
     return findings
 
 
@@ -195,6 +200,18 @@ def _handoff_digest_findings(value: dict[str, Any]) -> list[str]:
 
 def _upstream_findings(value: dict[str, Any]) -> list[str]:
     findings: list[str] = []
+    contract = value["contract"]
+    identity = {"source": contract["source"], "id": contract["id"], "revision": contract["revision"]}
+    expected_digest = (
+        "sha256:"
+        + hashlib.sha256(
+            json.dumps(identity, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode("utf-8")
+        ).hexdigest()
+    )
+    if contract["digest"] != expected_digest:
+        findings.append("upstream: capability contract digest does not bind source/id/revision")
+    if contract["id"] != value["capability_id"]:
+        findings.append("upstream: capability contract id must equal capability_id")
     if value["contract"]["id"].casefold() in _PLACEHOLDER_AUTHORITY:
         findings.append("upstream: capability contract id cannot be a fabricated placeholder")
     if value["interaction"] == "stateful":
@@ -309,8 +326,12 @@ def _proof_findings(value: dict[str, Any]) -> list[str]:
             producer = producers[producer_id]
             if criterion["canonical_claim"] not in producer["claim_classes"]:
                 findings.append(f"{location} producer {producer_id} cannot produce canonical claim")
+            if not set(criterion["subject_dimensions"]) <= set(producer["subject_dimensions"]):
+                findings.append(f"{location} producer {producer_id} cannot observe required subject dimensions")
             if not set(criterion["binding_requirements"]) <= set(producer["binding_requirements"]):
                 findings.append(f"{location} producer {producer_id} cannot satisfy binding requirements")
+            if _AUTHORITY_RANK[producer["authority_ceiling"]] < _AUTHORITY_RANK[criterion["required_authority"]]:
+                findings.append(f"{location} producer {producer_id} authority ceiling is below criterion requirement")
         if criterion["required_authority"] == "independent" and not any(
             producers[item]["independence"] == "independent" for item in approved
         ):
@@ -520,6 +541,27 @@ def validate_completion_context(
     return findings
 
 
+def _capability_contract_digest(capability: dict[str, Any]) -> str | None:
+    contract = capability.get("contract")
+    if not isinstance(contract, dict):
+        return None
+    try:
+        identity = {"source": contract["source"], "id": contract["id"], "revision": contract["revision"]}
+    except KeyError:
+        return None
+    return (
+        "sha256:"
+        + hashlib.sha256(
+            json.dumps(identity, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode("utf-8")
+        ).hexdigest()
+    )
+
+
+def _target_identity(job: dict[str, Any]) -> str:
+    subject = job["subject"]
+    return f"{subject['type']}:{subject['id']}:{subject.get('revision') or 'none'}"
+
+
 def evaluate_mutation_admission(
     *,
     effect_id: str,
@@ -528,7 +570,9 @@ def evaluate_mutation_admission(
     capability: dict[str, Any],
     current_job_id: str,
     current_generation: int,
-    authority_ref: str | None,
+    current_attempt_id: str,
+    current_version: int,
+    effective_authority: dict[str, Any] | None,
     remaining_budget_ms: int,
     receipt: dict[str, Any] | None = None,
     candidate: dict[str, Any] | None = None,
@@ -541,33 +585,83 @@ def evaluate_mutation_admission(
     reasons: list[tuple[str, str]] = []
     if job["jobId"] != current_job_id or job["generation"] != current_generation:
         reasons.append(("LostAuthority", "stale job/generation"))
+    if job["attemptId"] != current_attempt_id:
+        reasons.append(("LostAuthority", "stale attempt"))
+    if int(job["version"]) != int(current_version):
+        reasons.append(("LostAuthority", "stale optimistic version"))
     if job["status"] in _TERMINAL or job["cancellation"] in {"requested", "fenced", "reconciling"}:
         reasons.append(("LostAuthority", "job is terminal or cancellation-fenced"))
-    if authority_ref is None or authority_ref.casefold() in _PLACEHOLDER_AUTHORITY:
-        reasons.append(("LostAuthority", "effective authority is missing/fabricated"))
+
+    target_identity = _target_identity(job)
+    authority = effective_authority or {}
+    source = str(authority.get("source", ""))
+    principal = str(authority.get("principal", ""))
+    if source != effect["authority_source"]:
+        reasons.append(("LostAuthority", "effective authority source does not match mutation policy"))
+    if principal.casefold() in _PLACEHOLDER_AUTHORITY:
+        reasons.append(("LostAuthority", "effective authority principal is missing/fabricated"))
+    if authority.get("scope") != effect_id:
+        reasons.append(("LostAuthority", "effective authority scope does not match mutation effect"))
+    if authority.get("target") != target_identity:
+        reasons.append(("LostAuthority", "effective authority target does not match current subject"))
+    if authority.get("attemptId") != current_attempt_id or int(authority.get("jobVersion", -1)) != int(current_version):
+        reasons.append(("LostAuthority", "effective authority is fenced to a stale attempt/version"))
+
     selected_now = (now or datetime.now(UTC)).astimezone(UTC)
     if effect["lease_required"]:
         lease = job.get("lease")
-        if not lease:
+        if not isinstance(lease, dict):
             reasons.append(("LostAuthority", "required lease is missing"))
-        elif _parse_timestamp(str(lease["expiresAt"])) <= selected_now:
-            reasons.append(("LostAuthority", "required lease is expired"))
+        else:
+            try:
+                if _parse_timestamp(str(lease["expiresAt"])) <= selected_now:
+                    reasons.append(("LostAuthority", "required lease is expired"))
+            except (KeyError, ValueError):
+                reasons.append(("LostAuthority", "required lease expiry is invalid"))
+            if lease.get("owner") != principal or authority.get("leaseOwner") != lease.get("owner"):
+                reasons.append(("LostAuthority", "lease owner does not match effective authority"))
+            if authority.get("leaseFencingToken") != lease.get("fencingToken"):
+                reasons.append(("LostAuthority", "lease fencing token is stale"))
+
     if effect["candidate_required"]:
         if candidate is None or not candidate.get("digest"):
             reasons.append(("StaleCandidate", "exact candidate is required"))
         elif job.get("candidate") != candidate:
             reasons.append(("StaleCandidate", "candidate differs from admitted job candidate"))
+
+    expected_contract_digest = _capability_contract_digest(capability)
+    contract = capability.get("contract") if isinstance(capability.get("contract"), dict) else {}
     if capability.get("capability_id") != effect["capability_ref"]:
         reasons.append(("CapabilityUnavailable", "capability identity does not match mutation policy"))
+    if contract.get("id") != capability.get("capability_id") or expected_contract_digest != contract.get("digest"):
+        reasons.append(("CapabilityUnavailable", "capability contract provenance/digest is invalid"))
+
     if remaining_budget_ms < int(effect["minimum_budget_ms"]):
         reasons.append(("BudgetUnavailable", "remaining budget is below mutation minimum"))
     if effect["durable_operation_required"]:
         if receipt is None:
             reasons.append(("ReconciliationRequired", "durable operation receipt is missing"))
-        elif receipt["delivery"] == "delivery-unknown":
-            reasons.append(("ReconciliationRequired", "operation delivery is ambiguous"))
-        elif receipt["state"] != "reserved" or receipt["delivery"] != "not-delivered":
-            reasons.append(("ReconciliationRequired", "operation is not in pre-dispatch reserved state"))
+        else:
+            if (
+                receipt.get("jobId") != current_job_id
+                or receipt.get("generation") != current_generation
+                or receipt.get("attemptId") != current_attempt_id
+            ):
+                reasons.append(("LostAuthority", "operation receipt belongs to stale job/generation/attempt"))
+            if receipt.get("targetIdentity") != target_identity:
+                reasons.append(("LostAuthority", "operation receipt target differs from current subject"))
+            if receipt.get("capabilityIdentity") != capability.get("capability_id") or receipt.get(
+                "capabilityContractDigest"
+            ) != contract.get("digest"):
+                reasons.append(
+                    ("CapabilityUnavailable", "operation receipt is not bound to current reviewed capability contract")
+                )
+            if candidate is not None and receipt.get("candidateDigest") != candidate.get("digest"):
+                reasons.append(("StaleCandidate", "operation receipt candidate digest is stale"))
+            if receipt.get("delivery") == "delivery-unknown":
+                reasons.append(("ReconciliationRequired", "operation delivery is ambiguous"))
+            elif receipt.get("state") != "reserved" or receipt.get("delivery") != "not-delivered":
+                reasons.append(("ReconciliationRequired", "operation is not in pre-dispatch reserved state"))
     if reasons:
         return {"disposition": reasons[0][0], "reasons": [item[1] for item in reasons]}
     return {"disposition": "Admitted", "reasons": []}
@@ -595,12 +689,36 @@ def validate_design_pack(
         findings.extend(f"upstream[{index}]: {item}" for item in validate_document("upstream", upstream))
     if findings:
         return findings
+
+    expected_refs = {
+        "state_machine": f"{state_machine['machine_id']}@{state_machine['revision']}",
+        "mutation_policy": f"{mutation_policy['policy_id']}@{mutation_policy['revision']}",
+        "proof_recipe": f"{proof_recipe['recipe_id']}@{proof_recipe['revision']}",
+        "acceptance": f"{acceptance['acceptance_id']}@{acceptance['revision']}",
+    }
+    for key, expected in expected_refs.items():
+        if profile["contracts"].get(key) != expected:
+            findings.append(f"design-pack: profile contract {key} must reference {expected}")
+
     transition_ids = {item["id"] for item in state_machine["transitions"]}
+    upstream_by_id: dict[str, list[dict[str, Any]]] = {}
+    for upstream in upstreams:
+        upstream_by_id.setdefault(str(upstream["capability_id"]), []).append(upstream)
+    for capability_id, matches in upstream_by_id.items():
+        if len(matches) != 1:
+            findings.append(
+                f"design-pack: capability {capability_id} must resolve to exactly one reviewed upstream contract"
+            )
     for effect in mutation_policy["effects"]:
         if effect["transition"] not in transition_ids and effect["transition"] not in {"cancel-start"}:
             findings.append(
                 f"design-pack: mutation effect {effect['id']} references unknown transition {effect['transition']}"
             )
+        if effect["durable_operation_required"] and len(upstream_by_id.get(str(effect["capability_ref"]), [])) != 1:
+            findings.append(
+                f"design-pack: mutation effect {effect['id']} capability_ref must resolve to exactly one reviewed upstream contract"
+            )
+
     criteria = {item["criterion_id"] for item in proof_recipe["criteria"]}
     for obligation in profile["completion"]["obligations"]:
         if obligation["id"] not in criteria:
