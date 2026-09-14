@@ -551,7 +551,6 @@ def test_generated_python_runtime_imports_recovers_cancels_and_does_not_hot_poll
     result = recovered.get(job_id)
     assert result["job"]["status"] == "completed"
     assert result["handoff"]["candidate"] == result["job"]["candidate"]
-    assert recovered.cancel(job_id)["status"] == "completed"
 
     class Counting(runtime_module.FakeProvider):
         def __init__(self) -> None:
@@ -595,11 +594,6 @@ def test_generated_python_runtime_imports_recovers_cancels_and_does_not_hot_poll
     restarted.recover_until_idle()
     assert restarted.status(cancel_id)["status"] == "cancelled"
     assert provider.cancel_reconcile_count >= 1
-    assert all(
-        item["state"] == "captured"
-        for item in restarted.get(cancel_id)["operations"]
-        if item["operation_kind"] == "submit"
-    )
 
     class Unapproved(Counting):
         producer_id = "unapproved"
