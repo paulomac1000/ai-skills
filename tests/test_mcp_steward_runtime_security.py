@@ -53,6 +53,32 @@ def _generated_runtime(
     return runtime, profile, proof, mutation, upstream
 
 
+def test_foreign_provider_subject_cannot_be_relabelled_as_job_evidence(tmp_path: Path) -> None:
+    runtime, profile, proof, mutation, upstream = _generated_runtime(tmp_path)
+    clock = runtime.FakeClock(datetime(2026, 9, 13, tzinfo=UTC))
+
+    class ForeignSubjectProvider(runtime.FakeProvider):
+        def poll(self, remote_handle: str, subject: dict[str, Any]) -> dict[str, Any]:
+            payload = super().poll(remote_handle, subject)
+            payload["subject"] = {"type": "target", "id": "different-repository", "revision": "abc"}
+            return payload
+
+    steward = runtime.StewardRuntime(
+        runtime.StewardStore(tmp_path / "foreign-subject.db", clock),
+        profile,
+        proof,
+        mutation,
+        upstream=upstream,
+        provider=ForeignSubjectProvider(),
+    )
+    job_id = steward.submit("repo", "abc", "foreign-subject-1")["jobId"]
+    for _ in range(8):
+        if not steward.run_once():
+            break
+    assert steward.status(job_id)["status"] == "blocked"
+    assert steward.get(job_id)["evidence"] == []
+
+
 def test_completion_gate_uses_persisted_producer_binding_and_coverage(tmp_path: Path) -> None:
     runtime, profile, proof, mutation, upstream = _generated_runtime(tmp_path)
     clock = runtime.FakeClock(datetime(2026, 9, 13, tzinfo=UTC))
