@@ -431,6 +431,7 @@ def test_completion_resolves_candidate_binding_producer_authority_and_freshness(
         evidence_documents=[evidence],
         current_job_id="j1",
         current_generation=2,
+        current_lineage_id=job["lineageId"],
         current_subject=job["subject"],
         current_candidate=job["candidate"],
         now=datetime(2026, 9, 12, 0, 5, tzinfo=UTC),
@@ -451,7 +452,11 @@ def test_actionable_handoff_binds_current_candidate_and_digest() -> None:
     job = _job(_docs(generator))
     handoff = _handoff(validator, job)
     context = dict(
-        current_job_id="j1", current_generation=2, current_subject=job["subject"], current_candidate=job["candidate"]
+        current_job_id="j1",
+        current_generation=2,
+        current_lineage_id=job["lineageId"],
+        current_subject=job["subject"],
+        current_candidate=job["candidate"],
     )
     assert validator.validate_handoff_current(handoff, **context) == []
     bad_candidate = {**job["candidate"], "digest": "sha256:" + "f" * 64}

@@ -196,6 +196,7 @@ def test_stale_generation_handoff_cannot_be_actionable_before_digest_check() -> 
         handoff,
         current_job_id=job["jobId"],
         current_generation=job["generation"] + 1,
+        current_lineage_id=job["lineageId"],
         current_subject=job["subject"],
         current_candidate=job["candidate"],
     )
