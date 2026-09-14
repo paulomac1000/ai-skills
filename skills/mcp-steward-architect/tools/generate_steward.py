@@ -46,6 +46,19 @@ def _sha256(value: object) -> str:
     return "sha256:" + hashlib.sha256(_canonical(value)).hexdigest()
 
 
+def _capability_semantic_projection(capability: dict[str, Any]) -> dict[str, Any]:
+    projected = json.loads(json.dumps(capability))
+    contract = projected.get("contract")
+    if not isinstance(contract, dict):
+        raise ValueError("capability contract is required")
+    contract.pop("digest", None)
+    return projected
+
+
+def _capability_semantic_digest(capability: dict[str, Any]) -> str:
+    return _sha256(_capability_semantic_projection(capability))
+
+
 def _load_module(path: Path, name: str) -> ModuleType:
     spec = importlib.util.spec_from_file_location(name, path)
     if spec is None or spec.loader is None:
@@ -66,11 +79,10 @@ def _base_generator(language: str) -> ModuleType:
 def _upstream_document(steward_id: str) -> dict[str, Any]:
     capability_id = f"{steward_id}:seed-provider-result"
     identity = {"source": "pinned-trusted", "id": capability_id, "revision": "1"}
-    contract = {**identity, "digest": _sha256(identity)}
-    return {
+    document: dict[str, Any] = {
         "schema_version": 2,
         "capability_id": capability_id,
-        "contract": contract,
+        "contract": {**identity, "digest": "sha256:" + "0" * 64},
         "subject_types": ["target"],
         "target_types": ["target"],
         "identity_dimensions_observed": ["target"],
@@ -104,6 +116,8 @@ def _upstream_document(steward_id: str) -> dict[str, Any]:
         },
         "confidentiality": {"egress_class": "local"},
     }
+    document["contract"]["digest"] = _capability_semantic_digest(document)
+    return document
 
 
 def _profile_document(steward_id: str, profile: str, *, durability_profile: str) -> dict[str, Any]:
@@ -182,7 +196,12 @@ def _mutation_policy_document(steward_id: str, capability: dict[str, Any]) -> di
     capability_id = str(capability["capability_id"])
     capability_contract = dict(capability["contract"])
     local_identity = {"source": "local", "id": "local:handoff@1", "revision": "1"}
-    local_contract = {**local_identity, "digest": _sha256(local_identity)}
+    local_capability: dict[str, Any] = {
+        "capability_id": "local:handoff@1",
+        "contract": {**local_identity, "digest": "sha256:" + "0" * 64},
+    }
+    local_capability["contract"]["digest"] = _capability_semantic_digest(local_capability)
+    local_contract = dict(local_capability["contract"])
     return {
         "schema_version": 1,
         "policy_id": f"{steward_id}-mutation-policy",

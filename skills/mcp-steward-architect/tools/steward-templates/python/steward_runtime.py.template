@@ -44,11 +44,12 @@ def _capability_digest(capability: dict[str, Any]) -> str | None:
     contract = capability.get("contract")
     if not isinstance(contract, dict):
         return None
-    try:
-        identity = {"source": contract["source"], "id": contract["id"], "revision": contract["revision"]}
-    except KeyError:
+    projected = json.loads(json.dumps(capability))
+    projected_contract = projected.get("contract")
+    if not isinstance(projected_contract, dict):
         return None
-    return _digest(identity)
+    projected_contract.pop("digest", None)
+    return _digest(projected)
 
 
 def _target_identity(job: dict[str, Any]) -> str:
@@ -620,6 +621,13 @@ class StewardStore:
             ).fetchall()
         return [str(row[0]) for row in rows]
 
+    def unknown_delivery_operations(self) -> list[dict[str, Any]]:
+        with self._connect() as db:
+            rows = db.execute(
+                "SELECT * FROM external_operations WHERE delivery='delivery-unknown' ORDER BY observed_at,operation_id"
+            ).fetchall()
+        return [dict(row) for row in rows]
+
     def next_stale_operation(self) -> dict[str, Any] | None:
         with self._connect() as db:
             row = db.execute(
@@ -740,7 +748,12 @@ class StewardRuntime:
     @staticmethod
     def _local_handoff_capability() -> dict[str, Any]:
         identity = {"source": "local", "id": "local:handoff@1", "revision": "1"}
-        return {"capability_id": "local:handoff@1", "contract": {**identity, "digest": _digest(identity)}}
+        capability: dict[str, Any] = {
+            "capability_id": "local:handoff@1",
+            "contract": {**identity, "digest": "sha256:" + "0" * 64},
+        }
+        capability["contract"]["digest"] = _capability_digest(capability)
+        return capability
 
     def _authority(self, effect_id: str, job: dict[str, Any], *, source: str, target: str) -> dict[str, Any]:
         lease = job.get("lease") if isinstance(job.get("lease"), dict) else None
@@ -770,7 +783,7 @@ class StewardRuntime:
         return self.store.cancel(job_id)
 
     def doctor(self, job_id: str | None = None) -> dict[str, Any]:
-        operations = [] if job_id is None else self.store.result(job_id)["operations"]
+        operations = self.store.unknown_delivery_operations() if job_id is None else self.store.result(job_id)["operations"]
         unknown = [item for item in operations if item["delivery"] == "delivery-unknown"]
         cancel_unknown = [item for item in unknown if item["operation_kind"] == "cancel"]
         return {"job": None if job_id is None else self.store.job(job_id), "deliveryUnknown": len(unknown),
