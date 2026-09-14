@@ -184,5 +184,21 @@
       "type": "integer",
       "minimum": 0
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "operationKind": {"enum": ["submit", "cancel", "mutation"]}
+        },
+        "required": ["operationKind"]
+      },
+      "then": {
+        "required": ["mutationDecisionRef"],
+        "properties": {
+          "mutationDecisionRef": {"type": "string", "minLength": 1}
+        }
+      }
+    }
+  ]
 }

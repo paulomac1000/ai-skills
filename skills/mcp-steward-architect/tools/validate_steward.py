@@ -92,6 +92,25 @@ def compute_handoff_digest(value: dict[str, Any]) -> str:
     return "sha256:" + hashlib.sha256(canonical).hexdigest()
 
 
+def _capability_semantic_projection(value: dict[str, Any]) -> dict[str, Any]:
+    projected = json.loads(json.dumps(value))
+    contract = projected.get("contract")
+    if not isinstance(contract, dict):
+        raise ValueError("capability contract is required")
+    contract.pop("digest", None)
+    return projected
+
+
+def compute_capability_contract_digest(value: dict[str, Any]) -> str:
+    canonical = json.dumps(
+        _capability_semantic_projection(value),
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    return "sha256:" + hashlib.sha256(canonical).hexdigest()
+
+
 def _profile_findings(value: dict[str, Any]) -> list[str]:
     findings: list[str] = []
     authority = value["authority"]
@@ -142,6 +161,8 @@ def _job_findings(value: dict[str, Any]) -> list[str]:
 
 def _receipt_findings(value: dict[str, Any]) -> list[str]:
     findings: list[str] = []
+    if value["operationKind"] in {"submit", "cancel", "mutation"} and not value.get("mutationDecisionRef"):
+        findings.append("receipt: stateful operation requires mutationDecisionRef")
     delivery = value["delivery"]
     retry = value["retryDisposition"]
     if delivery == "delivery-unknown" and retry != "reconcile-first":
@@ -201,15 +222,9 @@ def _handoff_digest_findings(value: dict[str, Any]) -> list[str]:
 def _upstream_findings(value: dict[str, Any]) -> list[str]:
     findings: list[str] = []
     contract = value["contract"]
-    identity = {"source": contract["source"], "id": contract["id"], "revision": contract["revision"]}
-    expected_digest = (
-        "sha256:"
-        + hashlib.sha256(
-            json.dumps(identity, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode("utf-8")
-        ).hexdigest()
-    )
+    expected_digest = compute_capability_contract_digest(value)
     if contract["digest"] != expected_digest:
-        findings.append("upstream: capability contract digest does not bind source/id/revision")
+        findings.append("upstream: capability contract digest does not bind complete reviewed semantic definition")
     if contract["id"] != value["capability_id"]:
         findings.append("upstream: capability contract id must equal capability_id")
     if value["contract"]["id"].casefold() in _PLACEHOLDER_AUTHORITY:
@@ -307,15 +322,8 @@ def _mutation_policy_findings(value: dict[str, Any]) -> list[str]:
         if effect["budget_reservation_required"] and int(effect["finalization_reserve_ms"]) <= 0:
             findings.append(f"{location} must reserve deterministic finalization budget")
         contract = effect["capability_contract"]
-        identity = {"source": contract["source"], "id": contract["id"], "revision": contract["revision"]}
-        expected = (
-            "sha256:"
-            + hashlib.sha256(
-                json.dumps(identity, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode("utf-8")
-            ).hexdigest()
-        )
-        if contract["id"] != effect["capability_ref"] or contract["digest"] != expected:
-            findings.append(f"{location} capability contract must exactly bind source/id/revision/digest")
+        if contract["id"] != effect["capability_ref"]:
+            findings.append(f"{location} capability contract id must equal capability_ref")
     return findings
 
 
@@ -402,6 +410,7 @@ def validate_handoff_current(
     *,
     current_job_id: str,
     current_generation: int,
+    current_lineage_id: str,
     current_subject: dict[str, Any],
     current_candidate: dict[str, Any] | None = None,
 ) -> list[str]:
@@ -411,10 +420,14 @@ def validate_handoff_current(
     findings.extend(_handoff_semantic_findings(value))
     if findings:
         return findings
+    if value["actionable"] and value["lineageId"] != current_lineage_id:
+        return ["handoff: stale lineage cannot be actionable"]
     if value["actionable"] and (value["jobId"] != current_job_id or value["generation"] != current_generation):
         return ["handoff: stale job/generation cannot be actionable"]
     if value["actionable"] and value["subject"] != current_subject:
         return ["handoff: stale subject identity cannot be actionable"]
+    if value["actionable"] and value.get("candidate") is not None and current_candidate is None:
+        return ["handoff: actionable candidate binding requires current candidate context"]
     if value["actionable"] and current_candidate is not None and value.get("candidate") != current_candidate:
         return ["handoff: stale candidate identity cannot be actionable"]
     return _handoff_digest_findings(value)
@@ -442,6 +455,7 @@ def validate_completion_context(
     evidence_documents: list[dict[str, Any]],
     current_job_id: str,
     current_generation: int,
+    current_lineage_id: str,
     current_subject: dict[str, Any],
     current_candidate: dict[str, Any] | None = None,
     now: datetime | None = None,
@@ -457,11 +471,15 @@ def validate_completion_context(
         findings.extend(f"proof: {item}" for item in proof_findings)
     if findings:
         return findings
+    if value["lineageId"] != current_lineage_id:
+        findings.append("completion: stale lineage cannot authorize publication")
     if value["jobId"] != current_job_id or value["generation"] != current_generation:
         findings.append("completion: stale job/generation cannot authorize publication")
     if value["subject"] != current_subject:
         findings.append("completion: stale subject identity cannot authorize publication")
-    if current_candidate is not None and value.get("candidate") != current_candidate:
+    if value.get("candidate") is not None and current_candidate is None:
+        findings.append("completion: candidate-bound publication requires current candidate context")
+    elif current_candidate is not None and value.get("candidate") != current_candidate:
         findings.append("completion: stale candidate identity cannot authorize publication")
 
     criteria = _proof_criteria(proof_recipe)
@@ -567,15 +585,9 @@ def _capability_contract_digest(capability: dict[str, Any]) -> str | None:
     if not isinstance(contract, dict):
         return None
     try:
-        identity = {"source": contract["source"], "id": contract["id"], "revision": contract["revision"]}
-    except KeyError:
+        return compute_capability_contract_digest(capability)
+    except (TypeError, ValueError):
         return None
-    return (
-        "sha256:"
-        + hashlib.sha256(
-            json.dumps(identity, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode("utf-8")
-        ).hexdigest()
-    )
 
 
 def _target_identity(job: dict[str, Any]) -> str:
@@ -821,6 +833,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("path", type=Path)
     parser.add_argument("--current-job-id")
     parser.add_argument("--current-generation", type=int)
+    parser.add_argument("--current-lineage-id")
     parser.add_argument("--current-subject", type=Path)
     parser.add_argument("--current-candidate", type=Path)
     parser.add_argument("--profile", type=Path)
@@ -831,7 +844,12 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _context_complete(args: argparse.Namespace) -> bool:
-    return args.current_job_id is not None and args.current_generation is not None and args.current_subject is not None
+    return (
+        args.current_job_id is not None
+        and args.current_generation is not None
+        and args.current_lineage_id is not None
+        and args.current_subject is not None
+    )
 
 
 def main() -> int:
@@ -842,7 +860,9 @@ def main() -> int:
     elif args.kind == "handoff" and value.get("actionable") is True:
         if not _context_complete(args):
             findings = validate_document("handoff", value)
-            findings.append("handoff: actionable validation requires current job, generation, and subject context")
+            findings.append(
+                "handoff: actionable validation requires current job, lineage, generation, and subject context"
+            )
         else:
             subject = _load(args.current_subject)
             candidate = _load(args.current_candidate) if args.current_candidate else None
@@ -850,6 +870,7 @@ def main() -> int:
                 value,
                 current_job_id=str(args.current_job_id),
                 current_generation=int(args.current_generation),
+                current_lineage_id=str(args.current_lineage_id),
                 current_subject=subject,
                 current_candidate=candidate,
             )
@@ -874,6 +895,7 @@ def main() -> int:
                 evidence_documents=evidence_documents,
                 current_job_id=str(args.current_job_id),
                 current_generation=int(args.current_generation),
+                current_lineage_id=str(args.current_lineage_id),
                 current_subject=subject,
                 current_candidate=candidate,
                 now=selected_now,
