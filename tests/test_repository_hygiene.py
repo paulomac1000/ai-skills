@@ -41,7 +41,7 @@ def test_no_numbered_iteration_filenames_remain() -> None:
 def test_workflows_do_not_use_human_version_alias_comments() -> None:
     offenders: list[str] = []
     for path in tracked_files():
-        if path.suffix.lower() not in {".yml", ".yaml", ".j2", ".template"}:
+        if not path.is_file() or path.suffix.lower() not in {".yml", ".yaml", ".j2", ".template"}:
             continue
         try:
             text = path.read_text(encoding="utf-8")
@@ -55,7 +55,7 @@ def test_workflows_do_not_use_human_version_alias_comments() -> None:
 def test_current_evidence_format_has_no_numbered_public_name() -> None:
     offenders: list[str] = []
     for path in tracked_files():
-        if path.suffix.lower() not in {".md", ".py", ".yaml", ".yml", ".json"}:
+        if not path.is_file() or path.suffix.lower() not in {".md", ".py", ".yaml", ".yml", ".json"}:
             continue
         try:
             text = path.read_text(encoding="utf-8")

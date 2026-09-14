@@ -118,6 +118,7 @@ BANDIT_PATHS = (
     "skills/ci-cd-architect/tools",
     "skills/mcp-gateway-release-verifier/tools",
     "skills/mcp-server-consumer/tools",
+    "skills/mcp-steward-architect/tools",
     "skills/qa-change-verifier/tools",
     "skills/readme-architect/tools",
     "skills/mcp-server-architect/tools",
