@@ -107,10 +107,38 @@ internal sealed class SeedPolicy
     public required IReadOnlyDictionary<string, SeedMutationEffect> Effects { get; init; }
     public required SeedCapability Capability { get; init; }
 
-    private static string CapabilityDigest(string source, string id, string revision)
+    private static string CapabilityDigest(JsonElement capability)
     {
-        var identity = new SortedDictionary<string, string>(StringComparer.Ordinal) { ["id"] = id, ["revision"] = revision, ["source"] = source };
-        return "sha256:" + Convert.ToHexStringLower(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(identity)));
+        if (capability.ValueKind != JsonValueKind.Object || !capability.TryGetProperty("contract", out _))
+            throw new InvalidOperationException("capability contract is required");
+        using var stream = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping }))
+            WriteCapabilityCanonical(writer, capability, insideContract: false);
+        return "sha256:" + Convert.ToHexStringLower(SHA256.HashData(stream.ToArray()));
+    }
+
+    private static void WriteCapabilityCanonical(Utf8JsonWriter writer, JsonElement value, bool insideContract)
+    {
+        if (value.ValueKind == JsonValueKind.Object)
+        {
+            writer.WriteStartObject();
+            foreach (var property in value.EnumerateObject().OrderBy(item => item.Name, StringComparer.Ordinal))
+            {
+                if (insideContract && property.NameEquals("digest")) continue;
+                writer.WritePropertyName(property.Name);
+                WriteCapabilityCanonical(writer, property.Value, property.NameEquals("contract"));
+            }
+            writer.WriteEndObject();
+            return;
+        }
+        if (value.ValueKind == JsonValueKind.Array)
+        {
+            writer.WriteStartArray();
+            foreach (var item in value.EnumerateArray()) WriteCapabilityCanonical(writer, item, insideContract: false);
+            writer.WriteEndArray();
+            return;
+        }
+        value.WriteTo(writer);
     }
 
     public static SeedPolicy Load(string profilePath, string proofPath)
@@ -150,8 +178,6 @@ internal sealed class SeedPolicy
                 var pinned = new SeedCapability(
                     effectContract.GetProperty("id").GetString()!, effectContract.GetProperty("source").GetString()!,
                     effectContract.GetProperty("revision").GetString()!, effectContract.GetProperty("digest").GetString()!);
-                if (!string.Equals(CapabilityDigest(pinned.Source, pinned.Id, pinned.Revision), pinned.Digest, StringComparison.Ordinal))
-                    throw new InvalidOperationException("mutation effect capability contract identity/digest is invalid");
                 return new SeedMutationEffect(
                     item.GetProperty("id").GetString()!, item.GetProperty("operation_kind").GetString()!,
                     item.GetProperty("authority_source").GetString()!, item.GetProperty("lease_required").GetBoolean(),
@@ -164,8 +190,8 @@ internal sealed class SeedPolicy
             upstream.RootElement.GetProperty("capability_id").GetString()!, contract.GetProperty("source").GetString()!,
             contract.GetProperty("revision").GetString()!, contract.GetProperty("digest").GetString()!);
         if (!string.Equals(contract.GetProperty("id").GetString(), capability.Id, StringComparison.Ordinal)
-            || !string.Equals(CapabilityDigest(capability.Source, capability.Id, capability.Revision), capability.Digest, StringComparison.Ordinal))
-            throw new InvalidOperationException("reviewed upstream capability contract identity/digest is invalid");
+            || !string.Equals(CapabilityDigest(upstream.RootElement), capability.Digest, StringComparison.Ordinal))
+            throw new InvalidOperationException("reviewed upstream capability semantic digest is invalid");
         var revision = proof.RootElement.GetProperty("revision").GetInt32();
         return new() {
             ProfileRevision = profile.RootElement.GetProperty("steward").GetProperty("contract_revision").GetInt32(),

@@ -5,11 +5,21 @@ public sealed class StewardRecoveryService(StewardSeedRuntime runtime, ILogger<S
     private static readonly Action<ILogger, Exception?> LogRecoveryFailure = LoggerMessage.Define(LogLevel.Error, new EventId(1, nameof(StewardRecoveryService)), "Steward recovery iteration failed");
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        var failureCount = 0;
         while (!stoppingToken.IsCancellationRequested)
         {
-            try { runtime.RunOneDue(); }
-            catch (Exception exception) { LogRecoveryFailure(logger, exception); }
-            await Task.Delay(TimeSpan.FromMilliseconds(50), stoppingToken);
+            var delay = TimeSpan.FromMilliseconds(50);
+            try { runtime.RunOneDue(); failureCount = 0; }
+            catch (Exception exception)
+            {
+                LogRecoveryFailure(logger, exception);
+                failureCount = Math.Min(failureCount + 1, 6);
+                delay = TimeSpan.FromMilliseconds(50 * (1 << failureCount));
+            }
+            if (failureCount == 0) delay = TimeSpan.FromMilliseconds(50);
+            else if (delay > TimeSpan.FromSeconds(5)) delay = TimeSpan.FromSeconds(5);
+            try { await Task.Delay(delay, stoppingToken); }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { return; }
         }
     }
 }
