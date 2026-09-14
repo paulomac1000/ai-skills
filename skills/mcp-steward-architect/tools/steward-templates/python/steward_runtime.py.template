@@ -255,6 +255,10 @@ class StewardStore:
             (job_id, event, _iso(self.clock.now()), _canonical(detail)),
         )
 
+    def record_recovery_failure(self, exception: Exception) -> None:
+        with self._write() as db:
+            self._audit(db, None, "recovery-failure", {"failureClass": type(exception).__name__})
+
     def _candidate(self, subject: dict[str, Any]) -> dict[str, Any]:
         material = {"type": "subject-snapshot", "id": subject["id"], "revision": subject.get("revision")}
         return {**material, "digest": _digest(material)}
@@ -1045,12 +1049,16 @@ class StewardRuntime:
             return
         self._stop.clear()
         def worker() -> None:
+            failure_count = 0
             while not self._stop.is_set():
                 try:
                     self.run_once()
-                except Exception:
-                    pass
-                self._stop.wait(interval_seconds)
+                    failure_count = 0
+                except Exception as exception:
+                    failure_count = min(failure_count + 1, 7)
+                    self.store.record_recovery_failure(exception)
+                delay = min(interval_seconds * (2 ** failure_count), 5.0)
+                self._stop.wait(delay)
         self._thread = threading.Thread(target=worker, name="steward-recovery", daemon=True)
         self._thread.start()
 

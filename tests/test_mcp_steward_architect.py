@@ -693,6 +693,18 @@ def test_generator_dotnet_surface_carries_v3_design_pack() -> None:
     assert "StewardRecoveryService" in files["src/Example.Mcp.Server/Program.cs"]
 
 
+def test_generated_recovery_guards_stale_selection_and_records_failures() -> None:
+    dotnet_runtime = (
+        ROOT / "skills/mcp-steward-architect/tools/steward-templates/dotnet/StewardSeedRuntime.cs.template"
+    ).read_text(encoding="utf-8")
+    python_runtime = (
+        ROOT / "skills/mcp-steward-architect/tools/steward-templates/python/steward_runtime.py.template"
+    ).read_text(encoding="utf-8")
+    assert '&& (item.Delivery is "delivery-unknown" or "delivered")' in dotnet_runtime
+    assert "self.store.record_recovery_failure(exception)" in python_runtime
+    assert "failure_count = min(failure_count + 1, 7)" in python_runtime
+
+
 def test_standard_names_v3_cross_product_invariants() -> None:
     standard = (SKILL / "STANDARD.md").read_text(encoding="utf-8")
     for phrase in (

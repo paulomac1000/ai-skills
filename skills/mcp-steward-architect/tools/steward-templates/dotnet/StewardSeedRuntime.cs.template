@@ -692,7 +692,7 @@ public sealed class StewardSeedRuntime : IDisposable
     private StewardSeedJob? NextJobLocked() => _state.Jobs.Values.Where(item => Runnable.Contains(item.Status)).OrderBy(item => item.CreatedAt).ThenBy(item => item.JobId, StringComparer.Ordinal).FirstOrDefault();
     private StewardOperation? OperationLocked(string jobId, string kind) => _state.Operations.Values.Where(item => item.JobId == jobId && item.OperationKind == kind).OrderBy(item => item.CreatedAt).FirstOrDefault();
     private bool HasEvidenceLocked(string jobId) => _state.Evidence.Values.Any(item => item.JobId == jobId);
-    private StewardOperation? NextSupersededOperationLocked() => _state.Operations.Values.Where(item => _state.Jobs.TryGetValue(item.JobId, out var job) && job.Status == "superseded" && item.State is not ("captured" or "abandoned" or "failed") && item.Delivery is "delivery-unknown" or "delivered").OrderBy(item => item.ObservedAt).FirstOrDefault();
+    private StewardOperation? NextSupersededOperationLocked() => _state.Operations.Values.Where(item => _state.Jobs.TryGetValue(item.JobId, out var job) && job.Status == "superseded" && item.State is not ("captured" or "abandoned" or "failed") && (item.Delivery is "delivery-unknown" or "delivered")).OrderBy(item => item.ObservedAt).FirstOrDefault();
     private bool IsCurrentLocked(StewardSeedJob job)
     {
         if (!_state.Lineages.TryGetValue(job.LineageId, out var lineage) || lineage.CurrentJobId != job.JobId
