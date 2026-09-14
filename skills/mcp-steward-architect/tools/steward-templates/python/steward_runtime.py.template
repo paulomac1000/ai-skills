@@ -490,6 +490,11 @@ class StewardStore:
                 "UPDATE external_operations SET state=?,delivery='delivered',retry_disposition='forbidden',remote_handle=?,observed_at=? WHERE operation_id=?",
                 (state, remote_handle, now, operation_id),
             )
+            if op["operation_kind"] == "cancel" and observed:
+                db.execute(
+                    "UPDATE external_operations SET state='captured',delivery='delivered',retry_disposition='forbidden',observed_at=? WHERE job_id=? AND operation_kind='submit' AND state NOT IN ('captured','abandoned','failed')",
+                    (now, str(op["job_id"])),
+                )
             if self._is_current_tx(db, str(op["job_id"]), int(op["generation"]), str(op["attempt_id"])):
                 if op["operation_kind"] == "cancel" and observed:
                     self._advance(db, str(op["job_id"]), status="cancelled", stage="cancelled", marker="cancelled", cancellation="completed")
@@ -508,6 +513,11 @@ class StewardStore:
                 "UPDATE external_operations SET state=?,delivery='delivered',retry_disposition='forbidden',remote_handle=?,observed_at=?,reconcile_count=reconcile_count+1 WHERE operation_id=?",
                 (state, remote_handle, now, operation_id),
             )
+            if cancellation_confirmed:
+                db.execute(
+                    "UPDATE external_operations SET state='captured',delivery='delivered',retry_disposition='forbidden',observed_at=? WHERE job_id=? AND operation_kind='submit' AND state NOT IN ('captured','abandoned','failed')",
+                    (now, str(op["job_id"])),
+                )
             current = self._is_current_tx(db, str(op["job_id"]), int(op["generation"]), str(op["attempt_id"]))
             if current:
                 if op["operation_kind"] == "cancel" and cancellation_confirmed:

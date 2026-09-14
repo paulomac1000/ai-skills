@@ -595,7 +595,11 @@ def test_generated_python_runtime_imports_recovers_cancels_and_does_not_hot_poll
     restarted.recover_until_idle()
     assert restarted.status(cancel_id)["status"] == "cancelled"
     assert provider.cancel_reconcile_count >= 1
-    assert all(item["state"] == "captured" for item in restarted.get(cancel_id)["operations"] if item["operation_kind"] == "submit")
+    assert all(
+        item["state"] == "captured"
+        for item in restarted.get(cancel_id)["operations"]
+        if item["operation_kind"] == "submit"
+    ), [(item["operation_kind"], item["state"]) for item in restarted.get(cancel_id)["operations"]]
 
     class Unapproved(Counting):
         producer_id = "unapproved"
