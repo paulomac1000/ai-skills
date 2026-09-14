@@ -586,8 +586,10 @@ class StewardStore:
         coverage_observation = observation.get("coverage")
         if not isinstance(binding_observation, dict) or not isinstance(coverage_observation, dict):
             return False
-        actual_satisfied = {str(item) for item in binding_observation.get("satisfied", [])}
         job = self.job(job_id)
+        if payload.get("subject") != job["subject"]:
+            return False
+        actual_satisfied = {str(item) for item in binding_observation.get("satisfied", [])}
         if operation.get("candidate_digest") == job["candidate"]["digest"]:
             actual_satisfied.add("candidate")
         required = [str(item) for item in criterion["binding_requirements"]]
