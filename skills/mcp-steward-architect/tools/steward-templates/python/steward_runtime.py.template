@@ -638,12 +638,13 @@ class StewardStore:
         return None if row is None else dict(row)
 
     def cancel(self, job_id: str) -> dict[str, Any]:
-        job = self.job(job_id)
-        if job["status"] in _TERMINAL:
-            return job
         with self._write() as db:
-            self._advance(db, job_id, status="cancelling", stage="cancel-requested", marker="cancel-requested", cancellation="requested")
-            self._audit(db, job_id, "cancel-requested", {})
+            current = db.execute("SELECT status FROM steward_jobs WHERE job_id=?", (job_id,)).fetchone()
+            if current is None:
+                raise KeyError(job_id)
+            if current["status"] not in _TERMINAL:
+                self._advance(db, job_id, status="cancelling", stage="cancel-requested", marker="cancel-requested", cancellation="requested")
+                self._audit(db, job_id, "cancel-requested", {})
         return self.job(job_id)
 
     def finish_cancel_without_remote(self, job_id: str) -> None:
