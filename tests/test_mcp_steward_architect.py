@@ -701,7 +701,9 @@ def test_generated_recovery_guards_stale_selection_and_records_failures() -> Non
         ROOT / "skills/mcp-steward-architect/tools/steward-templates/python/steward_runtime.py.template"
     ).read_text(encoding="utf-8")
     assert '&& (item.Delivery is "delivery-unknown" or "delivered")' in dotnet_runtime
+    assert "state.Jobs is null || state.Lineages is null" in dotnet_runtime
     assert "self.store.record_recovery_failure(exception)" in python_runtime
+    assert '_LOGGER.exception("Steward recovery failure could not be persisted")' in python_runtime
     assert "failure_count = min(failure_count + 1, 7)" in python_runtime
 
 

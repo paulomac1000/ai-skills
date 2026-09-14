@@ -707,7 +707,14 @@ public sealed class StewardSeedRuntime : IDisposable
     private StewardSeedState LoadOrQuarantine()
     {
         if (!File.Exists(_snapshotPath)) return new();
-        try { return JsonSerializer.Deserialize<StewardSeedState>(File.ReadAllText(_snapshotPath)) ?? throw new JsonException("null Steward snapshot"); }
+        try
+        {
+            var state = JsonSerializer.Deserialize<StewardSeedState>(File.ReadAllText(_snapshotPath)) ?? throw new JsonException("null Steward snapshot");
+            if (state.Jobs is null || state.Lineages is null || state.Idempotency is null || state.Operations is null
+                || state.Evidence is null || state.Completions is null || state.Handoffs is null || state.Audit is null)
+                throw new JsonException("Steward snapshot contains null required collections");
+            return state;
+        }
         catch (JsonException exc) { var quarantine = _snapshotPath + $".corrupt-{DateTimeOffset.UtcNow:yyyyMMddHHmmssfff}"; File.Move(_snapshotPath, quarantine); throw new InvalidDataException($"STORE_CORRUPT / OPERATOR_RECOVERY_REQUIRED: canonical snapshot quarantined at {quarantine}", exc); }
     }
 
