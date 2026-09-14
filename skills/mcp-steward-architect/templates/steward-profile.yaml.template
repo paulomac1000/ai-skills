@@ -23,6 +23,7 @@ authority:
   verifies: []
   parent_completion: none
   never_claims: []
+parent_contract: null
 subject_identity:
   required_dimensions: [target]
   freshness_dimensions: []

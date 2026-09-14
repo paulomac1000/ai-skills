@@ -26,6 +26,8 @@ Findings owned by prerequisite standards MUST be routed to those canonical owner
 
 Every Steward MUST declare state it owns, state it observes, mutations it may perform, verification authority it holds, parent/system completion authority it holds, and claims it MUST NOT make.
 
+When `parent_completion` is `explicit-contract-only`, the profile MUST carry a snapshotted `parent_contract` binding system/work/run identity, parent generation and contract digest, delegated authority ceiling, inherited deadline/budget, and the required terminal handoff contract. A standalone Steward MUST use `parent_completion: none` and `parent_contract: null`; it MUST NOT infer parent authority from caller metadata.
+
 API-key possession, successful model output, worker self-report, caller metadata, provider display labels, or caller-declared authority fields MUST NOT create authority. A Steward MAY finalize its own job but MUST NOT infer permission to merge, deploy, publish, approve, independently verify, or complete a parent item without an explicit contract.
 
 Authority-bearing values are non-defaultable. Lease identity/expiry, exact revision, generation, target identity, effective authority, capability-contract identity, candidate digest, and equivalent values MUST come from an authoritative source. Missing or invalid values MUST fail closed rather than becoming `unknown`, `HEAD`, `latest`, synthetic expiry, random identity, or a caller assertion.
@@ -132,6 +134,8 @@ The terminal handoff MUST bind exact subject/candidate where applicable, job/lin
 Domain/application code MUST NOT depend on MCP/provider SDK types, raw HTTP shapes, database/filesystem implementations, environment variables, or vendor model types. Ports describe semantic needs.
 
 Every external adapter MUST expose a reviewed capability contract with explicit provenance: contract source, id, revision and digest; exact subject/target dimensions; evidence classes; stateless/stateful model; sync/durable-async delivery; idempotency; recovery/resume; submit and cancel semantics; stable progress semantics; credential affinity; bounds; rate/concurrency scope; deadline policy; and confidentiality/egress constraints.
+
+The capability digest MUST cryptographically bind the complete reviewed semantic capability definition, not only its source/id/revision tuple. Unless a schema defines an explicit versioned semantic projection, the projection is the entire machine-readable capability document with only `contract.digest` removed; object keys are canonicalized, array order is preserved, and schema/revision fields remain included. Any behavior-significant capability change without a matching reviewed digest MUST fail closed as capability unavailable.
 
 Capability truth and health are distinct. `healthy=true` MUST NOT manufacture feature support. Capability MUST come from a negotiated/discovered trusted contract, pinned reviewed contract, or explicit operator configuration; liveness/readiness is an additional runtime condition.
 
