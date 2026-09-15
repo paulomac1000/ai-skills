@@ -691,6 +691,10 @@ def test_generator_dotnet_surface_carries_v3_design_pack() -> None:
     ):
         assert f"src/Example.Mcp.Server/{name}.json" in files
     assert "StewardRecoveryService" in files["src/Example.Mcp.Server/Program.cs"]
+    runtime = files["src/Example.Mcp.Server/StewardSeedRuntime.cs"]
+    assert "pair.Key != job.JobId" in runtime
+    assert "operation.Generation != job.Generation" in runtime
+    assert "evidence.Subject != job.Subject" in runtime
 
 
 def test_generated_recovery_guards_stale_selection_and_records_failures() -> None:
