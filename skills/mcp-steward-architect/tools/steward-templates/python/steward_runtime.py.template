@@ -250,6 +250,8 @@ class StewardStore:
             CREATE TABLE IF NOT EXISTS steward_handoffs(job_id TEXT PRIMARY KEY,value_json TEXT);
             CREATE TABLE IF NOT EXISTS audit_events(
               sequence INTEGER PRIMARY KEY AUTOINCREMENT,job_id TEXT,event_type TEXT,at TEXT,detail_json TEXT);
+            CREATE UNIQUE INDEX IF NOT EXISTS external_operations_job_kind
+              ON external_operations(job_id, operation_kind);
             """)
 
     def _audit(self, db: sqlite3.Connection, job_id: str | None, event: str, detail: dict[str, Any]) -> None:
@@ -412,6 +414,11 @@ class StewardStore:
         target = _target_identity(job)
         request_digest = _operation_request_digest(job, kind)
         with self._write() as db:
+            existing_row = db.execute(
+                "SELECT * FROM external_operations WHERE job_id=? AND operation_kind=?", (job_id, kind)
+            ).fetchone()
+            if existing_row is not None:
+                return dict(existing_row)
             if not self._is_current_tx(db, job_id, int(job["generation"]), str(job["attemptId"])):
                 raise RuntimeError("stale lineage operation reservation")
             db.execute(
