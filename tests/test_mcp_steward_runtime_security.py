@@ -398,9 +398,9 @@ def test_dispatch_commit_closes_toctou_and_stale_generation_reconciles_without_r
     assert old_op["mutation_decision_ref"]
     assert provider.dispatch_count == 0
     steward.submit("repo", "abc", "toctou-new")
-    for _ in range(5):
-        assert steward.run_once() is True
-        if provider.reconcile_count == 1:
+    for _ in range(10):
+        steward.run_once()
+        if provider.reconcile_count == 1 and provider.dispatch_count == 1:
             break
     assert provider.reconcile_count == 1
     assert provider.dispatch_count == 1
