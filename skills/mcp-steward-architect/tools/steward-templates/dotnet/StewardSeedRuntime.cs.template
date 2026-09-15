@@ -561,12 +561,19 @@ public sealed class StewardSeedRuntime : IDisposable
     private void PromoteOrBlockLocked(StewardSeedJob job, StewardOperation operation, JsonElement payload)
     {
         var added = false;
-        if (!payload.TryGetProperty("observation", out var observation)
+        if (!PayloadSubjectMatches(payload, job.Subject)
+            || !payload.TryGetProperty("observation", out var observation)
+            || observation.ValueKind != JsonValueKind.Object
             || !observation.TryGetProperty("producerId", out var producerIdElement)
             || !observation.TryGetProperty("authorityClass", out var authorityElement)
             || !observation.TryGetProperty("observationGrade", out var gradeElement)
             || !observation.TryGetProperty("binding", out var bindingElement)
-            || !observation.TryGetProperty("coverage", out var coverageElement))
+            || !observation.TryGetProperty("coverage", out var coverageElement)
+            || producerIdElement.ValueKind != JsonValueKind.String
+            || authorityElement.ValueKind != JsonValueKind.String
+            || gradeElement.ValueKind != JsonValueKind.String
+            || bindingElement.ValueKind != JsonValueKind.Object
+            || coverageElement.ValueKind != JsonValueKind.Object)
         {
             BlockObservationLocked(job); return;
         }
@@ -581,16 +588,24 @@ public sealed class StewardSeedRuntime : IDisposable
             BlockObservationLocked(job); return;
         }
         var actualAuthority = AuthorityRank.First(item => item.Value == Math.Min(claimedRank, ceilingRank)).Key;
-        var observedSatisfied = bindingElement.GetProperty("satisfied").EnumerateArray().Select(item => item.GetString()!).ToHashSet(StringComparer.Ordinal);
+        if (!bindingElement.TryGetProperty("satisfied", out var satisfiedElement)
+            || satisfiedElement.ValueKind != JsonValueKind.Array
+            || satisfiedElement.EnumerateArray().Any(item => item.ValueKind != JsonValueKind.String)
+            || !coverageElement.TryGetProperty("required", out var requiredElement)
+            || !coverageElement.TryGetProperty("observed", out var observedElement)
+            || !requiredElement.TryGetInt32(out var requiredCoverage)
+            || !observedElement.TryGetInt32(out var observedCoverage))
+        {
+            BlockObservationLocked(job); return;
+        }
+        var observedSatisfied = satisfiedElement.EnumerateArray().Select(item => item.GetString()!).ToHashSet(StringComparer.Ordinal);
         if (operation.CandidateDigest == job.Candidate.Digest) observedSatisfied.Add("candidate");
-        var requiredCoverage = coverageElement.GetProperty("required").GetInt32();
-        var observedCoverage = coverageElement.GetProperty("observed").GetInt32();
         if (requiredCoverage < 1 || observedCoverage < 0 || observedCoverage > requiredCoverage) { BlockObservationLocked(job); return; }
         var coverageState = observedCoverage >= requiredCoverage ? "complete" : observedCoverage > 0 ? "partial" : "unknown";
         foreach (var req in _policy.Requirements)
         {
             if (req.ApprovedProducers.Count > 0 && !req.ApprovedProducers.Contains(producerId)) continue;
-            var observed = _clock.UtcNow; var id = $"evidence-{Guid.NewGuid():N}";
+            var observed = operation.ObservedAt; var id = $"evidence-{Guid.NewGuid():N}";
             var satisfied = req.BindingRequirements.Where(observedSatisfied.Contains).ToArray();
             var bindingStatus = req.BindingRequirements.All(observedSatisfied.Contains) ? "complete" : satisfied.Length > 0 ? "partial" : "unknown";
             var binding = new StewardBinding(req.BindingRequirements, satisfied, bindingStatus);
@@ -604,6 +619,13 @@ public sealed class StewardSeedRuntime : IDisposable
         _state.Jobs[job.JobId] = added ? Advance(job, "finalizing", "evidence-persisted", "evidence-persisted", cancellation: job.Cancellation)
             : Advance(job, "blocked", "blocked", "blocked:terminal-observation-insufficient-authority", cancellation: job.Cancellation, blockedReason: "terminal-observation-insufficient-authority");
         if (!added) AuditLocked(job.JobId, "blocked", new Dictionary<string, string> { ["reason"] = "terminal-observation-insufficient-authority" });
+    }
+
+    private static bool PayloadSubjectMatches(JsonElement payload, StewardSubject subject)
+    {
+        if (!payload.TryGetProperty("subject", out var element) || element.ValueKind != JsonValueKind.Object) return false;
+        try { return element.Deserialize<StewardSubject>() is { } observed && observed == subject; }
+        catch (JsonException) { return false; }
     }
 
     private void BlockObservationLocked(StewardSeedJob job)

@@ -608,7 +608,10 @@ class StewardStore:
         observation_grade = str(observation.get("observationGrade", ""))
         if not observation_grade:
             return False
-        observed = self.clock.now()
+        try:
+            observed = _parse(str(operation["observed_at"]))
+        except (KeyError, TypeError, ValueError):
+            return False
         evidence_id = f"evidence-{uuid.uuid4().hex}"
         with self._write() as db:
             if not self._is_current_tx(db, job_id, int(job["generation"]), str(job["attemptId"])):
