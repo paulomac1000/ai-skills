@@ -325,15 +325,15 @@ public sealed class StewardSeedRuntime : IDisposable
         SeedAction? action;
         lock (_gate)
         {
+            var job = NextJobLocked();
             var stale = NextSupersededOperationLocked();
-            if (stale is not null)
+            if (stale is not null && (job is null || job.Status == "waiting-external"))
             {
                 var staleJob = CurrentJobLocked(stale.JobId);
                 action = new(stale.Delivery == "delivery-unknown" ? (stale.OperationKind == "cancel" ? "stale-cancel-reconcile" : "stale-reconcile") : "stale-poll", staleJob, stale);
             }
             else
             {
-                var job = NextJobLocked();
                 if (job is null) return false;
                 _state.Jobs[job.JobId] = job with { HeartbeatAt = _clock.UtcNow };
                 job = _state.Jobs[job.JobId];
@@ -350,7 +350,14 @@ public sealed class StewardSeedRuntime : IDisposable
                     else if (submit.Delivery == "delivery-unknown") action = new("reconcile", job, submit);
                     else if (submit.Result is null) action = new("poll", job, submit);
                     else if (!HasEvidenceLocked(job.JobId)) { PromoteOrBlockLocked(job, submit, submit.Result.Value); SaveLocked(); return true; }
-                    else if (job.Status == "finalizing") { FinalizeLocked(job); SaveLocked(); return true; }
+                    else if (job.Status == "finalizing")
+                    {
+                        var priorState = JsonSerializer.Deserialize<StewardSeedState>(JsonSerializer.Serialize(_state))
+                            ?? throw new InvalidOperationException("cannot snapshot Steward state");
+                        try { FinalizeLocked(job); SaveLocked(); }
+                        catch { _state = priorState; throw; }
+                        return true;
+                    }
                     else return false;
                 }
             }

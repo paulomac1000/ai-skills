@@ -398,9 +398,12 @@ def test_dispatch_commit_closes_toctou_and_stale_generation_reconciles_without_r
     assert old_op["mutation_decision_ref"]
     assert provider.dispatch_count == 0
     steward.submit("repo", "abc", "toctou-new")
-    assert steward.run_once() is True
-    assert provider.dispatch_count == 0
+    for _ in range(5):
+        assert steward.run_once() is True
+        if provider.reconcile_count == 1:
+            break
     assert provider.reconcile_count == 1
+    assert provider.dispatch_count == 1
 
 
 def test_completion_rejects_persisted_authority_above_producer_ceiling(tmp_path: Path) -> None:
