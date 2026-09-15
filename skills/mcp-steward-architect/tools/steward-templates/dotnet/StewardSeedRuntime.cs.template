@@ -321,14 +321,16 @@ public sealed class StewardSeedRuntime : IDisposable
         }
     }
 
-    public bool RunOneDue()
+    public bool RunOneDue() => RunOneDueCore(suppressStaleOnce: false);
+
+    private bool RunOneDueCore(bool suppressStaleOnce)
     {
         SeedAction? action;
         lock (_gate)
         {
             _reconcileTick++;
             var job = NextJobLocked();
-            var stale = NextSupersededOperationLocked();
+            var stale = suppressStaleOnce ? null : NextSupersededOperationLocked();
             if (stale is not null && (_reconcileTick % 2 == 0 || job is null || job.Status == "waiting-external"))
             {
                 var staleJob = CurrentJobLocked(stale.JobId);
@@ -402,7 +404,8 @@ public sealed class StewardSeedRuntime : IDisposable
             if (action.Kind == "stale-poll")
             {
                 // A no-progress stale poll must not report global idleness while runnable work remains.
-                lock (_gate) { if (NextJobLocked() is not null) return true; }
+                // Suppress the stale branch on the re-entry so the runnable job is actually processed this call.
+                lock (_gate) { if (NextJobLocked() is not null) return RunOneDueCore(suppressStaleOnce: true); }
             }
             return false;
         }
