@@ -999,7 +999,9 @@ class StewardRuntime:
         job = self.store.next_job()
         stale = self.store.next_stale_operation()
         if stale is not None and (self._tick % 2 == 0 or job is None or job["status"] == "waiting-external"):
-            return self._handle_stale_operation(stale)
+            if self._handle_stale_operation(stale):
+                return True
+            # Stale poll made no progress; fall through to regular work.
         if job is None:
             return False
         self.store.heartbeat(job["jobId"])
