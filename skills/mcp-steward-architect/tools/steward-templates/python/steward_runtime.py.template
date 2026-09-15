@@ -1039,6 +1039,11 @@ class StewardRuntime:
                 return True
             self.store.capture_result(submit["operation_id"], observed)
             payload = observed
+            # Evidence freshness binds to the capture-time receipt observation.
+            # The local submit copy still carries the dispatch-era observed_at, so
+            # reload the canonical row before persisting evidence; otherwise a slow
+            # poll could mint evidence that is already expired at creation.
+            submit = self.store.operation_for_job(job["jobId"], "submit") or submit
         if not self.store.evidence(job["jobId"]):
             promoted = False
             for requirement in self.profile["completion"]["obligations"]:

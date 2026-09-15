@@ -79,6 +79,32 @@ def test_foreign_provider_subject_cannot_be_relabelled_as_job_evidence(tmp_path:
     assert steward.get(job_id)["evidence"] == []
 
 
+def test_evidence_freshness_binds_to_capture_time_not_dispatch_time(tmp_path: Path) -> None:
+    runtime, profile, proof, mutation, upstream = _generated_runtime(tmp_path)
+    clock = runtime.FakeClock(datetime(2026, 9, 13, tzinfo=UTC))
+    steward = runtime.StewardRuntime(
+        runtime.StewardStore(tmp_path / "freshness.db", clock),
+        profile,
+        proof,
+        mutation,
+        upstream=upstream,
+        provider=runtime.FakeProvider(),
+    )
+    job_id = steward.submit("repo", "abc", "freshness-1")["jobId"]
+    dispatch_iso = clock.now().isoformat()
+    assert steward.run_once() is True  # reserve submit
+    assert steward.run_once() is True  # dispatch + bind remote handle (observed_at = dispatch time)
+    clock.advance(400)  # exceed the 300s criterion freshness window before the result is observed
+    assert steward.run_once() is True  # poll + capture + persist evidence in one pass
+    evidence = steward.get(job_id)["evidence"]
+    assert evidence, "expected evidence promotion after capture"
+    capture_iso = clock.now().isoformat().replace("+00:00", "Z")
+    for item in evidence:
+        assert item["observedAt"] == capture_iso
+        assert item["observedAt"] != dispatch_iso
+        assert item["expiresAt"] > item["observedAt"]
+
+
 def test_completion_gate_uses_persisted_producer_binding_and_coverage(tmp_path: Path) -> None:
     runtime, profile, proof, mutation, upstream = _generated_runtime(tmp_path)
     clock = runtime.FakeClock(datetime(2026, 9, 13, tzinfo=UTC))
