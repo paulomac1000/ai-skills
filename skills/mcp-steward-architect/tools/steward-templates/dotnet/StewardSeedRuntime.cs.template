@@ -776,8 +776,13 @@ public sealed class StewardSeedRuntime : IDisposable
                 throw new JsonException("Steward snapshot contains inconsistent job lineage");
         }
         foreach (var pair in state.Lineages)
-            if (pair.Value is null || string.IsNullOrWhiteSpace(pair.Key) || !state.Jobs.ContainsKey(pair.Value.CurrentJobId))
+            if (pair.Value is null || string.IsNullOrWhiteSpace(pair.Key) || !state.Jobs.TryGetValue(pair.Value.CurrentJobId, out var currentJob)
+                || currentJob is null || currentJob.LineageId != pair.Key)
                 throw new JsonException("Steward snapshot contains an invalid lineage identity");
+        foreach (var pair in state.Idempotency)
+            if (pair.Value is null || !state.Jobs.TryGetValue(pair.Value.JobId, out var idempotentJob)
+                || idempotentJob is null || idempotentJob.RequestDigest != pair.Value.RequestDigest)
+                throw new JsonException("Steward snapshot contains an inconsistent idempotency binding");
         foreach (var pair in state.Operations)
         {
             var operation = pair.Value;
@@ -798,14 +803,19 @@ public sealed class StewardSeedRuntime : IDisposable
         foreach (var pair in state.Completions)
         {
             var completion = pair.Value;
-            if (completion is null || pair.Key != completion.JobId || !state.Jobs.ContainsKey(completion.JobId))
-                throw new JsonException("Steward snapshot contains dangling completion reference");
+            if (completion is null || pair.Key != completion.JobId || !state.Jobs.TryGetValue(completion.JobId, out var job)
+                || job is null || completion.LineageId != job.LineageId || completion.Generation != job.Generation
+                || completion.Subject != job.Subject || completion.Candidate != job.Candidate)
+                throw new JsonException("Steward snapshot contains an inconsistent completion reference");
         }
         foreach (var pair in state.Handoffs)
         {
             var handoff = pair.Value;
-            if (handoff is null || pair.Key != handoff.JobId || !state.Jobs.ContainsKey(handoff.JobId))
-                throw new JsonException("Steward snapshot contains dangling handoff reference");
+            if (handoff is null || pair.Key != handoff.JobId || !state.Jobs.TryGetValue(handoff.JobId, out var job)
+                || job is null || handoff.LineageId != job.LineageId || handoff.Generation != job.Generation
+                || handoff.Subject != job.Subject || handoff.Candidate != job.Candidate
+                || !string.Equals(ComputeHandoffDigest(handoff), handoff.Digest, StringComparison.Ordinal))
+                throw new JsonException("Steward snapshot contains an inconsistent handoff reference");
         }
     }
 

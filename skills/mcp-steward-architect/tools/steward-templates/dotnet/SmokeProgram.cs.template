@@ -94,7 +94,7 @@ static void VerifyStewardSeed()
             var lineages = root["Lineages"]!.AsObject();
             var lineage = lineages.First().Value!.AsObject();
             lineage["Subject"]!["Revision"] = "other";
-        });
+        }, expectLoadRejection: true);
 
         var blockedProvider = new UnapprovedSeedProvider();
         using (var blocked = new StewardSeedRuntime(Path.Combine(root, "blocked"), clock, blockedProvider, new SeedFaultInjector(), profile, proof))
@@ -110,7 +110,7 @@ static void VerifyStewardSeed()
     finally { Directory.Delete(root, recursive: true); }
 }
 
-static void VerifyMutationRejection(string name, string profile, string proof, FakeSeedClock clock, Action<JsonObject> tamper)
+static void VerifyMutationRejection(string name, string profile, string proof, FakeSeedClock clock, Action<JsonObject> tamper, bool expectLoadRejection = false)
 {
     var root = Path.Combine(Path.GetTempPath(), "__NAMESPACE__.gate-" + name + "-" + Guid.NewGuid().ToString("N"));
     Directory.CreateDirectory(root);
@@ -126,11 +126,16 @@ static void VerifyMutationRejection(string name, string profile, string proof, F
         tamper(json);
         File.WriteAllText(snapshot, json.ToJsonString());
         var provider = new CountingSeedProvider();
-        using var runtime = new StewardSeedRuntime(root, clock, provider, new SeedFaultInjector(), profile, proof);
-        runtime.RunOneDue();
-        if (provider.DispatchCount != 0) throw new InvalidOperationException($"{name}: rejected mutation reached provider dispatch.");
-        if (runtime.Doctor().Audit.All(item => item.EventType != "mutation-admission-rejected"))
-            throw new InvalidOperationException($"{name}: rejected mutation did not emit durable admission rejection.");
+        try
+        {
+            using var runtime = new StewardSeedRuntime(root, clock, provider, new SeedFaultInjector(), profile, proof);
+            if (expectLoadRejection) throw new InvalidOperationException($"{name}: malformed snapshot was accepted.");
+            runtime.RunOneDue();
+            if (provider.DispatchCount != 0) throw new InvalidOperationException($"{name}: rejected mutation reached provider dispatch.");
+            if (runtime.Doctor().Audit.All(item => item.EventType != "mutation-admission-rejected"))
+                throw new InvalidOperationException($"{name}: rejected mutation did not emit durable admission rejection.");
+        }
+        catch (InvalidDataException) when (expectLoadRejection) { return; }
     }
     finally { Directory.Delete(root, recursive: true); }
 }
