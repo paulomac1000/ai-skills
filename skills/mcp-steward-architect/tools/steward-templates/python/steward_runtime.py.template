@@ -19,6 +19,7 @@ _LOGGER = logging.getLogger(__name__)
 _AUTHORITY_RANK = {"advisory": 0, "observed": 1, "verified": 2, "independent": 3}
 _TERMINAL = {"completed", "completed-with-gaps", "failed", "cancelled", "superseded"}
 _RUNNABLE = {"queued", "reconciling", "waiting-external", "cancelling", "finalizing"}
+_OBSERVATION_GRADES = {"declared", "observed", "observed-effective", "functional-ready", "verified"}
 _PLACEHOLDER_AUTHORITY = {"", "unknown", "head", "latest", "default", "unset", "none"}
 
 
@@ -269,7 +270,7 @@ class StewardStore:
         subject = {"type": "target", "id": str(subject["id"]), "revision": subject.get("revision")}
         candidate = self._candidate(subject)
         request_digest = _digest({"subject": subject, "candidate": candidate})
-        lineage_id = "lineage-" + hashlib.sha256(_canonical(subject).encode("utf-8")).hexdigest()[:24]
+        lineage_id = "lineage-" + hashlib.sha256(_canonical({"type": subject["type"], "id": subject["id"]}).encode("utf-8")).hexdigest()[:24]
         now_dt = self.clock.now()
         now = _iso(now_dt)
         deadline = _iso(now_dt + timedelta(minutes=15))
@@ -371,7 +372,7 @@ class StewardStore:
         marks = ",".join("?" for _ in _RUNNABLE)
         with self._connect() as db:
             row = db.execute(
-                f"SELECT job_id FROM steward_jobs WHERE status IN ({marks}) ORDER BY created_at,job_id LIMIT 1",
+                f"SELECT job_id FROM steward_jobs WHERE status IN ({marks}) ORDER BY CASE WHEN status='waiting-external' THEN 1 ELSE 0 END,created_at,job_id LIMIT 1",
                 tuple(sorted(_RUNNABLE)),
             ).fetchone()
         return None if row is None else self.job(str(row[0]))
@@ -606,7 +607,7 @@ class StewardStore:
         coverage_state = "complete" if observed_count >= required_count else ("partial" if observed_count else "unknown")
         coverage = {"state": coverage_state, "required": required_count, "observed": observed_count}
         observation_grade = str(observation.get("observationGrade", ""))
-        if not observation_grade:
+        if observation_grade not in _OBSERVATION_GRADES:
             return False
         try:
             observed = _parse(str(operation["observed_at"]))
@@ -853,6 +854,7 @@ class StewardRuntime:
                     and item["evidenceClass"] == requirement["evidence_class"] and item["proofRecipeId"] == self.recipe_id
                     and (not criterion["approved_producers"] or item["producerId"] in criterion["approved_producers"])
                     and self._producer(item["producerId"]) is not None
+                    and item["observationGrade"] in _OBSERVATION_GRADES
                     and _AUTHORITY_RANK[item["authorityClass"]] <= _AUTHORITY_RANK[self._producer(item["producerId"])["authority_ceiling"]]
                     and _AUTHORITY_RANK[item["authorityClass"]] >= _AUTHORITY_RANK[criterion["required_authority"]]
                     and item["binding"]["status"] == "complete"
@@ -894,6 +896,9 @@ class StewardRuntime:
             candidate=job["candidate"], now=self.store.clock.now(),
         )
         if admission["disposition"] != "Admitted":
+            current = self.store.job(job_id)
+            if current["cancellation"] in {"requested", "reconciling"} or current["status"] == "cancelling":
+                return
             self.store.block(job_id, f"mutation-admission:{admission['disposition']}")
             return
         decision_ref = f"admission-{uuid.uuid4().hex}"

@@ -206,6 +206,7 @@ public sealed class StewardSeedRuntime : IDisposable
     private static readonly HashSet<string> Terminal = ["completed", "completed-with-gaps", "failed", "cancelled", "superseded"];
     private static readonly HashSet<string> Runnable = ["queued", "reconciling", "waiting-external", "cancelling", "finalizing"];
     private static readonly Dictionary<string, int> AuthorityRank = new(StringComparer.Ordinal) { ["advisory"] = 0, ["observed"] = 1, ["verified"] = 2, ["independent"] = 3 };
+    private static readonly HashSet<string> ObservationGrades = ["declared", "observed", "observed-effective", "functional-ready", "verified"];
     private readonly object _gate = new();
     private readonly string _snapshotPath;
     private readonly FileStream _ownerLock;
@@ -247,9 +248,11 @@ public sealed class StewardSeedRuntime : IDisposable
         var candidateBase = new { type = "subject-snapshot", id = subjectId, revision = subjectRevision };
         var candidate = new StewardCandidate("subject-snapshot", subjectId, subjectRevision, Digest(candidateBase));
         var requestDigest = Digest(new { subject, candidate });
-        var lineageId = "lineage-" + Sha256Hex(JsonSerializer.SerializeToUtf8Bytes(subject))[..24];
+        var lineageId = "lineage-" + Sha256Hex(JsonSerializer.SerializeToUtf8Bytes(new { type = subject.Type, id = subject.Id }))[..24];
         lock (_gate)
         {
+            var priorState = JsonSerializer.Deserialize<StewardSeedState>(JsonSerializer.Serialize(_state))
+                ?? throw new InvalidOperationException("cannot snapshot Steward state");
             if (_state.Idempotency.TryGetValue(idempotencyKey, out var existing))
             {
                 if (!string.Equals(existing.RequestDigest, requestDigest, StringComparison.Ordinal)) throw new InvalidOperationException("idempotency key is bound to a different request digest");
@@ -275,7 +278,8 @@ public sealed class StewardSeedRuntime : IDisposable
             _state.Lineages[lineageId] = new(jobId, generation, subject, candidate, (lineage?.Version ?? -1) + 1);
             _state.Idempotency[idempotencyKey] = new(requestDigest, jobId);
             AuditLocked(jobId, "admitted", new Dictionary<string, string> { ["generation"] = generation.ToString(System.Globalization.CultureInfo.InvariantCulture), ["candidate"] = candidate.Digest });
-            SaveLocked();
+            try { SaveLocked(); }
+            catch { _state = priorState; throw; }
             return new(jobId, false);
         }
     }
@@ -588,6 +592,8 @@ public sealed class StewardSeedRuntime : IDisposable
             BlockObservationLocked(job); return;
         }
         var actualAuthority = AuthorityRank.First(item => item.Value == Math.Min(claimedRank, ceilingRank)).Key;
+        var observationGrade = gradeElement.GetString();
+        if (observationGrade is null || !ObservationGrades.Contains(observationGrade)) { BlockObservationLocked(job); return; }
         if (!bindingElement.TryGetProperty("satisfied", out var satisfiedElement)
             || satisfiedElement.ValueKind != JsonValueKind.Array
             || satisfiedElement.EnumerateArray().Any(item => item.ValueKind != JsonValueKind.String)
@@ -610,7 +616,7 @@ public sealed class StewardSeedRuntime : IDisposable
             var bindingStatus = req.BindingRequirements.All(observedSatisfied.Contains) ? "complete" : satisfied.Length > 0 ? "partial" : "unknown";
             var binding = new StewardBinding(req.BindingRequirements, satisfied, bindingStatus);
             var evidence = new StewardEvidence(id, job.JobId, job.LineageId, job.Generation, job.Subject, job.Candidate, req.Id, req.CanonicalClaim,
-                req.EvidenceClass, gradeElement.GetString() ?? "unknown", actualAuthority, producerId, _policy.RecipeId, binding,
+                req.EvidenceClass, observationGrade, actualAuthority, producerId, _policy.RecipeId, binding,
                 new StewardCoverage(coverageState, requiredCoverage, observedCoverage), observed, observed.AddSeconds(req.FreshnessSeconds), Digest(payload));
             _state.Evidence[id] = evidence; job = job with { EvidenceRefs = job.EvidenceRefs.Concat([id]).ToArray() }; added = true;
             AuditLocked(job.JobId, "evidence-persisted", new Dictionary<string, string> { ["evidenceId"] = id, ["claimId"] = req.CanonicalClaim,
@@ -655,6 +661,7 @@ public sealed class StewardSeedRuntime : IDisposable
     private bool EvidenceSatisfies(StewardSeedJob job, SeedRequirement req, StewardEvidence ev)
     {
         if (ev.JobId != job.JobId || ev.Generation != job.Generation || ev.LineageId != job.LineageId || ev.Subject != job.Subject || ev.Candidate != job.Candidate) return false;
+        if (!ObservationGrades.Contains(ev.ObservationGrade)) return false;
         if (ev.CriterionId != req.Id || ev.ClaimId != req.CanonicalClaim || ev.EvidenceClass != req.EvidenceClass || ev.ProofRecipeId != _policy.RecipeId) return false;
         if (req.ApprovedProducers.Count > 0 && !req.ApprovedProducers.Contains(ev.ProducerId)) return false;
         if (!_policy.Producers.TryGetValue(ev.ProducerId, out var producer)) return false;
@@ -711,7 +718,7 @@ public sealed class StewardSeedRuntime : IDisposable
     }
 
     private StewardSeedJob Advance(StewardSeedJob job, string status, string stage, string marker, string cancellation, string? blockedReason = null) => job with { Version = job.Version + 1, Status = status, Stage = stage, Cancellation = cancellation, BlockedReason = blockedReason, Lease = Terminal.Contains(status) ? null : job.Lease, UpdatedAt = _clock.UtcNow, HeartbeatAt = _clock.UtcNow, ProgressAt = _clock.UtcNow, ProgressRevision = job.ProgressRevision + 1, ProgressMarker = marker };
-    private StewardSeedJob? NextJobLocked() => _state.Jobs.Values.Where(item => Runnable.Contains(item.Status)).OrderBy(item => item.CreatedAt).ThenBy(item => item.JobId, StringComparer.Ordinal).FirstOrDefault();
+    private StewardSeedJob? NextJobLocked() => _state.Jobs.Values.Where(item => Runnable.Contains(item.Status)).OrderBy(item => item.Status == "waiting-external" ? 1 : 0).ThenBy(item => item.CreatedAt).ThenBy(item => item.JobId, StringComparer.Ordinal).FirstOrDefault();
     private StewardOperation? OperationLocked(string jobId, string kind) => _state.Operations.Values.Where(item => item.JobId == jobId && item.OperationKind == kind).OrderBy(item => item.CreatedAt).FirstOrDefault();
     private bool HasEvidenceLocked(string jobId) => _state.Evidence.Values.Any(item => item.JobId == jobId);
     private StewardOperation? NextSupersededOperationLocked() => _state.Operations.Values.Where(item => _state.Jobs.TryGetValue(item.JobId, out var job) && job.Status == "superseded" && item.State is not ("captured" or "abandoned" or "failed") && (item.Delivery is "delivery-unknown" or "delivered")).OrderBy(item => item.ObservedAt).FirstOrDefault();
