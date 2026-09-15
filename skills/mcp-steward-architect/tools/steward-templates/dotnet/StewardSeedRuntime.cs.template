@@ -397,7 +397,15 @@ public sealed class StewardSeedRuntime : IDisposable
         }
 
         var result = _provider.Poll(action.Operation.RemoteHandle ?? throw new InvalidOperationException("remote handle missing"), action.Job.Subject);
-        if (!result.Completed) return false;
+        if (!result.Completed)
+        {
+            if (action.Kind == "stale-poll")
+            {
+                // A no-progress stale poll must not report global idleness while runnable work remains.
+                lock (_gate) { if (NextJobLocked() is not null) return true; }
+            }
+            return false;
+        }
         lock (_gate)
         {
             if (action.Kind == "stale-poll") { CaptureStaleLocked(action.Operation.OperationId, result.Payload); SaveLocked(); return true; }
