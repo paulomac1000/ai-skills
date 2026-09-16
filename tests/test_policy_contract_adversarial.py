@@ -52,9 +52,10 @@ def _corpus(**overrides: object) -> dict[str, object]:
 
 def test_receipt_semantics_cover_arithmetic_exclusions_and_pass_invariants() -> None:
     assert receipt.validate_receipt_semantics({}) == ["test_corpus must be an object"]
-    assert "excluded_files must be an array" in receipt.validate_receipt_semantics(
-        {"test_corpus": _corpus(excluded_files="bad")}
-    )[0]
+    assert (
+        "excluded_files must be an array"
+        in receipt.validate_receipt_semantics({"test_corpus": _corpus(excluded_files="bad")})[0]
+    )
 
     findings = receipt.validate_receipt_semantics(
         {
@@ -184,7 +185,14 @@ def test_state_isolation_cli_snapshot_and_change_detection(
     monkeypatch.setattr(
         sys,
         "argv",
-        ["verify_state_isolation.py", "assert-unchanged", "--protected", str(protected), "--snapshot", str(snapshot_path)],
+        [
+            "verify_state_isolation.py",
+            "assert-unchanged",
+            "--protected",
+            str(protected),
+            "--snapshot",
+            str(snapshot_path),
+        ],
     )
     assert STATE_ISOLATION.main() == 0
     capsys.readouterr()

@@ -122,11 +122,7 @@ def test_provider_verifier_maps_pytest_and_exact_non_python_junit_identities() -
     )
     claim = {
         "result_bindings": [
-            {
-                "test_cases": [
-                    {"identity": "tests/adoption.test.ts::adoption contract", "status": "passed"}
-                ]
-            }
+            {"test_cases": [{"identity": "tests/adoption.test.ts::adoption contract", "status": "passed"}]}
         ]
     }
     assert GitHubEvidenceVerifier._claim_binds_test_case(
@@ -178,7 +174,14 @@ def test_descriptor_bound_readers_do_not_process_same_path_replacement(
 
     receipt = tmp_path / "receipt.json"
     receipt.write_bytes(b"original!!")
-    cases.append((RECEIPT_VALIDATOR, receipt, lambda: RECEIPT_VALIDATOR._read_file_bounded(receipt, max_bytes=100), b"original!!"))
+    cases.append(
+        (
+            RECEIPT_VALIDATOR,
+            receipt,
+            lambda: RECEIPT_VALIDATOR._read_file_bounded(receipt, max_bytes=100),
+            b"original!!",
+        )
+    )
 
     for module, path, reader, expected in cases:
         _swap_path_after_open(monkeypatch, module, path, reader, expected)

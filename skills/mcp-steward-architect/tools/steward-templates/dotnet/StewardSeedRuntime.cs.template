@@ -41,15 +41,36 @@ public sealed record StewardSubject(string Type, string Id, string? Revision);
 public sealed record StewardCandidate(string Type, string Id, string? Revision, string Digest);
 public sealed record StewardLease(string Owner, long FencingToken, DateTimeOffset ExpiresAt);
 public sealed record StewardSeedJob(
-    string JobId, string LineageId, long Generation, string AttemptId, long Version,
-    StewardSubject Subject, StewardCandidate Candidate, string RequestDigest, string Status, string Stage,
-    string Cancellation, string? BlockedReason, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt,
-    DateTimeOffset HeartbeatAt, DateTimeOffset ProgressAt, long ProgressRevision, string ProgressMarker,
-    DateTimeOffset DeadlineAt, DateTimeOffset? FinalizationStartsAt, StewardLease? Lease,
-    IReadOnlyList<string> EvidenceRefs, IReadOnlyList<string> ExternalOperationRefs,
-    StewardParentContractSnapshot? ParentContract = null, StewardObligationSnapshot? ObligationSet = null,
-    string? CancellationCause = null, string? ParentContractDigest = null, string? ObligationSetDigest = null,
-    int SchemaVersion = 2, IReadOnlyList<string>? ArtifactRefs = null);
+    [property: System.Text.Json.Serialization.JsonPropertyName("jobId")] string JobId,
+    [property: System.Text.Json.Serialization.JsonPropertyName("lineageId")] string LineageId,
+    [property: System.Text.Json.Serialization.JsonPropertyName("generation")] long Generation,
+    [property: System.Text.Json.Serialization.JsonPropertyName("attemptId")] string AttemptId,
+    [property: System.Text.Json.Serialization.JsonPropertyName("version")] long Version,
+    [property: System.Text.Json.Serialization.JsonPropertyName("subject")] StewardSubject Subject,
+    [property: System.Text.Json.Serialization.JsonPropertyName("candidate")] StewardCandidate Candidate,
+    [property: System.Text.Json.Serialization.JsonPropertyName("requestDigest")] string RequestDigest,
+    [property: System.Text.Json.Serialization.JsonPropertyName("status")] string Status,
+    [property: System.Text.Json.Serialization.JsonPropertyName("stage")] string Stage,
+    [property: System.Text.Json.Serialization.JsonPropertyName("cancellation")] string Cancellation,
+    [property: System.Text.Json.Serialization.JsonPropertyName("blockedReason")] string? BlockedReason,
+    [property: System.Text.Json.Serialization.JsonPropertyName("createdAt")] DateTimeOffset CreatedAt,
+    [property: System.Text.Json.Serialization.JsonPropertyName("updatedAt")] DateTimeOffset UpdatedAt,
+    [property: System.Text.Json.Serialization.JsonPropertyName("heartbeatAt")] DateTimeOffset HeartbeatAt,
+    [property: System.Text.Json.Serialization.JsonPropertyName("progressAt")] DateTimeOffset ProgressAt,
+    [property: System.Text.Json.Serialization.JsonPropertyName("progressRevision")] long ProgressRevision,
+    [property: System.Text.Json.Serialization.JsonPropertyName("progressMarker")] string ProgressMarker,
+    [property: System.Text.Json.Serialization.JsonPropertyName("deadlineAt")] DateTimeOffset DeadlineAt,
+    [property: System.Text.Json.Serialization.JsonPropertyName("finalizationStartsAt")] DateTimeOffset? FinalizationStartsAt,
+    [property: System.Text.Json.Serialization.JsonPropertyName("lease")] StewardLease? Lease,
+    [property: System.Text.Json.Serialization.JsonPropertyName("evidenceRefs")] IReadOnlyList<string> EvidenceRefs,
+    [property: System.Text.Json.Serialization.JsonPropertyName("externalOperationRefs")] IReadOnlyList<string> ExternalOperationRefs,
+    [property: System.Text.Json.Serialization.JsonPropertyName("parentContract")] StewardParentContractSnapshot? ParentContract = null,
+    [property: System.Text.Json.Serialization.JsonPropertyName("obligationSet")] StewardObligationSnapshot? ObligationSet = null,
+    [property: System.Text.Json.Serialization.JsonPropertyName("cancellationCause")] string? CancellationCause = null,
+    [property: System.Text.Json.Serialization.JsonPropertyName("parentContractDigest")] string? ParentContractDigest = null,
+    [property: System.Text.Json.Serialization.JsonPropertyName("obligationSetDigest")] string? ObligationSetDigest = null,
+    [property: System.Text.Json.Serialization.JsonPropertyName("schema_version")] int SchemaVersion = 2,
+    [property: System.Text.Json.Serialization.JsonPropertyName("artifactRefs")] IReadOnlyList<string>? ArtifactRefs = null);
 public sealed record StewardParentContractSnapshot(
     string Mode, string SupervisorSystemId, string? ParentWorkId, string? ParentRunId, long ParentGeneration,
     string ContractId, string ContractRevision, string ContractDigest,
@@ -120,6 +141,7 @@ internal sealed class SeedPolicy
     public required IReadOnlyDictionary<string, SeedMutationEffect> Effects { get; init; }
     public required SeedCapability Capability { get; init; }
     public required string RecipeDigest { get; init; }
+    public required bool SupervisedRequired { get; init; }
 
     private static string CapabilityDigest(JsonElement capability)
     {
@@ -251,6 +273,7 @@ internal sealed class SeedPolicy
             RecipeId = $"{proof.RootElement.GetProperty("recipe_id").GetString()}@{revision}", ProofRevision = revision,
             Requirements = requirements, Producers = producerMap, Effects = effects, Capability = capability,
             RecipeDigest = recipeDigest,
+            SupervisedRequired = string.Equals(profile.RootElement.GetProperty("authority").GetProperty("parent_completion").GetString(), "explicit-contract-only", StringComparison.Ordinal),
         };
     }
 }
@@ -319,6 +342,10 @@ public sealed class StewardSeedRuntime : IDisposable
     public StewardAdmission Submit(string subjectId, string? subjectRevision, string idempotencyKey, StewardParentContractSnapshot? parentContract)
     {
         if (string.IsNullOrWhiteSpace(idempotencyKey)) throw new ArgumentException("idempotencyKey is required", nameof(idempotencyKey));
+        if (_policy.SupervisedRequired && parentContract is null)
+            throw new InvalidOperationException("ParentContractUnsupported: profile requires an admitted parent contract");
+        if (!_policy.SupervisedRequired && parentContract is not null)
+            throw new InvalidOperationException("ParentContractUnsupported: standalone profile rejects a parent contract");
         if (parentContract is not null && parentContract.Mode != "supervised")
             throw new InvalidOperationException("ParentContractUnsupported: admitted parent contract must be supervised");
         if (parentContract is not null)
@@ -362,7 +389,7 @@ public sealed class StewardSeedRuntime : IDisposable
             var lease = new StewardLease($"steward-runtime:{attemptId}", generation, deadline);
             var job = new StewardSeedJob(jobId, lineageId, generation, attemptId, 0, subject, candidate, requestDigest,
                 "queued", "admitted", "none", null, now, now, now, now, 1, "admitted", deadline, null, lease, [], [],
-                parentContract, obligationSet);
+                parentContract, obligationSet, null, parentContract?.ContractDigest, obligationSet.Digest, 2, []);
             _state.Jobs[jobId] = job;
             _state.Lineages[lineageId] = new(jobId, generation, subject, candidate, (lineage?.Version ?? -1) + 1);
             _state.Idempotency[idempotencyKey] = new(requestDigest, jobId);
@@ -481,7 +508,7 @@ public sealed class StewardSeedRuntime : IDisposable
             lock (_gate)
             {
                 var owner = CurrentJobLocked(action.Operation.JobId);
-                _state.Operations[action.Operation.OperationId] = action.Operation with { CancellationCause = "application_deadline", ObservedAt = _clock.UtcNow };
+                _state.Operations[action.Operation.OperationId] = action.Operation with { State = "expired", CancellationCause = "application_deadline", ObservedAt = _clock.UtcNow };
                 if (!Terminal.Contains(owner.Status))
                     _state.Jobs[owner.JobId] = Advance(owner, "blocked", "operation-deadline-exceeded", "blocked:operation-deadline-exceeded", cancellation: owner.Cancellation, blockedReason: "operation-deadline-exceeded");
                 AuditLocked(owner.JobId, "operation-deadline-exceeded", new Dictionary<string, string> { ["operationId"] = action.Operation.OperationId, ["cause"] = "application_deadline" });
@@ -915,7 +942,7 @@ public sealed class StewardSeedRuntime : IDisposable
     private StewardSeedJob? NextJobLocked() => _state.Jobs.Values.Where(item => Runnable.Contains(item.Status)).OrderBy(item => item.Status == "waiting-external" ? 1 : 0).ThenBy(item => item.CreatedAt).ThenBy(item => item.JobId, StringComparer.Ordinal).FirstOrDefault();
     private StewardOperation? OperationLocked(string jobId, string kind) => _state.Operations.Values.Where(item => item.JobId == jobId && item.OperationKind == kind).OrderBy(item => item.CreatedAt).FirstOrDefault();
     private bool HasEvidenceLocked(string jobId) => _state.Evidence.Values.Any(item => item.JobId == jobId);
-    private StewardOperation? NextSupersededOperationLocked() => _state.Operations.Values.Where(item => _state.Jobs.TryGetValue(item.JobId, out var job) && job.Status == "superseded" && item.State is not ("captured" or "abandoned" or "failed") && (item.Delivery is "delivery-unknown" or "delivered")).OrderBy(item => item.ObservedAt).FirstOrDefault();
+    private StewardOperation? NextSupersededOperationLocked() => _state.Operations.Values.Where(item => _state.Jobs.TryGetValue(item.JobId, out var job) && job.Status == "superseded" && item.State is not ("captured" or "abandoned" or "failed" or "expired") && (item.Delivery is "delivery-unknown" or "delivered")).OrderBy(item => item.ObservedAt).FirstOrDefault();
     private bool IsCurrentLocked(StewardSeedJob job)
     {
         if (!_state.Lineages.TryGetValue(job.LineageId, out var lineage) || lineage.CurrentJobId != job.JobId
@@ -968,6 +995,9 @@ public sealed class StewardSeedRuntime : IDisposable
                     throw new JsonException("Steward snapshot contains an invalid parent contract snapshot");
                 if (!string.Equals(ParentContractDigest(parent), parent.ContractDigest, StringComparison.Ordinal))
                     throw new JsonException("Steward snapshot parent contract digest does not bind the snapshot contents");
+                if (string.IsNullOrWhiteSpace(job.ParentContractDigest)
+                    || !string.Equals(ParentContractDigest(parent), job.ParentContractDigest, StringComparison.Ordinal))
+                    throw new JsonException("Steward snapshot parent contract does not match the admission-time digest column");
             }
             if (!Terminal.Contains(job.Status) || job.Status is "completed" or "completed-with-gaps")
             {

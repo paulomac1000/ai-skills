@@ -40,9 +40,7 @@ def _has_required_dotnet_sdk() -> bool:
     except (OSError, subprocess.TimeoutExpired):
         return False
     return completed.returncode == 0 and any(
-        line.split()[0] == REQUIRED_DOTNET_SDK
-        for line in completed.stdout.splitlines()
-        if line.split()
+        line.split()[0] == REQUIRED_DOTNET_SDK for line in completed.stdout.splitlines() if line.split()
     )
 
 
@@ -122,7 +120,5 @@ def test_generated_dotnet_steward_builds_publishes_and_passes_official_client_sm
             timeout=240,
         )
         assert completed.returncode == 0, (
-            f"command failed: {' '.join(command)}\n"
-            f"stdout:\n{completed.stdout}\n"
-            f"stderr:\n{completed.stderr}"
+            f"command failed: {' '.join(command)}\nstdout:\n{completed.stdout}\nstderr:\n{completed.stderr}"
         )

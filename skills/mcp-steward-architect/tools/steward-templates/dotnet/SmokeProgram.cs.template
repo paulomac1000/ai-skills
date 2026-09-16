@@ -97,7 +97,7 @@ static void VerifyStewardSeed()
         {
             var jobs = root["Jobs"]!.AsObject();
             var job = jobs.First().Value!.AsObject();
-            job["Lease"]!["FencingToken"] = 999;
+            job["lease"]!["FencingToken"] = 999;
         });
         VerifyMutationRejection("wrong-subject", profile, proof, clock, static root =>
         {

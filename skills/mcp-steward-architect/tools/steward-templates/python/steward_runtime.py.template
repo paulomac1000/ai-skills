@@ -943,8 +943,8 @@ class StewardStore:
             owner = db.execute("SELECT status FROM steward_jobs WHERE job_id=?", (str(operation["job_id"]),)).fetchone()
             terminal_owner = owner is None or owner["status"] in _TERMINAL
             db.execute(
-                "UPDATE external_operations SET state='abandoned',cancellation_cause='application_deadline',observed_at=? "
-                "WHERE operation_id=? AND state NOT IN ('captured','abandoned','failed')",
+                "UPDATE external_operations SET state='expired',cancellation_cause='application_deadline',observed_at=? "
+                "WHERE operation_id=? AND state NOT IN ('captured','abandoned','failed','expired')",
                 (now, operation["operation_id"]),
             )
             self._audit(db, str(operation["job_id"]), "operation-deadline-exceeded",
@@ -965,7 +965,7 @@ class StewardStore:
         with self._connect() as db:
             row = db.execute(
                 "SELECT o.* FROM external_operations o JOIN steward_jobs j ON j.job_id=o.job_id "
-                "WHERE j.status='superseded' AND o.state NOT IN ('captured','abandoned','failed') "
+                "WHERE j.status='superseded' AND o.state NOT IN ('captured','abandoned','failed','expired') "
                 "AND o.delivery IN ('delivery-unknown','delivered') ORDER BY o.observed_at,o.operation_id LIMIT 1"
             ).fetchone()
         return None if row is None else dict(row)

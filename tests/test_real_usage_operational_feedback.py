@@ -239,7 +239,7 @@ def test_materialized_acceptance_workflow_requires_authority_owned_caller() -> N
     assert "contracts/validate_external_trust_lock.py" in workflow
     assert "contracts/validate_external_adoption.py" in workflow
     assert "check_github_provider_controls.py" in workflow
-    assert "--expected-repository \"$AUTHORITY_REPOSITORY\"" in workflow
-    assert "--expected-revision \"$AUTHORITY_SHA\"" in workflow
+    assert '--expected-repository "$AUTHORITY_REPOSITORY"' in workflow
+    assert '--expected-revision "$AUTHORITY_SHA"' in workflow
     assert "uses: ./.github/workflows/consumer-acceptance.yml" in dispatcher
     assert "AI_SKILLS_CONSUMER_READ_TOKEN" in dispatcher

@@ -106,7 +106,8 @@
         "captured",
         "reconciled",
         "failed",
-        "abandoned"
+        "abandoned",
+        "expired"
       ]
     },
     "delivery": {
@@ -218,14 +219,31 @@
     {
       "if": {
         "properties": {
-          "operationKind": {"enum": ["submit", "cancel", "mutation"]}
+          "operationKind": {"enum": ["submit", "cancel", "mutation"]},
+          "state": {"enum": ["dispatching", "dispatched", "running", "result-ready", "captured", "reconciled"]}
         },
-        "required": ["operationKind"]
+        "required": ["operationKind", "state"]
       },
       "then": {
         "required": ["mutationDecisionRef", "semanticSlot", "operationDeadlineAt"],
         "properties": {
           "mutationDecisionRef": {"type": "string", "minLength": 1},
+          "semanticSlot": {"type": "string", "minLength": 1},
+          "operationDeadlineAt": {"type": "string", "format": "date-time"}
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "operationKind": {"enum": ["submit", "cancel", "mutation"]},
+          "state": {"enum": ["reserved"]}
+        },
+        "required": ["operationKind", "state"]
+      },
+      "then": {
+        "required": ["semanticSlot", "operationDeadlineAt"],
+        "properties": {
           "semanticSlot": {"type": "string", "minLength": 1},
           "operationDeadlineAt": {"type": "string", "format": "date-time"}
         }

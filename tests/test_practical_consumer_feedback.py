@@ -170,18 +170,18 @@ def test_consumer_discovery_document_is_valid_json(tmp_path: Path) -> None:
 
 
 def test_operational_audit_contract_binds_principal_across_auth_boundary() -> None:
-    operations = (
-        ROOT / "skills/mcp-server-architect/references/security-and-operations.md"
-    ).read_text(encoding="utf-8")
+    operations = (ROOT / "skills/mcp-server-architect/references/security-and-operations.md").read_text(
+        encoding="utf-8"
+    )
     assert "after successful authentication carries the authenticated principal" in operations
     assert "before authentication carries an explicit unauthenticated or null principal" in operations
     assert "Audit sink failure follows a declared fail-open or fail-closed policy" in operations
 
 
 def test_deployment_healthcheck_contract_covers_fail_closed_branches() -> None:
-    operations = (
-        ROOT / "skills/mcp-server-architect/references/security-and-operations.md"
-    ).read_text(encoding="utf-8")
+    operations = (ROOT / "skills/mcp-server-architect/references/security-and-operations.md").read_text(
+        encoding="utf-8"
+    )
     for marker in (
         "invalid port or equivalent configuration",
         "unsafe target scope",

@@ -21,14 +21,11 @@ def test_feedback_selector_respects_repository_pytest_addopts(tmp_path: Path) ->
     (tmp_path / "pyproject.toml").write_text(
         "[tool.pytest.ini_options]\n"
         "addopts = \"-m 'not excluded'\"\n"
-        "markers = [\"excluded: excluded from the authoritative gate\"]\n",
+        'markers = ["excluded: excluded from the authoritative gate"]\n',
         encoding="utf-8",
     )
     (tmp_path / "tests/test_filtered.py").write_text(
-        "import pytest\n\n"
-        "@pytest.mark.excluded\n"
-        "def test_filtered():\n"
-        "    assert True\n",
+        "import pytest\n\n@pytest.mark.excluded\ndef test_filtered():\n    assert True\n",
         encoding="utf-8",
     )
     registry = {

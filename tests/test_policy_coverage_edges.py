@@ -17,7 +17,9 @@ from contracts.run_evidence_command import (
 )
 
 
-def test_evidence_cli_rejects_invalid_identity_and_missing_argv(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_evidence_cli_rejects_invalid_identity_and_missing_argv(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.chdir(tmp_path)
 
     with pytest.raises(ValueError, match="execution_id"):

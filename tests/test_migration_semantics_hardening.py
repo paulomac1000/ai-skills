@@ -85,7 +85,9 @@ def test_live_policy_schema_requires_cleanup_ordering_contract(tmp_path: Path) -
     path.write_text(yaml.safe_dump(policy), encoding="utf-8")
 
     findings = validator.validate_policy(path, require_safe_mutations=False)
-    assert any("preclean_after_target_verification" in finding and "required property" in finding for finding in findings)
+    assert any(
+        "preclean_after_target_verification" in finding and "required property" in finding for finding in findings
+    )
     assert any("strategies" in finding and "required property" in finding for finding in findings)
 
 
@@ -227,18 +229,12 @@ def test_normative_migration_semantics_are_explicit() -> None:
     upstream = (ROOT / "skills/mcp-server-architect/references/upstream-contract-discovery.md").read_text(
         encoding="utf-8"
     )
-    migration = (ROOT / "skills/mcp-server-architect/references/migration-assessment.md").read_text(
+    migration = (ROOT / "skills/mcp-server-architect/references/migration-assessment.md").read_text(encoding="utf-8")
+    readme = (ROOT / "skills/afds-doc-writer/references/ecosystem-readme-governance.md").read_text(encoding="utf-8")
+    trust = (ROOT / "skills/ci-cd-architect/references/trusted-executable-sources.md").read_text(encoding="utf-8")
+    provenance = (ROOT / "skills/mcp-server-architect/references/container-provenance-dataflow.md").read_text(
         encoding="utf-8"
     )
-    readme = (ROOT / "skills/afds-doc-writer/references/ecosystem-readme-governance.md").read_text(
-        encoding="utf-8"
-    )
-    trust = (ROOT / "skills/ci-cd-architect/references/trusted-executable-sources.md").read_text(
-        encoding="utf-8"
-    )
-    provenance = (
-        ROOT / "skills/mcp-server-architect/references/container-provenance-dataflow.md"
-    ).read_text(encoding="utf-8")
 
     assert "Opt-in proves operator intent" in upstream
     assert "Identity uncertainty and completion uncertainty are independent" in upstream

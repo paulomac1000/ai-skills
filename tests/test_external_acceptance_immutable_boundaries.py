@@ -71,10 +71,13 @@ def test_external_test_identity_loader_ignores_mutable_worktree_bytes(tmp_path: 
     (tests / "contract.py").write_text("def test_mutable_only():\n    pass\n", encoding="utf-8")
 
     with rule_applicability.test_case_source_loader(lambda _path: "def test_locked():\n    pass\n"):
-        assert rule_applicability.test_case_identity_finding(
-            "tests/contract.py::test_locked",
-            repository,
-        ) is None
+        assert (
+            rule_applicability.test_case_identity_finding(
+                "tests/contract.py::test_locked",
+                repository,
+            )
+            is None
+        )
         finding = rule_applicability.test_case_identity_finding(
             "tests/contract.py::test_mutable_only",
             repository,
@@ -244,9 +247,7 @@ def test_provider_release_scope_comes_from_immutable_candidate_revision(
     revision = "a" * 40
     immutable = {
         ".github/workflow-policy.yaml": (
-            "schema_version: 1\n"
-            "workflows:\n"
-            "  .github/workflows/release.yml: protected-release\n"
+            "schema_version: 1\nworkflows:\n  .github/workflows/release.yml: protected-release\n"
         ),
         ".github/workflows/release.yml": (
             "name: release\n"
