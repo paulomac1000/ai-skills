@@ -130,6 +130,7 @@
             "source",
             "id",
             "revision",
+            "digest_semantics",
             "digest"
           ],
           "properties": {
@@ -144,6 +145,9 @@
             "revision": {
               "type": "string",
               "minLength": 1
+            },
+            "digest_semantics": {
+              "const": "capability-semantic-v1"
             },
             "digest": {
               "type": "string",

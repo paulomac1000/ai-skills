@@ -82,7 +82,7 @@ def _upstream_document(steward_id: str) -> dict[str, Any]:
     document: dict[str, Any] = {
         "schema_version": 2,
         "capability_id": capability_id,
-        "contract": {**identity, "digest": "sha256:" + "0" * 64},
+        "contract": {**identity, "digest_semantics": "capability-semantic-v1", "digest": "sha256:" + "0" * 64},
         "subject_types": ["target"],
         "target_types": ["target"],
         "identity_dimensions_observed": ["target"],
@@ -198,7 +198,7 @@ def _mutation_policy_document(steward_id: str, capability: dict[str, Any]) -> di
     local_identity = {"source": "local", "id": "local:handoff@1", "revision": "1"}
     local_capability: dict[str, Any] = {
         "capability_id": "local:handoff@1",
-        "contract": {**local_identity, "digest": "sha256:" + "0" * 64},
+        "contract": {**local_identity, "digest_semantics": "capability-semantic-v1", "digest": "sha256:" + "0" * 64},
     }
     local_capability["contract"]["digest"] = _capability_semantic_digest(local_capability)
     local_contract = dict(local_capability["contract"])
@@ -407,6 +407,11 @@ def _python_capability(
     return json.dumps(value, indent=2, sort_keys=True) + "\n"
 
 
+def _capability_digest_vectors_document() -> dict[str, Any]:
+    path = Path(__file__).resolve().parents[1] / "references" / "capability-digest-vectors.json"
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
 def _embedded_docs(steward_id: str, profile: str, durability: str) -> dict[str, dict[str, Any]]:
     upstream = _upstream_document(steward_id)
     return {
@@ -416,6 +421,7 @@ def _embedded_docs(steward_id: str, profile: str, durability: str) -> dict[str, 
         "steward_proof_recipe": _proof_recipe_document(steward_id),
         "steward_upstream_capability": upstream,
         "steward_acceptance": _acceptance_document(steward_id),
+        "steward_capability_digest_vectors": _capability_digest_vectors_document(),
     }
 
 

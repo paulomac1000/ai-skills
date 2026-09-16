@@ -119,13 +119,20 @@ internal sealed class SeedPolicy
 
     private static string CapabilityDigest(JsonElement capability)
     {
-        if (capability.ValueKind != JsonValueKind.Object || !capability.TryGetProperty("contract", out _))
+        if (capability.ValueKind != JsonValueKind.Object || !capability.TryGetProperty("contract", out var contractElement))
             throw new InvalidOperationException("capability contract is required");
+        if (contractElement.ValueKind != JsonValueKind.Object
+            || !contractElement.TryGetProperty("digest_semantics", out var semanticsElement)
+            || semanticsElement.ValueKind != JsonValueKind.String
+            || !string.Equals(semanticsElement.GetString(), "capability-semantic-v1", StringComparison.Ordinal))
+            throw new InvalidOperationException("capability digest semantics version is unsupported");
         using var stream = new MemoryStream();
         using (var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping }))
             WriteCapabilityCanonical(writer, capability, insideContract: false);
         return "sha256:" + Convert.ToHexStringLower(SHA256.HashData(stream.ToArray()));
     }
+
+    internal static string CapabilityDigestForVectors(JsonElement capability) => CapabilityDigest(capability);
 
     private static void WriteCapabilityCanonical(Utf8JsonWriter writer, JsonElement value, bool insideContract)
     {
@@ -213,6 +220,13 @@ internal sealed class SeedPolicy
 
 public sealed class StewardSeedRuntime : IDisposable
 {
+    /// <summary>
+    /// Canonical capability semantic digest (contract v1) used for golden-vector and
+    /// cross-runtime agreement checks. The digest binds the complete reviewed capability
+    /// document except contract.digest.
+    /// </summary>
+    public static string CapabilitySemanticDigest(JsonElement capability) => SeedPolicy.CapabilityDigestForVectors(capability);
+
     private static readonly HashSet<string> Terminal = ["completed", "completed-with-gaps", "failed", "cancelled", "superseded"];
     private static readonly HashSet<string> Runnable = ["queued", "reconciling", "waiting-external", "cancelling", "finalizing"];
     private static readonly Dictionary<string, int> AuthorityRank = new(StringComparer.Ordinal) { ["advisory"] = 0, ["observed"] = 1, ["verified"] = 2, ["independent"] = 3 };

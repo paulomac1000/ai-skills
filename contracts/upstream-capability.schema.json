@@ -8,7 +8,7 @@
   "properties": {
     "schema_version": {"const": 2},
     "capability_id": {"type": "string", "minLength": 1, "maxLength": 300},
-    "contract": {"type": "object", "additionalProperties": false, "required": ["source", "id", "revision", "digest"], "properties": {"source": {"enum": ["negotiated-trusted", "discovered-trusted", "pinned-trusted", "operator-config"]}, "id": {"type": "string", "minLength": 1}, "revision": {"type": "string", "minLength": 1}, "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}}},
+    "contract": {"type": "object", "additionalProperties": false, "required": ["source", "id", "revision", "digest_semantics", "digest"], "properties": {"source": {"enum": ["negotiated-trusted", "discovered-trusted", "pinned-trusted", "operator-config"]}, "id": {"type": "string", "minLength": 1}, "revision": {"type": "string", "minLength": 1}, "digest_semantics": {"const": "capability-semantic-v1"}, "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}}},
     "subject_types": {"$ref": "#/$defs/stringSet"},
     "target_types": {"$ref": "#/$defs/stringSet"},
     "identity_dimensions_observed": {"$ref": "#/$defs/stringSet"},

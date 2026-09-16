@@ -17,6 +17,7 @@ if (args.Length == 2) await RunHttpAsync(dll); else await RunStdioAsync(dll);
 
 static void VerifyStewardSeed()
 {
+    VerifyCapabilityDigestVectors();
     var root = Path.Combine(Path.GetTempPath(), "__NAMESPACE__.steward-" + Guid.NewGuid().ToString("N"));
     Directory.CreateDirectory(root);
     var profile = Path.GetFullPath("src/__NAMESPACE__.Mcp.Server/steward_profile.json");
@@ -108,6 +109,37 @@ static void VerifyStewardSeed()
         }
     }
     finally { Directory.Delete(root, recursive: true); }
+}
+
+static void VerifyCapabilityDigestVectors()
+{
+    var vectorsPath = Path.GetFullPath("src/__NAMESPACE__.Mcp.Server/steward_capability_digest_vectors.json");
+    using var document = JsonDocument.Parse(File.ReadAllText(vectorsPath));
+    foreach (var vector in document.RootElement.GetProperty("vectors").EnumerateArray())
+    {
+        var name = vector.GetProperty("name").GetString()!;
+        if (vector.TryGetProperty("capability", out var capability))
+        {
+            var actual = StewardSeedRuntime.CapabilitySemanticDigest(capability);
+            if (actual != vector.GetProperty("expectedDigest").GetString())
+                throw new InvalidOperationException($"Capability digest golden vector diverged: {name}");
+        }
+        if (vector.TryGetProperty("variants", out var variants))
+        {
+            var digests = variants.EnumerateArray().Select(StewardSeedRuntime.CapabilitySemanticDigest).ToArray();
+            if (vector.TryGetProperty("expectedDigest", out var single))
+            {
+                if (digests[0] != single.GetString() || digests[0] != digests[1])
+                    throw new InvalidOperationException($"Capability digest golden vector diverged: {name}");
+            }
+            else
+            {
+                var expected = vector.GetProperty("expectedDigests").EnumerateArray().Select(item => item.GetString()!).ToArray();
+                if (digests[0] == digests[1] || !digests.SequenceEqual(expected))
+                    throw new InvalidOperationException($"Capability digest golden vector diverged: {name}");
+            }
+        }
+    }
 }
 
 static void VerifyMutationRejection(string name, string profile, string proof, FakeSeedClock clock, Action<JsonObject> tamper, bool expectLoadRejection = false)

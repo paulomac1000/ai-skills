@@ -1,0 +1,467 @@
+{
+  "schema_version": 1,
+  "digestSemantics": "capability-semantic-v1",
+  "projection": "entire capability document except contract.digest",
+  "canonicalization": "utf8, ordinal key sort, array order preserved, absent vs null distinct, no unicode normalization, integers only",
+  "vectors": [
+    {
+      "name": "baseline",
+      "capability": {
+        "capability_id": "steward:seed-provider-result",
+        "contract": {
+          "source": "pinned-trusted",
+          "id": "steward:seed-provider-result",
+          "revision": "1",
+          "digest_semantics": "capability-semantic-v1",
+          "digest": "placeholder"
+        },
+        "interaction": "stateful",
+        "delivery": "durable-async",
+        "subject_dimensions": [
+          "target"
+        ],
+        "evidence_classes": [
+          "provider-observation"
+        ],
+        "idempotency": {
+          "mode": "intrinsic"
+        },
+        "reconciliation": {
+          "ambiguous_delivery": "status-by-handle"
+        },
+        "cancellation": {
+          "mode": "confirmed",
+          "delivery_model": "stateful",
+          "idempotency": "intrinsic",
+          "reconciliation": "status-by-handle",
+          "handle_affinity": "operation",
+          "local_terminal_requires_remote_resolution": true
+        },
+        "progress": {
+          "kind": "state-revision",
+          "stable_revision": true,
+          "wait_hint": "next-poll-at",
+          "worker_wait_policy": "external-maintenance"
+        },
+        "bounds": {
+          "max_request_bytes": 1048576,
+          "max_result_bytes": null,
+          "concurrency_scope": "global",
+          "rate_limit_scope": "principal"
+        },
+        "confidentiality": {
+          "egress_class": "private-network"
+        }
+      },
+      "expectedDigest": "sha256:dc41d4c8af10233c39dfb3f9d47387293a171e631b30d1488c82d246f5d1b4ef"
+    },
+    {
+      "name": "key-order-insensitive",
+      "variants": [
+        {
+          "capability_id": "steward:seed-provider-result",
+          "contract": {
+            "source": "pinned-trusted",
+            "id": "steward:seed-provider-result",
+            "revision": "1",
+            "digest_semantics": "capability-semantic-v1",
+            "digest": "placeholder"
+          },
+          "interaction": "stateful",
+          "delivery": "durable-async",
+          "subject_dimensions": [
+            "target"
+          ],
+          "evidence_classes": [
+            "provider-observation"
+          ],
+          "idempotency": {
+            "mode": "intrinsic"
+          },
+          "reconciliation": {
+            "ambiguous_delivery": "status-by-handle"
+          },
+          "cancellation": {
+            "mode": "confirmed",
+            "delivery_model": "stateful",
+            "idempotency": "intrinsic",
+            "reconciliation": "status-by-handle",
+            "handle_affinity": "operation",
+            "local_terminal_requires_remote_resolution": true
+          },
+          "progress": {
+            "kind": "state-revision",
+            "stable_revision": true,
+            "wait_hint": "next-poll-at",
+            "worker_wait_policy": "external-maintenance"
+          },
+          "bounds": {
+            "max_request_bytes": 1048576,
+            "max_result_bytes": null,
+            "concurrency_scope": "global",
+            "rate_limit_scope": "principal"
+          },
+          "confidentiality": {
+            "egress_class": "private-network"
+          }
+        },
+        {
+          "confidentiality": {
+            "egress_class": "private-network"
+          },
+          "bounds": {
+            "max_request_bytes": 1048576,
+            "max_result_bytes": null,
+            "concurrency_scope": "global",
+            "rate_limit_scope": "principal"
+          },
+          "progress": {
+            "kind": "state-revision",
+            "stable_revision": true,
+            "wait_hint": "next-poll-at",
+            "worker_wait_policy": "external-maintenance"
+          },
+          "cancellation": {
+            "mode": "confirmed",
+            "delivery_model": "stateful",
+            "idempotency": "intrinsic",
+            "reconciliation": "status-by-handle",
+            "handle_affinity": "operation",
+            "local_terminal_requires_remote_resolution": true
+          },
+          "reconciliation": {
+            "ambiguous_delivery": "status-by-handle"
+          },
+          "idempotency": {
+            "mode": "intrinsic"
+          },
+          "evidence_classes": [
+            "provider-observation"
+          ],
+          "subject_dimensions": [
+            "target"
+          ],
+          "delivery": "durable-async",
+          "interaction": "stateful",
+          "contract": {
+            "source": "pinned-trusted",
+            "id": "steward:seed-provider-result",
+            "revision": "1",
+            "digest_semantics": "capability-semantic-v1",
+            "digest": "placeholder"
+          },
+          "capability_id": "steward:seed-provider-result"
+        }
+      ],
+      "expectedDigest": "sha256:dc41d4c8af10233c39dfb3f9d47387293a171e631b30d1488c82d246f5d1b4ef"
+    },
+    {
+      "name": "array-order-significant",
+      "variants": [
+        {
+          "capability_id": "steward:seed-provider-result",
+          "contract": {
+            "source": "pinned-trusted",
+            "id": "v3",
+            "revision": "1",
+            "digest_semantics": "capability-semantic-v1",
+            "digest": "placeholder"
+          },
+          "interaction": "stateful",
+          "delivery": "durable-async",
+          "subject_dimensions": [
+            "target",
+            "revision"
+          ],
+          "evidence_classes": [
+            "provider-observation"
+          ],
+          "idempotency": {
+            "mode": "intrinsic"
+          },
+          "reconciliation": {
+            "ambiguous_delivery": "status-by-handle"
+          },
+          "cancellation": {
+            "mode": "confirmed",
+            "delivery_model": "stateful",
+            "idempotency": "intrinsic",
+            "reconciliation": "status-by-handle",
+            "handle_affinity": "operation",
+            "local_terminal_requires_remote_resolution": true
+          },
+          "progress": {
+            "kind": "state-revision",
+            "stable_revision": true,
+            "wait_hint": "next-poll-at",
+            "worker_wait_policy": "external-maintenance"
+          },
+          "bounds": {
+            "max_request_bytes": 1048576,
+            "max_result_bytes": null,
+            "concurrency_scope": "global",
+            "rate_limit_scope": "principal"
+          },
+          "confidentiality": {
+            "egress_class": "private-network"
+          }
+        },
+        {
+          "capability_id": "steward:seed-provider-result",
+          "contract": {
+            "source": "pinned-trusted",
+            "id": "v3",
+            "revision": "1",
+            "digest_semantics": "capability-semantic-v1",
+            "digest": "placeholder"
+          },
+          "interaction": "stateful",
+          "delivery": "durable-async",
+          "subject_dimensions": [
+            "revision",
+            "target"
+          ],
+          "evidence_classes": [
+            "provider-observation"
+          ],
+          "idempotency": {
+            "mode": "intrinsic"
+          },
+          "reconciliation": {
+            "ambiguous_delivery": "status-by-handle"
+          },
+          "cancellation": {
+            "mode": "confirmed",
+            "delivery_model": "stateful",
+            "idempotency": "intrinsic",
+            "reconciliation": "status-by-handle",
+            "handle_affinity": "operation",
+            "local_terminal_requires_remote_resolution": true
+          },
+          "progress": {
+            "kind": "state-revision",
+            "stable_revision": true,
+            "wait_hint": "next-poll-at",
+            "worker_wait_policy": "external-maintenance"
+          },
+          "bounds": {
+            "max_request_bytes": 1048576,
+            "max_result_bytes": null,
+            "concurrency_scope": "global",
+            "rate_limit_scope": "principal"
+          },
+          "confidentiality": {
+            "egress_class": "private-network"
+          }
+        }
+      ],
+      "expectedDigests": [
+        "sha256:bf6710d03744dd1e27ed3f2e7cdd940ebab58d7a190c81a8a1861a3997b15211",
+        "sha256:eaad6e109dbc715d72cd426a16e824f60ef9e995bebabbf8281448dcf78d5d71"
+      ]
+    },
+    {
+      "name": "absent-vs-null-distinct",
+      "variants": [
+        {
+          "capability_id": "steward:seed-provider-result",
+          "contract": {
+            "source": "pinned-trusted",
+            "id": "v4",
+            "revision": "1",
+            "digest_semantics": "capability-semantic-v1",
+            "digest": "placeholder"
+          },
+          "interaction": "stateful",
+          "delivery": "durable-async",
+          "subject_dimensions": [
+            "target"
+          ],
+          "evidence_classes": [
+            "provider-observation"
+          ],
+          "idempotency": {
+            "mode": "intrinsic"
+          },
+          "cancellation": {
+            "mode": "confirmed",
+            "delivery_model": "stateful",
+            "idempotency": "intrinsic",
+            "reconciliation": "status-by-handle",
+            "handle_affinity": "operation",
+            "local_terminal_requires_remote_resolution": true
+          },
+          "progress": {
+            "kind": "state-revision",
+            "stable_revision": true,
+            "wait_hint": "next-poll-at",
+            "worker_wait_policy": "external-maintenance"
+          },
+          "bounds": {
+            "max_request_bytes": 1048576,
+            "max_result_bytes": null,
+            "concurrency_scope": "global",
+            "rate_limit_scope": "principal"
+          },
+          "confidentiality": {
+            "egress_class": "private-network"
+          }
+        },
+        {
+          "capability_id": "steward:seed-provider-result",
+          "contract": {
+            "source": "pinned-trusted",
+            "id": "v4",
+            "revision": "1",
+            "digest_semantics": "capability-semantic-v1",
+            "digest": "placeholder"
+          },
+          "interaction": "stateful",
+          "delivery": "durable-async",
+          "subject_dimensions": [
+            "target"
+          ],
+          "evidence_classes": [
+            "provider-observation"
+          ],
+          "idempotency": {
+            "mode": "intrinsic"
+          },
+          "reconciliation": {
+            "ambiguous_delivery": "independent-read-back"
+          },
+          "cancellation": {
+            "mode": "confirmed",
+            "delivery_model": "stateful",
+            "idempotency": "intrinsic",
+            "reconciliation": "status-by-handle",
+            "handle_affinity": "operation",
+            "local_terminal_requires_remote_resolution": true
+          },
+          "progress": {
+            "kind": "state-revision",
+            "stable_revision": true,
+            "wait_hint": "next-poll-at",
+            "worker_wait_policy": "external-maintenance"
+          },
+          "bounds": {
+            "max_request_bytes": 1048576,
+            "max_result_bytes": null,
+            "concurrency_scope": "global",
+            "rate_limit_scope": "principal"
+          },
+          "confidentiality": {
+            "egress_class": "private-network"
+          }
+        }
+      ],
+      "expectedDigests": [
+        "sha256:4d1617c1089bd0efb94a78b57d28b6a078a6f26cfb8389680cbed915ce60c092",
+        "sha256:db436edb44d97da1880d46f15def80ddb4f7154ae746310c099bd49e8c8c005e"
+      ]
+    },
+    {
+      "name": "unicode-codepoints-preserved",
+      "variants": [
+        {
+          "capability_id": "steward:seed-provider-result",
+          "contract": {
+            "source": "pinned-trusted",
+            "id": "steward:seed-provider-result",
+            "revision": "1",
+            "digest_semantics": "capability-semantic-v1",
+            "digest": "placeholder"
+          },
+          "interaction": "stateful",
+          "delivery": "durable-async",
+          "subject_dimensions": [
+            "căi-électron"
+          ],
+          "evidence_classes": [
+            "provider-observation"
+          ],
+          "idempotency": {
+            "mode": "intrinsic"
+          },
+          "reconciliation": {
+            "ambiguous_delivery": "status-by-handle"
+          },
+          "cancellation": {
+            "mode": "confirmed",
+            "delivery_model": "stateful",
+            "idempotency": "intrinsic",
+            "reconciliation": "status-by-handle",
+            "handle_affinity": "operation",
+            "local_terminal_requires_remote_resolution": true
+          },
+          "progress": {
+            "kind": "state-revision",
+            "stable_revision": true,
+            "wait_hint": "next-poll-at",
+            "worker_wait_policy": "external-maintenance"
+          },
+          "bounds": {
+            "max_request_bytes": 1048576,
+            "max_result_bytes": null,
+            "concurrency_scope": "global",
+            "rate_limit_scope": "principal"
+          },
+          "confidentiality": {
+            "egress_class": "public"
+          }
+        },
+        {
+          "capability_id": "steward:seed-provider-result",
+          "contract": {
+            "source": "pinned-trusted",
+            "id": "steward:seed-provider-result",
+            "revision": "1",
+            "digest_semantics": "capability-semantic-v1",
+            "digest": "placeholder"
+          },
+          "interaction": "stateful",
+          "delivery": "durable-async",
+          "subject_dimensions": [
+            "câi-électron"
+          ],
+          "evidence_classes": [
+            "provider-observation"
+          ],
+          "idempotency": {
+            "mode": "intrinsic"
+          },
+          "reconciliation": {
+            "ambiguous_delivery": "status-by-handle"
+          },
+          "cancellation": {
+            "mode": "confirmed",
+            "delivery_model": "stateful",
+            "idempotency": "intrinsic",
+            "reconciliation": "status-by-handle",
+            "handle_affinity": "operation",
+            "local_terminal_requires_remote_resolution": true
+          },
+          "progress": {
+            "kind": "state-revision",
+            "stable_revision": true,
+            "wait_hint": "next-poll-at",
+            "worker_wait_policy": "external-maintenance"
+          },
+          "bounds": {
+            "max_request_bytes": 1048576,
+            "max_result_bytes": null,
+            "concurrency_scope": "global",
+            "rate_limit_scope": "principal"
+          },
+          "confidentiality": {
+            "egress_class": "public"
+          }
+        }
+      ],
+      "expectedDigests": [
+        "sha256:bd5e495f139e56337ff71d2ad1063f44c95f0c6d1880ebd0864dd3f3ecf26fe2",
+        "sha256:9d3ee1923f0de5e604a51195985250e2e37ee6073f30b417aad58d5c8c0cd8d0"
+      ]
+    }
+  ]
+}

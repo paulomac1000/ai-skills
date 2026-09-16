@@ -118,6 +118,9 @@ def _capability_digest(capability: dict[str, Any]) -> str | None:
     contract = capability.get("contract")
     if not isinstance(contract, dict):
         return None
+    if contract.get("digest_semantics") != "capability-semantic-v1":
+        # Unknown digest contract version: the digest cannot be trusted or recomputed.
+        return None
     projected = json.loads(json.dumps(capability))
     projected_contract = projected.get("contract")
     if not isinstance(projected_contract, dict):
@@ -900,7 +903,7 @@ class StewardRuntime:
         identity = {"source": "local", "id": "local:handoff@1", "revision": "1"}
         capability: dict[str, Any] = {
             "capability_id": "local:handoff@1",
-            "contract": {**identity, "digest": "sha256:" + "0" * 64},
+            "contract": {**identity, "digest_semantics": "capability-semantic-v1", "digest": "sha256:" + "0" * 64},
         }
         capability["contract"]["digest"] = _capability_digest(capability)
         return capability

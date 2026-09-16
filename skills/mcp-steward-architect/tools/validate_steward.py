@@ -286,6 +286,8 @@ def _upstream_findings(value: dict[str, Any]) -> list[str]:
     expected_digest = compute_capability_contract_digest(value)
     if contract["digest"] != expected_digest:
         findings.append("upstream: capability contract digest does not bind complete reviewed semantic definition")
+    if contract.get("digest_semantics") != "capability-semantic-v1":
+        findings.append("upstream: capability contract digest_semantics must be capability-semantic-v1")
     if contract["id"] != value["capability_id"]:
         findings.append("upstream: capability contract id must equal capability_id")
     if value["contract"]["id"].casefold() in _PLACEHOLDER_AUTHORITY:

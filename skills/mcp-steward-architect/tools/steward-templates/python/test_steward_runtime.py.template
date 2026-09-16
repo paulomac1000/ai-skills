@@ -4,7 +4,33 @@ import json
 from datetime import UTC, datetime
 from pathlib import Path
 
-from __PACKAGE__.steward_runtime import FakeClock, FakeProvider, FaultInjector, StewardRuntime, StewardStore, compute_handoff_digest
+from __PACKAGE__.steward_runtime import (
+    FakeClock,
+    FakeProvider,
+    FaultInjector,
+    StewardRuntime,
+    StewardStore,
+    _capability_digest,
+    compute_handoff_digest,
+)
+
+
+def test_capability_digest_golden_vectors_bind_reviewed_semantics() -> None:
+    """Golden vectors prove the Python canonicalization agrees with the pinned contract."""
+    root = Path(__file__).resolve().parents[1] / "src" / "__PACKAGE__"
+    vectors = json.loads((root / "steward_capability_digest_vectors.json").read_text(encoding="utf-8"))
+    assert vectors["digestSemantics"] == "capability-semantic-v1"
+    for vector in vectors["vectors"]:
+        if "capability" in vector:
+            assert _capability_digest(vector["capability"]) == vector["expectedDigest"], vector["name"]
+        if "variants" in vector:
+            digests = [_capability_digest(variant) for variant in vector["variants"]]
+            if "expectedDigest" in vector:
+                assert digests[0] == vector["expectedDigest"], vector["name"]
+                assert digests[0] == digests[1], vector["name"]
+            else:
+                assert digests[0] != digests[1], vector["name"]
+                assert digests == vector["expectedDigests"], vector["name"]
 
 
 def _docs() -> tuple[dict[str, object], dict[str, object], dict[str, object], dict[str, object]]:
