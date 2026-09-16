@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using ModelContextProtocol.Server;
 using System.ComponentModel;
 using System.Security.Claims;
+using System.Text.Json.Nodes;
 
 namespace __NAMESPACE__.Mcp.Server;
 
@@ -87,12 +88,11 @@ public sealed class StewardTools(StewardSeedRuntime runtime)
         Destructive = false,
         Idempotent = true,
         OpenWorld = false,
-        UseStructuredContent = true,
-        OutputSchemaType = typeof(StewardResult))]
-    public StewardResult Get(ClaimsPrincipal? principal, string jobId)
+        UseStructuredContent = true)]
+    public JsonObject Get(ClaimsPrincipal? principal, string jobId)
     {
         _ = principal;
-        return runtime.Get(jobId);
+        return runtime.GetDocument(jobId);
     }
 
     [Authorize(Policy = "steward.write")]

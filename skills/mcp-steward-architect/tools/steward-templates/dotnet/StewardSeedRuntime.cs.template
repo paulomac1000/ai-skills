@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace __NAMESPACE__.Mcp.Server;
 
@@ -142,6 +143,7 @@ internal sealed class SeedPolicy
     public required SeedCapability Capability { get; init; }
     public required string RecipeDigest { get; init; }
     public required bool SupervisedRequired { get; init; }
+    public StewardParentContractSnapshot? ConfiguredParentContract { get; init; }
 
     private static string CapabilityDigest(JsonElement capability)
     {
@@ -159,6 +161,26 @@ internal sealed class SeedPolicy
     }
 
     internal static string CapabilityDigestForVectors(JsonElement capability) => CapabilityDigest(capability);
+
+    private static StewardParentContractSnapshot? ParseConfiguredParentContract(JsonElement profile)
+    {
+        if (!profile.TryGetProperty("parent_contract", out var configured) || configured.ValueKind != JsonValueKind.Object) return null;
+        var budget = configured.GetProperty("budget");
+        return new StewardParentContractSnapshot(
+            "supervised",
+            configured.GetProperty("system_id").GetString()!,
+            configured.GetProperty("work_id").GetString()!,
+            configured.GetProperty("run_id").GetString()!,
+            configured.GetProperty("generation").GetInt64(),
+            $"{configured.GetProperty("system_id").GetString()}:{configured.GetProperty("work_id").GetString()}",
+            configured.GetProperty("contract_revision").GetInt64().ToString(System.Globalization.CultureInfo.InvariantCulture),
+            configured.GetProperty("contract_digest").GetString()!,
+            configured.GetProperty("delegated_capabilities").EnumerateArray().Select(item => item.GetString()!).ToArray(),
+            configured.GetProperty("forbidden_capabilities").EnumerateArray().Select(item => item.GetString()!).ToArray(),
+            configured.GetProperty("parent_completion_authority").GetString()!,
+            configured.GetProperty("authority_ceiling").GetString()!,
+            configured.GetProperty("deadline_at").GetDateTimeOffset());
+    }
 
     private static string CriterionDigest(JsonElement criterion)
     {
@@ -274,6 +296,7 @@ internal sealed class SeedPolicy
             Requirements = requirements, Producers = producerMap, Effects = effects, Capability = capability,
             RecipeDigest = recipeDigest,
             SupervisedRequired = string.Equals(profile.RootElement.GetProperty("authority").GetProperty("parent_completion").GetString(), "explicit-contract-only", StringComparison.Ordinal),
+            ConfiguredParentContract = ParseConfiguredParentContract(profile.RootElement),
         };
     }
 }
@@ -336,8 +359,15 @@ public sealed class StewardSeedRuntime : IDisposable
         }
     }
 
-    public StewardAdmission Submit(string subjectId, string? subjectRevision, string idempotencyKey) =>
-        Submit(subjectId, subjectRevision, idempotencyKey, parentContract: null);
+    public StewardAdmission Submit(string subjectId, string? subjectRevision, string idempotencyKey)
+    {
+        // The public tool surface passes no parent contract; a supervised profile binds
+        // its CONFIGURED contract so public submissions are not blanket-rejected (#95).
+        var configured = _policy.SupervisedRequired ? _policy.ConfiguredParentContract : null;
+        if (_policy.SupervisedRequired && configured is null)
+            throw new InvalidOperationException("ParentContractUnsupported: profile requires an admitted parent contract");
+        return Submit(subjectId, subjectRevision, idempotencyKey, configured);
+    }
 
     public StewardAdmission Submit(string subjectId, string? subjectRevision, string idempotencyKey, StewardParentContractSnapshot? parentContract)
     {
@@ -350,14 +380,15 @@ public sealed class StewardSeedRuntime : IDisposable
             throw new InvalidOperationException("ParentContractUnsupported: admitted parent contract must be supervised");
         if (parentContract is not null)
         {
-            // Deep-copy the caller-owned capability collections: a caller mutating its
-            // lists after admission must never mutate durable authority (#95).
-            parentContract = parentContract with
+            // Build one fully copied snapshot FIRST, then compute its digest from the
+            // copy: a caller thread mutating its lists during admission can otherwise
+            // make the persisted contract fail its own validation (#95).
+            var copied = parentContract with
             {
                 DelegatedCapabilities = parentContract.DelegatedCapabilities.ToArray(),
                 ForbiddenCapabilities = parentContract.ForbiddenCapabilities.ToArray(),
-                ContractDigest = ParentContractDigest(parentContract),
             };
+            parentContract = copied with { ContractDigest = ParentContractDigest(copied) };
         }
         var subject = new StewardSubject("target", subjectId, subjectRevision);
         var candidateBase = new { type = "subject-snapshot", id = subjectId, revision = subjectRevision };
@@ -421,6 +452,132 @@ public sealed class StewardSeedRuntime : IDisposable
         Digest(new { mode = parent.Mode, supervisorSystemId = parent.SupervisorSystemId, parentWorkId = parent.ParentWorkId, parentRunId = parent.ParentRunId, parentGeneration = parent.ParentGeneration, contractId = parent.ContractId, contractRevision = parent.ContractRevision, delegatedCapabilities = parent.DelegatedCapabilities, forbiddenCapabilities = parent.ForbiddenCapabilities, parentCompletionAuthority = parent.ParentCompletionAuthority, authorityCeiling = parent.AuthorityCeiling, absoluteDeadline = parent.AbsoluteDeadline });
 
     public StewardSeedJob Status(string jobId) { lock (_gate) return CurrentJobLocked(jobId); }
+
+    /// <summary>Canonical wire projection of steward_get: every member validates
+    /// against its bundled contract (receipt/evidence/completion/handoff schemas).</summary>
+    public JsonObject GetDocument(string jobId)
+    {
+        var result = Get(jobId);
+        var root = new JsonObject
+        {
+            ["job"] = JsonSerializer.SerializeToNode(result.Job),
+            ["operations"] = new JsonArray(result.Operations.Select(OperationDocument).ToArray()),
+            ["evidence"] = new JsonArray(result.Evidence.Select(EvidenceDocument).ToArray()),
+            ["completion"] = result.Completion is null ? null : CompletionDocument(result.Completion),
+            ["handoff"] = result.Handoff is null ? null : HandoffDocument(result.Handoff),
+        };
+        return root;
+    }
+
+    private static JsonObject OperationDocument(StewardOperation op) => new()
+    {
+        ["schema_version"] = 2,
+        ["operationId"] = op.OperationId,
+        ["operationKind"] = op.OperationKind,
+        ["jobId"] = op.JobId,
+        ["lineageId"] = op.LineageId,
+        ["generation"] = op.Generation,
+        ["attemptId"] = op.AttemptId,
+        ["jobVersion"] = op.JobVersion,
+        ["capabilityIdentity"] = op.CapabilityIdentity,
+        ["capabilityContractDigest"] = op.CapabilityContractDigest,
+        ["targetIdentity"] = op.TargetIdentity,
+        ["candidateDigest"] = op.CandidateDigest,
+        ["requestDigest"] = op.RequestDigest,
+        ["mutationDecisionRef"] = op.MutationDecisionRef,
+        ["semanticSlot"] = op.SemanticSlot,
+        ["operationDeadlineAt"] = op.OperationDeadlineAt,
+        ["cancellationCause"] = op.CancellationCause,
+        ["state"] = op.State,
+        ["delivery"] = op.Delivery,
+        ["retryDisposition"] = op.RetryDisposition,
+        ["remoteHandle"] = op.RemoteHandle,
+        ["credentialSlotId"] = op.CredentialSlotId,
+        ["createdAt"] = op.CreatedAt,
+        ["observedAt"] = op.ObservedAt,
+        ["retryCount"] = 0,
+        ["reconcileCount"] = op.ReconcileCount,
+    };
+
+    private static JsonObject EvidenceDocument(StewardEvidence ev) => new()
+    {
+        ["schema_version"] = 2,
+        ["evidenceId"] = ev.EvidenceId,
+        ["jobId"] = ev.JobId,
+        ["lineageId"] = ev.LineageId,
+        ["generation"] = ev.Generation,
+        ["subject"] = JsonSerializer.SerializeToNode(ev.Subject),
+        ["candidate"] = JsonSerializer.SerializeToNode(ev.Candidate),
+        ["criterionId"] = ev.CriterionId,
+        ["claimId"] = ev.ClaimId,
+        ["evidenceClass"] = ev.EvidenceClass,
+        ["observationGrade"] = ev.ObservationGrade,
+        ["authorityClass"] = ev.AuthorityClass,
+        ["producerId"] = ev.ProducerId,
+        ["proofRecipeId"] = ev.ProofRecipeId,
+        ["binding"] = new JsonObject
+        {
+            ["required"] = new JsonArray(ev.Binding.Required.Select(item => JsonValue.Create(item)).ToArray()),
+            ["satisfied"] = new JsonArray(ev.Binding.Satisfied.Select(item => JsonValue.Create(item)).ToArray()),
+            ["status"] = ev.Binding.Status,
+        },
+        ["coverage"] = new JsonObject
+        {
+            ["state"] = ev.Coverage.State,
+            ["required"] = ev.Coverage.Required,
+            ["observed"] = ev.Coverage.Observed,
+        },
+        ["observedAt"] = ev.ObservedAt,
+        ["expiresAt"] = ev.ExpiresAt,
+        ["payloadDigest"] = ev.PayloadDigest,
+    };
+
+    private static JsonObject CompletionDocument(StewardCompletionEvaluation completion) => new()
+    {
+        ["schema_version"] = completion.SchemaVersion,
+        ["evaluationId"] = completion.EvaluationId,
+        ["jobId"] = completion.JobId,
+        ["lineageId"] = completion.LineageId,
+        ["generation"] = completion.Generation,
+        ["subject"] = JsonSerializer.SerializeToNode(completion.Subject),
+        ["candidate"] = JsonSerializer.SerializeToNode(completion.Candidate),
+        ["decisionIdentity"] = new JsonObject(completion.DecisionIdentity.Select(kv => new KeyValuePair<string, JsonNode?>(kv.Key, JsonValue.Create(kv.Value)))),
+        ["disposition"] = completion.Disposition,
+        ["obligations"] = new JsonArray(completion.Obligations.Select(item => new JsonObject
+        {
+            ["id"] = item.Id,
+            ["state"] = item.State,
+            ["evidenceRefs"] = new JsonArray(item.EvidenceRefs.Select(item => JsonValue.Create(item)).ToArray()),
+        }).ToArray()),
+        ["ambiguousOperationRefs"] = new JsonArray(completion.AmbiguousOperationRefs.Select(item => JsonValue.Create(item)).ToArray()),
+        ["ambiguousCancellationRefs"] = new JsonArray(completion.AmbiguousCancellationRefs.Select(item => JsonValue.Create(item)).ToArray()),
+        ["evaluatedAt"] = completion.EvaluatedAt,
+        ["obligationSetDigest"] = completion.ObligationSetDigest,
+        ["parentContract"] = completion.ParentContract is null ? null : JsonSerializer.SerializeToNode(completion.ParentContract),
+    };
+
+    private static JsonObject HandoffDocument(StewardHandoff handoff) => new()
+    {
+        ["schema_version"] = handoff.SchemaVersion,
+        ["handoffId"] = handoff.HandoffId,
+        ["jobId"] = handoff.JobId,
+        ["lineageId"] = handoff.LineageId,
+        ["generation"] = handoff.Generation,
+        ["subject"] = JsonSerializer.SerializeToNode(handoff.Subject),
+        ["candidate"] = JsonSerializer.SerializeToNode(handoff.Candidate),
+        ["status"] = handoff.Status,
+        ["actionable"] = handoff.Actionable,
+        ["outcome"] = handoff.Outcome,
+        ["evidenceRefs"] = new JsonArray(handoff.EvidenceRefs.Select(item => JsonValue.Create(item)).ToArray()),
+        ["artifactRefs"] = new JsonArray(handoff.ArtifactRefs.Select(item => JsonValue.Create(item)).ToArray()),
+        ["externalOperationRefs"] = new JsonArray(handoff.ExternalOperationRefs.Select(item => JsonValue.Create(item)).ToArray()),
+        ["gaps"] = new JsonArray(handoff.Gaps.Select(item => JsonValue.Create(item)).ToArray()),
+        ["failureClass"] = null,
+        ["correlationId"] = handoff.CorrelationId,
+        ["sealedAt"] = handoff.SealedAt,
+        ["parentContract"] = handoff.ParentContract is null ? null : JsonSerializer.SerializeToNode(handoff.ParentContract),
+        ["digest"] = handoff.Digest,
+    };
     public StewardResult Get(string jobId)
     {
         lock (_gate)
@@ -1018,10 +1175,13 @@ public sealed class StewardSeedRuntime : IDisposable
             {
                 if (job.ObligationSet is null || job.ObligationSet.Obligations.Count == 0
                     || string.IsNullOrWhiteSpace(job.ObligationSet.ProofRecipeDigest)
+                    || string.IsNullOrWhiteSpace(job.ObligationSetDigest)
                     || job.ObligationSet.Obligations.Any(item => string.IsNullOrWhiteSpace(item.CriterionDigest)))
                     throw new JsonException("Steward snapshot job is missing the admitted obligation snapshot bindings");
                 if (!string.Equals(Digest(new { revision = job.ObligationSet.Revision, proofRecipeDigest = job.ObligationSet.ProofRecipeDigest, obligations = job.ObligationSet.Obligations }), job.ObligationSet.Digest, StringComparison.Ordinal))
                     throw new JsonException("Steward snapshot obligation set digest does not bind the snapshot contents");
+                if (!string.Equals(job.ObligationSet.Digest, job.ObligationSetDigest, StringComparison.Ordinal))
+                    throw new JsonException("Steward snapshot obligation set does not match the admission-time digest column");
             }
         }
         foreach (var pair in state.Lineages)

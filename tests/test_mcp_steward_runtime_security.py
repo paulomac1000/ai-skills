@@ -908,3 +908,37 @@ def test_caller_list_mutation_after_admission_never_grants_authority(tmp_path: P
             break
     assert provider.dispatches == 0
     assert "ParentAuthorityInsufficient" in str(steward.status(job_id)["blockedReason"])
+
+
+def test_supervised_profile_binds_configured_parent_contract_on_public_submit(tmp_path: Path) -> None:
+    runtime, profile, proof, mutation, upstream = _generated_runtime(tmp_path)
+    capability_id = str(upstream["capability_id"])
+    clock = runtime.FakeClock(datetime(2026, 9, 13, tzinfo=UTC))
+    store = runtime.StewardStore(tmp_path / "configured-parent.db", clock)
+    steward = runtime.StewardRuntime(store, profile, proof, mutation, upstream=upstream)
+    profile["authority"]["parent_completion"] = "explicit-contract-only"
+    profile["parent_contract"] = {
+        "system_id": "project-steward",
+        "work_id": "parent-1",
+        "run_id": "run-1",
+        "generation": 3,
+        "contract_revision": 1,
+        "contract_digest": "sha256:" + "0" * 64,
+        "authority_ceiling": "explicit",
+        "deadline_at": "2026-09-13T00:05:00Z",
+        "budget": {"max_wall_clock_ms": 3_600_000, "max_external_calls": 64},
+        "handoff_contract": "execution-evidence-v1",
+        "delegated_capabilities": [capability_id],
+        "forbidden_capabilities": [],
+        "parent_completion_authority": "report_only",
+        "policy_revision_or_digest": "policy-1",
+        "obligations_ref": None,
+        "terminal_boundary": "steward-job",
+    }
+    # The public tool surface passes no parent contract; the runtime binds the
+    # configured one from the profile instead of rejecting the request.
+    job_id = steward.submit("repo", "abc", "configured-parent-1")["jobId"]
+    job = steward.status(job_id)
+    assert job["parentContract"] is not None
+    assert job["parentContract"]["supervisor"]["systemId"] == "project-steward"
+    assert job["deadlineAt"] == "2026-09-13T00:05:00Z"  # narrowed to the inherited budget

@@ -139,6 +139,31 @@ def _parent_contract_digest(snapshot: dict[str, Any]) -> str:
     return _digest(projected)
 
 
+def _configured_parent_contract(profile: dict[str, Any]) -> dict[str, Any] | None:
+    """Project the profile's configured parent contract onto the admitted snapshot shape (#95)."""
+    configured = profile.get("parent_contract")
+    if not isinstance(configured, dict):
+        return None
+    budget = configured.get("budget") or {}
+    return {
+        "mode": "supervised",
+        "supervisor": {"systemId": configured["system_id"], "principalOrInstance": None},
+        "work": {"parentWorkId": configured["work_id"], "parentRunId": configured["run_id"],
+                  "generation": configured["generation"], "attempt": None},
+        "contract": {"id": f"{configured['system_id']}:{configured['work_id']}",
+                      "revision": str(configured["contract_revision"]), "digest": configured["contract_digest"]},
+        "authority": {"delegatedCapabilities": list(configured["delegated_capabilities"]),
+                       "forbiddenCapabilities": list(configured["forbidden_capabilities"]),
+                       "parentCompletionAuthority": configured["parent_completion_authority"],
+                       "authorityCeiling": configured["authority_ceiling"]},
+        "policy": {"revisionOrDigest": configured["policy_revision_or_digest"]},
+        "budget": {"absoluteDeadline": configured["deadline_at"],
+                    "retryOrResourceBudgetRef": f"budget:{budget.get('max_wall_clock_ms')}ms/{budget.get('max_external_calls')}calls"},
+        "completion": {"obligationsRef": configured["obligations_ref"], "terminalBoundary": configured["terminal_boundary"],
+                        "handoffContract": configured["handoff_contract"]},
+    }
+
+
 def _criterion_semantic_digest(criterion: dict[str, Any]) -> str:
     """Digest over the authority-affecting semantics of one proof criterion (#107)."""
     semantic = {
@@ -1169,10 +1194,13 @@ class StewardRuntime:
         if not idempotency_key:
             raise ValueError("idempotency_key is required")
         # Admission mode must match the profile: a standalone Steward rejects supervised
-        # contracts, and a supervised Steward requires one (#95).
+        # contracts, and a supervised Steward binds its CONFIGURED contract when the
+        # caller does not supply one (#95).
         supervised_profile = self.profile["authority"]["parent_completion"] == "explicit-contract-only"
         if supervised_profile and parent_contract is None:
-            raise ParentContractError("ParentContractUnsupported", "profile requires an admitted parent contract")
+            parent_contract = _configured_parent_contract(self.profile)
+            if parent_contract is None:
+                raise ParentContractError("ParentContractUnsupported", "profile requires an admitted parent contract")
         if not supervised_profile and parent_contract is not None:
             raise ParentContractError("ParentContractUnsupported", "standalone profile rejects a parent contract")
         return self.store.admit(
@@ -1196,7 +1224,7 @@ class StewardRuntime:
     def doctor(self, job_id: str | None = None) -> dict[str, Any]:
         operations = self.store.unknown_delivery_operations() if job_id is None else self.store.result(job_id)["operations"]
         unknown = [item for item in operations if item["delivery"] == "delivery-unknown"]
-        cancel_unknown = [item for item in unknown if item["operation_kind"] == "cancel"]
+        cancel_unknown = [item for item in unknown if item.get("operation_kind", item.get("operationKind")) == "cancel"]
         return {"job": None if job_id is None else self.store.job(job_id), "deliveryUnknown": len(unknown),
                 "cancellationUnknown": len(cancel_unknown), "audit": self.store.audit(job_id)}
 

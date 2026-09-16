@@ -106,6 +106,29 @@ static void VerifyStewardSeed()
             lineage["Subject"]!["Revision"] = "other";
         }, expectLoadRejection: true);
 
+        var callerMutationProvider = new CountingSeedProvider();
+        var supervisedProfilePath = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(profile))!, "steward_profile_supervised.json");
+        using var profileDoc = JsonDocument.Parse(File.ReadAllText(profile));
+        var supervisedProfile = JsonNode.Parse(profileDoc.RootElement.GetRawText())!.AsObject();
+        supervisedProfile["authority"]!["parent_completion"] = "explicit-contract-only";
+        supervisedProfile["parent_contract"] = JsonObjectExtensionsForSmoke.CreateConfiguredContract();
+        File.WriteAllText(supervisedProfilePath, supervisedProfile.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+        using (var callerMutation = new StewardSeedRuntime(Path.Combine(root, "caller-mutation"), clock, callerMutationProvider, new SeedFaultInjector(), supervisedProfilePath, proof))
+        {
+            var upstreamDoc = JsonDocument.Parse(File.ReadAllText(Path.GetFullPath("src/__NAMESPACE__.Mcp.Server/steward_upstream_capability.json")));
+            var capabilityId = upstreamDoc.RootElement.GetProperty("capability_id").GetString()!;
+            var delegated = new List<string>();
+            var parent = new StewardParentContractSnapshot("supervised", "project-steward", "parent-1", "run-1", 3,
+                "parent-contract-1", "1", "sha256:" + new string('0', 64), delegated, new List<string>(),
+                "report_only", "observed", new DateTimeOffset(2026, 1, 1, 2, 0, 0, TimeSpan.Zero));
+            var submitted = callerMutation.Submit("repo-caller", "abc", "caller-mutation-1", parent);
+            _ = submitted;
+            delegated.Add(capabilityId); // caller mutates its list AFTER admission
+            for (var step = 0; step < 6; step++) callerMutation.RunOneDue();
+            if (callerMutationProvider.DispatchCount != 0)
+                throw new InvalidOperationException("Post-admission caller list mutation granted parent authority.");
+        }
+
         var blockedProvider = new UnapprovedSeedProvider();
         using (var blocked = new StewardSeedRuntime(Path.Combine(root, "blocked"), clock, blockedProvider, new SeedFaultInjector(), profile, proof))
         {
@@ -283,4 +306,27 @@ sealed class UnapprovedSeedProvider : ISeedProvider
     public SeedPollResult Poll(string remoteHandle, StewardSubject subject) { PollCount++; return new(true, JsonSerializer.SerializeToElement(new { state = "completed", remoteHandle, subject, observation = new { producerId = ProducerId, observationGrade = "observed", authorityClass = "observed", binding = new { satisfied = ObservedTargetBinding }, coverage = new { required = 1, observed = 1 } } })); }
     public string Cancel(string cancellationOperationId, string remoteHandle, StewardSubject subject) { _ = remoteHandle; _ = subject; return $"cancel-{cancellationOperationId}"; }
     public string ReconcileCancel(string cancellationOperationId, string remoteHandle, StewardSubject subject) { _ = remoteHandle; _ = subject; return $"cancel-{cancellationOperationId}"; }
+}
+
+internal static class JsonObjectExtensionsForSmoke
+{
+    public static JsonObject CreateConfiguredContract() => new()
+    {
+        ["system_id"] = "project-steward",
+        ["work_id"] = "parent-1",
+        ["run_id"] = "run-1",
+        ["generation"] = 3,
+        ["contract_revision"] = 1,
+        ["contract_digest"] = "sha256:" + new string('0', 64),
+        ["authority_ceiling"] = "explicit",
+        ["deadline_at"] = "2026-09-13T00:05:00Z",
+        ["budget"] = new JsonObject { ["max_wall_clock_ms"] = 3_600_000, ["max_external_calls"] = 64 },
+        ["handoff_contract"] = "execution-evidence-v1",
+        ["delegated_capabilities"] = new JsonArray(),
+        ["forbidden_capabilities"] = new JsonArray(),
+        ["parent_completion_authority"] = "report_only",
+        ["policy_revision_or_digest"] = "policy-1",
+        ["obligations_ref"] = null,
+        ["terminal_boundary"] = "steward-job",
+    };
 }
