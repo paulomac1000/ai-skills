@@ -876,3 +876,35 @@ def test_cancel_after_deadline_with_captured_result_still_terminalizes(tmp_path:
     # The submit result was captured (local terminal closure requires no provider),
     # so cancellation must still reach a terminal state instead of hanging on blocked.
     assert steward.status(job_id)["status"] in {"cancelled", "completed"}
+
+
+def test_caller_list_mutation_after_admission_never_grants_authority(tmp_path: Path) -> None:
+    runtime, profile, proof, mutation, upstream = _generated_runtime(tmp_path)
+    capability_id = str(upstream["capability_id"])
+    clock = runtime.FakeClock(datetime(2026, 9, 13, tzinfo=UTC))
+    store = runtime.StewardStore(tmp_path / "caller-mutation.db", clock)
+
+    class CountingProvider(runtime.FakeProvider):
+        def __init__(self) -> None:
+            self.dispatches = 0
+
+        def dispatch(self, operation_id: str, subject: dict[str, Any]) -> str:
+            self.dispatches += 1
+            return super().dispatch(operation_id, subject)
+
+    provider = CountingProvider()
+    steward = runtime.StewardRuntime(store, profile, proof, mutation, upstream=upstream, provider=provider)
+    profile["authority"]["parent_completion"] = "explicit-contract-only"
+    parent = _supervised_parent_contract(runtime, capability_id=capability_id)
+    delegated: list[str] = []
+    parent["authority"]["delegatedCapabilities"] = delegated
+    job_id = steward.submit("repo", "abc", "caller-mutation-1", parent_contract=parent)["jobId"]
+    # Caller mutates its own list AFTER admission, attempting to grant itself the
+    # dispatch capability; the durable snapshot must be immune.
+    delegated.append(capability_id)
+    for _ in range(6):
+        steward.run_once()
+        if steward.status(job_id)["status"] == "blocked":
+            break
+    assert provider.dispatches == 0
+    assert "ParentAuthorityInsufficient" in str(steward.status(job_id)["blockedReason"])

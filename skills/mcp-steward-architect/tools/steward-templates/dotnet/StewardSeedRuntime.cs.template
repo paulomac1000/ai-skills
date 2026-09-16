@@ -349,7 +349,16 @@ public sealed class StewardSeedRuntime : IDisposable
         if (parentContract is not null && parentContract.Mode != "supervised")
             throw new InvalidOperationException("ParentContractUnsupported: admitted parent contract must be supervised");
         if (parentContract is not null)
-            parentContract = parentContract with { ContractDigest = ParentContractDigest(parentContract) };
+        {
+            // Deep-copy the caller-owned capability collections: a caller mutating its
+            // lists after admission must never mutate durable authority (#95).
+            parentContract = parentContract with
+            {
+                DelegatedCapabilities = parentContract.DelegatedCapabilities.ToArray(),
+                ForbiddenCapabilities = parentContract.ForbiddenCapabilities.ToArray(),
+                ContractDigest = ParentContractDigest(parentContract),
+            };
+        }
         var subject = new StewardSubject("target", subjectId, subjectRevision);
         var candidateBase = new { type = "subject-snapshot", id = subjectId, revision = subjectRevision };
         var candidate = new StewardCandidate("subject-snapshot", subjectId, subjectRevision, Digest(candidateBase));
@@ -681,6 +690,12 @@ public sealed class StewardSeedRuntime : IDisposable
         if (actualCapability != effect.CapabilityContract || actualCapability.Id != effect.CapabilityRef) return "CapabilityUnavailable";
         if (job.ParentContract is { } parent)
         {
+            // The supervised snapshot must still bind to the admission-time digest column
+            // before any delegated authority is consulted (#95/#104); a caller-owned or
+            // restored snapshot that drifted never regains parent authority.
+            if (job.ParentContractDigest is null
+                || !string.Equals(ParentContractDigest(parent), job.ParentContractDigest, StringComparison.Ordinal))
+                return "ParentAuthorityInsufficient";
             // Effective authority is the intersection of local configuration and parent delegation (#95).
             // An explicitly empty delegation grants nothing; it is never a wildcard.
             if (parent.ForbiddenCapabilities.Contains(effect.CapabilityRef)) return "ParentAuthorityInsufficient";
