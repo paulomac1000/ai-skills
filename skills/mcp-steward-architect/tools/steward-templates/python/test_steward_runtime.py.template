@@ -57,6 +57,7 @@ def test_restart_reconciles_ambiguous_submit_and_completes(tmp_path: Path) -> No
     admitted = first.submit("repo", "abc", "idem-1")
     first.run_once(); first.run_once()
     assert first.status(admitted["jobId"])["status"] == "reconciling"
+    first.close()  # release the single-owner lock before the restart pass
     recovered = _runtime(path)
     recovered.recover_until_idle()
     result = recovered.get(admitted["jobId"])
@@ -114,6 +115,7 @@ def test_cancel_after_remote_delivery_reconciles_before_local_terminal(tmp_path:
     status = runtime.status(job_id)
     assert status["status"] == "cancelling"
     assert runtime.doctor(job_id)["cancellationUnknown"] == 1
+    runtime.close()  # release the single-owner lock before the restart pass
     recovered = _runtime(path, provider=provider)
     recovered.recover_until_idle()
     assert recovered.status(job_id)["status"] == "cancelled"

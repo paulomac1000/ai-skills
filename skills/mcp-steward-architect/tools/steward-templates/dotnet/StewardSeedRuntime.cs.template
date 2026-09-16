@@ -53,7 +53,7 @@ public sealed record StewardParentContractSnapshot(
     string ContractId, string ContractRevision, string ContractDigest,
     IReadOnlyList<string> DelegatedCapabilities, IReadOnlyList<string> ForbiddenCapabilities,
     string ParentCompletionAuthority, string AuthorityCeiling, DateTimeOffset? AbsoluteDeadline);
-public sealed record StewardObligationSnapshotItem(string Id, bool Required, string EvidenceClass);
+public sealed record StewardObligationSnapshotItem(string Id, bool Required, string EvidenceClass, string? CriterionDigest = null);
 public sealed record StewardObligationSnapshot(long Revision, string Digest, IReadOnlyList<StewardObligationSnapshotItem> Obligations);
 public sealed record StewardAdmission(string JobId, bool Duplicate);
 public sealed record StewardOperation(
@@ -88,7 +88,7 @@ public sealed record StewardDoctorResult(StewardSeedJob? Job, int DeliveryUnknow
 
 internal sealed record SeedIdempotency(string RequestDigest, string JobId);
 internal sealed record SeedLineage(string CurrentJobId, long CurrentGeneration, StewardSubject Subject, StewardCandidate Candidate, long Version);
-internal sealed record SeedRequirement(string Id, bool Required, string EvidenceClass, string CanonicalClaim, string RequiredAuthority, int FreshnessSeconds, IReadOnlySet<string> ApprovedProducers, IReadOnlyList<string> BindingRequirements, string CoverageSemantics);
+internal sealed record SeedRequirement(string Id, bool Required, string EvidenceClass, string CanonicalClaim, string RequiredAuthority, int FreshnessSeconds, IReadOnlySet<string> ApprovedProducers, IReadOnlyList<string> BindingRequirements, string CoverageSemantics, string CriterionDigest);
 internal sealed record SeedProducer(string Id, string AuthorityCeiling, IReadOnlySet<string> BindingRequirements, IReadOnlySet<string> SubjectDimensions);
 internal sealed record SeedCapability(string Id, string Source, string Revision, string Digest);
 internal sealed record SeedMutationEffect(string Id, string OperationKind, string AuthoritySource, bool LeaseRequired, bool CandidateRequired, string CapabilityRef, SeedCapability CapabilityContract, bool DurableOperationRequired, int MinimumBudgetMs, int FinalizationReserveMs);
@@ -134,6 +134,33 @@ internal sealed class SeedPolicy
     }
 
     internal static string CapabilityDigestForVectors(JsonElement capability) => CapabilityDigest(capability);
+
+    private static string CriterionDigest(JsonElement criterion)
+    {
+        using var stream = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping }))
+        {
+            writer.WriteStartObject();
+            writer.WritePropertyName("approved_producers");
+            writer.WriteStartArray();
+            foreach (var item in criterion.GetProperty("approved_producers").EnumerateArray()) writer.WriteStringValue(item.GetString());
+            writer.WriteEndArray();
+            writer.WritePropertyName("binding_requirements");
+            writer.WriteStartArray();
+            foreach (var item in criterion.GetProperty("binding_requirements").EnumerateArray()) writer.WriteStringValue(item.GetString());
+            writer.WriteEndArray();
+            foreach (var (name, kind) in new[] { ("canonical_claim", JsonValueKind.String), ("candidate_binding_required", JsonValueKind.True), ("coverage_semantics", JsonValueKind.String), ("freshness_seconds", JsonValueKind.Number), ("required_authority", JsonValueKind.String) })
+            {
+                if (!criterion.TryGetProperty(name, out var value)) continue;
+                writer.WritePropertyName(name);
+                if (value.ValueKind == JsonValueKind.True || value.ValueKind == JsonValueKind.False) writer.WriteBooleanValue(value.GetBoolean());
+                else if (value.ValueKind == JsonValueKind.Number) writer.WriteNumberValue(value.GetRawText().Contains('.') ? value.GetDouble() : value.GetInt64());
+                else value.WriteTo(writer);
+            }
+            writer.WriteEndObject();
+        }
+        return "sha256:" + Convert.ToHexStringLower(SHA256.HashData(stream.ToArray()));
+    }
 
     private static void WriteCapabilityCanonical(Utf8JsonWriter writer, JsonElement value, bool insideContract)
     {
@@ -187,7 +214,8 @@ internal sealed class SeedPolicy
                 criterion.GetProperty("freshness_seconds").GetInt32(),
                 criterion.GetProperty("approved_producers").EnumerateArray().Select(item => item.GetString()!).ToHashSet(StringComparer.Ordinal),
                 criterion.GetProperty("binding_requirements").EnumerateArray().Select(item => item.GetString()!).ToArray(),
-                criterion.GetProperty("coverage_semantics").GetString()!));
+                criterion.GetProperty("coverage_semantics").GetString()!,
+                CriterionDigest(criterion)));
         }
         var effects = mutation.RootElement.GetProperty("effects").EnumerateArray().ToDictionary(
             item => item.GetProperty("id").GetString()!,
@@ -339,7 +367,7 @@ public sealed class StewardSeedRuntime : IDisposable
 
     private StewardObligationSnapshot BuildObligationSnapshot()
     {
-        var obligations = _policy.Requirements.Select(item => new StewardObligationSnapshotItem(item.Id, item.Required, item.EvidenceClass)).ToArray();
+        var obligations = _policy.Requirements.Select(item => new StewardObligationSnapshotItem(item.Id, item.Required, item.EvidenceClass, item.CriterionDigest)).ToArray();
         var revision = _policy.ProfileRevision;
         var digest = Digest(new { revision, obligations });
         return new(revision, digest, obligations);
@@ -360,10 +388,15 @@ public sealed class StewardSeedRuntime : IDisposable
         }
     }
 
+    private static readonly HashSet<string> CancellationCauses = ["caller_cancel", "parent_superseded", "service_shutdown", "application_deadline", "transport_timeout", "provider_cancel", "unknown"];
+
     public StewardSeedJob Cancel(string jobId) => Cancel(jobId, "caller_cancel");
 
     public StewardSeedJob Cancel(string jobId, string cause)
     {
+        // Cancellation provenance is a closed contract vocabulary (#106); a mechanism
+        // label invented by a caller must never enter durable provenance.
+        if (!CancellationCauses.Contains(cause)) throw new ArgumentException($"unsupported cancellation cause: {cause}", nameof(cause));
         lock (_gate)
         {
             var job = CurrentJobLocked(jobId);
@@ -463,14 +496,33 @@ public sealed class StewardSeedRuntime : IDisposable
             return true;
         }
 
+        if (action.Operation.OperationDeadlineAt is { } operationDeadline && _clock.UtcNow > operationDeadline)
+        {
+            // An expired operation never reaches the provider again (#106): classify
+            // deterministically and begin bounded closure instead of remote activity.
+            lock (_gate)
+            {
+                var owner = CurrentJobLocked(action.Operation.JobId);
+                _state.Operations[action.Operation.OperationId] = action.Operation with { CancellationCause = "application_deadline", ObservedAt = _clock.UtcNow };
+                if (!Terminal.Contains(owner.Status))
+                    _state.Jobs[owner.JobId] = Advance(owner, "blocked", "operation-deadline-exceeded", "blocked:operation-deadline-exceeded", cancellation: owner.Cancellation, blockedReason: "operation-deadline-exceeded");
+                AuditLocked(owner.JobId, "operation-deadline-exceeded", new Dictionary<string, string> { ["operationId"] = action.Operation.OperationId, ["cause"] = "application_deadline" });
+                SaveLocked();
+            }
+            return true;
+        }
         var result = _provider.Poll(action.Operation.RemoteHandle ?? throw new InvalidOperationException("remote handle missing"), action.Job.Subject);
         if (!result.Completed)
         {
             if (action.Kind == "stale-poll")
             {
                 // A no-progress stale poll must not report global idleness while runnable work remains.
-                // Suppress the stale branch on the re-entry so the runnable job is actually processed this call.
-                lock (_gate) { if (NextJobLocked() is not null) return RunOneDueCore(suppressStaleOnce: true); }
+                // Suppress the stale branch on the re-entry so the runnable job is actually processed
+                // this call; the recursion happens OUTSIDE the store lock because the nested pass
+                // performs provider I/O that must never hold the gate (#104/#105).
+                bool runnable;
+                lock (_gate) runnable = NextJobLocked() is not null;
+                if (runnable) return RunOneDueCore(suppressStaleOnce: true);
             }
             return false;
         }
@@ -593,8 +645,9 @@ public sealed class StewardSeedRuntime : IDisposable
         if (job.ParentContract is { } parent)
         {
             // Effective authority is the intersection of local configuration and parent delegation (#95).
+            // An explicitly empty delegation grants nothing; it is never a wildcard.
             if (parent.ForbiddenCapabilities.Contains(effect.CapabilityRef)) return "ParentAuthorityInsufficient";
-            if (parent.DelegatedCapabilities.Count > 0 && !parent.DelegatedCapabilities.Contains(effect.CapabilityRef)) return "ParentAuthorityInsufficient";
+            if (!parent.DelegatedCapabilities.Contains(effect.CapabilityRef)) return "ParentAuthorityInsufficient";
         }
         if (job.DeadlineAt - _clock.UtcNow < TimeSpan.FromMilliseconds(effect.MinimumBudgetMs + effect.FinalizationReserveMs)) return "BudgetUnavailable";
         if (effect.DurableOperationRequired)
@@ -707,7 +760,8 @@ public sealed class StewardSeedRuntime : IDisposable
         // obligation whose live proof-recipe criterion drifted away cannot be proven.
         var snapshotRequirements = job.ObligationSet is { } set
             ? set.Obligations.Select(item => (snapshot: item, req: _policy.Requirements.FirstOrDefault(candidate => candidate.Id == item.Id)))
-                .Where(pair => pair.req is not null).Select(pair => pair.req!)
+                .Where(pair => pair.req is not null && (pair.snapshot.CriterionDigest is null || pair.req.CriterionDigest == pair.snapshot.CriterionDigest))
+                .Select(pair => pair.req!)
             : Enumerable.Empty<SeedRequirement>();
         foreach (var req in snapshotRequirements)
         {
@@ -759,9 +813,11 @@ public sealed class StewardSeedRuntime : IDisposable
         foreach (var snapshot in job.ObligationSet.Obligations)
         {
             var req = _policy.Requirements.FirstOrDefault(item => item.Id == snapshot.Id);
-            if (req is null)
+            if (req is null
+                || (snapshot.CriterionDigest is not null && req.CriterionDigest != snapshot.CriterionDigest))
             {
-                // Admitted obligation whose live proof-recipe criterion drifted away fails closed.
+                // Admitted obligation whose live proof-recipe criterion drifted away or whose
+                // authority-affecting semantics changed after admission fails closed (#107).
                 obligations.Add(new(snapshot.Id, "unsatisfied", []));
                 if (snapshot.Required) blocked = true;
                 continue;

@@ -13,7 +13,38 @@ from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from importlib.resources import files
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, BinaryIO, Iterator
+
+
+def _acquire_owner_lock(path: Path) -> BinaryIO:
+    """Acquire the single-owner process lock for a durable store (#105).
+
+    Raises a typed topology conflict when another server process already owns the
+    store, so competing writers are diagnosable instead of silently dual-writing.
+    """
+    lock_path = path.with_suffix(path.suffix + ".owner-lock")
+    handle = open(lock_path, "a+b")
+    try:
+        import fcntl
+
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except ImportError:
+        try:
+            import msvcrt
+
+            handle.seek(0)
+            msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+        except (ImportError, OSError):
+            handle.close()
+            raise RuntimeError(
+                "STORE_LOCKED / ownership conflict: another server process owns this single-owner store (topology mismatch)"
+            ) from None
+    except OSError:
+        handle.close()
+        raise RuntimeError(
+            "STORE_LOCKED / ownership conflict: another server process owns this single-owner store (topology mismatch)"
+        ) from None
+    return handle
 
 _LOGGER = logging.getLogger(__name__)
 _AUTHORITY_RANK = {"advisory": 0, "observed": 1, "verified": 2, "independent": 3}
@@ -57,11 +88,17 @@ def _validate_parent_contract(parent_contract: dict[str, Any]) -> dict[str, Any]
     if parent_contract.get("mode") != "supervised":
         raise ParentContractError("ParentContractUnsupported", "admitted parent contract must be supervised")
     supervisor = parent_contract.get("supervisor")
-    if not isinstance(supervisor, dict) or not str(supervisor.get("systemId") or "").strip():
+    if (not isinstance(supervisor, dict)
+            or not str(supervisor.get("systemId") or "").strip()
+            or "principalOrInstance" not in supervisor):
         raise ParentContractError("ParentContractUnsupported", "supervisor systemId is required")
     work = parent_contract.get("work")
-    if not isinstance(work, dict) or not isinstance(work.get("generation"), int) or work["generation"] < 1:
-        raise ParentContractError("ParentContractUnsupported", "parent work generation is required")
+    if (not isinstance(work, dict)
+            or "parentWorkId" not in work
+            or "parentRunId" not in work
+            or not isinstance(work.get("generation"), int)
+            or work["generation"] < 1):
+        raise ParentContractError("ParentContractUnsupported", "parent work identity is required")
     contract = parent_contract.get("contract")
     if not isinstance(contract, dict) or not str(contract.get("id") or "").strip() or not str(contract.get("revision") or "").strip():
         raise ParentContractError("ParentContractUnsupported", "parent contract id/revision is required")
@@ -96,13 +133,31 @@ def _validate_parent_contract(parent_contract: dict[str, Any]) -> dict[str, Any]
     return {**parent_contract, "digest": _digest(snapshot)}
 
 
-def _obligation_snapshot(profile: dict[str, Any]) -> dict[str, Any]:
+def _criterion_semantic_digest(criterion: dict[str, Any]) -> str:
+    """Digest over the authority-affecting semantics of one proof criterion (#107)."""
+    semantic = {
+        "canonical_claim": criterion.get("canonical_claim"),
+        "required_authority": criterion.get("required_authority"),
+        "binding_requirements": criterion.get("binding_requirements"),
+        "approved_producers": criterion.get("approved_producers"),
+        "freshness_seconds": criterion.get("freshness_seconds"),
+        "coverage_semantics": criterion.get("coverage_semantics"),
+        "candidate_binding_required": criterion.get("candidate_binding_required"),
+    }
+    return _digest(semantic)
+
+
+def _obligation_snapshot(profile: dict[str, Any], proof_recipe: dict[str, Any]) -> dict[str, Any]:
     """Snapshot the governing completion obligations at Work Admission (#107)."""
     revision = int(profile["steward"]["contract_revision"])
-    obligations = [
-        {"id": str(item["id"]), "required": bool(item["required"]), "evidenceClass": str(item["evidence_class"])}
-        for item in profile["completion"]["obligations"]
-    ]
+    criteria = {str(item["criterion_id"]): item for item in proof_recipe["criteria"]}
+    obligations = []
+    for item in profile["completion"]["obligations"]:
+        criterion = criteria.get(str(item["id"]))
+        obligations.append({
+            "id": str(item["id"]), "required": bool(item["required"]), "evidenceClass": str(item["evidence_class"]),
+            "criterionDigest": _criterion_semantic_digest(criterion) if criterion else None,
+        })
     return {"revision": revision, "digest": _digest({"revision": revision, "obligations": obligations}), "obligations": obligations}
 
 
@@ -190,12 +245,13 @@ def _evaluate_mutation(
     parent_contract = job.get("parentContract")
     if isinstance(parent_contract, dict):
         # Effective authority is the intersection of local configuration and parent delegation (#95).
+        # An explicitly empty delegation grants nothing; it is never a wildcard.
         delegated = {str(item) for item in parent_contract["authority"]["delegatedCapabilities"]}
         forbidden = {str(item) for item in parent_contract["authority"]["forbiddenCapabilities"]}
         capability_id = str(effect["capability_ref"])
         if capability_id in forbidden:
             reasons.append(("ParentAuthorityInsufficient", "capability is forbidden by the admitted parent contract"))
-        elif delegated and capability_id not in delegated:
+        elif capability_id not in delegated:
             reasons.append(("ParentAuthorityInsufficient", "capability is not delegated by the admitted parent contract"))
     required_budget_ms = int(effect["minimum_budget_ms"]) + int(effect["finalization_reserve_ms"])
     if remaining_budget_ms < required_budget_ms:
@@ -289,7 +345,23 @@ class StewardStore:
         self.path = path
         self.clock = clock or SystemClock()
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        # Single-owner store ownership (#105): a second server process on the same
+        # store is a deployment topology mismatch and must fail as a typed,
+        # diagnosable conflict rather than silently dual-writing state.
+        self._owner_lock = _acquire_owner_lock(self.path)
         self._init()
+
+    def close(self) -> None:
+        """Release the single-owner lock; sequential reopen by the same owner is valid."""
+        handle = getattr(self, "_owner_lock", None)
+        if handle is not None and not handle.closed:
+            import fcntl
+
+            try:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+            except (ImportError, OSError):
+                pass
+            handle.close()
 
     def _connect(self) -> sqlite3.Connection:
         db = sqlite3.connect(self.path, timeout=10, isolation_level=None)
@@ -600,6 +672,7 @@ class StewardStore:
                 "attemptId": row["attempt_id"], "version": row["version"], "subject": json.loads(row["subject_json"]),
                 "candidate": json.loads(row["candidate_json"]), "status": row["status"], "cancellation": row["cancellation"],
                 "deadlineAt": row["deadline_at"], "lease": lease,
+                "parentContract": None if row["parent_contract_json"] is None else json.loads(row["parent_contract_json"]),
             }
             budget_ms = max(0, int((_parse(job["deadlineAt"]) - now).total_seconds() * 1000))
             decision = _evaluate_mutation(
@@ -795,6 +868,27 @@ class StewardStore:
                 "AND o.state NOT IN ('captured','abandoned','failed') ORDER BY o.operation_id", (job_id,),
             ).fetchall()
         return [str(row[0]) for row in rows]
+
+    def record_operation_expired(self, operation: dict[str, Any]) -> None:
+        """Deterministically close out an operation past its absolute deadline (#106)."""
+        now = _iso(self.clock.now())
+        with self._write() as db:
+            owner = db.execute("SELECT status FROM steward_jobs WHERE job_id=?", (str(operation["job_id"]),)).fetchone()
+            terminal_owner = owner is None or owner["status"] in _TERMINAL
+            db.execute(
+                "UPDATE external_operations SET cancellation_cause=?,observed_at=? WHERE operation_id=? AND state NOT IN ('captured','abandoned','failed')",
+                ("application_deadline", now, operation["operation_id"]),
+            )
+            if terminal_owner:
+                # Superseded/terminal owners keep their terminal state; only the
+                # operation-level provenance is classified.
+                self._audit(db, str(operation["job_id"]), "operation-deadline-exceeded",
+                            {"operationId": operation["operation_id"], "cause": "application_deadline"})
+                return
+            self._advance(db, str(operation["job_id"]), status="blocked", stage="operation-deadline-exceeded",
+                          marker="blocked:operation-deadline-exceeded", blocked_reason="operation-deadline-exceeded")
+            self._audit(db, str(operation["job_id"]), "operation-deadline-exceeded",
+                        {"operationId": operation["operation_id"], "cause": "application_deadline"})
 
     def unknown_delivery_operations(self) -> list[dict[str, Any]]:
         with self._connect() as db:
@@ -1006,7 +1100,7 @@ class StewardRuntime:
             raise ValueError("idempotency_key is required")
         return self.store.admit(
             {"id": subject_id, "revision": subject_revision}, idempotency_key, parent_contract,
-            obligation_set=_obligation_snapshot(self.profile),
+            obligation_set=_obligation_snapshot(self.profile, self.proof_recipe),
         )
 
     def status(self, job_id: str) -> dict[str, Any]:
@@ -1017,6 +1111,10 @@ class StewardRuntime:
 
     def cancel(self, job_id: str, cause: str = "caller_cancel") -> dict[str, Any]:
         return self.store.cancel(job_id, cause)
+
+    def close(self) -> None:
+        """Release the store's single-owner lock (single-owner topology handoff)."""
+        self.store.close()
 
     def doctor(self, job_id: str | None = None) -> dict[str, Any]:
         operations = self.store.unknown_delivery_operations() if job_id is None else self.store.result(job_id)["operations"]
@@ -1089,9 +1187,19 @@ class StewardRuntime:
             }
         admitted = {str(item["id"]): item for item in admitted_set["obligations"]}
         for requirement_id, obligation in admitted.items():
-            if requirement_id not in {c["criterion_id"] for c in self.proof_recipe["criteria"]}:
+            live_criterion = next((c for c in self.proof_recipe["criteria"] if c["criterion_id"] == requirement_id), None)
+            if live_criterion is None:
                 obligations.append({"id": requirement_id, "state": "unsatisfied", "evidenceRefs": [],
                                     "rationale": "admitted obligation has no live proof-recipe criterion"})
+                if obligation["required"]:
+                    blocked = True
+                continue
+            if obligation.get("criterionDigest") and _criterion_semantic_digest(live_criterion) != obligation["criterionDigest"]:
+                # Authority-affecting criterion semantics changed after admission; the
+                # job must be re-admitted rather than silently evaluated with the
+                # weakened live semantics (#107).
+                obligations.append({"id": requirement_id, "state": "unsatisfied", "evidenceRefs": [],
+                                    "rationale": "proof-recipe criterion semantics changed after admission"})
                 if obligation["required"]:
                     blocked = True
                 continue
@@ -1232,6 +1340,10 @@ class StewardRuntime:
 
     def _handle_stale_operation(self, operation: dict[str, Any]) -> bool:
         job = self.store.job(str(operation["job_id"]))
+        if self._operation_expired(operation):
+            # Expired operations never reach the provider again (#106).
+            self.store.record_operation_expired(operation)
+            return True
         if operation["delivery"] == "delivery-unknown":
             if operation["operation_kind"] == "cancel":
                 submit = self.store.operation_for_job(job["jobId"], "submit")
@@ -1259,6 +1371,12 @@ class StewardRuntime:
                        (_canonical(payload), _iso(self.store.clock.now()), operation["operation_id"]))
             self.store._audit(db, str(operation["job_id"]), "late-result-discarded", {"operationId": operation["operation_id"]})
 
+    def _operation_expired(self, operation: dict[str, Any]) -> bool:
+        deadline = operation.get("operation_deadline_at") if isinstance(operation, dict) else None
+        if not deadline:
+            return False
+        return self.store.clock.now() > _parse(str(deadline))
+
     def run_once(self) -> bool:
         self._tick += 1
         job = self.store.next_job()
@@ -1276,6 +1394,12 @@ class StewardRuntime:
         if submit is None:
             self.store.reserve_external(job["jobId"], self.upstream, "submit")
             self.faults.trip("after-reservation")
+            return True
+        if self._operation_expired(submit):
+            # An expired operation never reaches the provider again (#106): the durable
+            # absolute deadline bounds all nested calls, so recovery classifies the
+            # outcome deterministically and begins bounded closure instead.
+            self.store.record_operation_expired(submit)
             return True
         if submit["delivery"] == "not-delivered":
             current = self.store.job(job["jobId"])
@@ -1316,10 +1440,14 @@ class StewardRuntime:
             # cannot be proven, so it is skipped and completion fails closed on it.
             admitted_set = job.get("obligationSet") or {}
             for snapshot in admitted_set.get("obligations", []):
-                if not any(c["criterion_id"] == snapshot["id"] for c in self.proof_recipe["criteria"]):
+                criterion = next((c for c in self.proof_recipe["criteria"] if c["criterion_id"] == snapshot["id"]), None)
+                if criterion is None:
+                    continue
+                if snapshot.get("criterionDigest") and _criterion_semantic_digest(criterion) != snapshot["criterionDigest"]:
+                    # Live criterion semantics drifted after admission; minting fresh
+                    # evidence under weakened semantics would launder the change (#107).
                     continue
                 requirement = {"id": snapshot["id"], "required": snapshot["required"], "evidence_class": snapshot["evidenceClass"]}
-                criterion = self._criterion(snapshot["id"])
                 producer = self._producer(self.provider.producer_id)
                 if producer is None:
                     continue

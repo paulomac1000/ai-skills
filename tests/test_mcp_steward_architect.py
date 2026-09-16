@@ -546,6 +546,7 @@ def test_generated_python_runtime_imports_recovers_cancels_and_does_not_hot_poll
     first.run_once()
     first.run_once()
     assert first.status(job_id)["status"] == "reconciling"
+    first.close()  # release the single-owner lock before the restart pass
     recovered = runtime_module.StewardRuntime(
         runtime_module.StewardStore(path, clock), profile, proof, mutation, upstream=upstream
     )
@@ -591,6 +592,7 @@ def test_generated_python_runtime_imports_recovers_cancels_and_does_not_hot_poll
     cancel_rt.run_once()
     cancel_rt.run_once()
     assert cancel_rt.status(cancel_id)["status"] == "cancelling"
+    cancel_rt.close()  # release the single-owner lock before the restart pass
     restarted = runtime_module.StewardRuntime(
         runtime_module.StewardStore(cancel_path, clock), profile, proof, mutation, upstream=upstream, provider=provider
     )

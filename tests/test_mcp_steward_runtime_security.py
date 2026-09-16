@@ -569,7 +569,10 @@ def test_operation_deadline_is_durable_and_expiration_is_classified(tmp_path: Pa
     # Result arrives after the durable absolute operation deadline:
     # reality is still captured, but the cause is classified, not hidden.
     clock.advance(16 * 60)
-    store.capture_result(str(receipt["operation_id"]), runtime.FakeProvider().poll("remote-deadline", {"type": "target", "id": "repo", "revision": "abc"}))
+    store.capture_result(
+        str(receipt["operation_id"]),
+        runtime.FakeProvider().poll("remote-deadline", {"type": "target", "id": "repo", "revision": "abc"}),
+    )
     receipt = store.operation_for_job(job_id, "submit")
     assert receipt is not None
     assert receipt["cancellation_cause"] == "application_deadline"
@@ -583,16 +586,17 @@ def test_cancel_provenance_cause_is_bound_to_receipts(tmp_path: Path) -> None:
     store = runtime.StewardStore(tmp_path / "cause.db", clock)
     steward = runtime.StewardRuntime(store, profile, proof, mutation, upstream=upstream)
     job_id = steward.submit("repo", "abc", "cause-1")["jobId"]
-    store.reserve_external(job_id, upstream, "submit")
+    steward.run_once()  # reserve submit
+    steward.run_once()  # dispatch and bind submit
     steward.cancel(job_id, cause="service_shutdown")
-    for _ in range(4):
+    for _ in range(6):
         steward.run_once()
         if steward.status(job_id)["status"] == "cancelled":
             break
     assert steward.status(job_id)["cancellationCause"] == "service_shutdown"
     result = steward.get(job_id)
-    causes = {item["operation_kind"]: item.get("cancellationCause") for item in result["operations"]}
-    assert causes.get("cancel") in {None, "service_shutdown", "unknown"}
+    causes = {item["operation_kind"]: item.get("cancellation_cause") for item in result["operations"]}
+    assert causes.get("cancel") == "service_shutdown"
 
 
 def test_supersession_records_parent_superseded_provenance(tmp_path: Path) -> None:
@@ -622,7 +626,9 @@ def test_torn_read_decision_cannot_publish_across_generations(tmp_path: Path) ->
         steward.completion_gate(old_job)
     with pytest.raises(RuntimeError, match="stale"):
         store.save_terminal(
-            old_job, completion, {"digest": "sha256:" + "0" * 64},
+            old_job,
+            completion,
+            {"digest": "sha256:" + "0" * 64},
             expected_attempt_id=steward.status(old_job)["attemptId"],
             expected_version=steward.status(old_job)["version"],
             mutation_decision_ref="admission-x",
@@ -651,7 +657,9 @@ def test_stale_completion_read_set_is_rejected_at_publication(tmp_path: Path) ->
     def snapshot_then_concurrent_commit(job_id_arg: str) -> dict[str, Any]:
         state = original_snapshot(job_id_arg)
         with store._write() as db:
-            db.execute("UPDATE steward_evidence SET payload_digest=? WHERE evidence_id=?", ("sha256:" + "f" * 64, evidence_id))
+            db.execute(
+                "UPDATE steward_evidence SET payload_digest=? WHERE evidence_id=?", ("sha256:" + "f" * 64, evidence_id)
+            )
         return state
 
     store.decision_snapshot = snapshot_then_concurrent_commit
@@ -659,3 +667,124 @@ def test_stale_completion_read_set_is_rejected_at_publication(tmp_path: Path) ->
     status = steward.status(job_id)
     assert status["status"] == "blocked"
     assert "stale-completion-read-set" in str(status["blockedReason"])
+
+
+def test_parent_forbidden_capability_blocks_dispatch_with_zero_provider_calls(tmp_path: Path) -> None:
+    runtime, profile, proof, mutation, upstream = _generated_runtime(tmp_path)
+    capability_id = str(upstream["capability_id"])
+    clock = runtime.FakeClock(datetime(2026, 9, 13, tzinfo=UTC))
+    store = runtime.StewardStore(tmp_path / "forbidden-dispatch.db", clock)
+
+    class CountingProvider(runtime.FakeProvider):
+        def __init__(self) -> None:
+            self.dispatches = 0
+
+        def dispatch(self, operation_id: str, subject: dict[str, Any]) -> str:
+            self.dispatches += 1
+            return super().dispatch(operation_id, subject)
+
+    provider = CountingProvider()
+    steward = runtime.StewardRuntime(store, profile, proof, mutation, upstream=upstream, provider=provider)
+    parent = _supervised_parent_contract(runtime, capability_id=capability_id)
+    parent["authority"]["forbiddenCapabilities"] = [capability_id]
+    parent["authority"]["delegatedCapabilities"] = []
+    job_id = steward.submit("repo", "abc", "forbidden-dispatch-1", parent_contract=parent)["jobId"]
+    for _ in range(6):
+        steward.run_once()
+        if steward.status(job_id)["status"] == "blocked":
+            break
+    assert provider.dispatches == 0
+    assert "ParentAuthorityInsufficient" in str(steward.status(job_id)["blockedReason"])
+
+
+def test_empty_delegation_grants_nothing(tmp_path: Path) -> None:
+    runtime, profile, proof, mutation, upstream = _generated_runtime(tmp_path)
+    clock = runtime.FakeClock(datetime(2026, 9, 13, tzinfo=UTC))
+    store = runtime.StewardStore(tmp_path / "empty-delegation.db", clock)
+
+    class CountingProvider(runtime.FakeProvider):
+        def __init__(self) -> None:
+            self.dispatches = 0
+
+        def dispatch(self, operation_id: str, subject: dict[str, Any]) -> str:
+            self.dispatches += 1
+            return super().dispatch(operation_id, subject)
+
+    provider = CountingProvider()
+    steward = runtime.StewardRuntime(store, profile, proof, mutation, upstream=upstream, provider=provider)
+    parent = _supervised_parent_contract(runtime, capability_id=str(upstream["capability_id"]))
+    parent["authority"]["delegatedCapabilities"] = []
+    job_id = steward.submit("repo", "abc", "empty-delegation-1", parent_contract=parent)["jobId"]
+    for _ in range(6):
+        steward.run_once()
+        if steward.status(job_id)["status"] == "blocked":
+            break
+    assert provider.dispatches == 0
+    assert "ParentAuthorityInsufficient" in str(steward.status(job_id)["blockedReason"])
+
+
+def test_expired_operation_never_reaches_provider(tmp_path: Path) -> None:
+    runtime, profile, proof, mutation, upstream = _generated_runtime(tmp_path)
+    clock = runtime.FakeClock(datetime(2026, 9, 13, tzinfo=UTC))
+    store = runtime.StewardStore(tmp_path / "expired.db", clock)
+
+    class PendingProvider(runtime.FakeProvider):
+        def __init__(self) -> None:
+            self.polls = 0
+            self.reconciles = 0
+
+        def poll(self, remote_handle: str, subject: dict[str, Any]) -> dict[str, Any]:
+            self.polls += 1
+            return {"state": "pending", "remoteHandle": remote_handle, "subject": subject}
+
+        def reconcile(self, operation_id: str, subject: dict[str, Any]) -> str:
+            self.reconciles += 1
+            return super().reconcile(operation_id, subject)
+
+    provider = PendingProvider()
+    steward = runtime.StewardRuntime(store, profile, proof, mutation, upstream=upstream, provider=provider)
+    job_id = steward.submit("repo", "abc", "expired-1")["jobId"]
+    steward.run_once()  # reserve
+    steward.run_once()  # dispatch + bind
+    clock.advance(16 * 60)  # past the durable operation deadline while the result is pending
+    for _ in range(6):
+        if steward.status(job_id)["status"] == "blocked":
+            break
+        if not steward.run_once():
+            break
+    status = steward.status(job_id)
+    polls_after_expiry = provider.polls
+    assert status["status"] == "blocked"
+    assert "operation-deadline-exceeded" in str(status["blockedReason"])
+    receipt = store.operation_for_job(job_id, "submit")
+    assert receipt is not None and receipt["cancellation_cause"] == "application_deadline"
+    # Bounded closure: no further provider polling once expired.
+    steward.run_once()
+    assert provider.polls == polls_after_expiry
+
+
+def test_weakened_live_criterion_cannot_complete_admitted_job(tmp_path: Path) -> None:
+    runtime, profile, proof, mutation, upstream = _generated_runtime(tmp_path)
+    clock = runtime.FakeClock(datetime(2026, 9, 13, tzinfo=UTC))
+    store = runtime.StewardStore(tmp_path / "weakened.db", clock)
+    steward = runtime.StewardRuntime(store, profile, proof, mutation, upstream=upstream)
+    job_id = steward.submit("repo", "abc", "weakened-1")["jobId"]
+    steward.run_once()  # reserve
+    steward.run_once()  # dispatch
+    # Post-admission policy drift: the live criterion keeps its ID but weakens
+    # required authority. The admitted snapshot binds the original semantics.
+    proof["criteria"][0]["required_authority"] = "advisory"
+    steward.run_once()  # poll + evidence promotion (skipped under drifted semantics)
+    evaluation = steward.completion_gate(job_id)
+    assert evaluation["disposition"] == "blocked"
+    assert evaluation["obligations"][0]["state"] == "unsatisfied"
+    assert steward.status(job_id)["status"] != "completed"
+
+
+def test_second_store_process_on_same_path_fails_as_topology_conflict(tmp_path: Path) -> None:
+    runtime, profile, proof, mutation, upstream = _generated_runtime(tmp_path)
+    db_path = tmp_path / "locked.db"
+    owner = runtime.StewardStore(db_path, runtime.FakeClock(datetime(2026, 9, 13, tzinfo=UTC)))
+    assert owner._owner_lock is not None
+    with pytest.raises(RuntimeError, match="STORE_LOCKED"):
+        runtime.StewardStore(db_path, runtime.FakeClock(datetime(2026, 9, 13, tzinfo=UTC)))

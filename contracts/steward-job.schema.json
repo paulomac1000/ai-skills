@@ -217,6 +217,18 @@
           "$ref": "#/$defs/obligationSet"
         }
       ]
+    },
+    "cancellationCause": {
+      "enum": [
+        "caller_cancel",
+        "parent_superseded",
+        "service_shutdown",
+        "application_deadline",
+        "transport_timeout",
+        "provider_cancel",
+        "unknown",
+        null
+      ]
     }
   },
   "$defs": {
@@ -485,6 +497,13 @@
                 "type": "string",
                 "minLength": 1,
                 "maxLength": 100
+              },
+              "criterionDigest": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "pattern": "^sha256:[0-9a-f]{64}$"
               }
             }
           }

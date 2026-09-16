@@ -221,7 +221,16 @@ def _job_findings(value: dict[str, Any]) -> list[str]:
             findings.append("job: admitted parentContract must use supervised mode")
         elif _parent_contract_digest(parent_contract) != parent_contract["digest"]:
             findings.append("job: parentContract digest does not bind the snapshot contents")
-    if value["status"] in {"queued", "running", "waiting-external", "finalizing", "completed", "completed-with-gaps"}:
+    if value["status"] in {
+        "queued",
+        "running",
+        "waiting-external",
+        "reconciling",
+        "cancelling",
+        "finalizing",
+        "completed",
+        "completed-with-gaps",
+    }:
         if not isinstance(obligation_set, dict):
             findings.append("job: admitted work requires an obligationSet snapshot at admission")
         elif _obligation_set_digest(obligation_set) != obligation_set["digest"]:
