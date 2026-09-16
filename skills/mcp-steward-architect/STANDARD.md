@@ -177,7 +177,7 @@ Execution MUST reserve bounded time/capacity for persisting observations, reconc
 
 ## Persistence recovery and shutdown
 
-The durability claim MUST state process-restart, host/power-loss, multi-process, and multi-node guarantees separately.
+The durability claim MUST state process-restart, host/power-loss, multi-process, and multi-node guarantees separately, and MUST declare the runtime/process topology (client multiplicity, server process multiplicity, store ownership, writer model, shared-state scope, restart boundary) so deployment cannot claim stronger durability than the storage profile supports; competing writers on a single-owner store fail as a typed, diagnosable topology conflict.
 
 Retry-safe persistence is canonical-first. If a stable identity already has committed artifact/result A, a retry proposing B must converge on A; dedupe/CAS/no-op persistence MUST return/reload the canonical value/reference/digest and downstream work MUST consume it.
 

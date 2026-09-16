@@ -161,6 +161,14 @@ def _profile_document(steward_id: str, profile: str, *, durability_profile: str)
             "lineage_fencing": True,
             "attempt_fencing": True,
             "recovery_equivalence_required": True,
+            "topology": {
+                "client_multiplicity": "many",
+                "server_process_multiplicity": "single",
+                "store_ownership": "single-owner",
+                "writer_model": "single-owner",
+                "shared_state_scope": "process",
+                "restart_boundary": "process",
+            },
         },
         "external_operations": {
             "receipt_before_stateful_dispatch": True,

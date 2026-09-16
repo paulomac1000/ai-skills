@@ -120,6 +120,21 @@ def _profile_findings(value: dict[str, Any]) -> list[str]:
     durability = value["durability"]
     if durability["profile"] != "constrained-file" and not durability["transactional_store_required"]:
         findings.append("durability: durable profiles require a transactional store")
+    topology = durability["topology"]
+    if topology["writer_model"] == "single-owner" and topology["server_process_multiplicity"] != "single":
+        findings.append("durability: single-owner writer model cannot be paired with multi-process servers")
+    if topology["store_ownership"] == "shared" and topology["writer_model"] != "multi-writer":
+        findings.append("durability: shared store ownership requires a multi-writer writer model")
+    if durability["profile"] == "constrained-file" and (
+        topology["writer_model"] == "multi-writer" or topology["shared_state_scope"] != "process"
+    ):
+        findings.append("durability: constrained-file profile supports only single-owner, process-scoped state")
+    if (
+        topology["restart_boundary"] == "cluster"
+        and "host-power-loss" not in durability["crash_model"]
+        and "power-loss" not in durability["crash_model"]
+    ):
+        findings.append("durability: cluster restart boundary requires a declared host/power-loss crash model")
     required = set(value["subject_identity"]["required_dimensions"])
     freshness = set(value["subject_identity"]["freshness_dimensions"])
     if freshness - required:

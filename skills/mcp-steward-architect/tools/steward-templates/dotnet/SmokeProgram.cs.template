@@ -52,6 +52,15 @@ static void VerifyStewardSeed()
         var cancelProvider = new CountingSeedProvider();
         var cancelRoot = Path.Combine(root, "cancel");
         string cancelJob;
+        using (var topologyOwner = new StewardSeedRuntime(Path.Combine(root, "topology"), clock, cancelProvider, new SeedFaultInjector(), profile, proof))
+        {
+            // Two-process/same-store negative fixture: a second server process on a
+            // single-owner store must fail with a diagnosable ownership conflict (#105).
+            var topologyRejected = false;
+            try { using var _ = new StewardSeedRuntime(Path.Combine(root, "topology"), clock, cancelProvider, new SeedFaultInjector(), profile, proof); }
+            catch (InvalidOperationException exc) when (exc.Message.Contains("STORE_LOCKED", StringComparison.Ordinal)) { topologyRejected = true; }
+            if (!topologyRejected) throw new InvalidOperationException("Competing writer on a single-owner store was not diagnosed as a topology mismatch.");
+        }
         using (var runtime = new StewardSeedRuntime(cancelRoot, clock, cancelProvider, new SeedFaultInjector(["after-cancel-dispatch"]), profile, proof))
         {
             cancelJob = runtime.Submit("repo-cancel", "abc", "cancel-1").JobId;

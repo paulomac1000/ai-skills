@@ -250,7 +250,17 @@ public sealed class StewardSeedRuntime : IDisposable
     {
         Directory.CreateDirectory(stateDirectory);
         _snapshotPath = Path.Combine(stateDirectory, "steward-state.json");
-        _ownerLock = new FileStream(Path.Combine(stateDirectory, "steward-state.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+        // Single-owner store ownership: a second server process on this directory is a
+        // deployment topology mismatch and must be diagnosable as such, not surface as an
+        // ordinary provider/application failure (#105).
+        try
+        {
+            _ownerLock = new FileStream(Path.Combine(stateDirectory, "steward-state.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+        }
+        catch (IOException exc)
+        {
+            throw new InvalidOperationException("STORE_LOCKED / ownership conflict: another server process owns this single-owner store (topology mismatch)", exc);
+        }
         _clock = clock; _provider = provider; _faults = faults;
         try
         {

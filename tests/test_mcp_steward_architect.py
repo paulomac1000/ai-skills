@@ -809,3 +809,40 @@ def test_standalone_profile_cannot_declare_parent_contract() -> None:
     }
     findings = validator.validate_document("profile", profile)
     assert any("standalone steward must not declare a parent_contract" in item for item in findings)
+
+
+def test_topology_contradictions_are_rejected() -> None:
+    generator, validator = _generator(), _validator()
+    docs = _docs(generator)
+    base = json.loads(json.dumps(docs["steward_profile"]))
+    base["durability"]["topology"] = {
+        "client_multiplicity": "many",
+        "server_process_multiplicity": "multi",
+        "store_ownership": "single-owner",
+        "writer_model": "single-owner",
+        "shared_state_scope": "host",
+        "restart_boundary": "process",
+    }
+    findings = validator.validate_document("profile", base)
+    assert any("single-owner writer model cannot be paired with multi-process servers" in item for item in findings)
+
+    shared = json.loads(json.dumps(docs["steward_profile"]))
+    shared["durability"]["topology"] = {
+        "client_multiplicity": "many",
+        "server_process_multiplicity": "multi",
+        "store_ownership": "shared",
+        "writer_model": "single-owner",
+        "shared_state_scope": "cluster",
+        "restart_boundary": "cluster",
+    }
+    findings = validator.validate_document("profile", shared)
+    assert any("shared store ownership requires a multi-writer writer model" in item for item in findings)
+
+
+def test_generated_profile_declares_single_owner_topology() -> None:
+    generator, validator = _generator(), _validator()
+    docs = _docs(generator)
+    topology = docs["steward_profile"]["durability"]["topology"]
+    assert topology["server_process_multiplicity"] == "single"
+    assert topology["writer_model"] == "single-owner"
+    assert validator.validate_document("profile", docs["steward_profile"]) == []
