@@ -158,10 +158,11 @@ def _obligation_snapshot(profile: dict[str, Any], proof_recipe: dict[str, Any]) 
             "id": str(item["id"]), "required": bool(item["required"]), "evidenceClass": str(item["evidence_class"]),
             "criterionDigest": _criterion_semantic_digest(criterion) if criterion else None,
         })
+    proof_recipe_digest = _digest(proof_recipe)
     return {
         "revision": revision,
-        "digest": _digest({"revision": revision, "obligations": obligations}),
-        "proofRecipeDigest": _digest(proof_recipe),
+        "digest": _digest({"revision": revision, "proofRecipeDigest": proof_recipe_digest, "obligations": obligations}),
+        "proofRecipeDigest": proof_recipe_digest,
         "obligations": obligations,
     }
 
@@ -1185,8 +1186,22 @@ class StewardRuntime:
         obligations, blocked = [], bool(unresolved or cancel_refs)
         admitted_set = job.get("obligationSet")
         # Completion evaluates the admitted obligation snapshot, not the live profile (#107).
-        # A job without an admitted snapshot, or a snapshot obligation with no live
-        # proof-recipe criterion, fails closed as unsatisfied.
+        # A job without an admitted snapshot, or a snapshot whose stored digest no longer
+        # binds its contents (restored/corrupted), fails closed as unsatisfied.
+        if not isinstance(admitted_set, dict) or not admitted_set.get("obligations"):
+            pass
+        elif _digest({"revision": admitted_set.get("revision"), "proofRecipeDigest": admitted_set.get("proofRecipeDigest"), "obligations": admitted_set.get("obligations")}) != admitted_set.get("digest"):
+            return {
+                "schema_version": 2, "evaluationId": f"completion-{uuid.uuid4().hex}", "jobId": job_id,
+                "lineageId": job["lineageId"], "generation": job["generation"], "subject": job["subject"],
+                "candidate": job["candidate"], "decisionIdentity": {"generation": job["generation"],
+                "profileRevision": self.profile["steward"]["contract_revision"], "proofRecipeRevision": self.proof_recipe["revision"],
+                "subjectRevision": job["subject"].get("revision") or "none", "candidateDigest": job["candidate"]["digest"]},
+                "disposition": "blocked", "obligations": [],
+                "readSet": read_set, "controllerEpoch": int(snapshot["lineage"]["current_generation"]),
+                "obligationSetDigest": admitted_set.get("digest"), "parentContract": None,
+                "ambiguousOperationRefs": unresolved, "ambiguousCancellationRefs": cancel_refs, "evaluatedAt": _iso(now),
+            }
         if not isinstance(admitted_set, dict) or not admitted_set.get("obligations"):
             return {
                 "schema_version": 2, "evaluationId": f"completion-{uuid.uuid4().hex}", "jobId": job_id,
@@ -1331,14 +1346,15 @@ class StewardRuntime:
 
     def _handle_cancellation(self, job: dict[str, Any]) -> bool:
         submit = self.store.operation_for_job(job["jobId"], "submit")
-        if submit is not None and self._operation_expired(submit):
-            # Expiry fences every provider action, cancellation included (#106).
-            self.store.record_operation_expired(submit)
-            return True
         if submit is None or submit["delivery"] == "not-delivered":
             self.store.finish_cancel_without_remote(job["jobId"])
             return True
         if submit["delivery"] == "delivery-unknown":
+            if self._operation_expired(submit):
+                # Expiry fences provider-calling branches only; local terminal closure
+                # of already-captured work remains reachable after the deadline (#106).
+                self.store.record_operation_expired(submit)
+                return True
             handle = self.provider.reconcile(submit["operation_id"], job["subject"])
             self.store.reconcile_operation(submit["operation_id"], handle)
             return True
@@ -1476,6 +1492,14 @@ class StewardRuntime:
             # snapshot obligation whose live proof-recipe criterion has drifted away
             # cannot be proven, so it is skipped and completion fails closed on it.
             admitted_set = job.get("obligationSet") or {}
+            snapshot_binding_ok = (
+                isinstance(admitted_set, dict)
+                and admitted_set.get("obligations")
+                and _digest({"revision": admitted_set.get("revision"), "proofRecipeDigest": admitted_set.get("proofRecipeDigest"), "obligations": admitted_set.get("obligations")}) == admitted_set.get("digest")
+            )
+            if not snapshot_binding_ok:
+                self.store.block(job["jobId"], "obligation-snapshot-binding-invalid")
+                return True
             if admitted_set.get("proofRecipeDigest") not in {None, _digest(self.proof_recipe)}:
                 admitted_set = {}  # drifted recipe: no fresh evidence may be minted
             for snapshot in admitted_set.get("obligations", []):

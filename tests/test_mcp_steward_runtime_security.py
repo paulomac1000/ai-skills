@@ -788,3 +788,45 @@ def test_second_store_process_on_same_path_fails_as_topology_conflict(tmp_path: 
     assert owner._owner_lock is not None
     with pytest.raises(RuntimeError, match="STORE_LOCKED"):
         runtime.StewardStore(db_path, runtime.FakeClock(datetime(2026, 9, 13, tzinfo=UTC)))
+
+
+def test_tampered_obligation_snapshot_binding_fails_closed(tmp_path: Path) -> None:
+    runtime, profile, proof, mutation, upstream = _generated_runtime(tmp_path)
+    clock = runtime.FakeClock(datetime(2026, 9, 13, tzinfo=UTC))
+    store = runtime.StewardStore(tmp_path / "tampered-snapshot.db", clock)
+    steward = runtime.StewardRuntime(store, profile, proof, mutation, upstream=upstream)
+    job_id = steward.submit("repo", "abc", "tampered-snapshot-1")["jobId"]
+    for _ in range(4):
+        steward.run_once()
+        if steward.status(job_id)["status"] == "finalizing":
+            break
+    # A restored/corrupted durable snapshot swaps in the CURRENT recipe digest while
+    # keeping the stale stored digest; the read-time binding check must reject it.
+    with store._write() as db:
+        row = db.execute("SELECT obligation_set_json FROM steward_jobs WHERE job_id=?", (job_id,)).fetchone()
+        snapshot = json.loads(row[0])
+        snapshot["proofRecipeDigest"] = "sha256:" + "a" * 64
+        canonical = json.dumps(snapshot, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+        db.execute("UPDATE steward_jobs SET obligation_set_json=? WHERE job_id=?", (canonical, job_id))
+    evaluation = steward.completion_gate(job_id)
+    assert evaluation["disposition"] == "blocked"
+
+
+def test_cancel_after_deadline_with_captured_result_still_terminalizes(tmp_path: Path) -> None:
+    runtime, profile, proof, mutation, upstream = _generated_runtime(tmp_path)
+    clock = runtime.FakeClock(datetime(2026, 9, 13, tzinfo=UTC))
+    store = runtime.StewardStore(tmp_path / "captured-cancel.db", clock)
+    steward = runtime.StewardRuntime(store, profile, proof, mutation, upstream=upstream)
+    job_id = steward.submit("repo", "abc", "captured-cancel-1")["jobId"]
+    steward.run_once()  # reserve
+    steward.run_once()  # dispatch
+    steward.run_once()  # poll + capture the result while still inside the deadline
+    clock.advance(16 * 60)  # the deadline passes AFTER the result was captured
+    steward.cancel(job_id, cause="caller_cancel")
+    for _ in range(6):
+        steward.run_once()
+        if steward.status(job_id)["status"] in {"cancelled", "completed"}:
+            break
+    # The submit result was captured (local terminal closure requires no provider),
+    # so cancellation must still reach a terminal state instead of hanging on blocked.
+    assert steward.status(job_id)["status"] in {"cancelled", "completed"}

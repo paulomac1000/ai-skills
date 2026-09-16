@@ -487,7 +487,8 @@
             "required": [
               "id",
               "required",
-              "evidenceClass"
+              "evidenceClass",
+              "criterionDigest"
             ],
             "properties": {
               "id": {

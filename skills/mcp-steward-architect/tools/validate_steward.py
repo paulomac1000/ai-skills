@@ -195,7 +195,11 @@ def _parent_contract_digest(snapshot: dict[str, Any]) -> str:
 
 
 def _obligation_set_digest(snapshot: dict[str, Any]) -> str:
-    projected = {"revision": snapshot["revision"], "obligations": snapshot["obligations"]}
+    projected = {
+        "revision": snapshot["revision"],
+        "proofRecipeDigest": snapshot["proofRecipeDigest"],
+        "obligations": snapshot["obligations"],
+    }
     return (
         "sha256:"
         + hashlib.sha256(
