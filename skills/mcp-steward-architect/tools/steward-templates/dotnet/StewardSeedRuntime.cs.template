@@ -47,7 +47,9 @@ public sealed record StewardSeedJob(
     DateTimeOffset HeartbeatAt, DateTimeOffset ProgressAt, long ProgressRevision, string ProgressMarker,
     DateTimeOffset DeadlineAt, DateTimeOffset? FinalizationStartsAt, StewardLease? Lease,
     IReadOnlyList<string> EvidenceRefs, IReadOnlyList<string> ExternalOperationRefs,
-    StewardParentContractSnapshot? ParentContract = null, StewardObligationSnapshot? ObligationSet = null, string? CancellationCause = null);
+    StewardParentContractSnapshot? ParentContract = null, StewardObligationSnapshot? ObligationSet = null,
+    string? CancellationCause = null, string? ParentContractDigest = null, string? ObligationSetDigest = null,
+    int SchemaVersion = 2, IReadOnlyList<string>? ArtifactRefs = null);
 public sealed record StewardParentContractSnapshot(
     string Mode, string SupervisorSystemId, string? ParentWorkId, string? ParentRunId, long ParentGeneration,
     string ContractId, string ContractRevision, string ContractDigest,

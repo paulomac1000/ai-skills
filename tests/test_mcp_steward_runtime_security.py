@@ -421,7 +421,7 @@ def test_dispatch_commit_closes_toctou_and_stale_generation_reconciles_without_r
     steward.run_once()
     old_op = steward.get(old_job)["operations"][0]
     assert old_op["delivery"] == "delivery-unknown"
-    assert old_op["mutation_decision_ref"]
+    assert old_op["mutationDecisionRef"]
     assert provider.dispatch_count == 0
     steward.submit("repo", "abc", "toctou-new")
     for _ in range(10):
@@ -477,6 +477,7 @@ def test_supervised_admission_snapshots_parent_contract_and_narrows_deadline(tmp
     clock = runtime.FakeClock(datetime(2026, 9, 13, tzinfo=UTC))
     store = runtime.StewardStore(tmp_path / "supervised.db", clock)
     steward = runtime.StewardRuntime(store, profile, proof, mutation, upstream=upstream)
+    profile["authority"]["parent_completion"] = "explicit-contract-only"
     parent = _supervised_parent_contract(runtime, capability_id=str(upstream["capability_id"]))
     job_id = steward.submit("repo", "abc", "supervised-1", parent_contract=parent)["jobId"]
     job = steward.status(job_id)
@@ -496,6 +497,7 @@ def test_supervised_admission_narrows_inherited_deadline_when_tighter(tmp_path: 
     clock = runtime.FakeClock(datetime(2026, 9, 13, tzinfo=UTC))
     store = runtime.StewardStore(tmp_path / "narrow.db", clock)
     steward = runtime.StewardRuntime(store, profile, proof, mutation, upstream=upstream)
+    profile["authority"]["parent_completion"] = "explicit-contract-only"
     parent = _supervised_parent_contract(runtime, capability_id=str(upstream["capability_id"]))
     parent["budget"]["absoluteDeadline"] = "2026-09-13T00:05:00Z"
     job_id = steward.submit("repo", "abc", "narrow-1", parent_contract=parent)["jobId"]
@@ -508,6 +510,7 @@ def test_parent_delegation_beyond_delegation_blocks_mutation_dispatch(tmp_path: 
     clock = runtime.FakeClock(datetime(2026, 9, 13, tzinfo=UTC))
     store = runtime.StewardStore(tmp_path / "forbidden.db", clock)
     steward = runtime.StewardRuntime(store, profile, proof, mutation, upstream=upstream)
+    profile["authority"]["parent_completion"] = "explicit-contract-only"
     parent = _supervised_parent_contract(runtime, capability_id=capability_id)
     parent["authority"]["delegatedCapabilities"] = ["some-other-capability"]
     job_id = steward.submit("repo", "abc", "forbidden-1", parent_contract=parent)["jobId"]
@@ -595,7 +598,7 @@ def test_cancel_provenance_cause_is_bound_to_receipts(tmp_path: Path) -> None:
             break
     assert steward.status(job_id)["cancellationCause"] == "service_shutdown"
     result = steward.get(job_id)
-    causes = {item["operation_kind"]: item.get("cancellation_cause") for item in result["operations"]}
+    causes = {item["operationKind"]: item.get("cancellationCause") for item in result["operations"]}
     assert causes.get("cancel") == "service_shutdown"
 
 
@@ -685,6 +688,7 @@ def test_parent_forbidden_capability_blocks_dispatch_with_zero_provider_calls(tm
 
     provider = CountingProvider()
     steward = runtime.StewardRuntime(store, profile, proof, mutation, upstream=upstream, provider=provider)
+    profile["authority"]["parent_completion"] = "explicit-contract-only"
     parent = _supervised_parent_contract(runtime, capability_id=capability_id)
     parent["authority"]["forbiddenCapabilities"] = [capability_id]
     parent["authority"]["delegatedCapabilities"] = []
@@ -712,6 +716,7 @@ def test_empty_delegation_grants_nothing(tmp_path: Path) -> None:
 
     provider = CountingProvider()
     steward = runtime.StewardRuntime(store, profile, proof, mutation, upstream=upstream, provider=provider)
+    profile["authority"]["parent_completion"] = "explicit-contract-only"
     parent = _supervised_parent_contract(runtime, capability_id=str(upstream["capability_id"]))
     parent["authority"]["delegatedCapabilities"] = []
     job_id = steward.submit("repo", "abc", "empty-delegation-1", parent_contract=parent)["jobId"]

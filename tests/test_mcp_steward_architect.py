@@ -602,8 +602,8 @@ def test_generated_python_runtime_imports_recovers_cancels_and_does_not_hot_poll
     assert all(
         item["state"] == "captured"
         for item in restarted.get(cancel_id)["operations"]
-        if item["operation_kind"] == "submit"
-    ), [(item["operation_kind"], item["state"]) for item in restarted.get(cancel_id)["operations"]]
+        if item["operationKind"] == "submit"
+    ), [(item["operationKind"], item["state"]) for item in restarted.get(cancel_id)["operations"]]
 
     class Unapproved(Counting):
         producer_id = "unapproved"

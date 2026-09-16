@@ -218,6 +218,20 @@
         }
       ]
     },
+    "obligationSetDigest": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "parentContractDigest": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
     "cancellationCause": {
       "enum": [
         "caller_cancel",

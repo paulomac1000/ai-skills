@@ -130,7 +130,13 @@ def _validate_parent_contract(parent_contract: dict[str, Any]) -> dict[str, Any]
         raise ParentContractError("ParentContractUnsupported", "parent policy is required")
     snapshot = json.loads(_canonical(parent_contract))
     snapshot.pop("digest", None)
-    return {**parent_contract, "digest": _digest(snapshot)}
+    return {**parent_contract, "digest": _parent_contract_digest(snapshot)}
+
+
+def _parent_contract_digest(snapshot: dict[str, Any]) -> str:
+    projected = json.loads(_canonical(snapshot))
+    projected.pop("digest", None)
+    return _digest(projected)
 
 
 def _criterion_semantic_digest(criterion: dict[str, Any]) -> str:
@@ -188,6 +194,39 @@ def _capability_digest(capability: dict[str, Any]) -> str | None:
         return None
     projected_contract.pop("digest", None)
     return _digest(projected)
+
+
+def _receipt_document(row: dict[str, Any]) -> dict[str, Any]:
+    """Project an internal operation row onto the canonical external-operation receipt."""
+    stateful = row["operation_kind"] in {"submit", "cancel", "mutation"}
+    return {
+        "schema_version": 2,
+        "operationId": row["operation_id"],
+        "operationKind": row["operation_kind"],
+        "jobId": row["job_id"],
+        "lineageId": row["lineage_id"],
+        "generation": row["generation"],
+        "attemptId": row["attempt_id"],
+        "jobVersion": row["job_version"],
+        "capabilityIdentity": row["capability_identity"],
+        "capabilityContractDigest": row["capability_contract_digest"],
+        "targetIdentity": row["target_identity"],
+        "candidateDigest": row["candidate_digest"],
+        "requestDigest": row["request_digest"],
+        "mutationDecisionRef": row["mutation_decision_ref"],
+        "semanticSlot": row["semantic_slot"] or row["operation_kind"] if stateful else row["semantic_slot"],
+        "operationDeadlineAt": row["operation_deadline_at"] if stateful else row["operation_deadline_at"],
+        "cancellationCause": row["cancellation_cause"],
+        "state": row["state"],
+        "delivery": row["delivery"],
+        "retryDisposition": row["retry_disposition"],
+        "remoteHandle": row["remote_handle"],
+        "credentialSlotId": row["credential_slot_id"],
+        "createdAt": row["created_at"],
+        "observedAt": row["observed_at"],
+        "retryCount": 0,
+        "reconcileCount": row["reconcile_count"],
+    }
 
 
 def _target_identity(job: dict[str, Any]) -> str:
@@ -250,6 +289,12 @@ def _evaluate_mutation(
         reasons.append(("CapabilityUnavailable", "capability contract differs from exact reviewed source/id/revision/digest"))
     parent_contract = job.get("parentContract")
     if isinstance(parent_contract, dict):
+        # The supervised snapshot must still bind to the admission-time digest; a
+        # restored/corrupted snapshot never regains parent authority (#95/#104).
+        if _parent_contract_digest(parent_contract) != job.get("parentContractDigest"):
+            reasons.append(("ParentAuthorityInsufficient", "parent contract snapshot binding mismatch"))
+            if reasons:
+                return {"disposition": reasons[0][0], "reasons": [reason for _, reason in reasons]}
         # Effective authority is the intersection of local configuration and parent delegation (#95).
         # An explicitly empty delegation grants nothing; it is never a wildcard.
         delegated = {str(item) for item in parent_contract["authority"]["delegatedCapabilities"]}
@@ -552,6 +597,7 @@ class StewardStore:
             "blockedReason": row["blocked_reason"], "externalOperationRefs": [str(item[0]) for item in refs],
             "evidenceRefs": [str(item[0]) for item in evrefs], "artifactRefs": [], "failure": None,
             "parentContract": None if row["parent_contract_json"] is None else json.loads(row["parent_contract_json"]),
+            "parentContractDigest": row["parent_contract_digest"],
             "obligationSet": None if row["obligation_set_json"] is None else json.loads(row["obligation_set_json"]),
             "obligationSetDigest": row["obligation_set_digest"],
             "cancellationCause": row["cancellation_cause"],
@@ -689,6 +735,7 @@ class StewardStore:
                 "candidate": json.loads(row["candidate_json"]), "status": row["status"], "cancellation": row["cancellation"],
                 "deadlineAt": row["deadline_at"], "lease": lease,
                 "parentContract": None if row["parent_contract_json"] is None else json.loads(row["parent_contract_json"]),
+                "parentContractDigest": row["parent_contract_digest"],
             }
             budget_ms = max(0, int((_parse(job["deadlineAt"]) - now).total_seconds() * 1000))
             decision = _evaluate_mutation(
@@ -886,25 +933,26 @@ class StewardStore:
         return [str(row[0]) for row in rows]
 
     def record_operation_expired(self, operation: dict[str, Any]) -> None:
-        """Deterministically close out an operation past its absolute deadline (#106)."""
+        """Deterministically close out an operation past its absolute deadline (#106).
+
+        The operation reaches a terminal state so the scheduler can never rediscover
+        it; expired work is not retried and cannot starve the current generation.
+        """
         now = _iso(self.clock.now())
         with self._write() as db:
             owner = db.execute("SELECT status FROM steward_jobs WHERE job_id=?", (str(operation["job_id"]),)).fetchone()
             terminal_owner = owner is None or owner["status"] in _TERMINAL
             db.execute(
-                "UPDATE external_operations SET cancellation_cause=?,observed_at=? WHERE operation_id=? AND state NOT IN ('captured','abandoned','failed')",
-                ("application_deadline", now, operation["operation_id"]),
+                "UPDATE external_operations SET state='abandoned',cancellation_cause='application_deadline',observed_at=? "
+                "WHERE operation_id=? AND state NOT IN ('captured','abandoned','failed')",
+                (now, operation["operation_id"]),
             )
+            self._audit(db, str(operation["job_id"]), "operation-deadline-exceeded",
+                        {"operationId": operation["operation_id"], "cause": "application_deadline"})
             if terminal_owner:
-                # Superseded/terminal owners keep their terminal state; only the
-                # operation-level provenance is classified.
-                self._audit(db, str(operation["job_id"]), "operation-deadline-exceeded",
-                            {"operationId": operation["operation_id"], "cause": "application_deadline"})
                 return
             self._advance(db, str(operation["job_id"]), status="blocked", stage="operation-deadline-exceeded",
                           marker="blocked:operation-deadline-exceeded", blocked_reason="operation-deadline-exceeded")
-            self._audit(db, str(operation["job_id"]), "operation-deadline-exceeded",
-                        {"operationId": operation["operation_id"], "cause": "application_deadline"})
 
     def unknown_delivery_operations(self) -> list[dict[str, Any]]:
         with self._connect() as db:
@@ -1038,6 +1086,12 @@ class StewardStore:
                     "SELECT * FROM external_operations WHERE job_id=? ORDER BY created_at", (job_id,)
                 ).fetchall()
             ]
+        operations = [
+            _receipt_document(dict(row))
+            for row in db.execute(
+                "SELECT * FROM external_operations WHERE job_id=? ORDER BY created_at", (job_id,)
+            ).fetchall()
+        ]
         if terminal_publication and (completion is None or handoff is None):
             raise RuntimeError("completed Steward job is missing its sealed completion/handoff bundle")
         return {
@@ -1114,6 +1168,13 @@ class StewardRuntime:
     ) -> dict[str, Any]:
         if not idempotency_key:
             raise ValueError("idempotency_key is required")
+        # Admission mode must match the profile: a standalone Steward rejects supervised
+        # contracts, and a supervised Steward requires one (#95).
+        supervised_profile = self.profile["authority"]["parent_completion"] == "explicit-contract-only"
+        if supervised_profile and parent_contract is None:
+            raise ParentContractError("ParentContractUnsupported", "profile requires an admitted parent contract")
+        if not supervised_profile and parent_contract is not None:
+            raise ParentContractError("ParentContractUnsupported", "standalone profile rejects a parent contract")
         return self.store.admit(
             {"id": subject_id, "revision": subject_revision}, idempotency_key, parent_contract,
             obligation_set=_obligation_snapshot(self.profile, self.proof_recipe),
