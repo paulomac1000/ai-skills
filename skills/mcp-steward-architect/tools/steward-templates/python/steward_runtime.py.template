@@ -840,15 +840,39 @@ class StewardStore:
     def save_terminal(
         self, job_id: str, completion: dict[str, Any], handoff: dict[str, Any], *,
         expected_attempt_id: str, expected_version: int, mutation_decision_ref: str,
+        expected_read_set: dict[str, Any] | None = None,
     ) -> None:
         with self._write() as db:
             row = db.execute(
-                "SELECT j.generation,j.candidate_json,j.attempt_id,j.version,l.current_generation,l.current_job_id,l.candidate_json "
+                "SELECT j.generation,j.candidate_json,j.attempt_id,j.version,l.current_generation,l.current_job_id,l.candidate_json,l.version "
                 "FROM steward_jobs j JOIN steward_lineages l ON l.lineage_id=j.lineage_id WHERE j.job_id=?", (job_id,),
             ).fetchone()
             if (row is None or row[0] != row[4] or row[5] != job_id or row[1] != row[6]
                     or row[2] != expected_attempt_id or int(row[3]) != int(expected_version)):
                 raise RuntimeError("stale lineage/candidate/attempt/version publication")
+            if expected_read_set is not None:
+                # Atomic read-set revalidation: the composed completion decision was built
+                # from one snapshot; if any composed record moved since, the stale decision
+                # must not become actionable (#104).
+                current_evidence_digest = _digest([
+                    {
+                        "id": item["evidence_id"], "digest": item["payload_digest"],
+                        "observedAt": item["observed_at"], "authority": item["authority_class"],
+                    }
+                    for item in (
+                        db.execute(
+                            "SELECT * FROM steward_evidence WHERE job_id=? ORDER BY observed_at,evidence_id", (job_id,)
+                        ).fetchall()
+                    )
+                ])
+                expected = {
+                    "jobVersion": int(row[3]),
+                    "lineageGeneration": int(row[4]),
+                    "lineageVersion": int(row[7]),
+                    "evidenceDigest": current_evidence_digest,
+                }
+                if expected != {key: expected_read_set.get(key) for key in expected}:
+                    raise RuntimeError("stale completion read-set: composed decision no longer matches authoritative state")
             if self.unresolved_lineage_operations(job_id):
                 raise RuntimeError("completion blocked by unresolved lineage operation")
             db.execute("INSERT OR REPLACE INTO completion_evaluations VALUES(?,?)", (job_id, _canonical(completion)))
@@ -856,6 +880,31 @@ class StewardStore:
             self._advance(db, job_id, status="completed", stage="completed", marker="completed")
             self._audit(db, job_id, "handoff-sealed", {"digest": handoff["digest"], "candidate": handoff["candidate"]["digest"],
                         "mutationDecisionRef": mutation_decision_ref})
+
+    def decision_snapshot(self, job_id: str) -> dict[str, Any]:
+        """Read the full composed state for a completion decision in ONE consistent snapshot (#104)."""
+        with self._connect() as db:
+            job_row = db.execute("SELECT * FROM steward_jobs WHERE job_id=?", (job_id,)).fetchone()
+            if job_row is None:
+                raise KeyError(job_id)
+            lineage = db.execute("SELECT * FROM steward_lineages WHERE lineage_id=?", (job_row["lineage_id"],)).fetchone()
+            evidence = [dict(row) for row in db.execute(
+                "SELECT * FROM steward_evidence WHERE job_id=? ORDER BY observed_at,evidence_id", (job_id,)
+            ).fetchall()]
+            operations = [dict(row) for row in db.execute(
+                "SELECT * FROM external_operations WHERE job_id=? ORDER BY created_at", (job_id,)
+            ).fetchall()]
+        return {
+            "job": dict(job_row), "lineage": dict(lineage) if lineage is not None else None,
+            "evidence": evidence, "operations": operations,
+            "evidenceDigest": _digest([
+                {
+                    "id": item["evidence_id"], "digest": item["payload_digest"],
+                    "observedAt": item["observed_at"], "authority": item["authority_class"],
+                }
+                for item in evidence
+            ]),
+        }
 
     def result(self, job_id: str) -> dict[str, Any]:
         # Read the job first. Terminal publication is monotonic: save_terminal commits
@@ -996,16 +1045,31 @@ class StewardRuntime:
         return False
 
     def completion_gate(self, job_id: str) -> dict[str, Any]:
+        # Compose the whole decision from ONE consistent snapshot (#104); the read-set
+        # is carried on the decision and atomically revalidated at publication.
+        snapshot = self.store.decision_snapshot(job_id)
         job = self.store.job(job_id)
+        if snapshot["job"]["job_id"] != job_id or snapshot["job"]["version"] != job["version"]:
+            raise RuntimeError("stale completion snapshot")
         lineage = self.store.current_lineage(job["lineageId"])
         if lineage["currentJobId"] != job_id or lineage["currentGeneration"] != job["generation"]:
             raise RuntimeError("stale lineage publication")
         if lineage["subject"] != job["subject"] or lineage["candidate"] != job["candidate"]:
             raise RuntimeError("stale subject/candidate identity")
-        now, evidence = self.store.clock.now(), self.store.evidence(job_id)
-        unresolved = self.store.unresolved_lineage_operations(job_id)
-        cancel_refs = [item["operation_id"] for item in self.store.result(job_id)["operations"]
+        now = self.store.clock.now()
+        evidence = snapshot["evidence"]
+        evidence_view = self.store.evidence(job_id)
+        by_id = {item["evidenceId"]: item for item in evidence_view}
+        unresolved = [item["operation_id"] for item in snapshot["operations"]
+                      if item["state"] not in {"captured", "abandoned", "failed"}]
+        cancel_refs = [item["operation_id"] for item in snapshot["operations"]
                        if item["operation_kind"] == "cancel" and item["state"] not in {"captured", "abandoned", "failed"}]
+        read_set = {
+            "jobVersion": int(snapshot["job"]["version"]),
+            "lineageGeneration": int(snapshot["lineage"]["current_generation"]),
+            "lineageVersion": int(snapshot["lineage"]["version"]),
+            "evidenceDigest": snapshot["evidenceDigest"],
+        }
         obligations, blocked = [], bool(unresolved or cancel_refs)
         admitted_set = job.get("obligationSet")
         # Completion evaluates the admitted obligation snapshot, not the live profile (#107).
@@ -1020,19 +1084,20 @@ class StewardRuntime:
                 "subjectRevision": job["subject"].get("revision") or "none", "candidateDigest": job["candidate"]["digest"]},
                 "disposition": "blocked", "obligations": [],
                 "obligationSetDigest": None, "parentContract": None,
+                "readSet": read_set, "controllerEpoch": int(snapshot["lineage"]["current_generation"]),
                 "ambiguousOperationRefs": unresolved, "ambiguousCancellationRefs": cancel_refs, "evaluatedAt": _iso(now),
             }
         admitted = {str(item["id"]): item for item in admitted_set["obligations"]}
-        for requirement_id, snapshot in admitted.items():
+        for requirement_id, obligation in admitted.items():
             if requirement_id not in {c["criterion_id"] for c in self.proof_recipe["criteria"]}:
                 obligations.append({"id": requirement_id, "state": "unsatisfied", "evidenceRefs": [],
                                     "rationale": "admitted obligation has no live proof-recipe criterion"})
-                if snapshot["required"]:
+                if obligation["required"]:
                     blocked = True
                 continue
-            requirement = {"id": requirement_id, "required": snapshot["required"], "evidence_class": snapshot["evidenceClass"]}
+            requirement = {"id": requirement_id, "required": obligation["required"], "evidence_class": obligation["evidenceClass"]}
             criterion, refs = self._criterion(requirement_id), []
-            for item in evidence:
+            for item in evidence_view:
                 observed, expires = _parse(item["observedAt"]), _parse(item["expiresAt"]) if item["expiresAt"] else None
                 valid = (
                     item["jobId"] == job_id and item["generation"] == job["generation"] and item["lineageId"] == job["lineageId"]
@@ -1062,6 +1127,7 @@ class StewardRuntime:
             "profileRevision": self.profile["steward"]["contract_revision"], "proofRecipeRevision": self.proof_recipe["revision"],
             "subjectRevision": job["subject"].get("revision") or "none", "candidateDigest": job["candidate"]["digest"]},
             "disposition": "blocked" if blocked else "eligible", "obligations": obligations,
+            "readSet": read_set, "controllerEpoch": int(snapshot["lineage"]["current_generation"]),
             "obligationSetDigest": admitted_set["digest"] if isinstance(admitted_set, dict) else None,
             "parentContract": None if not isinstance(job.get("parentContract"), dict) else {
                 "mode": job["parentContract"]["mode"],
@@ -1112,10 +1178,18 @@ class StewardRuntime:
         handoff["digest"] = compute_handoff_digest(handoff)
         if self.faults.trip("before-terminal-publication"):
             return
-        self.store.save_terminal(
-            job_id, completion, handoff, expected_attempt_id=str(job["attemptId"]),
-            expected_version=int(job["version"]), mutation_decision_ref=decision_ref,
-        )
+        try:
+            self.store.save_terminal(
+                job_id, completion, handoff, expected_attempt_id=str(job["attemptId"]),
+                expected_version=int(job["version"]), mutation_decision_ref=decision_ref,
+                expected_read_set=completion.get("readSet"),
+            )
+        except RuntimeError as exc:
+            if "stale completion read-set" not in str(exc):
+                raise
+            # The composed decision no longer matches authoritative state; a stale
+            # completion must never become actionable (#104).
+            self.store.block(job_id, "stale-completion-read-set")
 
     def _handle_cancellation(self, job: dict[str, Any]) -> bool:
         submit = self.store.operation_for_job(job["jobId"], "submit")

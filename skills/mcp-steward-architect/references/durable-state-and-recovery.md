@@ -36,6 +36,14 @@ If the generation advanced before one of those operations, the old worker must f
 
 For projections that also need ordering inside one work generation, carry both the expected work generation and the expected state/version identity.
 
+## Read consistency versus optimistic write fencing
+
+CAS protects the write; it never repairs the read. A decision composing several authoritative
+records must observe one consistent snapshot or carry a read-set atomically revalidated before
+it becomes actionable — parent at generation N with children at N+1 is a torn read even when
+every write CAS-succeeded. Stateful admission controllers version decisions with an epoch;
+older-epoch completions are history only and never grant current capability/readiness/authority.
+
 ## Canonical-first persisted state
 
 Retry safety requires more than deduplicating writes. If a stable stage/artifact identity already owns canonical artifact A and a retry computes different artifact B, a no-op insert/CAS loss/dedupe result must return or reload A. All downstream gates, successor jobs, evidence, and handoffs consume A or its canonical reference/digest.

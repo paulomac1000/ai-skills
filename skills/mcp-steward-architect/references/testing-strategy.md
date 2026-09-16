@@ -38,6 +38,17 @@ Use a controllable clock, barriers, latches/events, and named fault points. Timi
 
 ## Mandatory regression shapes
 
+### Torn-read decision barrier
+
+Barrier deterministically between the reads composing one decision and supersede the lineage
+across it: parent at N plus child at N+1 is never one valid decision state; restart revalidates
+the same read-set.
+
+### Stale-controller completion
+
+Admit under epoch E1, advance to E3, deliver the E1 completion: history only, no current
+capability/readiness/mutation authority, and current-probe acceptance stays epoch-bound.
+
 ### Stale generation cannot adopt the new epoch
 
 1. worker captures generation N;

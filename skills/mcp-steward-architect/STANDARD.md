@@ -28,7 +28,7 @@ Every Steward MUST declare state it owns, state it observes, mutations it may pe
 
 When `parent_completion` is `explicit-contract-only`, the profile MUST carry a snapshotted `parent_contract` binding system/work/run identity, parent generation and contract digest, delegated authority ceiling, inherited deadline/budget, and the required terminal handoff contract. A standalone Steward MUST use `parent_completion: none` and `parent_contract: null`; it MUST NOT infer parent authority from caller metadata.
 
-At the Work Admission Gate a supervised Steward MUST admit an exact parent contract snapshot and persist it with the job generation: supervisor identity, parent work/run/generation identity, contract id/revision/digest, delegated and forbidden capabilities, parent completion authority, policy revision, inherited absolute deadline/budget, and completion/handoff obligations. Typed admission outcomes MUST distinguish at least unsupported contract, stale contract generation, insufficient parent authority, authority beyond the local ceiling, changed parent policy, unavailable inherited budget, and re-admission required. A material parent-contract or policy change MUST create a new semantic generation/re-admission; in-flight work MUST NOT silently adopt new parent authority. The effective Steward authority is the intersection of locally configured authority, parent-delegated authority minus forbidden capabilities, and current lease/target/capability/policy facts; the parent cannot delegate an operation the Steward is not locally configured to perform. A supervised Steward MAY narrow the inherited budget but MUST NOT enlarge it, and restart MUST NOT reset inherited elapsed wall-clock authority. A Steward terminal result MUST carry exact parent contract/work/generation identity in the handoff and remains distinct from parent task/campaign terminal state; mapping the terminal handoff into an execution-evidence contract MUST preserve that distinction.
+A supervised Steward MUST admit the profile-schema parent contract snapshot at Work Admission, bound to the job generation, with typed unsupported/stale/insufficient-authority/re-admission outcomes; material contract or policy changes force a new generation. Effective authority is local ∩ delegated-minus-forbidden ∩ current facts; supervised budgets only narrow. Terminal results carry exact parent identity, distinct from parent task state.
 
 API-key possession, successful model output, worker self-report, caller metadata, provider display labels, or caller-declared authority fields MUST NOT create authority. A Steward MAY finalize its own job but MUST NOT infer permission to merge, deploy, publish, approve, independently verify, or complete a parent item without an explicit contract.
 
@@ -81,9 +81,9 @@ The mutation gate MUST re-read mutable authority/identity facts immediately befo
 
 Before a stateful external operation whose effect can outlive the call, the Steward MUST durably record an operation identity/start intent bound to job/generation/attempt, exact capability contract and target, canonical request digest, non-secret credential slot, and admitted mutation decision.
 
-Operation identity MUST be semantic, not payload-only: the durable receipt MUST bind the workflow slot it fulfils (work item, stage, or criterion identity) in addition to job/lineage/generation, capability, target, and request digest. Two distinct semantic slots with byte-identical payloads MUST remain distinct operations and MUST NOT deduplicate into one logical operation.
+Operation identity is semantic: receipts bind the workflow slot; distinct slots with identical payloads stay distinct operations.
 
-Every stateful external operation MUST carry a durable absolute operation deadline. Nested call, poll, and retry bounds MUST be clamped to the remaining absolute deadline (`min(local bound, remaining absolute deadline)`), restart MUST NOT reset it, retry/backoff MUST NOT sleep past it, and expiration after a non-idempotent dispatch may have started MUST be classified honestly as delivery ambiguity/reconciliation rather than as a proven `not-delivered` state.
+Stateful operations carry a durable absolute deadline: nested bounds clamp to it, restart never resets it, and post-dispatch expiry is delivery ambiguity, never proven `not-delivered`.
 
 Outcome taxonomy MUST distinguish pre-dispatch failure, provider rejection, confirmed delivery, delivery unknown, caller cancellation, and cancellation-delivery-unknown when applicable. These states MUST NOT be flattened into one error.
 
@@ -97,7 +97,7 @@ Remote calls MUST execute outside durable-store locks/transactions.
 
 Cancellation of stateful async work is itself a stateful external effect when it can change remote reality. Its contract MUST declare cancel delivery model, idempotency, reconciliation, handle/credential affinity, and the relationship between local terminal state and remote stop.
 
-Cancellation provenance is semantic state. Durable records MUST classify why work stopped using typed causes equivalent to `caller_cancel`, `parent_superseded`, `service_shutdown`, `application_deadline`, `transport_timeout`, `provider_cancel`, and `unknown`. A transport timeout or deadline expiration MUST NOT be recorded as caller cancellation, and local cancellation MUST NOT claim provider work stopped unless the upstream contract and observed cancellation outcome establish that fact.
+Cancellation provenance is semantic state with typed causes (`caller_cancel`, `parent_superseded`, `service_shutdown`, `application_deadline`, `transport_timeout`, `provider_cancel`, `unknown`); a transport timeout is never caller cancellation, and local cancellation never claims remote stop without upstream proof.
 
 A local `cancelled` status MUST NOT imply upstream work stopped unless the upstream contract and observed cancellation outcome establish that fact. If cancel delivery is unknown, the Steward MUST reconcile before claiming confirmed remote cancellation or replaying a non-idempotent cancel.
 
@@ -131,7 +131,7 @@ Reusable plans, approvals, routing decisions, and completion candidates SHOULD b
 
 `Completed` means the declared completion contract is satisfied, not merely that code returned. Inbound work/completion obligations that affect final authority MUST be preserved durably; evidence satisfies only the criterion it actually measured.
 
-The governing obligation set MUST be snapshotted with a revision and deterministic digest at Work Admission and persisted with the job. Model/planner-generated decomposition MAY refine admitted work but MUST NOT replace, weaken, or drop the immutable inbound obligations. Every load-bearing derived work item MUST trace to at least one admitted obligation identity; derived results without valid obligation lineage MAY be retained as contextual work but MUST NOT satisfy an unrelated mandatory obligation. The Completion Publication Gate MUST evaluate the admitted obligation snapshot — not the live profile or the internally generated claim graph — so an off-topic but internally green plan cannot manufacture completion, and a missing mandatory criterion remains visible and actionable. Obligation supersession, waiver, or deferral MUST follow the existing authority-aware obligation transitions and stay auditable; stale-generation derived work MUST NOT satisfy a newer obligation generation. Restart/recovery MUST preserve the obligation-to-derived-work lineage without replaying model conversation.
+The obligation set MUST be snapshotted with revision and digest at Admission; planner decomposition refines but never replaces it. Derived work MUST trace to an admitted obligation, and completion evaluates the snapshot, never the live profile. Supersession stays authority-bound; restart preserves the lineage.
 
 Required obligations MUST be machine-readable and resolve to satisfied, legitimately not-applicable, or explicitly waived/deferred by sufficient authority. Unresolved mandatory obligations, unresolved stateful side effects/cancellation, stale evidence, stale candidate, or superseded lineage block clean completion.
 
@@ -184,6 +184,8 @@ Retry-safe persistence is canonical-first. If a stable identity already has comm
 Durable work and wake-up/outbox intent SHOULD commit atomically. Every nonterminal job MUST have current owner/lease, scheduled wake-up, recoverable external handle/reconciliation path, or explicit blocked reason.
 
 Recovery equivalence is required: for the same durable input and externally observed reality, uninterrupted and restarted execution MUST converge on the same canonical observation/evidence/decision semantics. Recovery MUST NOT bypass mutation admission, evidence promotion, completion gates, disclosure policy, or candidate binding.
+
+A decision composing authoritative records MUST observe one consistent snapshot or carry a read-set revalidated before it becomes actionable; a write-side CAS never repairs a torn read. Stateful admission controllers MUST epoch-version decisions; older-epoch decisions are history only.
 
 Shutdown/cancellation fence new effects, persist intent before releasing ownership, and perform bounded cleanup. Recovery prefers durable state/resume/reconciliation over logs/model memory.
 

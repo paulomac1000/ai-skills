@@ -20,7 +20,24 @@
     "ambiguousCancellationRefs": {"type": "array", "uniqueItems": true, "maxItems": 256, "items": {"type": "string", "minLength": 1}},
     "evaluatedAt": {"type": "string", "format": "date-time"},
     "obligationSetDigest": {"type": ["string", "null"], "pattern": "^sha256:[0-9a-f]{64}$"},
-    "parentContract": {"anyOf": [{"type": "null"}, {"$ref": "#/$defs/parentContractRef"}]}
+    "parentContract": {"anyOf": [{"type": "null"}, {"$ref": "#/$defs/parentContractRef"}]},
+    "controllerEpoch": {"type": ["integer", "null"], "minimum": 1},
+    "readSet": {
+      "anyOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["jobVersion", "lineageGeneration", "lineageVersion", "evidenceDigest"],
+          "properties": {
+            "jobVersion": {"type": "integer", "minimum": 0},
+            "lineageGeneration": {"type": "integer", "minimum": 1},
+            "lineageVersion": {"type": "integer", "minimum": 0},
+            "evidenceDigest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+          }
+        }
+      ]
+    }
   },
   "$defs": {
     "parentContractRef": {"type": "object", "additionalProperties": false, "required": ["mode", "contractDigest", "parentGeneration"], "properties": {"mode": {"enum": ["standalone", "supervised"]}, "contractDigest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}, "parentGeneration": {"type": "integer", "minimum": 1}}},

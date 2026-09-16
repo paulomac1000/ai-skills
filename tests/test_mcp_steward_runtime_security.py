@@ -604,3 +604,58 @@ def test_supersession_records_parent_superseded_provenance(tmp_path: Path) -> No
     steward.submit("repo", "abc", "sup-cause-new")
     assert steward.status(old_job)["status"] == "superseded"
     assert steward.status(old_job)["cancellationCause"] == "parent_superseded"
+
+
+def test_torn_read_decision_cannot_publish_across_generations(tmp_path: Path) -> None:
+    runtime, profile, proof, mutation, upstream = _generated_runtime(tmp_path)
+    clock = runtime.FakeClock(datetime(2026, 9, 13, tzinfo=UTC))
+    store = runtime.StewardStore(tmp_path / "torn-read.db", clock)
+    steward = runtime.StewardRuntime(store, profile, proof, mutation, upstream=upstream)
+    old_job = steward.submit("repo", "abc", "torn-read-old")["jobId"]
+    # A completion decision composed at generation 1...
+    steward.run_once()
+    store.reserve_external(old_job, upstream, "submit")
+    completion = steward.completion_gate(old_job)
+    # ...and the lineage moves to generation 2 before the decision is sealed.
+    steward.submit("repo", "abc", "torn-read-new")
+    with pytest.raises(RuntimeError, match="stale lineage"):
+        steward.completion_gate(old_job)
+    with pytest.raises(RuntimeError, match="stale"):
+        store.save_terminal(
+            old_job, completion, {"digest": "sha256:" + "0" * 64},
+            expected_attempt_id=steward.status(old_job)["attemptId"],
+            expected_version=steward.status(old_job)["version"],
+            mutation_decision_ref="admission-x",
+            expected_read_set=completion.get("readSet"),
+        )
+
+
+def test_stale_completion_read_set_is_rejected_at_publication(tmp_path: Path) -> None:
+    runtime, profile, proof, mutation, upstream = _generated_runtime(tmp_path)
+    clock = runtime.FakeClock(datetime(2026, 9, 13, tzinfo=UTC))
+    store = runtime.StewardStore(tmp_path / "stale-read-set.db", clock)
+    steward = runtime.StewardRuntime(store, profile, proof, mutation, upstream=upstream)
+    job_id = steward.submit("repo", "abc", "stale-read-set")["jobId"]
+    for _ in range(4):
+        steward.run_once()
+        if steward.status(job_id)["status"] == "finalizing":
+            break
+    completion = steward.completion_gate(job_id)
+    assert completion["disposition"] == "eligible"
+    assert completion["readSet"] is not None and completion["controllerEpoch"] >= 1
+    # Deterministic barrier: a concurrent commit lands between the snapshot read
+    # that composed the decision and the publication that would act on it.
+    original_snapshot = store.decision_snapshot
+    evidence_id = steward.get(job_id)["evidence"][0]["evidenceId"]
+
+    def snapshot_then_concurrent_commit(job_id_arg: str) -> dict[str, Any]:
+        state = original_snapshot(job_id_arg)
+        with store._write() as db:
+            db.execute("UPDATE steward_evidence SET payload_digest=? WHERE evidence_id=?", ("sha256:" + "f" * 64, evidence_id))
+        return state
+
+    store.decision_snapshot = snapshot_then_concurrent_commit
+    steward.finalize_with_gate(job_id)
+    status = steward.status(job_id)
+    assert status["status"] == "blocked"
+    assert "stale-completion-read-set" in str(status["blockedReason"])
