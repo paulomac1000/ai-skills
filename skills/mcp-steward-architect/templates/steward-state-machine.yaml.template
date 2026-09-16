@@ -1,0 +1,20 @@
+schema_version: 1
+machine_id: __STEWARD_ID__-state-machine
+revision: 1
+states:
+  - {id: queued, terminal: false, owner_lane: workflow, progress_effect: advances, recovery: scheduled-wakeup, cancellation: fence-and-reconcile}
+  - {id: reconciling, terminal: false, owner_lane: reconciliation, progress_effect: advances, recovery: reconcile, cancellation: fence-and-reconcile}
+  - {id: waiting-external, terminal: false, owner_lane: external-maintenance, progress_effect: no-change, recovery: external-handle, cancellation: fence-and-reconcile}
+  - {id: cancelling, terminal: false, owner_lane: control, progress_effect: advances, recovery: reconcile, cancellation: fence-and-reconcile}
+  - {id: blocked, terminal: false, owner_lane: none, progress_effect: no-change, recovery: blocked, cancellation: terminalize-if-no-unresolved-effect}
+  - {id: finalizing, terminal: false, owner_lane: workflow, progress_effect: advances, recovery: scheduled-wakeup, cancellation: fence-and-reconcile}
+  - {id: completed, terminal: true, owner_lane: none, progress_effect: terminal, recovery: none, cancellation: reject}
+  - {id: cancelled, terminal: true, owner_lane: none, progress_effect: terminal, recovery: none, cancellation: reject}
+  - {id: superseded, terminal: true, owner_lane: reconciliation, progress_effect: terminal, recovery: reconcile, cancellation: reject}
+transitions:
+  - {id: dispatch-start, from: queued, to: reconciling, effect: external-stateful, mutation_gate: true, required_fences: [generation, attempt, operation], failure_outcomes: [LostAuthority, ReconciliationRequired, BudgetUnavailable]}
+  - {id: dispatch-bound, from: reconciling, to: waiting-external, effect: local-state, mutation_gate: false, required_fences: [generation, attempt], failure_outcomes: [StaleGeneration]}
+  - {id: cancel-start, from: waiting-external, to: cancelling, effect: external-stateful, mutation_gate: true, required_fences: [generation, attempt, operation], failure_outcomes: [LostAuthority, ReconciliationRequired, BudgetUnavailable]}
+  - {id: cancel-resolved, from: cancelling, to: cancelled, effect: local-state, mutation_gate: false, required_fences: [generation, attempt], failure_outcomes: [ReconciliationRequired]}
+  - {id: evidence-ready, from: waiting-external, to: finalizing, effect: local-state, mutation_gate: false, required_fences: [generation, attempt], failure_outcomes: [InsufficientEvidence]}
+  - {id: completion-publish, from: finalizing, to: completed, effect: publication, mutation_gate: true, required_fences: [generation, attempt, candidate], failure_outcomes: [StaleCandidate, LostAuthority, InsufficientEvidence]}

@@ -1,0 +1,166 @@
+from __future__ import annotations
+
+import json
+from datetime import UTC, datetime
+from pathlib import Path
+
+from __PACKAGE__.steward_runtime import (
+    FakeClock,
+    FakeProvider,
+    FaultInjector,
+    StewardRuntime,
+    StewardStore,
+    _capability_digest,
+    compute_handoff_digest,
+)
+
+
+def test_capability_digest_golden_vectors_bind_reviewed_semantics() -> None:
+    """Golden vectors prove the Python canonicalization agrees with the pinned contract."""
+    root = Path(__file__).resolve().parents[1] / "src" / "__PACKAGE__"
+    vectors = json.loads((root / "steward_capability_digest_vectors.json").read_text(encoding="utf-8"))
+    assert vectors["digestSemantics"] == "capability-semantic-v1"
+    for vector in vectors["vectors"]:
+        if "capability" in vector:
+            assert _capability_digest(vector["capability"]) == vector["expectedDigest"], vector["name"]
+        if "variants" in vector:
+            digests = [_capability_digest(variant) for variant in vector["variants"]]
+            if "expectedDigest" in vector:
+                assert digests[0] == vector["expectedDigest"], vector["name"]
+                assert digests[0] == digests[1], vector["name"]
+            else:
+                assert digests[0] != digests[1], vector["name"]
+                assert digests == vector["expectedDigests"], vector["name"]
+
+
+def _docs() -> tuple[dict[str, object], dict[str, object], dict[str, object], dict[str, object]]:
+    root = Path(__file__).resolve().parents[1] / "src" / "__PACKAGE__"
+    return (
+        json.loads((root / "steward_profile.json").read_text(encoding="utf-8")),
+        json.loads((root / "steward_proof_recipe.json").read_text(encoding="utf-8")),
+        json.loads((root / "steward_mutation_policy.json").read_text(encoding="utf-8")),
+        json.loads((root / "steward_upstream_capability.json").read_text(encoding="utf-8")),
+    )
+
+
+def _runtime(path: Path, *, faults: set[str] | None = None, provider: FakeProvider | None = None) -> StewardRuntime:
+    profile, proof, mutation, upstream = _docs()
+    return StewardRuntime(
+        StewardStore(path, FakeClock(datetime(2026, 1, 1, tzinfo=UTC))), profile, proof, mutation,
+        upstream=upstream, faults=FaultInjector(faults), provider=provider,
+    )
+
+
+def test_restart_reconciles_ambiguous_submit_and_completes(tmp_path: Path) -> None:
+    path = tmp_path / "state.db"
+    first = _runtime(path, faults={"after-dispatch"})
+    admitted = first.submit("repo", "abc", "idem-1")
+    first.run_once(); first.run_once()
+    assert first.status(admitted["jobId"])["status"] == "reconciling"
+    recovered = _runtime(path)
+    recovered.recover_until_idle()
+    result = recovered.get(admitted["jobId"])
+    assert result["job"]["status"] == "completed"
+    assert result["completion"]["disposition"] == "eligible"
+    assert result["handoff"]["candidate"] == result["job"]["candidate"]
+    assert result["handoff"]["digest"] == compute_handoff_digest(result["handoff"])
+
+
+def test_job_status_exposes_semantic_progress_contract(tmp_path: Path) -> None:
+    runtime = _runtime(tmp_path / "progress.db")
+    job_id = runtime.submit("repo", "abc", "idem-progress")["jobId"]
+    status = runtime.status(job_id)
+    assert status["schema_version"] == 2
+    assert status["heartbeatAt"]
+    assert status["progressAt"]
+    assert status["progressRevision"] >= 1
+    assert status["deadlineAt"]
+    assert status["candidate"]["digest"].startswith("sha256:")
+
+
+class CountingProvider(FakeProvider):
+    def __init__(self) -> None:
+        self.dispatch_count = 0
+        self.poll_count = 0
+        self.cancel_count = 0
+        self.cancel_reconcile_count = 0
+
+    def dispatch(self, operation_id: str, subject: dict[str, object]) -> str:
+        self.dispatch_count += 1
+        return super().dispatch(operation_id, subject)
+
+    def poll(self, remote_handle: str, subject: dict[str, object]) -> dict[str, object]:
+        self.poll_count += 1
+        return super().poll(remote_handle, subject)
+
+    def cancel(self, cancellation_operation_id: str, remote_handle: str, subject: dict[str, object]) -> str:
+        self.cancel_count += 1
+        return super().cancel(cancellation_operation_id, remote_handle, subject)
+
+    def reconcile_cancel(self, cancellation_operation_id: str, remote_handle: str, subject: dict[str, object]) -> str:
+        self.cancel_reconcile_count += 1
+        return super().reconcile_cancel(cancellation_operation_id, remote_handle, subject)
+
+
+def test_cancel_after_remote_delivery_reconciles_before_local_terminal(tmp_path: Path) -> None:
+    provider = CountingProvider()
+    path = tmp_path / "cancel.db"
+    runtime = _runtime(path, faults={"after-cancel-dispatch"}, provider=provider)
+    job_id = runtime.submit("repo", "abc", "idem-cancel")["jobId"]
+    runtime.run_once(); runtime.run_once()
+    assert runtime.status(job_id)["status"] == "waiting-external"
+    runtime.cancel(job_id)
+    runtime.run_once(); runtime.run_once()
+    status = runtime.status(job_id)
+    assert status["status"] == "cancelling"
+    assert runtime.doctor(job_id)["cancellationUnknown"] == 1
+    recovered = _runtime(path, provider=provider)
+    recovered.recover_until_idle()
+    assert recovered.status(job_id)["status"] == "cancelled"
+    assert recovered.status(job_id)["cancellation"] == "completed"
+    assert provider.cancel_reconcile_count >= 1
+
+
+class UnapprovedProvider(CountingProvider):
+    producer_id = "unapproved-provider"
+
+
+def test_terminal_result_with_insufficient_authority_blocks_without_hot_poll(tmp_path: Path) -> None:
+    provider = UnapprovedProvider()
+    runtime = _runtime(tmp_path / "blocked.db", provider=provider)
+    job_id = runtime.submit("repo", "abc", "idem-blocked")["jobId"]
+    for _ in range(8):
+        runtime.run_once()
+    status = runtime.status(job_id)
+    assert status["status"] == "blocked"
+    assert status["blockedReason"] == "terminal-observation-insufficient-authority"
+    assert provider.poll_count == 1
+    revision = status["progressRevision"]
+    assert runtime.run_once() is False
+    assert runtime.status(job_id)["progressRevision"] == revision
+
+
+def test_superseded_generation_never_publishes_handoff(tmp_path: Path) -> None:
+    runtime = _runtime(tmp_path / "supersede.db")
+    stale = runtime.submit("repo", "abc", "old")
+    runtime.run_once(); runtime.run_once()
+    latest = runtime.submit("repo", "abc", "new")
+    assert runtime.status(stale["jobId"])["status"] == "superseded"
+    runtime.recover_until_idle()
+    assert runtime.status(latest["jobId"])["status"] == "completed"
+    assert runtime.get(stale["jobId"])["handoff"] is None
+
+
+def test_dispatch_budget_includes_deterministic_finalization_reserve(tmp_path: Path) -> None:
+    provider = CountingProvider()
+    profile, proof, mutation, upstream = _docs()
+    clock = FakeClock(datetime(2026, 1, 1, tzinfo=UTC))
+    store = StewardStore(tmp_path / "budget-reserve.db", clock)
+    runtime = StewardRuntime(store, profile, proof, mutation, upstream=upstream, provider=provider)
+    job_id = runtime.submit("repo", "abc", "idem-budget-reserve")["jobId"]
+    runtime.run_once()
+    deadline = datetime.fromisoformat(runtime.status(job_id)["deadlineAt"].replace("Z", "+00:00"))
+    clock.advance((deadline - clock.now()).total_seconds() - 1.499)
+    runtime.run_once()
+    assert provider.dispatch_count == 0
+    assert runtime.status(job_id)["blockedReason"] == "mutation-admission:BudgetUnavailable"

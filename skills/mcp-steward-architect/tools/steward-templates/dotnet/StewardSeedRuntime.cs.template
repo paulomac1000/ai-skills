@@ -1,0 +1,964 @@
+using System.Security.Cryptography;
+using System.Text.Json;
+
+namespace __NAMESPACE__.Mcp.Server;
+
+public interface ISeedClock { DateTimeOffset UtcNow { get; } }
+public sealed class SystemSeedClock : ISeedClock { public static readonly SystemSeedClock Instance = new(); private SystemSeedClock() { } public DateTimeOffset UtcNow => DateTimeOffset.UtcNow; }
+public sealed class FakeSeedClock(DateTimeOffset initial) : ISeedClock { private DateTimeOffset _value = initial; public DateTimeOffset UtcNow => _value; public void Advance(TimeSpan value) => _value += value; }
+
+public sealed record SeedPollResult(bool Completed, JsonElement Payload);
+public interface ISeedProvider
+{
+    string ProducerId { get; }
+    string Dispatch(string operationId, StewardSubject subject);
+    string Reconcile(string operationId, StewardSubject subject);
+    SeedPollResult Poll(string remoteHandle, StewardSubject subject);
+    string Cancel(string cancellationOperationId, string remoteHandle, StewardSubject subject);
+    string ReconcileCancel(string cancellationOperationId, string remoteHandle, StewardSubject subject);
+}
+
+public sealed class FakeSeedProvider : ISeedProvider
+{
+    private static readonly string[] ObservedTargetBinding = ["target"];
+    public string ProducerId => "seed-provider";
+    public string Dispatch(string operationId, StewardSubject subject) { _ = subject; return $"remote-{operationId}"; }
+    public string Reconcile(string operationId, StewardSubject subject) { _ = subject; return $"remote-{operationId}"; }
+    public SeedPollResult Poll(string remoteHandle, StewardSubject subject) => new(true, JsonSerializer.SerializeToElement(new { state = "completed", remoteHandle, subject, revision = "terminal-1", observation = new { producerId = ProducerId, observationGrade = "observed", authorityClass = "observed", binding = new { satisfied = ObservedTargetBinding }, coverage = new { required = 1, observed = 1 } } }));
+    public string Cancel(string cancellationOperationId, string remoteHandle, StewardSubject subject) { _ = remoteHandle; _ = subject; return $"cancel-{cancellationOperationId}"; }
+    public string ReconcileCancel(string cancellationOperationId, string remoteHandle, StewardSubject subject) { _ = remoteHandle; _ = subject; return $"cancel-{cancellationOperationId}"; }
+}
+
+public sealed class SeedFaultInjector
+{
+    private readonly HashSet<string> _faults;
+    public SeedFaultInjector() : this((Environment.GetEnvironmentVariable("STEWARD_FAULTS") ?? string.Empty).Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)) { }
+    public SeedFaultInjector(IEnumerable<string> faults) => _faults = new(faults, StringComparer.Ordinal);
+    public bool Trip(string name) => _faults.Remove(name);
+}
+
+public sealed record StewardSubject(string Type, string Id, string? Revision);
+public sealed record StewardCandidate(string Type, string Id, string? Revision, string Digest);
+public sealed record StewardLease(string Owner, long FencingToken, DateTimeOffset ExpiresAt);
+public sealed record StewardSeedJob(
+    string JobId, string LineageId, long Generation, string AttemptId, long Version,
+    StewardSubject Subject, StewardCandidate Candidate, string RequestDigest, string Status, string Stage,
+    string Cancellation, string? BlockedReason, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt,
+    DateTimeOffset HeartbeatAt, DateTimeOffset ProgressAt, long ProgressRevision, string ProgressMarker,
+    DateTimeOffset DeadlineAt, DateTimeOffset? FinalizationStartsAt, StewardLease? Lease,
+    IReadOnlyList<string> EvidenceRefs, IReadOnlyList<string> ExternalOperationRefs,
+    StewardParentContractSnapshot? ParentContract = null, StewardObligationSnapshot? ObligationSet = null, string? CancellationCause = null);
+public sealed record StewardParentContractSnapshot(
+    string Mode, string SupervisorSystemId, string? ParentWorkId, string? ParentRunId, long ParentGeneration,
+    string ContractId, string ContractRevision, string ContractDigest,
+    IReadOnlyList<string> DelegatedCapabilities, IReadOnlyList<string> ForbiddenCapabilities,
+    string ParentCompletionAuthority, string AuthorityCeiling, DateTimeOffset? AbsoluteDeadline);
+public sealed record StewardObligationSnapshotItem(string Id, bool Required, string EvidenceClass);
+public sealed record StewardObligationSnapshot(long Revision, string Digest, IReadOnlyList<StewardObligationSnapshotItem> Obligations);
+public sealed record StewardAdmission(string JobId, bool Duplicate);
+public sealed record StewardOperation(
+    string OperationId, string OperationKind, string JobId, string LineageId, long Generation, string AttemptId, long JobVersion,
+    string CapabilityIdentity, string CapabilityContractDigest, string TargetIdentity, string CandidateDigest,
+    string RequestDigest, string State, string Delivery, string RetryDisposition, string CredentialSlotId,
+    string? RemoteHandle, JsonElement? Result, DateTimeOffset CreatedAt, DateTimeOffset ObservedAt, int ReconcileCount, string? MutationDecisionRef,
+    string? SemanticSlot = null, DateTimeOffset? OperationDeadlineAt = null, string? CancellationCause = null);
+public sealed record StewardBinding(IReadOnlyList<string> Required, IReadOnlyList<string> Satisfied, string Status);
+public sealed record StewardCoverage(string State, int Required, int Observed);
+public sealed record StewardEvidence(
+    string EvidenceId, string JobId, string LineageId, long Generation, StewardSubject Subject, StewardCandidate Candidate,
+    string CriterionId, string ClaimId, string EvidenceClass, string ObservationGrade, string AuthorityClass,
+    string ProducerId, string ProofRecipeId, StewardBinding Binding, StewardCoverage Coverage,
+    DateTimeOffset ObservedAt, DateTimeOffset? ExpiresAt, string PayloadDigest);
+public sealed record StewardCompletionObligation(string Id, string State, IReadOnlyList<string> EvidenceRefs);
+public sealed record StewardParentContractRef(string Mode, string ContractDigest, string? ParentWorkId, long ParentGeneration);
+public sealed record StewardCompletionEvaluation(
+    int SchemaVersion, string EvaluationId, string JobId, string LineageId, long Generation, StewardSubject Subject,
+    StewardCandidate Candidate, IReadOnlyDictionary<string, object> DecisionIdentity, string Disposition,
+    IReadOnlyList<StewardCompletionObligation> Obligations, IReadOnlyList<string> AmbiguousOperationRefs,
+    IReadOnlyList<string> AmbiguousCancellationRefs, DateTimeOffset EvaluatedAt,
+    string? ObligationSetDigest = null, StewardParentContractRef? ParentContract = null);
+public sealed record StewardHandoff(
+    int SchemaVersion, string HandoffId, string JobId, string LineageId, long Generation, StewardSubject Subject,
+    StewardCandidate Candidate, string Status, bool Actionable, string? Outcome, IReadOnlyList<string> EvidenceRefs,
+    IReadOnlyList<string> ArtifactRefs, IReadOnlyList<string> ExternalOperationRefs, IReadOnlyList<string> Gaps,
+    string? CorrelationId, DateTimeOffset SealedAt, string Digest, StewardParentContractRef? ParentContract = null);
+public sealed record StewardResult(StewardSeedJob Job, IReadOnlyList<StewardOperation> Operations, IReadOnlyList<StewardEvidence> Evidence, StewardCompletionEvaluation? Completion, StewardHandoff? Handoff);
+public sealed record StewardAuditEvent(long Sequence, string? JobId, string EventType, DateTimeOffset At, IReadOnlyDictionary<string, string> Detail);
+public sealed record StewardDoctorResult(StewardSeedJob? Job, int DeliveryUnknown, int CancellationUnknown, IReadOnlyList<StewardAuditEvent> Audit);
+
+internal sealed record SeedIdempotency(string RequestDigest, string JobId);
+internal sealed record SeedLineage(string CurrentJobId, long CurrentGeneration, StewardSubject Subject, StewardCandidate Candidate, long Version);
+internal sealed record SeedRequirement(string Id, bool Required, string EvidenceClass, string CanonicalClaim, string RequiredAuthority, int FreshnessSeconds, IReadOnlySet<string> ApprovedProducers, IReadOnlyList<string> BindingRequirements, string CoverageSemantics);
+internal sealed record SeedProducer(string Id, string AuthorityCeiling, IReadOnlySet<string> BindingRequirements, IReadOnlySet<string> SubjectDimensions);
+internal sealed record SeedCapability(string Id, string Source, string Revision, string Digest);
+internal sealed record SeedMutationEffect(string Id, string OperationKind, string AuthoritySource, bool LeaseRequired, bool CandidateRequired, string CapabilityRef, SeedCapability CapabilityContract, bool DurableOperationRequired, int MinimumBudgetMs, int FinalizationReserveMs);
+internal sealed record SeedAuthority(string Source, string Principal, string Scope, string Target, string AttemptId, long JobVersion, string? LeaseOwner, long? LeaseFencingToken);
+internal sealed record SeedAction(string Kind, StewardSeedJob Job, StewardOperation Operation);
+
+internal sealed class StewardSeedState
+{
+    public Dictionary<string, StewardSeedJob> Jobs { get; init; } = [];
+    public Dictionary<string, SeedLineage> Lineages { get; init; } = [];
+    public Dictionary<string, SeedIdempotency> Idempotency { get; init; } = [];
+    public Dictionary<string, StewardOperation> Operations { get; init; } = [];
+    public Dictionary<string, StewardEvidence> Evidence { get; init; } = [];
+    public Dictionary<string, StewardCompletionEvaluation> Completions { get; init; } = [];
+    public Dictionary<string, StewardHandoff> Handoffs { get; init; } = [];
+    public List<StewardAuditEvent> Audit { get; init; } = [];
+    public long AuditSequence { get; set; }
+}
+
+internal sealed class SeedPolicy
+{
+    public required int ProfileRevision { get; init; }
+    public required string RecipeId { get; init; }
+    public required int ProofRevision { get; init; }
+    public required IReadOnlyList<SeedRequirement> Requirements { get; init; }
+    public required IReadOnlyDictionary<string, SeedProducer> Producers { get; init; }
+    public required IReadOnlyDictionary<string, SeedMutationEffect> Effects { get; init; }
+    public required SeedCapability Capability { get; init; }
+
+    private static string CapabilityDigest(JsonElement capability)
+    {
+        if (capability.ValueKind != JsonValueKind.Object || !capability.TryGetProperty("contract", out var contractElement))
+            throw new InvalidOperationException("capability contract is required");
+        if (contractElement.ValueKind != JsonValueKind.Object
+            || !contractElement.TryGetProperty("digest_semantics", out var semanticsElement)
+            || semanticsElement.ValueKind != JsonValueKind.String
+            || !string.Equals(semanticsElement.GetString(), "capability-semantic-v1", StringComparison.Ordinal))
+            throw new InvalidOperationException("capability digest semantics version is unsupported");
+        using var stream = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping }))
+            WriteCapabilityCanonical(writer, capability, insideContract: false);
+        return "sha256:" + Convert.ToHexStringLower(SHA256.HashData(stream.ToArray()));
+    }
+
+    internal static string CapabilityDigestForVectors(JsonElement capability) => CapabilityDigest(capability);
+
+    private static void WriteCapabilityCanonical(Utf8JsonWriter writer, JsonElement value, bool insideContract)
+    {
+        if (value.ValueKind == JsonValueKind.Object)
+        {
+            writer.WriteStartObject();
+            foreach (var property in value.EnumerateObject().OrderBy(item => item.Name, StringComparer.Ordinal))
+            {
+                if (insideContract && property.NameEquals("digest")) continue;
+                writer.WritePropertyName(property.Name);
+                WriteCapabilityCanonical(writer, property.Value, property.NameEquals("contract"));
+            }
+            writer.WriteEndObject();
+            return;
+        }
+        if (value.ValueKind == JsonValueKind.Array)
+        {
+            writer.WriteStartArray();
+            foreach (var item in value.EnumerateArray()) WriteCapabilityCanonical(writer, item, insideContract: false);
+            writer.WriteEndArray();
+            return;
+        }
+        value.WriteTo(writer);
+    }
+
+    public static SeedPolicy Load(string profilePath, string proofPath)
+    {
+        var root = Path.GetDirectoryName(Path.GetFullPath(profilePath)) ?? throw new InvalidOperationException("profile path has no directory");
+        var mutationPath = Path.Combine(root, "steward_mutation_policy.json");
+        var upstreamPath = Path.Combine(root, "steward_upstream_capability.json");
+        using var profile = JsonDocument.Parse(File.ReadAllText(profilePath));
+        using var proof = JsonDocument.Parse(File.ReadAllText(proofPath));
+        using var mutation = JsonDocument.Parse(File.ReadAllText(mutationPath));
+        using var upstream = JsonDocument.Parse(File.ReadAllText(upstreamPath));
+        var producerMap = proof.RootElement.GetProperty("producers").EnumerateArray().ToDictionary(
+            item => item.GetProperty("producer_id").GetString()!,
+            item => new SeedProducer(
+                item.GetProperty("producer_id").GetString()!, item.GetProperty("authority_ceiling").GetString()!,
+                item.GetProperty("binding_requirements").EnumerateArray().Select(value => value.GetString()!).ToHashSet(StringComparer.Ordinal),
+                item.GetProperty("subject_dimensions").EnumerateArray().Select(value => value.GetString()!).ToHashSet(StringComparer.Ordinal)),
+            StringComparer.Ordinal);
+        var criteria = proof.RootElement.GetProperty("criteria").EnumerateArray().ToDictionary(item => item.GetProperty("criterion_id").GetString()!, item => item.Clone(), StringComparer.Ordinal);
+        var requirements = new List<SeedRequirement>();
+        foreach (var obligation in profile.RootElement.GetProperty("completion").GetProperty("obligations").EnumerateArray())
+        {
+            var id = obligation.GetProperty("id").GetString()!;
+            if (!criteria.TryGetValue(id, out var criterion)) throw new InvalidOperationException($"proof recipe has no criterion for obligation {id}");
+            requirements.Add(new(
+                id, obligation.GetProperty("required").GetBoolean(), obligation.GetProperty("evidence_class").GetString()!,
+                criterion.GetProperty("canonical_claim").GetString()!, criterion.GetProperty("required_authority").GetString()!,
+                criterion.GetProperty("freshness_seconds").GetInt32(),
+                criterion.GetProperty("approved_producers").EnumerateArray().Select(item => item.GetString()!).ToHashSet(StringComparer.Ordinal),
+                criterion.GetProperty("binding_requirements").EnumerateArray().Select(item => item.GetString()!).ToArray(),
+                criterion.GetProperty("coverage_semantics").GetString()!));
+        }
+        var effects = mutation.RootElement.GetProperty("effects").EnumerateArray().ToDictionary(
+            item => item.GetProperty("id").GetString()!,
+            item => {
+                var effectContract = item.GetProperty("capability_contract");
+                var pinned = new SeedCapability(
+                    effectContract.GetProperty("id").GetString()!, effectContract.GetProperty("source").GetString()!,
+                    effectContract.GetProperty("revision").GetString()!, effectContract.GetProperty("digest").GetString()!);
+                return new SeedMutationEffect(
+                    item.GetProperty("id").GetString()!, item.GetProperty("operation_kind").GetString()!,
+                    item.GetProperty("authority_source").GetString()!, item.GetProperty("lease_required").GetBoolean(),
+                    item.GetProperty("candidate_required").GetBoolean(), item.GetProperty("capability_ref").GetString()!, pinned,
+                    item.GetProperty("durable_operation_required").GetBoolean(), item.GetProperty("minimum_budget_ms").GetInt32(),
+                    item.GetProperty("finalization_reserve_ms").GetInt32());
+            }, StringComparer.Ordinal);
+        var contract = upstream.RootElement.GetProperty("contract");
+        var capability = new SeedCapability(
+            upstream.RootElement.GetProperty("capability_id").GetString()!, contract.GetProperty("source").GetString()!,
+            contract.GetProperty("revision").GetString()!, contract.GetProperty("digest").GetString()!);
+        if (!string.Equals(contract.GetProperty("id").GetString(), capability.Id, StringComparison.Ordinal)
+            || !string.Equals(CapabilityDigest(upstream.RootElement), capability.Digest, StringComparison.Ordinal))
+            throw new InvalidOperationException("reviewed upstream capability semantic digest is invalid");
+        var revision = proof.RootElement.GetProperty("revision").GetInt32();
+        return new() {
+            ProfileRevision = profile.RootElement.GetProperty("steward").GetProperty("contract_revision").GetInt32(),
+            RecipeId = $"{proof.RootElement.GetProperty("recipe_id").GetString()}@{revision}", ProofRevision = revision,
+            Requirements = requirements, Producers = producerMap, Effects = effects, Capability = capability,
+        };
+    }
+}
+
+public sealed class StewardSeedRuntime : IDisposable
+{
+    /// <summary>
+    /// Canonical capability semantic digest (contract v1) used for golden-vector and
+    /// cross-runtime agreement checks. The digest binds the complete reviewed capability
+    /// document except contract.digest.
+    /// </summary>
+    public static string CapabilitySemanticDigest(JsonElement capability) => SeedPolicy.CapabilityDigestForVectors(capability);
+
+    private static readonly HashSet<string> Terminal = ["completed", "completed-with-gaps", "failed", "cancelled", "superseded"];
+    private static readonly HashSet<string> Runnable = ["queued", "reconciling", "waiting-external", "cancelling", "finalizing"];
+    private static readonly Dictionary<string, int> AuthorityRank = new(StringComparer.Ordinal) { ["advisory"] = 0, ["observed"] = 1, ["verified"] = 2, ["independent"] = 3 };
+    private static readonly HashSet<string> ObservationGrades = ["declared", "observed", "observed-effective", "functional-ready", "verified"];
+    private readonly object _gate = new();
+    private readonly string _snapshotPath;
+    private readonly FileStream _ownerLock;
+    private readonly ISeedClock _clock;
+    private readonly ISeedProvider _provider;
+    private readonly SeedFaultInjector _faults;
+    private readonly SeedPolicy _policy;
+    private StewardSeedState _state;
+    private long _reconcileTick;
+
+    public StewardSeedRuntime(ISeedClock clock, ISeedProvider provider, SeedFaultInjector faults)
+        : this(Environment.GetEnvironmentVariable("STEWARD_STATE_DIR") ?? Path.Combine(AppContext.BaseDirectory, ".steward-state"), clock, provider, faults,
+            Path.Combine(AppContext.BaseDirectory, "steward_profile.json"), Path.Combine(AppContext.BaseDirectory, "steward_proof_recipe.json")) { }
+
+    public StewardSeedRuntime(string stateDirectory, ISeedClock clock, ISeedProvider provider, SeedFaultInjector faults, string profilePath, string proofPath)
+    {
+        Directory.CreateDirectory(stateDirectory);
+        _snapshotPath = Path.Combine(stateDirectory, "steward-state.json");
+        // Single-owner store ownership: a second server process on this directory is a
+        // deployment topology mismatch and must be diagnosable as such, not surface as an
+        // ordinary provider/application failure (#105).
+        try
+        {
+            _ownerLock = new FileStream(Path.Combine(stateDirectory, "steward-state.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+        }
+        catch (IOException exc)
+        {
+            throw new InvalidOperationException("STORE_LOCKED / ownership conflict: another server process owns this single-owner store (topology mismatch)", exc);
+        }
+        _clock = clock; _provider = provider; _faults = faults;
+        try
+        {
+            _policy = SeedPolicy.Load(profilePath, proofPath);
+            _state = LoadOrQuarantine();
+        }
+        catch
+        {
+            // A constructor that fails closed must still release the single-owner lock.
+            // Otherwise the failed instance can strand the state directory on Windows
+            // even though no usable Steward runtime was ever returned to the caller.
+            _ownerLock.Dispose();
+            throw;
+        }
+    }
+
+    public StewardAdmission Submit(string subjectId, string? subjectRevision, string idempotencyKey) =>
+        Submit(subjectId, subjectRevision, idempotencyKey, parentContract: null);
+
+    public StewardAdmission Submit(string subjectId, string? subjectRevision, string idempotencyKey, StewardParentContractSnapshot? parentContract)
+    {
+        if (string.IsNullOrWhiteSpace(idempotencyKey)) throw new ArgumentException("idempotencyKey is required", nameof(idempotencyKey));
+        if (parentContract is not null && parentContract.Mode != "supervised")
+            throw new InvalidOperationException("ParentContractUnsupported: admitted parent contract must be supervised");
+        if (parentContract is not null)
+            parentContract = parentContract with { ContractDigest = ParentContractDigest(parentContract) };
+        var subject = new StewardSubject("target", subjectId, subjectRevision);
+        var candidateBase = new { type = "subject-snapshot", id = subjectId, revision = subjectRevision };
+        var candidate = new StewardCandidate("subject-snapshot", subjectId, subjectRevision, Digest(candidateBase));
+        var requestDigest = Digest(new { subject, candidate });
+        var lineageId = "lineage-" + Sha256Hex(JsonSerializer.SerializeToUtf8Bytes(new { type = subject.Type, id = subject.Id }))[..24];
+        var obligationSet = BuildObligationSnapshot();
+        lock (_gate)
+        {
+            var priorState = JsonSerializer.Deserialize<StewardSeedState>(JsonSerializer.Serialize(_state))
+                ?? throw new InvalidOperationException("cannot snapshot Steward state");
+            if (_state.Idempotency.TryGetValue(idempotencyKey, out var existing))
+            {
+                if (!string.Equals(existing.RequestDigest, requestDigest, StringComparison.Ordinal)) throw new InvalidOperationException("idempotency key is bound to a different request digest");
+                var priorJob = _state.Jobs.GetValueOrDefault(existing.JobId);
+                var priorParent = priorJob?.ParentContract?.ContractDigest;
+                var wantedParent = parentContract?.ContractDigest;
+                if (!string.Equals(priorParent ?? "", wantedParent ?? "", StringComparison.Ordinal))
+                    throw new InvalidOperationException("ReAdmissionRequired: idempotency key is bound to a different parent contract generation");
+                return new(existing.JobId, true);
+            }
+            var lineage = _state.Lineages.GetValueOrDefault(lineageId);
+            var generation = (lineage?.CurrentGeneration ?? 0) + 1;
+            var jobId = $"job-{Guid.NewGuid():N}";
+            var now = _clock.UtcNow;
+            if (lineage is not null && _state.Jobs.TryGetValue(lineage.CurrentJobId, out var previous) && !Terminal.Contains(previous.Status))
+            {
+                previous = Advance(previous with { CancellationCause = "parent_superseded" }, "superseded", "superseded", "superseded", cancellation: previous.Cancellation);
+                _state.Jobs[previous.JobId] = previous;
+                foreach (var opId in previous.ExternalOperationRefs)
+                    if (_state.Operations.TryGetValue(opId, out var op) && op.State == "reserved" && op.Delivery == "not-delivered") _state.Operations[opId] = op with { State = "abandoned", ObservedAt = now, CancellationCause = "parent_superseded" };
+                AuditLocked(previous.JobId, "superseded", new Dictionary<string, string> { ["byJobId"] = jobId, ["cause"] = "parent_superseded" });
+            }
+            var attemptId = $"attempt-{Guid.NewGuid():N}";
+            // A supervised Steward may narrow the inherited budget, never enlarge it (#95).
+            var deadline = now.AddMinutes(15);
+            if (parentContract?.AbsoluteDeadline is { } inherited && inherited < deadline) deadline = inherited;
+            var lease = new StewardLease($"steward-runtime:{attemptId}", generation, deadline);
+            var job = new StewardSeedJob(jobId, lineageId, generation, attemptId, 0, subject, candidate, requestDigest,
+                "queued", "admitted", "none", null, now, now, now, now, 1, "admitted", deadline, null, lease, [], [],
+                parentContract, obligationSet);
+            _state.Jobs[jobId] = job;
+            _state.Lineages[lineageId] = new(jobId, generation, subject, candidate, (lineage?.Version ?? -1) + 1);
+            _state.Idempotency[idempotencyKey] = new(requestDigest, jobId);
+            AuditLocked(jobId, "admitted", new Dictionary<string, string> { ["generation"] = generation.ToString(System.Globalization.CultureInfo.InvariantCulture), ["candidate"] = candidate.Digest, ["obligationSetDigest"] = obligationSet.Digest });
+            try { SaveLocked(); }
+            catch { _state = priorState; throw; }
+            return new(jobId, false);
+        }
+    }
+
+    private StewardObligationSnapshot BuildObligationSnapshot()
+    {
+        var obligations = _policy.Requirements.Select(item => new StewardObligationSnapshotItem(item.Id, item.Required, item.EvidenceClass)).ToArray();
+        var revision = _policy.ProfileRevision;
+        var digest = Digest(new { revision, obligations });
+        return new(revision, digest, obligations);
+    }
+
+    private static string ParentContractDigest(StewardParentContractSnapshot parent) =>
+        Digest(new { mode = parent.Mode, supervisorSystemId = parent.SupervisorSystemId, parentWorkId = parent.ParentWorkId, parentRunId = parent.ParentRunId, parentGeneration = parent.ParentGeneration, contractId = parent.ContractId, contractRevision = parent.ContractRevision, delegatedCapabilities = parent.DelegatedCapabilities, forbiddenCapabilities = parent.ForbiddenCapabilities, parentCompletionAuthority = parent.ParentCompletionAuthority, authorityCeiling = parent.AuthorityCeiling, absoluteDeadline = parent.AbsoluteDeadline });
+
+    public StewardSeedJob Status(string jobId) { lock (_gate) return CurrentJobLocked(jobId); }
+    public StewardResult Get(string jobId)
+    {
+        lock (_gate)
+        {
+            var job = CurrentJobLocked(jobId);
+            return new(job, _state.Operations.Values.Where(item => item.JobId == jobId).OrderBy(item => item.CreatedAt).ToArray(),
+                _state.Evidence.Values.Where(item => item.JobId == jobId).OrderBy(item => item.ObservedAt).ToArray(),
+                _state.Completions.GetValueOrDefault(jobId), _state.Handoffs.GetValueOrDefault(jobId));
+        }
+    }
+
+    public StewardSeedJob Cancel(string jobId) => Cancel(jobId, "caller_cancel");
+
+    public StewardSeedJob Cancel(string jobId, string cause)
+    {
+        lock (_gate)
+        {
+            var job = CurrentJobLocked(jobId);
+            if (Terminal.Contains(job.Status)) return job;
+            job = Advance(job with { CancellationCause = cause }, "cancelling", "cancel-requested", "cancel-requested", cancellation: "requested");
+            _state.Jobs[jobId] = job; AuditLocked(jobId, "cancel-requested", new Dictionary<string, string> { ["cause"] = cause }); SaveLocked(); return job;
+        }
+    }
+
+    public StewardDoctorResult Doctor(string? jobId = null)
+    {
+        lock (_gate)
+        {
+            var job = jobId is null ? NextJobLocked() : CurrentJobLocked(jobId);
+            var ops = _state.Operations.Values.Where(item => jobId is null || item.JobId == jobId).ToArray();
+            var unknown = ops.Count(item => item.Delivery == "delivery-unknown");
+            var cancellationUnknown = ops.Count(item => item.OperationKind == "cancel" && item.Delivery == "delivery-unknown");
+            var audit = _state.Audit.Where(item => jobId is null || item.JobId == jobId).OrderByDescending(item => item.Sequence).Take(50).ToArray();
+            return new(job, unknown, cancellationUnknown, audit);
+        }
+    }
+
+    public bool RunOneDue() => RunOneDueCore(suppressStaleOnce: false);
+
+    private bool RunOneDueCore(bool suppressStaleOnce)
+    {
+        SeedAction? action;
+        lock (_gate)
+        {
+            _reconcileTick++;
+            var job = NextJobLocked();
+            var stale = suppressStaleOnce ? null : NextSupersededOperationLocked();
+            if (stale is not null && (_reconcileTick % 2 == 0 || job is null || job.Status == "waiting-external"))
+            {
+                var staleJob = CurrentJobLocked(stale.JobId);
+                action = new(stale.Delivery == "delivery-unknown" ? (stale.OperationKind == "cancel" ? "stale-cancel-reconcile" : "stale-reconcile") : "stale-poll", staleJob, stale);
+            }
+            else
+            {
+                if (job is null) return false;
+                _state.Jobs[job.JobId] = job with { HeartbeatAt = _clock.UtcNow };
+                job = _state.Jobs[job.JobId];
+                if (job.Cancellation is "requested" or "reconciling" || job.Status == "cancelling")
+                {
+                    action = PrepareCancellationLocked(job);
+                    if (action is null) return true;
+                }
+                else
+                {
+                    var submit = OperationLocked(job.JobId, "submit");
+                    if (submit is null) { ReserveOperationLocked(job, "submit"); SaveLocked(); _faults.Trip("after-reservation"); return true; }
+                    if (submit.Delivery == "not-delivered") { if (!BeginDispatchLocked(submit.OperationId, "external-dispatch")) { SaveLocked(); return true; } SaveLocked(); action = new("dispatch", _state.Jobs[job.JobId], _state.Operations[submit.OperationId]); }
+                    else if (submit.Delivery == "delivery-unknown") action = new("reconcile", job, submit);
+                    else if (submit.Result is null) action = new("poll", job, submit);
+                    else if (!HasEvidenceLocked(job.JobId)) { PromoteOrBlockLocked(job, submit, submit.Result.Value); SaveLocked(); return true; }
+                    else if (job.Status == "finalizing")
+                    {
+                        var priorState = JsonSerializer.Deserialize<StewardSeedState>(JsonSerializer.Serialize(_state))
+                            ?? throw new InvalidOperationException("cannot snapshot Steward state");
+                        try { FinalizeLocked(job); SaveLocked(); }
+                        catch { _state = priorState; throw; }
+                        return true;
+                    }
+                    else return false;
+                }
+            }
+        }
+
+        if (action.Kind == "dispatch")
+        {
+            if (_faults.Trip("after-dispatch-start")) return true;
+            var handle = _provider.Dispatch(action.Operation.OperationId, action.Job.Subject);
+            if (_faults.Trip("after-dispatch") || _faults.Trip("before-handle-persist")) return true;
+            lock (_gate) { BindDispatchLocked(action.Operation.OperationId, handle, false); SaveLocked(); }
+            return true;
+        }
+        if (action.Kind is "reconcile" or "stale-reconcile")
+        {
+            var handle = _provider.Reconcile(action.Operation.OperationId, action.Job.Subject);
+            lock (_gate) { ReconcileLocked(action.Operation.OperationId, handle, false); SaveLocked(); }
+            return true;
+        }
+        if (action.Kind == "cancel-dispatch")
+        {
+            if (_faults.Trip("after-cancel-start")) return true;
+            var submit = OperationLocked(action.Job.JobId, "submit") ?? throw new InvalidOperationException("submit operation missing");
+            var handle = _provider.Cancel(action.Operation.OperationId, submit.RemoteHandle ?? throw new InvalidOperationException("submit handle missing"), action.Job.Subject);
+            if (_faults.Trip("after-cancel-dispatch") || _faults.Trip("before-cancel-bind")) return true;
+            lock (_gate) { BindDispatchLocked(action.Operation.OperationId, handle, true); MarkSubmitCancelledLocked(submit.OperationId); SaveLocked(); }
+            return true;
+        }
+        if (action.Kind is "cancel-reconcile" or "stale-cancel-reconcile")
+        {
+            var submit = OperationLocked(action.Job.JobId, "submit") ?? throw new InvalidOperationException("submit operation missing");
+            var handle = _provider.ReconcileCancel(action.Operation.OperationId, submit.RemoteHandle ?? throw new InvalidOperationException("submit handle missing"), action.Job.Subject);
+            lock (_gate) { ReconcileLocked(action.Operation.OperationId, handle, true); MarkSubmitCancelledLocked(submit.OperationId); SaveLocked(); }
+            return true;
+        }
+
+        var result = _provider.Poll(action.Operation.RemoteHandle ?? throw new InvalidOperationException("remote handle missing"), action.Job.Subject);
+        if (!result.Completed)
+        {
+            if (action.Kind == "stale-poll")
+            {
+                // A no-progress stale poll must not report global idleness while runnable work remains.
+                // Suppress the stale branch on the re-entry so the runnable job is actually processed this call.
+                lock (_gate) { if (NextJobLocked() is not null) return RunOneDueCore(suppressStaleOnce: true); }
+            }
+            return false;
+        }
+        lock (_gate)
+        {
+            if (action.Kind == "stale-poll") { CaptureStaleLocked(action.Operation.OperationId, result.Payload); SaveLocked(); return true; }
+            RequireCurrentLocked(action.Job);
+            if (_faults.Trip("before-result-persist")) return true;
+            CaptureResultLocked(action.Operation.OperationId, result.Payload);
+            SaveLocked();
+        }
+        return true;
+    }
+
+    private SeedAction? PrepareCancellationLocked(StewardSeedJob job)
+    {
+        var submit = OperationLocked(job.JobId, "submit");
+        if (submit is null || submit.Delivery == "not-delivered")
+        {
+            if (submit is not null) _state.Operations[submit.OperationId] = submit with { State = "abandoned", ObservedAt = _clock.UtcNow };
+            _state.Jobs[job.JobId] = Advance(job, "cancelled", "cancelled", "cancelled", cancellation: "completed");
+            AuditLocked(job.JobId, "cancelled", new Dictionary<string, string> { ["remoteStop"] = "not-required" }); SaveLocked(); return null;
+        }
+        if (submit.Delivery == "delivery-unknown") return new("reconcile", job, submit);
+        if (submit.State == "captured")
+        {
+            _state.Jobs[job.JobId] = Advance(job, "cancelled", "cancelled", "cancelled", cancellation: "completed");
+            AuditLocked(job.JobId, "cancelled", new Dictionary<string, string> { ["remoteStop"] = "already-terminal" }); SaveLocked(); return null;
+        }
+        var cancel = OperationLocked(job.JobId, "cancel");
+        if (cancel is null) { ReserveOperationLocked(job, "cancel", submit.OperationId); SaveLocked(); return null; }
+        if (cancel.Delivery == "not-delivered") { if (!BeginDispatchLocked(cancel.OperationId, "cancellation-dispatch")) { SaveLocked(); return null; } SaveLocked(); return new("cancel-dispatch", _state.Jobs[job.JobId], _state.Operations[cancel.OperationId]); }
+        if (cancel.Delivery == "delivery-unknown") return new("cancel-reconcile", job, cancel);
+        if (cancel.State == "captured") return null;
+        throw new InvalidOperationException("unsupported cancellation state");
+    }
+    public void RecoverUntilIdle(int maxSteps = 100)
+    {
+        for (var step = 0; step < maxSteps; step++)
+        {
+            if (!RunOneDue()) return;
+            lock (_gate) if (NextJobLocked() is null && NextSupersededOperationLocked() is null) return;
+        }
+        throw new InvalidOperationException("recovery supervisor exceeded bounded step budget");
+    }
+
+    public static bool VerifyHandoffDigest(StewardHandoff handoff) => string.Equals(handoff.Digest, ComputeHandoffDigest(handoff), StringComparison.Ordinal);
+    public void Dispose() => _ownerLock.Dispose();
+
+    private void ReserveOperationLocked(StewardSeedJob job, string kind, string? submitOperationId = null)
+    {
+        RequireCurrentLocked(job);
+        var id = $"operation-{Guid.NewGuid():N}"; var now = _clock.UtcNow;
+        _ = submitOperationId;
+        var requestDigest = OperationRequestDigest(job, kind);
+        var op = new StewardOperation(id, kind, job.JobId, job.LineageId, job.Generation, job.AttemptId, job.Version + 1,
+            _policy.Capability.Id, _policy.Capability.Digest, $"target:{job.Subject.Id}:{job.Subject.Revision ?? "none"}",
+            job.Candidate.Digest, requestDigest, "reserved", "not-delivered", "forbidden", "primary", null, null, now, now, 0, null,
+            kind, job.DeadlineAt, kind == "cancel" ? job.CancellationCause : null);
+        _state.Operations[id] = op;
+        var refs = job.ExternalOperationRefs.Concat([id]).ToArray();
+        _state.Jobs[job.JobId] = Advance(job with { ExternalOperationRefs = refs }, job.Status, $"{kind}-reserved", $"{kind}-reserved", cancellation: job.Cancellation);
+        AuditLocked(job.JobId, "external-reserved", new Dictionary<string, string> { ["operationId"] = id, ["kind"] = kind, ["capabilityContractDigest"] = _policy.Capability.Digest });
+    }
+
+    private bool BeginDispatchLocked(string operationId, string effectId)
+    {
+        var op = _state.Operations[operationId]; var job = CurrentJobLocked(op.JobId);
+        var effect = _policy.Effects.GetValueOrDefault(effectId) ?? throw new InvalidOperationException($"mutation policy has no effect {effectId}");
+        var decision = EvaluateMutationLocked(effectId, job, op, effect.CapabilityContract, AuthorityFor(effectId, job, effect.AuthoritySource));
+        if (decision != "Admitted")
+        {
+            var reason = $"mutation-admission:{decision}";
+            _state.Jobs[job.JobId] = Advance(job, "blocked", "mutation-admission-rejected", reason, cancellation: job.Cancellation, blockedReason: reason);
+            AuditLocked(job.JobId, "mutation-admission-rejected", new Dictionary<string, string> { ["operationId"] = operationId, ["effect"] = effectId, ["disposition"] = decision });
+            return false;
+        }
+        var decisionRef = $"admission-{Guid.NewGuid():N}";
+        _state.Operations[operationId] = op with { State = "dispatching", Delivery = "delivery-unknown", RetryDisposition = "reconcile-first", ObservedAt = _clock.UtcNow, MutationDecisionRef = decisionRef };
+        var status = op.OperationKind == "cancel" ? "cancelling" : "reconciling";
+        var cancellation = op.OperationKind == "cancel" ? "reconciling" : job.Cancellation;
+        _state.Jobs[job.JobId] = Advance(job, status, $"{op.OperationKind}-dispatch-started", $"{op.OperationKind}-dispatch-started", cancellation: cancellation);
+        AuditLocked(job.JobId, "mutation-admitted", new Dictionary<string, string> { ["operationId"] = operationId, ["effect"] = effectId, ["decisionRef"] = decisionRef });
+        return true;
+    }
+
+    private static SeedAuthority AuthorityFor(string effectId, StewardSeedJob job, string source)
+    {
+        var target = $"target:{job.Subject.Id}:{job.Subject.Revision ?? "none"}";
+        var principal = $"{source}:{job.AttemptId}";
+        return new(source, principal, effectId, target, job.AttemptId, job.Version, job.Lease?.Owner, job.Lease?.FencingToken);
+    }
+
+    private static string OperationRequestDigest(StewardSeedJob job, string kind) => Digest(new { kind, slot = kind, subject = job.Subject, candidate = job.Candidate });
+
+    private string EvaluateMutationLocked(string effectId, StewardSeedJob job, StewardOperation? operation, SeedCapability actualCapability, SeedAuthority authority)
+    {
+        if (!_policy.Effects.TryGetValue(effectId, out var effect)) return "CapabilityUnavailable";
+        if (!IsCurrentLocked(job)) return "LostAuthority";
+        var lineage = _state.Lineages[job.LineageId];
+        if (lineage.Subject != job.Subject) return "LostAuthority";
+        var cancellationDispatch = effectId == "cancellation-dispatch";
+        var cancellationFenced = job.Cancellation is "requested" or "fenced" or "reconciling";
+        if (Terminal.Contains(job.Status) || (!cancellationDispatch && cancellationFenced)) return "LostAuthority";
+        if (cancellationDispatch && job.Cancellation is not ("requested" or "reconciling")) return "LostAuthority";
+        var target = $"target:{job.Subject.Id}:{job.Subject.Revision ?? "none"}";
+        if (!string.Equals(authority.Source, effect.AuthoritySource, StringComparison.Ordinal)
+            || string.IsNullOrWhiteSpace(authority.Principal) || authority.Principal is "unknown" or "HEAD" or "latest"
+            || authority.Scope != effectId || authority.Target != target || authority.AttemptId != job.AttemptId || authority.JobVersion != job.Version)
+            return "LostAuthority";
+        if (effect.LeaseRequired)
+        {
+            var expectedOwner = $"{effect.AuthoritySource}:{job.AttemptId}";
+            if (job.Lease is null || authority.Principal != expectedOwner || job.Lease.Owner != expectedOwner || authority.LeaseOwner != expectedOwner
+                || job.Lease.FencingToken != job.Generation || authority.LeaseFencingToken != job.Generation || job.Lease.ExpiresAt <= _clock.UtcNow)
+                return "LostAuthority";
+        }
+        if (effect.CandidateRequired && string.IsNullOrWhiteSpace(job.Candidate.Digest)) return "StaleCandidate";
+        if (actualCapability != effect.CapabilityContract || actualCapability.Id != effect.CapabilityRef) return "CapabilityUnavailable";
+        if (job.ParentContract is { } parent)
+        {
+            // Effective authority is the intersection of local configuration and parent delegation (#95).
+            if (parent.ForbiddenCapabilities.Contains(effect.CapabilityRef)) return "ParentAuthorityInsufficient";
+            if (parent.DelegatedCapabilities.Count > 0 && !parent.DelegatedCapabilities.Contains(effect.CapabilityRef)) return "ParentAuthorityInsufficient";
+        }
+        if (job.DeadlineAt - _clock.UtcNow < TimeSpan.FromMilliseconds(effect.MinimumBudgetMs + effect.FinalizationReserveMs)) return "BudgetUnavailable";
+        if (effect.DurableOperationRequired)
+        {
+            if (operation is null || operation.State != "reserved" || operation.Delivery != "not-delivered") return "ReconciliationRequired";
+            if (operation.OperationKind != effect.OperationKind || operation.JobId != job.JobId || operation.LineageId != job.LineageId
+                || operation.Generation != job.Generation || operation.AttemptId != job.AttemptId || operation.JobVersion != job.Version) return "LostAuthority";
+            if (operation.RequestDigest != OperationRequestDigest(job, operation.OperationKind)) return "LostAuthority";
+            if (operation.CandidateDigest != job.Candidate.Digest) return "StaleCandidate";
+            if (operation.CapabilityIdentity != actualCapability.Id || operation.CapabilityContractDigest != actualCapability.Digest) return "CapabilityUnavailable";
+            if (operation.TargetIdentity != target) return "LostAuthority";
+        }
+        return "Admitted";
+    }
+
+    private void BindDispatchLocked(string operationId, string handle, bool cancellationConfirmed)
+    {
+        var op = _state.Operations[operationId]; var job = CurrentJobLocked(op.JobId); var now = _clock.UtcNow;
+        _state.Operations[operationId] = op with { State = cancellationConfirmed ? "captured" : "dispatched", Delivery = "delivered", RetryDisposition = "forbidden", RemoteHandle = handle, ObservedAt = now };
+        if (IsCurrentLocked(job))
+        {
+            if (op.OperationKind == "cancel" && cancellationConfirmed) _state.Jobs[job.JobId] = Advance(job, "cancelled", "cancelled", "cancelled", cancellation: "completed");
+            else if (op.OperationKind == "submit") _state.Jobs[job.JobId] = Advance(job, "waiting-external", "external-dispatched", "external-dispatched", cancellation: job.Cancellation);
+        }
+        AuditLocked(job.JobId, "external-dispatched", new Dictionary<string, string> { ["operationId"] = operationId, ["kind"] = op.OperationKind });
+    }
+
+    private void ReconcileLocked(string operationId, string handle, bool cancellationConfirmed)
+    {
+        var op = _state.Operations[operationId]; var job = CurrentJobLocked(op.JobId);
+        _state.Operations[operationId] = op with { State = cancellationConfirmed ? "captured" : "dispatched", Delivery = "delivered", RetryDisposition = "forbidden", RemoteHandle = handle, ObservedAt = _clock.UtcNow, ReconcileCount = op.ReconcileCount + 1 };
+        if (IsCurrentLocked(job))
+        {
+            if (op.OperationKind == "cancel" && cancellationConfirmed) _state.Jobs[job.JobId] = Advance(job, "cancelled", "cancelled", "cancelled", cancellation: "completed");
+            else if (op.OperationKind == "submit") _state.Jobs[job.JobId] = Advance(job, "waiting-external", "reconciled", "reconciled", cancellation: job.Cancellation);
+        }
+        AuditLocked(job.JobId, "reconciled", new Dictionary<string, string> { ["operationId"] = operationId, ["kind"] = op.OperationKind });
+    }
+
+    private void MarkSubmitCancelledLocked(string submitOperationId)
+    {
+        if (_state.Operations.TryGetValue(submitOperationId, out var submit)) _state.Operations[submitOperationId] = submit with { State = "captured", Result = JsonSerializer.SerializeToElement(new { state = "cancelled" }), ObservedAt = _clock.UtcNow };
+    }
+
+    private void CaptureResultLocked(string operationId, JsonElement payload)
+    {
+        var op = _state.Operations[operationId]; var job = CurrentJobLocked(op.JobId); RequireCurrentLocked(job);
+        if (op.Result is not null) return;
+        var deadlineExpired = op.OperationDeadlineAt is { } bound && _clock.UtcNow > bound;
+        _state.Operations[operationId] = op with { State = "captured", Result = payload.Clone(), ObservedAt = _clock.UtcNow,
+            CancellationCause = op.CancellationCause ?? (deadlineExpired ? "application_deadline" : null) };
+        if (deadlineExpired) AuditLocked(job.JobId, "operation-deadline-exceeded", new Dictionary<string, string> { ["operationId"] = operationId, ["cause"] = "application_deadline" });
+        _state.Jobs[job.JobId] = Advance(job, job.Status, "result-captured", $"result:{Digest(payload)}", cancellation: job.Cancellation);
+        AuditLocked(job.JobId, "result-captured", new Dictionary<string, string> { ["operationId"] = operationId });
+    }
+
+    private void CaptureStaleLocked(string operationId, JsonElement payload)
+    {
+        var op = _state.Operations[operationId]; _state.Operations[operationId] = op with { State = "captured", Result = payload.Clone(), ObservedAt = _clock.UtcNow };
+        AuditLocked(op.JobId, "late-result-discarded", new Dictionary<string, string> { ["operationId"] = operationId });
+    }
+
+    private void PromoteOrBlockLocked(StewardSeedJob job, StewardOperation operation, JsonElement payload)
+    {
+        var added = false;
+        if (!PayloadSubjectMatches(payload, job.Subject)
+            || !payload.TryGetProperty("observation", out var observation)
+            || observation.ValueKind != JsonValueKind.Object
+            || !observation.TryGetProperty("producerId", out var producerIdElement)
+            || !observation.TryGetProperty("authorityClass", out var authorityElement)
+            || !observation.TryGetProperty("observationGrade", out var gradeElement)
+            || !observation.TryGetProperty("binding", out var bindingElement)
+            || !observation.TryGetProperty("coverage", out var coverageElement)
+            || producerIdElement.ValueKind != JsonValueKind.String
+            || authorityElement.ValueKind != JsonValueKind.String
+            || gradeElement.ValueKind != JsonValueKind.String
+            || bindingElement.ValueKind != JsonValueKind.Object
+            || coverageElement.ValueKind != JsonValueKind.Object)
+        {
+            BlockObservationLocked(job); return;
+        }
+        var producerId = producerIdElement.GetString() ?? string.Empty;
+        if (!string.Equals(producerId, _provider.ProducerId, StringComparison.Ordinal) || !_policy.Producers.TryGetValue(producerId, out var producer))
+        {
+            BlockObservationLocked(job); return;
+        }
+        var claimedAuthority = authorityElement.GetString() ?? string.Empty;
+        if (!AuthorityRank.TryGetValue(claimedAuthority, out var claimedRank) || !AuthorityRank.TryGetValue(producer.AuthorityCeiling, out var ceilingRank))
+        {
+            BlockObservationLocked(job); return;
+        }
+        var actualAuthority = AuthorityRank.First(item => item.Value == Math.Min(claimedRank, ceilingRank)).Key;
+        var observationGrade = gradeElement.GetString();
+        if (observationGrade is null || !ObservationGrades.Contains(observationGrade)) { BlockObservationLocked(job); return; }
+        if (!bindingElement.TryGetProperty("satisfied", out var satisfiedElement)
+            || satisfiedElement.ValueKind != JsonValueKind.Array
+            || satisfiedElement.EnumerateArray().Any(item => item.ValueKind != JsonValueKind.String)
+            || !coverageElement.TryGetProperty("required", out var requiredElement)
+            || !coverageElement.TryGetProperty("observed", out var observedElement)
+            || !requiredElement.TryGetInt32(out var requiredCoverage)
+            || !observedElement.TryGetInt32(out var observedCoverage))
+        {
+            BlockObservationLocked(job); return;
+        }
+        var observedSatisfied = satisfiedElement.EnumerateArray().Select(item => item.GetString()!).ToHashSet(StringComparer.Ordinal);
+        if (operation.CandidateDigest == job.Candidate.Digest) observedSatisfied.Add("candidate");
+        if (requiredCoverage < 1 || observedCoverage < 0 || observedCoverage > requiredCoverage) { BlockObservationLocked(job); return; }
+        var coverageState = observedCoverage >= requiredCoverage ? "complete" : observedCoverage > 0 ? "partial" : "unknown";
+        // Derived evidence binds to the admitted obligation snapshot (#107); a snapshot
+        // obligation whose live proof-recipe criterion drifted away cannot be proven.
+        var snapshotRequirements = job.ObligationSet is { } set
+            ? set.Obligations.Select(item => (snapshot: item, req: _policy.Requirements.FirstOrDefault(candidate => candidate.Id == item.Id)))
+                .Where(pair => pair.req is not null).Select(pair => pair.req!)
+            : Enumerable.Empty<SeedRequirement>();
+        foreach (var req in snapshotRequirements)
+        {
+            if (req.ApprovedProducers.Count > 0 && !req.ApprovedProducers.Contains(producerId)) continue;
+            var observed = operation.ObservedAt; var id = $"evidence-{Guid.NewGuid():N}";
+            var satisfied = req.BindingRequirements.Where(observedSatisfied.Contains).ToArray();
+            var bindingStatus = req.BindingRequirements.All(observedSatisfied.Contains) ? "complete" : satisfied.Length > 0 ? "partial" : "unknown";
+            var binding = new StewardBinding(req.BindingRequirements, satisfied, bindingStatus);
+            var evidence = new StewardEvidence(id, job.JobId, job.LineageId, job.Generation, job.Subject, job.Candidate, req.Id, req.CanonicalClaim,
+                req.EvidenceClass, observationGrade, actualAuthority, producerId, _policy.RecipeId, binding,
+                new StewardCoverage(coverageState, requiredCoverage, observedCoverage), observed, observed.AddSeconds(req.FreshnessSeconds), Digest(payload));
+            _state.Evidence[id] = evidence; job = job with { EvidenceRefs = job.EvidenceRefs.Concat([id]).ToArray() }; added = true;
+            AuditLocked(job.JobId, "evidence-persisted", new Dictionary<string, string> { ["evidenceId"] = id, ["claimId"] = req.CanonicalClaim,
+                ["authorityClass"] = actualAuthority, ["bindingStatus"] = bindingStatus, ["coverageState"] = coverageState });
+        }
+        _state.Jobs[job.JobId] = added ? Advance(job, "finalizing", "evidence-persisted", "evidence-persisted", cancellation: job.Cancellation)
+            : Advance(job, "blocked", "blocked", "blocked:terminal-observation-insufficient-authority", cancellation: job.Cancellation, blockedReason: "terminal-observation-insufficient-authority");
+        if (!added) AuditLocked(job.JobId, "blocked", new Dictionary<string, string> { ["reason"] = "terminal-observation-insufficient-authority" });
+    }
+
+    private static bool PayloadSubjectMatches(JsonElement payload, StewardSubject subject)
+    {
+        if (!payload.TryGetProperty("subject", out var element) || element.ValueKind != JsonValueKind.Object) return false;
+        try { return element.Deserialize<StewardSubject>() is { } observed && observed == subject; }
+        catch (JsonException) { return false; }
+    }
+
+    private void BlockObservationLocked(StewardSeedJob job)
+    {
+        _state.Jobs[job.JobId] = Advance(job, "blocked", "blocked", "blocked:terminal-observation-insufficient-authority", cancellation: job.Cancellation, blockedReason: "terminal-observation-insufficient-authority");
+        AuditLocked(job.JobId, "blocked", new Dictionary<string, string> { ["reason"] = "terminal-observation-insufficient-authority" });
+    }
+
+    private StewardCompletionEvaluation EvaluateCompletionLocked(StewardSeedJob job)
+    {
+        RequireCurrentLocked(job); var lineage = _state.Lineages[job.LineageId];
+        if (lineage.Subject != job.Subject || lineage.Candidate != job.Candidate) throw new InvalidOperationException("stale subject/candidate identity");
+        var unresolved = _state.Operations.Values.Where(item => _state.Jobs.TryGetValue(item.JobId, out var owner) && owner.LineageId == job.LineageId && item.State is not ("captured" or "abandoned" or "failed")).Select(item => item.OperationId).Order(StringComparer.Ordinal).ToArray();
+        var cancelUnresolved = _state.Operations.Values.Where(item => item.JobId == job.JobId && item.OperationKind == "cancel" && item.State is not ("captured" or "abandoned" or "failed")).Select(item => item.OperationId).ToArray();
+        var blocked = unresolved.Length > 0 || cancelUnresolved.Length > 0; var obligations = new List<StewardCompletionObligation>();
+        var parentRef = job.ParentContract is { } parent ? new StewardParentContractRef(parent.Mode, parent.ContractDigest, parent.ParentWorkId, parent.ParentGeneration) : null;
+        if (job.ObligationSet is null || job.ObligationSet.Obligations.Count == 0)
+        {
+            // Completion without an admitted obligation snapshot fails closed (#107).
+            return new(2, $"completion-{Guid.NewGuid():N}", job.JobId, job.LineageId, job.Generation, job.Subject, job.Candidate,
+                new Dictionary<string, object> { ["generation"] = job.Generation, ["profileRevision"] = _policy.ProfileRevision, ["proofRecipeRevision"] = _policy.ProofRevision, ["subjectRevision"] = job.Subject.Revision ?? "none", ["candidateDigest"] = job.Candidate.Digest },
+                "blocked", obligations, unresolved, cancelUnresolved, _clock.UtcNow, null, parentRef);
+        }
+        foreach (var snapshot in job.ObligationSet.Obligations)
+        {
+            var req = _policy.Requirements.FirstOrDefault(item => item.Id == snapshot.Id);
+            if (req is null)
+            {
+                // Admitted obligation whose live proof-recipe criterion drifted away fails closed.
+                obligations.Add(new(snapshot.Id, "unsatisfied", []));
+                if (snapshot.Required) blocked = true;
+                continue;
+            }
+            var refs = _state.Evidence.Values.Where(item => EvidenceSatisfies(job, req, item)).Select(item => item.EvidenceId).Order(StringComparer.Ordinal).ToArray();
+            if (snapshot.Required && refs.Length == 0) blocked = true;
+            obligations.Add(new(snapshot.Id, refs.Length == 0 ? "unsatisfied" : "satisfied", refs));
+        }
+        return new(2, $"completion-{Guid.NewGuid():N}", job.JobId, job.LineageId, job.Generation, job.Subject, job.Candidate,
+            new Dictionary<string, object> { ["generation"] = job.Generation, ["profileRevision"] = _policy.ProfileRevision, ["proofRecipeRevision"] = _policy.ProofRevision, ["subjectRevision"] = job.Subject.Revision ?? "none", ["candidateDigest"] = job.Candidate.Digest },
+            blocked ? "blocked" : "eligible", obligations, unresolved, cancelUnresolved, _clock.UtcNow, job.ObligationSet.Digest, parentRef);
+    }
+
+    private bool EvidenceSatisfies(StewardSeedJob job, SeedRequirement req, StewardEvidence ev)
+    {
+        if (ev.JobId != job.JobId || ev.Generation != job.Generation || ev.LineageId != job.LineageId || ev.Subject != job.Subject || ev.Candidate != job.Candidate) return false;
+        if (!ObservationGrades.Contains(ev.ObservationGrade)) return false;
+        if (ev.CriterionId != req.Id || ev.ClaimId != req.CanonicalClaim || ev.EvidenceClass != req.EvidenceClass || ev.ProofRecipeId != _policy.RecipeId) return false;
+        if (req.ApprovedProducers.Count > 0 && !req.ApprovedProducers.Contains(ev.ProducerId)) return false;
+        if (!_policy.Producers.TryGetValue(ev.ProducerId, out var producer)) return false;
+        var evidenceRank = AuthorityRank.GetValueOrDefault(ev.AuthorityClass, -1);
+        if (evidenceRank > AuthorityRank.GetValueOrDefault(producer.AuthorityCeiling, -1)) return false;
+        if (evidenceRank < AuthorityRank.GetValueOrDefault(req.RequiredAuthority, int.MaxValue)) return false;
+        if (ev.Binding.Status != "complete" || !req.BindingRequirements.All(ev.Binding.Satisfied.Contains)) return false;
+        if ((req.CoverageSemantics is "all-required" or "complete-negative-coverage") && (ev.Coverage.State != "complete" || ev.Coverage.Observed < ev.Coverage.Required)) return false;
+        if (req.CoverageSemantics == "any-sufficient" && ev.Coverage.Observed <= 0) return false;
+        if (ev.ObservedAt > _clock.UtcNow || _clock.UtcNow - ev.ObservedAt > TimeSpan.FromSeconds(req.FreshnessSeconds)) return false;
+        return ev.ExpiresAt is null || ev.ExpiresAt >= _clock.UtcNow;
+    }
+
+    private void FinalizeLocked(StewardSeedJob job)
+    {
+        var completion = EvaluateCompletionLocked(job);
+        if (completion.Disposition != "eligible")
+        {
+            _state.Jobs[job.JobId] = Advance(job, "blocked", "blocked", "blocked:completion-obligations-unresolved", cancellation: job.Cancellation, blockedReason: "completion-obligations-unresolved");
+            return;
+        }
+        var publicationEffect = _policy.Effects["terminal-publication"];
+        var publicationAdmission = EvaluateMutationLocked("terminal-publication", job, null, publicationEffect.CapabilityContract,
+            AuthorityFor("terminal-publication", job, "completion-gate"));
+        if (publicationAdmission != "Admitted")
+        {
+            var reason = $"mutation-admission:{publicationAdmission}";
+            _state.Jobs[job.JobId] = Advance(job, "blocked", "mutation-admission-rejected", reason, cancellation: job.Cancellation, blockedReason: reason);
+            AuditLocked(job.JobId, "mutation-admission-rejected", new Dictionary<string, string> { ["effect"] = "terminal-publication", ["disposition"] = publicationAdmission });
+            return;
+        }
+        var publicationDecisionRef = $"admission-{Guid.NewGuid():N}";
+        var handoff = CreateHandoff(job, completion);
+        if (_faults.Trip("before-terminal-publication")) return;
+        var lineage = _state.Lineages[job.LineageId];
+        if (lineage.CurrentJobId != job.JobId || lineage.CurrentGeneration != job.Generation || lineage.Candidate != job.Candidate) throw new InvalidOperationException("stale lineage/candidate publication");
+        _state.Completions[job.JobId] = completion; _state.Handoffs[job.JobId] = handoff;
+        _state.Jobs[job.JobId] = Advance(job, "completed", "completed", "completed", cancellation: job.Cancellation);
+        AuditLocked(job.JobId, "handoff-sealed", new Dictionary<string, string> { ["digest"] = handoff.Digest, ["candidate"] = handoff.Candidate.Digest, ["mutationDecisionRef"] = publicationDecisionRef });
+    }
+
+    private StewardHandoff CreateHandoff(StewardSeedJob job, StewardCompletionEvaluation completion)
+    {
+        var parentRef = job.ParentContract is { } parent ? new StewardParentContractRef(parent.Mode, parent.ContractDigest, parent.ParentWorkId, parent.ParentGeneration) : null;
+        var unsigned = new { schema_version = 2, handoffId = $"handoff-{Guid.NewGuid():N}", jobId = job.JobId, lineageId = job.LineageId, generation = job.Generation, subject = job.Subject, candidate = job.Candidate, status = "completed", actionable = true, outcome = "seed-provider-completed", evidenceRefs = completion.Obligations.SelectMany(item => item.EvidenceRefs).ToArray(), artifactRefs = Array.Empty<string>(), externalOperationRefs = job.ExternalOperationRefs.ToArray(), gaps = Array.Empty<string>(), correlationId = job.JobId, sealedAt = _clock.UtcNow, parentContract = parentRef };
+        var digest = "sha256:" + Sha256Hex(JsonSerializer.SerializeToUtf8Bytes(unsigned));
+        return new(2, unsigned.handoffId, job.JobId, job.LineageId, job.Generation, job.Subject, job.Candidate, "completed", true,
+            "seed-provider-completed", unsigned.evidenceRefs, [], unsigned.externalOperationRefs, [], job.JobId, unsigned.sealedAt, digest, parentRef);
+    }
+
+    private static string ComputeHandoffDigest(StewardHandoff handoff)
+    {
+        var unsigned = new { schema_version = handoff.SchemaVersion, handoffId = handoff.HandoffId, jobId = handoff.JobId, lineageId = handoff.LineageId, generation = handoff.Generation, subject = handoff.Subject, candidate = handoff.Candidate, status = handoff.Status, actionable = handoff.Actionable, outcome = handoff.Outcome, evidenceRefs = handoff.EvidenceRefs, artifactRefs = handoff.ArtifactRefs, externalOperationRefs = handoff.ExternalOperationRefs, gaps = handoff.Gaps, correlationId = handoff.CorrelationId, sealedAt = handoff.SealedAt, parentContract = handoff.ParentContract };
+        return "sha256:" + Sha256Hex(JsonSerializer.SerializeToUtf8Bytes(unsigned));
+    }
+
+    private StewardSeedJob Advance(StewardSeedJob job, string status, string stage, string marker, string cancellation, string? blockedReason = null) => job with { Version = job.Version + 1, Status = status, Stage = stage, Cancellation = cancellation, BlockedReason = blockedReason, Lease = Terminal.Contains(status) ? null : job.Lease, UpdatedAt = _clock.UtcNow, HeartbeatAt = _clock.UtcNow, ProgressAt = _clock.UtcNow, ProgressRevision = job.ProgressRevision + 1, ProgressMarker = marker };
+    private StewardSeedJob? NextJobLocked() => _state.Jobs.Values.Where(item => Runnable.Contains(item.Status)).OrderBy(item => item.Status == "waiting-external" ? 1 : 0).ThenBy(item => item.CreatedAt).ThenBy(item => item.JobId, StringComparer.Ordinal).FirstOrDefault();
+    private StewardOperation? OperationLocked(string jobId, string kind) => _state.Operations.Values.Where(item => item.JobId == jobId && item.OperationKind == kind).OrderBy(item => item.CreatedAt).FirstOrDefault();
+    private bool HasEvidenceLocked(string jobId) => _state.Evidence.Values.Any(item => item.JobId == jobId);
+    private StewardOperation? NextSupersededOperationLocked() => _state.Operations.Values.Where(item => _state.Jobs.TryGetValue(item.JobId, out var job) && job.Status == "superseded" && item.State is not ("captured" or "abandoned" or "failed") && (item.Delivery is "delivery-unknown" or "delivered")).OrderBy(item => item.ObservedAt).FirstOrDefault();
+    private bool IsCurrentLocked(StewardSeedJob job)
+    {
+        if (!_state.Lineages.TryGetValue(job.LineageId, out var lineage) || lineage.CurrentJobId != job.JobId
+            || lineage.CurrentGeneration != job.Generation || lineage.Subject != job.Subject || lineage.Candidate != job.Candidate) return false;
+        var current = CurrentJobLocked(job.JobId);
+        return current.AttemptId == job.AttemptId && current.Version == job.Version;
+    }
+    private StewardSeedJob CurrentJobLocked(string jobId) => _state.Jobs.TryGetValue(jobId, out var job) ? job : throw new KeyNotFoundException(jobId);
+    private void RequireCurrentLocked(StewardSeedJob job) { if (!IsCurrentLocked(job)) throw new InvalidOperationException("stale lineage/generation/attempt/candidate"); }
+    private void AuditLocked(string? jobId, string eventType, IReadOnlyDictionary<string, string> detail) { _state.AuditSequence++; _state.Audit.Add(new(_state.AuditSequence, jobId, eventType, _clock.UtcNow, detail)); if (_state.Audit.Count > 1000) _state.Audit.RemoveRange(0, _state.Audit.Count - 1000); }
+
+    private StewardSeedState LoadOrQuarantine()
+    {
+        if (!File.Exists(_snapshotPath)) return new();
+        try
+        {
+            var state = JsonSerializer.Deserialize<StewardSeedState>(File.ReadAllText(_snapshotPath)) ?? throw new JsonException("null Steward snapshot");
+            if (state.Jobs is null || state.Lineages is null || state.Idempotency is null || state.Operations is null
+                || state.Evidence is null || state.Completions is null || state.Handoffs is null || state.Audit is null)
+                throw new JsonException("Steward snapshot contains null required collections");
+            ValidateState(state);
+            return state;
+        }
+        catch (JsonException exc) { var quarantine = _snapshotPath + $".corrupt-{DateTimeOffset.UtcNow:yyyyMMddHHmmssfff}"; File.Move(_snapshotPath, quarantine); throw new InvalidDataException($"STORE_CORRUPT / OPERATOR_RECOVERY_REQUIRED: canonical snapshot quarantined at {quarantine}", exc); }
+    }
+
+    private static void ValidateState(StewardSeedState state)
+    {
+        if (state.Jobs.Any(item => item.Value is null) || state.Lineages.Any(item => item.Value is null)
+            || state.Idempotency.Any(item => item.Value is null) || state.Operations.Any(item => item.Value is null)
+            || state.Evidence.Any(item => item.Value is null) || state.Completions.Any(item => item.Value is null)
+            || state.Handoffs.Any(item => item.Value is null) || state.Audit.Any(item => item is null))
+            throw new JsonException("Steward snapshot contains null entries");
+        foreach (var pair in state.Jobs)
+        {
+            var job = pair.Value;
+            if (job is null || pair.Key != job.JobId || string.IsNullOrWhiteSpace(job.LineageId)
+                || job.Subject is null || string.IsNullOrWhiteSpace(job.Subject.Type) || string.IsNullOrWhiteSpace(job.Subject.Id)
+                || job.Candidate is null || string.IsNullOrWhiteSpace(job.Candidate.Digest))
+                throw new JsonException("Steward snapshot contains an invalid job identity");
+            if (!state.Lineages.TryGetValue(job.LineageId, out var lineage) || lineage is null
+                || string.IsNullOrWhiteSpace(lineage.CurrentJobId) || !state.Jobs.TryGetValue(lineage.CurrentJobId, out var currentJob)
+                || currentJob is null || lineage.CurrentGeneration != currentJob.Generation
+                || lineage.Subject != currentJob.Subject || lineage.Candidate != currentJob.Candidate)
+                throw new JsonException("Steward snapshot contains inconsistent job lineage");
+            if (job.ParentContract is { } parent)
+            {
+                if (parent.Mode != "supervised" || string.IsNullOrWhiteSpace(parent.SupervisorSystemId)
+                    || string.IsNullOrWhiteSpace(parent.ContractId) || string.IsNullOrWhiteSpace(parent.ContractDigest))
+                    throw new JsonException("Steward snapshot contains an invalid parent contract snapshot");
+                if (!string.Equals(ParentContractDigest(parent), parent.ContractDigest, StringComparison.Ordinal))
+                    throw new JsonException("Steward snapshot parent contract digest does not bind the snapshot contents");
+            }
+            if (!Terminal.Contains(job.Status) || job.Status is "completed" or "completed-with-gaps")
+            {
+                if (job.ObligationSet is null || job.ObligationSet.Obligations.Count == 0)
+                    throw new JsonException("Steward snapshot job is missing the admitted obligation snapshot");
+                if (!string.Equals(Digest(new { revision = job.ObligationSet.Revision, obligations = job.ObligationSet.Obligations }), job.ObligationSet.Digest, StringComparison.Ordinal))
+                    throw new JsonException("Steward snapshot obligation set digest does not bind the snapshot contents");
+            }
+        }
+        foreach (var pair in state.Lineages)
+            if (pair.Value is null || string.IsNullOrWhiteSpace(pair.Key) || !state.Jobs.TryGetValue(pair.Value.CurrentJobId, out var currentJob)
+                || currentJob is null || currentJob.LineageId != pair.Key)
+                throw new JsonException("Steward snapshot contains an invalid lineage identity");
+        foreach (var pair in state.Idempotency)
+            if (pair.Value is null || !state.Jobs.TryGetValue(pair.Value.JobId, out var idempotentJob)
+                || idempotentJob is null || idempotentJob.RequestDigest != pair.Value.RequestDigest)
+                throw new JsonException("Steward snapshot contains an inconsistent idempotency binding");
+        foreach (var pair in state.Operations)
+        {
+            var operation = pair.Value;
+            if (operation is null || pair.Key != operation.OperationId || !state.Jobs.TryGetValue(operation.JobId, out var job)
+                || job is null || !state.Lineages.ContainsKey(operation.LineageId) || operation.LineageId != job.LineageId
+                || operation.Generation != job.Generation || operation.AttemptId != job.AttemptId
+                || operation.CandidateDigest != job.Candidate.Digest)
+                throw new JsonException("Steward snapshot contains inconsistent operation identity");
+            if (operation.OperationKind is "submit" or "cancel" or "mutation"
+                && (string.IsNullOrWhiteSpace(operation.SemanticSlot) || operation.OperationDeadlineAt is null))
+                throw new JsonException("Steward snapshot contains a stateful operation without semantic slot or absolute deadline");
+        }
+        foreach (var pair in state.Evidence)
+        {
+            var evidence = pair.Value;
+            if (evidence is null || pair.Key != evidence.EvidenceId || !state.Jobs.TryGetValue(evidence.JobId, out var job)
+                || job is null || evidence.LineageId != job.LineageId || evidence.Generation != job.Generation
+                || evidence.Subject != job.Subject || evidence.Candidate != job.Candidate)
+                throw new JsonException("Steward snapshot contains inconsistent evidence identity");
+        }
+        foreach (var pair in state.Completions)
+        {
+            var completion = pair.Value;
+            if (completion is null || pair.Key != completion.JobId || !state.Jobs.TryGetValue(completion.JobId, out var job)
+                || job is null || completion.LineageId != job.LineageId || completion.Generation != job.Generation
+                || completion.Subject != job.Subject || completion.Candidate != job.Candidate)
+                throw new JsonException("Steward snapshot contains an inconsistent completion reference");
+        }
+        foreach (var pair in state.Handoffs)
+        {
+            var handoff = pair.Value;
+            if (handoff is null || pair.Key != handoff.JobId || !state.Jobs.TryGetValue(handoff.JobId, out var job)
+                || job is null || handoff.LineageId != job.LineageId || handoff.Generation != job.Generation
+                || handoff.Subject != job.Subject || handoff.Candidate != job.Candidate
+                || !string.Equals(ComputeHandoffDigest(handoff), handoff.Digest, StringComparison.Ordinal))
+                throw new JsonException("Steward snapshot contains an inconsistent handoff reference");
+        }
+    }
+
+    private void SaveLocked()
+    {
+        var temp = _snapshotPath + $".tmp-{Guid.NewGuid():N}";
+        try
+        {
+            using (var stream = new FileStream(temp, FileMode.CreateNew, FileAccess.Write, FileShare.None, 4096, FileOptions.WriteThrough)) { JsonSerializer.Serialize(stream, _state); stream.Flush(flushToDisk: true); }
+            File.Move(temp, _snapshotPath, overwrite: true);
+        }
+        finally { if (File.Exists(temp)) File.Delete(temp); }
+    }
+
+    private static string Digest<T>(T value) => "sha256:" + Sha256Hex(JsonSerializer.SerializeToUtf8Bytes(value));
+    private static string Sha256Hex(ReadOnlySpan<byte> value) => Convert.ToHexStringLower(SHA256.HashData(value));
+}

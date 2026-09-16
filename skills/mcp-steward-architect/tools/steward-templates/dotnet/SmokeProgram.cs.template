@@ -1,0 +1,286 @@
+using ModelContextProtocol.Client;
+using System.Diagnostics;
+using System.Net;
+using System.Net.Http.Headers;
+using System.Net.Sockets;
+using System.Text.Json;
+using System.Text.Json.Nodes;
+using __NAMESPACE__.Mcp.Server;
+
+if (args.Length is < 1 or > 2 || (args.Length == 2 && args[1] != "--http"))
+    throw new InvalidOperationException("Expected server DLL and optional --http.");
+var dll = Path.GetFullPath(args[0]);
+if (!File.Exists(dll)) throw new FileNotFoundException("Server DLL not found.", dll);
+
+VerifyStewardSeed();
+if (args.Length == 2) await RunHttpAsync(dll); else await RunStdioAsync(dll);
+
+static void VerifyStewardSeed()
+{
+    VerifyCapabilityDigestVectors();
+    var root = Path.Combine(Path.GetTempPath(), "__NAMESPACE__.steward-" + Guid.NewGuid().ToString("N"));
+    Directory.CreateDirectory(root);
+    var profile = Path.GetFullPath("src/__NAMESPACE__.Mcp.Server/steward_profile.json");
+    var proof = Path.GetFullPath("src/__NAMESPACE__.Mcp.Server/steward_proof_recipe.json");
+    var clock = new FakeSeedClock(new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero));
+    try
+    {
+        string jobId;
+        using (var first = new StewardSeedRuntime(root, clock, new FakeSeedProvider(), new SeedFaultInjector(["after-dispatch"]), profile, proof))
+        {
+            var admitted = first.Submit("repo", "abc", "idem-1");
+            jobId = admitted.JobId;
+            if (!first.Submit("repo", "abc", "idem-1").Duplicate) throw new InvalidOperationException("Idempotent admission did not deduplicate.");
+            first.RunOneDue(); first.RunOneDue();
+            if (first.Status(jobId).Status != "reconciling") throw new InvalidOperationException("Ambiguous dispatch did not enter reconciliation.");
+        }
+        using (var recovered = new StewardSeedRuntime(root, clock, new FakeSeedProvider(), new SeedFaultInjector(), profile, proof))
+        {
+            recovered.RecoverUntilIdle();
+            var result = recovered.Get(jobId);
+            if (result.Job.Status != "completed" || result.Completion?.Disposition != "eligible") throw new InvalidOperationException("Restart recovery/completion gate failed.");
+            if (result.Job.ProgressRevision < 1 || result.Job.DeadlineAt <= result.Job.CreatedAt) throw new InvalidOperationException("Durable progress/deadline contract missing.");
+            if (result.Handoff is null || result.Handoff.Candidate != result.Job.Candidate || !StewardSeedRuntime.VerifyHandoffDigest(result.Handoff)) throw new InvalidOperationException("Candidate-bound handoff verification failed.");
+            using var upstreamDoc = JsonDocument.Parse(File.ReadAllText(Path.GetFullPath("src/__NAMESPACE__.Mcp.Server/steward_upstream_capability.json")));
+            var expectedCapability = upstreamDoc.RootElement.GetProperty("capability_id").GetString();
+            var expectedDigest = upstreamDoc.RootElement.GetProperty("contract").GetProperty("digest").GetString();
+            var submitOperation = result.Operations.Single(item => item.OperationKind == "submit");
+            if (submitOperation.CapabilityIdentity != expectedCapability || submitOperation.CapabilityContractDigest != expectedDigest || string.IsNullOrWhiteSpace(submitOperation.MutationDecisionRef))
+                throw new InvalidOperationException("Mutation receipt is not bound to the reviewed capability contract/admission decision.");
+        }
+
+        var cancelProvider = new CountingSeedProvider();
+        var cancelRoot = Path.Combine(root, "cancel");
+        string cancelJob;
+        using (var topologyOwner = new StewardSeedRuntime(Path.Combine(root, "topology"), clock, cancelProvider, new SeedFaultInjector(), profile, proof))
+        {
+            // Two-process/same-store negative fixture: a second server process on a
+            // single-owner store must fail with a diagnosable ownership conflict (#105).
+            var topologyRejected = false;
+            try { using var _ = new StewardSeedRuntime(Path.Combine(root, "topology"), clock, cancelProvider, new SeedFaultInjector(), profile, proof); }
+            catch (InvalidOperationException exc) when (exc.Message.Contains("STORE_LOCKED", StringComparison.Ordinal)) { topologyRejected = true; }
+            if (!topologyRejected) throw new InvalidOperationException("Competing writer on a single-owner store was not diagnosed as a topology mismatch.");
+        }
+        using (var runtime = new StewardSeedRuntime(cancelRoot, clock, cancelProvider, new SeedFaultInjector(["after-cancel-dispatch"]), profile, proof))
+        {
+            cancelJob = runtime.Submit("repo-cancel", "abc", "cancel-1").JobId;
+            runtime.RunOneDue(); runtime.RunOneDue();
+            if (runtime.Status(cancelJob).Status != "waiting-external") throw new InvalidOperationException("Submit did not reach durable remote wait.");
+            runtime.Cancel(cancelJob);
+            for (var step = 0; step < 4 && runtime.Status(cancelJob).Status != "cancelled"; step++) runtime.RunOneDue();
+            if (runtime.Status(cancelJob).Status == "cancelled" && runtime.Doctor(cancelJob).CancellationUnknown != 0)
+                throw new InvalidOperationException("Local cancelled state published with ambiguous remote cancellation.");
+        }
+        using (var recoveredCancel = new StewardSeedRuntime(cancelRoot, clock, cancelProvider, new SeedFaultInjector(), profile, proof))
+        {
+            recoveredCancel.RecoverUntilIdle();
+            if (recoveredCancel.Status(cancelJob).Status != "cancelled" || recoveredCancel.Status(cancelJob).Cancellation != "completed")
+                throw new InvalidOperationException("Cancellation did not reconcile before local terminal state.");
+            if (cancelProvider.CancelCount == 0 && cancelProvider.CancelReconcileCount == 0)
+                throw new InvalidOperationException("Stateful cancellation never crossed provider/reconciliation boundary.");
+        }
+
+        var corruptRoot = Path.Combine(root, "corrupt"); Directory.CreateDirectory(corruptRoot);
+        File.WriteAllText(Path.Combine(corruptRoot, "steward-state.json"), "{ definitely-not-json");
+        var corruptProvider = new CountingSeedProvider(); var corruptRejected = false;
+        try { using var _ = new StewardSeedRuntime(corruptRoot, clock, corruptProvider, new SeedFaultInjector(), profile, proof); }
+        catch (InvalidDataException exc) when (exc.Message.Contains("STORE_CORRUPT", StringComparison.Ordinal)) { corruptRejected = true; }
+        if (!corruptRejected || corruptProvider.DispatchCount != 0) throw new InvalidOperationException("Corrupt canonical state did not fail closed before external mutation.");
+
+        VerifyMutationRejection("wrong-request", profile, proof, clock, static root =>
+        {
+            var operations = root["Operations"]!.AsObject();
+            var operation = operations.First().Value!.AsObject();
+            operation["RequestDigest"] = "sha256:" + new string('8', 64);
+        });
+        VerifyMutationRejection("wrong-lease-fence", profile, proof, clock, static root =>
+        {
+            var jobs = root["Jobs"]!.AsObject();
+            var job = jobs.First().Value!.AsObject();
+            job["Lease"]!["FencingToken"] = 999;
+        });
+        VerifyMutationRejection("wrong-subject", profile, proof, clock, static root =>
+        {
+            var lineages = root["Lineages"]!.AsObject();
+            var lineage = lineages.First().Value!.AsObject();
+            lineage["Subject"]!["Revision"] = "other";
+        }, expectLoadRejection: true);
+
+        var blockedProvider = new UnapprovedSeedProvider();
+        using (var blocked = new StewardSeedRuntime(Path.Combine(root, "blocked"), clock, blockedProvider, new SeedFaultInjector(), profile, proof))
+        {
+            var blockedJob = blocked.Submit("repo-blocked", "abc", "blocked-1").JobId;
+            for (var step = 0; step < 10; step++) blocked.RunOneDue();
+            var status = blocked.Status(blockedJob);
+            if (status.Status != "blocked" || status.BlockedReason != "terminal-observation-insufficient-authority")
+                throw new InvalidOperationException("Insufficient proof authority did not produce typed blocked state.");
+            if (blockedProvider.PollCount != 1) throw new InvalidOperationException("Terminal provider observation was polled more than once.");
+        }
+    }
+    finally { Directory.Delete(root, recursive: true); }
+}
+
+static void VerifyCapabilityDigestVectors()
+{
+    var vectorsPath = Path.GetFullPath("src/__NAMESPACE__.Mcp.Server/steward_capability_digest_vectors.json");
+    using var document = JsonDocument.Parse(File.ReadAllText(vectorsPath));
+    foreach (var vector in document.RootElement.GetProperty("vectors").EnumerateArray())
+    {
+        var name = vector.GetProperty("name").GetString()!;
+        if (vector.TryGetProperty("capability", out var capability))
+        {
+            var actual = StewardSeedRuntime.CapabilitySemanticDigest(capability);
+            if (actual != vector.GetProperty("expectedDigest").GetString())
+                throw new InvalidOperationException($"Capability digest golden vector diverged: {name}");
+        }
+        if (vector.TryGetProperty("variants", out var variants))
+        {
+            var digests = variants.EnumerateArray().Select(StewardSeedRuntime.CapabilitySemanticDigest).ToArray();
+            if (vector.TryGetProperty("expectedDigest", out var single))
+            {
+                if (digests[0] != single.GetString() || digests[0] != digests[1])
+                    throw new InvalidOperationException($"Capability digest golden vector diverged: {name}");
+            }
+            else
+            {
+                var expected = vector.GetProperty("expectedDigests").EnumerateArray().Select(item => item.GetString()!).ToArray();
+                if (digests[0] == digests[1] || !digests.SequenceEqual(expected))
+                    throw new InvalidOperationException($"Capability digest golden vector diverged: {name}");
+            }
+        }
+    }
+}
+
+static void VerifyMutationRejection(string name, string profile, string proof, FakeSeedClock clock, Action<JsonObject> tamper, bool expectLoadRejection = false)
+{
+    var root = Path.Combine(Path.GetTempPath(), "__NAMESPACE__.gate-" + name + "-" + Guid.NewGuid().ToString("N"));
+    Directory.CreateDirectory(root);
+    try
+    {
+        using (var reserve = new StewardSeedRuntime(root, clock, new FakeSeedProvider(), new SeedFaultInjector(), profile, proof))
+        {
+            reserve.Submit("repo", "abc", "idem-" + name);
+            reserve.RunOneDue();
+        }
+        var snapshot = Path.Combine(root, "steward-state.json");
+        var json = JsonNode.Parse(File.ReadAllText(snapshot))!.AsObject();
+        tamper(json);
+        File.WriteAllText(snapshot, json.ToJsonString());
+        var provider = new CountingSeedProvider();
+        try
+        {
+            using var runtime = new StewardSeedRuntime(root, clock, provider, new SeedFaultInjector(), profile, proof);
+            if (expectLoadRejection) throw new InvalidOperationException($"{name}: malformed snapshot was accepted.");
+            runtime.RunOneDue();
+            if (provider.DispatchCount != 0) throw new InvalidOperationException($"{name}: rejected mutation reached provider dispatch.");
+            if (runtime.Doctor().Audit.All(item => item.EventType != "mutation-admission-rejected"))
+                throw new InvalidOperationException($"{name}: rejected mutation did not emit durable admission rejection.");
+        }
+        catch (InvalidDataException) when (expectLoadRejection) { return; }
+    }
+    finally { Directory.Delete(root, recursive: true); }
+}
+
+static async Task RunStdioAsync(string dll)
+{
+    var state = Path.Combine(Path.GetTempPath(), "__NAMESPACE__.stdio-" + Guid.NewGuid().ToString("N"));
+    var environment = StdioClientTransportOptions.GetDefaultEnvironmentVariables();
+    environment["STEWARD_STATE_DIR"] = state;
+    var transport = new StdioClientTransport(new StdioClientTransportOptions
+    {
+        Name = "__SERVER_NAME__ Steward stdio smoke", Command = "dotnet", Arguments = [dll],
+        InheritEnvironmentVariables = false, EnvironmentVariables = environment, ShutdownTimeout = TimeSpan.FromSeconds(10),
+    });
+    await using var client = await McpClient.CreateAsync(transport);
+    await VerifyPublicContractAsync(client);
+}
+
+static async Task RunHttpAsync(string dll)
+{
+    var listener = new TcpListener(IPAddress.Loopback, 0); listener.Start();
+    var port = ((IPEndPoint)listener.LocalEndpoint).Port; listener.Stop();
+    var token = Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32));
+    var state = Path.Combine(Path.GetTempPath(), "__NAMESPACE__.http-" + Guid.NewGuid().ToString("N"));
+    using var process = Process.Start(new ProcessStartInfo
+    {
+        FileName = "dotnet", UseShellExecute = false, Arguments = $"\"{dll}\" --http",
+        Environment = { ["MCP_HTTP_PORT"] = port.ToString(System.Globalization.CultureInfo.InvariantCulture), ["MCP_HTTP_BEARER_TOKEN"] = token, ["STEWARD_STATE_DIR"] = state },
+    }) ?? throw new InvalidOperationException("HTTP server process did not start.");
+    try
+    {
+        using var probe = new HttpClient { Timeout = TimeSpan.FromSeconds(1) };
+        var ready = false;
+        for (var attempt = 0; attempt < 40; attempt++)
+        {
+            try { ready = (await probe.GetAsync($"http://127.0.0.1:{port}/health/ready")).IsSuccessStatusCode; if (ready) break; }
+            catch (HttpRequestException) { }
+            catch (OperationCanceledException) { }
+            await Task.Delay(250);
+        }
+        if (!ready) throw new InvalidOperationException("HTTP server did not become ready.");
+        using var unauthorized = await probe.GetAsync($"http://127.0.0.1:{port}/mcp");
+        if (unauthorized.StatusCode != HttpStatusCode.Unauthorized) throw new InvalidOperationException("Unauthenticated MCP request was not rejected.");
+        using var foreign = new HttpRequestMessage(HttpMethod.Get, $"http://127.0.0.1:{port}/mcp");
+        foreign.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token); foreign.Headers.TryAddWithoutValidation("Origin", "https://attacker.invalid");
+        using var foreignResponse = await probe.SendAsync(foreign);
+        if (foreignResponse.StatusCode != HttpStatusCode.Forbidden) throw new InvalidOperationException("Foreign Origin was not rejected.");
+        var transport = new HttpClientTransport(new HttpClientTransportOptions
+        {
+            Name = "__SERVER_NAME__ Steward HTTP smoke", Endpoint = new Uri($"http://127.0.0.1:{port}/mcp"), TransportMode = HttpTransportMode.StreamableHttp,
+            AdditionalHeaders = new Dictionary<string, string> { ["Authorization"] = $"bearer {token}" },
+        });
+        await using var client = await McpClient.CreateAsync(transport);
+        await VerifyPublicContractAsync(client);
+    }
+    finally { if (!process.HasExited) process.Kill(entireProcessTree: true); await process.WaitForExitAsync(); }
+}
+
+static async Task VerifyPublicContractAsync(McpClient client)
+{
+    var names = (await client.ListToolsAsync()).Select(tool => tool.Name).ToHashSet(StringComparer.Ordinal);
+    var expected = new HashSet<string>(["describe_capabilities", "steward_submit", "steward_status", "steward_get", "steward_cancel", "steward_doctor"], StringComparer.Ordinal);
+    if (!names.SetEquals(expected)) throw new InvalidOperationException("Steward tool catalog mismatch.");
+    var submitted = await client.CallToolAsync("steward_submit", new Dictionary<string, object?> { ["subjectId"] = "repo", ["subjectRevision"] = "abc", ["idempotencyKey"] = "public-idem-1" });
+    var root = Structured(submitted, "submit"); var jobId = Text(root, "jobId", "JobId");
+    JsonElement resultRoot = default; var completed = false;
+    for (var attempt = 0; attempt < 100; attempt++)
+    {
+        resultRoot = Structured(await client.CallToolAsync("steward_get", new Dictionary<string, object?> { ["jobId"] = jobId }), "get");
+        if (Text(Object(resultRoot, "job", "Job"), "status", "Status") == "completed") { completed = true; break; }
+        await Task.Delay(50);
+    }
+    if (!completed) throw new InvalidOperationException("Hosted recovery supervisor did not complete public Steward work.");
+    if (Text(Object(resultRoot, "completion", "Completion"), "disposition", "Disposition") != "eligible") throw new InvalidOperationException("Public result bypassed Completion Gate.");
+    if (string.IsNullOrWhiteSpace(Text(Object(resultRoot, "handoff", "Handoff"), "digest", "Digest"))) throw new InvalidOperationException("Public handoff missing digest.");
+}
+
+static JsonElement Structured(dynamic result, string operation) => result.IsError == true || result.StructuredContent is null ? throw new InvalidOperationException($"{operation} failed") : JsonSerializer.SerializeToElement(result.StructuredContent);
+static JsonElement Object(JsonElement root, string camel, string pascal) => root.TryGetProperty(camel, out var value) || root.TryGetProperty(pascal, out value) ? value : throw new InvalidOperationException($"Missing {camel}");
+static string Text(JsonElement root, string camel, string pascal) => Object(root, camel, pascal).GetString() ?? throw new InvalidOperationException($"Null {camel}");
+
+sealed class CountingSeedProvider : ISeedProvider
+{
+    private static readonly string[] ObservedTargetBinding = ["target"];
+    public int DispatchCount { get; private set; }
+    public int PollCount { get; private set; }
+    public int CancelCount { get; private set; }
+    public int CancelReconcileCount { get; private set; }
+    public string ProducerId => "seed-provider";
+    public string Dispatch(string operationId, StewardSubject subject) { _ = subject; DispatchCount++; return $"remote-{operationId}"; }
+    public string Reconcile(string operationId, StewardSubject subject) { _ = subject; return $"remote-{operationId}"; }
+    public SeedPollResult Poll(string remoteHandle, StewardSubject subject) { PollCount++; return new(true, JsonSerializer.SerializeToElement(new { state = "completed", remoteHandle, subject, revision = "terminal-1", observation = new { producerId = ProducerId, observationGrade = "observed", authorityClass = "observed", binding = new { satisfied = ObservedTargetBinding }, coverage = new { required = 1, observed = 1 } } })); }
+    public string Cancel(string cancellationOperationId, string remoteHandle, StewardSubject subject) { _ = remoteHandle; _ = subject; CancelCount++; return $"cancel-{cancellationOperationId}"; }
+    public string ReconcileCancel(string cancellationOperationId, string remoteHandle, StewardSubject subject) { _ = remoteHandle; _ = subject; CancelReconcileCount++; return $"cancel-{cancellationOperationId}"; }
+}
+
+sealed class UnapprovedSeedProvider : ISeedProvider
+{
+    private static readonly string[] ObservedTargetBinding = ["target"];
+    public int PollCount { get; private set; }
+    public string ProducerId => "unapproved-provider";
+    public string Dispatch(string operationId, StewardSubject subject) { _ = subject; return $"remote-{operationId}"; }
+    public string Reconcile(string operationId, StewardSubject subject) { _ = subject; return $"remote-{operationId}"; }
+    public SeedPollResult Poll(string remoteHandle, StewardSubject subject) { PollCount++; return new(true, JsonSerializer.SerializeToElement(new { state = "completed", remoteHandle, subject, observation = new { producerId = ProducerId, observationGrade = "observed", authorityClass = "observed", binding = new { satisfied = ObservedTargetBinding }, coverage = new { required = 1, observed = 1 } } })); }
+    public string Cancel(string cancellationOperationId, string remoteHandle, StewardSubject subject) { _ = remoteHandle; _ = subject; return $"cancel-{cancellationOperationId}"; }
+    public string ReconcileCancel(string cancellationOperationId, string remoteHandle, StewardSubject subject) { _ = remoteHandle; _ = subject; return $"cancel-{cancellationOperationId}"; }
+}

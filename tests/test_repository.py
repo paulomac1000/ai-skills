@@ -18,6 +18,7 @@ EXPECTED_SKILLS = {
     "mcp-gateway-release-verifier",
     "mcp-server-architect",
     "mcp-server-consumer",
+    "mcp-steward-architect",
     "qa-change-verifier",
     "readme-architect",
 }

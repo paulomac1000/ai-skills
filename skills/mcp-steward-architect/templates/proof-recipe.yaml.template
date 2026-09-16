@@ -1,0 +1,30 @@
+schema_version: 2
+recipe_id: __RECIPE_ID__
+revision: 1
+producers:
+  - producer_id: __PRODUCER_ID__
+    trust_class: external-trusted
+    observation_kind: provider-result
+    subject_dimensions: [target]
+    claim_classes: [__CRITERION_ID__]
+    binding_requirements: [target]
+    authority_ceiling: observed
+    independence: external
+criteria:
+  - criterion_id: __CRITERION_ID__
+    canonical_claim: __CRITERION_ID__
+    subject_dimensions: [target]
+    candidate_binding_required: false
+    binding_requirements: [target]
+    required_authority: observed
+    freshness_seconds: 300
+    approved_producers: [__PRODUCER_ID__]
+    coverage_semantics: all-required
+    probes: []
+    sufficiency: all-required
+aggregation:
+  unobserved_is_negative: false
+  unknown_blocks_complete_negative: true
+completion:
+  unresolved_required_criterion: blocked
+  advisory_model_findings_require_reproduction: true
