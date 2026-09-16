@@ -153,6 +153,8 @@ def _completion(job: dict[str, Any]) -> dict[str, Any]:
         },
         "disposition": "eligible",
         "obligations": [{"id": "provider-result", "state": "satisfied", "evidenceRefs": ["e1"]}],
+        "obligationSetDigest": "sha256:" + "0" * 64,
+        "parentContract": None,
         "ambiguousOperationRefs": [],
         "ambiguousCancellationRefs": [],
         "evaluatedAt": "2026-09-12T00:05:00Z",
@@ -745,3 +747,65 @@ def test_generator_rejects_nested_symlink_destination(tmp_path: Path) -> None:
             profile="verification",
         )
     assert not (outside / "project").exists()
+
+
+def test_supervised_profile_requires_parent_contract_snapshot() -> None:
+    generator, validator = _generator(), _validator()
+    docs = _docs(generator)
+    profile = json.loads(json.dumps(docs["steward_profile"]))
+    profile["authority"]["parent_completion"] = "explicit-contract-only"
+    findings = validator.validate_document("profile", profile)
+    assert any("'parent_contract' is a required property" in item for item in findings)
+
+
+def test_parent_delegation_beyond_local_authority_is_rejected() -> None:
+    generator, validator = _generator(), _validator()
+    docs = _docs(generator)
+    profile = json.loads(json.dumps(docs["steward_profile"]))
+    profile["authority"]["parent_completion"] = "explicit-contract-only"
+    profile["parent_contract"] = {
+        "system_id": "project-steward",
+        "work_id": "parent-1",
+        "run_id": "run-1",
+        "generation": 3,
+        "contract_revision": 1,
+        "contract_digest": "sha256:" + "0" * 64,
+        "authority_ceiling": "explicit",
+        "deadline_at": "2026-09-13T02:00:00Z",
+        "budget": {"max_wall_clock_ms": 3_600_000, "max_external_calls": 64},
+        "handoff_contract": "execution-evidence-v1",
+        "delegated_capabilities": ["merge-pull-request"],
+        "forbidden_capabilities": [],
+        "parent_completion_authority": "report_only",
+        "policy_revision_or_digest": "policy-1",
+        "obligations_ref": None,
+        "terminal_boundary": "steward-job",
+    }
+    findings = validator.validate_document("profile", profile)
+    assert any("delegated capabilities exceed locally configured authority" in item for item in findings)
+
+
+def test_standalone_profile_cannot_declare_parent_contract() -> None:
+    generator, validator = _generator(), _validator()
+    docs = _docs(generator)
+    profile = json.loads(json.dumps(docs["steward_profile"]))
+    profile["parent_contract"] = {
+        "system_id": "project-steward",
+        "work_id": "parent-1",
+        "run_id": "run-1",
+        "generation": 3,
+        "contract_revision": 1,
+        "contract_digest": "sha256:" + "0" * 64,
+        "authority_ceiling": "explicit",
+        "deadline_at": "2026-09-13T02:00:00Z",
+        "budget": {"max_wall_clock_ms": 3_600_000, "max_external_calls": 64},
+        "handoff_contract": "execution-evidence-v1",
+        "delegated_capabilities": [],
+        "forbidden_capabilities": [],
+        "parent_completion_authority": "report_only",
+        "policy_revision_or_digest": None,
+        "obligations_ref": None,
+        "terminal_boundary": "steward-job",
+    }
+    findings = validator.validate_document("profile", profile)
+    assert any("standalone steward must not declare a parent_contract" in item for item in findings)

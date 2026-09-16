@@ -143,7 +143,50 @@ def _profile_findings(value: dict[str, Any]) -> list[str]:
         findings.append("external_operations: durable_external_async requires worker_wait_policy=external-maintenance")
     if features["external_cancellation"] and not external["cancellation_reconciliation_required"]:
         findings.append("external_operations: external_cancellation requires cancellation reconciliation")
+    supervised = authority["parent_completion"] == "explicit-contract-only"
+    parent_contract = value.get("parent_contract")
+    if supervised and not isinstance(parent_contract, dict):
+        findings.append("authority: parent_completion=explicit-contract-only requires a parent_contract snapshot")
+    if not supervised and parent_contract is not None:
+        findings.append("authority: standalone steward must not declare a parent_contract")
+    if isinstance(parent_contract, dict):
+        delegated = set(parent_contract["delegated_capabilities"])
+        forbidden = set(parent_contract["forbidden_capabilities"])
+        overlap = sorted(delegated & forbidden)
+        if overlap:
+            findings.append("parent_contract: capability is both delegated and forbidden: " + ", ".join(overlap))
+        exceeds = sorted(delegated - set(authority["may_mutate"]))
+        if exceeds:
+            findings.append(
+                "parent_contract: delegated capabilities exceed locally configured authority: " + ", ".join(exceeds)
+            )
+        if (
+            parent_contract["parent_completion_authority"] == "explicit_mutation"
+            and authority["parent_completion"] != "explicit-contract-only"
+        ):
+            findings.append("parent_contract: explicit_mutation completion authority requires supervised mode")
     return findings
+
+
+def _parent_contract_digest(snapshot: dict[str, Any]) -> str:
+    projected = json.loads(json.dumps(snapshot))
+    projected.pop("digest", None)
+    return (
+        "sha256:"
+        + hashlib.sha256(
+            json.dumps(projected, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+        ).hexdigest()
+    )
+
+
+def _obligation_set_digest(snapshot: dict[str, Any]) -> str:
+    projected = {"revision": snapshot["revision"], "obligations": snapshot["obligations"]}
+    return (
+        "sha256:"
+        + hashlib.sha256(
+            json.dumps(projected, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+        ).hexdigest()
+    )
 
 
 def _job_findings(value: dict[str, Any]) -> list[str]:
@@ -156,6 +199,24 @@ def _job_findings(value: dict[str, Any]) -> list[str]:
         findings.append("job: blocked state requires blockedReason")
     if value["progressRevision"] < 0:
         findings.append("job: progressRevision must be non-negative")
+    parent_contract = value.get("parentContract")
+    obligation_set = value.get("obligationSet")
+    if isinstance(parent_contract, dict):
+        if parent_contract["mode"] != "supervised":
+            findings.append("job: admitted parentContract must use supervised mode")
+        elif _parent_contract_digest(parent_contract) != parent_contract["digest"]:
+            findings.append("job: parentContract digest does not bind the snapshot contents")
+    if value["status"] in {"queued", "running", "waiting-external", "finalizing", "completed", "completed-with-gaps"}:
+        if not isinstance(obligation_set, dict):
+            findings.append("job: admitted work requires an obligationSet snapshot at admission")
+        elif _obligation_set_digest(obligation_set) != obligation_set["digest"]:
+            findings.append("job: obligationSet digest does not bind the snapshot contents")
+    if (
+        value["status"] in {"completed", "completed-with-gaps"}
+        and parent_contract is None
+        and value.get("failure") is None
+    ):
+        pass  # standalone completion is valid; obligation snapshot already required above
     return findings
 
 
@@ -280,6 +341,11 @@ def _completion_findings(value: dict[str, Any]) -> list[str]:
         findings.append("completion: eligible disposition has unsatisfied obligations")
     if value["disposition"] == "eligible" and (value["ambiguousOperationRefs"] or value["ambiguousCancellationRefs"]):
         findings.append("completion: eligible disposition has unresolved external effects")
+    if value["disposition"] == "eligible" and not value.get("obligationSetDigest"):
+        findings.append("completion: eligible disposition must bind the admitted obligationSet digest")
+    parent = value.get("parentContract")
+    if value["disposition"] == "eligible" and parent is not None and parent["mode"] != "supervised":
+        findings.append("completion: eligible supervised completion must reference a supervised parent contract")
     return findings
 
 

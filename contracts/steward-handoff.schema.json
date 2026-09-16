@@ -23,9 +23,11 @@
     "failureClass": {"type": ["string", "null"], "maxLength": 120},
     "correlationId": {"type": ["string", "null"], "maxLength": 200},
     "sealedAt": {"type": "string", "format": "date-time"},
+    "parentContract": {"anyOf": [{"type": "null"}, {"$ref": "#/$defs/parentContractRef"}]},
     "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
   },
   "$defs": {
+    "parentContractRef": {"type": "object", "additionalProperties": false, "required": ["mode", "contractDigest", "parentWorkId", "parentGeneration"], "properties": {"mode": {"enum": ["standalone", "supervised"]}, "contractDigest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}, "parentWorkId": {"type": ["string", "null"], "maxLength": 200}, "parentGeneration": {"type": "integer", "minimum": 1}}},
     "identity": {"type": "object", "additionalProperties": false, "required": ["type", "id", "revision"], "properties": {"type": {"type": "string", "minLength": 1}, "id": {"type": "string", "minLength": 1}, "revision": {"type": ["string", "null"]}, "digest": {"type": ["string", "null"]}}},
     "candidate": {"type": "object", "additionalProperties": false, "required": ["type", "id", "revision", "digest"], "properties": {"type": {"type": "string", "minLength": 1}, "id": {"type": "string", "minLength": 1}, "revision": {"type": ["string", "null"]}, "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}}}
   }

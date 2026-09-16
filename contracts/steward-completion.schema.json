@@ -18,9 +18,12 @@
     "obligations": {"type": "array", "maxItems": 256, "items": {"type": "object", "additionalProperties": false, "required": ["id", "state", "evidenceRefs"], "properties": {"id": {"type": "string", "minLength": 1}, "state": {"enum": ["satisfied", "not-applicable", "waived", "unsatisfied"]}, "evidenceRefs": {"type": "array", "uniqueItems": true, "maxItems": 1024, "items": {"type": "string", "minLength": 1}}, "rationale": {"type": ["string", "null"], "maxLength": 2000}, "authorityRef": {"type": ["string", "null"], "maxLength": 500}}}},
     "ambiguousOperationRefs": {"type": "array", "uniqueItems": true, "maxItems": 256, "items": {"type": "string", "minLength": 1}},
     "ambiguousCancellationRefs": {"type": "array", "uniqueItems": true, "maxItems": 256, "items": {"type": "string", "minLength": 1}},
-    "evaluatedAt": {"type": "string", "format": "date-time"}
+    "evaluatedAt": {"type": "string", "format": "date-time"},
+    "obligationSetDigest": {"type": ["string", "null"], "pattern": "^sha256:[0-9a-f]{64}$"},
+    "parentContract": {"anyOf": [{"type": "null"}, {"$ref": "#/$defs/parentContractRef"}]}
   },
   "$defs": {
+    "parentContractRef": {"type": "object", "additionalProperties": false, "required": ["mode", "contractDigest", "parentGeneration"], "properties": {"mode": {"enum": ["standalone", "supervised"]}, "contractDigest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}, "parentGeneration": {"type": "integer", "minimum": 1}}},
     "identity": {"type": "object", "additionalProperties": false, "required": ["type", "id", "revision"], "properties": {"type": {"type": "string", "minLength": 1}, "id": {"type": "string", "minLength": 1}, "revision": {"type": ["string", "null"]}, "digest": {"type": ["string", "null"]}}},
     "candidate": {"type": "object", "additionalProperties": false, "required": ["type", "id", "revision", "digest"], "properties": {"type": {"type": "string", "minLength": 1}, "id": {"type": "string", "minLength": 1}, "revision": {"type": ["string", "null"]}, "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}}}
   }

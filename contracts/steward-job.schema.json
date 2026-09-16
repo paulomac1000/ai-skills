@@ -197,9 +197,300 @@
     "requestDigest": {
       "type": "string",
       "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "parentContract": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "#/$defs/parentContract"
+        }
+      ]
+    },
+    "obligationSet": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "#/$defs/obligationSet"
+        }
+      ]
     }
   },
   "$defs": {
+    "parentContract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mode",
+        "supervisor",
+        "work",
+        "contract",
+        "authority",
+        "policy",
+        "budget",
+        "completion",
+        "digest"
+      ],
+      "properties": {
+        "mode": {
+          "enum": [
+            "standalone",
+            "supervised"
+          ]
+        },
+        "supervisor": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "systemId",
+            "principalOrInstance"
+          ],
+          "properties": {
+            "systemId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "principalOrInstance": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "maxLength": 200
+            }
+          }
+        },
+        "work": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "parentWorkId",
+            "parentRunId",
+            "generation"
+          ],
+          "properties": {
+            "parentWorkId": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "parentRunId": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "generation": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "attempt": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "maxLength": 200
+            }
+          }
+        },
+        "contract": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "revision",
+            "digest"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "revision": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "digest": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            }
+          }
+        },
+        "authority": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "delegatedCapabilities",
+            "forbiddenCapabilities",
+            "parentCompletionAuthority",
+            "authorityCeiling"
+          ],
+          "properties": {
+            "delegatedCapabilities": {
+              "type": "array",
+              "maxItems": 256,
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              }
+            },
+            "forbiddenCapabilities": {
+              "type": "array",
+              "maxItems": 256,
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              }
+            },
+            "parentCompletionAuthority": {
+              "enum": [
+                "none",
+                "report_only",
+                "explicit_mutation"
+              ]
+            },
+            "authorityCeiling": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 60
+            }
+          }
+        },
+        "policy": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "revisionOrDigest"
+          ],
+          "properties": {
+            "revisionOrDigest": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "maxLength": 200
+            }
+          }
+        },
+        "budget": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "absoluteDeadline",
+            "retryOrResourceBudgetRef"
+          ],
+          "properties": {
+            "absoluteDeadline": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "format": "date-time"
+            },
+            "retryOrResourceBudgetRef": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "maxLength": 200
+            }
+          }
+        },
+        "completion": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "obligationsRef",
+            "terminalBoundary",
+            "handoffContract"
+          ],
+          "properties": {
+            "obligationsRef": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "maxLength": 200
+            },
+            "terminalBoundary": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "maxLength": 200
+            },
+            "handoffContract": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          }
+        },
+        "digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        }
+      }
+    },
+    "obligationSet": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "revision",
+        "digest",
+        "obligations"
+      ],
+      "properties": {
+        "revision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "obligations": {
+          "type": "array",
+          "maxItems": 1024,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "required",
+              "evidenceClass"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "required": {
+                "type": "boolean"
+              },
+              "evidenceClass": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100
+              }
+            }
+          }
+        }
+      }
+    },
     "identity": {
       "type": "object",
       "additionalProperties": false,

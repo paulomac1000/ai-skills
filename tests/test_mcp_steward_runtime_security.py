@@ -448,3 +448,94 @@ def test_completion_rejects_persisted_authority_above_producer_ceiling(tmp_path:
     evaluation = steward.completion_gate(job_id)
     assert evaluation["disposition"] == "blocked"
     assert evaluation["obligations"][0]["state"] == "unsatisfied"
+
+
+def _supervised_parent_contract(runtime: ModuleType, *, capability_id: str, generation: int = 3) -> dict[str, Any]:
+    return {
+        "mode": "supervised",
+        "supervisor": {"systemId": "project-steward", "principalOrInstance": "supervisor-1"},
+        "work": {"parentWorkId": "parent-1", "parentRunId": "run-1", "generation": generation, "attempt": "a1"},
+        "contract": {"id": "parent-contract-1", "revision": "1", "digest": "sha256:" + "0" * 64},
+        "authority": {
+            "delegatedCapabilities": [capability_id],
+            "forbiddenCapabilities": [],
+            "parentCompletionAuthority": "report_only",
+            "authorityCeiling": "observed",
+        },
+        "policy": {"revisionOrDigest": "policy-1"},
+        "budget": {"absoluteDeadline": "2026-09-13T02:00:00Z", "retryOrResourceBudgetRef": "budget-1"},
+        "completion": {
+            "obligationsRef": None,
+            "terminalBoundary": "steward-job",
+            "handoffContract": "execution-evidence-v1",
+        },
+    }
+
+
+def test_supervised_admission_snapshots_parent_contract_and_narrows_deadline(tmp_path: Path) -> None:
+    runtime, profile, proof, mutation, upstream = _generated_runtime(tmp_path)
+    clock = runtime.FakeClock(datetime(2026, 9, 13, tzinfo=UTC))
+    store = runtime.StewardStore(tmp_path / "supervised.db", clock)
+    steward = runtime.StewardRuntime(store, profile, proof, mutation, upstream=upstream)
+    parent = _supervised_parent_contract(runtime, capability_id=str(upstream["capability_id"]))
+    job_id = steward.submit("repo", "abc", "supervised-1", parent_contract=parent)["jobId"]
+    job = steward.status(job_id)
+    assert job["parentContract"] is not None
+    assert job["parentContract"]["mode"] == "supervised"
+    assert job["parentContract"]["digest"].startswith("sha256:")
+    # Inherited absolute deadline (02:00Z) is later than the local 15-minute budget,
+    # so the effective deadline must remain the narrower local one.
+    assert job["deadlineAt"] == "2026-09-13T00:15:00Z"
+    snapshot = job["obligationSet"]
+    assert snapshot is not None and snapshot["obligations"]
+    assert snapshot["digest"].startswith("sha256:")
+
+
+def test_supervised_admission_narrows_inherited_deadline_when_tighter(tmp_path: Path) -> None:
+    runtime, profile, proof, mutation, upstream = _generated_runtime(tmp_path)
+    clock = runtime.FakeClock(datetime(2026, 9, 13, tzinfo=UTC))
+    store = runtime.StewardStore(tmp_path / "narrow.db", clock)
+    steward = runtime.StewardRuntime(store, profile, proof, mutation, upstream=upstream)
+    parent = _supervised_parent_contract(runtime, capability_id=str(upstream["capability_id"]))
+    parent["budget"]["absoluteDeadline"] = "2026-09-13T00:05:00Z"
+    job_id = steward.submit("repo", "abc", "narrow-1", parent_contract=parent)["jobId"]
+    assert steward.status(job_id)["deadlineAt"] == "2026-09-13T00:05:00Z"
+
+
+def test_parent_delegation_beyond_delegation_blocks_mutation_dispatch(tmp_path: Path) -> None:
+    runtime, profile, proof, mutation, upstream = _generated_runtime(tmp_path)
+    capability_id = str(upstream["capability_id"])
+    clock = runtime.FakeClock(datetime(2026, 9, 13, tzinfo=UTC))
+    store = runtime.StewardStore(tmp_path / "forbidden.db", clock)
+    steward = runtime.StewardRuntime(store, profile, proof, mutation, upstream=upstream)
+    parent = _supervised_parent_contract(runtime, capability_id=capability_id)
+    parent["authority"]["delegatedCapabilities"] = ["some-other-capability"]
+    job_id = steward.submit("repo", "abc", "forbidden-1", parent_contract=parent)["jobId"]
+    for _ in range(6):
+        steward.run_once()
+        if steward.status(job_id)["status"] == "blocked":
+            break
+    status = steward.status(job_id)
+    assert status["status"] == "blocked"
+    assert "ParentAuthorityInsufficient" in str(status["blockedReason"])
+
+
+def test_off_topic_plan_after_admission_cannot_complete(tmp_path: Path) -> None:
+    runtime, profile, proof, mutation, upstream = _generated_runtime(tmp_path)
+    clock = runtime.FakeClock(datetime(2026, 9, 13, tzinfo=UTC))
+    store = runtime.StewardStore(tmp_path / "offtopic.db", clock)
+    steward = runtime.StewardRuntime(store, profile, proof, mutation, upstream=upstream)
+    job_id = steward.submit("repo", "abc", "offtopic-1")["jobId"]
+    assert steward.run_once() is True  # reserve
+    assert steward.run_once() is True  # dispatch
+    # Planner/model drift: the live proof recipe is rewritten to prove a different
+    # topic after admission. The admitted obligation snapshot still demands the
+    # original criterion, so completion must fail closed on the missing mapping.
+    proof["criteria"] = [dict(proof["criteria"][0], criterion_id="different-topic", canonical_claim="different-topic")]
+    assert steward.run_once() is True  # poll + capture + evidence promotion
+    evaluation = steward.completion_gate(job_id)
+    assert evaluation["disposition"] == "blocked"
+    assert evaluation["obligationSetDigest"] is not None
+    assert evaluation["obligations"][0]["id"] == "provider-result"
+    assert evaluation["obligations"][0]["state"] == "unsatisfied"
+    assert steward.status(job_id)["status"] != "completed"

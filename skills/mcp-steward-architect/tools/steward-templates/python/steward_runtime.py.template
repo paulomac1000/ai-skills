@@ -39,6 +39,77 @@ def _iso(value: datetime) -> str:
     return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
 
 
+class ParentContractError(RuntimeError):
+    """Typed Work Admission outcome for rejected parent/supervisor contracts."""
+
+    def __init__(self, outcome: str, reason: str) -> None:
+        super().__init__(f"{outcome}: {reason}")
+        self.outcome = outcome
+
+
+_PARENT_COMPLETION_AUTHORITY = {"none", "report_only", "explicit_mutation"}
+
+
+def _validate_parent_contract(parent_contract: dict[str, Any]) -> dict[str, Any]:
+    """Validate the supervised parent contract shape and return the canonical snapshot."""
+    if not isinstance(parent_contract, dict):
+        raise ParentContractError("ParentContractUnsupported", "parent contract must be an object")
+    if parent_contract.get("mode") != "supervised":
+        raise ParentContractError("ParentContractUnsupported", "admitted parent contract must be supervised")
+    supervisor = parent_contract.get("supervisor")
+    if not isinstance(supervisor, dict) or not str(supervisor.get("systemId") or "").strip():
+        raise ParentContractError("ParentContractUnsupported", "supervisor systemId is required")
+    work = parent_contract.get("work")
+    if not isinstance(work, dict) or not isinstance(work.get("generation"), int) or work["generation"] < 1:
+        raise ParentContractError("ParentContractUnsupported", "parent work generation is required")
+    contract = parent_contract.get("contract")
+    if not isinstance(contract, dict) or not str(contract.get("id") or "").strip() or not str(contract.get("revision") or "").strip():
+        raise ParentContractError("ParentContractUnsupported", "parent contract id/revision is required")
+    if not str(contract.get("digest") or "").startswith("sha256:"):
+        raise ParentContractError("ParentContractUnsupported", "parent contract digest is required")
+    authority = parent_contract.get("authority")
+    if not isinstance(authority, dict):
+        raise ParentContractError("ParentContractUnsupported", "parent authority is required")
+    if not isinstance(authority.get("delegatedCapabilities"), list) or not isinstance(authority.get("forbiddenCapabilities"), list):
+        raise ParentContractError("ParentContractUnsupported", "delegated/forbidden capability lists are required")
+    if authority.get("parentCompletionAuthority") not in _PARENT_COMPLETION_AUTHORITY:
+        raise ParentContractError("ParentContractUnsupported", "parentCompletionAuthority is required")
+    if not str(authority.get("authorityCeiling") or "").strip():
+        raise ParentContractError("ParentContractUnsupported", "parent authorityCeiling is required")
+    budget = parent_contract.get("budget")
+    if not isinstance(budget, dict):
+        raise ParentContractError("ParentContractUnsupported", "parent budget is required")
+    deadline = budget.get("absoluteDeadline")
+    if deadline is not None:
+        try:
+            _parse(str(deadline))
+        except ValueError:
+            raise ParentContractError("ParentBudgetUnavailable", "parent absoluteDeadline is not parseable") from None
+    completion = parent_contract.get("completion")
+    if not isinstance(completion, dict) or not str(completion.get("handoffContract") or "").strip():
+        raise ParentContractError("ParentContractUnsupported", "parent completion handoffContract is required")
+    policy = parent_contract.get("policy")
+    if not isinstance(policy, dict):
+        raise ParentContractError("ParentContractUnsupported", "parent policy is required")
+    snapshot = json.loads(_canonical(parent_contract))
+    snapshot.pop("digest", None)
+    return {**parent_contract, "digest": _digest(snapshot)}
+
+
+def _obligation_snapshot(profile: dict[str, Any]) -> dict[str, Any]:
+    """Snapshot the governing completion obligations at Work Admission (#107)."""
+    revision = int(profile["steward"]["contract_revision"])
+    obligations = [
+        {"id": str(item["id"]), "required": bool(item["required"]), "evidenceClass": str(item["evidence_class"])}
+        for item in profile["completion"]["obligations"]
+    ]
+    return {"revision": revision, "digest": _digest({"revision": revision, "obligations": obligations}), "obligations": obligations}
+
+
+def _empty_obligation_set() -> dict[str, Any]:
+    return {"revision": 0, "digest": _digest({"revision": 0, "obligations": []}), "obligations": []}
+
+
 def _parse(value: str) -> datetime:
     return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(UTC)
 
@@ -112,6 +183,16 @@ def _evaluate_mutation(
         reasons.append(("CapabilityUnavailable", "capability identity mismatch"))
     if _capability_digest(capability) != contract.get("digest") or contract != effect["capability_contract"]:
         reasons.append(("CapabilityUnavailable", "capability contract differs from exact reviewed source/id/revision/digest"))
+    parent_contract = job.get("parentContract")
+    if isinstance(parent_contract, dict):
+        # Effective authority is the intersection of local configuration and parent delegation (#95).
+        delegated = {str(item) for item in parent_contract["authority"]["delegatedCapabilities"]}
+        forbidden = {str(item) for item in parent_contract["authority"]["forbiddenCapabilities"]}
+        capability_id = str(effect["capability_ref"])
+        if capability_id in forbidden:
+            reasons.append(("ParentAuthorityInsufficient", "capability is forbidden by the admitted parent contract"))
+        elif delegated and capability_id not in delegated:
+            reasons.append(("ParentAuthorityInsufficient", "capability is not delegated by the admitted parent contract"))
     required_budget_ms = int(effect["minimum_budget_ms"]) + int(effect["finalization_reserve_ms"])
     if remaining_budget_ms < required_budget_ms:
         reasons.append(("BudgetUnavailable", "remaining budget cannot cover operation plus deterministic finalization reserve"))
@@ -232,7 +313,8 @@ class StewardStore:
               job_id TEXT PRIMARY KEY,lineage_id TEXT,generation INTEGER,attempt_id TEXT,version INTEGER,
               subject_json TEXT,candidate_json TEXT,request_digest TEXT,status TEXT,stage TEXT,cancellation TEXT,
               blocked_reason TEXT,created_at TEXT,updated_at TEXT,heartbeat_at TEXT,progress_at TEXT,progress_revision INTEGER,
-              progress_marker TEXT,deadline_at TEXT,finalization_starts_at TEXT,lease_owner TEXT,lease_fencing_token INTEGER,lease_expires_at TEXT);
+              progress_marker TEXT,deadline_at TEXT,finalization_starts_at TEXT,lease_owner TEXT,lease_fencing_token INTEGER,lease_expires_at TEXT,
+              parent_contract_json TEXT,parent_contract_digest TEXT,obligation_set_json TEXT,obligation_set_digest TEXT);
             CREATE TABLE IF NOT EXISTS steward_lineages(
               lineage_id TEXT PRIMARY KEY,current_generation INTEGER,current_job_id TEXT,subject_json TEXT,candidate_json TEXT,version INTEGER);
             CREATE TABLE IF NOT EXISTS intake_idempotency(
@@ -268,14 +350,32 @@ class StewardStore:
         material = {"type": "subject-snapshot", "id": subject["id"], "revision": subject.get("revision")}
         return {**material, "digest": _digest(material)}
 
-    def admit(self, subject: dict[str, Any], idempotency_key: str) -> dict[str, Any]:
+    def admit(
+        self, subject: dict[str, Any], idempotency_key: str, parent_contract: dict[str, Any] | None = None,
+        obligation_set: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         subject = {"type": "target", "id": str(subject["id"]), "revision": subject.get("revision")}
         candidate = self._candidate(subject)
         request_digest = _digest({"subject": subject, "candidate": candidate})
         lineage_id = "lineage-" + hashlib.sha256(_canonical({"type": subject["type"], "id": subject["id"]}).encode("utf-8")).hexdigest()[:24]
+        parent_snapshot: dict[str, Any] | None = None
+        if parent_contract is not None:
+            parent_snapshot = _validate_parent_contract(parent_contract)
+            delegated = set(parent_snapshot["authority"]["delegatedCapabilities"])
+            forbidden = set(parent_snapshot["authority"]["forbiddenCapabilities"])
+            overlap = sorted(delegated & forbidden)
+            if overlap:
+                raise ParentContractError("ParentContractUnsupported", f"capability is both delegated and forbidden: {overlap[0]}")
+        obligation_set = obligation_set or _empty_obligation_set()
         now_dt = self.clock.now()
         now = _iso(now_dt)
-        deadline = _iso(now_dt + timedelta(minutes=15))
+        deadline = now_dt + timedelta(minutes=15)
+        if parent_snapshot is not None:
+            parent_deadline = parent_snapshot["budget"].get("absoluteDeadline")
+            if parent_deadline is not None:
+                # A supervised Steward may narrow the inherited budget, never enlarge it (#95).
+                deadline = min(deadline, _parse(str(parent_deadline)))
+        deadline = _iso(deadline)
         with self._write() as db:
             previous = db.execute(
                 "SELECT request_digest,job_id FROM intake_idempotency WHERE idempotency_key=?", (idempotency_key,)
@@ -283,6 +383,16 @@ class StewardStore:
             if previous:
                 if previous["request_digest"] != request_digest:
                     raise RuntimeError("idempotency key is bound to a different request digest")
+                prior = db.execute(
+                    "SELECT parent_contract_digest FROM steward_jobs WHERE job_id=?", (str(previous["job_id"]),)
+                ).fetchone()
+                prior_parent = prior["parent_contract_digest"] if prior is not None else None
+                wanted_parent = parent_snapshot["digest"] if parent_snapshot is not None else None
+                if (prior_parent or None) != (wanted_parent or None):
+                    raise ParentContractError(
+                        "ReAdmissionRequired",
+                        "idempotency key is bound to a different parent contract generation",
+                    )
                 return {"jobId": str(previous["job_id"]), "duplicate": True}
             lineage = db.execute(
                 "SELECT current_generation,current_job_id FROM steward_lineages WHERE lineage_id=?", (lineage_id,)
@@ -307,10 +417,15 @@ class StewardStore:
                 "INSERT INTO steward_jobs("
                 "job_id,lineage_id,generation,attempt_id,version,subject_json,candidate_json,request_digest,status,stage,cancellation,"
                 "blocked_reason,created_at,updated_at,heartbeat_at,progress_at,progress_revision,progress_marker,deadline_at,"
-                "finalization_starts_at,lease_owner,lease_fencing_token,lease_expires_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "finalization_starts_at,lease_owner,lease_fencing_token,lease_expires_at,"
+                "parent_contract_json,parent_contract_digest,obligation_set_json,obligation_set_digest) "
+                "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (job_id, lineage_id, generation, attempt_id, 0, _canonical(subject), _canonical(candidate), request_digest,
                  "queued", "admitted", "none", None, now, now, now, now, 1, "admitted", deadline, None,
-                 f"steward-runtime:{attempt_id}", generation, deadline),
+                 f"steward-runtime:{attempt_id}", generation, deadline,
+                 _canonical(parent_snapshot) if parent_snapshot is not None else None,
+                 parent_snapshot["digest"] if parent_snapshot is not None else None,
+                 _canonical(obligation_set), obligation_set["digest"]),
             )
             db.execute(
                 "INSERT INTO steward_lineages VALUES(?,?,?,?,?,0) ON CONFLICT(lineage_id) DO UPDATE SET "
@@ -319,7 +434,9 @@ class StewardStore:
                 (lineage_id, generation, job_id, _canonical(subject), _canonical(candidate)),
             )
             db.execute("INSERT INTO intake_idempotency VALUES(?,?,?)", (idempotency_key, request_digest, job_id))
-            self._audit(db, job_id, "admitted", {"generation": generation, "candidateDigest": candidate["digest"]})
+            self._audit(db, job_id, "admitted", {"generation": generation, "candidateDigest": candidate["digest"],
+                        "obligationSetDigest": obligation_set["digest"],
+                        "parentContractDigest": parent_snapshot["digest"] if parent_snapshot is not None else None})
         return {"jobId": job_id, "duplicate": False}
 
     def job(self, job_id: str) -> dict[str, Any]:
@@ -342,6 +459,8 @@ class StewardStore:
             "finalizationStartsAt": row["finalization_starts_at"], "lease": lease, "cancellation": row["cancellation"],
             "blockedReason": row["blocked_reason"], "externalOperationRefs": [str(item[0]) for item in refs],
             "evidenceRefs": [str(item[0]) for item in evrefs], "artifactRefs": [], "failure": None,
+            "parentContract": None if row["parent_contract_json"] is None else json.loads(row["parent_contract_json"]),
+            "obligationSet": None if row["obligation_set_json"] is None else json.loads(row["obligation_set_json"]),
         }
 
     def current_lineage(self, lineage_id: str) -> dict[str, Any]:
@@ -799,10 +918,16 @@ class StewardRuntime:
             "leaseFencingToken": None if lease is None else lease["fencingToken"],
         }
 
-    def submit(self, subject_id: str, subject_revision: str | None, idempotency_key: str) -> dict[str, Any]:
+    def submit(
+        self, subject_id: str, subject_revision: str | None, idempotency_key: str,
+        parent_contract: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         if not idempotency_key:
             raise ValueError("idempotency_key is required")
-        return self.store.admit({"id": subject_id, "revision": subject_revision}, idempotency_key)
+        return self.store.admit(
+            {"id": subject_id, "revision": subject_revision}, idempotency_key, parent_contract,
+            obligation_set=_obligation_snapshot(self.profile),
+        )
 
     def status(self, job_id: str) -> dict[str, Any]:
         return self.store.job(job_id)
@@ -851,8 +976,31 @@ class StewardRuntime:
         cancel_refs = [item["operation_id"] for item in self.store.result(job_id)["operations"]
                        if item["operation_kind"] == "cancel" and item["state"] not in {"captured", "abandoned", "failed"}]
         obligations, blocked = [], bool(unresolved or cancel_refs)
-        for requirement in self.profile["completion"]["obligations"]:
-            criterion, refs = self._criterion(requirement["id"]), []
+        admitted_set = job.get("obligationSet")
+        # Completion evaluates the admitted obligation snapshot, not the live profile (#107).
+        # A job without an admitted snapshot, or a snapshot obligation with no live
+        # proof-recipe criterion, fails closed as unsatisfied.
+        if not isinstance(admitted_set, dict) or not admitted_set.get("obligations"):
+            return {
+                "schema_version": 2, "evaluationId": f"completion-{uuid.uuid4().hex}", "jobId": job_id,
+                "lineageId": job["lineageId"], "generation": job["generation"], "subject": job["subject"],
+                "candidate": job["candidate"], "decisionIdentity": {"generation": job["generation"],
+                "profileRevision": self.profile["steward"]["contract_revision"], "proofRecipeRevision": self.proof_recipe["revision"],
+                "subjectRevision": job["subject"].get("revision") or "none", "candidateDigest": job["candidate"]["digest"]},
+                "disposition": "blocked", "obligations": [],
+                "obligationSetDigest": None, "parentContract": None,
+                "ambiguousOperationRefs": unresolved, "ambiguousCancellationRefs": cancel_refs, "evaluatedAt": _iso(now),
+            }
+        admitted = {str(item["id"]): item for item in admitted_set["obligations"]}
+        for requirement_id, snapshot in admitted.items():
+            if requirement_id not in {c["criterion_id"] for c in self.proof_recipe["criteria"]}:
+                obligations.append({"id": requirement_id, "state": "unsatisfied", "evidenceRefs": [],
+                                    "rationale": "admitted obligation has no live proof-recipe criterion"})
+                if snapshot["required"]:
+                    blocked = True
+                continue
+            requirement = {"id": requirement_id, "required": snapshot["required"], "evidence_class": snapshot["evidenceClass"]}
+            criterion, refs = self._criterion(requirement_id), []
             for item in evidence:
                 observed, expires = _parse(item["observedAt"]), _parse(item["expiresAt"]) if item["expiresAt"] else None
                 valid = (
@@ -883,6 +1031,12 @@ class StewardRuntime:
             "profileRevision": self.profile["steward"]["contract_revision"], "proofRecipeRevision": self.proof_recipe["revision"],
             "subjectRevision": job["subject"].get("revision") or "none", "candidateDigest": job["candidate"]["digest"]},
             "disposition": "blocked" if blocked else "eligible", "obligations": obligations,
+            "obligationSetDigest": admitted_set["digest"] if isinstance(admitted_set, dict) else None,
+            "parentContract": None if not isinstance(job.get("parentContract"), dict) else {
+                "mode": job["parentContract"]["mode"],
+                "contractDigest": job["parentContract"]["digest"],
+                "parentGeneration": job["parentContract"]["work"]["generation"],
+            },
             "ambiguousOperationRefs": unresolved, "ambiguousCancellationRefs": cancel_refs, "evaluatedAt": _iso(now),
         }
 
@@ -910,6 +1064,7 @@ class StewardRuntime:
             self.store.block(job_id, f"mutation-admission:{admission['disposition']}")
             return
         decision_ref = f"admission-{uuid.uuid4().hex}"
+        parent_contract = job.get("parentContract")
         handoff = {
             "schema_version": 2, "handoffId": f"handoff-{uuid.uuid4().hex}", "jobId": job_id,
             "lineageId": job["lineageId"], "generation": job["generation"], "subject": job["subject"],
@@ -917,6 +1072,11 @@ class StewardRuntime:
             "outcome": "seed-provider-completed", "evidenceRefs": [ref for item in completion["obligations"] for ref in item["evidenceRefs"]],
             "artifactRefs": [], "externalOperationRefs": job["externalOperationRefs"], "gaps": [],
             "correlationId": job_id, "sealedAt": _iso(self.store.clock.now()),
+            "parentContract": None if not isinstance(parent_contract, dict) else {
+                "mode": parent_contract["mode"], "contractDigest": parent_contract["digest"],
+                "parentWorkId": parent_contract["work"].get("parentWorkId"),
+                "parentGeneration": parent_contract["work"]["generation"],
+            },
         }
         handoff["digest"] = compute_handoff_digest(handoff)
         if self.faults.trip("before-terminal-publication"):
@@ -1046,8 +1206,15 @@ class StewardRuntime:
             submit = self.store.operation_for_job(job["jobId"], "submit") or submit
         if not self.store.evidence(job["jobId"]):
             promoted = False
-            for requirement in self.profile["completion"]["obligations"]:
-                criterion = self._criterion(requirement["id"])
+            # Derived evidence binds to the admitted obligation snapshot (#107); a
+            # snapshot obligation whose live proof-recipe criterion has drifted away
+            # cannot be proven, so it is skipped and completion fails closed on it.
+            admitted_set = job.get("obligationSet") or {}
+            for snapshot in admitted_set.get("obligations", []):
+                if not any(c["criterion_id"] == snapshot["id"] for c in self.proof_recipe["criteria"]):
+                    continue
+                requirement = {"id": snapshot["id"], "required": snapshot["required"], "evidence_class": snapshot["evidenceClass"]}
+                criterion = self._criterion(snapshot["id"])
                 producer = self._producer(self.provider.producer_id)
                 if producer is None:
                     continue
