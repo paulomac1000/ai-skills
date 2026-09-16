@@ -183,6 +183,35 @@
     "jobVersion": {
       "type": "integer",
       "minimum": 0
+    },
+    "semanticSlot": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "maxLength": 200,
+      "description": "Semantic work-slot identity (stage/criterion/work item) this operation fulfils; two distinct slots with byte-identical payloads remain distinct operations."
+    },
+    "operationDeadlineAt": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time",
+      "description": "Durable absolute operation deadline; nested bounds must be clamped to the remaining time and restart must not reset it."
+    },
+    "cancellationCause": {
+      "enum": [
+        "caller_cancel",
+        "parent_superseded",
+        "service_shutdown",
+        "application_deadline",
+        "transport_timeout",
+        "provider_cancel",
+        "unknown",
+        null
+      ],
+      "description": "Why the operation stopped or was stopped; a mechanism is not provenance."
     }
   },
   "allOf": [
@@ -194,9 +223,11 @@
         "required": ["operationKind"]
       },
       "then": {
-        "required": ["mutationDecisionRef"],
+        "required": ["mutationDecisionRef", "semanticSlot", "operationDeadlineAt"],
         "properties": {
-          "mutationDecisionRef": {"type": "string", "minLength": 1}
+          "mutationDecisionRef": {"type": "string", "minLength": 1},
+          "semanticSlot": {"type": "string", "minLength": 1},
+          "operationDeadlineAt": {"type": "string", "format": "date-time"}
         }
       }
     }

@@ -47,7 +47,7 @@ public sealed record StewardSeedJob(
     DateTimeOffset HeartbeatAt, DateTimeOffset ProgressAt, long ProgressRevision, string ProgressMarker,
     DateTimeOffset DeadlineAt, DateTimeOffset? FinalizationStartsAt, StewardLease? Lease,
     IReadOnlyList<string> EvidenceRefs, IReadOnlyList<string> ExternalOperationRefs,
-    StewardParentContractSnapshot? ParentContract = null, StewardObligationSnapshot? ObligationSet = null);
+    StewardParentContractSnapshot? ParentContract = null, StewardObligationSnapshot? ObligationSet = null, string? CancellationCause = null);
 public sealed record StewardParentContractSnapshot(
     string Mode, string SupervisorSystemId, string? ParentWorkId, string? ParentRunId, long ParentGeneration,
     string ContractId, string ContractRevision, string ContractDigest,
@@ -60,7 +60,8 @@ public sealed record StewardOperation(
     string OperationId, string OperationKind, string JobId, string LineageId, long Generation, string AttemptId, long JobVersion,
     string CapabilityIdentity, string CapabilityContractDigest, string TargetIdentity, string CandidateDigest,
     string RequestDigest, string State, string Delivery, string RetryDisposition, string CredentialSlotId,
-    string? RemoteHandle, JsonElement? Result, DateTimeOffset CreatedAt, DateTimeOffset ObservedAt, int ReconcileCount, string? MutationDecisionRef);
+    string? RemoteHandle, JsonElement? Result, DateTimeOffset CreatedAt, DateTimeOffset ObservedAt, int ReconcileCount, string? MutationDecisionRef,
+    string? SemanticSlot = null, DateTimeOffset? OperationDeadlineAt = null, string? CancellationCause = null);
 public sealed record StewardBinding(IReadOnlyList<string> Required, IReadOnlyList<string> Satisfied, string Status);
 public sealed record StewardCoverage(string State, int Required, int Observed);
 public sealed record StewardEvidence(
@@ -302,11 +303,11 @@ public sealed class StewardSeedRuntime : IDisposable
             var now = _clock.UtcNow;
             if (lineage is not null && _state.Jobs.TryGetValue(lineage.CurrentJobId, out var previous) && !Terminal.Contains(previous.Status))
             {
-                previous = Advance(previous, "superseded", "superseded", "superseded", cancellation: previous.Cancellation);
+                previous = Advance(previous with { CancellationCause = "parent_superseded" }, "superseded", "superseded", "superseded", cancellation: previous.Cancellation);
                 _state.Jobs[previous.JobId] = previous;
                 foreach (var opId in previous.ExternalOperationRefs)
-                    if (_state.Operations.TryGetValue(opId, out var op) && op.State == "reserved" && op.Delivery == "not-delivered") _state.Operations[opId] = op with { State = "abandoned", ObservedAt = now };
-                AuditLocked(previous.JobId, "superseded", new Dictionary<string, string> { ["byJobId"] = jobId });
+                    if (_state.Operations.TryGetValue(opId, out var op) && op.State == "reserved" && op.Delivery == "not-delivered") _state.Operations[opId] = op with { State = "abandoned", ObservedAt = now, CancellationCause = "parent_superseded" };
+                AuditLocked(previous.JobId, "superseded", new Dictionary<string, string> { ["byJobId"] = jobId, ["cause"] = "parent_superseded" });
             }
             var attemptId = $"attempt-{Guid.NewGuid():N}";
             // A supervised Steward may narrow the inherited budget, never enlarge it (#95).
@@ -349,14 +350,16 @@ public sealed class StewardSeedRuntime : IDisposable
         }
     }
 
-    public StewardSeedJob Cancel(string jobId)
+    public StewardSeedJob Cancel(string jobId) => Cancel(jobId, "caller_cancel");
+
+    public StewardSeedJob Cancel(string jobId, string cause)
     {
         lock (_gate)
         {
             var job = CurrentJobLocked(jobId);
             if (Terminal.Contains(job.Status)) return job;
-            job = Advance(job, "cancelling", "cancel-requested", "cancel-requested", cancellation: "requested");
-            _state.Jobs[jobId] = job; AuditLocked(jobId, "cancel-requested", new Dictionary<string, string>()); SaveLocked(); return job;
+            job = Advance(job with { CancellationCause = cause }, "cancelling", "cancel-requested", "cancel-requested", cancellation: "requested");
+            _state.Jobs[jobId] = job; AuditLocked(jobId, "cancel-requested", new Dictionary<string, string> { ["cause"] = cause }); SaveLocked(); return job;
         }
     }
 
@@ -515,7 +518,8 @@ public sealed class StewardSeedRuntime : IDisposable
         var requestDigest = OperationRequestDigest(job, kind);
         var op = new StewardOperation(id, kind, job.JobId, job.LineageId, job.Generation, job.AttemptId, job.Version + 1,
             _policy.Capability.Id, _policy.Capability.Digest, $"target:{job.Subject.Id}:{job.Subject.Revision ?? "none"}",
-            job.Candidate.Digest, requestDigest, "reserved", "not-delivered", "forbidden", "primary", null, null, now, now, 0, null);
+            job.Candidate.Digest, requestDigest, "reserved", "not-delivered", "forbidden", "primary", null, null, now, now, 0, null,
+            kind, job.DeadlineAt, kind == "cancel" ? job.CancellationCause : null);
         _state.Operations[id] = op;
         var refs = job.ExternalOperationRefs.Concat([id]).ToArray();
         _state.Jobs[job.JobId] = Advance(job with { ExternalOperationRefs = refs }, job.Status, $"{kind}-reserved", $"{kind}-reserved", cancellation: job.Cancellation);
@@ -550,7 +554,7 @@ public sealed class StewardSeedRuntime : IDisposable
         return new(source, principal, effectId, target, job.AttemptId, job.Version, job.Lease?.Owner, job.Lease?.FencingToken);
     }
 
-    private static string OperationRequestDigest(StewardSeedJob job, string kind) => Digest(new { kind, subject = job.Subject, candidate = job.Candidate });
+    private static string OperationRequestDigest(StewardSeedJob job, string kind) => Digest(new { kind, slot = kind, subject = job.Subject, candidate = job.Candidate });
 
     private string EvaluateMutationLocked(string effectId, StewardSeedJob job, StewardOperation? operation, SeedCapability actualCapability, SeedAuthority authority)
     {
@@ -629,7 +633,10 @@ public sealed class StewardSeedRuntime : IDisposable
     {
         var op = _state.Operations[operationId]; var job = CurrentJobLocked(op.JobId); RequireCurrentLocked(job);
         if (op.Result is not null) return;
-        _state.Operations[operationId] = op with { State = "captured", Result = payload.Clone(), ObservedAt = _clock.UtcNow };
+        var deadlineExpired = op.OperationDeadlineAt is { } bound && _clock.UtcNow > bound;
+        _state.Operations[operationId] = op with { State = "captured", Result = payload.Clone(), ObservedAt = _clock.UtcNow,
+            CancellationCause = op.CancellationCause ?? (deadlineExpired ? "application_deadline" : null) };
+        if (deadlineExpired) AuditLocked(job.JobId, "operation-deadline-exceeded", new Dictionary<string, string> { ["operationId"] = operationId, ["cause"] = "application_deadline" });
         _state.Jobs[job.JobId] = Advance(job, job.Status, "result-captured", $"result:{Digest(payload)}", cancellation: job.Cancellation);
         AuditLocked(job.JobId, "result-captured", new Dictionary<string, string> { ["operationId"] = operationId });
     }
@@ -900,6 +907,9 @@ public sealed class StewardSeedRuntime : IDisposable
                 || operation.Generation != job.Generation || operation.AttemptId != job.AttemptId
                 || operation.CandidateDigest != job.Candidate.Digest)
                 throw new JsonException("Steward snapshot contains inconsistent operation identity");
+            if (operation.OperationKind is "submit" or "cancel" or "mutation"
+                && (string.IsNullOrWhiteSpace(operation.SemanticSlot) || operation.OperationDeadlineAt is null))
+                throw new JsonException("Steward snapshot contains a stateful operation without semantic slot or absolute deadline");
         }
         foreach (var pair in state.Evidence)
         {

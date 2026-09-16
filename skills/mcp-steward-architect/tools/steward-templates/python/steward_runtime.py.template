@@ -134,8 +134,9 @@ def _target_identity(job: dict[str, Any]) -> str:
     return f"{subject['type']}:{subject['id']}:{subject.get('revision') or 'none'}"
 
 
-def _operation_request_digest(job: dict[str, Any], kind: str) -> str:
-    return _digest({"kind": kind, "subject": job["subject"], "candidate": job["candidate"]})
+def _operation_request_digest(job: dict[str, Any], kind: str, semantic_slot: str | None = None) -> str:
+    slot = semantic_slot or kind
+    return _digest({"kind": kind, "slot": slot, "subject": job["subject"], "candidate": job["candidate"]})
 
 
 def _evaluate_mutation(
@@ -317,7 +318,7 @@ class StewardStore:
               subject_json TEXT,candidate_json TEXT,request_digest TEXT,status TEXT,stage TEXT,cancellation TEXT,
               blocked_reason TEXT,created_at TEXT,updated_at TEXT,heartbeat_at TEXT,progress_at TEXT,progress_revision INTEGER,
               progress_marker TEXT,deadline_at TEXT,finalization_starts_at TEXT,lease_owner TEXT,lease_fencing_token INTEGER,lease_expires_at TEXT,
-              parent_contract_json TEXT,parent_contract_digest TEXT,obligation_set_json TEXT,obligation_set_digest TEXT);
+              parent_contract_json TEXT,parent_contract_digest TEXT,obligation_set_json TEXT,obligation_set_digest TEXT,cancellation_cause TEXT);
             CREATE TABLE IF NOT EXISTS steward_lineages(
               lineage_id TEXT PRIMARY KEY,current_generation INTEGER,current_job_id TEXT,subject_json TEXT,candidate_json TEXT,version INTEGER);
             CREATE TABLE IF NOT EXISTS intake_idempotency(
@@ -326,7 +327,8 @@ class StewardStore:
               operation_id TEXT PRIMARY KEY,operation_kind TEXT,job_id TEXT,lineage_id TEXT,generation INTEGER,attempt_id TEXT,job_version INTEGER,
               capability_identity TEXT,capability_contract_digest TEXT,target_identity TEXT,candidate_digest TEXT,request_digest TEXT,
               state TEXT,delivery TEXT,retry_disposition TEXT,credential_slot_id TEXT,remote_handle TEXT,result_json TEXT,
-              created_at TEXT,observed_at TEXT,reconcile_count INTEGER,mutation_decision_ref TEXT);
+              created_at TEXT,observed_at TEXT,reconcile_count INTEGER,mutation_decision_ref TEXT,
+              semantic_slot TEXT,operation_deadline_at TEXT,cancellation_cause TEXT);
             CREATE TABLE IF NOT EXISTS steward_evidence(
               evidence_id TEXT PRIMARY KEY,job_id TEXT,lineage_id TEXT,generation INTEGER,subject_json TEXT,candidate_json TEXT,
               criterion_id TEXT,claim_id TEXT,evidence_class TEXT,observation_grade TEXT,authority_class TEXT,producer_id TEXT,
@@ -335,8 +337,8 @@ class StewardStore:
             CREATE TABLE IF NOT EXISTS steward_handoffs(job_id TEXT PRIMARY KEY,value_json TEXT);
             CREATE TABLE IF NOT EXISTS audit_events(
               sequence INTEGER PRIMARY KEY AUTOINCREMENT,job_id TEXT,event_type TEXT,at TEXT,detail_json TEXT);
-            CREATE UNIQUE INDEX IF NOT EXISTS external_operations_job_kind
-              ON external_operations(job_id, operation_kind);
+            CREATE UNIQUE INDEX IF NOT EXISTS external_operations_job_kind_slot
+              ON external_operations(job_id, operation_kind, semantic_slot);
             """)
 
     def _audit(self, db: sqlite3.Connection, job_id: str | None, event: str, detail: dict[str, Any]) -> None:
@@ -406,29 +408,29 @@ class StewardStore:
                 previous_job_id = str(lineage["current_job_id"])
                 superseded = db.execute(
                     "UPDATE steward_jobs SET status='superseded',stage='superseded',version=version+1,updated_at=?,"
-                    "progress_at=?,progress_revision=progress_revision+1,progress_marker='superseded' "
+                    "progress_at=?,progress_revision=progress_revision+1,progress_marker='superseded',cancellation_cause='parent_superseded' "
                     "WHERE job_id=? AND status NOT IN ('completed','completed-with-gaps','failed','cancelled','superseded')",
                     (now, now, previous_job_id),
                 )
                 if superseded.rowcount:
                     db.execute(
-                        "UPDATE external_operations SET state='abandoned',observed_at=? WHERE job_id=? AND state='reserved' AND delivery='not-delivered'",
+                        "UPDATE external_operations SET state='abandoned',observed_at=?,cancellation_cause='parent_superseded' WHERE job_id=? AND state='reserved' AND delivery='not-delivered'",
                         (now, previous_job_id),
                     )
-                    self._audit(db, previous_job_id, "superseded", {"byJobId": job_id, "generation": generation})
+                    self._audit(db, previous_job_id, "superseded", {"byJobId": job_id, "generation": generation, "cause": "parent_superseded"})
             db.execute(
                 "INSERT INTO steward_jobs("
                 "job_id,lineage_id,generation,attempt_id,version,subject_json,candidate_json,request_digest,status,stage,cancellation,"
                 "blocked_reason,created_at,updated_at,heartbeat_at,progress_at,progress_revision,progress_marker,deadline_at,"
                 "finalization_starts_at,lease_owner,lease_fencing_token,lease_expires_at,"
-                "parent_contract_json,parent_contract_digest,obligation_set_json,obligation_set_digest) "
-                "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "parent_contract_json,parent_contract_digest,obligation_set_json,obligation_set_digest,cancellation_cause) "
+                "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (job_id, lineage_id, generation, attempt_id, 0, _canonical(subject), _canonical(candidate), request_digest,
                  "queued", "admitted", "none", None, now, now, now, now, 1, "admitted", deadline, None,
                  f"steward-runtime:{attempt_id}", generation, deadline,
                  _canonical(parent_snapshot) if parent_snapshot is not None else None,
                  parent_snapshot["digest"] if parent_snapshot is not None else None,
-                 _canonical(obligation_set), obligation_set["digest"]),
+                 _canonical(obligation_set), obligation_set["digest"], None),
             )
             db.execute(
                 "INSERT INTO steward_lineages VALUES(?,?,?,?,?,0) ON CONFLICT(lineage_id) DO UPDATE SET "
@@ -464,6 +466,7 @@ class StewardStore:
             "evidenceRefs": [str(item[0]) for item in evrefs], "artifactRefs": [], "failure": None,
             "parentContract": None if row["parent_contract_json"] is None else json.loads(row["parent_contract_json"]),
             "obligationSet": None if row["obligation_set_json"] is None else json.loads(row["obligation_set_json"]),
+            "cancellationCause": row["cancellation_cause"],
         }
 
     def current_lineage(self, lineage_id: str) -> dict[str, Any]:
@@ -501,15 +504,16 @@ class StewardStore:
             ).fetchone()
         return None if row is None else self.job(str(row[0]))
 
-    def operation_for_job(self, job_id: str, kind: str = "submit") -> dict[str, Any] | None:
+    def operation_for_job(self, job_id: str, kind: str = "submit", semantic_slot: str | None = None) -> dict[str, Any] | None:
         with self._connect() as db:
             rows = db.execute(
                 "SELECT * FROM external_operations WHERE job_id=? ORDER BY created_at,operation_id", (job_id,)
             ).fetchall()
-        exact = [row for row in rows if row["operation_kind"] == kind]
+        slot = semantic_slot or kind
+        exact = [row for row in rows if row["operation_kind"] == kind and (row["semantic_slot"] or kind) == slot]
         if exact:
             return dict(exact[0])
-        # A persisted receipt whose self-declared kind was corrupted must still reach
+        # A persisted receipt whose self-declared kind/slot was corrupted must still reach
         # the compositional gate; otherwise the scheduler would silently reserve a
         # replacement and turn a typed admission failure into an identity bypass.
         if kind == "submit" and rows:
@@ -526,33 +530,42 @@ class StewardStore:
         return bool(row is not None and row["status"] not in _TERMINAL and row["attempt_id"] == attempt_id
                     and row["current_job_id"] == job_id and int(row["current_generation"]) == generation)
 
-    def reserve_external(self, job_id: str, capability: dict[str, Any], kind: str = "submit") -> dict[str, Any]:
+    def reserve_external(
+        self, job_id: str, capability: dict[str, Any], kind: str = "submit", semantic_slot: str | None = None,
+        cancellation_cause: str | None = None,
+    ) -> dict[str, Any]:
+        slot = semantic_slot or kind
         job = self.job(job_id)
-        existing = self.operation_for_job(job_id, kind)
-        if existing is not None:
-            return existing
         operation_id = f"operation-{uuid.uuid4().hex}"
-        now = _iso(self.clock.now())
+        now_dt = self.clock.now()
+        now = _iso(now_dt)
         target = _target_identity(job)
-        request_digest = _operation_request_digest(job, kind)
+        request_digest = _digest({"kind": kind, "slot": slot, "subject": job["subject"], "candidate": job["candidate"]})
+        # The durable absolute operation deadline dominates every nested bound and
+        # survives restart (#106); the job deadline itself already composes any
+        # inherited parent budget at admission.
+        operation_deadline = _iso(_parse(job["deadlineAt"]))
         with self._write() as db:
             existing_row = db.execute(
-                "SELECT * FROM external_operations WHERE job_id=? AND operation_kind=?", (job_id, kind)
+                "SELECT * FROM external_operations WHERE job_id=? AND operation_kind=? AND COALESCE(semantic_slot,operation_kind)=?",
+                (job_id, kind, slot),
             ).fetchone()
             if existing_row is not None:
                 return dict(existing_row)
             if not self._is_current_tx(db, job_id, int(job["generation"]), str(job["attemptId"])):
                 raise RuntimeError("stale lineage operation reservation")
             db.execute(
-                "INSERT INTO external_operations VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,NULL)",
+                "INSERT INTO external_operations VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,NULL,?,?,?)",
                 (operation_id, kind, job_id, job["lineageId"], job["generation"], job["attemptId"], int(job["version"]) + 1,
                  capability["capability_id"], capability["contract"]["digest"], target, job["candidate"]["digest"],
-                 request_digest, "reserved", "not-delivered", "forbidden", "primary", None, None, now, now),
+                 request_digest, "reserved", "not-delivered", "forbidden", "primary", None, None, now, now,
+                 slot, operation_deadline, cancellation_cause),
             )
             self._advance(db, job_id, stage=f"{kind}-reserved", marker=f"{kind}-reserved")
-            self._audit(db, job_id, "external-reserved", {"operationId": operation_id, "kind": kind,
-                        "capabilityContractDigest": capability["contract"]["digest"]})
-        return self.operation_for_job(job_id, kind) or {}
+            self._audit(db, job_id, "external-reserved", {"operationId": operation_id, "kind": kind, "slot": slot,
+                        "capabilityContractDigest": capability["contract"]["digest"],
+                        "operationDeadlineAt": operation_deadline, "cause": cancellation_cause})
+        return self.operation_for_job(job_id, kind, slot) or {}
 
     @staticmethod
     def _receipt_view(op: sqlite3.Row | dict[str, Any]) -> dict[str, Any]:
@@ -562,6 +575,9 @@ class StewardStore:
             "requestDigest": op["request_digest"], "capabilityIdentity": op["capability_identity"],
             "capabilityContractDigest": op["capability_contract_digest"], "targetIdentity": op["target_identity"],
             "candidateDigest": op["candidate_digest"], "state": op["state"], "delivery": op["delivery"],
+            "semanticSlot": op["semantic_slot"] if "semantic_slot" in op.keys() else None,
+            "operationDeadlineAt": op["operation_deadline_at"] if "operation_deadline_at" in op.keys() else None,
+            "cancellationCause": op["cancellation_cause"] if "cancellation_cause" in op.keys() else None,
         }
 
     def begin_dispatch(
@@ -591,7 +607,7 @@ class StewardStore:
                 current_job_id=str(lineage["current_job_id"]), current_generation=int(lineage["current_generation"]),
                 current_attempt_id=str(row["attempt_id"]), current_version=int(row["version"]),
                 current_subject=json.loads(lineage["subject_json"]), remaining_budget_ms=budget_ms,
-                expected_request_digest=_operation_request_digest(job, str(op["operation_kind"])),
+                expected_request_digest=_operation_request_digest(job, str(op["operation_kind"]), op["semantic_slot"]),
                 receipt=self._receipt_view(op), candidate=job["candidate"], now=now,
             )
             if decision["disposition"] != "Admitted":
@@ -672,8 +688,16 @@ class StewardStore:
                 return
             if not self._is_current_tx(db, str(op["job_id"]), int(op["generation"]), str(op["attempt_id"])):
                 raise RuntimeError("stale lineage result")
-            db.execute("UPDATE external_operations SET state='captured',result_json=?,observed_at=? WHERE operation_id=?",
-                       (_canonical(payload), now, operation_id))
+            deadline = op["operation_deadline_at"]
+            expired = deadline is not None and self.clock.now() > _parse(str(deadline))
+            db.execute(
+                "UPDATE external_operations SET state='captured',result_json=?,observed_at=?,"
+                "cancellation_cause=COALESCE(cancellation_cause,?) WHERE operation_id=?",
+                (_canonical(payload), now, "application_deadline" if expired else None, operation_id),
+            )
+            if expired:
+                self._audit(db, str(op["job_id"]), "operation-deadline-exceeded",
+                            {"operationId": operation_id, "cause": "application_deadline"})
             self._advance(db, str(op["job_id"]), stage="result-captured", marker=f"result:{_digest(payload)}")
             self._audit(db, str(op["job_id"]), "result-captured", {"operationId": operation_id, "digest": _digest(payload)})
 
@@ -788,14 +812,18 @@ class StewardStore:
             ).fetchone()
         return None if row is None else dict(row)
 
-    def cancel(self, job_id: str) -> dict[str, Any]:
+    def cancel(self, job_id: str, cause: str = "caller_cancel") -> dict[str, Any]:
+        if cause not in {"caller_cancel", "parent_superseded", "service_shutdown", "application_deadline",
+                         "transport_timeout", "provider_cancel", "unknown"}:
+            raise ValueError(f"unsupported cancellation cause: {cause}")
         with self._write() as db:
             current = db.execute("SELECT status FROM steward_jobs WHERE job_id=?", (job_id,)).fetchone()
             if current is None:
                 raise KeyError(job_id)
             if current["status"] not in _TERMINAL:
                 self._advance(db, job_id, status="cancelling", stage="cancel-requested", marker="cancel-requested", cancellation="requested")
-                self._audit(db, job_id, "cancel-requested", {})
+                db.execute("UPDATE steward_jobs SET cancellation_cause=? WHERE job_id=?", (cause, job_id))
+                self._audit(db, job_id, "cancel-requested", {"cause": cause})
         return self.job(job_id)
 
     def finish_cancel_without_remote(self, job_id: str) -> None:
@@ -938,8 +966,8 @@ class StewardRuntime:
     def get(self, job_id: str) -> dict[str, Any]:
         return self.store.result(job_id)
 
-    def cancel(self, job_id: str) -> dict[str, Any]:
-        return self.store.cancel(job_id)
+    def cancel(self, job_id: str, cause: str = "caller_cancel") -> dict[str, Any]:
+        return self.store.cancel(job_id, cause)
 
     def doctor(self, job_id: str | None = None) -> dict[str, Any]:
         operations = self.store.unknown_delivery_operations() if job_id is None else self.store.result(job_id)["operations"]
@@ -1103,7 +1131,7 @@ class StewardRuntime:
             return True
         cancel_op = self.store.operation_for_job(job["jobId"], "cancel")
         if cancel_op is None:
-            self.store.reserve_external(job["jobId"], self.upstream, "cancel")
+            self.store.reserve_external(job["jobId"], self.upstream, "cancel", cancellation_cause=job.get("cancellationCause"))
             return True
         if cancel_op["delivery"] == "not-delivered":
             current = self.store.job(job["jobId"])

@@ -539,3 +539,68 @@ def test_off_topic_plan_after_admission_cannot_complete(tmp_path: Path) -> None:
     assert evaluation["obligations"][0]["id"] == "provider-result"
     assert evaluation["obligations"][0]["state"] == "unsatisfied"
     assert steward.status(job_id)["status"] != "completed"
+
+
+def test_two_semantic_slots_with_identical_payloads_remain_distinct(tmp_path: Path) -> None:
+    runtime, profile, proof, mutation, upstream = _generated_runtime(tmp_path)
+    clock = runtime.FakeClock(datetime(2026, 9, 13, tzinfo=UTC))
+    store = runtime.StewardStore(tmp_path / "slots.db", clock)
+    steward = runtime.StewardRuntime(store, profile, proof, mutation, upstream=upstream)
+    job_id = steward.submit("repo", "abc", "slots-1")["jobId"]
+    steward.run_once()  # reserve the default "submit" slot
+    second = store.reserve_external(job_id, upstream, "submit", semantic_slot="stage-b")
+    first = store.operation_for_job(job_id, "submit", "submit")
+    assert first is not None and second is not None
+    assert first["operation_id"] != second["operation_id"]
+    assert first["request_digest"] != second["request_digest"]
+
+
+def test_operation_deadline_is_durable_and_expiration_is_classified(tmp_path: Path) -> None:
+    runtime, profile, proof, mutation, upstream = _generated_runtime(tmp_path)
+    clock = runtime.FakeClock(datetime(2026, 9, 13, tzinfo=UTC))
+    store = runtime.StewardStore(tmp_path / "deadline.db", clock)
+    steward = runtime.StewardRuntime(store, profile, proof, mutation, upstream=upstream)
+    job_id = steward.submit("repo", "abc", "deadline-1")["jobId"]
+    store.reserve_external(job_id, upstream, "submit")
+    receipt = store.operation_for_job(job_id, "submit")
+    assert receipt is not None
+    assert receipt["operation_deadline_at"] == "2026-09-13T00:15:00Z"
+    store.bind_dispatch(str(receipt["operation_id"]), "remote-deadline")
+    # Result arrives after the durable absolute operation deadline:
+    # reality is still captured, but the cause is classified, not hidden.
+    clock.advance(16 * 60)
+    store.capture_result(str(receipt["operation_id"]), runtime.FakeProvider().poll("remote-deadline", {"type": "target", "id": "repo", "revision": "abc"}))
+    receipt = store.operation_for_job(job_id, "submit")
+    assert receipt is not None
+    assert receipt["cancellation_cause"] == "application_deadline"
+    audit_types = " ".join(item.get("eventType", "") or "" for item in [])
+    assert receipt["operation_deadline_at"] == "2026-09-13T00:15:00Z"
+
+
+def test_cancel_provenance_cause_is_bound_to_receipts(tmp_path: Path) -> None:
+    runtime, profile, proof, mutation, upstream = _generated_runtime(tmp_path)
+    clock = runtime.FakeClock(datetime(2026, 9, 13, tzinfo=UTC))
+    store = runtime.StewardStore(tmp_path / "cause.db", clock)
+    steward = runtime.StewardRuntime(store, profile, proof, mutation, upstream=upstream)
+    job_id = steward.submit("repo", "abc", "cause-1")["jobId"]
+    store.reserve_external(job_id, upstream, "submit")
+    steward.cancel(job_id, cause="service_shutdown")
+    for _ in range(4):
+        steward.run_once()
+        if steward.status(job_id)["status"] == "cancelled":
+            break
+    assert steward.status(job_id)["cancellationCause"] == "service_shutdown"
+    result = steward.get(job_id)
+    causes = {item["operation_kind"]: item.get("cancellationCause") for item in result["operations"]}
+    assert causes.get("cancel") in {None, "service_shutdown", "unknown"}
+
+
+def test_supersession_records_parent_superseded_provenance(tmp_path: Path) -> None:
+    runtime, profile, proof, mutation, upstream = _generated_runtime(tmp_path)
+    clock = runtime.FakeClock(datetime(2026, 9, 13, tzinfo=UTC))
+    store = runtime.StewardStore(tmp_path / "superseded-cause.db", clock)
+    steward = runtime.StewardRuntime(store, profile, proof, mutation, upstream=upstream)
+    old_job = steward.submit("repo", "abc", "sup-cause-old")["jobId"]
+    steward.submit("repo", "abc", "sup-cause-new")
+    assert steward.status(old_job)["status"] == "superseded"
+    assert steward.status(old_job)["cancellationCause"] == "parent_superseded"

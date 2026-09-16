@@ -81,6 +81,10 @@ The mutation gate MUST re-read mutable authority/identity facts immediately befo
 
 Before a stateful external operation whose effect can outlive the call, the Steward MUST durably record an operation identity/start intent bound to job/generation/attempt, exact capability contract and target, canonical request digest, non-secret credential slot, and admitted mutation decision.
 
+Operation identity MUST be semantic, not payload-only: the durable receipt MUST bind the workflow slot it fulfils (work item, stage, or criterion identity) in addition to job/lineage/generation, capability, target, and request digest. Two distinct semantic slots with byte-identical payloads MUST remain distinct operations and MUST NOT deduplicate into one logical operation.
+
+Every stateful external operation MUST carry a durable absolute operation deadline. Nested call, poll, and retry bounds MUST be clamped to the remaining absolute deadline (`min(local bound, remaining absolute deadline)`), restart MUST NOT reset it, retry/backoff MUST NOT sleep past it, and expiration after a non-idempotent dispatch may have started MUST be classified honestly as delivery ambiguity/reconciliation rather than as a proven `not-delivered` state.
+
 Outcome taxonomy MUST distinguish pre-dispatch failure, provider rejection, confirmed delivery, delivery unknown, caller cancellation, and cancellation-delivery-unknown when applicable. These states MUST NOT be flattened into one error.
 
 `delivery-unknown` MUST enter bounded reconciliation. Stateful work MUST NOT be resent until policy and upstream semantics prove replay safe. Recovered remote handles MUST be resumed/polled rather than replaced when supported.
@@ -92,6 +96,8 @@ Remote calls MUST execute outside durable-store locks/transactions.
 ## Cancellation and external wait isolation
 
 Cancellation of stateful async work is itself a stateful external effect when it can change remote reality. Its contract MUST declare cancel delivery model, idempotency, reconciliation, handle/credential affinity, and the relationship between local terminal state and remote stop.
+
+Cancellation provenance is semantic state. Durable records MUST classify why work stopped using typed causes equivalent to `caller_cancel`, `parent_superseded`, `service_shutdown`, `application_deadline`, `transport_timeout`, `provider_cancel`, and `unknown`. A transport timeout or deadline expiration MUST NOT be recorded as caller cancellation, and local cancellation MUST NOT claim provider work stopped unless the upstream contract and observed cancellation outcome establish that fact.
 
 A local `cancelled` status MUST NOT imply upstream work stopped unless the upstream contract and observed cancellation outcome establish that fact. If cancel delivery is unknown, the Steward MUST reconcile before claiming confirmed remote cancellation or replaying a non-idempotent cancel.
 
