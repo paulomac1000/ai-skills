@@ -812,6 +812,47 @@ def test_tampered_obligation_snapshot_binding_fails_closed(tmp_path: Path) -> No
     assert evaluation["disposition"] == "blocked"
 
 
+def test_coherent_tampered_snapshot_still_fails_against_admission_digest(tmp_path: Path) -> None:
+    runtime, profile, proof, mutation, upstream = _generated_runtime(tmp_path)
+    clock = runtime.FakeClock(datetime(2026, 9, 13, tzinfo=UTC))
+    store = runtime.StewardStore(tmp_path / "coherent-tamper.db", clock)
+    steward = runtime.StewardRuntime(store, profile, proof, mutation, upstream=upstream)
+    job_id = steward.submit("repo", "abc", "coherent-tamper-1")["jobId"]
+    for _ in range(4):
+        steward.run_once()
+        if steward.status(job_id)["status"] == "finalizing":
+            break
+    # Drop a mandatory obligation and recompute the EMBEDDED digest so the JSON is
+    # self-consistent; the separately persisted admission-time digest still binds the
+    # original contents, so the tampered snapshot must fail closed.
+    with store._write() as db:
+        row = db.execute("SELECT obligation_set_json FROM steward_jobs WHERE job_id=?", (job_id,)).fetchone()
+        snapshot = json.loads(row[0])
+        snapshot["obligations"] = []
+        embedded = (
+            "sha256:"
+            + __import__("hashlib")
+            .sha256(
+                json.dumps(
+                    {
+                        "revision": snapshot["revision"],
+                        "proofRecipeDigest": snapshot["proofRecipeDigest"],
+                        "obligations": [],
+                    },
+                    sort_keys=True,
+                    separators=(",", ":"),
+                    ensure_ascii=False,
+                ).encode("utf-8")
+            )
+            .hexdigest()
+        )
+        snapshot["digest"] = embedded
+        canonical = json.dumps(snapshot, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+        db.execute("UPDATE steward_jobs SET obligation_set_json=? WHERE job_id=?", (canonical, job_id))
+    evaluation = steward.completion_gate(job_id)
+    assert evaluation["disposition"] == "blocked"
+
+
 def test_cancel_after_deadline_with_captured_result_still_terminalizes(tmp_path: Path) -> None:
     runtime, profile, proof, mutation, upstream = _generated_runtime(tmp_path)
     clock = runtime.FakeClock(datetime(2026, 9, 13, tzinfo=UTC))

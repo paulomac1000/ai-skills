@@ -553,6 +553,7 @@ class StewardStore:
             "evidenceRefs": [str(item[0]) for item in evrefs], "artifactRefs": [], "failure": None,
             "parentContract": None if row["parent_contract_json"] is None else json.loads(row["parent_contract_json"]),
             "obligationSet": None if row["obligation_set_json"] is None else json.loads(row["obligation_set_json"]),
+            "obligationSetDigest": row["obligation_set_digest"],
             "cancellationCause": row["cancellation_cause"],
         }
 
@@ -1190,7 +1191,8 @@ class StewardRuntime:
         # binds its contents (restored/corrupted), fails closed as unsatisfied.
         if not isinstance(admitted_set, dict) or not admitted_set.get("obligations"):
             pass
-        elif _digest({"revision": admitted_set.get("revision"), "proofRecipeDigest": admitted_set.get("proofRecipeDigest"), "obligations": admitted_set.get("obligations")}) != admitted_set.get("digest"):
+        elif (admitted_set.get("digest") != job.get("obligationSetDigest")
+              or _digest({"revision": admitted_set.get("revision"), "proofRecipeDigest": admitted_set.get("proofRecipeDigest"), "obligations": admitted_set.get("obligations")}) != admitted_set.get("digest")):
             return {
                 "schema_version": 2, "evaluationId": f"completion-{uuid.uuid4().hex}", "jobId": job_id,
                 "lineageId": job["lineageId"], "generation": job["generation"], "subject": job["subject"],
@@ -1495,6 +1497,7 @@ class StewardRuntime:
             snapshot_binding_ok = (
                 isinstance(admitted_set, dict)
                 and admitted_set.get("obligations")
+                and admitted_set.get("digest") == job.get("obligationSetDigest")
                 and _digest({"revision": admitted_set.get("revision"), "proofRecipeDigest": admitted_set.get("proofRecipeDigest"), "obligations": admitted_set.get("obligations")}) == admitted_set.get("digest")
             )
             if not snapshot_binding_ok:
