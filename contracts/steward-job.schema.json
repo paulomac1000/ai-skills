@@ -462,6 +462,7 @@
       "required": [
         "revision",
         "digest",
+        "proofRecipeDigest",
         "obligations"
       ],
       "properties": {
@@ -470,6 +471,10 @@
           "minimum": 1
         },
         "digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "proofRecipeDigest": {
           "type": "string",
           "pattern": "^sha256:[0-9a-f]{64}$"
         },
@@ -499,10 +504,7 @@
                 "maxLength": 100
               },
               "criterionDigest": {
-                "type": [
-                  "string",
-                  "null"
-                ],
+                "type": "string",
                 "pattern": "^sha256:[0-9a-f]{64}$"
               }
             }

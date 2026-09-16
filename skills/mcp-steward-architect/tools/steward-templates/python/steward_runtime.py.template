@@ -158,7 +158,12 @@ def _obligation_snapshot(profile: dict[str, Any], proof_recipe: dict[str, Any]) 
             "id": str(item["id"]), "required": bool(item["required"]), "evidenceClass": str(item["evidence_class"]),
             "criterionDigest": _criterion_semantic_digest(criterion) if criterion else None,
         })
-    return {"revision": revision, "digest": _digest({"revision": revision, "obligations": obligations}), "obligations": obligations}
+    return {
+        "revision": revision,
+        "digest": _digest({"revision": revision, "obligations": obligations}),
+        "proofRecipeDigest": _digest(proof_recipe),
+        "obligations": obligations,
+    }
 
 
 def _empty_obligation_set() -> dict[str, Any]:
@@ -1194,6 +1199,22 @@ class StewardRuntime:
                 "readSet": read_set, "controllerEpoch": int(snapshot["lineage"]["current_generation"]),
                 "ambiguousOperationRefs": unresolved, "ambiguousCancellationRefs": cancel_refs, "evaluatedAt": _iso(now),
             }
+        if admitted_set.get("proofRecipeDigest") != _digest(self.proof_recipe):
+            # Producer/criterion/aggregation semantics changed after admission; the job
+            # must be re-admitted rather than evaluated under mutated live policy (#107).
+            return {
+                "schema_version": 2, "evaluationId": f"completion-{uuid.uuid4().hex}", "jobId": job_id,
+                "lineageId": job["lineageId"], "generation": job["generation"], "subject": job["subject"],
+                "candidate": job["candidate"], "decisionIdentity": {"generation": job["generation"],
+                "profileRevision": self.profile["steward"]["contract_revision"], "proofRecipeRevision": self.proof_recipe["revision"],
+                "subjectRevision": job["subject"].get("revision") or "none", "candidateDigest": job["candidate"]["digest"]},
+                "disposition": "blocked", "obligations": [
+                    {"id": str(item["id"]), "state": "unsatisfied", "evidenceRefs": [],
+                     "rationale": "proof recipe changed after admission"} for item in admitted_set["obligations"]],
+                "readSet": read_set, "controllerEpoch": int(snapshot["lineage"]["current_generation"]),
+                "obligationSetDigest": admitted_set["digest"], "parentContract": None,
+                "ambiguousOperationRefs": unresolved, "ambiguousCancellationRefs": cancel_refs, "evaluatedAt": _iso(now),
+            }
         admitted = {str(item["id"]): item for item in admitted_set["obligations"]}
         for requirement_id, obligation in admitted.items():
             live_criterion = next((c for c in self.proof_recipe["criteria"] if c["criterion_id"] == requirement_id), None)
@@ -1203,7 +1224,7 @@ class StewardRuntime:
                 if obligation["required"]:
                     blocked = True
                 continue
-            if obligation.get("criterionDigest") and _criterion_semantic_digest(live_criterion) != obligation["criterionDigest"]:
+            if _criterion_semantic_digest(live_criterion) != obligation.get("criterionDigest"):
                 # Authority-affecting criterion semantics changed after admission; the
                 # job must be re-admitted rather than silently evaluated with the
                 # weakened live semantics (#107).
@@ -1310,6 +1331,10 @@ class StewardRuntime:
 
     def _handle_cancellation(self, job: dict[str, Any]) -> bool:
         submit = self.store.operation_for_job(job["jobId"], "submit")
+        if submit is not None and self._operation_expired(submit):
+            # Expiry fences every provider action, cancellation included (#106).
+            self.store.record_operation_expired(submit)
+            return True
         if submit is None or submit["delivery"] == "not-delivered":
             self.store.finish_cancel_without_remote(job["jobId"])
             return True
@@ -1323,6 +1348,9 @@ class StewardRuntime:
         cancel_op = self.store.operation_for_job(job["jobId"], "cancel")
         if cancel_op is None:
             self.store.reserve_external(job["jobId"], self.upstream, "cancel", cancellation_cause=job.get("cancellationCause"))
+            return True
+        if self._operation_expired(cancel_op):
+            self.store.record_operation_expired(cancel_op)
             return True
         if cancel_op["delivery"] == "not-delivered":
             current = self.store.job(job["jobId"])
@@ -1448,11 +1476,13 @@ class StewardRuntime:
             # snapshot obligation whose live proof-recipe criterion has drifted away
             # cannot be proven, so it is skipped and completion fails closed on it.
             admitted_set = job.get("obligationSet") or {}
+            if admitted_set.get("proofRecipeDigest") not in {None, _digest(self.proof_recipe)}:
+                admitted_set = {}  # drifted recipe: no fresh evidence may be minted
             for snapshot in admitted_set.get("obligations", []):
                 criterion = next((c for c in self.proof_recipe["criteria"] if c["criterion_id"] == snapshot["id"]), None)
                 if criterion is None:
                     continue
-                if snapshot.get("criterionDigest") and _criterion_semantic_digest(criterion) != snapshot["criterionDigest"]:
+                if _criterion_semantic_digest(criterion) != snapshot.get("criterionDigest"):
                     # Live criterion semantics drifted after admission; minting fresh
                     # evidence under weakened semantics would launder the change (#107).
                     continue

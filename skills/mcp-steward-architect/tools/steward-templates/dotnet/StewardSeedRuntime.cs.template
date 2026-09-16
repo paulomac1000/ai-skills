@@ -53,8 +53,8 @@ public sealed record StewardParentContractSnapshot(
     string ContractId, string ContractRevision, string ContractDigest,
     IReadOnlyList<string> DelegatedCapabilities, IReadOnlyList<string> ForbiddenCapabilities,
     string ParentCompletionAuthority, string AuthorityCeiling, DateTimeOffset? AbsoluteDeadline);
-public sealed record StewardObligationSnapshotItem(string Id, bool Required, string EvidenceClass, string? CriterionDigest = null);
-public sealed record StewardObligationSnapshot(long Revision, string Digest, IReadOnlyList<StewardObligationSnapshotItem> Obligations);
+public sealed record StewardObligationSnapshotItem(string Id, bool Required, string EvidenceClass, string CriterionDigest);
+public sealed record StewardObligationSnapshot(long Revision, string Digest, string ProofRecipeDigest, IReadOnlyList<StewardObligationSnapshotItem> Obligations);
 public sealed record StewardAdmission(string JobId, bool Duplicate);
 public sealed record StewardOperation(
     string OperationId, string OperationKind, string JobId, string LineageId, long Generation, string AttemptId, long JobVersion,
@@ -117,6 +117,7 @@ internal sealed class SeedPolicy
     public required IReadOnlyDictionary<string, SeedProducer> Producers { get; init; }
     public required IReadOnlyDictionary<string, SeedMutationEffect> Effects { get; init; }
     public required SeedCapability Capability { get; init; }
+    public required string RecipeDigest { get; init; }
 
     private static string CapabilityDigest(JsonElement capability)
     {
@@ -239,10 +240,15 @@ internal sealed class SeedPolicy
             || !string.Equals(CapabilityDigest(upstream.RootElement), capability.Digest, StringComparison.Ordinal))
             throw new InvalidOperationException("reviewed upstream capability semantic digest is invalid");
         var revision = proof.RootElement.GetProperty("revision").GetInt32();
+        using var recipeStream = new MemoryStream();
+        using (var recipeWriter = new Utf8JsonWriter(recipeStream, new JsonWriterOptions { Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping }))
+            WriteCapabilityCanonical(recipeWriter, proof.RootElement, insideContract: false);
+        var recipeDigest = "sha256:" + Convert.ToHexStringLower(SHA256.HashData(recipeStream.ToArray()));
         return new() {
             ProfileRevision = profile.RootElement.GetProperty("steward").GetProperty("contract_revision").GetInt32(),
             RecipeId = $"{proof.RootElement.GetProperty("recipe_id").GetString()}@{revision}", ProofRevision = revision,
             Requirements = requirements, Producers = producerMap, Effects = effects, Capability = capability,
+            RecipeDigest = recipeDigest,
         };
     }
 }
@@ -369,8 +375,8 @@ public sealed class StewardSeedRuntime : IDisposable
     {
         var obligations = _policy.Requirements.Select(item => new StewardObligationSnapshotItem(item.Id, item.Required, item.EvidenceClass, item.CriterionDigest)).ToArray();
         var revision = _policy.ProfileRevision;
-        var digest = Digest(new { revision, obligations });
-        return new(revision, digest, obligations);
+        var digest = Digest(new { revision, proofRecipeDigest = _policy.RecipeDigest, obligations });
+        return new(revision, digest, _policy.RecipeDigest, obligations);
     }
 
     private static string ParentContractDigest(StewardParentContractSnapshot parent) =>
@@ -465,6 +471,23 @@ public sealed class StewardSeedRuntime : IDisposable
             }
         }
 
+        // Deadline fencing precedes EVERY provider action branch (#106): dispatch,
+        // reconcile, cancel-dispatch, cancel-reconcile and poll all classify an expired
+        // operation deterministically instead of touching remote reality.
+        if (action.Operation.OperationDeadlineAt is { } fencedDeadline && _clock.UtcNow > fencedDeadline)
+        {
+            lock (_gate)
+            {
+                var owner = CurrentJobLocked(action.Operation.JobId);
+                _state.Operations[action.Operation.OperationId] = action.Operation with { CancellationCause = "application_deadline", ObservedAt = _clock.UtcNow };
+                if (!Terminal.Contains(owner.Status))
+                    _state.Jobs[owner.JobId] = Advance(owner, "blocked", "operation-deadline-exceeded", "blocked:operation-deadline-exceeded", cancellation: owner.Cancellation, blockedReason: "operation-deadline-exceeded");
+                AuditLocked(owner.JobId, "operation-deadline-exceeded", new Dictionary<string, string> { ["operationId"] = action.Operation.OperationId, ["cause"] = "application_deadline" });
+                SaveLocked();
+            }
+            return true;
+        }
+
         if (action.Kind == "dispatch")
         {
             if (_faults.Trip("after-dispatch-start")) return true;
@@ -496,21 +519,6 @@ public sealed class StewardSeedRuntime : IDisposable
             return true;
         }
 
-        if (action.Operation.OperationDeadlineAt is { } operationDeadline && _clock.UtcNow > operationDeadline)
-        {
-            // An expired operation never reaches the provider again (#106): classify
-            // deterministically and begin bounded closure instead of remote activity.
-            lock (_gate)
-            {
-                var owner = CurrentJobLocked(action.Operation.JobId);
-                _state.Operations[action.Operation.OperationId] = action.Operation with { CancellationCause = "application_deadline", ObservedAt = _clock.UtcNow };
-                if (!Terminal.Contains(owner.Status))
-                    _state.Jobs[owner.JobId] = Advance(owner, "blocked", "operation-deadline-exceeded", "blocked:operation-deadline-exceeded", cancellation: owner.Cancellation, blockedReason: "operation-deadline-exceeded");
-                AuditLocked(owner.JobId, "operation-deadline-exceeded", new Dictionary<string, string> { ["operationId"] = action.Operation.OperationId, ["cause"] = "application_deadline" });
-                SaveLocked();
-            }
-            return true;
-        }
         var result = _provider.Poll(action.Operation.RemoteHandle ?? throw new InvalidOperationException("remote handle missing"), action.Job.Subject);
         if (!result.Completed)
         {
@@ -758,9 +766,10 @@ public sealed class StewardSeedRuntime : IDisposable
         var coverageState = observedCoverage >= requiredCoverage ? "complete" : observedCoverage > 0 ? "partial" : "unknown";
         // Derived evidence binds to the admitted obligation snapshot (#107); a snapshot
         // obligation whose live proof-recipe criterion drifted away cannot be proven.
-        var snapshotRequirements = job.ObligationSet is { } set
+        var recipeDrifted = job.ObligationSet is { } driftCheck && driftCheck.ProofRecipeDigest != _policy.RecipeDigest;
+        var snapshotRequirements = !recipeDrifted && job.ObligationSet is { } set
             ? set.Obligations.Select(item => (snapshot: item, req: _policy.Requirements.FirstOrDefault(candidate => candidate.Id == item.Id)))
-                .Where(pair => pair.req is not null && (pair.snapshot.CriterionDigest is null || pair.req.CriterionDigest == pair.snapshot.CriterionDigest))
+                .Where(pair => pair.req is not null && pair.req.CriterionDigest == pair.snapshot.CriterionDigest)
                 .Select(pair => pair.req!)
             : Enumerable.Empty<SeedRequirement>();
         foreach (var req in snapshotRequirements)
@@ -810,11 +819,20 @@ public sealed class StewardSeedRuntime : IDisposable
                 new Dictionary<string, object> { ["generation"] = job.Generation, ["profileRevision"] = _policy.ProfileRevision, ["proofRecipeRevision"] = _policy.ProofRevision, ["subjectRevision"] = job.Subject.Revision ?? "none", ["candidateDigest"] = job.Candidate.Digest },
                 "blocked", obligations, unresolved, cancelUnresolved, _clock.UtcNow, null, parentRef);
         }
+        if (job.ObligationSet.ProofRecipeDigest != _policy.RecipeDigest)
+        {
+            // Producer/criterion/aggregation semantics changed after admission; the job
+            // must be re-admitted rather than evaluated under mutated live policy (#107).
+            obligations.AddRange(job.ObligationSet.Obligations.Select(item => new StewardCompletionObligation(item.Id, "unsatisfied", [])));
+            if (job.ObligationSet.Obligations.Any(item => item.Required)) blocked = true;
+            return new(2, $"completion-{Guid.NewGuid():N}", job.JobId, job.LineageId, job.Generation, job.Subject, job.Candidate,
+                new Dictionary<string, object> { ["generation"] = job.Generation, ["profileRevision"] = _policy.ProfileRevision, ["proofRecipeRevision"] = _policy.ProofRevision, ["subjectRevision"] = job.Subject.Revision ?? "none", ["candidateDigest"] = job.Candidate.Digest },
+                "blocked", obligations, unresolved, cancelUnresolved, _clock.UtcNow, job.ObligationSet.Digest, parentRef);
+        }
         foreach (var snapshot in job.ObligationSet.Obligations)
         {
             var req = _policy.Requirements.FirstOrDefault(item => item.Id == snapshot.Id);
-            if (req is null
-                || (snapshot.CriterionDigest is not null && req.CriterionDigest != snapshot.CriterionDigest))
+            if (req is null || req.CriterionDigest != snapshot.CriterionDigest)
             {
                 // Admitted obligation whose live proof-recipe criterion drifted away or whose
                 // authority-affecting semantics changed after admission fails closed (#107).
@@ -951,9 +969,11 @@ public sealed class StewardSeedRuntime : IDisposable
             }
             if (!Terminal.Contains(job.Status) || job.Status is "completed" or "completed-with-gaps")
             {
-                if (job.ObligationSet is null || job.ObligationSet.Obligations.Count == 0)
-                    throw new JsonException("Steward snapshot job is missing the admitted obligation snapshot");
-                if (!string.Equals(Digest(new { revision = job.ObligationSet.Revision, obligations = job.ObligationSet.Obligations }), job.ObligationSet.Digest, StringComparison.Ordinal))
+                if (job.ObligationSet is null || job.ObligationSet.Obligations.Count == 0
+                    || string.IsNullOrWhiteSpace(job.ObligationSet.ProofRecipeDigest)
+                    || job.ObligationSet.Obligations.Any(item => string.IsNullOrWhiteSpace(item.CriterionDigest)))
+                    throw new JsonException("Steward snapshot job is missing the admitted obligation snapshot bindings");
+                if (!string.Equals(Digest(new { revision = job.ObligationSet.Revision, proofRecipeDigest = job.ObligationSet.ProofRecipeDigest, obligations = job.ObligationSet.Obligations }), job.ObligationSet.Digest, StringComparison.Ordinal))
                     throw new JsonException("Steward snapshot obligation set digest does not bind the snapshot contents");
             }
         }
