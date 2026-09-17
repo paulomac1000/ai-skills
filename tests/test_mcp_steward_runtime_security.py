@@ -579,7 +579,6 @@ def test_operation_deadline_is_durable_and_expiration_is_classified(tmp_path: Pa
     receipt = store.operation_for_job(job_id, "submit")
     assert receipt is not None
     assert receipt["cancellation_cause"] == "application_deadline"
-    audit_types = " ".join(item.get("eventType", "") or "" for item in [])
     assert receipt["operation_deadline_at"] == "2026-09-13T00:15:00Z"
 
 
@@ -942,3 +941,74 @@ def test_supervised_profile_binds_configured_parent_contract_on_public_submit(tm
     assert job["parentContract"] is not None
     assert job["parentContract"]["supervisor"]["systemId"] == "project-steward"
     assert job["deadlineAt"] == "2026-09-13T00:05:00Z"  # narrowed to the inherited budget
+
+
+def test_parent_cannot_forbid_steward_local_reporting(tmp_path: Path) -> None:
+    runtime, profile, proof, mutation, upstream = _generated_runtime(tmp_path)
+    clock = runtime.FakeClock(datetime(2026, 9, 13, tzinfo=UTC))
+    store = runtime.StewardStore(tmp_path / "local-forbidden.db", clock)
+    steward = runtime.StewardRuntime(store, profile, proof, mutation, upstream=upstream)
+    profile["authority"]["parent_completion"] = "explicit-contract-only"
+    parent = _supervised_parent_contract(runtime, capability_id=str(upstream["capability_id"]))
+    parent["authority"]["forbiddenCapabilities"] = ["local:handoff@1"]
+    job_id = steward.submit("repo", "abc", "local-forbidden-1", parent_contract=parent)["jobId"]
+    for _ in range(40):
+        steward.run_once()
+        if steward.status(job_id)["status"] == "completed":
+            break
+    else:
+        pytest.fail(f"supervised job with a forbidden local capability did not complete: {steward.status(job_id)}")
+    result = steward.get(job_id)
+    assert result["handoff"] is not None
+    assert result["handoff"]["status"] == "completed"
+
+
+def test_authority_bearing_contract_terms_force_readmission(tmp_path: Path) -> None:
+    runtime, profile, proof, mutation, upstream = _generated_runtime(tmp_path)
+    clock = runtime.FakeClock(datetime(2026, 9, 13, tzinfo=UTC))
+    store = runtime.StewardStore(tmp_path / "readmission.db", clock)
+    steward = runtime.StewardRuntime(store, profile, proof, mutation, upstream=upstream)
+    profile["authority"]["parent_completion"] = "explicit-contract-only"
+    capability_id = str(upstream["capability_id"])
+    base = {
+        "system_id": "project-steward",
+        "work_id": "parent-1",
+        "run_id": "run-1",
+        "generation": 3,
+        "contract_revision": 1,
+        "contract_digest": "sha256:" + "0" * 64,
+        "authority_ceiling": "explicit",
+        "deadline_at": "2026-09-13T00:05:00Z",
+        "budget": {"max_wall_clock_ms": 3_600_000, "max_external_calls": 64},
+        "handoff_contract": "execution-evidence-v1",
+        "delegated_capabilities": [capability_id],
+        "forbidden_capabilities": [],
+        "parent_completion_authority": "report_only",
+        "policy_revision_or_digest": "policy-1",
+        "obligations_ref": None,
+        "terminal_boundary": "steward-job",
+    }
+    profile["parent_contract"] = base
+    first = steward.submit("repo", "abc", "readmission-1")
+    assert first["duplicate"] is False
+    duplicate = steward.submit("repo", "abc", "readmission-1")
+    assert duplicate == {"jobId": first["jobId"], "duplicate": True}
+
+    for changed_field, changed_value in [
+        ("policy_revision_or_digest", "policy-2"),
+        ("handoff_contract", "execution-evidence-v2"),
+        ("obligations_ref", "obligations:2"),
+        ("terminal_boundary", "supervisor-job"),
+    ]:
+        profile["parent_contract"] = {**base, changed_field: changed_value}
+        with pytest.raises(runtime.ParentContractError) as excinfo:
+            steward.submit("repo", "abc", "readmission-1")
+        assert excinfo.value.outcome == "ReAdmissionRequired"
+
+    profile["parent_contract"] = {
+        **base,
+        "budget": {"max_wall_clock_ms": 1_800_000, "max_external_calls": 32},
+    }
+    with pytest.raises(runtime.ParentContractError) as budget_exc:
+        steward.submit("repo", "abc", "readmission-1")
+    assert budget_exc.value.outcome == "ReAdmissionRequired"

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import os
 import shutil
 import subprocess
@@ -67,6 +68,7 @@ def test_generated_dotnet_steward_builds_publishes_and_passes_official_client_sm
     server_dll = "src/StewardAcceptance.Mcp.Server/bin/Release/net10.0/StewardAcceptance.Mcp.Server.dll"
     smoke_dll = "tests/StewardAcceptance.Mcp.Smoke/bin/Release/net10.0/StewardAcceptance.Mcp.Smoke.dll"
     published = "publish/StewardAcceptance.Mcp.Server.dll"
+    handoff_export = "handoff-export.json"
     commands = [
         ["dotnet", "restore", project, "--locked-mode"],
         ["dotnet", "build", project, "--configuration", "Release", "--no-restore"],
@@ -80,6 +82,8 @@ def test_generated_dotnet_steward_builds_publishes_and_passes_official_client_sm
             "--no-build",
             "--",
             server_dll,
+            "--export-handoff",
+            handoff_export,
         ],
         [
             "dotnet",
@@ -122,3 +126,16 @@ def test_generated_dotnet_steward_builds_publishes_and_passes_official_client_sm
         assert completed.returncode == 0, (
             f"command failed: {' '.join(command)}\nstdout:\n{completed.stdout}\nstderr:\n{completed.stderr}"
         )
+
+    # The exported document is validated outside the .NET runtime on purpose:
+    # the digest must match the language-neutral canonical rule, not a private copy.
+    exported = json.loads((target / handoff_export).read_text(encoding="utf-8"))
+    spec = importlib.util.spec_from_file_location(
+        "steward_validator_dotnet_acceptance", ROOT / "skills/mcp-steward-architect/tools/validate_steward.py"
+    )
+    assert spec is not None and spec.loader is not None
+    validator = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = validator
+    spec.loader.exec_module(validator)
+    assert validator.validate_document("handoff", exported) == [], validator.validate_document("handoff", exported)
+    assert validator.compute_handoff_digest(exported) == exported["digest"]

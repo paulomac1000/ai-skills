@@ -76,7 +76,11 @@ public sealed record StewardParentContractSnapshot(
     string Mode, string SupervisorSystemId, string? ParentWorkId, string? ParentRunId, long ParentGeneration,
     string ContractId, string ContractRevision, string ContractDigest,
     IReadOnlyList<string> DelegatedCapabilities, IReadOnlyList<string> ForbiddenCapabilities,
-    string ParentCompletionAuthority, string AuthorityCeiling, DateTimeOffset? AbsoluteDeadline);
+    string ParentCompletionAuthority, string AuthorityCeiling, DateTimeOffset? AbsoluteDeadline,
+    // Authority-bearing contract terms: a change to any of these must force re-admission,
+    // so they are part of the snapshot and of the digest that idempotent admission compares.
+    string? PolicyRevisionOrDigest = null, string? BudgetRef = null, string? ObligationsRef = null,
+    string? TerminalBoundary = null, string? HandoffContract = null);
 public sealed record StewardObligationSnapshotItem(string Id, bool Required, string EvidenceClass, string CriterionDigest);
 public sealed record StewardObligationSnapshot(long Revision, string Digest, string ProofRecipeDigest, IReadOnlyList<StewardObligationSnapshotItem> Obligations);
 public sealed record StewardAdmission(string JobId, bool Duplicate);
@@ -179,7 +183,14 @@ internal sealed class SeedPolicy
             configured.GetProperty("forbidden_capabilities").EnumerateArray().Select(item => item.GetString()!).ToArray(),
             configured.GetProperty("parent_completion_authority").GetString()!,
             configured.GetProperty("authority_ceiling").GetString()!,
-            configured.GetProperty("deadline_at").GetDateTimeOffset());
+            configured.GetProperty("deadline_at").GetDateTimeOffset(),
+            configured.TryGetProperty("policy_revision_or_digest", out var policyElement) && policyElement.ValueKind == JsonValueKind.String ? policyElement.GetString() : null,
+            configured.TryGetProperty("budget", out var budgetElement) && budgetElement.ValueKind == JsonValueKind.Object
+                ? $"budget:{budgetElement.GetProperty("max_wall_clock_ms").GetInt64()}ms/{budgetElement.GetProperty("max_external_calls").GetInt32()}calls"
+                : null,
+            configured.TryGetProperty("obligations_ref", out var obligationsElement) && obligationsElement.ValueKind == JsonValueKind.String ? obligationsElement.GetString() : null,
+            configured.TryGetProperty("terminal_boundary", out var boundaryElement) && boundaryElement.ValueKind == JsonValueKind.String ? boundaryElement.GetString() : null,
+            configured.TryGetProperty("handoff_contract", out var handoffElement) && handoffElement.ValueKind == JsonValueKind.String ? handoffElement.GetString() : null);
     }
 
     private static string CriterionDigest(JsonElement criterion)
@@ -449,7 +460,7 @@ public sealed class StewardSeedRuntime : IDisposable
     }
 
     private static string ParentContractDigest(StewardParentContractSnapshot parent) =>
-        Digest(new { mode = parent.Mode, supervisorSystemId = parent.SupervisorSystemId, parentWorkId = parent.ParentWorkId, parentRunId = parent.ParentRunId, parentGeneration = parent.ParentGeneration, contractId = parent.ContractId, contractRevision = parent.ContractRevision, delegatedCapabilities = parent.DelegatedCapabilities, forbiddenCapabilities = parent.ForbiddenCapabilities, parentCompletionAuthority = parent.ParentCompletionAuthority, authorityCeiling = parent.AuthorityCeiling, absoluteDeadline = parent.AbsoluteDeadline });
+        Digest(new { mode = parent.Mode, supervisorSystemId = parent.SupervisorSystemId, parentWorkId = parent.ParentWorkId, parentRunId = parent.ParentRunId, parentGeneration = parent.ParentGeneration, contractId = parent.ContractId, contractRevision = parent.ContractRevision, delegatedCapabilities = parent.DelegatedCapabilities, forbiddenCapabilities = parent.ForbiddenCapabilities, parentCompletionAuthority = parent.ParentCompletionAuthority, authorityCeiling = parent.AuthorityCeiling, absoluteDeadline = parent.AbsoluteDeadline, policyRevisionOrDigest = parent.PolicyRevisionOrDigest, budgetRef = parent.BudgetRef, obligationsRef = parent.ObligationsRef, terminalBoundary = parent.TerminalBoundary, handoffContract = parent.HandoffContract });
 
     public StewardSeedJob Status(string jobId) { lock (_gate) return CurrentJobLocked(jobId); }
 
@@ -1237,16 +1248,36 @@ public sealed class StewardSeedRuntime : IDisposable
     private StewardHandoff CreateHandoff(StewardSeedJob job, StewardCompletionEvaluation completion)
     {
         var parentRef = job.ParentContract is { } parent ? new StewardParentContractRef(parent.Mode, parent.ContractDigest, parent.ParentWorkId, parent.ParentGeneration) : null;
-        var unsigned = new { schema_version = 2, handoffId = $"handoff-{Guid.NewGuid():N}", jobId = job.JobId, lineageId = job.LineageId, generation = job.Generation, subject = job.Subject, candidate = job.Candidate, status = "completed", actionable = true, outcome = "seed-provider-completed", evidenceRefs = completion.Obligations.SelectMany(item => item.EvidenceRefs).ToArray(), artifactRefs = Array.Empty<string>(), externalOperationRefs = job.ExternalOperationRefs.ToArray(), gaps = Array.Empty<string>(), correlationId = job.JobId, sealedAt = _clock.UtcNow, parentContract = parentRef };
-        var digest = "sha256:" + Sha256Hex(JsonSerializer.SerializeToUtf8Bytes(unsigned));
-        return new(2, unsigned.handoffId, job.JobId, job.LineageId, job.Generation, job.Subject, job.Candidate, "completed", true,
-            "seed-provider-completed", unsigned.evidenceRefs, [], unsigned.externalOperationRefs, [], job.JobId, unsigned.sealedAt, digest, parentRef);
+        var handoff = new StewardHandoff(2, $"handoff-{Guid.NewGuid():N}", job.JobId, job.LineageId, job.Generation, job.Subject, job.Candidate, "completed", true,
+            "seed-provider-completed", completion.Obligations.SelectMany(item => item.EvidenceRefs).ToArray(), [], job.ExternalOperationRefs.ToArray(), [], job.JobId, _clock.UtcNow, string.Empty, parentRef);
+        return handoff with { Digest = ComputeHandoffDigest(handoff) };
     }
 
+    private static JsonNode? CanonicalSorted(JsonNode? node) => node switch
+    {
+        JsonObject source => new JsonObject(source.OrderBy(item => item.Key, StringComparer.Ordinal)
+            .Select(item => new KeyValuePair<string, JsonNode?>(item.Key, CanonicalSorted(item.Value)))),
+        JsonArray source => new JsonArray(source.Select(item => CanonicalSorted(item)).ToArray()),
+        _ => node?.DeepClone(),
+    };
+
+    private static readonly System.Text.Json.JsonSerializerOptions CanonicalDigestOptions = new()
+    {
+        Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+    };
+
+    /// <summary>The handoff digest covers the canonical public handoff document with the
+    /// digest field removed — recursively key-sorted compact UTF-8 JSON, exactly what a
+    /// consumer recomputes from the steward_get projection (validate_steward rule).</summary>
     private static string ComputeHandoffDigest(StewardHandoff handoff)
     {
-        var unsigned = new { schema_version = handoff.SchemaVersion, handoffId = handoff.HandoffId, jobId = handoff.JobId, lineageId = handoff.LineageId, generation = handoff.Generation, subject = handoff.Subject, candidate = handoff.Candidate, status = handoff.Status, actionable = handoff.Actionable, outcome = handoff.Outcome, evidenceRefs = handoff.EvidenceRefs, artifactRefs = handoff.ArtifactRefs, externalOperationRefs = handoff.ExternalOperationRefs, gaps = handoff.Gaps, correlationId = handoff.CorrelationId, sealedAt = handoff.SealedAt, parentContract = handoff.ParentContract };
-        return "sha256:" + Sha256Hex(JsonSerializer.SerializeToUtf8Bytes(unsigned));
+        var unsigned = HandoffDocument(handoff);
+        unsigned.Remove("digest");
+        var canonical = CanonicalSorted(unsigned);
+        using var stream = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping }))
+            canonical!.WriteTo(writer);
+        return "sha256:" + Sha256Hex(stream.ToArray());
     }
 
     private StewardSeedJob Advance(StewardSeedJob job, string status, string stage, string marker, string cancellation, string? blockedReason = null) => job with { Version = job.Version + 1, Status = status, Stage = stage, Cancellation = cancellation, BlockedReason = blockedReason, Lease = Terminal.Contains(status) ? null : job.Lease, UpdatedAt = _clock.UtcNow, HeartbeatAt = _clock.UtcNow, ProgressAt = _clock.UtcNow, ProgressRevision = job.ProgressRevision + 1, ProgressMarker = marker };
