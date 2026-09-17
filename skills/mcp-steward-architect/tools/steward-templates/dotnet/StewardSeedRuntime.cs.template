@@ -455,12 +455,136 @@ public sealed class StewardSeedRuntime : IDisposable
 
     /// <summary>Canonical wire projection of steward_get: every member validates
     /// against its bundled contract (receipt/evidence/completion/handoff schemas).</summary>
+    private static JsonObject SubjectDocument(StewardSubject subject) => new()
+    {
+        ["type"] = subject.Type,
+        ["id"] = subject.Id,
+        ["revision"] = subject.Revision,
+        ["digest"] = null,
+    };
+
+    private static JsonObject CandidateDocument(StewardCandidate candidate) => new()
+    {
+        ["type"] = candidate.Type,
+        ["id"] = candidate.Id,
+        ["revision"] = candidate.Revision,
+        ["digest"] = candidate.Digest,
+    };
+
+    private static JsonObject LeaseDocument(StewardLease lease) => new()
+    {
+        ["owner"] = lease.Owner,
+        ["fencingToken"] = lease.FencingToken,
+        ["expiresAt"] = lease.ExpiresAt,
+    };
+
+    private static JsonObject ParentContractDocument(StewardParentContractSnapshot parent) => new()
+    {
+        ["mode"] = parent.Mode,
+        ["supervisor"] = new JsonObject
+        {
+            ["systemId"] = parent.SupervisorSystemId,
+            ["principalOrInstance"] = null,
+        },
+        ["work"] = new JsonObject
+        {
+            ["parentWorkId"] = parent.ParentWorkId,
+            ["parentRunId"] = parent.ParentRunId,
+            ["generation"] = parent.ParentGeneration,
+            ["attempt"] = null,
+        },
+        ["contract"] = new JsonObject
+        {
+            ["id"] = parent.ContractId,
+            ["revision"] = parent.ContractRevision,
+            ["digest"] = parent.ContractDigest,
+        },
+        ["authority"] = new JsonObject
+        {
+            ["delegatedCapabilities"] = new JsonArray(parent.DelegatedCapabilities.Select(item => JsonValue.Create(item)).ToArray()),
+            ["forbiddenCapabilities"] = new JsonArray(parent.ForbiddenCapabilities.Select(item => JsonValue.Create(item)).ToArray()),
+            ["parentCompletionAuthority"] = parent.ParentCompletionAuthority,
+            ["authorityCeiling"] = parent.AuthorityCeiling,
+        },
+        ["policy"] = new JsonObject { ["revisionOrDigest"] = null },
+        ["budget"] = new JsonObject
+        {
+            ["absoluteDeadline"] = parent.AbsoluteDeadline,
+            ["retryOrResourceBudgetRef"] = null,
+        },
+        ["completion"] = new JsonObject
+        {
+            ["obligationsRef"] = null,
+            ["terminalBoundary"] = "steward-job",
+            ["handoffContract"] = "execution-evidence-v1",
+        },
+        ["digest"] = parent.ContractDigest,
+    };
+
+    private static JsonObject ObligationSetDocument(StewardObligationSnapshot snapshot) => new()
+    {
+        ["revision"] = snapshot.Revision,
+        ["digest"] = snapshot.Digest,
+        ["proofRecipeDigest"] = snapshot.ProofRecipeDigest,
+        ["obligations"] = new JsonArray(snapshot.Obligations.Select(item => new JsonObject
+        {
+            ["id"] = item.Id,
+            ["required"] = item.Required,
+            ["evidenceClass"] = item.EvidenceClass,
+            ["criterionDigest"] = item.CriterionDigest,
+        }).ToArray()),
+    };
+
+    private static JsonObject ParentContractRefDocument(StewardParentContractRef reference) => new()
+    {
+        ["mode"] = reference.Mode,
+        ["contractDigest"] = reference.ContractDigest,
+        ["parentWorkId"] = reference.ParentWorkId,
+        ["parentGeneration"] = reference.ParentGeneration,
+    };
+
+    private static JsonObject JobDocument(StewardSeedJob job) => new()
+    {
+        ["schema_version"] = job.SchemaVersion,
+        ["jobId"] = job.JobId,
+        ["lineageId"] = job.LineageId,
+        ["generation"] = job.Generation,
+        ["attemptId"] = job.AttemptId,
+        ["version"] = job.Version,
+        ["subject"] = SubjectDocument(job.Subject),
+        ["candidate"] = CandidateDocument(job.Candidate),
+        ["requestDigest"] = job.RequestDigest,
+        ["status"] = job.Status,
+        ["stage"] = job.Stage,
+        ["domainOutcome"] = null,
+        ["createdAt"] = job.CreatedAt,
+        ["updatedAt"] = job.UpdatedAt,
+        ["heartbeatAt"] = job.HeartbeatAt,
+        ["progressAt"] = job.ProgressAt,
+        ["progressRevision"] = job.ProgressRevision,
+        ["progressMarker"] = job.ProgressMarker,
+        ["deadlineAt"] = job.DeadlineAt,
+        ["finalizationStartsAt"] = job.FinalizationStartsAt,
+        ["lease"] = job.Lease is null ? null : LeaseDocument(job.Lease),
+        ["cancellation"] = job.Cancellation,
+        ["blockedReason"] = job.BlockedReason,
+        ["externalOperationRefs"] = new JsonArray(job.ExternalOperationRefs.Select(item => JsonValue.Create(item)).ToArray()),
+        ["evidenceRefs"] = new JsonArray(job.EvidenceRefs.Select(item => JsonValue.Create(item)).ToArray()),
+        ["artifactRefs"] = new JsonArray((job.ArtifactRefs ?? Array.Empty<string>()).Select(item => JsonValue.Create(item)).ToArray()),
+        ["failure"] = null,
+        ["parentContract"] = job.ParentContract is null ? null : ParentContractDocument(job.ParentContract),
+        ["obligationSet"] = job.ObligationSet is null ? null : ObligationSetDocument(job.ObligationSet),
+        ["obligationSetDigest"] = job.ObligationSetDigest,
+        ["parentContractDigest"] = job.ParentContractDigest,
+        ["cancellationCause"] = job.CancellationCause,
+    };
+
     public JsonObject GetDocument(string jobId)
     {
         var result = Get(jobId);
         var root = new JsonObject
         {
-            ["job"] = JsonSerializer.SerializeToNode(result.Job),
+            ["job"] = JobDocument(result.Job),
             ["operations"] = new JsonArray(result.Operations.Select(OperationDocument).ToArray()),
             ["evidence"] = new JsonArray(result.Evidence.Select(EvidenceDocument).ToArray()),
             ["completion"] = result.Completion is null ? null : CompletionDocument(result.Completion),
@@ -506,8 +630,8 @@ public sealed class StewardSeedRuntime : IDisposable
         ["jobId"] = ev.JobId,
         ["lineageId"] = ev.LineageId,
         ["generation"] = ev.Generation,
-        ["subject"] = JsonSerializer.SerializeToNode(ev.Subject),
-        ["candidate"] = JsonSerializer.SerializeToNode(ev.Candidate),
+        ["subject"] = SubjectDocument(ev.Subject),
+        ["candidate"] = CandidateDocument(ev.Candidate),
         ["criterionId"] = ev.CriterionId,
         ["claimId"] = ev.ClaimId,
         ["evidenceClass"] = ev.EvidenceClass,
@@ -539,8 +663,8 @@ public sealed class StewardSeedRuntime : IDisposable
         ["jobId"] = completion.JobId,
         ["lineageId"] = completion.LineageId,
         ["generation"] = completion.Generation,
-        ["subject"] = JsonSerializer.SerializeToNode(completion.Subject),
-        ["candidate"] = JsonSerializer.SerializeToNode(completion.Candidate),
+        ["subject"] = SubjectDocument(completion.Subject),
+        ["candidate"] = CandidateDocument(completion.Candidate),
         ["decisionIdentity"] = new JsonObject(completion.DecisionIdentity.Select(kv => new KeyValuePair<string, JsonNode?>(kv.Key, JsonValue.Create(kv.Value)))),
         ["disposition"] = completion.Disposition,
         ["obligations"] = new JsonArray(completion.Obligations.Select(item => new JsonObject
@@ -553,7 +677,7 @@ public sealed class StewardSeedRuntime : IDisposable
         ["ambiguousCancellationRefs"] = new JsonArray(completion.AmbiguousCancellationRefs.Select(item => JsonValue.Create(item)).ToArray()),
         ["evaluatedAt"] = completion.EvaluatedAt,
         ["obligationSetDigest"] = completion.ObligationSetDigest,
-        ["parentContract"] = completion.ParentContract is null ? null : JsonSerializer.SerializeToNode(completion.ParentContract),
+        ["parentContract"] = completion.ParentContract is null ? null : ParentContractRefDocument(completion.ParentContract),
     };
 
     private static JsonObject HandoffDocument(StewardHandoff handoff) => new()
@@ -563,8 +687,8 @@ public sealed class StewardSeedRuntime : IDisposable
         ["jobId"] = handoff.JobId,
         ["lineageId"] = handoff.LineageId,
         ["generation"] = handoff.Generation,
-        ["subject"] = JsonSerializer.SerializeToNode(handoff.Subject),
-        ["candidate"] = JsonSerializer.SerializeToNode(handoff.Candidate),
+        ["subject"] = SubjectDocument(handoff.Subject),
+        ["candidate"] = CandidateDocument(handoff.Candidate),
         ["status"] = handoff.Status,
         ["actionable"] = handoff.Actionable,
         ["outcome"] = handoff.Outcome,
@@ -575,7 +699,7 @@ public sealed class StewardSeedRuntime : IDisposable
         ["failureClass"] = null,
         ["correlationId"] = handoff.CorrelationId,
         ["sealedAt"] = handoff.SealedAt,
-        ["parentContract"] = handoff.ParentContract is null ? null : JsonSerializer.SerializeToNode(handoff.ParentContract),
+        ["parentContract"] = handoff.ParentContract is null ? null : ParentContractRefDocument(handoff.ParentContract),
         ["digest"] = handoff.Digest,
     };
     public StewardResult Get(string jobId)

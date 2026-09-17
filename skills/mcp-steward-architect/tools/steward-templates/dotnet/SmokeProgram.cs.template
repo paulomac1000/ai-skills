@@ -47,6 +47,19 @@ static void VerifyStewardSeed()
             var submitOperation = result.Operations.Single(item => item.OperationKind == "submit");
             if (submitOperation.CapabilityIdentity != expectedCapability || submitOperation.CapabilityContractDigest != expectedDigest || string.IsNullOrWhiteSpace(submitOperation.MutationDecisionRef))
                 throw new InvalidOperationException("Mutation receipt is not bound to the reviewed capability contract/admission decision.");
+
+            // steward_get's canonical document must validate against the bundled schemas:
+            // identity members are lowercase type/id/revision and job carries schema_version.
+            var getDocument = recovered.GetDocument(jobId);
+            var jobNode = getDocument["job"]!.AsObject();
+            if (jobNode["schema_version"] is null || jobNode["jobId"]?.GetValue<string>() != jobId)
+                throw new InvalidOperationException("Canonical steward_get job projection missing schema_version/jobId.");
+            var subjectNode = jobNode["subject"]!.AsObject();
+            if (subjectNode["type"] is null || subjectNode["id"] is null || subjectNode["revision"] is null
+                || subjectNode["Type"] is not null || subjectNode["Id"] is not null)
+                throw new InvalidOperationException("Canonical steward_get subject projection violates steward-job.schema.json member names.");
+            if (jobNode["artifactRefs"] is not JsonArray || jobNode["obligationSet"] is not JsonObject)
+                throw new InvalidOperationException("Canonical steward_get job projection artifact/obligation shapes are invalid.");
         }
 
         var cancelProvider = new CountingSeedProvider();
