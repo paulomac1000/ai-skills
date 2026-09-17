@@ -404,6 +404,15 @@ public sealed class StewardSeedRuntime : IDisposable
                 DelegatedCapabilities = parentContract.DelegatedCapabilities.ToArray(),
                 ForbiddenCapabilities = parentContract.ForbiddenCapabilities.ToArray(),
             };
+            // The public projection binds contract.digest to the supervisor-supplied
+            // source digest; a caller that passed only the legacy ContractDigest keeps
+            // it as the source, and admission fails closed when neither is present.
+            if (string.IsNullOrWhiteSpace(copied.SourceContractDigest))
+            {
+                if (string.IsNullOrWhiteSpace(copied.ContractDigest) || !copied.ContractDigest.StartsWith("sha256:", StringComparison.Ordinal))
+                    throw new InvalidOperationException("ParentContractUnsupported: admitted parent contract requires a sha256 source contract digest");
+                copied = copied with { SourceContractDigest = copied.ContractDigest };
+            }
             parentContract = copied with { ContractDigest = ParentContractDigest(copied) };
         }
         var subject = new StewardSubject("target", subjectId, subjectRevision);
@@ -1368,7 +1377,8 @@ public sealed class StewardSeedRuntime : IDisposable
             if (job.ParentContract is { } parent)
             {
                 if (parent.Mode != "supervised" || string.IsNullOrWhiteSpace(parent.SupervisorSystemId)
-                    || string.IsNullOrWhiteSpace(parent.ContractId) || string.IsNullOrWhiteSpace(parent.ContractDigest))
+                    || string.IsNullOrWhiteSpace(parent.ContractId) || string.IsNullOrWhiteSpace(parent.ContractDigest)
+                    || string.IsNullOrWhiteSpace(parent.SourceContractDigest))
                     throw new JsonException("Steward snapshot contains an invalid parent contract snapshot");
                 if (!string.Equals(ParentContractDigest(parent), parent.ContractDigest, StringComparison.Ordinal))
                     throw new JsonException("Steward snapshot parent contract digest does not bind the snapshot contents");
