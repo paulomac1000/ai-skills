@@ -159,6 +159,11 @@ static void VerifyStewardSeed(string? exportHandoffPath = null, string? exportJo
                 throw new InvalidOperationException("Legacy parent snapshot lost its source contract digest in the public projection.");
             if (!StewardSeedRuntime.VerifyParentContractDigest(callerMutation.Status(submitted.JobId)))
                 throw new InvalidOperationException("Caller-admitted parent digest does not bind its public projection.");
+            var malformed = parent with { ContractDigest = "sha256:x" };
+            var malformedRejected = false;
+            try { _ = callerMutation.Submit("repo-caller", "abc", "caller-mutation-malformed", malformed); }
+            catch (InvalidOperationException exc) when (exc.Message.Contains("source contract digest", StringComparison.Ordinal)) { malformedRejected = true; }
+            if (!malformedRejected) throw new InvalidOperationException("Malformed parent source digest was admitted.");
             _ = submitted;
             delegated.Add(capabilityId); // caller mutates its list AFTER admission
             for (var step = 0; step < 6; step++) callerMutation.RunOneDue();
