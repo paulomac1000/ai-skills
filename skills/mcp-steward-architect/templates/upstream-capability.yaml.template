@@ -1,0 +1,40 @@
+schema_version: 2
+capability_id: __CAPABILITY_ID__
+contract:
+  source: pinned-trusted # negotiated-trusted | discovered-trusted | pinned-trusted | operator-config
+  id: __CAPABILITY_ID__
+  revision: '1'
+  digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+subject_types: []
+target_types: []
+identity_dimensions_observed: []
+evidence_classes_produced: []
+interaction: stateless # stateless | stateful
+delivery: synchronous # synchronous | durable-async
+idempotency: none # none | caller-key | provider-key
+recovery: none # none | replay-safe | status-by-handle | resume-by-handle
+cancellation:
+  mode: none # none | best-effort | confirmed
+  delivery_model: none # none | synchronous | stateful
+  idempotency: none # none | intrinsic | caller-key | provider-key
+  reconciliation: unsupported
+  handle_affinity: none
+  local_terminal_requires_remote_resolution: false
+progress:
+  kind: none # none | heartbeat | sequence | percent | state-revision
+  stable_revision: false
+  wait_hint: none # none | server-side-wait | retry-after | next-poll-at
+  worker_wait_policy: inline-bounded # inline-bounded | external-maintenance
+reconciliation:
+  ambiguous_delivery: unsupported
+deadline:
+  application_owned: true
+  transport_may_shorten: false
+credential_affinity: none
+bounds:
+  max_request_bytes: null
+  max_result_bytes: null
+  concurrency_scope: capability
+  rate_limit_scope: provider
+confidentiality:
+  egress_class: local

@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://paulomac1000.github.io/ai-skills/contracts/steward-acceptance.schema.json",
+  "title": "StewardAcceptancePlan",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "acceptance_id", "revision", "claim_class", "required_lanes", "independent_required", "live_full_path_required", "exact_artifact"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "acceptance_id": {"type": "string", "minLength": 1},
+    "revision": {"type": "integer", "minimum": 1},
+    "claim_class": {"enum": ["structural", "production-workflow"]},
+    "required_lanes": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"enum": ["implementer", "canonical-full", "fault-restart", "inherited-mcp", "independent-delta", "exact-artifact", "live-full-path"]}},
+    "independent_required": {"type": "boolean"},
+    "live_full_path_required": {"type": "boolean"},
+    "exact_artifact": {"type": "object", "additionalProperties": false, "required": ["full_path_required", "runtime_prerequisites_declared", "restart_boundary_required"], "properties": {"full_path_required": {"type": "boolean"}, "runtime_prerequisites_declared": {"type": "boolean"}, "restart_boundary_required": {"type": "boolean"}}}
+  }
+}

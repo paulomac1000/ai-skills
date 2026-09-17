@@ -49,12 +49,12 @@ def _write_marker_project(root: Path, *, addopts: str, marker_note: str = "") ->
     (root / "tests/external").mkdir(parents=True)
     (root / "pyproject.toml").write_text(
         "[project]\n"
-        "name = \"consumer\"\n"
-        "version = \"1.0.0\"\n"
-        "dependencies = [\"mcp==2.0.0\"]\n\n"
+        'name = "consumer"\n'
+        'version = "1.0.0"\n'
+        'dependencies = ["mcp==2.0.0"]\n\n'
         "[tool.pytest.ini_options]\n"
         f"addopts = {addopts!r}\n"
-        "markers = [\"external: live backend tests; not external means safe synthetic tests\"]\n"
+        'markers = ["external: live backend tests; not external means safe synthetic tests"]\n'
         f"# {marker_note}\n",
         encoding="utf-8",
     )
@@ -183,9 +183,9 @@ def test_source_bound_prebuilt_container_clears_stale_artifact_gap(tmp_path: Pat
         "ARG EXPECTED_SOURCE_REVISION\n"
         "COPY dist/ /tmp/dist/\n"
         'SHELL ["/bin/sh", "-c"]\n'
-        "RUN test -n \"$EXPECTED_SOURCE_REVISION\" && "
+        'RUN test -n "$EXPECTED_SOURCE_REVISION" && '
         "read -r ACTUAL_SOURCE_REVISION < /tmp/dist/SOURCE_REVISION && "
-        "test \"$ACTUAL_SOURCE_REVISION\" = \"$EXPECTED_SOURCE_REVISION\"\n",
+        'test "$ACTUAL_SOURCE_REVISION" = "$EXPECTED_SOURCE_REVISION"\n',
         encoding="utf-8",
     )
 
@@ -310,7 +310,7 @@ def test_unrelated_source_revision_checks_do_not_fake_container_binding(tmp_path
         "ARG EXPECTED_SOURCE_REVISION\n"
         "COPY dist/ /tmp/dist/\n"
         "RUN test -f /tmp/dist/SOURCE_REVISION\n"
-        "RUN test -n \"$EXPECTED_SOURCE_REVISION\"\n"
+        'RUN test -n "$EXPECTED_SOURCE_REVISION"\n'
         "RUN sha256sum --check /tmp/dist/SHA256SUMS\n",
         encoding="utf-8",
     )
@@ -335,7 +335,7 @@ def test_source_binding_does_not_transfer_between_container_definitions(tmp_path
         "FROM python:3.12-slim\n"
         "ARG EXPECTED_SOURCE_REVISION\n"
         "COPY src/ /tmp/src/\n"
-        "RUN test \"$(cat /tmp/src/SOURCE_REVISION)\" = \"$EXPECTED_SOURCE_REVISION\"\n",
+        'RUN test "$(cat /tmp/src/SOURCE_REVISION)" = "$EXPECTED_SOURCE_REVISION"\n',
         encoding="utf-8",
     )
 

@@ -40,9 +40,7 @@ def _profile(compat: ModuleType, raw: dict[str, object]) -> object:
 
 def _covered(targets: tuple[str, ...], path: str) -> bool:
     return any(
-        path == target
-        or path.startswith(f"{target.rstrip('/')}/")
-        or ("*" in target and fnmatch.fnmatch(path, target))
+        path == target or path.startswith(f"{target.rstrip('/')}/") or ("*" in target and fnmatch.fnmatch(path, target))
         for target in targets
     )
 
@@ -56,7 +54,9 @@ def test_recursive_nullable_object_array_fixture_is_provider_incompatible() -> N
     assert result.compatible is False
     assert result.activation_allowed is False
     assert any("$.properties.options:nullable_object_array_unsupported" in item for item in result.violations)
-    assert any("$.properties.options.properties.tags:nullable_object_array_unsupported" in item for item in result.violations)
+    assert any(
+        "$.properties.options.properties.tags:nullable_object_array_unsupported" in item for item in result.violations
+    )
 
 
 def test_unknown_provider_subset_never_optimistically_activates() -> None:

@@ -120,9 +120,7 @@ def test_approve_schema_still_requires_reviewer_and_acceptance_authority() -> No
     schema = json.loads((ROOT / "contracts/adoption-assessment.schema.json").read_text(encoding="utf-8"))
     messages = [
         error.message
-        for error in Draft202012Validator(schema).iter_errors(
-            {"decision": {"status": "approve", "rationale": "ready"}}
-        )
+        for error in Draft202012Validator(schema).iter_errors({"decision": {"status": "approve", "rationale": "ready"}})
     ]
     assert any("reviewer" in message for message in messages)
     assert any("acceptance_authority" in message for message in messages)
@@ -136,9 +134,7 @@ def test_generic_assessment_template_has_exact_test_case_placeholder() -> None:
 
 
 def test_mcp_manifest_exposes_complete_shared_adoption_contract() -> None:
-    manifest = yaml.safe_load(
-        (ROOT / "skills/mcp-server-architect/manifest.yaml").read_text(encoding="utf-8")
-    )
+    manifest = yaml.safe_load((ROOT / "skills/mcp-server-architect/manifest.yaml").read_text(encoding="utf-8"))
     adoption = manifest["adoption"]
     expected = {
         "template": "contracts/adoption-assessment.yaml.template",

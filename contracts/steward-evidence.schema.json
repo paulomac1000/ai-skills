@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://paulomac1000.github.io/ai-skills/contracts/steward-evidence.schema.json",
+  "title": "StewardEvidence",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "evidenceId", "jobId", "lineageId", "generation", "subject", "candidate", "criterionId", "claimId", "evidenceClass", "observationGrade", "authorityClass", "producerId", "proofRecipeId", "binding", "coverage", "observedAt", "expiresAt", "payloadDigest"],
+  "properties": {
+    "schema_version": {"const": 2},
+    "evidenceId": {"type": "string", "minLength": 1, "maxLength": 200},
+    "jobId": {"type": "string", "minLength": 1, "maxLength": 200},
+    "lineageId": {"type": "string", "minLength": 1, "maxLength": 200},
+    "generation": {"type": "integer", "minimum": 1},
+    "subject": {"$ref": "#/$defs/identity"},
+    "candidate": {"anyOf": [{"type": "null"}, {"$ref": "#/$defs/candidate"}]},
+    "criterionId": {"type": "string", "minLength": 1, "maxLength": 200},
+    "claimId": {"type": "string", "minLength": 1, "maxLength": 200},
+    "evidenceClass": {"type": "string", "minLength": 1, "maxLength": 200},
+    "observationGrade": {"enum": ["declared", "observed", "observed-effective", "functional-ready", "verified"]},
+    "authorityClass": {"enum": ["advisory", "observed", "verified", "independent"]},
+    "producerId": {"type": "string", "minLength": 1, "maxLength": 200},
+    "proofRecipeId": {"type": "string", "minLength": 1, "maxLength": 200},
+    "binding": {"type": "object", "additionalProperties": false, "required": ["required", "satisfied", "status"], "properties": {"required": {"$ref": "#/$defs/stringSet"}, "satisfied": {"$ref": "#/$defs/stringSet"}, "status": {"enum": ["complete", "partial", "unknown"]}}},
+    "coverage": {"type": "object", "additionalProperties": false, "required": ["state", "required", "observed"], "properties": {"state": {"enum": ["complete", "partial", "unknown"]}, "required": {"type": "integer", "minimum": 0}, "observed": {"type": "integer", "minimum": 0}}},
+    "observedAt": {"type": "string", "format": "date-time"},
+    "expiresAt": {"type": ["string", "null"], "format": "date-time"},
+    "payloadDigest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+  },
+  "$defs": {
+    "stringSet": {"type": "array", "uniqueItems": true, "maxItems": 256, "items": {"type": "string", "minLength": 1}},
+    "identity": {"type": "object", "additionalProperties": false, "required": ["type", "id", "revision"], "properties": {"type": {"type": "string", "minLength": 1}, "id": {"type": "string", "minLength": 1}, "revision": {"type": ["string", "null"]}, "digest": {"type": ["string", "null"]}}},
+    "candidate": {"type": "object", "additionalProperties": false, "required": ["type", "id", "revision", "digest"], "properties": {"type": {"type": "string", "minLength": 1}, "id": {"type": "string", "minLength": 1}, "revision": {"type": ["string", "null"]}, "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}}}
+  }
+}

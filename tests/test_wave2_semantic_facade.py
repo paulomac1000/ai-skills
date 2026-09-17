@@ -48,9 +48,7 @@ def _valid_design(facade: ModuleType, **changes: object) -> object:
 
 def _covered(targets: tuple[str, ...], path: str) -> bool:
     return any(
-        path == target
-        or path.startswith(f"{target.rstrip('/')}/")
-        or ("*" in target and fnmatch.fnmatch(path, target))
+        path == target or path.startswith(f"{target.rstrip('/')}/") or ("*" in target and fnmatch.fnmatch(path, target))
         for target in targets
     )
 

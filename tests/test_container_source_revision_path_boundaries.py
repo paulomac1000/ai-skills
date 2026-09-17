@@ -35,8 +35,7 @@ def test_distinct_case_sensitive_source_roots_do_not_share_revision_provenance()
         "FROM python:3.12-slim\n"
         "ARG EXPECTED_SOURCE_REVISION\n"
         "COPY Dist/server.whl /tmp/dist/\n"
-        "COPY dist/SOURCE_REVISION /tmp/dist/SOURCE_REVISION\n"
-        + _binding_run()
+        "COPY dist/SOURCE_REVISION /tmp/dist/SOURCE_REVISION\n" + _binding_run()
     )
 
     assert inspector._source_revision_binding_state(
@@ -47,12 +46,7 @@ def test_distinct_case_sensitive_source_roots_do_not_share_revision_provenance()
 
 def test_dynamic_prebuilt_destination_is_detected_but_cannot_be_claimed_bound() -> None:
     inspector = _inspector()
-    dockerfile = (
-        "FROM python:3.12-slim\n"
-        "ARG APP_HOME=/app\n"
-        "ARG EXPECTED_SOURCE_REVISION\n"
-        "COPY dist/ $APP_HOME/\n"
-    )
+    dockerfile = "FROM python:3.12-slim\nARG APP_HOME=/app\nARG EXPECTED_SOURCE_REVISION\nCOPY dist/ $APP_HOME/\n"
 
     assert inspector._source_revision_binding_state(
         dockerfile,
@@ -65,8 +59,7 @@ def test_json_multi_source_copy_keeps_same_root_revision_binding() -> None:
     dockerfile = (
         "FROM python:3.12-slim\n"
         "ARG EXPECTED_SOURCE_REVISION\n"
-        'COPY ["dist/server.whl", "dist/SOURCE_REVISION", "/tmp/dist/"]\n'
-        + _binding_run()
+        'COPY ["dist/server.whl", "dist/SOURCE_REVISION", "/tmp/dist/"]\n' + _binding_run()
     )
 
     assert inspector._source_revision_binding_state(

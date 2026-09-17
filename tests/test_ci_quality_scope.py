@@ -38,9 +38,7 @@ def _inventory_covers(relative: str, inventory: tuple[str, ...]) -> bool:
 def _production_python() -> set[str]:
     contracts = {path.relative_to(ROOT).as_posix() for path in (ROOT / "contracts").glob("*.py")}
     skill_tools = {
-        path.relative_to(ROOT).as_posix()
-        for path in (ROOT / "skills").glob("*/tools/*.py")
-        if path.is_file()
+        path.relative_to(ROOT).as_posix() for path in (ROOT / "skills").glob("*/tools/*.py") if path.is_file()
     }
     return contracts | skill_tools
 

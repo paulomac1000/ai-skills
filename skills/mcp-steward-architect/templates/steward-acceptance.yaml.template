@@ -1,0 +1,16 @@
+schema_version: 1
+acceptance_id: __STEWARD_ID__-acceptance
+revision: 1
+claim_class: structural
+required_lanes:
+  - implementer
+  - canonical-full
+  - fault-restart
+  - inherited-mcp
+  - exact-artifact
+independent_required: false
+live_full_path_required: false
+exact_artifact:
+  full_path_required: true
+  runtime_prerequisites_declared: true
+  restart_boundary_required: true

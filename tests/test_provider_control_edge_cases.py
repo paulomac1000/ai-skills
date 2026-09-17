@@ -109,7 +109,9 @@ def test_provider_preserves_repository_metadata_failure_as_unverifiable(tmp_path
         "acme/project",
         FakeClient({"/repos/acme/project": (500, None, "provider unavailable")}),
     )
-    assert any(item.state == "unverifiable" and "repository metadata/default branch" in item.message for item in findings)
+    assert any(
+        item.state == "unverifiable" and "repository metadata/default branch" in item.message for item in findings
+    )
 
 
 def test_provider_requires_observable_default_branch(tmp_path: Path) -> None:

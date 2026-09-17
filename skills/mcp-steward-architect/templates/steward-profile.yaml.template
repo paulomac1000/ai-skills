@@ -1,0 +1,69 @@
+schema_version: 2
+steward:
+  id: __STEWARD_ID__
+  kind: generic
+  contract_revision: 1
+contracts:
+  state_machine: steward-state-machine@1
+  mutation_policy: steward-mutation-policy@1
+  proof_recipe: steward-proof-recipe@2
+  acceptance: steward-acceptance@1
+features:
+  durable_external_async: false
+  causal_claims: false
+  external_cancellation: false
+  negative_aggregate_claims: false
+  proof_producers: true
+  runtime_binding_required: false
+  exact_candidate_binding: false
+authority:
+  owns: [durable-job-state]
+  observes: []
+  may_mutate: []
+  verifies: []
+  parent_completion: none
+  never_claims: []
+parent_contract: null
+subject_identity:
+  required_dimensions: [target]
+  freshness_dimensions: []
+  candidate_dimensions: []
+  candidate_required_for_publication: false
+durability:
+  profile: single-node-durable
+  crash_model: [process-restart]
+  transactional_store_required: true
+  lineage_fencing: true
+  attempt_fencing: true
+  recovery_equivalence_required: true
+  topology:
+    client_multiplicity: many
+    server_process_multiplicity: single
+    store_ownership: single-owner
+    writer_model: single-owner
+    shared_state_scope: process
+    restart_boundary: process
+external_operations:
+  receipt_before_stateful_dispatch: true
+  ambiguous_delivery: reconcile-before-retry
+  cancellation_reconciliation_required: true
+  worker_wait_policy: external-maintenance
+mutation_admission:
+  authority_values_non_defaultable: true
+  durable_pre_dispatch_commit: true
+  budget_reservation_required: true
+credentials:
+  secret_source: intentional-provider
+  persist_secret: false
+  fallback:
+    enabled: false
+    preserve_principal_scope: true
+    preserve_target: true
+model:
+  authority_ceiling: advisory
+completion:
+  obligations: []
+  handoff_digest: sha256
+observability:
+  durable_timeline: true
+  doctor: true

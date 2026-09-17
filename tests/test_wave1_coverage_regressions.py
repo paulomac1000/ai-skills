@@ -210,7 +210,9 @@ def test_parity_main_success_output_and_input_failure(tmp_path: Path, monkeypatc
     policy_path = tmp_path / "parity.yaml"
     policy_path.write_text(yaml.safe_dump(policy), encoding="utf-8")
     output = tmp_path / "result.json"
-    monkeypatch.setattr(sys, "argv", ["check_local_ci_parity.py", str(policy_path), "--root", str(tmp_path), "--output", str(output)])
+    monkeypatch.setattr(
+        sys, "argv", ["check_local_ci_parity.py", str(policy_path), "--root", str(tmp_path), "--output", str(output)]
+    )
     assert PARITY.main() == 0
     assert json.loads(output.read_text(encoding="utf-8"))["verdict"] == "pass"
     assert json.loads(capsys.readouterr().out)["verdict"] == "pass"
@@ -387,7 +389,16 @@ def test_corpus_main_pass_incomplete_and_error_paths(tmp_path: Path, monkeypatch
     monkeypatch.setattr(
         sys,
         "argv",
-        ["check_test_corpus.py", str(policy_path), "--root", str(tmp_path), "--executed-manifest", str(executed), "--output", str(output)],
+        [
+            "check_test_corpus.py",
+            str(policy_path),
+            "--root",
+            str(tmp_path),
+            "--executed-manifest",
+            str(executed),
+            "--output",
+            str(output),
+        ],
     )
     assert CORPUS.main() == 0
     assert json.loads(output.read_text(encoding="utf-8"))["verdict"] == "pass"
@@ -408,7 +419,9 @@ def test_corpus_main_pass_incomplete_and_error_paths(tmp_path: Path, monkeypatch
     assert json.loads(capsys.readouterr().out)["verdict"] == "fail"
 
 
-def test_gate_source_bounded_reader_and_executable_shebang_edges(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_gate_source_bounded_reader_and_executable_shebang_edges(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     script = _write(tmp_path / "scripts/run.sh", "#!/bin/sh\nexit 0\n")
     assert GATES._is_executable_shebang_script(tmp_path, "tools/run.sh") is False
     if os.name != "nt":
@@ -437,7 +450,9 @@ def test_gate_source_reader_rejects_symlink(tmp_path: Path) -> None:
         GATES._read_bounded(tmp_path, "scripts/link.py")
 
 
-def test_gate_source_main_covers_pass_and_budget_failure(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys) -> None:
+def test_gate_source_main_covers_pass_and_budget_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys
+) -> None:
     _write(tmp_path / "scripts/task.py", "if __name__ == '__main__':\n    print('ok')\n")
     monkeypatch.setattr(sys, "argv", ["agents_md_gate_sources.py", str(tmp_path), "--limit", "1"])
     assert GATES.main() == 0

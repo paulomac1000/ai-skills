@@ -1,5 +1,24 @@
 # Changelog
 
+## 3.0.0 - 2026-09-13
+
+### Added
+
+- Added `mcp-steward-architect`, the canonical durable MCP control-plane architecture skill composing inbound MCP server and outbound consumer standards with receipts, reconciliation, lineage fencing, evidence authority, completion gates, recovery, and adversarial conformance tests.
+- Added the Steward v3 Design Pack with machine-readable state-machine, mutation-policy, proof-recipe, capability, acceptance, candidate-identity, claim-binding, cancellation, recovery-equivalence, and layered acceptance contracts.
+- Added explicit Work Admission, Mutation Admission, Evidence Promotion, and Completion Publication gates with typed fail-closed outcomes and atomic regression coverage for ambiguous delivery, stale publication, and credential failover.
+
+### Changed
+
+- Upgraded the generated Python and .NET Steward baselines from sidecar examples to durable recovery-oriented workflow seeds with semantic MCP controls, exact-candidate evidence/completion/handoff binding, bounded progress/deadline state, and stateful cancellation reconciliation.
+- Strengthened shared capability, evidence, exact-artifact, and verification-integrity contracts across the bundled architecture skills.
+- Synchronized all bundled stable skill version mirrors to `3.0.0` because the release changes shared repository contracts and the definition of Steward conformance.
+
+### Security and correctness
+
+- Stateful submit and cancellation effects now require durable pre-dispatch identity and reconcile-before-replay after ambiguous delivery; stale generations and stale candidates cannot publish actionable handoffs.
+- Evidence promotion now requires approved producer, claim/criterion binding, exact subject/candidate identity, freshness, coverage, and authority before completion, while unknown or missing observations remain non-claims.
+
 ## 2.0.0 - 2026-09-11
 
 ### Added

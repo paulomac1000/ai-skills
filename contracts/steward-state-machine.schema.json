@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://paulomac1000.github.io/ai-skills/contracts/steward-state-machine.schema.json",
+  "title": "StewardStateMachine",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "machine_id", "revision", "states", "transitions"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "machine_id": {"type": "string", "minLength": 1},
+    "revision": {"type": "integer", "minimum": 1},
+    "states": {"type": "array", "minItems": 1, "maxItems": 128, "items": {"$ref": "#/$defs/state"}},
+    "transitions": {"type": "array", "maxItems": 512, "items": {"$ref": "#/$defs/transition"}}
+  },
+  "$defs": {
+    "state": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "terminal", "owner_lane", "progress_effect", "recovery", "cancellation"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "terminal": {"type": "boolean"},
+        "owner_lane": {"enum": ["workflow", "external-maintenance", "reconciliation", "control", "none"]},
+        "progress_effect": {"enum": ["advances", "no-change", "terminal"]},
+        "recovery": {"enum": ["scheduled-wakeup", "external-handle", "reconcile", "blocked", "none"]},
+        "cancellation": {"enum": ["reject", "fence-and-reconcile", "terminalize-if-no-unresolved-effect"]}
+      }
+    },
+    "transition": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "from", "to", "effect", "mutation_gate", "required_fences", "failure_outcomes"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "from": {"type": "string", "minLength": 1},
+        "to": {"type": "string", "minLength": 1},
+        "effect": {"enum": ["none", "local-state", "external-stateful", "publication"]},
+        "mutation_gate": {"type": "boolean"},
+        "required_fences": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "failure_outcomes": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
+      }
+    }
+  }
+}

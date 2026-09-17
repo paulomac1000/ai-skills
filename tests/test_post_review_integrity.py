@@ -87,7 +87,9 @@ def test_consumer_feedback_owner_read_failure_becomes_finding(tmp_path: Path) ->
     assert any("invalid canonical owner" in finding for finding in findings)
 
 
-def test_trusted_git_ignores_global_config_and_plaintext_remote(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_trusted_git_ignores_global_config_and_plaintext_remote(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     observed: dict[str, object] = {}
 
     def fake_run(argv, **kwargs):
@@ -131,14 +133,30 @@ def test_ci_passthrough_cannot_reintroduce_its_control_variable() -> None:
 def test_canary_git_environment_keeps_windows_roots_and_lowercase_proxies(monkeypatch: pytest.MonkeyPatch) -> None:
     checker = _load("consumer_canary_environment", TOOLS / "check_consumer_canaries.py")
     for name in (
-        "USERPROFILE", "HOMEDRIVE", "HOMEPATH", "APPDATA", "LOCALAPPDATA", "PROGRAMDATA", "SYSTEMDRIVE",
-        "https_proxy", "http_proxy", "no_proxy",
+        "USERPROFILE",
+        "HOMEDRIVE",
+        "HOMEPATH",
+        "APPDATA",
+        "LOCALAPPDATA",
+        "PROGRAMDATA",
+        "SYSTEMDRIVE",
+        "https_proxy",
+        "http_proxy",
+        "no_proxy",
     ):
         monkeypatch.setenv(name, f"value-{name}")
     environment = checker._git_environment()
     for name in (
-        "USERPROFILE", "HOMEDRIVE", "HOMEPATH", "APPDATA", "LOCALAPPDATA", "PROGRAMDATA", "SYSTEMDRIVE",
-        "https_proxy", "http_proxy", "no_proxy",
+        "USERPROFILE",
+        "HOMEDRIVE",
+        "HOMEPATH",
+        "APPDATA",
+        "LOCALAPPDATA",
+        "PROGRAMDATA",
+        "SYSTEMDRIVE",
+        "https_proxy",
+        "http_proxy",
+        "no_proxy",
     ):
         assert environment[name] == f"value-{name}"
 
@@ -181,10 +199,16 @@ def test_evidence_timeout_kills_descendant_and_still_writes_record(
         try:
             result["status"] = run_evidence_command(
                 [
-                    "--execution-id", "process-tree-timeout",
-                    "--timeout-seconds", "4",
-                    "--output", str(output),
-                    "--", sys.executable, str(script), str(child_pid),
+                    "--execution-id",
+                    "process-tree-timeout",
+                    "--timeout-seconds",
+                    "4",
+                    "--output",
+                    str(output),
+                    "--",
+                    sys.executable,
+                    str(script),
+                    str(child_pid),
                 ]
             )
         except BaseException as exc:  # pragma: no cover - surfaced by the assertion below

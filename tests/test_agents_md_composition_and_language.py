@@ -214,7 +214,9 @@ These instructions apply.
 Read `docs/` for architecture.
 """,
     )
-    link_codes = {code for code in codes(validator.validate_path(path, "application", tmp_path)) if code.startswith("links.")}
+    link_codes = {
+        code for code in codes(validator.validate_path(path, "application", tmp_path)) if code.startswith("links.")
+    }
     assert link_codes == set()
 
 
