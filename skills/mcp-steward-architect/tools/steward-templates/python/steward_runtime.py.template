@@ -325,9 +325,12 @@ def _evaluate_mutation(
         delegated = {str(item) for item in parent_contract["authority"]["delegatedCapabilities"]}
         forbidden = {str(item) for item in parent_contract["authority"]["forbiddenCapabilities"]}
         capability_id = str(effect["capability_ref"])
+        # Local internal capabilities (steward-owned handoff/publication) are outside
+        # the delegation scope — a parent cannot revoke the steward's own reporting.
+        is_local_capability = capability_id.startswith("local:")
         if capability_id in forbidden:
             reasons.append(("ParentAuthorityInsufficient", "capability is forbidden by the admitted parent contract"))
-        elif capability_id not in delegated:
+        elif not is_local_capability and capability_id not in delegated:
             reasons.append(("ParentAuthorityInsufficient", "capability is not delegated by the admitted parent contract"))
     required_budget_ms = int(effect["minimum_budget_ms"]) + int(effect["finalization_reserve_ms"])
     if remaining_budget_ms < required_budget_ms:

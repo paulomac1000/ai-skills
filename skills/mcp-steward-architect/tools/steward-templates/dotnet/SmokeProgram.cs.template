@@ -124,7 +124,11 @@ static void VerifyStewardSeed()
         using var profileDoc = JsonDocument.Parse(File.ReadAllText(profile));
         var supervisedProfile = JsonNode.Parse(profileDoc.RootElement.GetRawText())!.AsObject();
         supervisedProfile["authority"]!["parent_completion"] = "explicit-contract-only";
-        supervisedProfile["parent_contract"] = JsonObjectExtensionsForSmoke.CreateConfiguredContract();
+        var upstreamForSupervised = JsonDocument.Parse(File.ReadAllText(Path.GetFullPath("src/__NAMESPACE__.Mcp.Server/steward_upstream_capability.json")));
+        var supervisedCapabilityId = upstreamForSupervised.RootElement.GetProperty("capability_id").GetString()!;
+        var configuredContract = JsonObjectExtensionsForSmoke.CreateConfiguredContract();
+        configuredContract["delegated_capabilities"] = new JsonArray(JsonValue.Create(supervisedCapabilityId));
+        supervisedProfile["parent_contract"] = configuredContract;
         File.WriteAllText(supervisedProfilePath, supervisedProfile.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
         using (var callerMutation = new StewardSeedRuntime(Path.Combine(root, "caller-mutation"), clock, callerMutationProvider, new SeedFaultInjector(), supervisedProfilePath, proof))
         {
@@ -140,6 +144,33 @@ static void VerifyStewardSeed()
             for (var step = 0; step < 6; step++) callerMutation.RunOneDue();
             if (callerMutationProvider.DispatchCount != 0)
                 throw new InvalidOperationException("Post-admission caller list mutation granted parent authority.");
+
+            // A supervised completion projection must match the completion schema's
+            // parent-contract ref (mode/contractDigest/parentGeneration only — no
+            // parentWorkId, which the handoff schema alone permits).
+            var supervisedProfileObj = JsonNode.Parse(File.ReadAllText(supervisedProfilePath))!.AsObject();
+            var supervisedStewardId = "digestcheck";
+            _ = supervisedStewardId;
+            _ = supervisedProfileObj;
+            var upstreamForDoc = JsonDocument.Parse(File.ReadAllText(Path.GetFullPath("src/__NAMESPACE__.Mcp.Server/steward_upstream_capability.json")));
+            var docCapabilityId = upstreamForDoc.RootElement.GetProperty("capability_id").GetString()!;
+            var docProfile = JsonNode.Parse(File.ReadAllText(supervisedProfilePath))!.AsObject();
+            docProfile["parent_contract"]!["delegated_capabilities"] = new JsonArray(JsonValue.Create(docCapabilityId));
+            File.WriteAllText(supervisedProfilePath, docProfile.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+            using (var supervisedRuntime = new StewardSeedRuntime(Path.Combine(root, "supervised-doc"), clock, new FakeSeedProvider(), new SeedFaultInjector(), supervisedProfilePath, proof))
+            {
+                var supervisedJob = supervisedRuntime.Submit("repo-supervised", "abc", "supervised-doc-1").JobId;
+                supervisedRuntime.RecoverUntilIdle();
+                var supervisedResult = supervisedRuntime.GetDocument(supervisedJob);
+                var completionNode = supervisedResult["completion"]?.AsObject();
+                if (completionNode is null)
+                    throw new InvalidOperationException($"Supervised job did not complete: {supervisedRuntime.Status(supervisedJob).Status}.");
+                var parentRef = completionNode["parentContract"]!.AsObject();
+                if (parentRef["parentWorkId"] is not null)
+                    throw new InvalidOperationException("Supervised completion projection leaks parentWorkId into the completion schema ref.");
+                if (parentRef["mode"]?.GetValue<string>() != "supervised" || parentRef["parentGeneration"] is null)
+                    throw new InvalidOperationException("Supervised completion projection lost the parent contract ref identity.");
+            }
         }
 
         var blockedProvider = new UnapprovedSeedProvider();

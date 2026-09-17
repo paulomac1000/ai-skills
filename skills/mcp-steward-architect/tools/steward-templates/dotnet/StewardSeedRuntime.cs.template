@@ -535,7 +535,16 @@ public sealed class StewardSeedRuntime : IDisposable
         }).ToArray()),
     };
 
-    private static JsonObject ParentContractRefDocument(StewardParentContractRef reference) => new()
+    // steward-completion.schema.json permits only mode/contractDigest/parentGeneration.
+    private static JsonObject CompletionParentContractRefDocument(StewardParentContractRef reference) => new()
+    {
+        ["mode"] = reference.Mode,
+        ["contractDigest"] = reference.ContractDigest,
+        ["parentGeneration"] = reference.ParentGeneration,
+    };
+
+    // steward-handoff.schema.json additionally binds parentWorkId.
+    private static JsonObject HandoffParentContractRefDocument(StewardParentContractRef reference) => new()
     {
         ["mode"] = reference.Mode,
         ["contractDigest"] = reference.ContractDigest,
@@ -677,7 +686,7 @@ public sealed class StewardSeedRuntime : IDisposable
         ["ambiguousCancellationRefs"] = new JsonArray(completion.AmbiguousCancellationRefs.Select(item => JsonValue.Create(item)).ToArray()),
         ["evaluatedAt"] = completion.EvaluatedAt,
         ["obligationSetDigest"] = completion.ObligationSetDigest,
-        ["parentContract"] = completion.ParentContract is null ? null : ParentContractRefDocument(completion.ParentContract),
+        ["parentContract"] = completion.ParentContract is null ? null : CompletionParentContractRefDocument(completion.ParentContract),
     };
 
     private static JsonObject HandoffDocument(StewardHandoff handoff) => new()
@@ -699,7 +708,7 @@ public sealed class StewardSeedRuntime : IDisposable
         ["failureClass"] = null,
         ["correlationId"] = handoff.CorrelationId,
         ["sealedAt"] = handoff.SealedAt,
-        ["parentContract"] = handoff.ParentContract is null ? null : ParentContractRefDocument(handoff.ParentContract),
+        ["parentContract"] = handoff.ParentContract is null ? null : HandoffParentContractRefDocument(handoff.ParentContract),
         ["digest"] = handoff.Digest,
     };
     public StewardResult Get(string jobId)
@@ -979,8 +988,14 @@ public sealed class StewardSeedRuntime : IDisposable
                 return "ParentAuthorityInsufficient";
             // Effective authority is the intersection of local configuration and parent delegation (#95).
             // An explicitly empty delegation grants nothing; it is never a wildcard.
-            if (parent.ForbiddenCapabilities.Contains(effect.CapabilityRef)) return "ParentAuthorityInsufficient";
-            if (!parent.DelegatedCapabilities.Contains(effect.CapabilityRef)) return "ParentAuthorityInsufficient";
+            // Local internal capabilities (steward-owned handoff/publication) are outside
+            // the delegation scope — a parent cannot revoke the steward's own reporting.
+            var isLocalCapability = effect.CapabilityRef.StartsWith("local:", StringComparison.Ordinal);
+            if (!isLocalCapability)
+            {
+                if (parent.ForbiddenCapabilities.Contains(effect.CapabilityRef)) return "ParentAuthorityInsufficient";
+                if (!parent.DelegatedCapabilities.Contains(effect.CapabilityRef)) return "ParentAuthorityInsufficient";
+            }
         }
         if (job.DeadlineAt - _clock.UtcNow < TimeSpan.FromMilliseconds(effect.MinimumBudgetMs + effect.FinalizationReserveMs)) return "BudgetUnavailable";
         if (effect.DurableOperationRequired)
