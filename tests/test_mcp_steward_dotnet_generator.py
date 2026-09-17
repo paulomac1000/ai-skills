@@ -69,6 +69,7 @@ def test_generated_dotnet_steward_builds_publishes_and_passes_official_client_sm
     smoke_dll = "tests/StewardAcceptance.Mcp.Smoke/bin/Release/net10.0/StewardAcceptance.Mcp.Smoke.dll"
     published = "publish/StewardAcceptance.Mcp.Server.dll"
     handoff_export = "handoff-export.json"
+    job_export = "job-export.json"
     commands = [
         ["dotnet", "restore", project, "--locked-mode"],
         ["dotnet", "build", project, "--configuration", "Release", "--no-restore"],
@@ -84,6 +85,8 @@ def test_generated_dotnet_steward_builds_publishes_and_passes_official_client_sm
             server_dll,
             "--export-handoff",
             handoff_export,
+            "--export-job",
+            job_export,
         ],
         [
             "dotnet",
@@ -139,3 +142,13 @@ def test_generated_dotnet_steward_builds_publishes_and_passes_official_client_sm
     spec.loader.exec_module(validator)
     assert validator.validate_document("handoff", exported) == [], validator.validate_document("handoff", exported)
     assert validator.compute_handoff_digest(exported) == exported["digest"]
+
+    # Validated outside the .NET runtime: the terms must survive a full store restart.
+    exported_job = json.loads((target / job_export).read_text(encoding="utf-8"))
+    assert validator.validate_document("job", exported_job) == [], validator.validate_document("job", exported_job)
+    parent_projection = exported_job["parentContract"]
+    assert parent_projection["policy"]["revisionOrDigest"] == "policy-7"
+    assert parent_projection["completion"]["obligationsRef"] == "obligations:9"
+    assert parent_projection["completion"]["terminalBoundary"] == "supervisor-job"
+    assert parent_projection["completion"]["handoffContract"] == "execution-evidence-v9"
+    assert parent_projection["budget"]["retryOrResourceBudgetRef"].startswith("budget:")

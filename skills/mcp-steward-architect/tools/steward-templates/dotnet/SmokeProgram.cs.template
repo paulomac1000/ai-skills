@@ -7,17 +7,22 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using __NAMESPACE__.Mcp.Server;
 
-if (args.Length is < 1 or > 4)
-    throw new InvalidOperationException("Expected server DLL, optional --http, and optional --export-handoff <path>.");
-var useHttp = args.Skip(1).Contains("--http");
-var exportHandoffPath = args.Length >= 3 && args[^2] == "--export-handoff" ? args[^1] : null;
+if (args.Length is < 1 or > 5)
+    throw new InvalidOperationException("Expected server DLL, optional --http, --export-handoff <path>, and --export-job <path>.");
+var useHttp = args.Contains("--http");
+string? exportHandoffPath = null, exportJobPath = null;
+for (var index = 1; index + 1 < args.Length; index++)
+{
+    if (args[index] == "--export-handoff") exportHandoffPath = args[index + 1];
+    if (args[index] == "--export-job") exportJobPath = args[index + 1];
+}
 var dll = Path.GetFullPath(args[0]);
 if (!File.Exists(dll)) throw new FileNotFoundException("Server DLL not found.", dll);
 
-VerifyStewardSeed(exportHandoffPath);
+VerifyStewardSeed(exportHandoffPath, exportJobPath);
 if (useHttp) await RunHttpAsync(dll); else await RunStdioAsync(dll);
 
-static void VerifyStewardSeed(string? exportHandoffPath = null)
+static void VerifyStewardSeed(string? exportHandoffPath = null, string? exportJobPath = null)
 {
     VerifyCapabilityDigestVectors();
     var root = Path.Combine(Path.GetTempPath(), "__NAMESPACE__.steward-" + Guid.NewGuid().ToString("N"));
@@ -144,7 +149,8 @@ static void VerifyStewardSeed(string? exportHandoffPath = null)
             var delegated = new List<string>();
             var parent = new StewardParentContractSnapshot("supervised", "project-steward", "parent-1", "run-1", 3,
                 "parent-contract-1", "1", "sha256:" + new string('0', 64), delegated, new List<string>(),
-                "report_only", "observed", new DateTimeOffset(2026, 1, 1, 2, 0, 0, TimeSpan.Zero));
+                "report_only", "observed", new DateTimeOffset(2026, 1, 1, 2, 0, 0, TimeSpan.Zero),
+                SourceContractDigest: "sha256:" + new string('0', 64));
             var submitted = callerMutation.Submit("repo-caller", "abc", "caller-mutation-1", parent);
             _ = submitted;
             delegated.Add(capabilityId); // caller mutates its list AFTER admission
@@ -163,6 +169,10 @@ static void VerifyStewardSeed(string? exportHandoffPath = null)
             var docProfile = JsonNode.Parse(File.ReadAllText(supervisedProfilePath))!.AsObject();
             docProfile["parent_contract"]!["delegated_capabilities"] = new JsonArray(JsonValue.Create(docCapabilityId));
             docProfile["parent_contract"]!["forbidden_capabilities"] = new JsonArray(JsonValue.Create("local:handoff@1"));
+            docProfile["parent_contract"]!["policy_revision_or_digest"] = JsonValue.Create("policy-7");
+            docProfile["parent_contract"]!["obligations_ref"] = JsonValue.Create("obligations:9");
+            docProfile["parent_contract"]!["terminal_boundary"] = JsonValue.Create("supervisor-job");
+            docProfile["parent_contract"]!["handoff_contract"] = JsonValue.Create("execution-evidence-v9");
             File.WriteAllText(supervisedProfilePath, docProfile.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
             using (var supervisedRuntime = new StewardSeedRuntime(Path.Combine(root, "supervised-doc"), clock, new FakeSeedProvider(), new SeedFaultInjector(), supervisedProfilePath, proof))
             {
@@ -177,6 +187,18 @@ static void VerifyStewardSeed(string? exportHandoffPath = null)
                     throw new InvalidOperationException("Supervised completion projection leaks parentWorkId into the completion schema ref.");
                 if (parentRef["mode"]?.GetValue<string>() != "supervised" || parentRef["parentGeneration"] is null)
                     throw new InvalidOperationException("Supervised completion projection lost the parent contract ref identity.");
+                var supervisedJobNode = supervisedResult["job"]!.AsObject();
+                var supervisedParent = supervisedJobNode["parentContract"]!.AsObject();
+                if (!StewardSeedRuntime.VerifyParentContractDigest(supervisedRuntime.Status(supervisedJob)))
+                    throw new InvalidOperationException("Admitted parent snapshot digest does not bind its public projection.");
+                if (supervisedParent["policy"]?["revisionOrDigest"]?.GetValue<string>() != "policy-7"
+                    || supervisedParent["completion"]?["obligationsRef"]?.GetValue<string>() != "obligations:9"
+                    || supervisedParent["completion"]?["terminalBoundary"]?.GetValue<string>() != "supervisor-job"
+                    || supervisedParent["completion"]?["handoffContract"]?.GetValue<string>() != "execution-evidence-v9"
+                    || supervisedParent["budget"]?["retryOrResourceBudgetRef"]?.GetValue<string>() is not { } budgetRef || !budgetRef.StartsWith("budget:", StringComparison.Ordinal))
+                    throw new InvalidOperationException("Public parentContract projection dropped authority-bearing contract terms.");
+                if (exportJobPath is not null)
+                    File.WriteAllText(exportJobPath, supervisedJobNode.ToJsonString());
             }
 
             // Authority-bearing contract terms (budget, policy, handoff, obligations,

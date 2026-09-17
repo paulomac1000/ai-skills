@@ -854,16 +854,25 @@ def test_dotnet_steward_templates_bind_full_parent_contract_and_public_handoff_d
     dotnet = (SKILL / "tools/steward-templates/dotnet/StewardSeedRuntime.cs.template").read_text(encoding="utf-8")
     python = (SKILL / "tools/steward-templates/python/steward_runtime.py.template").read_text(encoding="utf-8")
 
-    assert 'policyRevisionOrDigest = parent.PolicyRevisionOrDigest' in dotnet
-    assert 'budgetRef = parent.BudgetRef' in dotnet
-    assert 'obligationsRef = parent.ObligationsRef' in dotnet
-    assert 'terminalBoundary = parent.TerminalBoundary' in dotnet
-    assert 'handoffContract = parent.HandoffContract' in dotnet
-    for term in ("policy_revision_or_digest", "handoff_contract", "obligations_ref", "terminal_boundary", "max_wall_clock_ms"):
+    for term in (
+        "policy_revision_or_digest",
+        "handoff_contract",
+        "obligations_ref",
+        "terminal_boundary",
+        "max_wall_clock_ms",
+    ):
         assert term in dotnet
 
-    assert 'unsigned = HandoffDocument(handoff)' in dotnet
+    assert "unsigned = HandoffDocument(handoff)" in dotnet
     assert 'unsigned.Remove("digest")' in dotnet
+    assert "projected = ParentContractDocument(parent)" in dotnet
+    assert 'projected.Remove("digest")' in dotnet
+    assert '["digest"] = parent.SourceContractDigest' in dotnet
+    assert '["policy"] = new JsonObject { ["revisionOrDigest"] = parent.PolicyRevisionOrDigest }' in dotnet
+    assert '["retryOrResourceBudgetRef"] = parent.BudgetRef' in dotnet
+    assert '["obligationsRef"] = parent.ObligationsRef' in dotnet
+    assert '["terminalBoundary"] = parent.TerminalBoundary' in dotnet
+    assert '["handoffContract"] = parent.HandoffContract' in dotnet
 
     assert "not is_local_capability and capability_id in forbidden" in python
     assert "not is_local_capability and capability_id not in delegated" in python

@@ -80,7 +80,11 @@ public sealed record StewardParentContractSnapshot(
     // Authority-bearing contract terms: a change to any of these must force re-admission,
     // so they are part of the snapshot and of the digest that idempotent admission compares.
     string? PolicyRevisionOrDigest = null, string? BudgetRef = null, string? ObligationsRef = null,
-    string? TerminalBoundary = null, string? HandoffContract = null);
+    string? TerminalBoundary = null, string? HandoffContract = null,
+    // Digest of the SOURCE parent contract as supplied by the supervisor. It stays
+    // distinct from the top-level ContractDigest, which the runtime recomputes over
+    // the public ParentContractDocument projection during admission.
+    string? SourceContractDigest = null);
 public sealed record StewardObligationSnapshotItem(string Id, bool Required, string EvidenceClass, string CriterionDigest);
 public sealed record StewardObligationSnapshot(long Revision, string Digest, string ProofRecipeDigest, IReadOnlyList<StewardObligationSnapshotItem> Obligations);
 public sealed record StewardAdmission(string JobId, bool Duplicate);
@@ -190,7 +194,8 @@ internal sealed class SeedPolicy
                 : null,
             configured.TryGetProperty("obligations_ref", out var obligationsElement) && obligationsElement.ValueKind == JsonValueKind.String ? obligationsElement.GetString() : null,
             configured.TryGetProperty("terminal_boundary", out var boundaryElement) && boundaryElement.ValueKind == JsonValueKind.String ? boundaryElement.GetString() : null,
-            configured.TryGetProperty("handoff_contract", out var handoffElement) && handoffElement.ValueKind == JsonValueKind.String ? handoffElement.GetString() : null);
+            configured.TryGetProperty("handoff_contract", out var handoffElement) && handoffElement.ValueKind == JsonValueKind.String ? handoffElement.GetString() : null,
+            configured.GetProperty("contract_digest").GetString());
     }
 
     private static string CriterionDigest(JsonElement criterion)
@@ -454,13 +459,38 @@ public sealed class StewardSeedRuntime : IDisposable
     private StewardObligationSnapshot BuildObligationSnapshot()
     {
         var obligations = _policy.Requirements.Select(item => new StewardObligationSnapshotItem(item.Id, item.Required, item.EvidenceClass, item.CriterionDigest)).ToArray();
-        var revision = _policy.ProfileRevision;
-        var digest = Digest(new { revision, proofRecipeDigest = _policy.RecipeDigest, obligations });
-        return new(revision, digest, _policy.RecipeDigest, obligations);
+        var snapshot = new StewardObligationSnapshot(_policy.ProfileRevision, string.Empty, _policy.RecipeDigest, obligations);
+        return snapshot with { Digest = ComputeObligationSetDigest(snapshot) };
     }
 
-    private static string ParentContractDigest(StewardParentContractSnapshot parent) =>
-        Digest(new { mode = parent.Mode, supervisorSystemId = parent.SupervisorSystemId, parentWorkId = parent.ParentWorkId, parentRunId = parent.ParentRunId, parentGeneration = parent.ParentGeneration, contractId = parent.ContractId, contractRevision = parent.ContractRevision, delegatedCapabilities = parent.DelegatedCapabilities, forbiddenCapabilities = parent.ForbiddenCapabilities, parentCompletionAuthority = parent.ParentCompletionAuthority, authorityCeiling = parent.AuthorityCeiling, absoluteDeadline = parent.AbsoluteDeadline, policyRevisionOrDigest = parent.PolicyRevisionOrDigest, budgetRef = parent.BudgetRef, obligationsRef = parent.ObligationsRef, terminalBoundary = parent.TerminalBoundary, handoffContract = parent.HandoffContract });
+    /// <summary>Obligation-set digests bind the canonical public obligationSet
+    /// projection with its top-level digest removed — the same rule the
+    /// language-neutral validator applies to steward_get job documents.</summary>
+    private static string ComputeObligationSetDigest(StewardObligationSnapshot snapshot)
+    {
+        var projected = ObligationSetDocument(snapshot);
+        projected.Remove("digest");
+        var canonical = CanonicalSorted(projected);
+        using var stream = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping }))
+            canonical!.WriteTo(writer);
+        return "sha256:" + Sha256Hex(stream.ToArray());
+    }
+
+    /// <summary>The admitted parent-contract digest binds the canonical public
+    /// parentContract projection with its top-level digest removed — the same
+    /// rule the language-neutral validator applies to steward_get job documents.
+    /// Any authority-bearing term therefore participates in re-admission checks.</summary>
+    private static string ParentContractDigest(StewardParentContractSnapshot parent)
+    {
+        var projected = ParentContractDocument(parent);
+        projected.Remove("digest");
+        var canonical = CanonicalSorted(projected);
+        using var stream = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping }))
+            canonical!.WriteTo(writer);
+        return "sha256:" + Sha256Hex(stream.ToArray());
+    }
 
     public StewardSeedJob Status(string jobId) { lock (_gate) return CurrentJobLocked(jobId); }
 
@@ -508,7 +538,7 @@ public sealed class StewardSeedRuntime : IDisposable
         {
             ["id"] = parent.ContractId,
             ["revision"] = parent.ContractRevision,
-            ["digest"] = parent.ContractDigest,
+            ["digest"] = parent.SourceContractDigest,
         },
         ["authority"] = new JsonObject
         {
@@ -517,17 +547,17 @@ public sealed class StewardSeedRuntime : IDisposable
             ["parentCompletionAuthority"] = parent.ParentCompletionAuthority,
             ["authorityCeiling"] = parent.AuthorityCeiling,
         },
-        ["policy"] = new JsonObject { ["revisionOrDigest"] = null },
+        ["policy"] = new JsonObject { ["revisionOrDigest"] = parent.PolicyRevisionOrDigest },
         ["budget"] = new JsonObject
         {
             ["absoluteDeadline"] = parent.AbsoluteDeadline,
-            ["retryOrResourceBudgetRef"] = null,
+            ["retryOrResourceBudgetRef"] = parent.BudgetRef,
         },
         ["completion"] = new JsonObject
         {
-            ["obligationsRef"] = null,
-            ["terminalBoundary"] = "steward-job",
-            ["handoffContract"] = "execution-evidence-v1",
+            ["obligationsRef"] = parent.ObligationsRef,
+            ["terminalBoundary"] = parent.TerminalBoundary,
+            ["handoffContract"] = parent.HandoffContract,
         },
         ["digest"] = parent.ContractDigest,
     };
@@ -917,6 +947,11 @@ public sealed class StewardSeedRuntime : IDisposable
     }
 
     public static bool VerifyHandoffDigest(StewardHandoff handoff) => string.Equals(handoff.Digest, ComputeHandoffDigest(handoff), StringComparison.Ordinal);
+
+    /// <summary>True when the stored parent-contract digest still binds the current
+    /// public snapshot projection — catches admission/persistence digest drift.</summary>
+    public static bool VerifyParentContractDigest(StewardSeedJob job) => job.ParentContract is null
+        || string.Equals(job.ParentContract.ContractDigest, ParentContractDigest(job.ParentContract), StringComparison.Ordinal);
     public void Dispose() => _ownerLock.Dispose();
 
     private void ReserveOperationLocked(StewardSeedJob job, string kind, string? submitOperationId = null)
@@ -1348,7 +1383,7 @@ public sealed class StewardSeedRuntime : IDisposable
                     || string.IsNullOrWhiteSpace(job.ObligationSetDigest)
                     || job.ObligationSet.Obligations.Any(item => string.IsNullOrWhiteSpace(item.CriterionDigest)))
                     throw new JsonException("Steward snapshot job is missing the admitted obligation snapshot bindings");
-                if (!string.Equals(Digest(new { revision = job.ObligationSet.Revision, proofRecipeDigest = job.ObligationSet.ProofRecipeDigest, obligations = job.ObligationSet.Obligations }), job.ObligationSet.Digest, StringComparison.Ordinal))
+                if (!string.Equals(ComputeObligationSetDigest(job.ObligationSet), job.ObligationSet.Digest, StringComparison.Ordinal))
                     throw new JsonException("Steward snapshot obligation set digest does not bind the snapshot contents");
                 if (!string.Equals(job.ObligationSet.Digest, job.ObligationSetDigest, StringComparison.Ordinal))
                     throw new JsonException("Steward snapshot obligation set does not match the admission-time digest column");
