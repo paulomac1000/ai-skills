@@ -4,6 +4,8 @@ import importlib.util
 import sys
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[1]
 SKILL = ROOT / "skills/skill-architect"
 
@@ -143,7 +145,7 @@ def test_skill_architect_eval_corpus_is_well_formed() -> None:
     )
     findings = module.validate_path(ROOT / "evals/skills/skill-architect")
     assert findings == []
-    assert (ROOT / "contracts/skill-eval.schema.json").is_file()
+    assert (SKILL / "schemas/skill-eval.schema.json").is_file()
 
 
 def test_audit_fails_closed_on_malformed_manifest(tmp_path: Path) -> None:
