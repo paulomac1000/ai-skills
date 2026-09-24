@@ -31,11 +31,6 @@ def test_scaffold_creates_only_the_minimal_runtime_core(tmp_path: Path) -> None:
         "skill_architect_scaffold",
         SKILL / "tools/scaffold_skill.py",
     )
-    (tmp_path / "contracts").mkdir()
-    (tmp_path / "contracts/rule-catalog.yaml").write_text(
-        "schema_version: 1\ncatalog_version: 3.0.0\nskills: {}\n",
-        encoding="utf-8",
-    )
     (tmp_path / "skills").mkdir()
 
     target = module.scaffold(
@@ -54,7 +49,11 @@ def test_scaffold_creates_only_the_minimal_runtime_core(tmp_path: Path) -> None:
     }
     manifest = (target / "manifest.yaml").read_text(encoding="utf-8")
     assert "name: example-skill" in manifest
-    assert "version: 3.0.0" in manifest
+    assert "version: REPLACE_WITH_RELEASE_VERSION" in manifest
+    assert "maturity: experimental" in manifest
+    assert "operating_systems: []" in manifest
+    assert "evidence_lanes: []" in manifest
+    assert "tested_combinations: []" in manifest
     assert "tools: []" in manifest
 
 
@@ -141,4 +140,88 @@ def test_audit_fails_closed_on_malformed_manifest(tmp_path: Path) -> None:
 
     findings = module.audit_skill(target, tmp_path)
     assert "skill.manifest.invalid" in {finding.code for finding in findings}
+
+def test_strict_audit_accepts_references_routed_from_standard(tmp_path: Path) -> None:
+    module = load_module(
+        "skill_architect_audit_reference_graph",
+        SKILL / "tools/audit_skill.py",
+    )
+    target = tmp_path / "skills/example-skill"
+    references = target / "references"
+    references.mkdir(parents=True)
+    (target / "SKILL.md").write_text(
+        (
+            "---\n"
+            "name: example-skill\n"
+            "description: Use for one bounded example workflow.\n"
+            "---\n\n"
+            "# Example\n\n"
+            "Read STANDARD.md before normative decisions.\n"
+        ),
+        encoding="utf-8",
+    )
+    (target / "STANDARD.md").write_text(
+        (
+            "# Example standard\n\n"
+            "For conditional detail read references/conditional.md.\n"
+        ),
+        encoding="utf-8",
+    )
+    (references / "conditional.md").write_text(
+        "# Conditional detail\n",
+        encoding="utf-8",
+    )
+    (target / "manifest.yaml").write_text(
+        (
+            "name: example-skill\n"
+            "normative_entrypoint: STANDARD.md\n"
+            "required: [SKILL.md, STANDARD.md]\n"
+            "categories: [core, references]\n"
+            "dependencies:\n"
+            "  skills: []\n"
+            "  tools: []\n"
+        ),
+        encoding="utf-8",
+    )
+
+    findings = module.audit_skill(target, tmp_path, strict=True)
+    assert findings == []
+
+
+def test_strict_audit_rejects_unreachable_reference(tmp_path: Path) -> None:
+    module = load_module(
+        "skill_architect_audit_orphan_reference",
+        SKILL / "tools/audit_skill.py",
+    )
+    target = tmp_path / "skills/example-skill"
+    references = target / "references"
+    references.mkdir(parents=True)
+    (target / "SKILL.md").write_text(
+        (
+            "---\n"
+            "name: example-skill\n"
+            "description: Use for one bounded example workflow.\n"
+            "---\n\n"
+            "# Example\n\n"
+            "Read STANDARD.md before normative decisions.\n"
+        ),
+        encoding="utf-8",
+    )
+    (target / "STANDARD.md").write_text("# Example standard\n", encoding="utf-8")
+    (references / "orphan.md").write_text("# Orphan\n", encoding="utf-8")
+    (target / "manifest.yaml").write_text(
+        (
+            "name: example-skill\n"
+            "normative_entrypoint: STANDARD.md\n"
+            "required: [SKILL.md, STANDARD.md]\n"
+            "categories: [core, references]\n"
+            "dependencies:\n"
+            "  skills: []\n"
+            "  tools: []\n"
+        ),
+        encoding="utf-8",
+    )
+
+    findings = module.audit_skill(target, tmp_path, strict=True)
+    assert "skill.routing.orphan-reference" in {finding.code for finding in findings}
 
