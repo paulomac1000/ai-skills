@@ -111,8 +111,12 @@ def audit_skill(
                     "portable SKILL.md frontmatter must contain exactly name and description",
                 )
             )
-        name = frontmatter.get("name")
-        if not isinstance(name, str) or not NAME.fullmatch(name) or len(name) > 64:
+        frontmatter_name = frontmatter.get("name")
+        if (
+            not isinstance(frontmatter_name, str)
+            or not NAME.fullmatch(frontmatter_name)
+            or len(frontmatter_name) > 64
+        ):
             findings.append(
                 _finding(
                     "error",
