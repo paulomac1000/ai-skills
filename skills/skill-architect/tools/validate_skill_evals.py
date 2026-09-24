@@ -171,7 +171,17 @@ def validate_suite(
                 )
                 continue
 
-            if kind == "positive" and skill not in selected:
+            overlap = set(selected) & set(rejected)
+            if overlap:
+                findings.append(
+                    _finding(
+                        "skill.eval.routing-overlap",
+                        case_path,
+                        f"skills cannot be both selected and rejected: {sorted(overlap)}",
+                    )
+                )
+
+            if kind == "positive" and (skill not in selected or skill in rejected):
                 findings.append(
                     _finding(
                         "skill.eval.positive",
@@ -179,7 +189,7 @@ def validate_suite(
                         "positive case must select the suite skill",
                     )
                 )
-            if kind == "negative" and skill not in rejected:
+            if kind == "negative" and (skill not in rejected or skill in selected):
                 findings.append(
                     _finding(
                         "skill.eval.negative",
@@ -187,7 +197,7 @@ def validate_suite(
                         "negative case must reject the suite skill",
                     )
                 )
-            if kind == "collision" and (skill not in selected or not rejected):
+            if kind == "collision" and (skill not in selected or skill in rejected or not rejected):
                 findings.append(
                     _finding(
                         "skill.eval.collision",
