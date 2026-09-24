@@ -10,6 +10,13 @@ from typing import Any
 import yaml
 
 NAME = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+SEMVER = re.compile(
+    r"^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)"
+    r"(?:-(?:0|[1-9]\\d*|\\d*[A-Za-z-][0-9A-Za-z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[A-Za-z-][0-9A-Za-z-]*))*)?"
+    r"(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$"
+)
+SUPPORTED_MATURITY = {"experimental", "release-candidate", "stable", "deprecated"}
+ALLOWED_OPERATING_SYSTEMS = {"linux", "macos", "windows"}
 ALLOWED_DIRECTORIES = {"references", "templates", "examples", "schemas", "tools", "locks"}
 FORBIDDEN_TOP_LEVEL = {
     "evals",
@@ -21,7 +28,9 @@ FORBIDDEN_TOP_LEVEL = {
 }
 ROUTED_PATH = re.compile(
     r"(?<![A-Za-z0-9_./:-])"
-    r"(?P<path>STANDARD\.md|(?:references|templates|examples|schemas|tools|locks)/[A-Za-z0-9_.\-/]+\.(?:md|py|ya?ml|json|template|j2|txt|toml|lock|cs|csproj|sh|ps1))"
+    r"(?P<path>(?:(?:\.\./)+|\./|/)?"
+    r"(?:STANDARD\.md|(?:references|templates|examples|schemas|tools|locks)/"
+    r"[A-Za-z0-9_.\-/]*[A-Za-z0-9_-]\.[A-Za-z0-9][A-Za-z0-9._-]*))"
 )
 
 
