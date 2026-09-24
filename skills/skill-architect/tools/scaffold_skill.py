@@ -17,7 +17,8 @@ def scaffold(repository_root: Path, name: str, description: str) -> Path:
     repository_root = repository_root.resolve()
     if not NAME.fullmatch(name) or len(name) > 64:
         raise ValueError("skill name must be lowercase kebab-case and <=64 characters")
-    if not description.strip() or len(description) > 1024:
+    normalized_description = " ".join(description.split())
+    if not normalized_description or len(normalized_description) > 1024:
         raise ValueError("description must be non-empty and <=1024 characters")
 
     target = repository_root / "skills" / name
@@ -29,7 +30,7 @@ def scaffold(repository_root: Path, name: str, description: str) -> Path:
     replacements = {
         "<SKILL_NAME>": name,
         "<SKILL_TITLE>": name.replace("-", " ").title(),
-        "<WHAT_THE_SKILL_DOES_AND_WHEN_IT_SHOULD_BE_SELECTED>": description,
+        "<WHAT_THE_SKILL_DOES_AND_WHEN_IT_SHOULD_BE_SELECTED>": normalized_description,
         "<PRIMARY_ACTIVATION_BOUNDARY>": ("the request matches this skill's reusable semantic scope"),
         "<CLASSIFY_THE_TASK>": ("Classify the task and preserve requested read/write scope."),
         "<COLLECT_REQUIRED_EVIDENCE>": ("Collect evidence before making durable claims."),
