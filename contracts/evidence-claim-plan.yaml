@@ -584,6 +584,79 @@ profiles:
     - repository-junit.xml
     execution_id: repository
   - kind: rule
+    subject: skill.admission.justified
+    selectors: &id003
+    - '*test_skill_architect*'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: skill.ownership.single
+    selectors: *id003
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: skill.routing.tested
+    selectors: *id003
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: skill.context.progressive
+    selectors: *id003
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: skill.freedom.risk-aligned
+    selectors: *id003
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: skill.package.portable
+    selectors: *id003
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: skill.tools.verified
+    selectors: *id003
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: skill.trust.bounded
+    selectors: *id003
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: skill.evaluation.behavioral
+    selectors: *id003
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: skill.lifecycle.observed
+    selectors: *id003
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: skill.migration.compatible
+    selectors: *id003
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: skill.completion.evidenced
+    selectors: *id003
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
     subject: steward.precedence.composed
     selectors:
     - '*test_mcp_steward_architect*'
