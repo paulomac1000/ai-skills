@@ -137,8 +137,8 @@ manifest.yaml. Optional runtime resource categories are references, templates,
 examples, tools, and reviewed dependency locks.
 
 Repository-development artifacts such as evals, benchmark reports, generated
-review reports, skill-local changelogs, standalone VERSION files, and foreign
-manifest formats do not belong in the published skill directory. Keep routing
+review reports, skill-local README or changelog files, standalone VERSION files,
+and foreign manifest formats do not belong in the published skill directory. Keep routing
 and behavior corpora under repository-level evals/skills/<skill>/.
 
 manifest.yaml declares the package identity, repository release projection,
