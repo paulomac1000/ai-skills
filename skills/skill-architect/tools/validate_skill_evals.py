@@ -216,11 +216,7 @@ def _suite_kind_counts(path: Path) -> tuple[str | None, set[str]]:
     cases = value.get("cases")
     if not isinstance(suite, str) or not isinstance(cases, list):
         return None, set()
-    kinds = {
-        case.get("kind")
-        for case in cases
-        if isinstance(case, dict) and isinstance(case.get("kind"), str)
-    }
+    kinds = {case.get("kind") for case in cases if isinstance(case, dict) and isinstance(case.get("kind"), str)}
     return suite, cast(set[str], kinds)
 
 
