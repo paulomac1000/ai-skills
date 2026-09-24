@@ -108,8 +108,6 @@ def test_audit_rejects_developer_artifacts_inside_runtime_package(
     assert (target / "reports").resolve().as_posix() in pollution
 
 
-
-
 def test_auditor_accepts_existing_skill_packages_without_errors() -> None:
     module = load_module(
         "skill_architect_audit_repository",
@@ -124,7 +122,9 @@ def test_auditor_accepts_existing_skill_packages_without_errors() -> None:
         if current:
             errors[directory.name] = current
     assert errors == {}
-\n\ndef test_skill_architect_eval_corpus_is_well_formed() -> None:
+
+
+def test_skill_architect_eval_corpus_is_well_formed() -> None:
     module = load_module(
         "skill_architect_evals",
         SKILL / "tools/validate_skill_evals.py",
