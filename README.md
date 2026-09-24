@@ -42,7 +42,7 @@ Every skill contains:
 - `STANDARD.md` — stable cross-project invariants and acceptance criteria;
 - `manifest.yaml` — version, maturity, compatibility, dependency, deprecation, resource-category, and required-entry-point contract.
 
-A skill may also contain `references/`, `templates/`, `examples/`, `tools/`, or reviewed dependency `locks/`. These directories contain reusable operational knowledge, not temporary analysis artifacts. Repository-level `evals/skills/<skill>/` stores routing and behavioral corpora; evals, benchmark reports, changelogs, and other development evidence stay outside the published skill directory.
+A skill may also contain `references/`, `templates/`, `examples/`, `schemas/`, `tools/`, or reviewed dependency `locks/`. These directories contain reusable operational knowledge, not temporary analysis artifacts. Repository-level `evals/skills/<skill>/` stores routing and behavioral corpora; evals, benchmark reports, changelogs, and other development evidence stay outside the published skill directory.
 
 ## Authority and precedence
 
