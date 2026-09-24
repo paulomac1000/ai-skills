@@ -10,7 +10,7 @@ from typing import Any
 import yaml
 
 NAME = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
-ALLOWED_DIRECTORIES = {"references", "templates", "examples", "tools", "locks"}
+ALLOWED_DIRECTORIES = {"references", "templates", "examples", "schemas", "tools", "locks"}
 FORBIDDEN_TOP_LEVEL = {
     "evals",
     "reports",
@@ -55,8 +55,35 @@ def _confined(relative: str) -> bool:
     return not path.is_absolute() and ".." not in path.parts
 
 
+def _without_fenced_blocks(text: str) -> str:
+    kept: list[str] = []
+    fence_char: str | None = None
+    fence_length = 0
+    for line in text.splitlines():
+        stripped = line.lstrip(" ")
+        indent = len(line) - len(stripped)
+        marker_char = stripped[:1]
+        marker_length = 0
+        if indent <= 3 and marker_char in {"`", "~"}:
+            marker_length = len(stripped) - len(stripped.lstrip(marker_char))
+        if fence_char is None:
+            if marker_length >= 3:
+                fence_char = marker_char
+                fence_length = marker_length
+                kept.append("")
+            else:
+                kept.append(line)
+            continue
+        if marker_char == fence_char and marker_length >= fence_length:
+            fence_char = None
+            fence_length = 0
+        kept.append("")
+    return "\n".join(kept)
+
+
 def _routed_paths(text: str) -> set[str]:
-    return {match.group("path").rstrip(").,;:") for match in ROUTED_PATH.finditer(text)}
+    prose = _without_fenced_blocks(text)
+    return {match.group("path").rstrip(").,;:") for match in ROUTED_PATH.finditer(prose)}
 
 
 def _routing_graph(skill_dir: Path, roots: tuple[Path, ...]) -> tuple[set[str], list[tuple[Path, str]]]:
@@ -116,7 +143,16 @@ def audit_skill(
 
     for name in ("SKILL.md", "STANDARD.md", "manifest.yaml"):
         path = skill_dir / name
-        if not path.is_file():
+        if path.is_symlink() or not _resolved_inside(skill_dir, path):
+            findings.append(
+                _finding(
+                    "error",
+                    "skill.core.unconfined",
+                    path,
+                    f"required core file must be a regular in-package file: {name}",
+                )
+            )
+        elif not path.is_file():
             findings.append(
                 _finding(
                     "error",
@@ -126,7 +162,7 @@ def audit_skill(
                 )
             )
 
-    if any(f.code == "skill.core.missing" for f in findings):
+    if any(f.code in {"skill.core.missing", "skill.core.unconfined"} for f in findings):
         return findings
 
     skill_path = skill_dir / "SKILL.md"
@@ -318,7 +354,8 @@ def audit_skill(
             )
         )
 
-    actual_directories = {path.name for path in skill_dir.iterdir() if path.is_dir() and path.name != "__pycache__"}
+    top_level = [path for path in skill_dir.iterdir() if path.name != "__pycache__"]
+    actual_directories = {path.name for path in top_level if path.is_dir()}
     undeclared = actual_directories - category_set
     if undeclared:
         findings.append(
@@ -330,13 +367,50 @@ def audit_skill(
             )
         )
 
-    for name in FORBIDDEN_TOP_LEVEL:
-        if (skill_dir / name).exists():
+    for resource in top_level:
+        if resource.is_symlink():
+            findings.append(
+                _finding(
+                    "error",
+                    "skill.package.symlink",
+                    resource,
+                    "published skill packages must not contain symlinked resources",
+                )
+            )
+
+    allowed_top_level_files = {"SKILL.md", "STANDARD.md", "manifest.yaml"}
+    for resource in top_level:
+        if resource.is_file() and resource.name not in allowed_top_level_files:
+            severity = "error" if strict else "warning"
+            findings.append(
+                _finding(
+                    severity,
+                    "skill.package.unexpected-file",
+                    resource,
+                    "top-level runtime files must use a declared resource directory",
+                )
+            )
+
+    for resource in skill_dir.rglob("*"):
+        if resource.name == "__pycache__":
+            continue
+        if resource.is_symlink():
+            if resource.parent != skill_dir:
+                findings.append(
+                    _finding(
+                        "error",
+                        "skill.package.symlink",
+                        resource,
+                        "published skill packages must not contain symlinked resources",
+                    )
+                )
+            continue
+        if resource.name in FORBIDDEN_TOP_LEVEL:
             findings.append(
                 _finding(
                     "error",
                     "skill.package.pollution",
-                    skill_dir / name,
+                    resource,
                     "developer artifact does not belong in the runtime skill package",
                 )
             )
