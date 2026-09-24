@@ -786,8 +786,9 @@ def test_skill_trust_contract_rejects_unconfined_resources(tmp_path: Path) -> No
 
 def test_skill_evaluation_contract_separates_model_evidence() -> None:
     reference = (SKILL / "references/behavioral-evaluation.md").read_text(encoding="utf-8")
-    assert "does not ship a provider-specific model runner" in reference
-    assert "never report the local corpus validator" in reference
+    normalized = " ".join(reference.split())
+    assert "does not ship a provider-specific model runner" in normalized
+    assert "never report the local corpus validator" in normalized
 
 
 def test_skill_lifecycle_contract_requires_representative_reruns() -> None:
