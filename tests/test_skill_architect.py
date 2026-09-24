@@ -361,6 +361,7 @@ def test_scaffold_normalizes_multiline_description(tmp_path: Path) -> None:
     text = (target / "SKILL.md").read_text(encoding="utf-8")
     assert "Create reusable workflows. Use when a bounded task needs them." in text
 
+
 def _valid_manifest_text(categories: str = "[core]") -> str:
     return (
         "schema_version: 1\n"
