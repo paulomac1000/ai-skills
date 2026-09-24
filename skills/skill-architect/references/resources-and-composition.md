@@ -31,7 +31,8 @@ Use the lowest degree of freedom that still permits necessary judgment.
 
 Do not create optional directories until a real task requires them. Do not
 bundle developer reports, benchmark output, eval corpora, a local changelog, or
-standalone version files in the runtime skill package.
+standalone version files in the runtime skill package. A schema required by a
+bundled tool is runtime material and belongs in a declared `schemas/` category.
 
 Templates and examples are downstream projections. They cannot add exceptions
 to STANDARD.md. A generator should encode stable rules but must not become the
