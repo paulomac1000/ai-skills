@@ -111,11 +111,10 @@ def test_skill_architect_eval_corpus_is_well_formed() -> None:
         "skill_architect_evals",
         SKILL / "tools/validate_skill_evals.py",
     )
-    findings = module.validate_path(
-        ROOT / "evals/skills/skill-architect"
-    )
+    findings = module.validate_path(ROOT / "evals/skills/skill-architect")
     assert findings == []
     assert (ROOT / "contracts/skill-eval.schema.json").is_file()
+
 
 def test_audit_fails_closed_on_malformed_manifest(tmp_path: Path) -> None:
     module = load_module(
@@ -140,6 +139,7 @@ def test_audit_fails_closed_on_malformed_manifest(tmp_path: Path) -> None:
 
     findings = module.audit_skill(target, tmp_path)
     assert "skill.manifest.invalid" in {finding.code for finding in findings}
+
 
 def test_strict_audit_accepts_references_routed_from_standard(tmp_path: Path) -> None:
     module = load_module(
@@ -224,4 +224,85 @@ def test_strict_audit_rejects_unreachable_reference(tmp_path: Path) -> None:
 
     findings = module.audit_skill(target, tmp_path, strict=True)
     assert "skill.routing.orphan-reference" in {finding.code for finding in findings}
+
+def test_audit_rejects_missing_resource_routed_from_reference(tmp_path: Path) -> None:
+    module = load_module(
+        "skill_architect_audit_nested_missing",
+        SKILL / "tools/audit_skill.py",
+    )
+    target = tmp_path / "skills/example-skill"
+    references = target / "references"
+    references.mkdir(parents=True)
+    (target / "SKILL.md").write_text(
+        (
+            "---\n"
+            "name: example-skill\n"
+            "description: Use for one bounded example workflow.\n"
+            "---\n\n"
+            "# Example\n\n"
+            "Read STANDARD.md before normative decisions.\n"
+        ),
+        encoding="utf-8",
+    )
+    (target / "STANDARD.md").write_text(
+        "Read references/parent.md for conditional policy.\n",
+        encoding="utf-8",
+    )
+    (references / "parent.md").write_text(
+        "Then read references/missing.md.\n",
+        encoding="utf-8",
+    )
+    (target / "manifest.yaml").write_text(
+        (
+            "name: example-skill\n"
+            "normative_entrypoint: STANDARD.md\n"
+            "required: [SKILL.md, STANDARD.md]\n"
+            "categories: [core, references]\n"
+            "dependencies:\n"
+            "  skills: []\n"
+            "  tools: []\n"
+        ),
+        encoding="utf-8",
+    )
+
+    findings = module.audit_skill(target, tmp_path, strict=True)
+    assert "skill.routing.missing" in {finding.code for finding in findings}
+
+
+def test_eval_validator_fails_closed_on_malformed_yaml(tmp_path: Path) -> None:
+    module = load_module(
+        "skill_architect_evals_malformed",
+        SKILL / "tools/validate_skill_evals.py",
+    )
+    source = tmp_path / "routing.yaml"
+    source.write_text("cases: [\n", encoding="utf-8")
+
+    findings = module.validate_suite(source)
+    assert [finding.code for finding in findings] == ["skill.eval.invalid"]
+
+
+def test_eval_schema_rejects_unknown_case_fields(tmp_path: Path) -> None:
+    module = load_module(
+        "skill_architect_evals_schema",
+        SKILL / "tools/validate_skill_evals.py",
+    )
+    source = tmp_path / "routing.yaml"
+    source.write_text(
+        (
+            "schema_version: 1\n"
+            "skill: example-skill\n"
+            "suite: routing\n"
+            "cases:\n"
+            "- id: positive\n"
+            "  kind: positive\n"
+            "  prompt: Use the example skill.\n"
+            "  selected_skills: [example-skill]\n"
+            "  rejected_skills: []\n"
+            "  unexpected: true\n"
+        ),
+        encoding="utf-8",
+    )
+
+    findings = module.validate_suite(source)
+    assert "skill.eval.schema" in {finding.code for finding in findings}
 
