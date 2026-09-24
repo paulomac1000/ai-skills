@@ -808,3 +808,89 @@ def test_skill_completion_contract_self_audits() -> None:
     )
     assert module.audit_skill(SKILL, ROOT, strict=True) == []
 
+def test_audit_returns_finding_for_unreadable_skill_text(tmp_path: Path) -> None:
+    module = load_module(
+        "skill_architect_audit_unreadable_skill",
+        SKILL / "tools/audit_skill.py",
+    )
+    target = tmp_path / "skills/example-skill"
+    _write_minimal_skill(target)
+    (target / "SKILL.md").write_bytes(b"\xff\xfe\x00")
+
+    findings = module.audit_skill(target, tmp_path, strict=True)
+    assert "skill.file.unreadable" in {finding.code for finding in findings}
+
+
+def test_route_parser_ignores_external_urls(tmp_path: Path) -> None:
+    module = load_module(
+        "skill_architect_audit_external_url",
+        SKILL / "tools/audit_skill.py",
+    )
+    target = tmp_path / "skills/example-skill"
+    _write_minimal_skill(target)
+    (target / "STANDARD.md").write_text(
+        "External evidence: https://example.invalid/repo/tools/setup.py\n",
+        encoding="utf-8",
+    )
+
+    findings = module.audit_skill(target, tmp_path, strict=True)
+    assert "skill.routing.missing" not in {finding.code for finding in findings}
+    assert "skill.routing.not-file" not in {finding.code for finding in findings}
+
+
+def test_strict_audit_rejects_missing_and_empty_declared_categories(tmp_path: Path) -> None:
+    module = load_module(
+        "skill_architect_audit_declared_categories",
+        SKILL / "tools/audit_skill.py",
+    )
+    target = tmp_path / "skills/example-skill"
+    _write_minimal_skill(target)
+    manifest = (
+        "name: example-skill\n"
+        "normative_entrypoint: STANDARD.md\n"
+        "required: [SKILL.md, STANDARD.md]\n"
+        "categories: [core, references]\n"
+        "dependencies:\n"
+        "  skills: []\n"
+        "  tools: []\n"
+    )
+    (target / "manifest.yaml").write_text(manifest, encoding="utf-8")
+
+    missing = module.audit_skill(target, tmp_path, strict=True)
+    assert "skill.categories.missing" in {finding.code for finding in missing}
+
+    (target / "references").mkdir()
+    empty = module.audit_skill(target, tmp_path, strict=True)
+    assert "skill.categories.empty" in {finding.code for finding in empty}
+
+
+def test_audit_rejects_routed_directory_as_resource(tmp_path: Path) -> None:
+    module = load_module(
+        "skill_architect_audit_routed_directory",
+        SKILL / "tools/audit_skill.py",
+    )
+    target = tmp_path / "skills/example-skill"
+    _write_minimal_skill(target)
+    references = target / "references"
+    references.mkdir()
+    (references / "guide.md").mkdir()
+    (target / "STANDARD.md").write_text(
+        "Read references/guide.md for conditional policy.\n",
+        encoding="utf-8",
+    )
+    (target / "manifest.yaml").write_text(
+        (
+            "name: example-skill\n"
+            "normative_entrypoint: STANDARD.md\n"
+            "required: [SKILL.md, STANDARD.md]\n"
+            "categories: [core, references]\n"
+            "dependencies:\n"
+            "  skills: []\n"
+            "  tools: []\n"
+        ),
+        encoding="utf-8",
+    )
+
+    findings = module.audit_skill(target, tmp_path, strict=True)
+    assert "skill.routing.not-file" in {finding.code for finding in findings}
+
