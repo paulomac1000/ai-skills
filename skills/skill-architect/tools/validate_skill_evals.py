@@ -79,7 +79,11 @@ def _schema() -> dict[str, object]:
 
 def _load_mapping(path: Path) -> tuple[dict[str, Any] | None, Finding | None]:
     try:
-        value = yaml.load(path.read_text(encoding="utf-8"), Loader=_UniqueKeyLoader)
+        loader = _UniqueKeyLoader(path.read_text(encoding="utf-8"))
+        try:
+            value = loader.get_single_data()
+        finally:
+            loader.dispose()
     except (OSError, UnicodeError, yaml.YAMLError) as exc:
         return None, _finding("skill.eval.invalid", path, f"eval suite could not be parsed: {exc}")
     if not isinstance(value, dict):
