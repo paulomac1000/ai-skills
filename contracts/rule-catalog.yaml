@@ -436,9 +436,9 @@ skills:
     - id: skill.ownership.single
       source: STANDARD.md#canonical-ownership-and-composition
       description: Skill policy has one canonical owner and composes with existing skills without duplicating or weakening their rules.
-    - id: skill.routing.tested
+    - id: skill.routing.contract
       source: STANDARD.md#routing-and-triggering
-      description: Description is a pre-load routing contract with representative positive and applicable near-miss or collision evidence.
+      description: Description is a pre-load routing contract and the deterministic corpus encodes representative positive and boundary cases; actual model routing remains separately provenance-bound evidence.
     - id: skill.context.progressive
       source: STANDARD.md#progressive-disclosure-and-resource-routing
       description: Common guidance stays compact while conditional resources load through direct decision-owning routes whose real usage is reviewed.
@@ -454,12 +454,12 @@ skills:
     - id: skill.trust.bounded
       source: STANDARD.md#trust-and-supply-chain
       description: The complete skill package and mutable external inputs are reviewed under explicit authority and privileged-capability boundaries.
-    - id: skill.evaluation.behavioral
+    - id: skill.evaluation.separated
       source: STANDARD.md#behavioral-evaluation
-      description: Deterministic package checks are separated from model-backed routing and behavioral evidence bound to exact skill, corpus, and model context.
-    - id: skill.lifecycle.observed
+      description: Deterministic package and corpus checks are kept distinct from model-backed routing and behavioral observations, which require exact skill, corpus, and model provenance.
+    - id: skill.lifecycle.observation-policy
       source: STANDARD.md#observation-and-lifecycle
-      description: Real routing, resource loading, tool use, efficiency, and failures inform maintenance without turning runtime packages into incident archives.
+      description: The lifecycle contract requires real routing, resource-loading, tool-use, efficiency, and failure observations to inform maintenance without turning runtime packages into incident archives.
     - id: skill.migration.compatible
       source: STANDARD.md#migration-and-deprecation
       description: Migration follows the normative delta, preserves compliant behavior, adds regression evidence, and bounds split or deprecation paths.
