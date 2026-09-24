@@ -128,3 +128,19 @@ skills:
       mcp-server-profile: {rule_id: readme.mcp.projected, primary: true}
       afds-integration: {rule_id: readme.afds.routed, primary: true}
       change-impact-and-completion: {rule_id: readme.completion.evidenced, primary: true}
+  skill-architect:
+    headings:
+      purpose: {excluded: true, rationale: Informational scope heading, not an independently assessable invariant.}
+      admission-and-semantic-scope: {rule_id: skill.admission.justified, primary: true}
+      canonical-ownership-and-composition: {rule_id: skill.ownership.single, primary: true}
+      routing-and-triggering: {rule_id: skill.routing.contract, primary: true}
+      progressive-disclosure-and-resource-routing: {rule_id: skill.context.progressive, primary: true}
+      representation-and-degrees-of-freedom: {rule_id: skill.freedom.risk-aligned, primary: true}
+      portable-package-contract: {rule_id: skill.package.portable, primary: true}
+      tools-and-executable-policy: {rule_id: skill.tools.verified, primary: true}
+      trust-and-supply-chain: {rule_id: skill.trust.bounded, primary: true}
+      behavioral-evaluation: {rule_id: skill.evaluation.separated, primary: true}
+      observation-and-lifecycle: {rule_id: skill.lifecycle.observation-policy, primary: true}
+      migration-and-deprecation: {rule_id: skill.migration.compatible, primary: true}
+      definition-of-done: {rule_id: skill.completion.evidenced, primary: true}
+      verification: {rule_id: skill.completion.evidenced}

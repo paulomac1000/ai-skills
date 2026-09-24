@@ -1,0 +1,29 @@
+schema_version: 1
+skill: skill-architect
+suite: routing
+cases:
+- id: create-reusable-skill
+  kind: positive
+  prompt: Design a reusable Agent Skill for reviewing database migration plans, including routing and validation.
+  selected_skills: [skill-architect]
+  rejected_skills: []
+- id: refactor-skill-package
+  kind: positive
+  prompt: Audit this SKILL.md package and split conditional guidance into references without changing its normative behavior.
+  selected_skills: [skill-architect]
+  rejected_skills: []
+- id: agents-md-near-miss
+  kind: negative
+  prompt: Create a root AGENTS.md and nested instructions for a monorepo.
+  selected_skills: [agents-md-architect]
+  rejected_skills: [skill-architect]
+- id: readme-near-miss
+  kind: negative
+  prompt: Rewrite this repository README so the quick start is evidence-backed and copy-pasteable.
+  selected_skills: [readme-architect]
+  rejected_skills: [skill-architect]
+- id: skill-vs-agents-collision
+  kind: collision
+  prompt: Split an oversized SKILL.md into task-routed references and improve when the skill should trigger.
+  selected_skills: [skill-architect]
+  rejected_skills: [agents-md-architect]

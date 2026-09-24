@@ -1,0 +1,28 @@
+schema_version: 1
+name: <SKILL_NAME>
+version: REPLACE_WITH_RELEASE_VERSION
+maturity: experimental
+skill_format: ai-skills/v1
+normative_entrypoint: STANDARD.md
+compatibility:
+  agent_contract: tool-capable-instruction-agent
+  operating_systems: []
+  evidence_lanes: []
+  tested_combinations: []
+dependencies:
+  skills: []
+  tools: []
+deprecation:
+  policy: semantic-versioning
+  minimum_notice: one-minor-release
+required:
+- SKILL.md
+- STANDARD.md
+categories:
+- core
+adoption:
+  template: contracts/adoption-assessment.yaml.template
+  validator: contracts/validate_adoption.py
+  rule_catalog: contracts/rule-catalog.yaml
+  extension: generic
+  rule_map: contracts/standard-rule-map.yaml

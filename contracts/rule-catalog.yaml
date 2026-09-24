@@ -1,5 +1,5 @@
 schema_version: 1
-catalog_version: 3.0.0
+catalog_version: 3.1.0
 skills:
   afds-doc-writer:
     rules:
@@ -428,3 +428,41 @@ skills:
     - id: readme.completion.evidenced
       source: STANDARD.md#change-impact-and-completion
       description: README completion records evidence, verification, conflicts, drift risk, and downstream documentation impact.
+  skill-architect:
+    rules:
+    - id: skill.admission.justified
+      source: STANDARD.md#admission-and-semantic-scope
+      description: New skills are admitted from reusable task-selective semantic need and real examples rather than file size or folder preference.
+    - id: skill.ownership.single
+      source: STANDARD.md#canonical-ownership-and-composition
+      description: Skill policy has one canonical owner and composes with existing skills without duplicating or weakening their rules.
+    - id: skill.routing.contract
+      source: STANDARD.md#routing-and-triggering
+      description: Description is a pre-load routing contract and the deterministic corpus encodes representative positive and boundary cases; actual model routing remains separately provenance-bound evidence.
+    - id: skill.context.progressive
+      source: STANDARD.md#progressive-disclosure-and-resource-routing
+      description: Common guidance stays compact while conditional resources load through direct decision-owning routes whose real usage is reviewed.
+    - id: skill.freedom.risk-aligned
+      source: STANDARD.md#representation-and-degrees-of-freedom
+      description: Prose, references, templates, schemas, examples, tools, and gates are selected at the lowest degree of freedom that preserves required judgment.
+    - id: skill.package.portable
+      source: STANDARD.md#portable-package-contract
+      description: Published skills keep a portable three-file core and only justified runtime resources while development evidence remains repository-scoped.
+    - id: skill.tools.verified
+      source: STANDARD.md#tools-and-executable-policy
+      description: Bundled tools are justified, bounded, dependency-declared, executable, and tested rather than acting as hidden policy owners.
+    - id: skill.trust.bounded
+      source: STANDARD.md#trust-and-supply-chain
+      description: The complete skill package and mutable external inputs are reviewed under explicit authority and privileged-capability boundaries.
+    - id: skill.evaluation.separated
+      source: STANDARD.md#behavioral-evaluation
+      description: Deterministic package and corpus checks are kept distinct from model-backed routing and behavioral observations, which require exact skill, corpus, and model provenance.
+    - id: skill.lifecycle.observation-policy
+      source: STANDARD.md#observation-and-lifecycle
+      description: The lifecycle contract requires real routing, resource-loading, tool-use, efficiency, and failure observations to inform maintenance without turning runtime packages into incident archives.
+    - id: skill.migration.compatible
+      source: STANDARD.md#migration-and-deprecation
+      description: Migration follows the normative delta, preserves compliant behavior, adds regression evidence, and bounds split or deprecation paths.
+    - id: skill.completion.evidenced
+      source: STANDARD.md#definition-of-done
+      description: Completion binds routing, resources, tools, evals, portability, trust, and residual uncertainty to the exact changed revision.
