@@ -8,10 +8,10 @@ from typing import Any, cast
 
 import yaml
 from jsonschema import Draft202012Validator
+from jsonschema.exceptions import SchemaError
 from yaml.constructor import ConstructorError
 from yaml.nodes import MappingNode
 from yaml.resolver import BaseResolver
-from jsonschema.exceptions import SchemaError
 
 ROUTING_KINDS = {"positive", "negative", "collision"}
 BEHAVIOR_KINDS = {"representative", "regression"}
