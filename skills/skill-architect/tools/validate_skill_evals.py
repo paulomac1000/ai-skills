@@ -6,6 +6,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 
 import yaml
+from jsonschema import Draft202012Validator
 
 ROUTING_KINDS = {"positive", "negative", "collision"}
 BEHAVIOR_KINDS = {"representative", "regression"}
@@ -23,14 +24,36 @@ def _finding(code: str, path: Path, message: str) -> Finding:
     return Finding(code=code, path=path.as_posix(), message=message)
 
 
+def _schema() -> dict[str, object]:
+    root = Path(__file__).resolve().parents[3]
+    value = json.loads((root / "contracts/skill-eval.schema.json").read_text(encoding="utf-8"))
+    if not isinstance(value, dict):
+        raise ValueError("skill eval schema must contain an object")
+    return value
+
+
 def validate_suite(
     path: Path,
     expected_skill: str | None = None,
 ) -> list[Finding]:
     findings: list[Finding] = []
-    value = yaml.safe_load(path.read_text(encoding="utf-8"))
+    try:
+        value = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, yaml.YAMLError) as exc:
+        return [_finding("skill.eval.invalid", path, f"eval suite could not be parsed: {exc}")]
     if not isinstance(value, dict):
         return [_finding("skill.eval.invalid", path, "eval suite must contain a mapping")]
+
+    validator = Draft202012Validator(_schema())
+    for error in sorted(validator.iter_errors(value), key=lambda item: tuple(str(part) for part in item.absolute_path)):
+        location = ".".join(str(part) for part in error.absolute_path) or "<root>"
+        findings.append(
+            _finding(
+                "skill.eval.schema",
+                path,
+                f"{location}: {error.message}",
+            )
+        )
 
     if value.get("schema_version") != 1:
         findings.append(
