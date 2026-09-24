@@ -137,6 +137,7 @@ POLICY_COVERAGE_PATHS = (
     "skills/mcp-server-consumer/tools/*.py",
     "skills/mcp-steward-architect/tools/*.py",
     "skills/qa-change-verifier/tools/*.py",
+    "skills/skill-architect/tools/*.py",
     "skills/mcp-server-architect/tools/check_consumer_canaries.py",
     "skills/mcp-server-architect/tools/inspect_existing_project.py",
     "skills/mcp-server-architect/tools/exact_candidate_acceptance.py",
