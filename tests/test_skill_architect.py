@@ -410,18 +410,7 @@ def _write_minimal_skill(target: Path) -> None:
         encoding="utf-8",
     )
     (target / "STANDARD.md").write_text("# Example standard\n", encoding="utf-8")
-    (target / "manifest.yaml").write_text(
-        (
-            "name: example-skill\n"
-            "normative_entrypoint: STANDARD.md\n"
-            "required: [SKILL.md, STANDARD.md]\n"
-            "categories: [core]\n"
-            "dependencies:\n"
-            "  skills: []\n"
-            "  tools: []\n"
-        ),
-        encoding="utf-8",
-    )
+    (target / "manifest.yaml").write_text(_valid_manifest_text(), encoding="utf-8")
 
 
 def _symlink_or_skip(source: Path, target: Path, *, directory: bool = False) -> None:
