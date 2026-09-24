@@ -112,11 +112,7 @@ def audit_skill(
                 )
             )
         frontmatter_name = frontmatter.get("name")
-        if (
-            not isinstance(frontmatter_name, str)
-            or not NAME.fullmatch(frontmatter_name)
-            or len(frontmatter_name) > 64
-        ):
+        if not isinstance(frontmatter_name, str) or not NAME.fullmatch(frontmatter_name) or len(frontmatter_name) > 64:
             findings.append(
                 _finding(
                     "error",
