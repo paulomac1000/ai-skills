@@ -19,7 +19,9 @@ FORBIDDEN_TOP_LEVEL = {
     "VERSION",
     "MANIFEST.json",
 }
-ROUTED_PATH = re.compile(r"(?P<path>STANDARD\.md|(?:references|templates|examples|tools|locks)/[A-Za-z0-9_.\-/]+)")
+ROUTED_PATH = re.compile(
+    r"(?P<path>STANDARD\.md|(?:references|templates|examples|tools|locks)/[A-Za-z0-9_.\-/]+\.(?:md|py|ya?ml|json|template|j2|txt|toml|lock|cs|csproj|sh|ps1))"
+)
 
 
 @dataclass(frozen=True)
