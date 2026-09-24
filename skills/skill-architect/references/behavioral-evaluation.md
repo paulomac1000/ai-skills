@@ -62,3 +62,8 @@ and elapsed time when useful.
 
 Keep dimensions separate. Do not hide routing errors, correctness, latency, or
 context cost inside one aggregate quality score.
+
+Reduce real incidents to the smallest representative fixture before adding them
+to a shared eval corpus. Do not preserve credentials, private repository data,
+personal information, or unnecessary production payloads merely to make an eval
+look realistic.
