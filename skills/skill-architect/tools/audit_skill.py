@@ -20,6 +20,7 @@ FORBIDDEN_TOP_LEVEL = {
     "MANIFEST.json",
 }
 ROUTED_PATH = re.compile(
+    r"(?<![A-Za-z0-9_./:-])"
     r"(?P<path>STANDARD\.md|(?:references|templates|examples|schemas|tools|locks)/[A-Za-z0-9_.\-/]+\.(?:md|py|ya?ml|json|template|j2|txt|toml|lock|cs|csproj|sh|ps1))"
 )
 
@@ -36,8 +37,14 @@ def _finding(severity: str, code: str, path: Path, message: str) -> Finding:
     return Finding(severity=severity, code=code, path=path.as_posix(), message=message)
 
 
-def _frontmatter(path: Path) -> tuple[dict[str, Any] | None, str]:
-    text = path.read_text(encoding="utf-8")
+def _read_text(path: Path) -> tuple[str | None, str | None]:
+    try:
+        return path.read_text(encoding="utf-8"), None
+    except (OSError, UnicodeError) as exc:
+        return None, str(exc)
+
+
+def _frontmatter(text: str) -> tuple[dict[str, Any] | None, str]:
     if not text.startswith("---\n"):
         return None, text
     parts = text.split("---", 2)
@@ -86,9 +93,13 @@ def _routed_paths(text: str) -> set[str]:
     return {match.group("path").rstrip(").,;:") for match in ROUTED_PATH.finditer(prose)}
 
 
-def _routing_graph(skill_dir: Path, roots: tuple[Path, ...]) -> tuple[set[str], list[tuple[Path, str]]]:
+def _routing_graph(
+    skill_dir: Path,
+    roots: tuple[Path, ...],
+) -> tuple[set[str], list[tuple[Path, str]], list[tuple[Path, str]]]:
     reachable_references: set[str] = set()
     routes: list[tuple[Path, str]] = []
+    unreadable: list[tuple[Path, str]] = []
     pending = list(roots)
     visited: set[Path] = set()
     while pending:
@@ -96,7 +107,10 @@ def _routing_graph(skill_dir: Path, roots: tuple[Path, ...]) -> tuple[set[str], 
         if source in visited or not source.is_file() or source.is_symlink():
             continue
         visited.add(source)
-        text = source.read_text(encoding="utf-8")
+        text, error = _read_text(source)
+        if text is None:
+            unreadable.append((source, error or "unknown read failure"))
+            continue
         for relative in sorted(_routed_paths(text)):
             routes.append((source, relative))
             if not relative.startswith("references/") or not _confined(relative):
@@ -107,7 +121,7 @@ def _routing_graph(skill_dir: Path, roots: tuple[Path, ...]) -> tuple[set[str], 
             if relative not in reachable_references:
                 reachable_references.add(relative)
                 pending.append(target)
-    return reachable_references, routes
+    return reachable_references, routes, unreadable
 
 
 def _resolved_inside(root: Path, target: Path) -> bool:
@@ -166,7 +180,19 @@ def audit_skill(
         return findings
 
     skill_path = skill_dir / "SKILL.md"
-    frontmatter, body = _frontmatter(skill_path)
+    skill_text, skill_read_error = _read_text(skill_path)
+    if skill_text is None:
+        findings.append(
+            _finding(
+                "error",
+                "skill.file.unreadable",
+                skill_path,
+                f"SKILL.md could not be read as UTF-8 text: {skill_read_error or 'unknown read failure'}",
+            )
+        )
+        return findings
+
+    frontmatter, body = _frontmatter(skill_text)
     if frontmatter is None:
         findings.append(
             _finding(
@@ -225,7 +251,6 @@ def audit_skill(
                 )
             )
 
-    skill_text = skill_path.read_text(encoding="utf-8")
     if len(skill_text.splitlines()) > 90:
         findings.append(
             _finding(
@@ -367,6 +392,43 @@ def audit_skill(
             )
         )
 
+    for category in sorted(category_set - {"core"}):
+        directory = skill_dir / category
+        if directory.is_symlink():
+            continue
+        severity = "error" if strict else "warning"
+        if not directory.is_dir():
+            findings.append(
+                _finding(
+                    severity,
+                    "skill.categories.missing",
+                    directory,
+                    f"declared runtime category has no directory: {category}",
+                )
+            )
+            continue
+        try:
+            has_content = any(child.name != "__pycache__" for child in directory.iterdir())
+        except OSError as exc:
+            findings.append(
+                _finding(
+                    "error",
+                    "skill.file.unreadable",
+                    directory,
+                    f"declared runtime category could not be inspected: {exc}",
+                )
+            )
+            continue
+        if not has_content:
+            findings.append(
+                _finding(
+                    severity,
+                    "skill.categories.empty",
+                    directory,
+                    f"declared runtime category is empty: {category}",
+                )
+            )
+
     for resource in top_level:
         if resource.is_symlink():
             findings.append(
@@ -416,7 +478,16 @@ def audit_skill(
             )
 
     standard_path = skill_dir / "STANDARD.md"
-    reachable_references, routes = _routing_graph(skill_dir, (skill_path, standard_path))
+    reachable_references, routes, unreadable_routes = _routing_graph(skill_dir, (skill_path, standard_path))
+    for source, error in unreadable_routes:
+        findings.append(
+            _finding(
+                "error",
+                "skill.file.unreadable",
+                source,
+                f"routed Markdown resource could not be read as UTF-8 text: {error}",
+            )
+        )
     for source, relative in routes:
         if not _confined(relative):
             findings.append(
@@ -447,13 +518,19 @@ def audit_skill(
                     "routed runtime resources must not be symlinks",
                 )
             )
-        elif not resource.exists():
+        elif not resource.is_file():
+            code = "skill.routing.missing" if not resource.exists() else "skill.routing.not-file"
+            message = (
+                f"routed resource does not exist: {relative}"
+                if code == "skill.routing.missing"
+                else f"routed resource must be a regular file: {relative}"
+            )
             findings.append(
                 _finding(
                     "error",
-                    "skill.routing.missing",
+                    code,
                     source,
-                    f"routed resource does not exist: {relative}",
+                    message,
                 )
             )
 
