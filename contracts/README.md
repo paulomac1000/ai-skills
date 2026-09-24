@@ -12,11 +12,10 @@ verification: Run JSON Schema validation, semantic adoption validation, rule-map
 
 ## Purpose
 
-The files in this directory make adoption evidence comparable across every skill. They are repository-level contracts and therefore must not be copied into one skill as a private variant.
+The files in this directory make adoption evidence comparable across every skill. They are repository-level contracts and therefore must not be copied into one skill as a private variant. The routing/behavior eval schema is owned by `skills/skill-architect/schemas/skill-eval.schema.json` so the bundled validator remains self-contained when the skill package is distributed.
 
 - `rule-catalog.yaml` assigns stable identifiers to the complete adoption rule set for each skill.
 - `standard-rule-map.yaml` maps every normative `STANDARD.md` H2 heading to a stable rule or an explicit, reviewed exclusion.
-- `skill-eval.schema.json` defines the repository-level envelope for routing and behavioral skill eval corpora; provider/model execution evidence remains separately provenance-bound.
 - `adoption-assessment.schema.json` is the canonical structural contract for assessment documents.
 - `adoption-assessment.yaml.template` is the generic assessment used by AFDS, AGENTS.md, CI/CD, MCP server, and MCP consumer adoptions.
 - `validate_adoption.py` runs schema validation first, then validates semantics, immutable revisions, symlink-free local implementation paths and artifact trees, waivers, exact compatibility tuples, extensions, rollback, risks, and approval independence.
