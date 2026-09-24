@@ -141,6 +141,115 @@ def _resolved_inside(root: Path, target: Path) -> bool:
     return True
 
 
+def _strict_manifest_findings(
+    manifest: dict[str, Any],
+    manifest_path: Path,
+) -> list[Finding]:
+    findings: list[Finding] = []
+
+    def invalid(message: str) -> None:
+        findings.append(_finding("error", "skill.manifest.contract", manifest_path, message))
+
+    if manifest.get("schema_version") != 1:
+        invalid("schema_version must be 1")
+    version = manifest.get("version")
+    if not isinstance(version, str) or SEMVER.fullmatch(version) is None:
+        invalid("version must be a canonical SemVer 2.0.0 string")
+    if manifest.get("maturity") not in SUPPORTED_MATURITY:
+        invalid(f"maturity must be one of {sorted(SUPPORTED_MATURITY)}")
+    if manifest.get("skill_format") != "ai-skills/v1":
+        invalid("skill_format must be ai-skills/v1")
+
+    compatibility = manifest.get("compatibility")
+    if not isinstance(compatibility, dict):
+        invalid("compatibility must be a mapping")
+    else:
+        if compatibility.get("agent_contract") != "tool-capable-instruction-agent":
+            invalid("compatibility.agent_contract must be tool-capable-instruction-agent")
+
+        operating_systems = compatibility.get("operating_systems")
+        if (
+            not isinstance(operating_systems, list)
+            or not operating_systems
+            or not all(isinstance(item, str) for item in operating_systems)
+            or not set(operating_systems) <= ALLOWED_OPERATING_SYSTEMS
+        ):
+            invalid("compatibility.operating_systems must be a non-empty supported OS list")
+            operating_systems = []
+
+        evidence_lanes = compatibility.get("evidence_lanes")
+        if (
+            not isinstance(evidence_lanes, list)
+            or not evidence_lanes
+            or not all(isinstance(item, str) and item for item in evidence_lanes)
+        ):
+            invalid("compatibility.evidence_lanes must be a non-empty string list")
+            evidence_lanes = []
+
+        tested = compatibility.get("tested_combinations")
+        tested_operating_systems: set[str] = set()
+        tested_runtimes: set[str] = set()
+        if not isinstance(tested, list) or not tested:
+            invalid("compatibility.tested_combinations must be a non-empty list")
+        else:
+            for index, combination in enumerate(tested):
+                if not isinstance(combination, dict):
+                    invalid(f"compatibility.tested_combinations[{index}] must be a mapping")
+                    continue
+                fields = {
+                    key: combination.get(key)
+                    for key in ("operating_system", "architecture", "runtime", "version", "lane")
+                }
+                if not all(isinstance(value, str) and value for value in fields.values()):
+                    invalid(f"compatibility.tested_combinations[{index}] has missing fields")
+                    continue
+                operating_system = str(fields["operating_system"])
+                lane = str(fields["lane"])
+                runtime = str(fields["runtime"])
+                if operating_system not in ALLOWED_OPERATING_SYSTEMS:
+                    invalid(f"compatibility.tested_combinations[{index}] has unsupported operating_system")
+                if evidence_lanes and lane not in evidence_lanes:
+                    invalid(f"compatibility.tested_combinations[{index}].lane is not declared")
+                tested_operating_systems.add(operating_system)
+                tested_runtimes.add(runtime)
+
+        if operating_systems and tested_operating_systems != set(operating_systems):
+            invalid("tested combinations must cover exactly the declared operating_systems")
+
+        runtimes = compatibility.get("runtimes") or {}
+        if not isinstance(runtimes, dict):
+            invalid("compatibility.runtimes must be a mapping when present")
+        else:
+            for runtime, specifier in runtimes.items():
+                if not isinstance(runtime, str) or not runtime or not isinstance(specifier, str) or not specifier:
+                    invalid("compatibility.runtimes entries must be non-empty strings")
+                elif tested_runtimes and runtime not in tested_runtimes:
+                    invalid(f"compatibility.runtimes declares untested runtime: {runtime}")
+
+    adoption = manifest.get("adoption")
+    if not isinstance(adoption, dict):
+        invalid("adoption must be a mapping")
+    else:
+        if adoption.get("extension") not in {"generic", "mcp"}:
+            invalid("adoption.extension must be generic or mcp")
+        for field in ("template", "validator", "rule_catalog", "rule_map"):
+            value = adoption.get(field)
+            if not isinstance(value, str) or not value or not _confined(value):
+                invalid(f"adoption.{field} must be a confined relative path")
+
+    deprecation = manifest.get("deprecation")
+    if not isinstance(deprecation, dict):
+        invalid("deprecation must be a mapping")
+    else:
+        if deprecation.get("policy") != "semantic-versioning":
+            invalid("deprecation.policy must be semantic-versioning")
+        notice = deprecation.get("minimum_notice")
+        if not isinstance(notice, str) or not notice.strip():
+            invalid("deprecation.minimum_notice must be non-empty")
+
+    return findings
+
+
 def audit_skill(
     skill_dir: Path,
     repository_root: Path | None = None,
@@ -304,6 +413,9 @@ def audit_skill(
         manifest: dict[str, Any] = {}
     else:
         manifest = loaded_manifest
+
+    if strict:
+        findings.extend(_strict_manifest_findings(manifest, manifest_path))
 
     if manifest.get("name") != skill_dir.name:
         findings.append(
