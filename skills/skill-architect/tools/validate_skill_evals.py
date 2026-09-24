@@ -186,10 +186,7 @@ def validate_suite(
             if (
                 not isinstance(assertions, list)
                 or not assertions
-                or not all(
-                    isinstance(item, str) and item.strip()
-                    for item in assertions
-                )
+                or not all(isinstance(item, str) and item.strip() for item in assertions)
             ):
                 findings.append(
                     _finding(
@@ -236,9 +233,7 @@ def validate_path(path: Path) -> list[Finding]:
 
 
 def _parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="Validate repository-level skill eval corpus files."
-    )
+    parser = argparse.ArgumentParser(description="Validate repository-level skill eval corpus files.")
     parser.add_argument("path", type=Path)
     parser.add_argument("--json", action="store_true", dest="as_json")
     return parser.parse_args()
