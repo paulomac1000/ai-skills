@@ -58,6 +58,7 @@ required:
 - references/resources-and-composition.md
 - references/behavioral-evaluation.md
 - references/portability-and-trust.md
+- references/upstream-agent-skills-compatibility.md
 - references/lifecycle-and-migration.md
 - templates/SKILL.md.template
 - templates/STANDARD.md.template
