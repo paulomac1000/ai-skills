@@ -18,9 +18,7 @@ FORBIDDEN_TOP_LEVEL = {
     "VERSION",
     "MANIFEST.json",
 }
-ROUTED_PATH = re.compile(
-    r"(?P<path>STANDARD\.md|(?:references|templates|examples|tools|locks)/[A-Za-z0-9_.\-/]+)"
-)
+ROUTED_PATH = re.compile(r"(?P<path>STANDARD\.md|(?:references|templates|examples|tools|locks)/[A-Za-z0-9_.\-/]+)")
 
 
 @dataclass(frozen=True)
@@ -123,7 +121,7 @@ def audit_skill(
                     "name must be lowercase kebab-case and <=64 characters",
                 )
             )
-        elif name != skill_dir.name:
+        elif frontmatter_name != skill_dir.name:
             findings.append(
                 _finding(
                     "error",
@@ -218,9 +216,7 @@ def audit_skill(
         )
 
     required = manifest.get("required")
-    required_names = {
-        item for item in required if isinstance(item, str)
-    } if isinstance(required, list) else set()
+    required_names = {item for item in required if isinstance(item, str)} if isinstance(required, list) else set()
     if not isinstance(required, list) or not {"SKILL.md", "STANDARD.md"}.issubset(required_names):
         findings.append(
             _finding(
@@ -263,9 +259,7 @@ def audit_skill(
             )
 
     categories = manifest.get("categories")
-    category_set = {
-        item for item in categories if isinstance(item, str)
-    } if isinstance(categories, list) else set()
+    category_set = {item for item in categories if isinstance(item, str)} if isinstance(categories, list) else set()
     if "core" not in category_set or not category_set <= {"core", *ALLOWED_DIRECTORIES}:
         findings.append(
             _finding(
@@ -276,11 +270,7 @@ def audit_skill(
             )
         )
 
-    actual_directories = {
-        path.name
-        for path in skill_dir.iterdir()
-        if path.is_dir() and path.name != "__pycache__"
-    }
+    actual_directories = {path.name for path in skill_dir.iterdir() if path.is_dir() and path.name != "__pycache__"}
     undeclared = actual_directories - category_set
     if undeclared:
         findings.append(
@@ -303,10 +293,7 @@ def audit_skill(
                 )
             )
 
-    routed = {
-        match.group("path").rstrip(").,;:")
-        for match in ROUTED_PATH.finditer(skill_text)
-    }
+    routed = {match.group("path").rstrip(").,;:") for match in ROUTED_PATH.finditer(skill_text)}
     for relative in sorted(routed):
         if not _confined(relative):
             findings.append(
@@ -404,10 +391,7 @@ def main() -> int:
         print(json.dumps([asdict(f) for f in findings], indent=2, sort_keys=True))
     else:
         for finding in findings:
-            print(
-                f"{finding.severity.upper()} {finding.code} "
-                f"{finding.path}: {finding.message}"
-            )
+            print(f"{finding.severity.upper()} {finding.code} {finding.path}: {finding.message}")
     return 1 if any(f.severity == "error" for f in findings) else 0
 
 
