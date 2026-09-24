@@ -243,6 +243,7 @@ def test_strict_audit_rejects_unreachable_reference(tmp_path: Path) -> None:
     findings = module.audit_skill(target, tmp_path, strict=True)
     assert "skill.routing.orphan-reference" in {finding.code for finding in findings}
 
+
 def test_audit_rejects_missing_resource_routed_from_reference(tmp_path: Path) -> None:
     module = load_module(
         "skill_architect_audit_nested_missing",
@@ -323,6 +324,7 @@ def test_eval_schema_rejects_unknown_case_fields(tmp_path: Path) -> None:
 
     findings = module.validate_suite(source)
     assert "skill.eval.schema" in {finding.code for finding in findings}
+
 
 def test_eval_validator_rejects_selected_rejected_overlap(tmp_path: Path) -> None:
     module = load_module(
