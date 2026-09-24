@@ -15,6 +15,7 @@ FORBIDDEN_TOP_LEVEL = {
     "evals",
     "reports",
     "CHANGELOG.md",
+    "README.md",
     "VERSION",
     "MANIFEST.json",
 }
