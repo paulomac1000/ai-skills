@@ -23,7 +23,7 @@ EXPECTED_SKILLS = {
     "readme-architect",
     "skill-architect",
 }
-ALLOWED_CATEGORIES = {"core", "references", "templates", "examples", "tools", "locks"}
+ALLOWED_CATEGORIES = {"core", "references", "templates", "examples", "schemas", "tools", "locks"}
 IGNORED_PARTS = {".git", ".venv", ".pytest_cache", "__pycache__", ".ruff_cache"}
 POLISH_MARKERS = re.compile(
     r"[\u0105\u0107\u0119\u0142\u0144\u00f3\u015b\u017a\u017c"
