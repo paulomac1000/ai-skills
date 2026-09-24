@@ -585,74 +585,85 @@ profiles:
     execution_id: repository
   - kind: rule
     subject: skill.admission.justified
-    selectors: &id003
-    - '*test_skill_architect*'
+    selectors:
+    - '*test_skill_architect::test_skill_admission_contract_is_present'
     result_files:
     - repository-junit.xml
     execution_id: repository
   - kind: rule
     subject: skill.ownership.single
-    selectors: *id003
+    selectors:
+    - '*test_skill_architect::test_skill_ownership_contract_is_present'
     result_files:
     - repository-junit.xml
     execution_id: repository
   - kind: rule
-    subject: skill.routing.tested
-    selectors: *id003
+    subject: skill.routing.contract
+    selectors:
+    - '*test_skill_architect::test_skill_routing_contract_has_positive_and_boundary_corpus'
     result_files:
     - repository-junit.xml
     execution_id: repository
   - kind: rule
     subject: skill.context.progressive
-    selectors: *id003
+    selectors:
+    - '*test_skill_architect::test_skill_progressive_context_contract_routes_references'
     result_files:
     - repository-junit.xml
     execution_id: repository
   - kind: rule
     subject: skill.freedom.risk-aligned
-    selectors: *id003
+    selectors:
+    - '*test_skill_architect::test_skill_representation_contract_keeps_scaffold_minimal'
     result_files:
     - repository-junit.xml
     execution_id: repository
   - kind: rule
     subject: skill.package.portable
-    selectors: *id003
+    selectors:
+    - '*test_skill_architect::test_skill_package_contract_rejects_pollution'
     result_files:
     - repository-junit.xml
     execution_id: repository
   - kind: rule
     subject: skill.tools.verified
-    selectors: *id003
+    selectors:
+    - '*test_skill_architect::test_skill_tools_contract_is_quality_gated'
     result_files:
     - repository-junit.xml
     execution_id: repository
   - kind: rule
     subject: skill.trust.bounded
-    selectors: *id003
+    selectors:
+    - '*test_skill_architect::test_skill_trust_contract_rejects_unconfined_resources'
     result_files:
     - repository-junit.xml
     execution_id: repository
   - kind: rule
-    subject: skill.evaluation.behavioral
-    selectors: *id003
+    subject: skill.evaluation.separated
+    selectors:
+    - '*test_skill_architect::test_skill_evaluation_contract_separates_model_evidence'
     result_files:
     - repository-junit.xml
     execution_id: repository
   - kind: rule
-    subject: skill.lifecycle.observed
-    selectors: *id003
+    subject: skill.lifecycle.observation-policy
+    selectors:
+    - '*test_skill_architect::test_skill_lifecycle_contract_requires_representative_reruns'
     result_files:
     - repository-junit.xml
     execution_id: repository
   - kind: rule
     subject: skill.migration.compatible
-    selectors: *id003
+    selectors:
+    - '*test_skill_architect::test_skill_migration_contract_preserves_compliant_behavior'
     result_files:
     - repository-junit.xml
     execution_id: repository
   - kind: rule
     subject: skill.completion.evidenced
-    selectors: *id003
+    selectors:
+    - '*test_skill_architect::test_skill_completion_contract_self_audits'
     result_files:
     - repository-junit.xml
     execution_id: repository
