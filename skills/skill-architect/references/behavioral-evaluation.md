@@ -36,7 +36,9 @@ Store routing cases under evals/skills/<skill>/. Cover:
 - near-miss negatives where similar language belongs elsewhere;
 - collisions with the nearest installed skills.
 
-Keep the expected semantic owner explicit.
+Keep the expected semantic owner explicit. When descriptions or routing rules are
+optimized automatically against an eval corpus, preserve a held-out routing set
+so the final measurement is not the same sample used to tune the description.
 
 ## Behavioral suites
 
@@ -48,6 +50,8 @@ claim.
 Capability-uplift skills should compare the same representative task with and
 without the skill. Workflow-policy skills primarily measure contract fidelity;
 a baseline remains useful for diagnosing unnecessary context or regressions.
+For qualitative outputs, a blinded comparator can reduce presentation bias, but
+its judgment remains model-backed evidence rather than deterministic truth.
 
 ## Result binding
 
