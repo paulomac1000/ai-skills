@@ -4,14 +4,7 @@ import argparse
 import re
 from pathlib import Path
 
-import yaml
-
 NAME = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
-
-
-def _repository_version(repository_root: Path) -> str:
-    catalog = yaml.safe_load((repository_root / "contracts/rule-catalog.yaml").read_text(encoding="utf-8"))
-    return str(catalog["catalog_version"])
 
 
 def _render(template: str, replacements: dict[str, str]) -> str:
@@ -56,7 +49,6 @@ def scaffold(repository_root: Path, name: str, description: str) -> Path:
             "Run the repository skill audit and applicable behavioral evaluation."
         ),
         "<EXACT_VERIFICATION_STEPS>": ("Run focused checks and the repository completion gate."),
-        "<REPOSITORY_RELEASE_VERSION>": _repository_version(repository_root),
     }
 
     skill_template = (template_root / "SKILL.md.template").read_text(encoding="utf-8")
