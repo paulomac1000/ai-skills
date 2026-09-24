@@ -4,13 +4,16 @@ import argparse
 import json
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from typing import Any, cast
 
 import yaml
 from jsonschema import Draft202012Validator
+from jsonschema.exceptions import SchemaError
 
 ROUTING_KINDS = {"positive", "negative", "collision"}
 BEHAVIOR_KINDS = {"representative", "regression"}
 BASELINE_MODES = {"required", "optional", "not-applicable"}
+REQUIRED_SUITES = {"routing.yaml": "routing", "behavior.yaml": "behavior"}
 
 
 @dataclass(frozen=True)
@@ -24,28 +27,54 @@ def _finding(code: str, path: Path, message: str) -> Finding:
     return Finding(code=code, path=path.as_posix(), message=message)
 
 
+def _schema_path() -> Path:
+    return Path(__file__).resolve().parents[1] / "schemas/skill-eval.schema.json"
+
+
 def _schema() -> dict[str, object]:
-    root = Path(__file__).resolve().parents[3]
-    value = json.loads((root / "contracts/skill-eval.schema.json").read_text(encoding="utf-8"))
+    value = json.loads(_schema_path().read_text(encoding="utf-8"))
     if not isinstance(value, dict):
         raise ValueError("skill eval schema must contain an object")
-    return value
+    Draft202012Validator.check_schema(value)
+    return cast(dict[str, object], value)
+
+
+def _load_mapping(path: Path) -> tuple[dict[str, Any] | None, Finding | None]:
+    try:
+        value = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, yaml.YAMLError) as exc:
+        return None, _finding("skill.eval.invalid", path, f"eval suite could not be parsed: {exc}")
+    if not isinstance(value, dict):
+        return None, _finding("skill.eval.invalid", path, "eval suite must contain a mapping")
+    return cast(dict[str, Any], value), None
 
 
 def validate_suite(
     path: Path,
     expected_skill: str | None = None,
 ) -> list[Finding]:
-    findings: list[Finding] = []
-    try:
-        value = yaml.safe_load(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, yaml.YAMLError) as exc:
-        return [_finding("skill.eval.invalid", path, f"eval suite could not be parsed: {exc}")]
-    if not isinstance(value, dict):
-        return [_finding("skill.eval.invalid", path, "eval suite must contain a mapping")]
+    value, load_finding = _load_mapping(path)
+    if load_finding is not None:
+        return [load_finding]
+    assert value is not None
 
-    validator = Draft202012Validator(_schema())
-    for error in sorted(validator.iter_errors(value), key=lambda item: tuple(str(part) for part in item.absolute_path)):
+    try:
+        schema = _schema()
+    except (OSError, UnicodeError, json.JSONDecodeError, ValueError, SchemaError) as exc:
+        return [
+            _finding(
+                "skill.eval.schema-unavailable",
+                _schema_path(),
+                f"skill eval schema could not be loaded: {exc}",
+            )
+        ]
+
+    findings: list[Finding] = []
+    validator = Draft202012Validator(schema)
+    for error in sorted(
+        validator.iter_errors(value),
+        key=lambda item: tuple(str(part) for part in item.absolute_path),
+    ):
         location = ".".join(str(part) for part in error.absolute_path) or "<root>"
         findings.append(
             _finding(
@@ -55,25 +84,16 @@ def validate_suite(
             )
         )
 
-    if value.get("schema_version") != 1:
-        findings.append(
-            _finding(
-                "skill.eval.schema-version",
-                path,
-                "schema_version must be 1",
-            )
-        )
+    # Schema-invalid data is already fully enumerated by jsonschema. Stop here so
+    # malformed collection members cannot crash semantic checks below.
+    if findings:
+        return findings
 
-    skill = value.get("skill")
-    if not isinstance(skill, str) or not skill:
-        findings.append(
-            _finding(
-                "skill.eval.skill",
-                path,
-                "skill must be a non-empty string",
-            )
-        )
-    elif expected_skill is not None and skill != expected_skill:
+    skill = cast(str, value["skill"])
+    suite = cast(str, value["suite"])
+    cases = cast(list[dict[str, Any]], value["cases"])
+
+    if expected_skill is not None and skill != expected_skill:
         findings.append(
             _finding(
                 "skill.eval.skill-mismatch",
@@ -82,51 +102,11 @@ def validate_suite(
             )
         )
 
-    suite = value.get("suite")
-    if suite not in {"routing", "behavior"}:
-        findings.append(
-            _finding(
-                "skill.eval.suite",
-                path,
-                "suite must be routing or behavior",
-            )
-        )
-        return findings
-
-    cases = value.get("cases")
-    if not isinstance(cases, list) or not cases:
-        findings.append(
-            _finding(
-                "skill.eval.cases",
-                path,
-                "cases must be a non-empty list",
-            )
-        )
-        return findings
-
     seen: set[str] = set()
     for index, case in enumerate(cases):
         case_path = Path(f"{path.as_posix()}#cases[{index}]")
-        if not isinstance(case, dict):
-            findings.append(
-                _finding(
-                    "skill.eval.case",
-                    case_path,
-                    "case must be a mapping",
-                )
-            )
-            continue
-
-        case_id = case.get("id")
-        if not isinstance(case_id, str) or not case_id:
-            findings.append(
-                _finding(
-                    "skill.eval.case-id",
-                    case_path,
-                    "case id must be a non-empty string",
-                )
-            )
-        elif case_id in seen:
+        case_id = cast(str, case["id"])
+        if case_id in seen:
             findings.append(
                 _finding(
                     "skill.eval.case-id-duplicate",
@@ -137,17 +117,7 @@ def validate_suite(
         else:
             seen.add(case_id)
 
-        prompt = case.get("prompt")
-        if not isinstance(prompt, str) or not prompt.strip():
-            findings.append(
-                _finding(
-                    "skill.eval.prompt",
-                    case_path,
-                    "prompt must be non-empty",
-                )
-            )
-
-        kind = case.get("kind")
+        kind = cast(str, case["kind"])
         if suite == "routing":
             if kind not in ROUTING_KINDS:
                 findings.append(
@@ -159,9 +129,9 @@ def validate_suite(
                 )
                 continue
 
-            selected = case.get("selected_skills")
-            rejected = case.get("rejected_skills")
-            if not isinstance(selected, list) or not isinstance(rejected, list):
+            selected = cast(list[str] | None, case.get("selected_skills"))
+            rejected = cast(list[str] | None, case.get("rejected_skills"))
+            if selected is None or rejected is None:
                 findings.append(
                     _finding(
                         "skill.eval.routing-result",
@@ -215,12 +185,8 @@ def validate_suite(
                     )
                 )
 
-            assertions = case.get("assertions")
-            if (
-                not isinstance(assertions, list)
-                or not assertions
-                or not all(isinstance(item, str) and item.strip() for item in assertions)
-            ):
+            assertions = cast(list[str] | None, case.get("assertions"))
+            if assertions is None or not assertions or not all(item.strip() for item in assertions):
                 findings.append(
                     _finding(
                         "skill.eval.assertions",
@@ -229,7 +195,8 @@ def validate_suite(
                     )
                 )
 
-            if case.get("baseline") not in BASELINE_MODES:
+            baseline = cast(str | None, case.get("baseline"))
+            if baseline not in BASELINE_MODES:
                 findings.append(
                     _finding(
                         "skill.eval.baseline",
@@ -239,6 +206,22 @@ def validate_suite(
                 )
 
     return findings
+
+
+def _suite_kind_counts(path: Path) -> tuple[str | None, set[str]]:
+    value, finding = _load_mapping(path)
+    if finding is not None or value is None:
+        return None, set()
+    suite = value.get("suite")
+    cases = value.get("cases")
+    if not isinstance(suite, str) or not isinstance(cases, list):
+        return None, set()
+    kinds = {
+        case.get("kind")
+        for case in cases
+        if isinstance(case, dict) and isinstance(case.get("kind"), str)
+    }
+    return suite, cast(set[str], kinds)
 
 
 def validate_path(path: Path) -> list[Finding]:
@@ -251,17 +234,58 @@ def validate_path(path: Path) -> list[Finding]:
 
     expected_skill = path.name if path.parent.name == "skills" else None
     sources = sorted(path.glob("*.yaml"))
-    for source in sources:
-        findings.extend(validate_suite(source, expected_skill))
-
     if not sources:
+        return [_finding("skill.eval.empty", path, "eval directory contains no YAML suites")]
+
+    by_name = {source.name: source for source in sources}
+    for filename, expected_suite in REQUIRED_SUITES.items():
+        source = by_name.get(filename)
+        if source is None:
+            findings.append(
+                _finding(
+                    "skill.eval.suite-missing",
+                    path / filename,
+                    f"required {expected_suite} suite is missing",
+                )
+            )
+            continue
+        suite, _ = _suite_kind_counts(source)
+        if suite is not None and suite != expected_suite:
+            findings.append(
+                _finding(
+                    "skill.eval.suite-filename",
+                    source,
+                    f"{filename} must declare suite: {expected_suite}",
+                )
+            )
+
+    routing_kinds: set[str] = set()
+    for source in sources:
+        suite_findings = validate_suite(source, expected_skill)
+        findings.extend(suite_findings)
+        if suite_findings:
+            continue
+        suite, kinds = _suite_kind_counts(source)
+        if suite == "routing":
+            routing_kinds.update(kinds)
+
+    if sources and "positive" not in routing_kinds:
         findings.append(
             _finding(
-                "skill.eval.empty",
+                "skill.eval.routing-positive-missing",
                 path,
-                "eval directory contains no YAML suites",
+                "routing corpus needs at least one positive case",
             )
         )
+    if sources and not (routing_kinds & {"negative", "collision"}):
+        findings.append(
+            _finding(
+                "skill.eval.routing-boundary-missing",
+                path,
+                "routing corpus needs at least one negative or collision boundary case",
+            )
+        )
+
     return findings
 
 
