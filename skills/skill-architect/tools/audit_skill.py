@@ -52,6 +52,32 @@ def _confined(relative: str) -> bool:
     return not path.is_absolute() and ".." not in path.parts
 
 
+def _routed_paths(text: str) -> set[str]:
+    return {match.group("path").rstrip(").,;:") for match in ROUTED_PATH.finditer(text)}
+
+
+def _reachable_references(skill_dir: Path, roots: tuple[Path, ...]) -> set[str]:
+    reachable: set[str] = set()
+    pending = list(roots)
+    visited: set[Path] = set()
+    while pending:
+        source = pending.pop()
+        if source in visited or not source.is_file() or source.is_symlink():
+            continue
+        visited.add(source)
+        text = source.read_text(encoding="utf-8")
+        for relative in _routed_paths(text):
+            if not relative.startswith("references/") or not _confined(relative):
+                continue
+            target = skill_dir / relative
+            if not target.is_file() or target.is_symlink():
+                continue
+            if relative not in reachable:
+                reachable.add(relative)
+                pending.append(target)
+    return reachable
+
+
 def audit_skill(
     skill_dir: Path,
     repository_root: Path | None = None,
@@ -293,8 +319,9 @@ def audit_skill(
                 )
             )
 
-    routed = {match.group("path").rstrip(").,;:") for match in ROUTED_PATH.finditer(skill_text)}
-    for relative in sorted(routed):
+    standard_path = skill_dir / "STANDARD.md"
+    root_routed = _routed_paths(skill_text) | _routed_paths(standard_path.read_text(encoding="utf-8"))
+    for relative in sorted(root_routed):
         if not _confined(relative):
             findings.append(
                 _finding(
@@ -327,16 +354,17 @@ def audit_skill(
 
     reference_dir = skill_dir / "references"
     if reference_dir.is_dir():
+        reachable = _reachable_references(skill_dir, (skill_path, standard_path))
         for reference in sorted(reference_dir.glob("*.md")):
             relative = reference.relative_to(skill_dir).as_posix()
-            if relative not in skill_text:
+            if relative not in reachable:
                 severity = "error" if strict else "warning"
                 findings.append(
                     _finding(
                         severity,
                         "skill.routing.orphan-reference",
                         reference,
-                        "reference is not directly routed from SKILL.md",
+                        "reference is not reachable from SKILL.md or STANDARD.md routing",
                     )
                 )
 
