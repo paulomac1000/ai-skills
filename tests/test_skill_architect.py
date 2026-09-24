@@ -83,18 +83,7 @@ def test_audit_rejects_developer_artifacts_inside_runtime_package(
         "# Example standard\n",
         encoding="utf-8",
     )
-    (target / "manifest.yaml").write_text(
-        (
-            "name: example-skill\n"
-            "normative_entrypoint: STANDARD.md\n"
-            "required: [SKILL.md, STANDARD.md]\n"
-            "categories: [core]\n"
-            "dependencies:\n"
-            "  skills: []\n"
-            "  tools: []\n"
-        ),
-        encoding="utf-8",
-    )
+    (target / "manifest.yaml").write_text(_valid_manifest_text(), encoding="utf-8")
     (target / "VERSION").write_text("1.0.0\n", encoding="utf-8")
     (target / "README.md").write_text("# Auxiliary docs\n", encoding="utf-8")
     (target / "reports").mkdir()
@@ -204,15 +193,7 @@ def test_strict_audit_accepts_references_routed_from_standard(tmp_path: Path) ->
         encoding="utf-8",
     )
     (target / "manifest.yaml").write_text(
-        (
-            "name: example-skill\n"
-            "normative_entrypoint: STANDARD.md\n"
-            "required: [SKILL.md, STANDARD.md]\n"
-            "categories: [core, references]\n"
-            "dependencies:\n"
-            "  skills: []\n"
-            "  tools: []\n"
-        ),
+        _valid_manifest_text("[core, references]"),
         encoding="utf-8",
     )
 
@@ -379,6 +360,41 @@ def test_scaffold_normalizes_multiline_description(tmp_path: Path) -> None:
 
     text = (target / "SKILL.md").read_text(encoding="utf-8")
     assert "Create reusable workflows. Use when a bounded task needs them." in text
+
+def _valid_manifest_text(categories: str = "[core]") -> str:
+    return (
+        "schema_version: 1\n"
+        "name: example-skill\n"
+        "version: 1.0.0\n"
+        "maturity: experimental\n"
+        "skill_format: ai-skills/v1\n"
+        "normative_entrypoint: STANDARD.md\n"
+        "compatibility:\n"
+        "  agent_contract: tool-capable-instruction-agent\n"
+        "  operating_systems: [linux]\n"
+        "  evidence_lanes: [test]\n"
+        "  tested_combinations:\n"
+        "  - operating_system: linux\n"
+        "    architecture: x64\n"
+        "    runtime: python\n"
+        "    version: '3.12'\n"
+        "    lane: test\n"
+        "dependencies:\n"
+        "  skills: []\n"
+        "  tools: []\n"
+        "deprecation:\n"
+        "  policy: semantic-versioning\n"
+        "  minimum_notice: one-minor-release\n"
+        "required: [SKILL.md, STANDARD.md]\n"
+        f"categories: {categories}\n"
+        "adoption:\n"
+        "  template: contracts/adoption-assessment.yaml.template\n"
+        "  validator: contracts/validate_adoption.py\n"
+        "  rule_catalog: contracts/rule-catalog.yaml\n"
+        "  extension: generic\n"
+        "  rule_map: contracts/standard-rule-map.yaml\n"
+    )
+
 
 def _write_minimal_skill(target: Path) -> None:
     target.mkdir(parents=True)
