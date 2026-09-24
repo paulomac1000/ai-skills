@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import re
+import shutil
 from pathlib import Path
 
 NAME = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
@@ -13,6 +14,26 @@ def _render(template: str, replacements: dict[str, str]) -> str:
     return template
 
 
+def _inside(root: Path, target: Path) -> bool:
+    try:
+        target.resolve(strict=False).relative_to(root)
+    except ValueError:
+        return False
+    return True
+
+
+def _skills_root(repository_root: Path) -> Path:
+    skills_root = repository_root / "skills"
+    if skills_root.is_symlink():
+        raise ValueError("skills directory must not be a symlink")
+    if not _inside(repository_root, skills_root):
+        raise ValueError("skills directory resolves outside repository root")
+    if skills_root.exists() and not skills_root.is_dir():
+        raise NotADirectoryError(f"skills path is not a directory: {skills_root}")
+    skills_root.mkdir(parents=True, exist_ok=True)
+    return skills_root
+
+
 def scaffold(repository_root: Path, name: str, description: str) -> Path:
     repository_root = repository_root.resolve()
     if not NAME.fullmatch(name) or len(name) > 64:
@@ -21,10 +42,12 @@ def scaffold(repository_root: Path, name: str, description: str) -> Path:
     if not normalized_description or len(normalized_description) > 1024:
         raise ValueError("description must be non-empty and <=1024 characters")
 
-    target = repository_root / "skills" / name
-    if target.exists():
+    skills_root = _skills_root(repository_root)
+    target = skills_root / name
+    if target.exists() or target.is_symlink():
         raise FileExistsError(f"skill already exists: {target}")
-    target.mkdir(parents=True)
+    if not _inside(repository_root, target):
+        raise ValueError("skill target resolves outside repository root")
 
     template_root = Path(__file__).resolve().parents[1] / "templates"
     replacements = {
@@ -52,22 +75,20 @@ def scaffold(repository_root: Path, name: str, description: str) -> Path:
         "<EXACT_VERIFICATION_STEPS>": ("Run focused checks and the repository completion gate."),
     }
 
-    skill_template = (template_root / "SKILL.md.template").read_text(encoding="utf-8")
-    standard_template = (template_root / "STANDARD.md.template").read_text(encoding="utf-8")
-    manifest_template = (template_root / "manifest.yaml.template").read_text(encoding="utf-8")
+    # Render everything before creating the destination. Template/read failures
+    # therefore leave no half-created skill that blocks a safe retry.
+    skill_text = _render((template_root / "SKILL.md.template").read_text(encoding="utf-8"), replacements)
+    standard_text = _render((template_root / "STANDARD.md.template").read_text(encoding="utf-8"), replacements)
+    manifest_text = _render((template_root / "manifest.yaml.template").read_text(encoding="utf-8"), replacements)
 
-    (target / "SKILL.md").write_text(
-        _render(skill_template, replacements),
-        encoding="utf-8",
-    )
-    (target / "STANDARD.md").write_text(
-        _render(standard_template, replacements),
-        encoding="utf-8",
-    )
-    (target / "manifest.yaml").write_text(
-        _render(manifest_template, replacements),
-        encoding="utf-8",
-    )
+    target.mkdir()
+    try:
+        (target / "SKILL.md").write_text(skill_text, encoding="utf-8")
+        (target / "STANDARD.md").write_text(standard_text, encoding="utf-8")
+        (target / "manifest.yaml").write_text(manifest_text, encoding="utf-8")
+    except BaseException:
+        shutil.rmtree(target, ignore_errors=True)
+        raise
     return target
 
 
