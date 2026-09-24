@@ -27,7 +27,7 @@
               "regression"
             ]
           },
-          "prompt": {"type": "string", "minLength": 1},
+          "prompt": {"type": "string", "minLength": 1, "pattern": "\\S"},
           "selected_skills": {
             "type": "array",
             "items": {"type": "string", "minLength": 1},
