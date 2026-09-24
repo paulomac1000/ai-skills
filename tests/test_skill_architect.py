@@ -94,6 +94,7 @@ def test_audit_rejects_developer_artifacts_inside_runtime_package(
         encoding="utf-8",
     )
     (target / "VERSION").write_text("1.0.0\n", encoding="utf-8")
+    (target / "README.md").write_text("# Auxiliary docs\n", encoding="utf-8")
     (target / "reports").mkdir()
 
     findings = module.audit_skill(target, tmp_path)
@@ -103,6 +104,7 @@ def test_audit_rejects_developer_artifacts_inside_runtime_package(
         if finding.code == "skill.package.pollution"
     }
     assert (target / "VERSION").resolve().as_posix() in pollution
+    assert (target / "README.md").resolve().as_posix() in pollution
     assert (target / "reports").resolve().as_posix() in pollution
 
 
