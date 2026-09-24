@@ -910,3 +910,137 @@ def test_audit_rejects_routed_directory_as_resource(tmp_path: Path) -> None:
     findings = module.audit_skill(target, tmp_path, strict=True)
     assert "skill.routing.not-file" in {finding.code for finding in findings}
 
+def test_scaffold_cli_returns_stable_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    module = load_module(
+        "skill_architect_scaffold_cli_error",
+        SKILL / "tools/scaffold_skill.py",
+    )
+
+    class Args:
+        repository_root = tmp_path
+        name = "Bad Name"
+        description = "Use for one bounded workflow."
+
+    monkeypatch.setattr(module, "_parse_args", lambda: Args())
+    assert module.main() == 2
+    assert capsys.readouterr().err.startswith("ERROR skill.scaffold.failed:")
+
+
+def test_eval_validator_rejects_duplicate_yaml_keys(tmp_path: Path) -> None:
+    module = load_module(
+        "skill_architect_evals_duplicate_keys",
+        SKILL / "tools/validate_skill_evals.py",
+    )
+    source = tmp_path / "routing.yaml"
+    source.write_text(
+        (
+            "schema_version: 1\n"
+            "skill: example-skill\n"
+            "suite: routing\n"
+            "cases:\n"
+            "- id: first\n"
+            "  kind: positive\n"
+            "  prompt: Use the skill.\n"
+            "  selected_skills: [example-skill]\n"
+            "  rejected_skills: []\n"
+            "cases:\n"
+            "- id: second\n"
+            "  kind: positive\n"
+            "  prompt: Use the skill again.\n"
+            "  selected_skills: [example-skill]\n"
+            "  rejected_skills: []\n"
+        ),
+        encoding="utf-8",
+    )
+
+    findings = module.validate_suite(source)
+    assert [finding.code for finding in findings] == ["skill.eval.invalid"]
+
+
+def test_eval_schema_rejects_whitespace_only_prompt(tmp_path: Path) -> None:
+    module = load_module(
+        "skill_architect_evals_whitespace_prompt",
+        SKILL / "tools/validate_skill_evals.py",
+    )
+    source = tmp_path / "routing.yaml"
+    source.write_text(
+        (
+            "schema_version: 1\n"
+            "skill: example-skill\n"
+            "suite: routing\n"
+            "cases:\n"
+            "- id: empty-task\n"
+            "  kind: positive\n"
+            "  prompt: '   '\n"
+            "  selected_skills: [example-skill]\n"
+            "  rejected_skills: []\n"
+        ),
+        encoding="utf-8",
+    )
+
+    findings = module.validate_suite(source)
+    assert "skill.eval.schema" in {finding.code for finding in findings}
+
+
+def test_strict_audit_rejects_parent_relative_route(tmp_path: Path) -> None:
+    module = load_module(
+        "skill_architect_audit_parent_route",
+        SKILL / "tools/audit_skill.py",
+    )
+    target = tmp_path / "skills/example-skill"
+    _write_minimal_skill(target)
+    (target / "STANDARD.md").write_text(
+        "Read ../references/shared.md for policy.\n",
+        encoding="utf-8",
+    )
+
+    findings = module.audit_skill(target, tmp_path, strict=True)
+    assert "skill.routing.unconfined" in {finding.code for finding in findings}
+
+
+def test_strict_audit_recognizes_arbitrary_resource_extensions(tmp_path: Path) -> None:
+    module = load_module(
+        "skill_architect_audit_generic_extension",
+        SKILL / "tools/audit_skill.py",
+    )
+    target = tmp_path / "skills/example-skill"
+    _write_minimal_skill(target)
+    tools_dir = target / "tools"
+    tools_dir.mkdir()
+    (tools_dir / "keep.py").write_text("pass\n", encoding="utf-8")
+    (target / "manifest.yaml").write_text(
+        _valid_manifest_text("[core, tools]"),
+        encoding="utf-8",
+    )
+    (target / "STANDARD.md").write_text(
+        "Run tools/check.ts before publishing.\n",
+        encoding="utf-8",
+    )
+
+    findings = module.audit_skill(target, tmp_path, strict=True)
+    assert "skill.routing.missing" in {finding.code for finding in findings}
+
+
+def test_strict_audit_rejects_scaffold_placeholder_manifest(tmp_path: Path) -> None:
+    scaffold_module = load_module(
+        "skill_architect_scaffold_manifest",
+        SKILL / "tools/scaffold_skill.py",
+    )
+    audit_module = load_module(
+        "skill_architect_audit_scaffold_manifest",
+        SKILL / "tools/audit_skill.py",
+    )
+    (tmp_path / "skills").mkdir()
+    target = scaffold_module.scaffold(
+        tmp_path,
+        "example-skill",
+        "Use for one bounded workflow.",
+    )
+
+    findings = audit_module.audit_skill(target, tmp_path, strict=True)
+    assert "skill.manifest.contract" in {finding.code for finding in findings}
+
