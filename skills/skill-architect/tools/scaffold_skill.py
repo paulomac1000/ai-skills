@@ -86,7 +86,7 @@ def scaffold(repository_root: Path, name: str, description: str) -> Path:
         (target / "SKILL.md").write_text(skill_text, encoding="utf-8")
         (target / "STANDARD.md").write_text(standard_text, encoding="utf-8")
         (target / "manifest.yaml").write_text(manifest_text, encoding="utf-8")
-    except BaseException:
+    except Exception:
         shutil.rmtree(target, ignore_errors=True)
         raise
     return target
