@@ -117,8 +117,7 @@ Choose the lowest degree of freedom that preserves necessary judgment.
 
 Use natural-language normative guidance when multiple context-dependent
 solutions are valid. Use a reference, pseudocode, or template when a preferred
-pattern needs adaptation. Use a schema for strict machine-readable shape. Use
-an executable tool for repeatable mechanics. Use an executable gate plus
+pattern needs adaptation. Use a schema for strict machine-readable shape and keep a schema required by a bundled tool inside the portable package. Use an executable tool for repeatable mechanics. Use an executable gate plus
 validation for fragile, destructive, security-sensitive, or release-critical
 operations.
 
@@ -127,14 +126,14 @@ are baselines and never outrank the standard. A generator may encode the
 standard but must not become the only place where a normative requirement
 exists.
 
-Do not create empty references, templates, examples, tools, or locks
+Do not create empty references, templates, examples, schemas, tools, or locks
 directories. Add a resource category only when a real task requires it.
 
 ## Portable package contract
 
 Every published ai-skills package contains SKILL.md, STANDARD.md, and
 manifest.yaml. Optional runtime resource categories are references, templates,
-examples, tools, and reviewed dependency locks.
+examples, schemas, tools, and reviewed dependency locks.
 
 Repository-development artifacts such as evals, benchmark reports, generated
 review reports, skill-local README or changelog files, standalone VERSION files,
