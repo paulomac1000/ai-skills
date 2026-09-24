@@ -186,7 +186,7 @@ def test_every_skill_manifest_is_versioned_and_declares_exact_evidenced_combinat
 
         dependencies = manifest["dependencies"]
         assert isinstance(dependencies["skills"], list), path
-        assert isinstance(dependencies["tools"], list) and dependencies["tools"], path
+        assert isinstance(dependencies["tools"], list), path
 
         deprecation = manifest["deprecation"]
         assert deprecation["policy"] == "semantic-versioning", path

@@ -22,6 +22,7 @@ QUALITY_PATHS = (
     "skills/mcp-steward-architect/tools",
     "skills/qa-change-verifier/tools",
     "skills/readme-architect/tools",
+    "skills/skill-architect/tools",
     "skills/mcp-server-architect/tools/generate_python_server.py",
     "skills/mcp-server-architect/tools/generate_python_server_impl.py",
     "skills/mcp-server-architect/tools/generate_dotnet_server.py",
@@ -92,6 +93,9 @@ TYPE_PATHS = (
     "skills/qa-change-verifier/tools/plan_verification.py",
     "skills/readme-architect/tools/audit_readme.py",
     "skills/readme-architect/tools/collect_readme_evidence.py",
+    "skills/skill-architect/tools/audit_skill.py",
+    "skills/skill-architect/tools/scaffold_skill.py",
+    "skills/skill-architect/tools/validate_skill_evals.py",
     "skills/mcp-server-architect/tools/generate_python_server.py",
     "skills/mcp-server-architect/tools/generate_python_server_impl.py",
     "skills/mcp-server-architect/tools/generate_dotnet_server.py",
@@ -121,6 +125,7 @@ BANDIT_PATHS = (
     "skills/mcp-steward-architect/tools",
     "skills/qa-change-verifier/tools",
     "skills/readme-architect/tools",
+    "skills/skill-architect/tools",
     "skills/mcp-server-architect/tools",
 )
 POLICY_COVERAGE_PATHS = (

@@ -1,5 +1,18 @@
 # Changelog
 
+## 3.1.0 - Unreleased
+
+### Added
+
+- Added `skill-architect` as the canonical owner of reusable Agent Skill admission, routing, progressive disclosure, resource selection, portability, behavioral evaluation, migration, and deprecation.
+- Added deterministic skill-package auditing and minimal scaffolding, plus a repository-level routing and behavior eval contract with representative `skill-architect` corpora.
+
+### Changed
+
+- Made skill descriptions an explicit pre-load routing contract and kept development evidence such as eval corpora, benchmark reports, and changelogs outside published runtime skill packages.
+- Allowed skills without executable helpers to declare an empty `dependencies.tools` list while keeping tool-bearing skills inside the existing quality, typing, security, and coverage gates.
+- Synchronized all bundled stable skill version mirrors to `3.1.0` because the release adds a public skill and changes shared repository contracts.
+
 ## 3.0.0 - 2026-09-13
 
 ### Added

@@ -1,6 +1,6 @@
 schema_version: 1
-name: changelog-release-architect
-version: 3.1.0
+name: <SKILL_NAME>
+version: <REPOSITORY_RELEASE_VERSION>
 maturity: stable
 skill_format: ai-skills/v1
 normative_entrypoint: STANDARD.md
@@ -10,8 +10,6 @@ compatibility:
   - linux
   - macos
   - windows
-  runtimes:
-    python: '>=3.12,<3.15'
   evidence_lanes:
   - python-compatibility
   tested_combinations:
@@ -42,25 +40,18 @@ compatibility:
     lane: python-compatibility
 dependencies:
   skills: []
-  tools:
-  - python
-  - git
+  tools: []
 deprecation:
   policy: semantic-versioning
   minimum_notice: one-minor-release
 required:
 - SKILL.md
 - STANDARD.md
-- tools/check_release_branch.py
 categories:
 - core
-- tools
 adoption:
   template: contracts/adoption-assessment.yaml.template
   validator: contracts/validate_adoption.py
   rule_catalog: contracts/rule-catalog.yaml
   extension: generic
   rule_map: contracts/standard-rule-map.yaml
-  consumer_runtime_evidence:
-    provider_backed_runtimes:
-    - node

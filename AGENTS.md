@@ -30,6 +30,13 @@ Use this file when implementing, migrating, reviewing, or maintaining content in
 - Do not preserve obsolete behavior merely for compatibility unless the standard explicitly defines a bounded compatibility path, owner, tests, and removal condition.
 - Keep the guidance domain-independent unless a file is explicitly an implementation profile.
 
+## Skill changes
+
+- [skill-architect](skills/skill-architect/STANDARD.md) is the canonical owner of skill admission, portable package structure, routing descriptions, progressive disclosure, resource selection, behavioral evaluation, portability, and skill lifecycle.
+- Read it before creating, splitting, materially restructuring, or deprecating a skill. A long workflow or large file is not by itself a reason to create another skill.
+- Keep runtime resources inside the declared skill categories and keep eval corpora, reports, benchmarks, and release bookkeeping at repository scope.
+- Treat description as the pre-load routing contract; material changes to a skill boundary require representative routing evidence and collision cases when a nearby skill exists.
+
 ## Release metadata
 
 - [`changelog-release-architect`](skills/changelog-release-architect/STANDARD.md) is the canonical owner of release-boundary, changelog-curation, evidence, and repository-SemVer rules. Read it before changing any release version or changelog heading.

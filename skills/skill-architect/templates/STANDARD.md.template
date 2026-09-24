@@ -1,0 +1,35 @@
+---
+description: Normative rules for <SKILL_NAME>.
+doc_id: reference.<SKILL_NAME>-standard
+type: reference
+status: active
+rigor: normative
+owners: [repository-maintainers]
+verification: <EXACT_VERIFICATION_COMMAND_OR_PROCESS>
+---
+
+# <SKILL_TITLE> standard
+
+## Purpose
+
+<SEMANTIC_RESPONSIBILITY>
+
+## Scope and precedence
+
+<CANONICAL_OWNER_AND_COMPOSITION_RULES>
+
+## Core invariants
+
+<ASSESSABLE_INVARIANTS>
+
+## Evidence and verification
+
+<WHAT_PROVES_THE_CONTRACT>
+
+## Definition of done
+
+<COMPLETION_CONDITIONS>
+
+## Verification
+
+<EXACT_VERIFICATION_STEPS>

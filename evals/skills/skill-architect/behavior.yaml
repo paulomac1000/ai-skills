@@ -1,0 +1,31 @@
+schema_version: 1
+skill: skill-architect
+suite: behavior
+cases:
+- id: admission-before-scaffold
+  kind: representative
+  prompt: Create a new skill for deployment troubleshooting from a handful of recurring incidents.
+  baseline: optional
+  assertions:
+  - Checks whether an existing skill, reference, repository instruction, or deterministic tool is a better canonical owner before creating a new skill.
+  - Derives the skill boundary from representative tasks and recurring failures rather than from a preselected folder layout.
+  - Keeps eval corpora and reports outside the runtime skill directory.
+  - Chooses resources only when a real workflow requires them.
+- id: repair-polluted-package
+  kind: regression
+  prompt: Refactor a skill package containing evals, reports, CHANGELOG.md, MANIFEST.json, VERSION, references, scripts, and SKILL.md into the ai-skills model.
+  baseline: optional
+  assertions:
+  - Introduces STANDARD.md as the normative owner and manifest.yaml as the package contract.
+  - Keeps SKILL.md as a concise routing surface with portable name and description frontmatter.
+  - Moves developer evals and reports outside the published skill package.
+  - Uses tools rather than a generic scripts directory for deterministic skill-owned helpers.
+  - Preserves useful behavior unless a normative delta is explicitly justified.
+- id: collision-aware-description
+  kind: representative
+  prompt: Improve the description of a verification skill that is frequently confused with the CI architecture skill.
+  baseline: optional
+  assertions:
+  - Treats description as a pre-load routing contract rather than marketing copy.
+  - Adds representative positive cases and a collision case with the nearest competing skill.
+  - Avoids keyword-only tests as proof of semantic routing.
