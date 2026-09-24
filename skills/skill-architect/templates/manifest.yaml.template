@@ -1,43 +1,14 @@
 schema_version: 1
 name: <SKILL_NAME>
-version: <REPOSITORY_RELEASE_VERSION>
-maturity: stable
+version: REPLACE_WITH_RELEASE_VERSION
+maturity: experimental
 skill_format: ai-skills/v1
 normative_entrypoint: STANDARD.md
 compatibility:
   agent_contract: tool-capable-instruction-agent
-  operating_systems:
-  - linux
-  - macos
-  - windows
-  evidence_lanes:
-  - python-compatibility
-  tested_combinations:
-  - operating_system: linux
-    architecture: x64
-    runtime: python
-    version: '3.12'
-    lane: python-compatibility
-  - operating_system: linux
-    architecture: x64
-    runtime: python
-    version: '3.13'
-    lane: python-compatibility
-  - operating_system: linux
-    architecture: x64
-    runtime: python
-    version: '3.14'
-    lane: python-compatibility
-  - operating_system: macos
-    architecture: arm64
-    runtime: python
-    version: '3.12'
-    lane: python-compatibility
-  - operating_system: windows
-    architecture: x64
-    runtime: python
-    version: '3.12'
-    lane: python-compatibility
+  operating_systems: []
+  evidence_lanes: []
+  tested_combinations: []
 dependencies:
   skills: []
   tools: []
