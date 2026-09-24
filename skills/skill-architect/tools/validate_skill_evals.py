@@ -8,12 +8,50 @@ from typing import Any, cast
 
 import yaml
 from jsonschema import Draft202012Validator
+from yaml.constructor import ConstructorError
+from yaml.nodes import MappingNode
+from yaml.resolver import BaseResolver
 from jsonschema.exceptions import SchemaError
 
 ROUTING_KINDS = {"positive", "negative", "collision"}
 BEHAVIOR_KINDS = {"representative", "regression"}
 BASELINE_MODES = {"required", "optional", "not-applicable"}
 REQUIRED_SUITES = {"routing.yaml": "routing", "behavior.yaml": "behavior"}
+
+
+class _UniqueKeyLoader(yaml.SafeLoader):
+    pass
+
+
+def _construct_unique_mapping(
+    loader: yaml.SafeLoader,
+    node: MappingNode,
+    deep: bool = False,
+) -> dict[object, object]:
+    mapping: dict[object, object] = {}
+    for key_node, value_node in node.value:
+        key = loader.construct_object(key_node, deep=deep)
+        try:
+            duplicate = key in mapping
+        except TypeError as exc:
+            raise ConstructorError(
+                "while constructing a mapping",
+                node.start_mark,
+                "found an unhashable mapping key",
+                key_node.start_mark,
+            ) from exc
+        if duplicate:
+            raise ConstructorError(
+                "while constructing a mapping",
+                node.start_mark,
+                f"found duplicate key {key!r}",
+                key_node.start_mark,
+            )
+        mapping[key] = loader.construct_object(value_node, deep=deep)
+    return mapping
+
+
+_UniqueKeyLoader.add_constructor(BaseResolver.DEFAULT_MAPPING_TAG, _construct_unique_mapping)
 
 
 @dataclass(frozen=True)
@@ -41,7 +79,7 @@ def _schema() -> dict[str, object]:
 
 def _load_mapping(path: Path) -> tuple[dict[str, Any] | None, Finding | None]:
     try:
-        value = yaml.safe_load(path.read_text(encoding="utf-8"))
+        value = yaml.load(path.read_text(encoding="utf-8"), Loader=_UniqueKeyLoader)
     except (OSError, UnicodeError, yaml.YAMLError) as exc:
         return None, _finding("skill.eval.invalid", path, f"eval suite could not be parsed: {exc}")
     if not isinstance(value, dict):
