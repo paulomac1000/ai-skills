@@ -124,6 +124,18 @@ def test_auditor_accepts_existing_skill_packages_without_errors() -> None:
     assert errors == {}
 
 
+
+def test_route_parser_ignores_protocol_and_operation_names() -> None:
+    module = load_module(
+        "skill_architect_route_parser",
+        SKILL / "tools/audit_skill.py",
+    )
+    routes = module._routed_paths(
+        "Call tools/list and tools/listChanged while holding locks/transactions; "
+        "then read references/routing.md and run tools/audit_skill.py."
+    )
+    assert routes == {"references/routing.md", "tools/audit_skill.py"}
+
 def test_skill_architect_eval_corpus_is_well_formed() -> None:
     module = load_module(
         "skill_architect_evals",
