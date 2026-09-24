@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import re
 import shutil
+import sys
 from pathlib import Path
 
 NAME = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
@@ -102,7 +103,11 @@ def _parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = _parse_args()
-    target = scaffold(args.repository_root, args.name, args.description)
+    try:
+        target = scaffold(args.repository_root, args.name, args.description)
+    except (ValueError, OSError) as exc:
+        print(f"ERROR skill.scaffold.failed: {exc}", file=sys.stderr)
+        return 2
     print(target)
     print(
         "Next: define admission/routing evidence, register catalog rules, "
