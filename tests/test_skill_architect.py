@@ -363,4 +363,3 @@ def test_scaffold_normalizes_multiline_description(tmp_path: Path) -> None:
 
     text = (target / "SKILL.md").read_text(encoding="utf-8")
     assert "Create reusable workflows. Use when a bounded task needs them." in text
-\n
