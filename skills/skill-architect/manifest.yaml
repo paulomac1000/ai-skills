@@ -64,6 +64,7 @@ required:
 - templates/SKILL.md.template
 - templates/STANDARD.md.template
 - templates/manifest.yaml.template
+- schemas/skill-eval.schema.json
 - tools/audit_skill.py
 - tools/scaffold_skill.py
 - tools/validate_skill_evals.py
@@ -71,6 +72,7 @@ categories:
 - core
 - references
 - templates
+- schemas
 - tools
 adoption:
   template: contracts/adoption-assessment.yaml.template
