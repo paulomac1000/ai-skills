@@ -56,8 +56,9 @@ def _routed_paths(text: str) -> set[str]:
     return {match.group("path").rstrip(").,;:") for match in ROUTED_PATH.finditer(text)}
 
 
-def _reachable_references(skill_dir: Path, roots: tuple[Path, ...]) -> set[str]:
-    reachable: set[str] = set()
+def _routing_graph(skill_dir: Path, roots: tuple[Path, ...]) -> tuple[set[str], list[tuple[Path, str]]]:
+    reachable_references: set[str] = set()
+    routes: list[tuple[Path, str]] = []
     pending = list(roots)
     visited: set[Path] = set()
     while pending:
@@ -66,16 +67,25 @@ def _reachable_references(skill_dir: Path, roots: tuple[Path, ...]) -> set[str]:
             continue
         visited.add(source)
         text = source.read_text(encoding="utf-8")
-        for relative in _routed_paths(text):
+        for relative in sorted(_routed_paths(text)):
+            routes.append((source, relative))
             if not relative.startswith("references/") or not _confined(relative):
                 continue
             target = skill_dir / relative
             if not target.is_file() or target.is_symlink():
                 continue
-            if relative not in reachable:
-                reachable.add(relative)
+            if relative not in reachable_references:
+                reachable_references.add(relative)
                 pending.append(target)
-    return reachable
+    return reachable_references, routes
+
+
+def _resolved_inside(root: Path, target: Path) -> bool:
+    try:
+        target.resolve(strict=False).relative_to(root)
+    except ValueError:
+        return False
+    return True
 
 
 def audit_skill(
@@ -265,7 +275,16 @@ def audit_skill(
             )
             continue
         resource = skill_dir / relative
-        if resource.is_symlink():
+        if not _resolved_inside(skill_dir, resource):
+            findings.append(
+                _finding(
+                    "error",
+                    "skill.resource.unconfined",
+                    resource,
+                    "declared runtime resource resolves outside the skill directory",
+                )
+            )
+        elif resource.is_symlink():
             findings.append(
                 _finding(
                     "error",
@@ -320,44 +339,52 @@ def audit_skill(
             )
 
     standard_path = skill_dir / "STANDARD.md"
-    root_routed = _routed_paths(skill_text) | _routed_paths(standard_path.read_text(encoding="utf-8"))
-    for relative in sorted(root_routed):
+    reachable_references, routes = _routing_graph(skill_dir, (skill_path, standard_path))
+    for source, relative in routes:
         if not _confined(relative):
             findings.append(
                 _finding(
                     "error",
                     "skill.routing.unconfined",
-                    skill_path,
+                    source,
                     f"unconfined routed path: {relative}",
                 )
             )
-        else:
-            resource = skill_dir / relative
-            if resource.is_symlink():
-                findings.append(
-                    _finding(
-                        "error",
-                        "skill.routing.symlink",
-                        resource,
-                        "routed runtime resources must not be symlinks",
-                    )
+            continue
+        resource = skill_dir / relative
+        if not _resolved_inside(skill_dir, resource):
+            findings.append(
+                _finding(
+                    "error",
+                    "skill.routing.unconfined",
+                    source,
+                    f"routed resource resolves outside the skill directory: {relative}",
                 )
-            elif not resource.exists():
-                findings.append(
-                    _finding(
-                        "error",
-                        "skill.routing.missing",
-                        skill_path,
-                        f"routed resource does not exist: {relative}",
-                    )
+            )
+        elif resource.is_symlink():
+            findings.append(
+                _finding(
+                    "error",
+                    "skill.routing.symlink",
+                    resource,
+                    "routed runtime resources must not be symlinks",
                 )
+            )
+        elif not resource.exists():
+            findings.append(
+                _finding(
+                    "error",
+                    "skill.routing.missing",
+                    source,
+                    f"routed resource does not exist: {relative}",
+                )
+            )
 
     reference_dir = skill_dir / "references"
     if reference_dir.is_dir():
-        reachable = _reachable_references(skill_dir, (skill_path, standard_path))
-        for reference in sorted(reference_dir.glob("*.md")):
+        for reference in sorted(reference_dir.rglob("*.md")):
             relative = reference.relative_to(skill_dir).as_posix()
-            if relative not in reachable:
+            if relative not in reachable_references:
                 severity = "error" if strict else "warning"
                 findings.append(
                     _finding(
