@@ -30,7 +30,7 @@ repository-global hidden state.
 Upstream hosts may recognize conventional resource directories such as
 references, scripts, or assets. This repository currently owns different
 runtime categories where they better express its governance model, including
-tools and templates.
+tools, templates, and schemas.
 
 Do not rename the canonical ai-skills package opportunistically for one host.
 When a host requires a different layout, use a thin packaging projection that
