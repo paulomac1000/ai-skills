@@ -106,7 +106,23 @@ def test_audit_rejects_developer_artifacts_inside_runtime_package(
     assert (target / "reports").resolve().as_posix() in pollution
 
 
-def test_skill_architect_eval_corpus_is_well_formed() -> None:
+
+
+def test_auditor_accepts_existing_skill_packages_without_errors() -> None:
+    module = load_module(
+        "skill_architect_audit_repository",
+        SKILL / "tools/audit_skill.py",
+    )
+    errors: dict[str, list[str]] = {}
+    for directory in sorted((ROOT / "skills").iterdir()):
+        if not directory.is_dir():
+            continue
+        findings = module.audit_skill(directory, ROOT)
+        current = [finding.code for finding in findings if finding.severity == "error"]
+        if current:
+            errors[directory.name] = current
+    assert errors == {}
+\n\ndef test_skill_architect_eval_corpus_is_well_formed() -> None:
     module = load_module(
         "skill_architect_evals",
         SKILL / "tools/validate_skill_evals.py",
@@ -306,3 +322,43 @@ def test_eval_schema_rejects_unknown_case_fields(tmp_path: Path) -> None:
     findings = module.validate_suite(source)
     assert "skill.eval.schema" in {finding.code for finding in findings}
 
+def test_eval_validator_rejects_selected_rejected_overlap(tmp_path: Path) -> None:
+    module = load_module(
+        "skill_architect_evals_overlap",
+        SKILL / "tools/validate_skill_evals.py",
+    )
+    source = tmp_path / "routing.yaml"
+    source.write_text(
+        (
+            "schema_version: 1\n"
+            "skill: example-skill\n"
+            "suite: routing\n"
+            "cases:\n"
+            "- id: contradictory\n"
+            "  kind: positive\n"
+            "  prompt: Use the example skill.\n"
+            "  selected_skills: [example-skill]\n"
+            "  rejected_skills: [example-skill]\n"
+        ),
+        encoding="utf-8",
+    )
+
+    findings = module.validate_suite(source)
+    assert "skill.eval.routing-overlap" in {finding.code for finding in findings}
+
+
+def test_scaffold_normalizes_multiline_description(tmp_path: Path) -> None:
+    module = load_module(
+        "skill_architect_scaffold_description",
+        SKILL / "tools/scaffold_skill.py",
+    )
+    (tmp_path / "skills").mkdir()
+    target = module.scaffold(
+        tmp_path,
+        "example-skill",
+        "Create reusable workflows.\nUse when a bounded task needs them.",
+    )
+
+    text = (target / "SKILL.md").read_text(encoding="utf-8")
+    assert "Create reusable workflows. Use when a bounded task needs them." in text
+\n
