@@ -47,6 +47,7 @@ dependencies:
   packages:
     python:
     - PyYAML>=6.0.3,<7
+    - jsonschema>=4.26,<5
 deprecation:
   policy: semantic-versioning
   minimum_notice: one-minor-release
