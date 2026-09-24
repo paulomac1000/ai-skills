@@ -23,7 +23,7 @@ Read STANDARD.md before making normative decisions.
 4. Define one semantic owner and the nearest routing collisions. Read references/routing-and-context.md before writing description or splitting context.
 5. Choose the lowest useful degree of freedom. Read references/resources-and-composition.md to decide what belongs in prose, a reference, template, schema, example, or executable tool.
 6. Keep the portable runtime package small: SKILL.md, STANDARD.md, manifest.yaml, plus only justified resource directories. Keep eval corpora, benchmark output, reports, changelogs, and release bookkeeping outside the skill directory.
-7. For executable or externally sourced content, read references/portability-and-trust.md; treat the whole package as a trusted dependency and vendor adapters as projections rather than policy owners.
+7. For executable or externally sourced content, read references/portability-and-trust.md. When targeting generic Agent Skills hosts, also read references/upstream-agent-skills-compatibility.md; adapters are projections, not policy owners.
 8. Add routing and behavioral cases under evals/skills/<skill>/. Read references/behavioral-evaluation.md; compare against a no-skill baseline when capability uplift is the claim.
 9. Run tools/audit_skill.py <skill-dir> --repository-root . --strict and tools/validate_skill_evals.py evals/skills/<skill>.
 10. For an existing skill, read references/lifecycle-and-migration.md; change only the normative delta, preserve valid consumer behavior, and add regressions for real failures.
