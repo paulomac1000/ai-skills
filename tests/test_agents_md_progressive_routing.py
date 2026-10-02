@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -806,3 +807,95 @@ def test_raw_html_code_block_route_example_is_not_live(tmp_path: Path, tag: str)
     _, findings = audit_module.audit(tmp_path, "application", "single", "en")
     assert "routing.trigger-unreachable" in _codes(findings)
     assert "routing.route-prose-missing" not in _codes(findings)
+
+
+def test_multiline_inline_code_preserves_line_count_and_does_not_crash(tmp_path: Path) -> None:
+    _write_base(tmp_path)
+    _write_conditional_owner(tmp_path, "docs/recovery.md")
+    _append(
+        tmp_path,
+        """
+## Markdown notes
+
+The literal example is `<!--
+still inline code` and must not open an HTML comment.
+
+## Recovery routing
+
+<!-- agents-md: route owner="docs/recovery.md" when="after failure" purpose="recovery" -->
+- After failure, read [the recovery owner](docs/recovery.md).
+""",
+    )
+
+    _, findings = audit_module.audit(tmp_path, "application", "single", "en")
+    assert not any(finding.code.startswith("routing.") for finding in findings)
+
+
+@pytest.mark.parametrize("opening", ('<pre class="example">', "<div>", "<details open>"))
+def test_raw_html_examples_with_attributes_or_block_tags_are_not_live(
+    tmp_path: Path,
+    opening: str,
+) -> None:
+    _write_base(tmp_path)
+    _write_conditional_owner(tmp_path, "docs/recovery.md")
+    tag = re.match(r"<([A-Za-z0-9]+)", opening)
+    assert tag is not None
+    _append(
+        tmp_path,
+        f"""
+## Raw HTML example
+
+{opening}
+<!-- agents-md: route owner="docs/recovery.md" when="after failure" purpose="recovery" -->
+- After failure, read [the recovery owner](docs/recovery.md).
+</{tag.group(1)}>
+
+""",
+    )
+
+    _, findings = audit_module.audit(tmp_path, "application", "single", "en")
+    assert "routing.trigger-unreachable" in _codes(findings)
+    assert "routing.route-prose-missing" not in _codes(findings)
+
+
+def test_unclosed_inline_comment_resets_at_blank_line_before_live_route(tmp_path: Path) -> None:
+    _write_base(tmp_path)
+    _write_conditional_owner(tmp_path, "docs/recovery.md")
+    _append(
+        tmp_path,
+        """
+## Notes
+
+Paragraph text <!-- unfinished inline comment
+
+## Recovery routing
+
+<!-- agents-md: route owner="docs/recovery.md" when="after failure" purpose="recovery" -->
+- After failure, read [the recovery owner](docs/recovery.md).
+""",
+    )
+
+    _, findings = audit_module.audit(tmp_path, "application", "single", "en")
+    assert not any(finding.code.startswith("routing.") for finding in findings)
+
+
+def test_raw_html_state_resets_when_blockquote_container_ends(tmp_path: Path) -> None:
+    _write_base(tmp_path)
+    _write_conditional_owner(tmp_path, "docs/recovery.md")
+    _append(
+        tmp_path,
+        """
+## Quoted raw HTML example
+
+> <pre class="example">
+> example without a closing tag
+
+## Recovery routing
+
+<!-- agents-md: route owner="docs/recovery.md" when="after failure" purpose="recovery" -->
+- After failure, read [the recovery owner](docs/recovery.md).
+""",
+    )
+
+    _, findings = audit_module.audit(tmp_path, "application", "single", "en")
+    assert not any(finding.code.startswith("routing.") for finding in findings)

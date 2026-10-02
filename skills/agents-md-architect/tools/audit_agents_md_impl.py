@@ -266,69 +266,139 @@ def _is_indented_code_line(line: str) -> bool:
     return line.startswith("\t") or line.startswith("    ")
 
 
-def _routing_container_lines(lines: Sequence[tuple[int, str]]) -> list[tuple[int, str]]:
-    """Normalize quote/list containers and turn true indented code into paragraph boundaries."""
-    normalized: list[tuple[int, str]] = []
-    list_indents: tuple[int, ...] = ()
-    current_quote_depth = 0
-    previous_line: int | None = None
+@dataclass(frozen=True)
+class RoutingContainerLine:
+    """One routing line normalized against its active Markdown containers."""
 
-    for line_number, source_line in lines:
-        if previous_line is not None and line_number > previous_line + 1:
-            # Fenced blocks are absent from visible_lines; keep them as a prose boundary.
-            normalized.append((previous_line + 1, ""))
-            list_indents = ()
-
-        quote_depth, quote_content = _blockquote_depth_and_content(source_line)
-        if quote_depth != current_quote_depth:
-            list_indents = ()
-            current_quote_depth = quote_depth
-
-        container_line, list_indents = _list_container_content(
-            quote_content,
-            list_indents,
-            allow_new_item=True,
-        )
-        if _is_indented_code_line(container_line):
-            normalized.append((line_number, ""))
-        else:
-            normalized.append((line_number, container_line))
-        previous_line = line_number
-
-    return normalized
+    line_number: int
+    text: str
+    container: tuple[int, tuple[int, ...]]
+    boundary_before: bool
 
 
-RAW_HTML_CODE_START = re.compile(
-    r"^[ \\t]{0,3}<(?P<tag>script|pre|style|textarea)(?=[\\s>])",
+ROUTING_LIST_ITEM = re.compile(r"^[ ]{0,3}(?:[*+-]|\\d{1,9}[.)])(?: {1,4}|\\t)")
+RAW_HTML_TYPE1_START = re.compile(
+    r"^[ \\t]{0,3}<(?P<tag>script|pre|style|textarea)(?=[\\t\\n\\f />])",
     re.I,
+)
+RAW_HTML_BLOCK_TAG_START = re.compile(
+    r"^[ \\t]{0,3}</?(?:"
+    r"address|article|aside|base|basefont|blockquote|body|caption|center|col|colgroup|dd|details|"
+    r"dialog|dir|div|dl|dt|fieldset|figcaption|figure|footer|form|frame|frameset|h[1-6]|head|"
+    r"header|hr|html|iframe|legend|li|link|main|menu|menuitem|nav|noframes|ol|optgroup|option|"
+    r"p|param|search|section|summary|table|tbody|td|tfoot|th|thead|title|tr|track|ul"
+    r")(?=[\\t\\n\\f />])",
+    re.I,
+)
+RAW_HTML_COMPLETE_TAG = re.compile(
+    r"^[ \\t]{0,3}</?[A-Za-z][A-Za-z0-9-]*(?:[ \\t]+[^<>]*)?[ \\t]*/?>[ \\t]*$"
 )
 ATX_HEADING = re.compile(r"^[ \\t]{0,3}#{1,6}(?:[ \\t]+|$)")
 SETEXT_OR_THEMATIC_BOUNDARY = re.compile(
     r"^[ \\t]{0,3}(?:=+[ \\t]*|-+[ \\t]*|(?:\\*[ \\t]*){3,}|(?:_[ \\t]*){3,})$"
 )
+CommentMode = Literal["none", "inline", "block"]
 
 
-def _exclude_raw_html_code_blocks(lines: Sequence[tuple[int, str]]) -> list[tuple[int, str]]:
-    """Replace CommonMark type-1 raw HTML code containers with prose boundaries."""
+@dataclass(frozen=True)
+class RawHtmlState:
+    """Raw HTML block termination rule for routing-evidence filtering."""
+
+    end_pattern: re.Pattern[str] | None = None
+    ends_on_blank: bool = False
+
+
+def _routing_container_lines(lines: Sequence[tuple[int, str]]) -> list[RoutingContainerLine]:
+    """Normalize Markdown containers while retaining boundaries that terminate nested block state."""
+    normalized: list[RoutingContainerLine] = []
+    list_indents: tuple[int, ...] = ()
+    current_quote_depth = 0
+    previous_line: int | None = None
+    previous_container: tuple[int, tuple[int, ...]] | None = None
+
+    for line_number, source_line in lines:
+        gap_before = previous_line is not None and line_number > previous_line + 1
+        if gap_before:
+            list_indents = ()
+
+        quote_depth, quote_content = _blockquote_depth_and_content(source_line)
+        quote_changed = previous_container is not None and quote_depth != current_quote_depth
+        if quote_depth != current_quote_depth:
+            list_indents = ()
+            current_quote_depth = quote_depth
+
+        new_list_item = ROUTING_LIST_ITEM.match(quote_content) is not None
+        container_line, list_indents = _list_container_content(
+            quote_content,
+            list_indents,
+            allow_new_item=True,
+        )
+        container = (quote_depth, list_indents)
+        container_changed = previous_container is not None and container != previous_container
+        boundary_before = gap_before or quote_changed or container_changed or (
+            new_list_item and previous_line is not None
+        )
+
+        if _is_indented_code_line(container_line):
+            container_line = ""
+        normalized.append(
+            RoutingContainerLine(
+                line_number=line_number,
+                text=container_line,
+                container=container,
+                boundary_before=boundary_before,
+            )
+        )
+        previous_line = line_number
+        previous_container = container
+
+    return normalized
+
+
+def _raw_html_start(line: str) -> RawHtmlState | None:
+    type1 = RAW_HTML_TYPE1_START.match(line)
+    if type1 is not None:
+        tag = type1.group("tag").casefold()
+        return RawHtmlState(end_pattern=re.compile(rf"</{re.escape(tag)}[ \\t]*>", re.I))
+    if re.match(r"^[ \\t]{0,3}<\\?", line) is not None:
+        return RawHtmlState(end_pattern=re.compile(r"\\?>"))
+    if re.match(r"^[ \\t]{0,3}<!\\[CDATA\\[", line) is not None:
+        return RawHtmlState(end_pattern=re.compile(r"\\]\\]>"))
+    if re.match(r"^[ \\t]{0,3}<![A-Z]", line) is not None:
+        return RawHtmlState(end_pattern=re.compile(r">"))
+    if RAW_HTML_BLOCK_TAG_START.match(line) is not None or RAW_HTML_COMPLETE_TAG.fullmatch(line) is not None:
+        return RawHtmlState(ends_on_blank=True)
+    return None
+
+
+def _exclude_raw_html_blocks(lines: Sequence[RoutingContainerLine]) -> list[tuple[int, str]]:
+    """Replace CommonMark raw HTML blocks with prose boundaries."""
     filtered: list[tuple[int, str]] = []
-    raw_tag: str | None = None
+    state: RawHtmlState | None = None
 
-    for line_number, line in lines:
-        if raw_tag is not None:
-            if re.search(rf"</{re.escape(raw_tag)}[ \\t]*>", line, re.I) is not None:
-                raw_tag = None
-            filtered.append((line_number, ""))
+    for item in lines:
+        if item.boundary_before:
+            state = None
+            filtered.append((item.line_number, ""))
+
+        line = item.text
+        if state is not None:
+            if state.ends_on_blank and not line.strip():
+                state = None
+            elif state.end_pattern is not None and state.end_pattern.search(line) is not None:
+                state = None
+            filtered.append((item.line_number, ""))
             continue
 
-        match = RAW_HTML_CODE_START.match(line)
-        if match is None:
-            filtered.append((line_number, line))
+        new_state = _raw_html_start(line)
+        if new_state is None:
+            filtered.append((item.line_number, line))
             continue
 
-        raw_tag = match.group("tag").casefold()
-        if re.search(rf"</{re.escape(raw_tag)}[ \\t]*>", line[match.end() :], re.I) is not None:
-            raw_tag = None
-        filtered.append((line_number, ""))
+        state = new_state
+        if state.end_pattern is not None and state.end_pattern.search(line) is not None:
+            state = None
+        filtered.append((item.line_number, ""))
 
     return filtered
 
@@ -390,32 +460,36 @@ def _backtick_runs(source: str) -> tuple[list[tuple[int, int, int]], list[int | 
 def _mask_routing_inline_block(
     block: Sequence[tuple[int, str]],
     *,
-    in_html_comment: bool,
-) -> tuple[list[tuple[int, str]], bool]:
+    comment_mode: CommentMode,
+) -> tuple[list[tuple[int, str]], CommentMode]:
     """Mask inline code/comments in source order while preserving live control markers."""
     if not block:
-        return [], in_html_comment
+        return [], comment_mode
 
-    source = "\\n".join(line for _line_number, line in block)
+    if comment_mode == "inline":
+        comment_mode = "none"
+
+    source = "\n".join(line for _line_number, line in block)
     masked = list(source)
     runs, next_same = _backtick_runs(source)
     run_at = {start: index for index, (start, _end, _width) in enumerate(runs)}
     cursor = 0
 
+    def mask_range(start: int, end: int) -> None:
+        for position in range(start, end):
+            if masked[position] != "\n":
+                masked[position] = " "
+
     while cursor < len(source):
-        if in_html_comment:
+        if comment_mode != "none":
             end = source.find("-->", cursor)
             if end < 0:
-                for position in range(cursor, len(source)):
-                    if masked[position] != "\\n":
-                        masked[position] = " "
+                mask_range(cursor, len(source))
                 cursor = len(source)
                 break
-            for position in range(cursor, end + 3):
-                if masked[position] != "\\n":
-                    masked[position] = " "
+            mask_range(cursor, end + 3)
             cursor = end + 3
-            in_html_comment = False
+            comment_mode = "none"
             continue
 
         run_index = run_at.get(cursor)
@@ -423,17 +497,15 @@ def _mask_routing_inline_block(
             closing_index = next_same[run_index]
             if closing_index is not None:
                 end = runs[closing_index][1]
-                for position in range(cursor, end):
-                    if masked[position] != "\\n":
-                        masked[position] = " "
+                mask_range(cursor, end)
                 cursor = end
                 continue
             cursor = runs[run_index][1]
             continue
 
         if source.startswith("<!--", cursor):
-            line_start = source.rfind("\\n", 0, cursor) + 1
-            line_end = source.find("\\n", cursor)
+            line_start = source.rfind("\n", 0, cursor) + 1
+            line_end = source.find("\n", cursor)
             if line_end < 0:
                 line_end = len(source)
             line_text = source[line_start:line_end]
@@ -447,45 +519,44 @@ def _mask_routing_inline_block(
 
             end = source.find("-->", cursor + 4)
             if end < 0:
-                for position in range(cursor, len(source)):
-                    if masked[position] != "\\n":
-                        masked[position] = " "
-                in_html_comment = True
+                comment_mode = "block" if not source[line_start:cursor].strip() else "inline"
+                mask_range(cursor, len(source))
                 cursor = len(source)
                 break
-            for position in range(cursor, end + 3):
-                if masked[position] != "\\n":
-                    masked[position] = " "
+            mask_range(cursor, end + 3)
             cursor = end + 3
             continue
 
         cursor += 1
 
-    values = "".join(masked).split("\\n")
+    values = "".join(masked).split("\n")
+    if len(values) != len(block):
+        raise AssertionError("routing inline masking must preserve source line boundaries")
     return (
         [(line_number, values[index]) for index, (line_number, _line) in enumerate(block)],
-        in_html_comment,
+        comment_mode,
     )
 
 
 def _routing_active_lines(lines: Sequence[tuple[int, str]]) -> list[tuple[int, str]]:
-    """Return routing evidence outside code, raw HTML code blocks, and ordinary comments."""
+    """Return routing evidence outside code, raw HTML blocks, and ordinary comments."""
     active: list[tuple[int, str]] = []
-    in_html_comment = False
-    normalized = _exclude_raw_html_code_blocks(_routing_container_lines(lines))
+    comment_mode: CommentMode = "none"
+    normalized = _exclude_raw_html_blocks(_routing_container_lines(lines))
 
     for block in _routing_inline_blocks(normalized):
-        masked_block, in_html_comment = _mask_routing_inline_block(
+        masked_block, comment_mode = _mask_routing_inline_block(
             block,
-            in_html_comment=in_html_comment,
+            comment_mode=comment_mode,
         )
         for line_number, line in masked_block:
             if line.strip():
                 active.append((line_number, line))
-            elif not in_html_comment and not block[0][1].strip():
+            elif comment_mode == "none" and not block[0][1].strip():
                 active.append((line_number, ""))
 
     return active
+
 
 def _conditional_owner_markers(
     root: Path,
