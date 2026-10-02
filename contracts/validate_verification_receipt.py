@@ -19,6 +19,8 @@ CONTRACTS = Path(__file__).resolve().parent
 DEFAULT_SCHEMA = CONTRACTS / "verification-receipt.schema.json"
 MAX_RECEIPT_BYTES = 2 * 1024 * 1024
 READ_CHUNK_BYTES = 64 * 1024
+GOVERNED_CORPUS_PROFILE = "governed-validation-corpus"
+LEGACY_CORPUS_PROFILE = "legacy-test-files"
 
 
 class VerificationReceiptError(ValueError):
@@ -167,43 +169,52 @@ def validate_receipt_semantics(
         "missing_required_subjects",
     )
     present_generic = [field for field in generic_fields if field in corpus]
+    accounting_profile = corpus.get("accounting_profile")
+    governed_corpus = accounting_profile == GOVERNED_CORPUS_PROFILE
     missing_required_subjects: list[str] = []
-    if present_generic:
+    if governed_corpus:
         missing_generic = [field for field in generic_fields if field not in corpus]
         if missing_generic:
             findings.append(
-                "test_corpus generic validation-corpus fields must be supplied together: " + ", ".join(missing_generic)
+                "governed validation-corpus receipts require subject accounting fields: "
+                + ", ".join(missing_generic)
             )
+    elif accounting_profile in {None, LEGACY_CORPUS_PROFILE} and present_generic:
+        findings.append(
+            "generic validation-corpus fields require test_corpus.accounting_profile="
+            f"{GOVERNED_CORPUS_PROFILE!r}"
+        )
+
+    if governed_corpus and all(field in corpus for field in generic_fields):
+        try:
+            expected_subjects = _non_negative_int(corpus.get("expected_subjects"), "test_corpus.expected_subjects")
+            discovered_subjects = _non_negative_int(
+                corpus.get("discovered_subjects"), "test_corpus.discovered_subjects"
+            )
+            exercised_subjects = _non_negative_int(
+                corpus.get("exercised_subjects"), "test_corpus.exercised_subjects"
+            )
+        except VerificationReceiptError as error:
+            findings.append(str(error))
         else:
-            try:
-                expected_subjects = _non_negative_int(corpus.get("expected_subjects"), "test_corpus.expected_subjects")
-                discovered_subjects = _non_negative_int(
-                    corpus.get("discovered_subjects"), "test_corpus.discovered_subjects"
-                )
-                exercised_subjects = _non_negative_int(
-                    corpus.get("exercised_subjects"), "test_corpus.exercised_subjects"
-                )
-            except VerificationReceiptError as error:
-                findings.append(str(error))
+            raw_missing = corpus.get("missing_required_subjects")
+            if not isinstance(raw_missing, Sequence) or isinstance(raw_missing, (str, bytes, bytearray)):
+                findings.append("test_corpus.missing_required_subjects must be an array")
+            elif not all(isinstance(item, str) and item for item in raw_missing):
+                findings.append("test_corpus.missing_required_subjects entries must be non-empty strings")
+            elif len(set(raw_missing)) != len(raw_missing):
+                findings.append("test_corpus.missing_required_subjects must be unique")
             else:
-                raw_missing = corpus.get("missing_required_subjects")
-                if not isinstance(raw_missing, Sequence) or isinstance(raw_missing, (str, bytes, bytearray)):
-                    findings.append("test_corpus.missing_required_subjects must be an array")
-                elif not all(isinstance(item, str) and item for item in raw_missing):
-                    findings.append("test_corpus.missing_required_subjects entries must be non-empty strings")
-                elif len(set(raw_missing)) != len(raw_missing):
-                    findings.append("test_corpus.missing_required_subjects must be unique")
-                else:
-                    missing_required_subjects = list(raw_missing)
-                    if discovered_subjects != discovered:
-                        findings.append("test_corpus.discovered_subjects must equal discovered_files")
-                    if exercised_subjects != executed:
-                        findings.append("test_corpus.exercised_subjects must equal executed_files")
-                    if expected_subjects != discovered_subjects + len(missing_required_subjects):
-                        findings.append(
-                            "test_corpus.expected_subjects must equal discovered_subjects plus "
-                            "missing_required_subjects"
-                        )
+                missing_required_subjects = list(raw_missing)
+                if discovered_subjects != discovered:
+                    findings.append("test_corpus.discovered_subjects must equal discovered_files")
+                if exercised_subjects != executed:
+                    findings.append("test_corpus.exercised_subjects must equal executed_files")
+                if expected_subjects != discovered_subjects + len(missing_required_subjects):
+                    findings.append(
+                        "test_corpus.expected_subjects must equal discovered_subjects plus "
+                        "missing_required_subjects"
+                    )
 
     if receipt.get("verdict") == "pass":
         if accounted != discovered:

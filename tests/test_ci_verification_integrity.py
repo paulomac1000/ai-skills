@@ -366,6 +366,7 @@ def test_required_validation_subject_aliases_collapse_to_one_canonical_identity(
 def _verification_receipt_with_generic_corpus(**corpus_overrides: object) -> dict[str, object]:
     corpus: dict[str, object] = {
         "policy_revision": "fixture",
+        "accounting_profile": "governed-validation-corpus",
         "discovered_files": 1,
         "executed_files": 1,
         "excluded_files": [],
@@ -420,7 +421,10 @@ def test_verification_receipt_rejects_partial_or_inconsistent_generic_corpus_fie
     assert isinstance(partial_corpus, dict)
     partial_corpus.pop("exercised_subjects")
     partial_findings = receipt_validator.validate_receipt_semantics(partial)
-    assert any("generic validation-corpus fields must be supplied together" in item for item in partial_findings)
+    assert any(
+        "governed validation-corpus receipts require subject accounting fields" in item
+        for item in partial_findings
+    )
 
     inconsistent = _verification_receipt_with_generic_corpus(discovered_subjects=0)
     inconsistent_findings = receipt_validator.validate_receipt_semantics(inconsistent)
@@ -480,3 +484,53 @@ def test_required_validation_subject_rejects_symlink_traversal(tmp_path: Path) -
             },
             observed_executed=set(),
         )
+
+
+def test_verification_receipt_governed_profile_cannot_omit_all_subject_accounting() -> None:
+    receipt = _verification_receipt_with_generic_corpus()
+    corpus = receipt["test_corpus"]
+    assert isinstance(corpus, dict)
+    for field in (
+        "expected_subjects",
+        "discovered_subjects",
+        "exercised_subjects",
+        "missing_required_subjects",
+    ):
+        corpus.pop(field)
+    findings = receipt_validator.validate_receipt(receipt)
+    assert any(
+        "governed validation-corpus receipts require subject accounting fields" in finding
+        or "is a required property" in finding
+        for finding in findings
+    )
+
+
+def test_verification_receipt_explicit_legacy_profile_preserves_old_file_accounting() -> None:
+    receipt = _verification_receipt_with_generic_corpus()
+    corpus = receipt["test_corpus"]
+    assert isinstance(corpus, dict)
+    corpus["accounting_profile"] = "legacy-test-files"
+    for field in (
+        "expected_subjects",
+        "discovered_subjects",
+        "exercised_subjects",
+        "missing_required_subjects",
+    ):
+        corpus.pop(field)
+    assert receipt_validator.validate_receipt(receipt) == []
+
+
+def test_corpus_checker_marks_new_results_as_governed_validation_corpus(tmp_path: Path) -> None:
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "a.py").write_text("", encoding="utf-8")
+    result = test_corpus.evaluate(
+        tmp_path,
+        {
+            "schema_version": 1,
+            "policy_revision": "fixture",
+            "mode": "automatic",
+            "include": ["tests/*.py"],
+        },
+        observed_executed={"tests/a.py"},
+    )
+    assert result["accounting_profile"] == "governed-validation-corpus"

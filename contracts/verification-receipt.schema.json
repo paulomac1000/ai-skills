@@ -223,6 +223,13 @@
             "maxLength": 2048
           },
           "uniqueItems": true
+        },
+        "accounting_profile": {
+          "description": "Explicit validation-corpus accounting semantics. Omitted only for backward-compatible legacy schema_version 1 receipts.",
+          "enum": [
+            "legacy-test-files",
+            "governed-validation-corpus"
+          ]
         }
       },
       "description": "Backward-compatible verification-corpus envelope. Test files are one specialization; generic subject counts represent policy-governed validation inputs."
@@ -472,6 +479,37 @@
                 "const": 0
               }
             }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "test_corpus": {
+            "properties": {
+              "accounting_profile": {
+                "const": "governed-validation-corpus"
+              }
+            },
+            "required": [
+              "accounting_profile"
+            ]
+          }
+        },
+        "required": [
+          "test_corpus"
+        ]
+      },
+      "then": {
+        "properties": {
+          "test_corpus": {
+            "required": [
+              "expected_subjects",
+              "discovered_subjects",
+              "exercised_subjects",
+              "missing_required_subjects"
+            ]
           }
         }
       }

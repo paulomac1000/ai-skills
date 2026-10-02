@@ -45,10 +45,23 @@ _PROTECTED_PUBLISHER_FORBIDDEN_RUNS: tuple[tuple[re.Pattern[str], str], ...] = (
         re.compile(r"\bgit\s+(?:clone|checkout|switch|worktree\s+add)\b", re.IGNORECASE),
         "check out or materialize repository source",
     ),
-    (re.compile(r"\bdocker\s+(?:image\s+)?load\b", re.IGNORECASE), "load a candidate image"),
-    (re.compile(r"\bdocker\s+import\b", re.IGNORECASE), "import a candidate image"),
-    (re.compile(r"\bdocker\s+(?:build|buildx\s+build)\b", re.IGNORECASE), "build a candidate image"),
-    (re.compile(r"\bdocker\s+run\b", re.IGNORECASE), "execute a candidate image"),
+    (re.compile(r"\b(?:docker|podman)\s+(?:image\s+)?load\b", re.IGNORECASE), "load a candidate image"),
+    (re.compile(r"\b(?:docker|podman)\s+import\b", re.IGNORECASE), "import a candidate image"),
+    (
+        re.compile(r"\b(?:docker\s+(?:build|buildx\s+build)|podman\s+build)\b", re.IGNORECASE),
+        "build a candidate image",
+    ),
+    (
+        re.compile(r"\b(?:docker|podman)\s+(?:run|exec|start)\b", re.IGNORECASE),
+        "execute a candidate image",
+    ),
+    (
+        re.compile(
+            r"\b(?:docker|podman)(?:\s+compose|-compose)\s+(?:build|run|up|exec|start)\b",
+            re.IGNORECASE,
+        ),
+        "build or execute candidate containers through Compose",
+    ),
     (re.compile(r"\bpython(?:\d+(?:\.\d+)*)?\s+-m\s+build\b", re.IGNORECASE), "build a candidate package"),
     (re.compile(r"\b(?:pip|pip3)\s+wheel\b", re.IGNORECASE), "build a candidate package"),
     (re.compile(r"\b(?:npm|pnpm|yarn)\s+(?:run\s+)?(?:build|pack)\b", re.IGNORECASE), "build a candidate package"),

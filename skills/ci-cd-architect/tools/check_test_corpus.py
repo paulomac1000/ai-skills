@@ -211,6 +211,7 @@ def evaluate(
         "schema_version": 1,
         "policy_revision": revision,
         "mode": mode,
+        "accounting_profile": "governed-validation-corpus",
         "expected_subjects": len(discovered | missing_required_subjects),
         "discovered_subjects": len(discovered),
         "exercised_subjects": executed_count,
