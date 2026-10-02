@@ -261,18 +261,22 @@ def _conditional_owner_markers(
 ) -> tuple[dict[str, int], set[str], list[AuditFinding]]:
     candidates = sorted(relative for relative in discovery.files if Path(relative).suffix.casefold() == ".md")
     if len(candidates) > PROGRESSIVE_OWNER_SCAN_LIMIT:
-        return {}, set(), [
-            AuditFinding(
-                root.as_posix(),
-                "error",
-                "routing.conditional-owner-scan-budget",
-                1,
-                (
-                    f"Conditional-owner scan has {len(candidates)} Markdown files, above the "
-                    f"{PROGRESSIVE_OWNER_SCAN_LIMIT} file proof budget."
-                ),
-            )
-        ]
+        return (
+            {},
+            set(),
+            [
+                AuditFinding(
+                    root.as_posix(),
+                    "error",
+                    "routing.conditional-owner-scan-budget",
+                    1,
+                    (
+                        f"Conditional-owner scan has {len(candidates)} Markdown files, above the "
+                        f"{PROGRESSIVE_OWNER_SCAN_LIMIT} file proof budget."
+                    ),
+                )
+            ],
+        )
 
     owners: dict[str, int] = {}
     unreadable: set[str] = set()
