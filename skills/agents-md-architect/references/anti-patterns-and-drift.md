@@ -28,15 +28,15 @@ The file lists paths without explaining when to read them or what they own. Each
 
 ## Circular or dead progressive routes
 
-A conditional procedure contains its own only trigger, or extraction removes the last always-visible route. The destination cannot bootstrap itself. Keep one canonical trigger owner on a surface observable before the first governed action and use the mechanical route/conditional-owner pair when orphan detection matters.
+The destination owns its only trigger or extraction removes the last pre-load route. Keep one trigger owner visible before the governed action.
 
 ## Duplicate trigger registries
 
-Two editable route tables describe the same conditional owner and can drift. Keep one canonical trigger owner; generate any complete index from canonical declarations instead of maintaining another table by hand.
+Two editable indexes can drift. Keep one canonical trigger owner; a complete catalog must be derived/generated.
 
 ## Speculative invocation archaeology
 
-An agent guesses launcher flags, module names, or test paths and learns the interface by repeated failures even though a canonical manifest, task runner, `--help`, catalog, or test inventory exists. Discover the supported invocation from its nearest canonical owner before executing it; missing/ambiguous ownership is a readiness finding, not a guessing loop.
+Do not learn launch syntax through repeated failures when canonical metadata, a task runner, bounded `--help`, catalog, or test inventory exists. Discover before invoke; ambiguity is a readiness finding.
 
 ## Fossilized initialization
 

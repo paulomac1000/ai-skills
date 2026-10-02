@@ -1,6 +1,6 @@
 # Changelog
 
-## 3.2.0 - Unreleased
+## 3.3.0 - Unreleased
 
 ### Added
 
@@ -15,7 +15,7 @@
 - Strengthened protected-release workflow auditing so authority-bearing publisher jobs reject candidate checkout/materialization, rebuild/package, image load/import, candidate execution, shell-continuation bypasses, known build actions, and opaque reusable-workflow delegation while preserving registry-native exact-digest promotion.
 - Made skill descriptions an explicit pre-load routing contract, kept development evidence such as eval corpora, benchmark reports, and changelogs outside published runtime skill packages, and separated deterministic corpus validation from provenance-bound model observations.
 - Allowed skills without executable helpers to declare an empty `dependencies.tools` list while keeping tool-bearing skills inside the existing quality, typing, security, and coverage gates.
-- Synchronized all bundled stable skill version mirrors to `3.2.0` for this combined unreleased boundary.
+- Synchronized all bundled stable skill version mirrors to `3.3.0` for this combined unreleased boundary.
 
 ### Security and correctness
 

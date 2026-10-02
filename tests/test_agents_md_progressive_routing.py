@@ -152,22 +152,18 @@ def test_route_target_must_opt_in_as_conditional_owner(tmp_path: Path) -> None:
 def test_extraction_shrinks_always_loaded_surface_without_duplicate_procedure(tmp_path: Path) -> None:
     _write_base(tmp_path)
     path = tmp_path / "AGENTS.md"
-    original = path.read_text(encoding="utf-8") + (
-        "\n## Database migration procedure\n\n"
-        "Before every migration, inspect compatibility, create rollback SQL, stage the schema, "
-        "run migration tests, verify rollback, and record the release evidence.\n"
-    )
-    path.write_text(original, encoding="utf-8")
-
     procedure = (
-        "Inspect compatibility, create rollback SQL, stage the schema, run migration tests, "
-        "verify rollback, and record the release evidence."
+        "Before every migration, inspect backward and forward compatibility for each affected consumer; "
+        "capture the pre-change schema; create and review rollback SQL; stage the candidate schema in an isolated "
+        "environment; run migration, compatibility, and rollback tests; verify that application code tolerates the "
+        "required rollout order; document irreversible operations and recovery ownership; bind the migration result "
+        "to the candidate revision; and record the evidence required by the release gate."
     )
+    original = path.read_text(encoding="utf-8") + "\n## Database migration procedure\n\n" + procedure + "\n"
+    path.write_text(original, encoding="utf-8")
     _write_conditional_owner(tmp_path, "docs/migrations.md", procedure + "\n")
     compact = path.read_text(encoding="utf-8").replace(
-        "\n## Database migration procedure\n\n"
-        "Before every migration, inspect compatibility, create rollback SQL, stage the schema, "
-        "run migration tests, verify rollback, and record the release evidence.\n",
+        "\n## Database migration procedure\n\n" + procedure + "\n",
         (
             "\n## Database migration routing\n\n"
             '<!-- agents-md: route owner="docs/migrations.md" when="before changing database schema" '

@@ -99,7 +99,21 @@ profiles:
     - repository-junit.xml
     execution_id: repository
   - kind: rule
+    subject: agents.commands.discover-before-invoke
+    selectors:
+    - '*test_agents_md*'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
     subject: agents.context.routed
+    selectors:
+    - '*test_agents_md*'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: agents.context.trigger-safe
     selectors:
     - '*test_agents_md*'
     result_files:

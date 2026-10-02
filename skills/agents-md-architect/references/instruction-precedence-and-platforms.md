@@ -18,9 +18,7 @@ Repository instructions remain behavioral context rather than a hard security bo
 
 ## Trigger ownership under progressive loading
 
-A trigger may live in skill metadata only when the selected product surface demonstrably exposes that compact metadata before the skill or reference must be loaded. Otherwise the trigger stays in an always-loaded `AGENTS.md`, verified platform adapter, or another surface proven visible before the first governed action. Never infer pre-load visibility from the fact that a platform can eventually open the destination.
-
-The repository auditor can prove only the declared `AGENTS.md` marker graph. Product-specific skill metadata, adapter loading, and mid-task transition behavior require platform/provider evidence on the exact surface. If that evidence is unavailable, keep the route on the always-loaded repository surface and report the loading assumption as unresolved rather than moving the only trigger behind it.
+Skill metadata may own a trigger only when the exact product surface is evidenced to expose it before conditional loading. Otherwise keep the trigger in always-loaded `AGENTS.md` or a verified pre-load adapter. Static audit proves only the repository marker graph; product loading and mid-task timing remain provider/platform evidence.
 
 ## OpenAI Codex
 

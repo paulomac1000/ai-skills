@@ -294,9 +294,7 @@ def _progressive_routing_findings(
         for line_number, line in document.visible_lines:
             attributes, error = _parse_progressive_route_marker(line)
             if error is not None:
-                findings.append(
-                    AuditFinding(relative, "error", "routing.route-marker-invalid", line_number, error)
-                )
+                findings.append(AuditFinding(relative, "error", "routing.route-marker-invalid", line_number, error))
                 continue
             if attributes is None:
                 continue
