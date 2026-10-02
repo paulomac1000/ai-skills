@@ -162,7 +162,6 @@ def _resolve_progressive_target(
     line: int,
     kind: Literal["route-owner", "invocation-owner"],
 ) -> tuple[str | None, list[AuditFinding]]:
-    source = root / source_relative
     code_prefix = "routing.route-owner" if kind == "route-owner" else "routing.invocation-owner"
     label = "Conditional route owner" if kind == "route-owner" else "Canonical invocation owner"
     if Path(target).is_absolute() or PureWindowsPath(target).is_absolute():
