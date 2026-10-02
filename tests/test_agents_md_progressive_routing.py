@@ -952,3 +952,48 @@ def test_unclosed_block_comment_resets_when_outer_container_ends(
 
     _, findings = audit_module.audit(tmp_path, "application", "single", "en")
     assert not any(finding.code.startswith("routing.") for finding in findings)
+
+
+def test_minimal_ordinary_document_does_not_crash_routing_audit(tmp_path: Path) -> None:
+    _write_base(tmp_path)
+    _append(
+        tmp_path,
+        """
+## Notes
+
+Ordinary repository prose without conditional routes.
+""",
+    )
+
+    _, findings = audit_module.audit(tmp_path, "application", "single", "en")
+    assert isinstance(findings, list)
+
+
+def test_long_invalid_custom_html_is_bounded_and_not_a_route(tmp_path: Path) -> None:
+    _write_base(tmp_path)
+    _append(
+        tmp_path,
+        "\n## HTML notes\n\n<custom" + (" " * 4096) + "< invalid>\n",
+    )
+
+    _, findings = audit_module.audit(tmp_path, "application", "single", "en")
+    assert isinstance(findings, list)
+
+
+def test_route_marker_inside_unclosed_inline_comment_is_not_live(tmp_path: Path) -> None:
+    _write_base(tmp_path)
+    _write_conditional_owner(tmp_path, "docs/recovery.md")
+    _append(
+        tmp_path,
+        """
+## Notes
+
+Paragraph text <!-- unfinished inline comment
+<!-- agents-md: route owner="docs/recovery.md" when="after failure" purpose="recovery" -->
+still commented -->
+- After failure, read [the recovery owner](docs/recovery.md).
+""",
+    )
+
+    _, findings = audit_module.audit(tmp_path, "application", "single", "en")
+    assert "routing.trigger-unreachable" in _codes(findings)

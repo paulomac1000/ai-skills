@@ -296,32 +296,83 @@ class RawHtmlState:
     ends_on_blank: bool = False
 
 
-RAW_HTML_TYPE1_START = re.compile(
-    r"^[ \\t]{0,3}<(?P<tag>script|pre|style|textarea)(?=[\\t\\n\\f />])",
-    re.I,
+HTML_BLOCK_TAGS = frozenset(
+    {
+        "address",
+        "article",
+        "aside",
+        "base",
+        "basefont",
+        "blockquote",
+        "body",
+        "caption",
+        "center",
+        "col",
+        "colgroup",
+        "dd",
+        "details",
+        "dialog",
+        "dir",
+        "div",
+        "dl",
+        "dt",
+        "fieldset",
+        "figcaption",
+        "figure",
+        "footer",
+        "form",
+        "frame",
+        "frameset",
+        "h1",
+        "h2",
+        "h3",
+        "h4",
+        "h5",
+        "h6",
+        "head",
+        "header",
+        "hr",
+        "html",
+        "iframe",
+        "legend",
+        "li",
+        "link",
+        "main",
+        "menu",
+        "menuitem",
+        "nav",
+        "noframes",
+        "ol",
+        "optgroup",
+        "option",
+        "p",
+        "param",
+        "search",
+        "section",
+        "summary",
+        "table",
+        "tbody",
+        "td",
+        "tfoot",
+        "th",
+        "thead",
+        "title",
+        "tr",
+        "track",
+        "ul",
+    }
 )
-RAW_HTML_BLOCK_TAG_START = re.compile(
-    r"^[ \\t]{0,3}</?(?:"
-    r"address|article|aside|base|basefont|blockquote|body|caption|center|col|colgroup|dd|details|"
-    r"dialog|dir|div|dl|dt|fieldset|figcaption|figure|footer|form|frame|frameset|h[1-6]|head|"
-    r"header|hr|html|iframe|legend|li|link|main|menu|menuitem|nav|noframes|ol|optgroup|option|"
-    r"p|param|search|section|summary|table|tbody|td|tfoot|th|thead|title|tr|track|ul"
-    r")(?=[\\t\\n\\f />])",
-    re.I,
-)
-RAW_HTML_COMPLETE_TAG = re.compile(
-    r"^[ \\t]{0,3}</?[A-Za-z][A-Za-z0-9-]*(?:[ \\t]+[^<>]*)?[ \\t]*/?>[ \\t]*$"
-)
-ATX_HEADING = re.compile(r"^[ \\t]{0,3}#{1,6}(?:[ \\t]+|$)")
+TYPE1_HTML_TAGS = frozenset({"script", "pre", "style", "textarea"})
+ATX_HEADING = re.compile(r"^[ \t]{0,3}#{1,6}(?:[ \t]+|$)")
 SETEXT_OR_THEMATIC_BOUNDARY = re.compile(
-    r"^[ \\t]{0,3}(?:=+[ \\t]*|-+[ \\t]*|(?:\\*[ \\t]*){3,}|(?:_[ \\t]*){3,})$"
+    r"^[ \t]{0,3}(?:=+[ \t]*|-+[ \t]*|(?:\*[ \t]*){3,}|(?:_[ \t]*){3,})$"
 )
 
 
 def _strip_blockquote_depth(line: str, depth: int) -> str | None:
     value = line
     for _index in range(depth):
-        match = re.match(r"^[ \\t]{0,3}>[ \\t]?", value)
+        match = re.match(r"^[ \t]{0,3}>[ \t]?", value)
         if match is None:
             return None
         value = value[match.end() :]
@@ -344,25 +395,87 @@ def _content_in_container(
     return retained_indents == expected_indents, content, retained_indents
 
 
+def _strip_markdown_indent(line: str) -> str:
+    index = 0
+    while index < len(line) and index < 3 and line[index] == " ":
+        index += 1
+    return line[index:]
+
+
+def _html_tag_prefix(line: str) -> tuple[str, bool, str, int] | None:
+    value = _strip_markdown_indent(line)
+    if not value.startswith("<"):
+        return None
+
+    index = 1
+    closing = index < len(value) and value[index] == "/"
+    if closing:
+        index += 1
+    if index >= len(value) or not value[index].isalpha():
+        return None
+
+    start = index
+    index += 1
+    while index < len(value) and (value[index].isalnum() or value[index] == "-"):
+        index += 1
+    if index < len(value) and value[index] not in " \t/>":
+        return None
+    return value[start:index].casefold(), closing, value, index
+
+
+def _is_complete_html_tag(line: str) -> bool:
+    parsed = _html_tag_prefix(line)
+    if parsed is None:
+        return False
+    _name, closing, value, index = parsed
+
+    if closing:
+        return value[index:].strip() == ">"
+
+    quote: str | None = None
+    while index < len(value):
+        character = value[index]
+        if quote is not None:
+            if character == quote:
+                quote = None
+            index += 1
+            continue
+        if character in {'"', "'"}:
+            quote = character
+            index += 1
+            continue
+        if character == "<":
+            return False
+        if character == ">":
+            return not value[index + 1 :].strip()
+        index += 1
+    return False
+
+
 def _raw_html_state(
     line: str,
     container: tuple[int, tuple[int, ...]],
 ) -> RawHtmlState | None:
-    type1 = RAW_HTML_TYPE1_START.match(line)
-    if type1 is not None:
-        tag = type1.group("tag").casefold()
-        return RawHtmlState(
-            container=container,
-            end_pattern=re.compile(rf"</{re.escape(tag)}[ \\t]*>", re.I),
-        )
-    if re.match(r"^[ \\t]{0,3}<\\?", line) is not None:
-        return RawHtmlState(container=container, end_pattern=re.compile(r"\\?>"))
-    if re.match(r"^[ \\t]{0,3}<!\\[CDATA\\[", line) is not None:
-        return RawHtmlState(container=container, end_pattern=re.compile(r"\\]\\]>"))
-    if re.match(r"^[ \\t]{0,3}<![A-Z]", line) is not None:
+    parsed = _html_tag_prefix(line)
+    if parsed is not None:
+        tag, closing, _value, _index = parsed
+        if not closing and tag in TYPE1_HTML_TAGS:
+            return RawHtmlState(
+                container=container,
+                end_pattern=re.compile(rf"</{re.escape(tag)}[ \t]*>", re.I),
+            )
+        if tag in HTML_BLOCK_TAGS:
+            return RawHtmlState(container=container, ends_on_blank=True)
+        if _is_complete_html_tag(line):
+            return RawHtmlState(container=container, ends_on_blank=True)
+
+    value = _strip_markdown_indent(line)
+    if value.startswith("<?"):
+        return RawHtmlState(container=container, end_pattern=re.compile(r"\?>"))
+    if value.startswith("<![CDATA["):
+        return RawHtmlState(container=container, end_pattern=re.compile(r"\]\]>"))
+    if len(value) >= 3 and value.startswith("<!") and value[2].isupper():
         return RawHtmlState(container=container, end_pattern=re.compile(r">"))
-    if RAW_HTML_BLOCK_TAG_START.match(line) is not None or RAW_HTML_COMPLETE_TAG.fullmatch(line) is not None:
-        return RawHtmlState(container=container, ends_on_blank=True)
     return None
 
 
@@ -476,7 +589,6 @@ def _is_inline_block_boundary(line: RoutingLine) -> bool:
         or not stripped
         or ATX_HEADING.match(line.text) is not None
         or SETEXT_OR_THEMATIC_BOUNDARY.match(line.text) is not None
-        or stripped.startswith("<!--")
     )
 
 
