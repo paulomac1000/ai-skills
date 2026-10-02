@@ -9,7 +9,7 @@ import re
 import sys
 from collections.abc import Iterable, Sequence
 from dataclasses import asdict, dataclass
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from typing import Literal
 
 TOOLS = Path(__file__).resolve().parent
@@ -165,6 +165,16 @@ def _resolve_progressive_target(
     source = root / source_relative
     code_prefix = "routing.route-owner" if kind == "route-owner" else "routing.invocation-owner"
     label = "Conditional route owner" if kind == "route-owner" else "Canonical invocation owner"
+    if Path(target).is_absolute() or PureWindowsPath(target).is_absolute():
+        return None, [
+            AuditFinding(
+                source_relative,
+                "error",
+                f"{code_prefix}-absolute",
+                line,
+                f"{label} must be repository-relative: {target}",
+            )
+        ]
     if target.casefold().startswith(("http://", "https://", "mailto:", "tel:", "data:")):
         return None, [
             AuditFinding(
@@ -173,6 +183,17 @@ def _resolve_progressive_target(
                 f"{code_prefix}-external",
                 line,
                 f"{label} must be a repository-relative regular file: {target}",
+            )
+        ]
+
+    if kind == "route-owner" and Path(target).suffix.casefold() not in {".md", ".markdown"}:
+        return None, [
+            AuditFinding(
+                source_relative,
+                "error",
+                "routing.route-owner-format",
+                line,
+                f"Mechanical conditional owners must be Markdown files: {target}",
             )
         ]
 
@@ -237,10 +258,10 @@ def _resolve_progressive_target(
 def _conditional_owner_markers(
     root: Path,
     discovery: Discovery,
-) -> tuple[dict[str, int], list[AuditFinding]]:
+) -> tuple[dict[str, int], set[str], list[AuditFinding]]:
     candidates = sorted(relative for relative in discovery.files if Path(relative).suffix.casefold() == ".md")
     if len(candidates) > PROGRESSIVE_OWNER_SCAN_LIMIT:
-        return {}, [
+        return {}, set(), [
             AuditFinding(
                 root.as_posix(),
                 "error",
@@ -254,11 +275,22 @@ def _conditional_owner_markers(
         ]
 
     owners: dict[str, int] = {}
+    unreadable: set[str] = set()
     findings: list[AuditFinding] = []
     for relative in candidates:
         try:
             text = _read_text(root, relative, PROGRESSIVE_OWNER_READ_LIMIT)
-        except ValueError:
+        except ValueError as error:
+            unreadable.add(relative)
+            findings.append(
+                AuditFinding(
+                    relative,
+                    "error",
+                    "routing.conditional-owner-unreadable",
+                    1,
+                    f"Conditional-owner evidence could not be read: {error}",
+                )
+            )
             continue
         visible_lines, _unclosed = parse_visible_lines(text)
         marker_lines = [
@@ -278,7 +310,24 @@ def _conditional_owner_markers(
             )
         if marker_lines:
             owners[relative] = marker_lines[0]
-    return owners, findings
+    return owners, unreadable, findings
+
+
+def _has_readable_route_prose(
+    document: ParsedDocument,
+    marker_index: int,
+    owner_target: str,
+) -> bool:
+    for _line_number, candidate in document.visible_lines[marker_index + 1 :]:
+        stripped = candidate.strip()
+        if not stripped:
+            continue
+        if stripped.startswith("#") or PROGRESSIVE_ROUTE_PREFIX.search(stripped) is not None:
+            return False
+        if stripped.startswith("<!--"):
+            continue
+        return owner_target in candidate
+    return False
 
 
 def _progressive_routing_findings(
@@ -291,13 +340,25 @@ def _progressive_routing_findings(
 
     for document in documents:
         relative = document.relative_path
-        for line_number, line in document.visible_lines:
+        for marker_index, (line_number, line) in enumerate(document.visible_lines):
             attributes, error = _parse_progressive_route_marker(line)
             if error is not None:
                 findings.append(AuditFinding(relative, "error", "routing.route-marker-invalid", line_number, error))
                 continue
             if attributes is None:
                 continue
+
+            readable_route = _has_readable_route_prose(document, marker_index, attributes["owner"])
+            if not readable_route:
+                findings.append(
+                    AuditFinding(
+                        relative,
+                        "error",
+                        "routing.route-prose-missing",
+                        line_number,
+                        "Route marker must be followed by readable prose that references its conditional owner.",
+                    )
+                )
 
             owner, owner_findings = _resolve_progressive_target(
                 root,
@@ -317,7 +378,7 @@ def _progressive_routing_findings(
                     kind="invocation-owner",
                 )
                 findings.extend(invocation_findings)
-            if owner is None:
+            if owner is None or not readable_route:
                 continue
             if owner == relative:
                 findings.append(
@@ -340,11 +401,11 @@ def _progressive_routing_findings(
             )
             routes_by_owner.setdefault(owner, []).append(route)
 
-    conditional_owners, owner_findings = _conditional_owner_markers(root, discovery)
+    conditional_owners, unreadable_owners, owner_findings = _conditional_owner_markers(root, discovery)
     findings.extend(owner_findings)
 
     for owner, routes in sorted(routes_by_owner.items()):
-        if owner not in conditional_owners:
+        if owner not in conditional_owners and owner not in unreadable_owners:
             for route in routes:
                 findings.append(
                     AuditFinding(

@@ -66,15 +66,20 @@ Place durable knowledge with the first applicable owner: always-required operati
 
 A conditional trigger must be observable **before the first action governed by the destination**, including after a mid-task transition. A trigger only inside its unopened destination is unreachable. A task that never reaches the condition should not load the procedure. After extraction the **pre-load stub** contains only the trigger/route plus safety needed before loading; it is not a second editable procedure.
 
-For repositories needing deterministic reachability evidence:
+For repositories needing deterministic reachability evidence, the mechanical owner is an exact Markdown file. In the applicable `AGENTS.md`:
 
 ```markdown
 <!-- agents-md: route owner="docs/migrations.md" when="before schema change" purpose="rollback" invoke-owner="Makefile" -->
-<!-- destination -->
+- Before changing schema, read [the migration owner](docs/migrations.md) for rollback requirements.
+```
+
+In `docs/migrations.md`:
+
+```markdown
 <!-- agents-md: conditional-owner -->
 ```
 
-`owner`, `when`, and `purpose` are required; `invoke-owner` optionally identifies the canonical invocation source. A marked destination has exactly one editable route. Generated projections may derive from that source, but a second hand-maintained trigger catalog is non-conforming.
+`owner`, `when`, and `purpose` are required; `invoke-owner` is optional. Owner paths are repository-relative. A marked destination has exactly one editable control marker. Generated projections may copy readable route prose, but MUST NOT copy `agents-md: route`; a copied control marker counts as a duplicate trigger owner.
 
 Static audit proves marker syntax, confinement, uniqueness, and structural reachability. It **does not prove semantic trigger timing** or platform loading; those require behavioral/provider evidence. See `references/profiles-and-routing.md`.
 
@@ -90,7 +95,7 @@ Context budgets are review thresholds:
 | `mcp-server` | 150 | 16,000 |
 | `safety-critical` | 180 | 20,000 |
 
-Use the larger applicable layout/profile threshold. Exceeding it is a warning; strict mode blocks unless one reviewed `agents-md: waive context-budget` marker gives a concrete reason. A waiver never excuses stale or duplicated content.
+Use the larger applicable layout/profile threshold. Exceeding it is a warning; strict mode blocks only with exactly one active waiver using `<!-- agents-md: waive context-budget reason="..." -->`, where the trimmed reason is at least 20 characters. A waiver never excuses stale or duplicated content.
 
 ## Nested instructions
 

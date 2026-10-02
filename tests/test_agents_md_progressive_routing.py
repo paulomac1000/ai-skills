@@ -203,3 +203,112 @@ def test_audit_json_reports_static_routing_proof_boundary(
     output = json.loads(capsys.readouterr().out)
     assert "semantic trigger timing" in output["proof_boundary"]
     assert "platform loading" in output["proof_boundary"]
+
+
+def test_route_and_invocation_owner_reject_absolute_paths(tmp_path: Path) -> None:
+    _write_base(tmp_path)
+    owner = _write_conditional_owner(tmp_path, "docs/migrations.md")
+    absolute_owner = owner.resolve().as_posix()
+    absolute_invocation = (tmp_path / "Makefile").resolve().as_posix()
+    _append(
+        tmp_path,
+        f"""
+## Migration routing
+
+<!-- agents-md: route owner="{absolute_owner}" when="before migration" purpose="migration safety" invoke-owner="{absolute_invocation}" -->
+- Before migration, read [{absolute_owner}]({absolute_owner}) for migration safety.
+""",
+    )
+
+    _, findings = audit_module.audit(tmp_path, "application", "single", "en")
+    assert {"routing.route-owner-absolute", "routing.invocation-owner-absolute"} <= _codes(findings)
+
+
+@pytest.mark.parametrize(
+    "payload",
+    (
+        b"\xff\xfe\x00not-utf8",
+        ("<!-- agents-md: conditional-owner -->\n" + "x" * (256 * 1024)).encode("utf-8"),
+    ),
+)
+def test_unreadable_conditional_owner_fails_closed_without_false_missing_marker(
+    tmp_path: Path,
+    payload: bytes,
+) -> None:
+    _write_base(tmp_path)
+    owner = tmp_path / "docs" / "unreadable.md"
+    owner.write_bytes(payload)
+    _append(
+        tmp_path,
+        """
+## Recovery routing
+
+<!-- agents-md: route owner="docs/unreadable.md" when="after failure" purpose="recovery" -->
+- After failure, read [the recovery owner](docs/unreadable.md) before recovery work.
+""",
+    )
+
+    _, findings = audit_module.audit(tmp_path, "application", "single", "en")
+    assert "routing.conditional-owner-unreadable" in _codes(findings)
+    assert "routing.conditional-owner-marker-missing" not in _codes(findings)
+
+
+def test_route_marker_without_readable_owner_link_is_not_reachable(tmp_path: Path) -> None:
+    _write_base(tmp_path)
+    _write_conditional_owner(tmp_path, "docs/recovery.md")
+    _append(
+        tmp_path,
+        """
+## Recovery routing
+
+<!-- agents-md: route owner="docs/recovery.md" when="after failure" purpose="recovery" -->
+- Recovery work requires the governed procedure.
+""",
+    )
+
+    _, findings = audit_module.audit(tmp_path, "application", "single", "en")
+    assert {"routing.route-prose-missing", "routing.trigger-unreachable"} <= _codes(findings)
+
+
+def test_mechanical_conditional_owner_is_markdown_only(tmp_path: Path) -> None:
+    _write_base(tmp_path)
+    (tmp_path / "docs" / "runbook.rst").write_text(
+        "<!-- agents-md: conditional-owner -->\nRunbook\n=======\n",
+        encoding="utf-8",
+    )
+    _append(
+        tmp_path,
+        """
+## Recovery routing
+
+<!-- agents-md: route owner="docs/runbook.rst" when="after failure" purpose="recovery" -->
+- After failure, read [the runbook](docs/runbook.rst) before recovery work.
+""",
+    )
+
+    _, findings = audit_module.audit(tmp_path, "application", "single", "en")
+    assert "routing.route-owner-format" in _codes(findings)
+
+
+def test_generated_readable_projection_does_not_duplicate_control_marker(tmp_path: Path) -> None:
+    _write_base(tmp_path)
+    _write_conditional_owner(tmp_path, "docs/release.md")
+    _append(
+        tmp_path,
+        """
+## Release routing
+
+<!-- agents-md: route owner="docs/release.md" when="before release" purpose="release safety" -->
+- Before release, read [the release owner](docs/release.md) for release safety.
+""",
+    )
+    generated = tmp_path / "generated"
+    generated.mkdir()
+    (generated / "AGENTS.md").write_text(
+        "# Generated route view\n\n"
+        "This file is derived. Before release, read [the release owner](../docs/release.md).\n",
+        encoding="utf-8",
+    )
+
+    _, findings = audit_module.audit(tmp_path, "application", "monorepo", "en")
+    assert "routing.trigger-owner-duplicate" not in _codes(findings)
