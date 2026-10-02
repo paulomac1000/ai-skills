@@ -378,9 +378,7 @@ def _routing_active_lines(lines: Sequence[tuple[int, str]]) -> list[tuple[int, s
                 cursor = len(line)
                 break
 
-            if CONDITIONAL_OWNER_MARKER.fullmatch(line.strip()) is not None and not "".join(
-                visible_parts
-            ).strip():
+            if CONDITIONAL_OWNER_MARKER.fullmatch(line.strip()) is not None and not "".join(visible_parts).strip():
                 visible_parts.append(line[start:])
                 cursor = len(line)
                 break
