@@ -16,7 +16,9 @@ Use this reference when a gate can be green without proving that the intended wo
 
 A verification verdict is valid only when the intended test corpus was selected, actual selected-test execution is evidenced, selected tests terminated cleanly, verdict-affecting dependencies came from declared repository-owned or immutable sources, the local entrypoint represents every merge-blocking hosted gate or reports it as hosted-only, and validation did not mutate production-effective runtime state. The canonical combined receipt is `contracts/verification-receipt.schema.json`.
 
-## Test corpus
+## Validation corpus
+
+A gate first defines the **policy-governed validation subjects**, then proves discovery/selection/exercise completeness. Test files are the common specialization, but the same rule applies to governed configuration, templates, generated policy inventories, or other validation inputs whose omission could make a green gate meaningless.
 
 Prefer convention-driven automatic discovery. When ordering or another constraint requires an explicit manifest, assert:
 
@@ -26,11 +28,27 @@ discovered by convention
 + reviewed exclusions
 ```
 
-Selection and execution are separate evidence axes. Automatic discovery proves which files should be selected; it does not prove those files actually executed. Post-run execution evidence is therefore required before a corpus result becomes `complete`. Without it, the verdict is `incomplete`, never `pass`.
+When a subject is mandatory even if it disappears from the filesystem, declare its exact repository-relative identity in `required_subjects`. Required subjects are resolved independently of discovery heuristics: an existing required subject joins the corpus even when an include heuristic would miss it, while a deleted required subject is reported in `missing_required_subjects` and makes the corpus non-green. A required subject cannot be converted into an exclusion.
 
-A newly added conforming test that is absent from an explicit selection manifest is `TEST_DISCOVERY_DRIFT`, not an implicit exclusion. Exclusions carry a reason and, where useful, owner and expiry. Stale exclusions are policy drift rather than invisible historical exceptions.
+Equivalent policy:
 
-Use `tools/check_test_corpus.py`; provide `--executed-manifest` from the test-runner/result adapter for authoritative execution evidence.
+```yaml
+schema_version: 1
+policy_revision: governed-source/v1
+mode: automatic
+include:
+  - "**/*.yaml"
+required_subjects:
+  - automations.yaml
+  - scripts.yaml
+exclusions: []
+```
+
+Selection and execution are separate evidence axes. Automatic discovery proves which existing subjects should be selected; it does not prove those subjects actually executed. Post-run execution evidence is therefore required before a corpus result becomes `complete`. Without it, the verdict is `incomplete`, never `pass`.
+
+The gate summary exposes legacy file counts plus generic `expected_subjects`, `discovered_subjects`, `exercised_subjects`, and exact `missing_required_subjects`. A newly added conforming test absent from an explicit selection manifest, a deleted required source, or a governed source dropped only because a semantic heuristic no longer recognizes it is discovery drift rather than an implicit reduction of the corpus. Exclusions carry a reason and, where useful, owner and expiry; stale exclusions remain policy drift.
+
+Use `tools/check_test_corpus.py`; provide `--executed-manifest` from the test-runner/result adapter for authoritative execution evidence. The filename remains stable for compatibility even though the contract now covers the broader validation corpus.
 
 ## Execution integrity
 

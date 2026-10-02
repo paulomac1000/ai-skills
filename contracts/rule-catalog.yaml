@@ -110,7 +110,7 @@ skills:
       description: Local hooks are bounded and consistent with hosted CI.
     - id: cicd.verification.recorded
       source: STANDARD.md#verification
-      description: Rendered workflows and representative release paths are verified.
+      description: Rendered workflows and representative release paths are verified, and policy-defined validation subjects cannot disappear from discovery or execution evidence silently.
   mcp-server-architect:
     rules:
     - id: mcp.architecture.boundaries

@@ -272,3 +272,62 @@ def test_state_snapshot_rejects_symlink_in_protected_tree(tmp_path: Path) -> Non
     (protected / "link").symlink_to(target)
     with pytest.raises(ValueError, match="symlink"):
         isolation.snapshot([protected])
+
+
+def test_required_validation_subject_missing_is_non_green_even_when_discovery_shrinks(tmp_path: Path) -> None:
+    (tmp_path / "scripts.yaml").write_text("script: {}\n", encoding="utf-8")
+    result = test_corpus.evaluate(
+        tmp_path,
+        {
+            "schema_version": 1,
+            "policy_revision": "governed-yaml/v1",
+            "mode": "automatic",
+            "include": ["*.yaml"],
+            "required_subjects": ["automations.yaml", "scripts.yaml"],
+        },
+        observed_executed={"scripts.yaml"},
+    )
+    assert result["expected_subjects"] == 2
+    assert result["discovered_subjects"] == 1
+    assert result["exercised_subjects"] == 1
+    assert result["missing_required_subjects"] == ["automations.yaml"]
+    assert result["discovery_drift"] == 1
+    assert result["verdict"] == "fail"
+
+
+def test_required_validation_subject_is_not_lost_to_semantic_discovery_heuristics(tmp_path: Path) -> None:
+    target = tmp_path / "config" / "templated.yaml"
+    target.parent.mkdir()
+    target.write_text("value: '{{ foo }}'\n", encoding="utf-8")
+    result = test_corpus.evaluate(
+        tmp_path,
+        {
+            "schema_version": 1,
+            "policy_revision": "governed-template/v1",
+            "mode": "automatic",
+            "include": ["tests/*.py"],
+            "required_subjects": ["config/templated.yaml"],
+        },
+        observed_executed={"config/templated.yaml"},
+    )
+    assert result["expected_subjects"] == 1
+    assert result["discovered_subjects"] == 1
+    assert result["missing_required_subjects"] == []
+    assert result["verdict"] == "pass"
+
+
+def test_required_validation_subject_cannot_be_hidden_by_exclusion(tmp_path: Path) -> None:
+    (tmp_path / "automations.yaml").write_text("[]\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="required subject cannot be excluded"):
+        test_corpus.evaluate(
+            tmp_path,
+            {
+                "schema_version": 1,
+                "policy_revision": "governed-yaml/v1",
+                "mode": "automatic",
+                "include": ["*.yaml"],
+                "required_subjects": ["automations.yaml"],
+                "exclusions": [{"path": "automations.yaml", "reason": "would hide governed input"}],
+            },
+            observed_executed=set(),
+        )

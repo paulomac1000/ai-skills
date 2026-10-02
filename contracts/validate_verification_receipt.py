@@ -160,6 +160,61 @@ def validate_receipt_semantics(
     if accounted > discovered:
         findings.append("test_corpus accounts for more files than were discovered")
 
+    generic_fields = (
+        "expected_subjects",
+        "discovered_subjects",
+        "exercised_subjects",
+        "missing_required_subjects",
+    )
+    present_generic = [field for field in generic_fields if field in corpus]
+    missing_required_subjects: list[str] = []
+    if present_generic:
+        missing_generic = [field for field in generic_fields if field not in corpus]
+        if missing_generic:
+            findings.append(
+                "test_corpus generic validation-corpus fields must be supplied together: "
+                + ", ".join(missing_generic)
+            )
+        else:
+            try:
+                expected_subjects = _non_negative_int(
+                    corpus.get("expected_subjects"), "test_corpus.expected_subjects"
+                )
+                discovered_subjects = _non_negative_int(
+                    corpus.get("discovered_subjects"), "test_corpus.discovered_subjects"
+                )
+                exercised_subjects = _non_negative_int(
+                    corpus.get("exercised_subjects"), "test_corpus.exercised_subjects"
+                )
+            except VerificationReceiptError as error:
+                findings.append(str(error))
+            else:
+                raw_missing = corpus.get("missing_required_subjects")
+                if not isinstance(raw_missing, Sequence) or isinstance(
+                    raw_missing, (str, bytes, bytearray)
+                ):
+                    findings.append("test_corpus.missing_required_subjects must be an array")
+                elif not all(isinstance(item, str) and item for item in raw_missing):
+                    findings.append(
+                        "test_corpus.missing_required_subjects entries must be non-empty strings"
+                    )
+                elif len(set(raw_missing)) != len(raw_missing):
+                    findings.append("test_corpus.missing_required_subjects must be unique")
+                else:
+                    missing_required_subjects = list(raw_missing)
+                    if discovered_subjects != discovered:
+                        findings.append(
+                            "test_corpus.discovered_subjects must equal discovered_files"
+                        )
+                    if exercised_subjects != executed:
+                        findings.append(
+                            "test_corpus.exercised_subjects must equal executed_files"
+                        )
+                    if expected_subjects != discovered_subjects + len(missing_required_subjects):
+                        findings.append(
+                            "test_corpus.expected_subjects must equal discovered_subjects plus missing_required_subjects"
+                        )
+
     if receipt.get("verdict") == "pass":
         if accounted != discovered:
             findings.append("pass requires every discovered file to be executed or covered by an active exclusion")
@@ -169,6 +224,8 @@ def validate_receipt_semantics(
             findings.append("pass requires complete test-corpus evidence")
         if corpus.get("discovery_drift") != 0:
             findings.append("pass requires zero test discovery/execution drift")
+        if missing_required_subjects:
+            findings.append("pass requires zero missing required validation subjects")
     return sorted(set(findings))
 
 

@@ -202,8 +202,30 @@
             "unknown",
             "drift"
           ]
+        },
+        "expected_subjects": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "discovered_subjects": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "exercised_subjects": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "missing_required_subjects": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048
+          },
+          "uniqueItems": true
         }
-      }
+      },
+      "description": "Backward-compatible verification-corpus envelope. Test files are one specialization; generic subject counts represent policy-governed validation inputs."
     },
     "execution_integrity": {
       "type": "object",
@@ -376,6 +398,9 @@
               },
               "completeness": {
                 "const": "complete"
+              },
+              "missing_required_subjects": {
+                "maxItems": 0
               }
             }
           },
