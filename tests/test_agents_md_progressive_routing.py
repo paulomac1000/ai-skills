@@ -899,3 +899,56 @@ def test_raw_html_state_resets_when_blockquote_container_ends(tmp_path: Path) ->
 
     _, findings = audit_module.audit(tmp_path, "application", "single", "en")
     assert not any(finding.code.startswith("routing.") for finding in findings)
+
+
+def test_raw_html_block_ignores_list_like_content_until_its_real_terminator(tmp_path: Path) -> None:
+    _write_base(tmp_path)
+    _write_conditional_owner(tmp_path, "docs/recovery.md")
+    _append(
+        tmp_path,
+        """
+## Raw HTML example
+
+<div>
+- list-looking literal content
+<!-- agents-md: route owner="docs/recovery.md" when="after failure" purpose="recovery" -->
+- After failure, read [the recovery owner](docs/recovery.md).
+</div>
+
+""",
+    )
+
+    _, findings = audit_module.audit(tmp_path, "application", "single", "en")
+    assert "routing.trigger-unreachable" in _codes(findings)
+    assert "routing.route-prose-missing" not in _codes(findings)
+
+
+@pytest.mark.parametrize(
+    "comment_open",
+    (
+        "> <!-- unfinished block comment",
+        "- <!-- unfinished block comment",
+    ),
+)
+def test_unclosed_block_comment_resets_when_outer_container_ends(
+    tmp_path: Path,
+    comment_open: str,
+) -> None:
+    _write_base(tmp_path)
+    _write_conditional_owner(tmp_path, "docs/recovery.md")
+    _append(
+        tmp_path,
+        f"""
+## Comment example
+
+{comment_open}
+
+## Recovery routing
+
+<!-- agents-md: route owner="docs/recovery.md" when="after failure" purpose="recovery" -->
+- After failure, read [the recovery owner](docs/recovery.md).
+""",
+    )
+
+    _, findings = audit_module.audit(tmp_path, "application", "single", "en")
+    assert not any(finding.code.startswith("routing.") for finding in findings)
