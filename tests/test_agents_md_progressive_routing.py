@@ -1014,3 +1014,41 @@ def test_nested_route_text_inside_ordinary_comment_is_not_live(tmp_path: Path) -
 
     _, findings = audit_module.audit(tmp_path, "application", "single", "en")
     assert "routing.trigger-unreachable" in _codes(findings)
+
+
+def test_type7_custom_html_cannot_interrupt_active_paragraph(tmp_path: Path) -> None:
+    _write_base(tmp_path)
+    _write_conditional_owner(tmp_path, "docs/recovery.md")
+    _append(
+        tmp_path,
+        """
+## Notes
+
+Paragraph text
+<x-custom>
+<!-- agents-md: route owner="docs/recovery.md" when="after failure" purpose="recovery" -->
+- After failure, read [the recovery owner](docs/recovery.md).
+""",
+    )
+
+    _, findings = audit_module.audit(tmp_path, "application", "single", "en")
+    assert not any(finding.code.startswith("routing.") for finding in findings)
+
+
+def test_type7_custom_html_after_blank_line_remains_raw_html_block(tmp_path: Path) -> None:
+    _write_base(tmp_path)
+    _write_conditional_owner(tmp_path, "docs/recovery.md")
+    _append(
+        tmp_path,
+        """
+## Notes
+
+<x-custom>
+<!-- agents-md: route owner="docs/recovery.md" when="after failure" purpose="recovery" -->
+- After failure, read [the recovery owner](docs/recovery.md).
+
+""",
+    )
+
+    _, findings = audit_module.audit(tmp_path, "application", "single", "en")
+    assert "routing.trigger-unreachable" in _codes(findings)

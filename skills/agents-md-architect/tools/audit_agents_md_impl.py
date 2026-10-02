@@ -455,6 +455,8 @@ def _is_complete_html_tag(line: str) -> bool:
 def _raw_html_state(
     line: str,
     container: tuple[int, tuple[int, ...]],
+    *,
+    paragraph_active: bool,
 ) -> RawHtmlState | None:
     parsed = _html_tag_prefix(line)
     if parsed is not None:
@@ -466,7 +468,7 @@ def _raw_html_state(
             )
         if tag in HTML_BLOCK_TAGS:
             return RawHtmlState(container=container, ends_on_blank=True)
-        if _is_complete_html_tag(line):
+        if not paragraph_active and _is_complete_html_tag(line):
             return RawHtmlState(container=container, ends_on_blank=True)
 
     value = _strip_markdown_indent(line)
@@ -496,6 +498,7 @@ def _routing_block_lines(text: str) -> list[RoutingLine]:
     fence: FenceState | None = None
     raw_html: RawHtmlState | None = None
     block_comment_container: tuple[int, tuple[int, ...]] | None = None
+    paragraph_active = False
 
     for line_number, source_line in enumerate(text.splitlines(), start=1):
         # Opaque blocks freeze their outer container. Content inside them must not be
@@ -548,6 +551,13 @@ def _routing_block_lines(text: str) -> list[RoutingLine]:
         container = (quote_depth, list_indents)
         boundary_before = previous_container is not None and container != previous_container
         previous_container = container
+        if boundary_before:
+            paragraph_active = False
+
+        if not content.strip():
+            paragraph_active = False
+            normalized.append(RoutingLine(line_number, "", container, boundary_before))
+            continue
 
         opener = FENCE_OPENER.fullmatch(content)
         if opener is not None:
@@ -555,29 +565,38 @@ def _routing_block_lines(text: str) -> list[RoutingLine]:
             info = opener.group("info")
             if marker[0] != "`" or "`" not in info:
                 fence = FenceState(marker[0], len(marker), container)
+                paragraph_active = False
                 normalized.append(RoutingLine(line_number, "", container, boundary_before))
                 continue
 
         if _is_indented_code_line(content):
+            paragraph_active = False
             normalized.append(RoutingLine(line_number, "", container, boundary_before))
             continue
 
-        raw_state = _raw_html_state(content, container)
+        raw_state = _raw_html_state(content, container, paragraph_active=paragraph_active)
         if raw_state is not None:
             raw_html = raw_state
             if raw_state.end_pattern is not None and raw_state.end_pattern.search(content) is not None:
                 raw_html = None
+            paragraph_active = False
             normalized.append(RoutingLine(line_number, "", container, boundary_before))
             continue
 
         stripped = content.strip()
         if stripped.startswith("<!--") and not _is_live_control_comment(content):
+            paragraph_active = False
             normalized.append(RoutingLine(line_number, "", container, boundary_before))
             if "-->" not in content:
                 block_comment_container = container
             continue
 
         normalized.append(RoutingLine(line_number, content, container, boundary_before))
+        paragraph_active = not (
+            _is_live_control_comment(content)
+            or ATX_HEADING.match(content) is not None
+            or SETEXT_OR_THEMATIC_BOUNDARY.match(content) is not None
+        )
 
     return normalized
 
