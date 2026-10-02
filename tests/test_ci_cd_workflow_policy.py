@@ -212,6 +212,7 @@ def _protected_release_workflow(
     publish_steps: str,
     *,
     validation_steps: str = "",
+    publish_job_extra: str = "",
 ) -> str:
     return f"""
 # ai-skills-policy-profile: protected-release
@@ -233,7 +234,7 @@ jobs:
     needs: validate
     environment: production
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+{publish_job_extra}    timeout-minutes: 10
     permissions:
       contents: read
       packages: write
@@ -265,6 +266,8 @@ def test_protected_release_allows_candidate_load_only_in_unprivileged_validation
         ("docker build -t candidate .", "build a candidate image"),
         ("docker buildx build --load -t candidate .", "build a candidate image"),
         ("docker run --rm candidate:tested", "execute a candidate image"),
+        ("docker container run --rm candidate:tested", "execute a candidate image"),
+        ("docker buildx bake release", "build a candidate image"),
         ("podman load --input bundle/release/image.tar", "load a candidate image"),
         ("podman run --rm candidate:tested", "execute a candidate image"),
         ("docker compose build app", "build or execute candidate containers through Compose"),
@@ -412,3 +415,37 @@ jobs:
         "protected publisher must not delegate publication authority to a reusable workflow" in message
         for message in _messages(workflow)
     )
+
+
+def test_protected_release_rejects_docker_container_action_in_write_job(tmp_path: Path) -> None:
+    workflow = tmp_path / "publish.yml"
+    workflow.write_text(
+        _protected_release_workflow(
+            "      - uses: docker://ghcr.io/acme/candidate@sha256:" + "a" * 64
+        ),
+        encoding="utf-8",
+    )
+    assert any("must not execute a Docker container action" in message for message in _messages(workflow))
+
+
+def test_protected_release_rejects_job_container_in_write_job(tmp_path: Path) -> None:
+    workflow = tmp_path / "publish.yml"
+    workflow.write_text(
+        _protected_release_workflow(
+            "      - run: docker buildx imagetools inspect ghcr.io/acme/app@sha256:" + "a" * 64,
+            publish_job_extra="    container: ghcr.io/acme/candidate@sha256:" + "b" * 64 + "\n",
+        ),
+        encoding="utf-8",
+    )
+    assert any("must not execute inside a job container" in message for message in _messages(workflow))
+
+
+def test_protected_release_rejects_compose_with_options_before_command(tmp_path: Path) -> None:
+    workflow = tmp_path / "publish.yml"
+    workflow.write_text(
+        _protected_release_workflow(
+            "      - run: docker compose -f release.compose.yml --profile prod build app"
+        ),
+        encoding="utf-8",
+    )
+    assert any("through Compose" in message for message in _messages(workflow))

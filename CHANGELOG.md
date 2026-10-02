@@ -2,19 +2,6 @@
 
 ## 3.2.0 - Unreleased
 
-### Changed
-
-- Generalized CI verification-corpus completeness beyond test-file discovery: policies can declare exact required governed subjects that remain expected when deleted or missed by discovery heuristics, with an explicit governed accounting profile and expected/discovered/exercised/missing evidence kept complete.
-- Strengthened protected-release workflow auditing so authority-bearing publisher jobs reject candidate checkout/materialization, rebuild/package, image load/import, candidate execution, shell-continuation bypasses, known build actions, and opaque reusable-workflow delegation while preserving registry-native exact-digest promotion.
-
-### Security and correctness
-
-- Protected publication validation now mechanically catches high-signal candidate execution/materialization commands before a privileged publisher can use release authority.
-- Required validation subjects cannot disappear from a green gate merely because the current filesystem or a semantic discovery heuristic stopped returning them.
-
-
-## 3.1.0 - Unreleased
-
 ### Added
 
 - Added `skill-architect` as the canonical owner of reusable Agent Skill admission, routing, progressive disclosure, resource selection, portability, behavioral evaluation, migration, and deprecation.
@@ -22,10 +9,16 @@
 
 ### Changed
 
-
+- Generalized CI verification-corpus completeness beyond test-file discovery: policies can declare exact required governed subjects that remain expected when deleted or missed by discovery heuristics, with an explicit governed accounting profile and expected/discovered/exercised/missing evidence kept complete.
+- Strengthened protected-release workflow auditing so authority-bearing publisher jobs reject candidate checkout/materialization, rebuild/package, image load/import, candidate execution, shell-continuation bypasses, known build actions, and opaque reusable-workflow delegation while preserving registry-native exact-digest promotion.
 - Made skill descriptions an explicit pre-load routing contract, kept development evidence such as eval corpora, benchmark reports, and changelogs outside published runtime skill packages, and separated deterministic corpus validation from provenance-bound model observations.
 - Allowed skills without executable helpers to declare an empty `dependencies.tools` list while keeping tool-bearing skills inside the existing quality, typing, security, and coverage gates.
-- Synchronized all bundled stable skill version mirrors to `3.1.0` because the release adds a public skill and changes shared repository contracts.
+- Synchronized all bundled stable skill version mirrors to `3.2.0` for this combined unreleased boundary.
+
+### Security and correctness
+
+- Protected publication validation mechanically rejects supported candidate materialization/execution surfaces before publication authority can be used.
+- Required validation subjects cannot disappear from a green governed-corpus receipt when the filesystem or discovery heuristic stops returning them.
 
 ## 3.0.0 - 2026-09-13
 

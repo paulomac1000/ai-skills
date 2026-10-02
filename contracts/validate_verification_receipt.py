@@ -178,7 +178,7 @@ def validate_receipt_semantics(
             findings.append(
                 "governed validation-corpus receipts require subject accounting fields: " + ", ".join(missing_generic)
             )
-    elif accounting_profile in {None, LEGACY_CORPUS_PROFILE} and present_generic:
+    elif (accounting_profile is None or accounting_profile == LEGACY_CORPUS_PROFILE) and present_generic:
         findings.append(
             f"generic validation-corpus fields require test_corpus.accounting_profile={GOVERNED_CORPUS_PROFILE!r}"
         )

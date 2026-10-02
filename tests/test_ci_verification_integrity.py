@@ -534,3 +534,16 @@ def test_corpus_checker_marks_new_results_as_governed_validation_corpus(tmp_path
         observed_executed={"tests/a.py"},
     )
     assert result["accounting_profile"] == "governed-validation-corpus"
+
+
+@pytest.mark.parametrize("invalid_profile", ([], {}))
+def test_verification_receipt_invalid_accounting_profile_returns_findings(
+    invalid_profile: object,
+) -> None:
+    receipt = _verification_receipt_with_generic_corpus()
+    corpus = receipt["test_corpus"]
+    assert isinstance(corpus, dict)
+    corpus["accounting_profile"] = invalid_profile
+    findings = receipt_validator.validate_receipt(receipt)
+    assert findings
+    assert any("accounting_profile" in finding for finding in findings)

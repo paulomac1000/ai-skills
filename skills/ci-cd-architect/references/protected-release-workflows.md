@@ -59,4 +59,4 @@ Then use a disposable registry namespace to prove archive checksum validation, e
 
 A protected write job only promotes an already-tested immutable artifact. Candidate checkout/clone, build/package, image load/import, and candidate execution belong in unprivileged validation.
 
-The auditor rejects supported direct, shell-continuation, Compose/Podman, and known build-action forms under publication authority. Job-level reusable-workflow delegation fails closed because an immutable workflow SHA proves provenance, not safe semantics. Registry-native exact-digest promotion/inspection is allowed; unknown indirection still requires trust-boundary review.
+The auditor rejects supported direct, shell-continuation, Compose/Podman, known build-action, Docker container-action, and job-container forms under publication authority. Job-level reusable-workflow delegation fails closed because an immutable workflow SHA proves provenance, not safe semantics. Registry-native exact-digest promotion/inspection is allowed; unknown indirection still requires trust-boundary review.

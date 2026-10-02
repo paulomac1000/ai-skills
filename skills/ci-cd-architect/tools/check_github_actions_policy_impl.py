@@ -48,16 +48,16 @@ _PROTECTED_PUBLISHER_FORBIDDEN_RUNS: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"\b(?:docker|podman)\s+(?:image\s+)?load\b", re.IGNORECASE), "load a candidate image"),
     (re.compile(r"\b(?:docker|podman)\s+import\b", re.IGNORECASE), "import a candidate image"),
     (
-        re.compile(r"\b(?:docker\s+(?:build|buildx\s+build)|podman\s+build)\b", re.IGNORECASE),
+        re.compile(r"\b(?:docker\s+(?:build|buildx\s+(?:build|bake))|podman\s+build)\b", re.IGNORECASE),
         "build a candidate image",
     ),
     (
-        re.compile(r"\b(?:docker|podman)\s+(?:run|exec|start)\b", re.IGNORECASE),
+        re.compile(r"\b(?:docker|podman)\s+(?:container\s+)?(?:run|exec|start)\b", re.IGNORECASE),
         "execute a candidate image",
     ),
     (
         re.compile(
-            r"\b(?:docker|podman)(?:\s+compose|-compose)\s+(?:build|run|up|exec|start)\b",
+            r"\b(?:docker|podman)(?:\s+compose|-compose)\b[^\n;&|]*\b(?:build|run|up|exec|start)\b",
             re.IGNORECASE,
         ),
         "build or execute candidate containers through Compose",
@@ -518,6 +518,13 @@ def audit_workflow(
                 )
             )
         if write_job and selected_profile == "protected-release":
+            if "container" in job:
+                findings.append(
+                    Finding(
+                        path,
+                        f"job {job_name!r} protected publisher must not execute inside a job container",
+                    )
+                )
             if not isinstance(job.get("environment"), (str, dict)):
                 findings.append(
                     Finding(
@@ -563,7 +570,18 @@ def audit_workflow(
                 and isinstance(step, dict)
                 and isinstance(step.get("uses"), str)
             ):
-                action = step["uses"].rsplit("@", 1)[0]
+                uses = step["uses"]
+                action = uses.rsplit("@", 1)[0]
+                if uses.startswith("docker://"):
+                    findings.append(
+                        Finding(
+                            path,
+                            (
+                                f"job {job_name!r} step {index} protected publisher must not execute "
+                                "a Docker container action"
+                            ),
+                        )
+                    )
                 if action == "actions/checkout" or action.startswith("./"):
                     findings.append(
                         Finding(
