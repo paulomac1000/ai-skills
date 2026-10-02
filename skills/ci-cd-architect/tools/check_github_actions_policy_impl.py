@@ -34,6 +34,11 @@ _MUTABLE_RUNNERS = {"ubuntu-latest", "windows-latest", "macos-latest"}
 _PROFILES = {"pull-request", "trusted-ci", "protected-release"}
 _TRUSTED_CI_WRITE_SCOPES = frozenset({"checks", "security-events"})
 _PROTECTED_RELEASE_WRITE_SCOPES = frozenset({"attestations", "contents", "id-token", "packages", "security-events"})
+_PROTECTED_PUBLISHER_FORBIDDEN_ACTIONS = {
+    "docker/build-push-action": "build a candidate image",
+    "docker/bake-action": "build a candidate image",
+    "redhat-actions/buildah-build": "build a candidate image",
+}
 
 _PROTECTED_PUBLISHER_FORBIDDEN_RUNS: tuple[tuple[re.Pattern[str], str], ...] = (
     (
@@ -267,6 +272,7 @@ def _protected_publisher_run_findings(
     if not isinstance(step, dict) or not isinstance(step.get("run"), str):
         return []
     script = "\n".join(line for line in step["run"].splitlines() if not line.lstrip().startswith("#"))
+    script = re.sub(r"\\\r?\n[ \t]*", " ", script)
     findings: list[Finding] = []
     for pattern, description in _PROTECTED_PUBLISHER_FORBIDDEN_RUNS:
         if pattern.search(script):
@@ -366,7 +372,14 @@ def _scalar_strings(value: Any) -> Iterator[str]:
             yield from _scalar_strings(item)
 
 
-def _reusable_workflow_findings(path: Path, job_name: str, job: dict[Any, Any], profile: str) -> list[Finding]:
+def _reusable_workflow_findings(
+    path: Path,
+    job_name: str,
+    job: dict[Any, Any],
+    profile: str,
+    *,
+    write_job: bool,
+) -> list[Finding]:
     label = f"job {job_name!r}"
     findings = _external_action_findings(path, label, job.get("uses"))
     uses = job.get("uses")
@@ -376,6 +389,16 @@ def _reusable_workflow_findings(path: Path, job_name: str, job: dict[Any, Any], 
             findings.append(Finding(path, f"{label} local reusable workflow must live under .github/workflows"))
     if profile == "pull-request" and job.get("secrets") == "inherit":
         findings.append(Finding(path, f"{label} pull-request reusable workflow must not inherit secrets"))
+    if profile == "protected-release" and write_job:
+        findings.append(
+            Finding(
+                path,
+                (
+                    f"{label} protected publisher must not delegate publication authority to a reusable workflow "
+                    "that this audit cannot independently inspect"
+                ),
+            )
+        )
     return findings
 
 
@@ -498,7 +521,15 @@ def audit_workflow(
                 )
 
         if "uses" in job:
-            findings.extend(_reusable_workflow_findings(path, str(job_name), job, selected_profile))
+            findings.extend(
+                _reusable_workflow_findings(
+                    path,
+                    str(job_name),
+                    job,
+                    selected_profile,
+                    write_job=write_job,
+                )
+            )
             continue
 
         if not _positive_int(job.get("timeout-minutes")):
@@ -525,6 +556,17 @@ def audit_workflow(
                         Finding(
                             path,
                             f"job {job_name!r} with release write permissions must not execute repository source",
+                        )
+                    )
+                description = _PROTECTED_PUBLISHER_FORBIDDEN_ACTIONS.get(action.casefold())
+                if description is not None:
+                    findings.append(
+                        Finding(
+                            path,
+                            (
+                                f"job {job_name!r} step {index} protected publisher must not {description} "
+                                "through an action; promote the already-tested immutable artifact instead"
+                            ),
                         )
                     )
 

@@ -5,7 +5,7 @@
 ### Changed
 
 - Generalized CI verification-corpus completeness beyond test-file discovery: policies can declare exact required governed subjects that remain expected when deleted or missed by discovery heuristics, with expected/discovered/exercised/missing evidence kept explicit.
-- Strengthened protected-release workflow auditing so authority-bearing publisher jobs reject candidate checkout/materialization, rebuild/package, image load/import, and candidate execution while preserving registry-native exact-digest promotion.
+- Strengthened protected-release workflow auditing so authority-bearing publisher jobs reject candidate checkout/materialization, rebuild/package, image load/import, candidate execution, shell-continuation bypasses, known build actions, and opaque reusable-workflow delegation while preserving registry-native exact-digest promotion.
 
 ### Security and correctness
 

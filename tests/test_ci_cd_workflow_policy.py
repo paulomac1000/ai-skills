@@ -314,3 +314,96 @@ def test_protected_release_rejects_checkout_action_in_write_job(tmp_path: Path) 
         encoding="utf-8",
     )
     assert any("must not execute repository source" in message for message in _messages(workflow))
+
+
+@pytest.mark.parametrize(
+    "run",
+    (
+        "docker \\\n  build -t candidate .",
+        "docker \\\r\n  run --rm candidate:tested",
+        "python \\\n  -m build",
+    ),
+)
+def test_protected_release_rejects_shell_continuation_bypass(tmp_path: Path, run: str) -> None:
+    workflow = tmp_path / "publish.yml"
+    indented = run.replace("\n", "\n          ")
+    workflow.write_text(
+        _protected_release_workflow(
+            f"""      - name: multiline candidate operation
+        run: |
+          {indented}
+"""
+        ),
+        encoding="utf-8",
+    )
+    assert any("protected publisher must not" in message for message in _messages(workflow))
+
+
+def test_protected_release_rejects_build_action_in_write_job(tmp_path: Path) -> None:
+    workflow = tmp_path / "publish.yml"
+    workflow.write_text(
+        _protected_release_workflow(
+            """      - uses: docker/build-push-action@1111111111111111111111111111111111111111
+        with:
+          context: .
+          push: true
+"""
+        ),
+        encoding="utf-8",
+    )
+    messages = _messages(workflow)
+    assert any(
+        "step 1 protected publisher must not build a candidate image through an action" in message
+        for message in messages
+    )
+
+
+def test_protected_release_allows_build_action_in_unprivileged_validation(tmp_path: Path) -> None:
+    workflow = tmp_path / "publish.yml"
+    workflow.write_text(
+        _protected_release_workflow(
+            "      - run: docker buildx imagetools inspect ghcr.io/acme/app@sha256:" + "a" * 64,
+            validation_steps="""      - uses: docker/build-push-action@1111111111111111111111111111111111111111
+        with:
+          context: .
+          push: false
+""",
+        ),
+        encoding="utf-8",
+    )
+    assert _messages(workflow) == []
+
+
+def test_protected_release_rejects_reusable_workflow_in_write_job(tmp_path: Path) -> None:
+    workflow = tmp_path / "publish.yml"
+    workflow.write_text(
+        """
+# ai-skills-policy-profile: protected-release
+name: publish
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: publish
+  cancel-in-progress: false
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - run: echo validated
+  publish:
+    needs: validate
+    environment: production
+    permissions:
+      contents: read
+      packages: write
+    uses: acme/release-workflows/.github/workflows/promote.yml@2222222222222222222222222222222222222222
+""".lstrip(),
+        encoding="utf-8",
+    )
+    assert any(
+        "protected publisher must not delegate publication authority to a reusable workflow" in message
+        for message in _messages(workflow)
+    )
