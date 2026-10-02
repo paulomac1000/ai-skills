@@ -89,7 +89,6 @@ def _required_subjects(root: Path, values: object) -> tuple[set[str], set[str], 
         relative = Path(raw)
         if relative.is_absolute():
             raise ValueError(f"required subject must be repository-relative: {raw}")
-        lexical = root / relative
         current = root
         for part in relative.parts:
             current /= part

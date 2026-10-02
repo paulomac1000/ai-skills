@@ -425,3 +425,58 @@ def test_verification_receipt_rejects_partial_or_inconsistent_generic_corpus_fie
     inconsistent = _verification_receipt_with_generic_corpus(discovered_subjects=0)
     inconsistent_findings = receipt_validator.validate_receipt_semantics(inconsistent)
     assert any("discovered_subjects must equal discovered_files" in item for item in inconsistent_findings)
+
+
+def test_required_validation_subject_must_be_repository_relative(tmp_path: Path) -> None:
+    absolute = (tmp_path / "automations.yaml").resolve()
+    with pytest.raises(ValueError, match="must be repository-relative"):
+        test_corpus.evaluate(
+            tmp_path,
+            {
+                "schema_version": 1,
+                "policy_revision": "governed-yaml/v1",
+                "mode": "automatic",
+                "include": ["*.yaml"],
+                "required_subjects": [str(absolute)],
+            },
+            observed_executed=set(),
+        )
+
+
+def test_required_validation_subject_must_be_regular_file(tmp_path: Path) -> None:
+    (tmp_path / "config").mkdir()
+    with pytest.raises(ValueError, match="must be a regular file"):
+        test_corpus.evaluate(
+            tmp_path,
+            {
+                "schema_version": 1,
+                "policy_revision": "governed-yaml/v1",
+                "mode": "automatic",
+                "include": ["*.yaml"],
+                "required_subjects": ["config"],
+            },
+            observed_executed=set(),
+        )
+
+
+def test_required_validation_subject_rejects_symlink_traversal(tmp_path: Path) -> None:
+    real = tmp_path / "real"
+    real.mkdir()
+    (real / "automations.yaml").write_text("[]\n", encoding="utf-8")
+    alias = tmp_path / "alias"
+    try:
+        alias.symlink_to(real, target_is_directory=True)
+    except OSError as error:
+        pytest.skip(f"symlink creation is unavailable: {error}")
+    with pytest.raises(ValueError, match="must not traverse a symlink"):
+        test_corpus.evaluate(
+            tmp_path,
+            {
+                "schema_version": 1,
+                "policy_revision": "governed-yaml/v1",
+                "mode": "automatic",
+                "include": ["*.yaml"],
+                "required_subjects": ["alias/automations.yaml"],
+            },
+            observed_executed=set(),
+        )
