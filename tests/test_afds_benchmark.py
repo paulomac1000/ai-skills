@@ -111,6 +111,21 @@ def evaluate() -> tuple[float, float, float]:
     return recall_at_three, mrr, sum(context_sizes) / len(context_sizes)
 
 
+def context_diagnostics() -> str:
+    items = documents()
+    ranker = Ranker(items)
+    rows = []
+    for target, query in QUERIES:
+        ranking = ranker.rank(query)[:3]
+        selected = [items[index] for index in ranking]
+        total = sum(len(item.text) for item in selected)
+        rows.append(
+            f"{target}: {total} chars :: "
+            + ", ".join(f"{item.key}={len(item.text)}" for item in selected)
+        )
+    return "\n".join(rows)
+
+
 def test_recovered_documents_remain_retrievable_without_monolithic_context() -> None:
     items = documents()
     recall_at_three, mrr, average_context = evaluate()
@@ -119,4 +134,6 @@ def test_recovered_documents_remain_retrievable_without_monolithic_context() -> 
     assert recall_at_three >= 0.88
     assert mrr >= 0.78
     # Threshold calibrated against the 1.4.0 corpus (70 governed documents).
-    assert average_context <= 25_000
+    assert average_context <= 25_000, (
+        f"average_context={average_context}\n" + context_diagnostics()
+    )
