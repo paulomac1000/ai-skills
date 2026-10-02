@@ -34,6 +34,41 @@ _MUTABLE_RUNNERS = {"ubuntu-latest", "windows-latest", "macos-latest"}
 _PROFILES = {"pull-request", "trusted-ci", "protected-release"}
 _TRUSTED_CI_WRITE_SCOPES = frozenset({"checks", "security-events"})
 _PROTECTED_RELEASE_WRITE_SCOPES = frozenset({"attestations", "contents", "id-token", "packages", "security-events"})
+_PROTECTED_PUBLISHER_FORBIDDEN_ACTIONS = {
+    "docker/build-push-action": "build a candidate image",
+    "docker/bake-action": "build a candidate image",
+    "redhat-actions/buildah-build": "build a candidate image",
+}
+
+_PROTECTED_PUBLISHER_FORBIDDEN_RUNS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (
+        re.compile(r"\bgit\s+(?:clone|checkout|switch|worktree\s+add)\b", re.IGNORECASE),
+        "check out or materialize repository source",
+    ),
+    (re.compile(r"\b(?:docker|podman)\s+(?:image\s+)?load\b", re.IGNORECASE), "load a candidate image"),
+    (re.compile(r"\b(?:docker|podman)\s+import\b", re.IGNORECASE), "import a candidate image"),
+    (
+        re.compile(r"\b(?:docker\s+(?:build|buildx\s+(?:build|bake))|podman\s+build)\b", re.IGNORECASE),
+        "build a candidate image",
+    ),
+    (
+        re.compile(r"\b(?:docker|podman)\s+(?:container\s+)?(?:run|exec|start)\b", re.IGNORECASE),
+        "execute a candidate image",
+    ),
+    (
+        re.compile(
+            r"\b(?:docker|podman)(?:\s+compose|-compose)\b[^\n;&|]*\b(?:build|run|up|exec|start)\b",
+            re.IGNORECASE,
+        ),
+        "build or execute candidate containers through Compose",
+    ),
+    (re.compile(r"\bpython(?:\d+(?:\.\d+)*)?\s+-m\s+build\b", re.IGNORECASE), "build a candidate package"),
+    (re.compile(r"\b(?:pip|pip3)\s+wheel\b", re.IGNORECASE), "build a candidate package"),
+    (re.compile(r"\b(?:npm|pnpm|yarn)\s+(?:run\s+)?(?:build|pack)\b", re.IGNORECASE), "build a candidate package"),
+    (re.compile(r"\bdotnet\s+(?:build|pack|publish|run|test)\b", re.IGNORECASE), "build or execute candidate code"),
+    (re.compile(r"\bcargo\s+(?:build|package|run|test)\b", re.IGNORECASE), "build or execute candidate code"),
+    (re.compile(r"\bgo\s+(?:build|run|test)\b", re.IGNORECASE), "build or execute candidate code"),
+)
 
 
 class _UniqueKeyLoader(yaml.SafeLoader):
@@ -241,6 +276,31 @@ def _action_findings(path: Path, job_name: str, step_index: int, step: Any) -> l
     return findings
 
 
+def _protected_publisher_run_findings(
+    path: Path,
+    job_name: str,
+    step_index: int,
+    step: Any,
+) -> list[Finding]:
+    if not isinstance(step, dict) or not isinstance(step.get("run"), str):
+        return []
+    script = "\n".join(line for line in step["run"].splitlines() if not line.lstrip().startswith("#"))
+    script = re.sub(r"\\\r?\n[ \t]*", " ", script)
+    findings: list[Finding] = []
+    for pattern, description in _PROTECTED_PUBLISHER_FORBIDDEN_RUNS:
+        if pattern.search(script):
+            findings.append(
+                Finding(
+                    path,
+                    (
+                        f"job {job_name!r} step {step_index} protected publisher must not "
+                        f"{description}; promote the already-tested immutable artifact instead"
+                    ),
+                )
+            )
+    return findings
+
+
 def _concrete_runner_error(value: Any) -> str | None:
     if not isinstance(value, str) or not value.strip():
         return "runner values must be non-empty literal strings"
@@ -325,7 +385,14 @@ def _scalar_strings(value: Any) -> Iterator[str]:
             yield from _scalar_strings(item)
 
 
-def _reusable_workflow_findings(path: Path, job_name: str, job: dict[Any, Any], profile: str) -> list[Finding]:
+def _reusable_workflow_findings(
+    path: Path,
+    job_name: str,
+    job: dict[Any, Any],
+    profile: str,
+    *,
+    write_job: bool,
+) -> list[Finding]:
     label = f"job {job_name!r}"
     findings = _external_action_findings(path, label, job.get("uses"))
     uses = job.get("uses")
@@ -335,6 +402,16 @@ def _reusable_workflow_findings(path: Path, job_name: str, job: dict[Any, Any], 
             findings.append(Finding(path, f"{label} local reusable workflow must live under .github/workflows"))
     if profile == "pull-request" and job.get("secrets") == "inherit":
         findings.append(Finding(path, f"{label} pull-request reusable workflow must not inherit secrets"))
+    if profile == "protected-release" and write_job:
+        findings.append(
+            Finding(
+                path,
+                (
+                    f"{label} protected publisher must not delegate publication authority to a reusable workflow "
+                    "that this audit cannot independently inspect"
+                ),
+            )
+        )
     return findings
 
 
@@ -441,6 +518,13 @@ def audit_workflow(
                 )
             )
         if write_job and selected_profile == "protected-release":
+            if "container" in job:
+                findings.append(
+                    Finding(
+                        path,
+                        f"job {job_name!r} protected publisher must not execute inside a job container",
+                    )
+                )
             if not isinstance(job.get("environment"), (str, dict)):
                 findings.append(
                     Finding(
@@ -457,7 +541,15 @@ def audit_workflow(
                 )
 
         if "uses" in job:
-            findings.extend(_reusable_workflow_findings(path, str(job_name), job, selected_profile))
+            findings.extend(
+                _reusable_workflow_findings(
+                    path,
+                    str(job_name),
+                    job,
+                    selected_profile,
+                    write_job=write_job,
+                )
+            )
             continue
 
         if not _positive_int(job.get("timeout-minutes")):
@@ -470,18 +562,42 @@ def audit_workflow(
             continue
         for index, step in enumerate(steps, start=1):
             findings.extend(_action_findings(path, str(job_name), index, step))
+            if write_job and selected_profile == "protected-release":
+                findings.extend(_protected_publisher_run_findings(path, str(job_name), index, step))
             if (
                 write_job
                 and selected_profile == "protected-release"
                 and isinstance(step, dict)
                 and isinstance(step.get("uses"), str)
             ):
-                action = step["uses"].rsplit("@", 1)[0]
+                uses = step["uses"]
+                action = uses.rsplit("@", 1)[0]
+                if uses.startswith("docker://"):
+                    findings.append(
+                        Finding(
+                            path,
+                            (
+                                f"job {job_name!r} step {index} protected publisher must not execute "
+                                "a Docker container action"
+                            ),
+                        )
+                    )
                 if action == "actions/checkout" or action.startswith("./"):
                     findings.append(
                         Finding(
                             path,
                             f"job {job_name!r} with release write permissions must not execute repository source",
+                        )
+                    )
+                description = _PROTECTED_PUBLISHER_FORBIDDEN_ACTIONS.get(action.casefold())
+                if description is not None:
+                    findings.append(
+                        Finding(
+                            path,
+                            (
+                                f"job {job_name!r} step {index} protected publisher must not {description} "
+                                "through an action; promote the already-tested immutable artifact instead"
+                            ),
                         )
                     )
 

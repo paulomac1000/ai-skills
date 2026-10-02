@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify intended test selection and observed execution completeness."""
+"""Verify policy-defined validation-corpus discovery and execution completeness."""
 
 from __future__ import annotations
 
@@ -74,6 +74,40 @@ def _paths(root: Path, values: Collection[str]) -> set[str]:
     return result
 
 
+def _required_subjects(root: Path, values: object) -> tuple[set[str], set[str], set[str]]:
+    if values is None:
+        values = []
+    if not isinstance(values, list):
+        raise ValueError("required_subjects must be a list")
+    resolved_root = root.resolve()
+    declared: set[str] = set()
+    existing: set[str] = set()
+    missing: set[str] = set()
+    for raw in values:
+        if not isinstance(raw, str) or not raw.strip():
+            raise ValueError("required_subjects must contain non-empty strings")
+        relative = Path(raw)
+        if relative.is_absolute():
+            raise ValueError(f"required subject must be repository-relative: {raw}")
+        current = root
+        for part in relative.parts:
+            current /= part
+            if current.is_symlink():
+                raise ValueError(f"required subject must not traverse a symlink: {raw}")
+        path = _confined(root, raw)
+        normalized = path.relative_to(resolved_root).as_posix()
+        if normalized in declared:
+            raise ValueError(f"duplicate required subject: {normalized}")
+        declared.add(normalized)
+        if path.exists():
+            if not path.is_file():
+                raise ValueError(f"required subject must be a regular file: {normalized}")
+            existing.add(normalized)
+        else:
+            missing.add(normalized)
+    return declared, existing, missing
+
+
 def _expiry(value: object) -> datetime | None:
     if value in {None, ""}:
         return None
@@ -108,7 +142,10 @@ def evaluate(
     if not isinstance(revision, str) or not revision.strip():
         raise ValueError("policy_revision is required")
 
-    discovered = _discover(root, patterns)
+    required_subjects, existing_required_subjects, missing_required_subjects = _required_subjects(
+        root, policy.get("required_subjects", [])
+    )
+    discovered = _discover(root, patterns) | existing_required_subjects
     exclusions_raw = policy.get("exclusions", [])
     if not isinstance(exclusions_raw, list):
         raise ValueError("exclusions must be a list")
@@ -126,6 +163,8 @@ def evaluate(
         _confined(root, path)
         if path in exclusions:
             raise ValueError(f"duplicate exclusion: {path}")
+        if path in required_subjects:
+            raise ValueError(f"required subject cannot be excluded: {path}")
         exclusions[path] = item
         expires_at = _expiry(item.get("expires_at"))
         if expires_at is not None and expires_at <= current:
@@ -148,7 +187,9 @@ def evaluate(
 
     missing_selection = expected - selected
     unexpected_selection = selected - expected
-    selection_drift = missing_selection | unexpected_selection | stale_exclusions | expired_discovered
+    selection_drift = (
+        missing_selection | unexpected_selection | stale_exclusions | expired_discovered | missing_required_subjects
+    )
 
     execution_evidence = "unknown" if observed_executed is None else "observed"
     observed = set() if observed_executed is None else _paths(root, observed_executed)
@@ -170,6 +211,11 @@ def evaluate(
         "schema_version": 1,
         "policy_revision": revision,
         "mode": mode,
+        "accounting_profile": "governed-validation-corpus",
+        "expected_subjects": len(discovered | missing_required_subjects),
+        "discovered_subjects": len(discovered),
+        "exercised_subjects": executed_count,
+        "missing_required_subjects": sorted(missing_required_subjects),
         "discovered_files": len(discovered),
         "selected_files": len(selected & expected),
         "executed_files": executed_count,

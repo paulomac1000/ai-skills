@@ -14,23 +14,23 @@ verification:
 
 Use this reference when a gate can be green without proving that the intended work actually ran.
 
-A verification verdict is valid only when the intended test corpus was selected, actual selected-test execution is evidenced, selected tests terminated cleanly, verdict-affecting dependencies came from declared repository-owned or immutable sources, the local entrypoint represents every merge-blocking hosted gate or reports it as hosted-only, and validation did not mutate production-effective runtime state. The canonical combined receipt is `contracts/verification-receipt.schema.json`.
+A verification verdict is valid only when the intended validation corpus was selected, actual selected-subject execution is evidenced, selected work terminated cleanly, verdict-affecting dependencies came from declared repository-owned or immutable sources, the local entrypoint represents every merge-blocking hosted gate or reports it as hosted-only, and validation did not mutate production-effective runtime state. The canonical combined receipt is `contracts/verification-receipt.schema.json`.
 
-## Test corpus
+## Validation corpus
 
-Prefer convention-driven automatic discovery. When ordering or another constraint requires an explicit manifest, assert:
+A gate defines a **policy-governed validation corpus** and proves discovery/selection/exercise completeness. Test files are one specialization; governed config, templates, and inventories use the same rule.
+
+Prefer automatic convention discovery. A manifest must satisfy:
 
 ```text
-discovered by convention
-= selected by execution policy
-+ reviewed exclusions
+discovered = selected + reviewed exclusions
 ```
 
-Selection and execution are separate evidence axes. Automatic discovery proves which files should be selected; it does not prove those files actually executed. Post-run execution evidence is therefore required before a corpus result becomes `complete`. Without it, the verdict is `incomplete`, never `pass`.
+Use exact repository-relative `required_subjects` for anything whose absence must fail. Required subjects join discovery when present; when absent they appear in `missing_required_subjects` and make the gate non-green. They cannot be excluded. Pattern discovery alone cannot prove that a formerly present source still exists.
 
-A newly added conforming test that is absent from an explicit selection manifest is `TEST_DISCOVERY_DRIFT`, not an implicit exclusion. Exclusions carry a reason and, where useful, owner and expiry. Stale exclusions are policy drift rather than invisible historical exceptions.
+Selection and execution are separate evidence axes. Without observed execution, completeness is unknown. The summary reports `expected_subjects`, `discovered_subjects`, `exercised_subjects`, and `missing_required_subjects`; manifest drift, missing required identities, stale exclusions, or execution drift is non-green.
 
-Use `tools/check_test_corpus.py`; provide `--executed-manifest` from the test-runner/result adapter for authoritative execution evidence.
+Use `tools/check_test_corpus.py`; `--executed-manifest` supplies runner-observed execution. The filename is retained for compatibility.
 
 ## Execution integrity
 
@@ -62,4 +62,6 @@ Use `tools/verify_state_isolation.py`. Deployment and migrations are separate tr
 
 ## Receipt semantics
 
-`contracts/verification-receipt.schema.json` is the single machine-readable owner of the combined result. A `pass` receipt requires declared-only dependency resolution, complete test-corpus evidence with zero discovery/execution drift, zero blocking execution-integrity conditions, and unchanged production-effective state. Unknown corpus completeness, unknown async leak state, hidden hosted-only work, or missing evidence must remain incomplete/degraded/blocked as appropriate rather than being encoded as success.
+`contracts/verification-receipt.schema.json` owns the combined result. New producers set `test_corpus.accounting_profile: governed-validation-corpus`, which requires all subject-accounting fields. `legacy-test-files` and unprofiled schema-v1 receipts retain old file-count compatibility but do not prove governed required-subject claims.
+
+A `pass` requires complete evidence for its declared profile, zero drift/blocking execution conditions, declared dependencies, unchanged protected state, and required evidence references.

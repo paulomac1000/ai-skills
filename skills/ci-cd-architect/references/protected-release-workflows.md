@@ -53,3 +53,10 @@ python skills/ci-cd-architect/tools/check_github_actions_policy.py \
 ```
 
 Then use a disposable registry namespace to prove archive checksum validation, explicit tag pushes, digest capture, source-label equality, and rejection of an altered archive.
+
+
+## Protected publisher execution boundary
+
+A protected write job only promotes an already-tested immutable artifact. Candidate checkout/clone, build/package, image load/import, and candidate execution belong in unprivileged validation.
+
+The auditor rejects supported direct, shell-continuation, Compose/Podman, known build-action, Docker container-action, and job-container forms under publication authority. Job-level reusable-workflow delegation fails closed because an immutable workflow SHA proves provenance, not safe semantics. Registry-native exact-digest promotion/inspection is allowed; unknown indirection still requires trust-boundary review.
