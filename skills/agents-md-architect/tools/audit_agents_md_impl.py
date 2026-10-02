@@ -259,9 +259,7 @@ def _conditional_owner_markers(
     discovery: Discovery,
 ) -> tuple[dict[str, int], set[str], list[AuditFinding]]:
     candidates = sorted(
-        relative
-        for relative in discovery.files
-        if Path(relative).suffix.casefold() in {".md", ".markdown"}
+        relative for relative in discovery.files if Path(relative).suffix.casefold() in {".md", ".markdown"}
     )
     if len(candidates) > PROGRESSIVE_OWNER_SCAN_LIMIT:
         return (
