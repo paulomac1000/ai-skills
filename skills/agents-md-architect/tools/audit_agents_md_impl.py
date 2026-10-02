@@ -482,7 +482,7 @@ def _raw_html_state(
 def _is_live_control_comment(line: str) -> bool:
     stripped = line.strip()
     return (
-        PROGRESSIVE_ROUTE_PREFIX.search(stripped) is not None
+        PROGRESSIVE_ROUTE_PREFIX.match(stripped) is not None
         or CONDITIONAL_OWNER_MARKER.fullmatch(stripped) is not None
     )
 
