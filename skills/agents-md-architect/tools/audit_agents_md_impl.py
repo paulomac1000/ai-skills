@@ -318,31 +318,51 @@ def _conditional_owner_markers(
     return owners, unreadable, findings
 
 
+def _route_prose_line_numbers(document: ParsedDocument, marker_index: int) -> set[int]:
+    line_numbers: set[int] = set()
+    started = False
+    for line_number, candidate in document.visible_lines[marker_index + 1 :]:
+        stripped = candidate.strip()
+        if not started:
+            if not stripped or stripped.startswith("<!--"):
+                continue
+            if stripped.startswith("#") or PROGRESSIVE_ROUTE_PREFIX.search(stripped) is not None:
+                return set()
+            started = True
+            line_numbers.add(line_number)
+            continue
+
+        if not stripped:
+            break
+        if stripped.startswith("#") or PROGRESSIVE_ROUTE_PREFIX.search(stripped) is not None:
+            break
+        if stripped.startswith("<!--"):
+            continue
+        line_numbers.add(line_number)
+    return line_numbers
+
+
 def _has_readable_route_prose(
     root: Path,
     document: ParsedDocument,
     marker_index: int,
     owner_relative: str,
 ) -> bool:
-    for line_number, candidate in document.visible_lines[marker_index + 1 :]:
-        stripped = candidate.strip()
-        if not stripped:
-            continue
-        if stripped.startswith("#") or PROGRESSIVE_ROUTE_PREFIX.search(stripped) is not None:
-            return False
-        if stripped.startswith("<!--"):
-            continue
-        for _reference_line, target in iter_references(((line_number, candidate),)):
-            resolved, issue = resolve_reference(document.path, root, target)
-            if resolved is None or issue is not None:
-                continue
-            try:
-                relative = resolved.relative_to(root).as_posix()
-            except ValueError:
-                continue
-            if relative == owner_relative:
-                return True
+    prose_lines = _route_prose_line_numbers(document, marker_index)
+    if not prose_lines:
         return False
+    for reference_line, target in iter_references(document.visible_lines):
+        if reference_line not in prose_lines:
+            continue
+        resolved, issue = resolve_reference(document.path, root, target)
+        if resolved is None or issue is not None:
+            continue
+        try:
+            relative = resolved.relative_to(root).as_posix()
+        except ValueError:
+            continue
+        if relative == owner_relative:
+            return True
     return False
 
 

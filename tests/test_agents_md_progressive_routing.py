@@ -371,3 +371,59 @@ def test_markdown_extension_conditional_owner_is_scanned(tmp_path: Path) -> None
 
     _, findings = audit_module.audit(tmp_path, "application", "single", "en")
     assert not any(finding.code.startswith("routing.") for finding in findings)
+
+
+def test_wrapped_route_prose_resolves_owner_link_from_same_block(tmp_path: Path) -> None:
+    _write_base(tmp_path)
+    _write_conditional_owner(tmp_path, "docs/migrations.md")
+    _append(
+        tmp_path,
+        """
+## Migration routing
+
+<!-- agents-md: route owner="docs/migrations.md" when="before migration" purpose="migration safety" -->
+- Before migration, load the governed owner
+  [from the migration contract](docs/migrations.md) before changing schema.
+""",
+    )
+
+    _, findings = audit_module.audit(tmp_path, "application", "single", "en")
+    assert not any(finding.code.startswith("routing.") for finding in findings)
+
+
+def test_reference_style_route_link_uses_document_definitions(tmp_path: Path) -> None:
+    _write_base(tmp_path)
+    _write_conditional_owner(tmp_path, "docs/migrations.md")
+    _append(
+        tmp_path,
+        """
+## Migration routing
+
+<!-- agents-md: route owner="docs/migrations.md" when="before migration" purpose="migration safety" -->
+- Before migration, read [the migration owner][migration-owner].
+
+[migration-owner]: docs/migrations.md
+""",
+    )
+
+    _, findings = audit_module.audit(tmp_path, "application", "single", "en")
+    assert not any(finding.code.startswith("routing.") for finding in findings)
+
+
+def test_later_paragraph_owner_link_does_not_satisfy_route_prose(tmp_path: Path) -> None:
+    _write_base(tmp_path)
+    _write_conditional_owner(tmp_path, "docs/migrations.md")
+    _append(
+        tmp_path,
+        """
+## Migration routing
+
+<!-- agents-md: route owner="docs/migrations.md" when="before migration" purpose="migration safety" -->
+- Before migration, follow the governed migration procedure.
+
+This later paragraph links [the migration owner](docs/migrations.md).
+""",
+    )
+
+    _, findings = audit_module.audit(tmp_path, "application", "single", "en")
+    assert {"routing.route-prose-missing", "routing.trigger-unreachable"} <= _codes(findings)
