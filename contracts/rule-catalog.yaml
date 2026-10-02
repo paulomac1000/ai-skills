@@ -104,7 +104,7 @@ skills:
       description: Documentation and security gates are executable and fail closed through external immutable authority.
     - id: cicd.release.identity
       source: STANDARD.md#release-identity-and-artifact-promotion
-      description: Release identity is validated and a closed smoke-tested artifact is promoted without executing source in the publisher.
+      description: Release identity is validated and a closed smoke-tested artifact is promoted without candidate checkout, rebuild, load, or execution in the authority-bearing publisher.
     - id: cicd.local.bounded
       source: STANDARD.md#local-quality-gates
       description: Local hooks are bounded and consistent with hosted CI.

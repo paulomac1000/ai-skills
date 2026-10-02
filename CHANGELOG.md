@@ -9,6 +9,9 @@
 
 ### Changed
 
+- Generalized CI verification-corpus completeness beyond test-file discovery: policies can declare exact required governed subjects that remain expected when deleted or missed by discovery heuristics, with expected/discovered/exercised/missing evidence kept explicit.
+- Strengthened protected-release workflow auditing so authority-bearing publisher jobs reject candidate checkout/materialization, rebuild/package, image load/import, and candidate execution while preserving registry-native exact-digest promotion.
+
 - Made skill descriptions an explicit pre-load routing contract, kept development evidence such as eval corpora, benchmark reports, and changelogs outside published runtime skill packages, and separated deterministic corpus validation from provenance-bound model observations.
 - Allowed skills without executable helpers to declare an empty `dependencies.tools` list while keeping tool-bearing skills inside the existing quality, typing, security, and coverage gates.
 - Synchronized all bundled stable skill version mirrors to `3.1.0` because the release adds a public skill and changes shared repository contracts.
@@ -28,6 +31,9 @@
 - Synchronized all bundled stable skill version mirrors to `3.0.0` because the release changes shared repository contracts and the definition of Steward conformance.
 
 ### Security and correctness
+
+- Protected publication validation now mechanically catches high-signal candidate execution/materialization commands before a privileged publisher can use release authority.
+- Required validation subjects cannot disappear from a green gate merely because the current filesystem or a semantic discovery heuristic stopped returning them.
 
 - Stateful submit and cancellation effects now require durable pre-dispatch identity and reconcile-before-replay after ambiguous delivery; stale generations and stale candidates cannot publish actionable handoffs.
 - Evidence promotion now requires approved producer, claim/criterion binding, exact subject/candidate identity, freshness, coverage, and authority before completion, while unknown or missing observations remain non-claims.
