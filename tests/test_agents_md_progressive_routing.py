@@ -691,3 +691,59 @@ def test_owner_link_inside_inline_code_is_not_route_evidence(tmp_path: Path) -> 
 
     _, findings = audit_module.audit(tmp_path, "application", "single", "en")
     assert {"routing.route-prose-missing", "routing.trigger-unreachable"} <= _codes(findings)
+
+
+def test_multiline_inline_code_comment_literal_does_not_hide_live_route(tmp_path: Path) -> None:
+    _write_base(tmp_path)
+    _write_conditional_owner(tmp_path, "docs/recovery.md")
+    _append(
+        tmp_path,
+        """
+## Markdown notes
+
+The literal example is `<!--
+still inline code` and must not open an HTML comment.
+
+## Recovery routing
+
+<!-- agents-md: route owner="docs/recovery.md" when="after failure" purpose="recovery" -->
+- After failure, read [the recovery owner](docs/recovery.md).
+""",
+    )
+
+    _, findings = audit_module.audit(tmp_path, "application", "single", "en")
+    assert not any(finding.code.startswith("routing.") for finding in findings)
+
+
+def test_complete_route_marker_inside_inline_code_is_not_live(tmp_path: Path) -> None:
+    _write_base(tmp_path)
+    _append(
+        tmp_path,
+        """
+## Marker documentation
+
+Literal example: `<!-- agents-md: route owner="docs/missing.md" when="example" purpose="docs" -->`
+""",
+    )
+
+    _, findings = audit_module.audit(tmp_path, "application", "single", "en")
+    assert "routing.route-marker-invalid" not in _codes(findings)
+    assert "routing.route-owner-missing" not in _codes(findings)
+
+
+def test_nested_list_owner_link_is_valid_route_prose(tmp_path: Path) -> None:
+    _write_base(tmp_path)
+    _write_conditional_owner(tmp_path, "docs/recovery.md")
+    _append(
+        tmp_path,
+        """
+## Recovery routing
+
+<!-- agents-md: route owner="docs/recovery.md" when="after failure" purpose="recovery" -->
+- After failure, use the governed recovery procedure:
+    - Read [the recovery owner](docs/recovery.md) before recovery work.
+""",
+    )
+
+    _, findings = audit_module.audit(tmp_path, "application", "single", "en")
+    assert not any(finding.code.startswith("routing.") for finding in findings)

@@ -26,11 +26,11 @@ from agents_md_completion_evidence import (  # noqa: E402
     public_task_invocations,
 )
 from agents_md_parse import (  # noqa: E402
-    _iter_code_span_matches,
+    _blockquote_depth_and_content,
+    _list_container_content,
     iter_references,
     parse_visible_lines,
     resolve_reference,
-    strip_blockquote_prefix,
 )
 from agents_md_python_evidence import _extract_python_invocations  # noqa: E402
 from agents_md_shell_evidence import (  # noqa: E402
@@ -266,67 +266,137 @@ def _is_indented_code_line(line: str) -> bool:
     return line.startswith("\t") or line.startswith("    ")
 
 
-def _mask_inline_code(line: str) -> str:
-    masked = list(line)
-    for _value, start, end in _iter_code_span_matches(line):
-        masked[start:end] = " " * (end - start)
-    return "".join(masked)
+def _routing_container_lines(lines: Sequence[tuple[int, str]]) -> list[tuple[int, str]]:
+    """Normalize quote/list containers and turn true indented code into paragraph boundaries."""
+    normalized: list[tuple[int, str]] = []
+    list_indents: tuple[int, ...] = ()
+    current_quote_depth = 0
+    previous_line: int | None = None
+
+    for line_number, source_line in lines:
+        if previous_line is not None and line_number > previous_line + 1:
+            # Fenced blocks are absent from visible_lines; keep them as a prose boundary.
+            normalized.append((previous_line + 1, ""))
+            list_indents = ()
+
+        quote_depth, quote_content = _blockquote_depth_and_content(source_line)
+        if quote_depth != current_quote_depth:
+            list_indents = ()
+            current_quote_depth = quote_depth
+
+        container_line, list_indents = _list_container_content(
+            quote_content,
+            list_indents,
+            allow_new_item=True,
+        )
+        if _is_indented_code_line(container_line):
+            normalized.append((line_number, ""))
+        else:
+            normalized.append((line_number, container_line))
+        previous_line = line_number
+
+    return normalized
+
+
+def _mask_inline_code_lines(lines: Sequence[tuple[int, str]]) -> list[tuple[int, str]]:
+    """Mask closed CommonMark-style backtick spans, including spans crossing newlines."""
+    if not lines:
+        return []
+
+    source = "\n".join(line for _line_number, line in lines)
+    runs: list[tuple[int, int, int]] = []
+    index = 0
+    while index < len(source):
+        if source[index] != "`":
+            index += 1
+            continue
+        end = index + 1
+        while end < len(source) and source[end] == "`":
+            end += 1
+        runs.append((index, end, end - index))
+        index = end
+
+    next_same: list[int | None] = [None] * len(runs)
+    next_by_width: dict[int, int] = {}
+    for run_index in range(len(runs) - 1, -1, -1):
+        width = runs[run_index][2]
+        next_same[run_index] = next_by_width.get(width)
+        next_by_width[width] = run_index
+
+    masked = list(source)
+    run_index = 0
+    while run_index < len(runs):
+        closing_index = next_same[run_index]
+        if closing_index is None:
+            run_index += 1
+            continue
+        start = runs[run_index][0]
+        end = runs[closing_index][1]
+        for position in range(start, end):
+            if masked[position] != "\n":
+                masked[position] = " "
+        run_index = closing_index + 1
+
+    masked_lines = "".join(masked).split("\n")
+    return [(line_number, masked_lines[index]) for index, (line_number, _line) in enumerate(lines)]
 
 
 def _routing_active_lines(lines: Sequence[tuple[int, str]]) -> list[tuple[int, str]]:
-    """Return routing evidence outside fenced/indented code and ordinary HTML comments."""
+    """Return routing evidence outside code and ordinary HTML comments."""
     active: list[tuple[int, str]] = []
     in_html_comment = False
+    normalized = _mask_inline_code_lines(_routing_container_lines(lines))
 
-    for line_number, source_line in lines:
-        container_line = strip_blockquote_prefix(source_line)
-        scan_line = _mask_inline_code(container_line)
-        stripped = scan_line.strip()
-        indented_code = _is_indented_code_line(container_line)
-        if not in_html_comment and not indented_code and PROGRESSIVE_ROUTE_PREFIX.search(stripped) is not None:
-            # Keep malformed route candidates visible so the route parser can fail closed.
-            active.append((line_number, container_line))
-            continue
-        if not in_html_comment and not indented_code and CONDITIONAL_OWNER_MARKER.fullmatch(stripped) is not None:
-            active.append((line_number, container_line))
-            continue
-        if indented_code and not in_html_comment:
-            # An indented code sample cannot open a Markdown HTML comment.
+    for line_number, line in normalized:
+        if not line.strip():
+            if not in_html_comment:
+                active.append((line_number, ""))
             continue
 
-        value = container_line
         visible_parts: list[str] = []
-        while value:
+        cursor = 0
+        while cursor < len(line):
             if in_html_comment:
-                end = value.find("-->")
+                end = line.find("-->", cursor)
                 if end < 0:
-                    value = ""
+                    cursor = len(line)
                     break
                 visible_parts.append(" ")
-                value = value[end + 3 :]
+                cursor = end + 3
                 in_html_comment = False
                 continue
 
-            masked_value = _mask_inline_code(value)
-            start = masked_value.find("<!--")
+            start = line.find("<!--", cursor)
             if start < 0:
-                visible_parts.append(value)
+                visible_parts.append(line[cursor:])
                 break
-            visible_parts.append(value[:start])
+
+            visible_parts.append(line[cursor:start])
+            if PROGRESSIVE_ROUTE_PREFIX.match(line, start) is not None:
+                # Keep malformed/live route candidates visible so the route parser fails closed.
+                visible_parts.append(line[start:])
+                cursor = len(line)
+                break
+
+            if CONDITIONAL_OWNER_MARKER.fullmatch(line.strip()) is not None and not "".join(
+                visible_parts
+            ).strip():
+                visible_parts.append(line[start:])
+                cursor = len(line)
+                break
+
+            # Keep a separator so removing a comment cannot splice an invalid Markdown link.
             visible_parts.append(" ")
-            end = value.find("-->", start + 4)
+            end = line.find("-->", start + 4)
             if end < 0:
                 in_html_comment = True
+                cursor = len(line)
                 break
-            value = value[end + 3 :]
+            cursor = end + 3
 
-        if indented_code:
-            continue
         visible = "".join(visible_parts)
         if visible.strip():
             active.append((line_number, visible))
-        elif not container_line.strip():
-            active.append((line_number, ""))
 
     return active
 
@@ -435,8 +505,7 @@ def _has_readable_route_prose(
     prose_lines = _route_prose_line_numbers(routing_lines, marker_index)
     if not prose_lines:
         return False
-    reference_lines = [(line_number, _mask_inline_code(line)) for line_number, line in routing_lines]
-    for reference_line, target in iter_references(reference_lines):
+    for reference_line, target in iter_references(routing_lines):
         if reference_line not in prose_lines:
             continue
         resolved, issue = resolve_reference(document.path, root, target)
