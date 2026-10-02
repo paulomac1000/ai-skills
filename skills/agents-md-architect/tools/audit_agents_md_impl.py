@@ -272,11 +272,7 @@ def _routing_active_lines(lines: Sequence[tuple[int, str]]) -> list[tuple[int, s
             # Keep malformed route candidates visible so the route parser can fail closed.
             active.append((line_number, source_line))
             continue
-        if (
-            not in_html_comment
-            and not indented_code
-            and CONDITIONAL_OWNER_MARKER.fullmatch(stripped) is not None
-        ):
+        if not in_html_comment and not indented_code and CONDITIONAL_OWNER_MARKER.fullmatch(stripped) is not None:
             active.append((line_number, source_line))
             continue
         if indented_code and not in_html_comment:
