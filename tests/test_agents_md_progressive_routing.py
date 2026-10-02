@@ -312,3 +312,62 @@ def test_generated_readable_projection_does_not_duplicate_control_marker(tmp_pat
 
     _, findings = audit_module.audit(tmp_path, "application", "monorepo", "en")
     assert "routing.trigger-owner-duplicate" not in _codes(findings)
+
+
+def test_nested_route_metadata_is_root_relative_while_prose_link_is_document_relative(
+    tmp_path: Path,
+) -> None:
+    _write_base(tmp_path)
+    _write_conditional_owner(tmp_path, "docs/release.md")
+    nested = tmp_path / "packages" / "api"
+    nested.mkdir(parents=True)
+    (nested / "AGENTS.md").write_text(
+        """# API instructions
+
+## Scope
+
+These instructions apply to packages/api.
+
+## Commands and verification
+
+- Full gate: `python ../../scripts/ci.py`
+
+## Architecture boundaries
+
+Generated files must not be edited directly.
+
+## Safety boundaries
+
+Secrets must not be committed. Destructive writes require authorization and rollback.
+
+## Definition of done
+
+Report exact revision, verification, skipped checks, and residual risk.
+
+## Release routing
+
+<!-- agents-md: route owner="docs/release.md" when="before release" purpose="release safety" -->
+- Before release, read [the release owner](../../docs/release.md) for release safety.
+""",
+        encoding="utf-8",
+    )
+
+    _, findings = audit_module.audit(tmp_path, "application", "monorepo", "en")
+    assert not any(finding.code.startswith("routing.") for finding in findings)
+
+
+def test_markdown_extension_conditional_owner_is_scanned(tmp_path: Path) -> None:
+    _write_base(tmp_path)
+    _write_conditional_owner(tmp_path, "docs/recovery.markdown")
+    _append(
+        tmp_path,
+        """
+## Recovery routing
+
+<!-- agents-md: route owner="docs/recovery.markdown" when="after failure" purpose="recovery" -->
+- After failure, read [the recovery owner](docs/recovery.markdown) before recovery work.
+""",
+    )
+
+    _, findings = audit_module.audit(tmp_path, "application", "single", "en")
+    assert not any(finding.code.startswith("routing.") for finding in findings)

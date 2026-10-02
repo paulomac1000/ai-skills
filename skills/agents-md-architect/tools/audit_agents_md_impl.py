@@ -24,7 +24,7 @@ from agents_md_completion_evidence import (  # noqa: E402
     completion_command_rules,
     public_task_invocations,
 )
-from agents_md_parse import parse_visible_lines, resolve_reference  # noqa: E402
+from agents_md_parse import iter_references, parse_visible_lines, resolve_reference  # noqa: E402
 from agents_md_python_evidence import _extract_python_invocations  # noqa: E402
 from agents_md_shell_evidence import (  # noqa: E402
     _command_path_tokens,
@@ -197,7 +197,7 @@ def _resolve_progressive_target(
             )
         ]
 
-    resolved, issue = resolve_reference(source, root, target)
+    resolved, issue = resolve_reference(root / "AGENTS.md", root, target)
     if resolved is None:
         return None, [
             AuditFinding(
@@ -259,7 +259,11 @@ def _conditional_owner_markers(
     root: Path,
     discovery: Discovery,
 ) -> tuple[dict[str, int], set[str], list[AuditFinding]]:
-    candidates = sorted(relative for relative in discovery.files if Path(relative).suffix.casefold() == ".md")
+    candidates = sorted(
+        relative
+        for relative in discovery.files
+        if Path(relative).suffix.casefold() in {".md", ".markdown"}
+    )
     if len(candidates) > PROGRESSIVE_OWNER_SCAN_LIMIT:
         return (
             {},
@@ -318,11 +322,12 @@ def _conditional_owner_markers(
 
 
 def _has_readable_route_prose(
+    root: Path,
     document: ParsedDocument,
     marker_index: int,
-    owner_target: str,
+    owner_relative: str,
 ) -> bool:
-    for _line_number, candidate in document.visible_lines[marker_index + 1 :]:
+    for line_number, candidate in document.visible_lines[marker_index + 1 :]:
         stripped = candidate.strip()
         if not stripped:
             continue
@@ -330,7 +335,17 @@ def _has_readable_route_prose(
             return False
         if stripped.startswith("<!--"):
             continue
-        return owner_target in candidate
+        for _reference_line, target in iter_references(((line_number, candidate),)):
+            resolved, issue = resolve_reference(document.path, root, target)
+            if resolved is None or issue is not None:
+                continue
+            try:
+                relative = resolved.relative_to(root).as_posix()
+            except ValueError:
+                continue
+            if relative == owner_relative:
+                return True
+        return False
     return False
 
 
@@ -352,18 +367,6 @@ def _progressive_routing_findings(
             if attributes is None:
                 continue
 
-            readable_route = _has_readable_route_prose(document, marker_index, attributes["owner"])
-            if not readable_route:
-                findings.append(
-                    AuditFinding(
-                        relative,
-                        "error",
-                        "routing.route-prose-missing",
-                        line_number,
-                        "Route marker must be followed by readable prose that references its conditional owner.",
-                    )
-                )
-
             owner, owner_findings = _resolve_progressive_target(
                 root,
                 relative,
@@ -382,7 +385,19 @@ def _progressive_routing_findings(
                     kind="invocation-owner",
                 )
                 findings.extend(invocation_findings)
-            if owner is None or not readable_route:
+            if owner is None:
+                continue
+            readable_route = _has_readable_route_prose(root, document, marker_index, owner)
+            if not readable_route:
+                findings.append(
+                    AuditFinding(
+                        relative,
+                        "error",
+                        "routing.route-prose-missing",
+                        line_number,
+                        "Route marker must be followed by readable prose linking to its conditional owner.",
+                    )
+                )
                 continue
             if owner == relative:
                 findings.append(
