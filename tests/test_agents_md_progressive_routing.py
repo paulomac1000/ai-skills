@@ -427,3 +427,21 @@ This later paragraph links [the migration owner](docs/migrations.md).
 
     _, findings = audit_module.audit(tmp_path, "application", "single", "en")
     assert {"routing.route-prose-missing", "routing.trigger-unreachable"} <= _codes(findings)
+
+
+def test_percent_encoded_absolute_route_owner_is_rejected(tmp_path: Path) -> None:
+    _write_base(tmp_path)
+    owner = _write_conditional_owner(tmp_path, "docs/migrations.md").resolve().as_posix()
+    encoded_owner = owner.replace("/", "%2F")
+    _append(
+        tmp_path,
+        f"""
+## Migration routing
+
+<!-- agents-md: route owner="{encoded_owner}" when="before migration" purpose="migration safety" -->
+- Before migration, read [the migration owner]({owner}) for migration safety.
+""",
+    )
+
+    _, findings = audit_module.audit(tmp_path, "application", "single", "en")
+    assert "routing.route-owner-absolute" in _codes(findings)

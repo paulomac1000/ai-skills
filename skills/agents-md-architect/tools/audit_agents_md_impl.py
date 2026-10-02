@@ -10,6 +10,7 @@ import sys
 from collections.abc import Iterable, Sequence
 from dataclasses import asdict, dataclass
 from pathlib import Path, PureWindowsPath
+from urllib.parse import unquote
 from typing import Literal
 
 TOOLS = Path(__file__).resolve().parent
@@ -164,7 +165,8 @@ def _resolve_progressive_target(
 ) -> tuple[str | None, list[AuditFinding]]:
     code_prefix = "routing.route-owner" if kind == "route-owner" else "routing.invocation-owner"
     label = "Conditional route owner" if kind == "route-owner" else "Canonical invocation owner"
-    if Path(target).is_absolute() or PureWindowsPath(target).is_absolute():
+    normalized_target = unquote(target.split("#", 1)[0]).strip()
+    if Path(normalized_target).is_absolute() or PureWindowsPath(normalized_target).is_absolute():
         return None, [
             AuditFinding(
                 source_relative,
@@ -174,7 +176,7 @@ def _resolve_progressive_target(
                 f"{label} must be repository-relative: {target}",
             )
         ]
-    if target.casefold().startswith(("http://", "https://", "mailto:", "tel:", "data:")):
+    if normalized_target.casefold().startswith(("http://", "https://", "mailto:", "tel:", "data:")):
         return None, [
             AuditFinding(
                 source_relative,
@@ -185,7 +187,7 @@ def _resolve_progressive_target(
             )
         ]
 
-    if kind == "route-owner" and Path(target).suffix.casefold() not in {".md", ".markdown"}:
+    if kind == "route-owner" and Path(normalized_target).suffix.casefold() not in {".md", ".markdown"}:
         return None, [
             AuditFinding(
                 source_relative,
