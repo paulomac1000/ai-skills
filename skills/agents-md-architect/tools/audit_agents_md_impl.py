@@ -256,6 +256,62 @@ def _resolve_progressive_target(
     return resolved.relative_to(root).as_posix(), []
 
 
+def _is_indented_code_line(line: str) -> bool:
+    return line.startswith("\t") or line.startswith("    ")
+
+
+def _routing_active_lines(lines: Sequence[tuple[int, str]]) -> list[tuple[int, str]]:
+    """Return routing evidence outside fenced/indented code and ordinary HTML comments."""
+    active: list[tuple[int, str]] = []
+    in_html_comment = False
+
+    for line_number, source_line in lines:
+        stripped = source_line.strip()
+        if (
+            not in_html_comment
+            and not _is_indented_code_line(source_line)
+            and (
+                PROGRESSIVE_ROUTE_MARKER.fullmatch(stripped) is not None
+                or CONDITIONAL_OWNER_MARKER.fullmatch(stripped) is not None
+            )
+        ):
+            active.append((line_number, source_line))
+            continue
+
+        value = source_line
+        visible_parts: list[str] = []
+        while value:
+            if in_html_comment:
+                end = value.find("-->")
+                if end < 0:
+                    value = ""
+                    break
+                value = value[end + 3 :]
+                in_html_comment = False
+                continue
+
+            start = value.find("<!--")
+            if start < 0:
+                visible_parts.append(value)
+                break
+            visible_parts.append(value[:start])
+            end = value.find("-->", start + 4)
+            if end < 0:
+                in_html_comment = True
+                break
+            value = value[end + 3 :]
+
+        if _is_indented_code_line(source_line):
+            continue
+        visible = "".join(visible_parts)
+        if visible.strip():
+            active.append((line_number, visible))
+        elif not source_line.strip():
+            active.append((line_number, ""))
+
+    return active
+
+
 def _conditional_owner_markers(
     root: Path,
     discovery: Discovery,
@@ -302,9 +358,10 @@ def _conditional_owner_markers(
                 )
             continue
         visible_lines, _unclosed = parse_visible_lines(text)
+        routing_lines = _routing_active_lines(visible_lines)
         marker_lines = [
             line_number
-            for line_number, line in visible_lines
+            for line_number, line in routing_lines
             if CONDITIONAL_OWNER_MARKER.fullmatch(line.strip()) is not None
         ]
         if len(marker_lines) > 1:
@@ -322,10 +379,13 @@ def _conditional_owner_markers(
     return owners, unreadable, findings
 
 
-def _route_prose_line_numbers(document: ParsedDocument, marker_index: int) -> set[int]:
+def _route_prose_line_numbers(
+    routing_lines: Sequence[tuple[int, str]],
+    marker_index: int,
+) -> set[int]:
     line_numbers: set[int] = set()
     started = False
-    for line_number, candidate in document.visible_lines[marker_index + 1 :]:
+    for line_number, candidate in routing_lines[marker_index + 1 :]:
         stripped = candidate.strip()
         if not started:
             if not stripped or stripped.startswith("<!--"):
@@ -349,13 +409,14 @@ def _route_prose_line_numbers(document: ParsedDocument, marker_index: int) -> se
 def _has_readable_route_prose(
     root: Path,
     document: ParsedDocument,
+    routing_lines: Sequence[tuple[int, str]],
     marker_index: int,
     owner_relative: str,
 ) -> bool:
-    prose_lines = _route_prose_line_numbers(document, marker_index)
+    prose_lines = _route_prose_line_numbers(routing_lines, marker_index)
     if not prose_lines:
         return False
-    for reference_line, target in iter_references(document.visible_lines):
+    for reference_line, target in iter_references(routing_lines):
         if reference_line not in prose_lines:
             continue
         resolved, issue = resolve_reference(document.path, root, target)
@@ -380,7 +441,8 @@ def _progressive_routing_findings(
 
     for document in documents:
         relative = document.relative_path
-        for marker_index, (line_number, line) in enumerate(document.visible_lines):
+        routing_lines = _routing_active_lines(document.visible_lines)
+        for marker_index, (line_number, line) in enumerate(routing_lines):
             attributes, error = _parse_progressive_route_marker(line)
             if error is not None:
                 findings.append(AuditFinding(relative, "error", "routing.route-marker-invalid", line_number, error))
@@ -408,7 +470,13 @@ def _progressive_routing_findings(
                 findings.extend(invocation_findings)
             if owner is None:
                 continue
-            readable_route = _has_readable_route_prose(root, document, marker_index, owner)
+            readable_route = _has_readable_route_prose(
+                root,
+                document,
+                routing_lines,
+                marker_index,
+                owner,
+            )
             if not readable_route:
                 findings.append(
                     AuditFinding(

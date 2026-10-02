@@ -471,3 +471,89 @@ def test_readable_unrouted_conditional_owner_is_still_reported_as_orphan(tmp_pat
 
     _, findings = audit_module.audit(tmp_path, "application", "single", "en")
     assert "routing.trigger-unreachable" in _codes(findings)
+
+
+def test_multiline_html_comment_link_does_not_make_route_reachable(tmp_path: Path) -> None:
+    _write_base(tmp_path)
+    _write_conditional_owner(tmp_path, "docs/recovery.md")
+    _append(
+        tmp_path,
+        """
+## Recovery routing
+
+<!-- agents-md: route owner="docs/recovery.md" when="after failure" purpose="recovery" -->
+- After failure, follow the governed recovery procedure.
+<!--
+[hidden recovery owner](docs/recovery.md)
+-->
+""",
+    )
+
+    _, findings = audit_module.audit(tmp_path, "application", "single", "en")
+    assert {"routing.route-prose-missing", "routing.trigger-unreachable"} <= _codes(findings)
+
+
+def test_route_marker_inside_multiline_html_comment_is_not_live(tmp_path: Path) -> None:
+    _write_base(tmp_path)
+    _write_conditional_owner(tmp_path, "docs/recovery.md")
+    _append(
+        tmp_path,
+        """
+## Disabled routing example
+
+<!--
+<!-- agents-md: route owner="docs/recovery.md" when="after failure" purpose="recovery" -->
+- After failure, read [the recovery owner](docs/recovery.md).
+-->
+""",
+    )
+
+    _, findings = audit_module.audit(tmp_path, "application", "single", "en")
+    assert "routing.trigger-unreachable" in _codes(findings)
+    assert "routing.route-prose-missing" not in _codes(findings)
+
+
+def test_indented_code_route_example_is_not_live(tmp_path: Path) -> None:
+    _write_base(tmp_path)
+    _write_conditional_owner(tmp_path, "docs/recovery.md")
+    _append(
+        tmp_path,
+        """
+## Routing example
+
+    <!-- agents-md: route owner="docs/recovery.md" when="after failure" purpose="recovery" -->
+    - After failure, read [the recovery owner](docs/recovery.md).
+""",
+    )
+
+    _, findings = audit_module.audit(tmp_path, "application", "single", "en")
+    assert "routing.trigger-unreachable" in _codes(findings)
+    assert "routing.route-prose-missing" not in _codes(findings)
+
+
+@pytest.mark.parametrize(
+    "owner_body",
+    (
+        "    <!-- agents-md: conditional-owner -->\n",
+        "<!--\n<!-- agents-md: conditional-owner -->\n-->\n",
+    ),
+)
+def test_hidden_conditional_owner_marker_does_not_satisfy_route(
+    tmp_path: Path,
+    owner_body: str,
+) -> None:
+    _write_base(tmp_path)
+    owner = tmp_path / "docs" / "recovery.md"
+    owner.write_text("# Recovery\n\n" + owner_body, encoding="utf-8")
+    _append(
+        tmp_path,
+        """
+## Recovery routing
+
+<!-- agents-md: route owner="docs/recovery.md" when="after failure" purpose="recovery" -->
+- After failure, read [the recovery owner](docs/recovery.md).
+""",
+    )
+
+    _, findings = audit_module.audit(tmp_path, "application", "single", "en")
+    assert "routing.conditional-owner-marker-missing" in _codes(findings)
