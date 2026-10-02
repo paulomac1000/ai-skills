@@ -10,8 +10,8 @@ import sys
 from collections.abc import Iterable, Sequence
 from dataclasses import asdict, dataclass
 from pathlib import Path, PureWindowsPath
-from urllib.parse import unquote
 from typing import Literal
+from urllib.parse import unquote
 
 TOOLS = Path(__file__).resolve().parent
 REPOSITORY_ROOT = TOOLS.parents[2]
