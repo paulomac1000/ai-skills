@@ -188,11 +188,7 @@ def evaluate(
     missing_selection = expected - selected
     unexpected_selection = selected - expected
     selection_drift = (
-        missing_selection
-        | unexpected_selection
-        | stale_exclusions
-        | expired_discovered
-        | missing_required_subjects
+        missing_selection | unexpected_selection | stale_exclusions | expired_discovered | missing_required_subjects
     )
 
     execution_evidence = "unknown" if observed_executed is None else "observed"

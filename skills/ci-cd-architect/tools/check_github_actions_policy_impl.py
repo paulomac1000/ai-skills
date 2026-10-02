@@ -266,9 +266,7 @@ def _protected_publisher_run_findings(
 ) -> list[Finding]:
     if not isinstance(step, dict) or not isinstance(step.get("run"), str):
         return []
-    script = "\n".join(
-        line for line in step["run"].splitlines() if not line.lstrip().startswith("#")
-    )
+    script = "\n".join(line for line in step["run"].splitlines() if not line.lstrip().startswith("#"))
     findings: list[Finding] = []
     for pattern, description in _PROTECTED_PUBLISHER_FORBIDDEN_RUNS:
         if pattern.search(script):
