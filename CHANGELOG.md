@@ -20,6 +20,10 @@
 - Protected publication validation mechanically rejects supported candidate materialization/execution surfaces before publication authority can be used.
 - Required validation subjects cannot disappear from a green governed-corpus receipt when the filesystem or discovery heuristic stops returning them.
 
+### Dependencies
+
+- Pinned the existing transitive security-sensitive dependencies to PyJWT 2.15.1 and urllib3 2.8.0, replacing advisory-affected PyJWT 2.13.0 and urllib3 2.7.0 in the regenerated development locks.
+
 ## 3.0.0 - 2026-09-13
 
 ### Added
