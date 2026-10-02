@@ -206,3 +206,104 @@ def test_impl_requires_explicit_hardened_dependencies() -> None:
     assert repository_parameters["reader"].default is inspect.Parameter.empty
     assert repository_parameters["enumerator"].default is inspect.Parameter.empty
     assert not hasattr(policy_impl, "main")
+
+
+def _protected_release_workflow(publish_steps: str, *, validation_steps: str = "") -> str:
+    return f"""
+# ai-skills-policy-profile: protected-release
+name: publish
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: publish
+  cancel-in-progress: false
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+{validation_steps or "      - run: echo validated"}
+  publish:
+    needs: validate
+    environment: production
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write
+    steps:
+{publish_steps}
+""".lstrip()
+
+
+def test_protected_release_allows_candidate_load_only_in_unprivileged_validation(tmp_path: Path) -> None:
+    workflow = tmp_path / "publish.yml"
+    workflow.write_text(
+        _protected_release_workflow(
+            "      - run: docker buildx imagetools create --tag ghcr.io/acme/app:release ghcr.io/acme/app@sha256:" + "a" * 64,
+            validation_steps="      - run: docker load --input bundle/release/image.tar",
+        ),
+        encoding="utf-8",
+    )
+    assert _messages(workflow) == []
+
+
+@pytest.mark.parametrize(
+    ("run", "expected"),
+    (
+        ("docker load --input bundle/release/image.tar", "load a candidate image"),
+        ("docker image load --input bundle/release/image.tar", "load a candidate image"),
+        ("docker build -t candidate .", "build a candidate image"),
+        ("docker buildx build --load -t candidate .", "build a candidate image"),
+        ("docker run --rm candidate:tested", "execute a candidate image"),
+        ("python -m build", "build a candidate package"),
+        ("npm pack", "build a candidate package"),
+        ("dotnet pack -c Release", "build or execute candidate code"),
+        ("git clone https://example.invalid/repo.git src", "check out or materialize repository source"),
+    ),
+)
+def test_protected_release_rejects_candidate_materialization_build_or_execution(
+    tmp_path: Path,
+    run: str,
+    expected: str,
+) -> None:
+    workflow = tmp_path / "publish.yml"
+    workflow.write_text(
+        _protected_release_workflow(f"      - run: {run}"),
+        encoding="utf-8",
+    )
+    messages = _messages(workflow)
+    assert any(expected in message and "protected publisher" in message for message in messages)
+
+
+def test_protected_release_allows_registry_native_exact_digest_promotion(tmp_path: Path) -> None:
+    workflow = tmp_path / "publish.yml"
+    workflow.write_text(
+        _protected_release_workflow(
+            """      - name: promote exact digest
+        run: |
+          set -euo pipefail
+          source_ref="ghcr.io/acme/quarantine@sha256:${DIGEST}"
+          docker buildx imagetools create --tag ghcr.io/acme/app:release "$source_ref"
+          docker buildx imagetools inspect ghcr.io/acme/app:release
+"""
+        ),
+        encoding="utf-8",
+    )
+    assert _messages(workflow) == []
+
+
+def test_protected_release_rejects_checkout_action_in_write_job(tmp_path: Path) -> None:
+    workflow = tmp_path / "publish.yml"
+    workflow.write_text(
+        _protected_release_workflow(
+            """      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+"""
+        ),
+        encoding="utf-8",
+    )
+    assert any("must not execute repository source" in message for message in _messages(workflow))

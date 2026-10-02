@@ -35,6 +35,20 @@ _PROFILES = {"pull-request", "trusted-ci", "protected-release"}
 _TRUSTED_CI_WRITE_SCOPES = frozenset({"checks", "security-events"})
 _PROTECTED_RELEASE_WRITE_SCOPES = frozenset({"attestations", "contents", "id-token", "packages", "security-events"})
 
+_PROTECTED_PUBLISHER_FORBIDDEN_RUNS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"\bgit\s+(?:clone|checkout|switch|worktree\s+add)\b", re.IGNORECASE), "check out or materialize repository source"),
+    (re.compile(r"\bdocker\s+(?:image\s+)?load\b", re.IGNORECASE), "load a candidate image"),
+    (re.compile(r"\bdocker\s+import\b", re.IGNORECASE), "import a candidate image"),
+    (re.compile(r"\bdocker\s+(?:build|buildx\s+build)\b", re.IGNORECASE), "build a candidate image"),
+    (re.compile(r"\bdocker\s+run\b", re.IGNORECASE), "execute a candidate image"),
+    (re.compile(r"\bpython(?:\d+(?:\.\d+)*)?\s+-m\s+build\b", re.IGNORECASE), "build a candidate package"),
+    (re.compile(r"\b(?:pip|pip3)\s+wheel\b", re.IGNORECASE), "build a candidate package"),
+    (re.compile(r"\b(?:npm|pnpm|yarn)\s+(?:run\s+)?(?:build|pack)\b", re.IGNORECASE), "build a candidate package"),
+    (re.compile(r"\bdotnet\s+(?:build|pack|publish|run|test)\b", re.IGNORECASE), "build or execute candidate code"),
+    (re.compile(r"\bcargo\s+(?:build|package|run|test)\b", re.IGNORECASE), "build or execute candidate code"),
+    (re.compile(r"\bgo\s+(?:build|run|test)\b", re.IGNORECASE), "build or execute candidate code"),
+)
+
 
 class _UniqueKeyLoader(yaml.SafeLoader):
     """Safe YAML loader that rejects duplicate mapping keys."""
@@ -238,6 +252,28 @@ def _action_findings(path: Path, job_name: str, step_index: int, step: Any) -> l
             if with_block.get("if-no-files-found") not in {"error", "warn", "ignore"}:
                 findings.append(Finding(path, f"{label} upload-artifact needs explicit if-no-files-found"))
 
+    return findings
+
+
+
+def _protected_publisher_run_findings(path: Path, job_name: str, step_index: int, step: Any) -> list[Finding]:
+    if not isinstance(step, dict) or not isinstance(step.get("run"), str):
+        return []
+    script = "\n".join(
+        line for line in step["run"].splitlines() if not line.lstrip().startswith("#")
+    )
+    findings: list[Finding] = []
+    for pattern, description in _PROTECTED_PUBLISHER_FORBIDDEN_RUNS:
+        if pattern.search(script):
+            findings.append(
+                Finding(
+                    path,
+                    (
+                        f"job {job_name!r} step {step_index} protected publisher must not "
+                        f"{description}; promote the already-tested immutable artifact instead"
+                    ),
+                )
+            )
     return findings
 
 
@@ -470,6 +506,8 @@ def audit_workflow(
             continue
         for index, step in enumerate(steps, start=1):
             findings.extend(_action_findings(path, str(job_name), index, step))
+            if write_job and selected_profile == "protected-release":
+                findings.extend(_protected_publisher_run_findings(path, str(job_name), index, step))
             if (
                 write_job
                 and selected_profile == "protected-release"

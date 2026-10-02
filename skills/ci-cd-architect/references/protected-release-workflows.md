@@ -53,3 +53,10 @@ python skills/ci-cd-architect/tools/check_github_actions_policy.py \
 ```
 
 Then use a disposable registry namespace to prove archive checksum validation, explicit tag pushes, digest capture, source-label equality, and rejection of an altered archive.
+
+
+## Protected publisher execution boundary
+
+An authority-bearing protected publisher promotes an already-tested immutable artifact. It MUST NOT check out or clone candidate source, rebuild/package candidate code, load/import candidate images, or execute candidate code/images under publication authority. Those operations belong in the unprivileged validation/build stage.
+
+The trusted workflow-policy auditor rejects high-signal command classes such as repository checkout/clone, container build/load/import/run, and common language package-build commands in protected write jobs. Registry-native exact-digest copy/promote/inspect operations remain valid. Static shell inspection is deliberately bounded: dynamic indirection cannot be proven safe by lexical scanning and still requires review of the protected publication trust boundary.

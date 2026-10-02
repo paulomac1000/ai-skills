@@ -21,7 +21,7 @@ Repository SemVer selection, changelog curation, and the one-version-per-release
 8. Pin every third-party action to a full commit SHA and maintain version comments separately from trust.
 9. Give each job least privilege, a timeout, explicit concurrency behavior, and bounded artifact retention.
 10. Separate validation from privileged publication. Validation does not write production-effective state unless it is explicitly a deployment/migration transaction with separate authority.
-11. Build, smoke-test, and publish the same immutable artifact or digest.
+11. Build and smoke-test without publication authority, then let the protected publisher promote the same immutable artifact or digest without checkout, rebuild, image/package loading, or candidate execution.
 12. Verify acceptance and release identity from the exact executed revision, not from unrelated trigger context or a workflow that never received a runner.
 13. Render and parse templates, run the repository quality gate, inspect final workflow permissions and triggers, and prove both fast and full execution paths where on-demand CI is used.
 
