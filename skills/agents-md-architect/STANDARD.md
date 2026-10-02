@@ -12,76 +12,61 @@ verification: Run `python skills/agents-md-architect/tools/validate_agents_md.py
 
 ## Purpose
 
-This standard defines how repository instructions for coding agents are discovered, scoped, structured, delegated, verified, and maintained. `AGENTS.md` is an operational control surface, not a replacement for product documentation, executable policy, or platform security controls.
+`AGENTS.md` is a compact operational control surface for coding agents. It routes to canonical repository truth; it is not a second README, architecture archive, executable policy engine, or platform security boundary.
 
 ## Scope and precedence
 
-A root `AGENTS.md` states the repository-wide contract and the scope it governs. A nested file may apply to its subtree only when the selected agent platform supports that discovery model. Direct user instructions and platform-level safety requirements retain higher authority than repository content.
+A root `AGENTS.md` owns repository-wide instructions. Nested files apply only to their declared subtree when the selected platform supports that discovery model. User instructions and platform safety requirements retain higher authority.
 
-Before relying on hierarchy, follow `references/instruction-precedence-and-platforms.md` and verify the exact product surface. Portable guidance must not assume tool-specific override files, hidden prompt behavior, or identical merge semantics. Platform adapters remain thin and must not duplicate the portable core.
-
-Conflicts fail closed. Identify the competing sources and canonical owner; do not silently select the easier rule.
+Before relying on hierarchy, verify the exact product surface through `references/instruction-precedence-and-platforms.md`. Do not assume override filenames, merge semantics, hidden prompt behavior, or context budgets are portable. Conflicts fail closed: identify the competing sources and canonical owner rather than silently choosing a convenient rule.
 
 ## Repository discovery
 
-Instructions are derived from repository evidence. Before creating or materially changing them, inspect applicable manifests, build files, task runners, CI workflows, test entry points, architecture decisions, generated-file ownership, security boundaries, data locations, release procedures, and existing agent instructions.
+Author from repository evidence: manifests, build/task entry points, CI, tests, architecture decisions, generated-file ownership, security/data boundaries, release procedures, and existing agent instructions.
 
-Treat the repository root, input instruction files, referenced paths, and symlinks as untrusted. Static tools must verify confinement before reading and must not follow instruction-file or reference symlinks. Concrete file references must resolve to regular files; concrete directory references may resolve to real directories for routing or layout; path patterns, globs, and placeholders are validated lexically rather than required to exist literally. A canonical owner remains a concrete named file or other explicit durable owner, never a directory or pattern. Invalid UTF-8, oversized files, and oversized instruction trees fail with stable findings rather than tracebacks.
+Treat repository paths and instruction content as untrusted. Readers must stay confined to the repository, reject instruction/reference symlinks, bound file/tree size, and return stable findings for invalid UTF-8 or unsafe paths. Concrete files resolve to regular files; concrete directories may be routing targets; globs/placeholders are checked lexically rather than required to exist literally. A canonical owner is a named durable source, never a directory pattern.
 
-Discovery must not treat every directory name as universal build output. In particular, root `bin/` scripts and language entry points remain discoverable; ecosystem-specific output such as `.NET` project `bin/` and `obj/` directories may be ignored only with project evidence.
+Do not classify every `bin/` as build output: ignore ecosystem-specific outputs only when repository evidence justifies it. Bind discovered commands to their directory and exact argv. Run representative commands when possible; otherwise label them located-but-unexecuted or unverified. Static discovery is not execution evidence.
 
-Commands must exist on the assessed revision. Unless a command explicitly selects or changes directories, interpret it from the directory containing the applicable `AGENTS.md`. Evidence derived from directory-scoped task definitions must remain bound to the directory containing that definition, and discovered entry points must preserve exact `argv` boundaries. Run representative commands when the environment permits; otherwise label them located-but-unexecuted or unverified and name the missing evidence. Static path discovery is not proof that an exact command ran or that it matches hosted CI. Incident-derived guards belong here only when the failure can recur and is not already eliminated by code or automation.
-
-When upgrading an existing adoption, compare the old and target normative standard, rule catalog, validator behavior, evidence contract, templates, and references before editing prose. A version change alone is not a reason to rewrite a useful canonical `AGENTS.md`. Preserve compliant repository-specific instructions and make targeted integration or evidence changes unless the normative contract or repository boundaries actually changed. Follow `references/migration-and-upgrade.md`.
+For an existing adoption, compare the target standard, rule catalog, validator, evidence contract, templates, and references before editing. Preserve compliant repository-specific policy and make targeted changes; a version bump alone is not a rewrite reason. Follow `references/migration-and-upgrade.md`.
 
 ## Operating modes and profiles
 
-Distinguish modes whose permissions or completion criteria materially differ, including read-only audit, implementation, migration, release, incident response, or private-data analysis. A lower-impact request must not expand silently into writes, publication, destructive operations, or data retention.
+Separate modes when permissions or completion differ, such as audit, implementation, migration, release, incident response, or private-data analysis. Lower-impact work must not silently expand into writes, publication, destructive effects, or retention.
 
-Select two independent axes:
-
-- layout: `single` or `monorepo`;
-- domain profile: `router`, `application`, `mcp-server`, or `safety-critical`.
-
-The `monorepo` layout adds root/nested inheritance, conflict, duplication, and local-difference checks without replacing domain requirements. A safety-critical or MCP monorepo therefore keeps both tree controls and its domain-specific safety contracts. The `mcp-server` profile composes with the conditional `mcp-server-architect` dependency.
-
-Select the document language using `references/language-and-contract-markers.md`. English and Polish have bounded lexical vocabularies. Other languages require stable `agents-md: contract` markers for strict validation. Lexical analysis must never be described as universal semantic understanding.
-
-Profiles and layouts are composition guidance, not separate versions of the standard.
+Select layout (`single` or `monorepo`), domain profile (`router`, `application`, `mcp-server`, or `safety-critical`), and document language. Monorepo controls compose with domain requirements; the MCP profile composes with `mcp-server-architect`. English and Polish have bounded lexical vocabularies; other languages require stable contract markers and manual semantic review. Profiles are compositions, not version forks.
 
 ## Canonical ownership and architecture boundaries
 
-Every durable rule, contract, schema, generated artifact, and configuration default has one canonical owner. `AGENTS.md` summarizes the operational consequence and links to that owner. It does not preserve obsolete behavior through numbered files, parallel current implementations, or undocumented compatibility branches.
+Every durable rule, contract, schema, generated artifact, and configuration default has one canonical owner. `AGENTS.md` states the operational consequence and route, not a duplicate implementation.
 
-State non-obvious architecture boundaries that are expensive to infer incorrectly: dependency direction, generated files that must not be edited, registry or generator ownership, required update propagation, and components that may access specific resources. Generic advice is not an architecture boundary.
+Document only non-obvious boundaries that are expensive to infer incorrectly: dependency direction, generated-file ownership, required propagation, resource-access limits, or registry/generator authority. Generic engineering advice is not an architecture boundary.
 
 ## Safety and data boundaries
 
-High-impact repositories name protected data, privileged components, allowed flows, forbidden flows, default-deny behavior, and the checks that prove each boundary. Secrets, personal data, production exports, credentials, raw sensitive payloads, and real user fixtures remain outside tracked files unless an explicit reviewed contract states otherwise.
+High-impact repositories name protected data/components, allowed and forbidden flows, default-deny behavior, and verification. Secrets, personal data, production exports, credentials, raw sensitive payloads, and real user fixtures stay outside tracked files unless a reviewed contract explicitly permits them.
 
-Read-only operations are the default for diagnosis. External sends, destructive actions, privilege expansion, sensitive writes, and irreversible changes require a trusted authorization and confirmation mechanism. Model-controlled text, guessed intent, or keyword matching is not proof of human approval.
+Diagnosis defaults read-only. External sends, destructive operations, privilege expansion, sensitive writes, and irreversible effects require trusted authorization/confirmation. Model text, guessed intent, or keyword matching is not human approval.
 
 ## Commands and verification
 
-List exact commands for setup, the smallest focused check, build or type validation, formatting or linting, and the full completion gate when those operations exist. Prefer repository-owned scripts over duplicated command sequences.
+List repository-owned commands for setup, focused checks, build/type validation, formatting/linting, and the full completion gate when applicable. Keep local diagnostics distinct from hosted/provider acceptance: a **local pass does not guarantee remote CI**, platform compatibility, credentials, deployment behavior, or independent approval. Final claims bind to the exact revision and artifact where relevant.
 
-Separate local diagnostics from hosted or provider-backed acceptance. A local pass does not guarantee remote CI, platform compatibility, integration credentials, deployment behavior, or independent approval. Final claims bind to the exact revision and, where applicable, the exact built or published artifact.
+Static audit may call a command located only when it matches discovered task/CI evidence; existing-but-unmatched is unverified and missing is unlocated. Only controlled execution proves behavior.
 
-A static audit may report an exact command reference as located when it matches a discovered task runner or CI definition. It must report existing-but-unmatched invocations as unverified and missing invocations as unlocated. Only controlled execution proves execution behavior.
+Before an unknown helper, CLI, test, module, or launcher invocation, **discover before invoke**. Prefer governed metadata, repository launcher/manifest/task catalog, bounded `--help` or command catalog, test/module inventory, schema, then targeted source. Missing or ambiguous canonical syntax is a readiness gap, not permission for speculative failed executions.
 
-Before an unknown helper, CLI, test, module, or launcher invocation, **discover before invoke**. Prefer governed metadata, then repository launcher/manifest/task catalog, bounded `--help` or command catalog, test/module inventory, schema, and only then targeted source. Missing or ambiguous canonical syntax is a readiness gap; do not discover it by repeated failed execution.
-
-Commands requiring credentials, external systems, destructive access, payment, or unusual runtime cost state those preconditions and their safe stop behavior.
+State credentials, external systems, destructive access, payment, unusual cost, and safe-stop preconditions.
 
 ## Context economy and routing
 
-The root file contains rules needed for most tasks: scope, precedence, core modes, critical boundaries, command entry points, completion criteria, and task routing. Specialized procedures, incident histories, exhaustive maps, and long examples load on demand.
+Keep broadly required scope, precedence, critical boundaries, command entry points, completion criteria, and routing on the always-loaded surface. Load specialized procedures, history, maps, and examples conditionally.
 
-Place new durable knowledge with the first applicable owner: always-required operating facts stay inline; conditional procedures have one routed owner; stable architecture/product knowledge stays in its canonical document; exact mechanics stay with executable/config/schema owners; verification belongs to evidence; incident chronology stays with incident/task records. **Stop at the first applicable owner** instead of copying the fact into `AGENTS.md`.
+Place durable knowledge with the first applicable owner: always-required operating facts inline; conditional procedure in one routed owner; stable architecture/product knowledge in its durable document; exact mechanics in executable/config/schema owners; verification in evidence; incident chronology in incident/task records. **Stop at the first applicable owner** instead of copying it into `AGENTS.md`.
 
-A conditional trigger must be observable **before the first action governed by the destination**, including after a mid-task transition. A trigger found only inside its unopened destination is unreachable. Tasks that never reach the condition should not load the full procedure. After extraction, the **pre-load stub** contains only the trigger/route plus safety invariants needed before the destination loads; it is not a second procedural copy.
+A conditional trigger must be observable **before the first action governed by the destination**, including after a mid-task transition. A trigger only inside its unopened destination is unreachable. A task that never reaches the condition should not load the procedure. After extraction the **pre-load stub** contains only the trigger/route plus safety needed before loading; it is not a second editable procedure.
 
-For mechanical reachability, pair one route marker in the applicable `AGENTS.md` with one marker in the exact regular-file destination:
+For repositories needing deterministic reachability evidence:
 
 ```markdown
 <!-- agents-md: route owner="docs/migrations.md" when="before schema change" purpose="rollback" invoke-owner="Makefile" -->
@@ -89,13 +74,15 @@ For mechanical reachability, pair one route marker in the applicable `AGENTS.md`
 <!-- agents-md: conditional-owner -->
 ```
 
-`owner`, `when`, and `purpose` are required; `invoke-owner` optionally identifies the canonical invocation owner. A marked conditional owner has exactly one editable route; generated projections may derive from it. Static audit proves syntax, confinement, uniqueness, and structural reachability. It **does not prove semantic trigger timing** or actual platform loading; those require behavioral/platform evidence.
+`owner`, `when`, and `purpose` are required; `invoke-owner` optionally identifies the canonical invocation source. A marked destination has exactly one editable route. Generated projections may derive from that source, but a second hand-maintained trigger catalog is non-conforming.
 
-Every reference states when to read it and what decision it owns. Concrete repository file references resolve to confined, regular, non-symlink files; concrete directory references may resolve to confined, non-symlink directories when the route itself is the useful target. Patterns and placeholders describe families of paths and are not tested as literal files. Do not use a directory or pattern as a substitute for a named canonical owner. Do not duplicate README content, linter configuration, full CI definitions, complete architecture documents, current inventories, or skill catalogs.
+Static audit proves marker syntax, confinement, uniqueness, and structural reachability. It **does not prove semantic trigger timing** or platform loading; those require behavioral/provider evidence. See `references/profiles-and-routing.md`.
 
-Context budgets are review thresholds, not quality scores. The effective threshold is the larger of the selected layout and domain-profile budgets:
+Every reference states when to read it and what decision it owns. Do not duplicate README content, lint configuration, CI definitions, architecture documents, inventories, or skill catalogs.
 
-| Selection | Review above lines | Review above UTF-8 bytes |
+Context budgets are review thresholds:
+
+| Selection | Lines | UTF-8 bytes |
 | --- | ---: | ---: |
 | `router` | 60 | 6,000 |
 | `application` | 120 | 12,000 |
@@ -103,43 +90,33 @@ Context budgets are review thresholds, not quality scores. The effective thresho
 | `mcp-server` | 150 | 16,000 |
 | `safety-critical` | 180 | 20,000 |
 
-Exceeding either threshold produces a warning. A strict gate treats that warning as blocking unless the file contains one reviewed waiver with a concrete reason of at least 20 characters:
-
-```markdown
-<!-- agents-md: waive context-budget reason="Critical emergency boundaries must remain visible in every session." -->
-```
-
-A waiver does not excuse duplicated or stale content.
+Use the larger applicable layout/profile threshold. Exceeding it is a warning; strict mode blocks unless one reviewed `agents-md: waive context-budget` marker gives a concrete reason. A waiver never excuses stale or duplicated content.
 
 ## Nested instructions
 
-Use nested files only when a subtree has materially different commands, technology, ownership, generated-file rules, or safety boundaries. The root declares how local files are intended to apply for the selected platform. Each local file identifies its scope and contains only differences plus local completion checks.
+Use nested files only for material local differences in commands, technology, ownership, generated-file rules, or safety. The root states platform application; nested files state scope, differences, and local completion checks.
 
-Validate root and nested files together with `--layout monorepo` and the selected domain profile. The executable validator performs bounded structural and lexical checks for ancestry, conflicting generated-file and test-integrity directives, command and ownership drift, duplicated sections, and files with no local difference. English and Polish conflict vocabularies are bounded; other languages require markers and manual semantic review. These checks do not prove full semantic consistency.
-
-Do not mirror the complete root file into every package. A nested file that only links to the root adds no value.
+Validate the whole tree with the selected layout/profile/language. The validator performs **bounded structural and lexical checks** for ancestry, conflicts, command/ownership drift, duplication, and empty local overrides. This is not proof of full semantic consistency. Do not mirror the root into every package.
 
 ## Anti-patterns and drift
 
-Reject context bloat, skill leakage, lint leakage, blind references, self-triggering or orphaned conditional owners, duplicate editable trigger indexes, speculative command archaeology, generated-file fossilization, conflicting instructions, host-specific absolute paths, volatile counts, stale ports, embedded changelogs, temporary migration names, unreplaced `REPLACE_...` tokens, and claims not tied to evidence.
+Reject context bloat, skill/lint leakage, blind or dead routes, self-triggering/orphaned owners, duplicate editable trigger indexes, speculative invocation archaeology, generated-file fossilization, conflicting instructions, host-specific paths, volatile counts, stale ports, embedded changelogs, temporary migration names, unreplaced placeholders, brittle consent parsers, weakened tests, and false verification claims.
 
-Reject brittle consent parsers, instructions that weaken tests to obtain green results, and statements equating mock coverage with real integration behavior. Keep incident narratives in incident documents and retain only the durable guard in the instruction system.
-
-Review the instruction tree when build entry points, architecture boundaries, data flows, CI gates, repository layout, ownership, document language, or supported agent platforms change. Structural validation is not proof that every factual claim remains current. If a validator upgrade is the only source of churn, distinguish a real contract change from a parser limitation before making the document less natural or less precise.
+Keep incident narratives with incidents and only reusable guards in durable instructions. Re-review when entry points, architecture/data boundaries, CI, layout, ownership, language, or supported platforms change. A validator-only change must not make natural instructions worse merely to satisfy a parser.
 
 ## Definition of done
 
 An instruction change is complete only when:
 
-1. scope, platform behavior, precedence, operating modes, layout, domain profile, document language, and canonical owners are unambiguous;
-2. input files and concrete repository references are confined and non-symlinked, concrete file references resolve to regular files, concrete directory references resolve to directories, and path-pattern references remain lexically confined within bounded size limits;
-3. commands and references resolve on the exact revision and are labeled as executed, located-but-unexecuted, unverified, or missing;
-4. nested files contain material local differences without contradictory duplication while retaining domain-specific safety requirements;
-5. safety and data boundaries match implementation and deployment configuration;
-6. the validator, repository audit, focused tests, and full quality gate pass with the same layout, profile, and language selections;
-7. extracted conditional content has one reachable trigger owner, no substantive duplicate procedure, no stale route/backlink, and only necessary pre-load safety facts remain inline;
-8. the final report distinguishes verified facts, lexical checks, behavioral/platform evidence, assumptions, skipped checks, and residual risks.
+1. scope, platform behavior, precedence, modes, layout, profile, language, and canonical owners are unambiguous;
+2. instruction inputs and concrete references are confined, non-symlinked, type-correct, and bounded;
+3. commands/references resolve on the exact revision and are labeled executed, located-but-unexecuted, unverified, or missing;
+4. nested files contain real local differences without contradictory duplication;
+5. safety/data boundaries match implementation and deployment controls;
+6. validator, repository audit, focused tests, and full gate pass with consistent selections;
+7. extracted conditional content has one reachable trigger owner, no substantive duplicate or stale route/backlink, and only pre-load-critical safety remains inline;
+8. the report separates verified facts, lexical/static checks, behavioral/platform evidence, assumptions, skipped checks, and residual risk.
 
 ## Verification
 
-Run static discovery, audit the full repository, validate every instruction file together with the selected layout, domain profile, and language, then execute focused and full quality gates. Verify actual instruction loading in the selected platform. Independent approval is required when the instruction system governs production acceptance or high-impact operations.
+Run static discovery, audit the repository, validate the instruction tree with the selected layout/profile/language, then run focused and full quality gates. Verify actual instruction loading on the selected platform. Production/high-impact acceptance requires independent approval.
