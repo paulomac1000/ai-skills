@@ -1,0 +1,24 @@
+schema_version: 1
+skill: agents-md-architect
+suite: routing
+cases:
+- id: split-oversized-agents
+  kind: positive
+  prompt: Split an oversized AGENTS.md so migration and release procedures load only when needed, while preserving pre-load safety rules.
+  selected_skills: [agents-md-architect]
+  rejected_skills: []
+- id: audit-dead-route
+  kind: positive
+  prompt: Audit this AGENTS.md refactor for an orphaned conditional procedure whose only trigger was moved into the procedure itself.
+  selected_skills: [agents-md-architect]
+  rejected_skills: []
+- id: skill-package-near-miss
+  kind: negative
+  prompt: Split an oversized SKILL.md into task-routed references and improve the skill description trigger.
+  selected_skills: [skill-architect]
+  rejected_skills: [agents-md-architect]
+- id: agents-vs-skill-collision
+  kind: collision
+  prompt: Refactor repository AGENTS.md instructions into progressive routes without turning each procedure into a new reusable skill.
+  selected_skills: [agents-md-architect]
+  rejected_skills: [skill-architect]

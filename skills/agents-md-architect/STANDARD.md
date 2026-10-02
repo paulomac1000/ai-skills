@@ -69,11 +69,42 @@ Separate local diagnostics from hosted or provider-backed acceptance. A local pa
 
 A static audit may report an exact command reference as located when it matches a discovered task runner or CI definition. It must report existing-but-unmatched invocations as unverified and missing invocations as unlocated. Only controlled execution proves execution behavior.
 
+Before the first helper, CLI, test, module, or launcher invocation whose supported form is not already current in the loaded contract, **discover before invoke**. Resolve the interface from the nearest canonical owner in this order: governed skill/runtime-dependency metadata; repository launcher, manifest, or task catalog; bounded `--help` or supported-command catalog; test/module inventory; schema/contract; targeted source lookup only when the canonical interface is incomplete. Missing or ambiguous canonical invocation is a readiness gap, not permission for repeated speculative execution.
+
 Commands requiring credentials, external systems, destructive access, payment, or unusual runtime cost state those preconditions and their safe stop behavior.
 
 ## Context economy and routing
 
 The root file contains rules needed for most tasks: scope, precedence, core modes, critical boundaries, command entry points, completion criteria, and task routing. Specialized procedures, incident histories, exhaustive maps, and long examples load on demand.
+
+Place new durable knowledge with the first applicable owner:
+
+1. always-required operating facts needed before routing or for nearly every task stay on the always-loaded instruction surface;
+2. a named conditional procedure or invariant belongs to one routed skill, reference, or workflow;
+3. stable architecture, product, and contributor knowledge stays in its canonical durable document, with only the operational consequence and route in `AGENTS.md`;
+4. exact flags, schemas, command mechanics, generated inventories, and configuration stay with executable/config/schema owners when possible;
+5. verification results and exact observations stay with evidence owners;
+6. incident/task chronology stays in incident, task, or PR evidence after reusable invariants are distilled.
+
+Stop at the first applicable owner rather than copying the fact into a convenient always-loaded file.
+
+A conditional route is conforming only when its trigger is observable **before the first action governed by the destination**. The trigger has one canonical owner. A trigger that exists only inside its own unopened destination is unreachable. The route must still work when the condition appears mid-task—for example implementation becoming migration, validation requiring a user decision, normal work entering recovery, or a candidate entering release. A task that never reaches the condition should not load the unrelated full procedure.
+
+After extraction, the always-loaded **pre-load stub** keeps only (a) the trigger/route and (b) any safety invariant that must hold before or while obtaining the conditional instructions. Do not keep a partial editable copy of the procedure “just in case.”
+
+For repositories that need deterministic reachability evidence, the static auditor supports paired markers. The route marker lives in the applicable always-loaded instruction file and names an exact regular-file owner; the destination opts in with a conditional-owner marker:
+
+```markdown
+<!-- agents-md: route owner="docs/database-migrations.md" when="before changing database schema" purpose="rollback and compatibility" invoke-owner="Makefile" -->
+- Before changing database schema, read [the migration contract](docs/database-migrations.md) for rollback and compatibility.
+
+<!-- in docs/database-migrations.md -->
+<!-- agents-md: conditional-owner -->
+```
+
+`owner`, `when`, and `purpose` are required. `invoke-owner` is optional and names the canonical repository file that owns the supported invocation when one exists. Exactly one editable route marker may target a marked conditional owner across the audited instruction tree. A generated projection may be derived from these canonical declarations, but a second hand-maintained trigger catalog is non-conforming.
+
+The static auditor proves marker syntax, path confinement, owner uniqueness, and structural reachability only. It **does not prove semantic trigger timing**, that a platform exposed the trigger before use, or that a model loaded the destination at the right moment; those claims require behavioral and platform evidence.
 
 Every reference states when to read it and what decision it owns. Concrete repository file references resolve to confined, regular, non-symlink files; concrete directory references may resolve to confined, non-symlink directories when the route itself is the useful target. Patterns and placeholders describe families of paths and are not tested as literal files. Do not use a directory or pattern as a substitute for a named canonical owner. Do not duplicate README content, linter configuration, full CI definitions, complete architecture documents, current inventories, or skill catalogs.
 
@@ -105,7 +136,7 @@ Do not mirror the complete root file into every package. A nested file that only
 
 ## Anti-patterns and drift
 
-Reject context bloat, skill leakage, lint leakage, blind references, generated-file fossilization, conflicting instructions, host-specific absolute paths, volatile counts, stale ports, embedded changelogs, temporary migration names, unreplaced `REPLACE_...` tokens, and claims not tied to evidence.
+Reject context bloat, skill leakage, lint leakage, blind references, self-triggering or orphaned conditional owners, duplicate editable trigger indexes, speculative command archaeology, generated-file fossilization, conflicting instructions, host-specific absolute paths, volatile counts, stale ports, embedded changelogs, temporary migration names, unreplaced `REPLACE_...` tokens, and claims not tied to evidence.
 
 Reject brittle consent parsers, instructions that weaken tests to obtain green results, and statements equating mock coverage with real integration behavior. Keep incident narratives in incident documents and retain only the durable guard in the instruction system.
 
@@ -121,7 +152,8 @@ An instruction change is complete only when:
 4. nested files contain material local differences without contradictory duplication while retaining domain-specific safety requirements;
 5. safety and data boundaries match implementation and deployment configuration;
 6. the validator, repository audit, focused tests, and full quality gate pass with the same layout, profile, and language selections;
-7. the final report distinguishes verified facts, lexical checks, assumptions, skipped checks, and residual risks.
+7. extracted conditional content has one reachable trigger owner, no substantive duplicate procedure, no stale route/backlink, and only necessary pre-load safety facts remain inline;
+8. the final report distinguishes verified facts, lexical checks, behavioral/platform evidence, assumptions, skipped checks, and residual risks.
 
 ## Verification
 

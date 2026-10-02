@@ -76,3 +76,24 @@ A blind route does not:
 ```markdown
 - [Database migrations](docs/database-migrations.md)
 ```
+
+
+## Trigger-safe progressive routing
+
+A conditional route must be knowable before its first governed action. Keep the trigger on an always-visible surface unless the selected platform has verified pre-load metadata that is visible before destination loading. Do not put the only “read me when…” instruction inside the unopened destination.
+
+When extraction needs mechanical proof, pair one route marker in the applicable `AGENTS.md` with one destination marker:
+
+```markdown
+<!-- agents-md: route owner="docs/release.md" when="when a candidate becomes release-ready" purpose="release identity and landing gates" invoke-owner="Makefile" -->
+- When a candidate becomes release-ready, read [the release contract](docs/release.md) before publication.
+
+<!-- destination: docs/release.md -->
+<!-- agents-md: conditional-owner -->
+```
+
+The marker is a structural declaration, not a substitute for readable prose. `owner`, `when`, and `purpose` are required. `invoke-owner` is optional and should point to the launcher, manifest, task catalog, or other canonical file from which the exact supported invocation is discovered. The repository auditor rejects missing/stale/symlinked owners, marked owners with no reachable route, duplicate route owners, and a route whose destination is not marked.
+
+For transition-time loading, evaluate the route again when task state changes. Representative transitions include implementation → migration, implementation → external/destructive effect, validation → user decision, normal operation → recovery, candidate → release, and ordinary work → sensitive-data handling.
+
+Negative routing matters too: when a task never reaches the trigger, do not preload the full migration/release/recovery procedure just because it is catalogued.

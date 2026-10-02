@@ -26,6 +26,18 @@ The file restates formatter, linter, compiler, or static-analysis configuration.
 
 The file lists paths without explaining when to read them or what they own. Each reference must answer both questions.
 
+## Circular or dead progressive routes
+
+A conditional procedure contains its own only trigger, or extraction removes the last always-visible route. The destination cannot bootstrap itself. Keep one canonical trigger owner on a surface observable before the first governed action and use the mechanical route/conditional-owner pair when orphan detection matters.
+
+## Duplicate trigger registries
+
+Two editable route tables describe the same conditional owner and can drift. Keep one canonical trigger owner; generate any complete index from canonical declarations instead of maintaining another table by hand.
+
+## Speculative invocation archaeology
+
+An agent guesses launcher flags, module names, or test paths and learns the interface by repeated failures even though a canonical manifest, task runner, `--help`, catalog, or test inventory exists. Discover the supported invocation from its nearest canonical owner before executing it; missing/ambiguous ownership is a readiness finding, not a guessing loop.
+
 ## Fossilized initialization
 
 A generated instruction file contains stale counts, versions, dates, ports, package lists, paths, or temporary migration state. Derive volatile facts automatically or remove them from durable policy.

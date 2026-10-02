@@ -50,6 +50,21 @@ Prefer the smallest safe result:
 
 Record why the chosen class is necessary. Do not use a new skill version as the reason by itself.
 
+## Extraction and progressive-routing safety
+
+When moving a procedure out of an oversized `AGENTS.md`, treat extraction as a routing migration rather than a file move:
+
+1. identify the one canonical destination;
+2. preserve an always-visible trigger that is observable before the first governed action;
+3. retain only genuinely pre-load-critical safety invariants beside the trigger;
+4. remove substantive procedural duplication from the old location;
+5. verify stale section links, backlinks, owner paths, and phase names;
+6. verify the destination is not orphaned and the trigger does not exist only inside it;
+7. reject two editable trigger indexes; derive any complete catalog from canonical declarations;
+8. rerun transition-time and negative-routing evals and compare always-loaded authored bytes before/after.
+
+Use the paired `agents-md: route` / `agents-md: conditional-owner` markers when the repository requires mechanical orphan and duplicate-owner detection. A successful static audit proves only the declared graph; behavioral loading timing remains separate evidence.
+
 ## Verification
 
 Run discovery and validation with the target skill version, compare findings against the old validated tree, and distinguish validator/tooling deltas from actual repository-policy deltas. Any formatting or wording change made only to satisfy a parser should trigger a validator review before degrading the document.

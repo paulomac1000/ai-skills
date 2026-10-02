@@ -12,6 +12,16 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 SKILL = ROOT / "skills/agents-md-architect"
 VALIDATOR_PATH = SKILL / "tools/validate_agents_md.py"
+SKILL_EVAL_VALIDATOR_PATH = ROOT / "skills/skill-architect/tools/validate_skill_evals.py"
+
+
+def load_skill_eval_validator() -> Any:
+    spec = importlib.util.spec_from_file_location("agents_md_skill_eval_validator", SKILL_EVAL_VALIDATOR_PATH)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
 
 
 def load_validator() -> Any:
@@ -155,3 +165,21 @@ def test_skill_routes_detail_to_focused_references() -> None:
         assert reference in text or (SKILL / reference).is_file()
     for tool in ("discover_repository.py", "audit_agents_md.py", "validate_agents_md.py"):
         assert tool in text
+
+
+def test_trigger_safe_progressive_routing_contract_is_published() -> None:
+    standard = (SKILL / "STANDARD.md").read_text(encoding="utf-8")
+    normalized = " ".join(standard.split()).casefold()
+    for phrase in (
+        "stop at the first applicable owner",
+        "before the first action governed by the destination",
+        "pre-load stub",
+        "discover before invoke",
+        "does not prove semantic trigger timing",
+    ):
+        assert phrase in normalized
+
+
+def test_agents_md_eval_corpus_is_well_formed() -> None:
+    module = load_skill_eval_validator()
+    assert module.validate_path(ROOT / "evals/skills/agents-md-architect") == []

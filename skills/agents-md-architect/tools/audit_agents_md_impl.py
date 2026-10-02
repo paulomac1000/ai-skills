@@ -24,7 +24,7 @@ from agents_md_completion_evidence import (  # noqa: E402
     completion_command_rules,
     public_task_invocations,
 )
-from agents_md_parse import parse_visible_lines  # noqa: E402
+from agents_md_parse import parse_visible_lines, resolve_reference  # noqa: E402
 from agents_md_python_evidence import _extract_python_invocations  # noqa: E402
 from agents_md_shell_evidence import (  # noqa: E402
     _command_path_tokens,
@@ -44,6 +44,7 @@ from agents_md_types import (  # noqa: E402
     MAX_GATE_TOTAL_BYTES,
     LanguageName,
     LayoutName,
+    ParsedDocument,
 )
 from confined_io import ConfinedReadError, read_utf8_bounded  # noqa: E402
 from discover_repository import Discovery, discover  # noqa: E402
@@ -62,6 +63,19 @@ Severity = Literal["error", "warning"]
 LINT_LEAKAGE = re.compile(
     r"(?i)\b(?:line length|quote style|indent(?:ation)? width|ruff rule|eslint rule|prettier config|"
     r"formatter config|stylecop rule)\b"
+)
+
+PROGRESSIVE_ROUTE_PREFIX = re.compile(r"<!--\s*agents-md:\s*route\b", re.I)
+PROGRESSIVE_ROUTE_MARKER = re.compile(r"<!--\s*agents-md:\s*route(?P<attributes>.*?)-->\s*$", re.I)
+PROGRESSIVE_ROUTE_ATTRIBUTE = re.compile(r'(?P<name>[a-z][a-z0-9-]*)="(?P<value>[^"]*)"')
+CONDITIONAL_OWNER_MARKER = re.compile(r"<!--\s*agents-md:\s*conditional-owner\s*-->\s*$", re.I)
+PROGRESSIVE_ROUTE_REQUIRED = frozenset({"owner", "when", "purpose"})
+PROGRESSIVE_ROUTE_OPTIONAL = frozenset({"invoke-owner"})
+PROGRESSIVE_OWNER_SCAN_LIMIT = 4096
+PROGRESSIVE_OWNER_READ_LIMIT = 256 * 1024
+PROGRESSIVE_ROUTING_PROOF_BOUNDARY = (
+    "Static routing audit proves declared marker syntax, confinement, owner uniqueness, and structural pre-load "
+    "reachability only; semantic trigger timing and actual platform loading require behavioral/provider evidence."
 )
 
 
@@ -90,6 +104,291 @@ class KnownCommands:
 
     public_entrypoints: frozenset[CommandEvidence]
     executed_commands: frozenset[CommandEvidence]
+
+
+@dataclass(frozen=True)
+class ProgressiveRoute:
+    """One mechanically declared conditional route owned by an instruction file."""
+
+    source: str
+    line: int
+    owner: str
+    trigger: str
+    purpose: str
+    invocation_owner: str | None
+
+
+def _parse_progressive_route_marker(line: str) -> tuple[dict[str, str] | None, str | None]:
+    stripped = line.strip()
+    if PROGRESSIVE_ROUTE_PREFIX.search(stripped) is None:
+        return None, None
+    marker = PROGRESSIVE_ROUTE_MARKER.fullmatch(stripped)
+    if marker is None:
+        return None, "Malformed agents-md route marker."
+
+    raw = marker.group("attributes")
+    attributes: dict[str, str] = {}
+    cursor = 0
+    for match in PROGRESSIVE_ROUTE_ATTRIBUTE.finditer(raw):
+        if raw[cursor : match.start()].strip():
+            return None, "Route marker contains invalid attribute syntax."
+        name = match.group("name").casefold()
+        value = match.group("value").strip()
+        if name in attributes:
+            return None, f"Route marker repeats attribute {name!r}."
+        attributes[name] = value
+        cursor = match.end()
+    if raw[cursor:].strip():
+        return None, "Route marker contains invalid trailing syntax."
+
+    allowed = PROGRESSIVE_ROUTE_REQUIRED | PROGRESSIVE_ROUTE_OPTIONAL
+    unknown = sorted(set(attributes) - allowed)
+    missing = sorted(PROGRESSIVE_ROUTE_REQUIRED - set(attributes))
+    empty = sorted(name for name, value in attributes.items() if not value)
+    if unknown:
+        return None, f"Route marker contains unsupported attributes: {unknown}."
+    if missing:
+        return None, f"Route marker is missing required attributes: {missing}."
+    if empty:
+        return None, f"Route marker attributes must be non-empty: {empty}."
+    return attributes, None
+
+
+def _resolve_progressive_target(
+    root: Path,
+    source_relative: str,
+    target: str,
+    *,
+    line: int,
+    kind: Literal["route-owner", "invocation-owner"],
+) -> tuple[str | None, list[AuditFinding]]:
+    source = root / source_relative
+    code_prefix = "routing.route-owner" if kind == "route-owner" else "routing.invocation-owner"
+    label = "Conditional route owner" if kind == "route-owner" else "Canonical invocation owner"
+    if target.casefold().startswith(("http://", "https://", "mailto:", "tel:", "data:")):
+        return None, [
+            AuditFinding(
+                source_relative,
+                "error",
+                f"{code_prefix}-external",
+                line,
+                f"{label} must be a repository-relative regular file: {target}",
+            )
+        ]
+
+    resolved, issue = resolve_reference(source, root, target)
+    if resolved is None:
+        return None, [
+            AuditFinding(
+                source_relative,
+                "error",
+                f"{code_prefix}-invalid",
+                line,
+                f"{label} could not be resolved safely: {target}",
+            )
+        ]
+    if issue is not None:
+        suffix = {"outside": "outside", "symlink": "symlink", "unreadable": "unreadable"}.get(issue, "invalid")
+        return None, [
+            AuditFinding(
+                source_relative,
+                "error",
+                f"{code_prefix}-{suffix}",
+                line,
+                f"{label} is not a confined regular file: {target}",
+            )
+        ]
+    try:
+        exists = resolved.exists()
+        regular = resolved.is_file() if exists else False
+    except (OSError, RuntimeError):
+        return None, [
+            AuditFinding(
+                source_relative,
+                "error",
+                f"{code_prefix}-unreadable",
+                line,
+                f"{label} could not be inspected safely: {target}",
+            )
+        ]
+    if not exists:
+        return None, [
+            AuditFinding(
+                source_relative,
+                "error",
+                f"{code_prefix}-missing",
+                line,
+                f"{label} does not exist: {target}",
+            )
+        ]
+    if not regular:
+        return None, [
+            AuditFinding(
+                source_relative,
+                "error",
+                f"{code_prefix}-type",
+                line,
+                f"{label} must resolve to a regular file: {target}",
+            )
+        ]
+    return resolved.relative_to(root).as_posix(), []
+
+
+def _conditional_owner_markers(
+    root: Path,
+    discovery: Discovery,
+) -> tuple[dict[str, int], list[AuditFinding]]:
+    candidates = sorted(relative for relative in discovery.files if Path(relative).suffix.casefold() == ".md")
+    if len(candidates) > PROGRESSIVE_OWNER_SCAN_LIMIT:
+        return {}, [
+            AuditFinding(
+                root.as_posix(),
+                "error",
+                "routing.conditional-owner-scan-budget",
+                1,
+                (
+                    f"Conditional-owner scan has {len(candidates)} Markdown files, above the "
+                    f"{PROGRESSIVE_OWNER_SCAN_LIMIT} file proof budget."
+                ),
+            )
+        ]
+
+    owners: dict[str, int] = {}
+    findings: list[AuditFinding] = []
+    for relative in candidates:
+        try:
+            text = _read_text(root, relative, PROGRESSIVE_OWNER_READ_LIMIT)
+        except ValueError:
+            continue
+        visible_lines, _unclosed = parse_visible_lines(text)
+        marker_lines = [
+            line_number
+            for line_number, line in visible_lines
+            if CONDITIONAL_OWNER_MARKER.fullmatch(line.strip()) is not None
+        ]
+        if len(marker_lines) > 1:
+            findings.append(
+                AuditFinding(
+                    relative,
+                    "error",
+                    "routing.conditional-owner-marker-duplicate",
+                    marker_lines[1],
+                    "A conditional owner declares agents-md: conditional-owner more than once.",
+                )
+            )
+        if marker_lines:
+            owners[relative] = marker_lines[0]
+    return owners, findings
+
+
+def _progressive_routing_findings(
+    root: Path,
+    discovery: Discovery,
+    documents: Sequence[ParsedDocument],
+) -> list[AuditFinding]:
+    findings: list[AuditFinding] = []
+    routes_by_owner: dict[str, list[ProgressiveRoute]] = {}
+
+    for document in documents:
+        relative = document.relative_path
+        for line_number, line in document.visible_lines:
+            attributes, error = _parse_progressive_route_marker(line)
+            if error is not None:
+                findings.append(
+                    AuditFinding(relative, "error", "routing.route-marker-invalid", line_number, error)
+                )
+                continue
+            if attributes is None:
+                continue
+
+            owner, owner_findings = _resolve_progressive_target(
+                root,
+                relative,
+                attributes["owner"],
+                line=line_number,
+                kind="route-owner",
+            )
+            findings.extend(owner_findings)
+            invocation_owner = attributes.get("invoke-owner")
+            if invocation_owner is not None:
+                _resolved_invocation, invocation_findings = _resolve_progressive_target(
+                    root,
+                    relative,
+                    invocation_owner,
+                    line=line_number,
+                    kind="invocation-owner",
+                )
+                findings.extend(invocation_findings)
+            if owner is None:
+                continue
+            if owner == relative:
+                findings.append(
+                    AuditFinding(
+                        relative,
+                        "error",
+                        "routing.trigger-self-reference",
+                        line_number,
+                        "A conditional owner cannot trigger itself from inside the unopened destination.",
+                    )
+                )
+                continue
+            route = ProgressiveRoute(
+                source=relative,
+                line=line_number,
+                owner=owner,
+                trigger=attributes["when"],
+                purpose=attributes["purpose"],
+                invocation_owner=invocation_owner,
+            )
+            routes_by_owner.setdefault(owner, []).append(route)
+
+    conditional_owners, owner_findings = _conditional_owner_markers(root, discovery)
+    findings.extend(owner_findings)
+
+    for owner, routes in sorted(routes_by_owner.items()):
+        if owner not in conditional_owners:
+            for route in routes:
+                findings.append(
+                    AuditFinding(
+                        route.source,
+                        "error",
+                        "routing.conditional-owner-marker-missing",
+                        route.line,
+                        (
+                            f"Mechanically declared route target {owner!r} must declare "
+                            "agents-md: conditional-owner in the destination."
+                        ),
+                    )
+                )
+        if len(routes) > 1:
+            sources = ", ".join(f"{route.source}:{route.line}" for route in routes)
+            for route in routes:
+                findings.append(
+                    AuditFinding(
+                        route.source,
+                        "error",
+                        "routing.trigger-owner-duplicate",
+                        route.line,
+                        f"Conditional owner {owner!r} has multiple editable trigger owners: {sources}.",
+                    )
+                )
+
+    for owner, marker_line in sorted(conditional_owners.items()):
+        if not routes_by_owner.get(owner):
+            findings.append(
+                AuditFinding(
+                    owner,
+                    "error",
+                    "routing.trigger-unreachable",
+                    marker_line,
+                    (
+                        "Conditional owner has no reachable agents-md: route in the applicable instruction tree; "
+                        "a trigger inside the unopened destination does not count."
+                    ),
+                )
+            )
+
+    return findings
 
 
 def _extract_source_invocations(relative: str, text: str) -> set[str]:
@@ -340,6 +639,7 @@ def audit(
         project_doc_fallback_filenames,
     )
     findings.extend(_convert(item) for item in validation_findings)
+    findings.extend(_progressive_routing_findings(safe_root, discovery, documents))
 
     reference_paragraphs: dict[str, tuple[str, int]] = {}
     for reference in ("README.md", "CHANGELOG.md"):
@@ -470,15 +770,21 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.output_format == "json":
         print(
             json.dumps(
-                {"discovery": asdict(discovery), "findings": [asdict(item) for item in findings]},
+                {
+                    "discovery": asdict(discovery),
+                    "findings": [asdict(item) for item in findings],
+                    "proof_boundary": PROGRESSIVE_ROUTING_PROOF_BOUNDARY,
+                },
                 indent=2,
                 sort_keys=True,
             )
         )
     elif findings:
         print(_render_text(findings))
+        print(f"Proof boundary: {PROGRESSIVE_ROUTING_PROOF_BOUNDARY}")
     else:
         print("AGENTS.md audit passed.")
+        print(f"Proof boundary: {PROGRESSIVE_ROUTING_PROOF_BOUNDARY}")
     has_error = any(item.severity == "error" for item in findings)
     has_warning = any(item.severity == "warning" for item in findings)
     return 1 if has_error or (args.strict and has_warning) else 0

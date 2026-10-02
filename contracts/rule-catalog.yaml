@@ -44,9 +44,15 @@ skills:
     - id: agents.commands.executable
       source: STANDARD.md#commands-and-verification
       description: Focused, full, local, hosted, and artifact verification claims remain executable and distinct.
+    - id: agents.commands.discover-before-invoke
+      source: STANDARD.md#commands-and-verification
+      description: Unknown helper, launcher, module, and test invocations are resolved from canonical interfaces before execution rather than guessed.
     - id: agents.context.routed
       source: STANDARD.md#context-economy-and-routing
       description: Common rules stay concise while specialized procedures load through explicit task routes.
+    - id: agents.context.trigger-safe
+      source: STANDARD.md#context-economy-and-routing
+      description: Conditional instruction owners have one pre-load-reachable trigger, preserve only necessary inline safety facts, and remain unloaded when their trigger never occurs.
     - id: agents.nested.locality
       source: STANDARD.md#nested-instructions
       description: Nested files contain only material subtree differences and local completion checks.
