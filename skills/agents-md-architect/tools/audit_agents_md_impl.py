@@ -259,6 +259,7 @@ def _resolve_progressive_target(
 def _conditional_owner_markers(
     root: Path,
     discovery: Discovery,
+    routed_owners: set[str],
 ) -> tuple[dict[str, int], set[str], list[AuditFinding]]:
     candidates = sorted(
         relative for relative in discovery.files if Path(relative).suffix.casefold() in {".md", ".markdown"}
@@ -288,16 +289,17 @@ def _conditional_owner_markers(
         try:
             text = _read_text(root, relative, PROGRESSIVE_OWNER_READ_LIMIT)
         except ValueError as error:
-            unreadable.add(relative)
-            findings.append(
-                AuditFinding(
-                    relative,
-                    "error",
-                    "routing.conditional-owner-unreadable",
-                    1,
-                    f"Conditional-owner evidence could not be read: {error}",
+            if relative in routed_owners:
+                unreadable.add(relative)
+                findings.append(
+                    AuditFinding(
+                        relative,
+                        "error",
+                        "routing.conditional-owner-unreadable",
+                        1,
+                        f"Routed conditional-owner evidence could not be read: {error}",
+                    )
                 )
-            )
             continue
         visible_lines, _unclosed = parse_visible_lines(text)
         marker_lines = [
@@ -439,7 +441,11 @@ def _progressive_routing_findings(
             )
             routes_by_owner.setdefault(owner, []).append(route)
 
-    conditional_owners, unreadable_owners, owner_findings = _conditional_owner_markers(root, discovery)
+    conditional_owners, unreadable_owners, owner_findings = _conditional_owner_markers(
+        root,
+        discovery,
+        set(routes_by_owner),
+    )
     findings.extend(owner_findings)
 
     for owner, routes in sorted(routes_by_owner.items()):

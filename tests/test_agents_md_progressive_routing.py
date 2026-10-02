@@ -445,3 +445,29 @@ def test_percent_encoded_absolute_route_owner_is_rejected(tmp_path: Path) -> Non
 
     _, findings = audit_module.audit(tmp_path, "application", "single", "en")
     assert "routing.route-owner-absolute" in _codes(findings)
+
+
+@pytest.mark.parametrize(
+    "payload",
+    (
+        b"\xff\xfe\x00unrelated-invalid-utf8",
+        ("# Unrelated\n\n" + "x" * (256 * 1024)).encode("utf-8"),
+    ),
+)
+def test_unrelated_unreadable_markdown_does_not_block_routing_audit(
+    tmp_path: Path,
+    payload: bytes,
+) -> None:
+    _write_base(tmp_path)
+    (tmp_path / "docs" / "unrelated.md").write_bytes(payload)
+
+    _, findings = audit_module.audit(tmp_path, "application", "single", "en")
+    assert "routing.conditional-owner-unreadable" not in _codes(findings)
+
+
+def test_readable_unrouted_conditional_owner_is_still_reported_as_orphan(tmp_path: Path) -> None:
+    _write_base(tmp_path)
+    _write_conditional_owner(tmp_path, "docs/orphan.md")
+
+    _, findings = audit_module.audit(tmp_path, "application", "single", "en")
+    assert "routing.trigger-unreachable" in _codes(findings)
