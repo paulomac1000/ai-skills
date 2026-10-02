@@ -18,37 +18,19 @@ A verification verdict is valid only when the intended validation corpus was sel
 
 ## Validation corpus
 
-A gate first defines the **policy-governed validation subjects**, then proves discovery/selection/exercise completeness. Test files are the common specialization, but the same rule applies to governed configuration, templates, generated policy inventories, or other validation inputs whose omission could make a green gate meaningless.
+A gate defines a **policy-governed validation corpus** and proves discovery/selection/exercise completeness. Test files are one specialization; governed config, templates, and inventories use the same rule.
 
-Prefer convention-driven automatic discovery. When ordering or another constraint requires an explicit manifest, assert:
+Prefer automatic convention discovery. A manifest must satisfy:
 
 ```text
-discovered by convention
-= selected by execution policy
-+ reviewed exclusions
+discovered = selected + reviewed exclusions
 ```
 
-When a subject is mandatory even if it disappears from the filesystem, declare its exact repository-relative identity in `required_subjects`. Required subjects are resolved independently of discovery heuristics: an existing required subject joins the corpus even when an include heuristic would miss it, while a deleted required subject is reported in `missing_required_subjects` and makes the corpus non-green. A required subject cannot be converted into an exclusion.
+Use exact repository-relative `required_subjects` for anything whose absence must fail. Required subjects join discovery when present; when absent they appear in `missing_required_subjects` and make the gate non-green. They cannot be excluded. Pattern discovery alone cannot prove that a formerly present source still exists.
 
-Equivalent policy:
+Selection and execution are separate evidence axes. Without observed execution, completeness is unknown. The summary reports `expected_subjects`, `discovered_subjects`, `exercised_subjects`, and `missing_required_subjects`; manifest drift, missing required identities, stale exclusions, or execution drift is non-green.
 
-```yaml
-schema_version: 1
-policy_revision: governed-source/v1
-mode: automatic
-include:
-  - "**/*.yaml"
-required_subjects:
-  - automations.yaml
-  - scripts.yaml
-exclusions: []
-```
-
-Selection and execution are separate evidence axes. Automatic discovery proves which existing subjects should be selected; it does not prove those subjects actually executed. Post-run execution evidence is therefore required before a corpus result becomes `complete`. Without it, the verdict is `incomplete`, never `pass`.
-
-The gate summary exposes legacy file counts plus generic `expected_subjects`, `discovered_subjects`, `exercised_subjects`, and exact `missing_required_subjects`. A newly added conforming test absent from an explicit selection manifest or a deleted **exact required subject** is discovery drift rather than an implicit reduction of the corpus. Pattern discovery alone cannot prove that a formerly present source still exists: any source whose continued presence matters MUST be named in `required_subjects`. Exclusions carry a reason and, where useful, owner and expiry; stale exclusions remain policy drift.
-
-Use `tools/check_test_corpus.py`; provide `--executed-manifest` from the test-runner/result adapter for authoritative execution evidence. The filename remains stable for compatibility even though the contract now covers the broader validation corpus.
+Use `tools/check_test_corpus.py`; `--executed-manifest` supplies runner-observed execution. The filename is retained for compatibility.
 
 ## Execution integrity
 
@@ -80,6 +62,6 @@ Use `tools/verify_state_isolation.py`. Deployment and migrations are separate tr
 
 ## Receipt semantics
 
-`contracts/verification-receipt.schema.json` is the single machine-readable owner of the combined result. New validation-corpus producers set `test_corpus.accounting_profile: governed-validation-corpus`; that profile requires all four subject-accounting fields and therefore cannot encode a green receipt while omitting required-subject evidence. `legacy-test-files` preserves explicit old file-count semantics, and unprofiled schema-version-1 receipts remain accepted only as backward-compatible legacy evidence; neither form substantiates governed required-subject claims.
+`contracts/verification-receipt.schema.json` owns the combined result. New producers set `test_corpus.accounting_profile: governed-validation-corpus`, which requires all subject-accounting fields. `legacy-test-files` and unprofiled schema-v1 receipts retain old file-count compatibility but do not prove governed required-subject claims.
 
-A `pass` receipt requires declared-only dependency resolution, complete corpus evidence for its declared accounting profile with zero discovery/execution drift, zero blocking execution-integrity conditions, and unchanged production-effective state. Unknown corpus completeness, unknown async leak state, hidden hosted-only work, or missing governed-subject evidence must remain incomplete/degraded/blocked as appropriate rather than being encoded as success.
+A `pass` requires complete evidence for its declared profile, zero drift/blocking execution conditions, declared dependencies, unchanged protected state, and required evidence references.

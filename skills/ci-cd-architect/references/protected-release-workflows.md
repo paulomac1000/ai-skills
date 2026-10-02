@@ -57,8 +57,6 @@ Then use a disposable registry namespace to prove archive checksum validation, e
 
 ## Protected publisher execution boundary
 
-An authority-bearing protected publisher promotes an already-tested immutable artifact. It MUST NOT check out or clone candidate source, rebuild/package candidate code, load/import candidate images, or execute candidate code/images under publication authority. Those operations belong in the unprivileged validation/build stage.
+A protected write job only promotes an already-tested immutable artifact. Candidate checkout/clone, build/package, image load/import, and candidate execution belong in unprivileged validation.
 
-The trusted workflow-policy auditor rejects high-signal command classes such as repository checkout/clone, container build/load/import/run, and common language package-build commands in protected write jobs. Shell line continuations are normalized before matching so splitting a prohibited command across physical lines does not bypass the boundary. Known build actions are rejected when they run under publication authority, while the same actions remain valid in unprivileged validation.
-
-A protected write job that delegates to a job-level reusable workflow is rejected unless a future compatibility profile provides independent semantic inspection of that workflow. Pinning a reusable workflow by SHA proves source immutability, not that it avoids candidate materialization or execution. Registry-native exact-digest copy/promote/inspect operations remain valid. Dynamic shell indirection and unknown third-party action semantics still require review of the protected publication trust boundary.
+The auditor rejects supported direct, shell-continuation, Compose/Podman, and known build-action forms under publication authority. Job-level reusable-workflow delegation fails closed because an immutable workflow SHA proves provenance, not safe semantics. Registry-native exact-digest promotion/inspection is allowed; unknown indirection still requires trust-boundary review.
