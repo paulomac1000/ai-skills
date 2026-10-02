@@ -747,3 +747,62 @@ def test_nested_list_owner_link_is_valid_route_prose(tmp_path: Path) -> None:
 
     _, findings = audit_module.audit(tmp_path, "application", "single", "en")
     assert not any(finding.code.startswith("routing.") for finding in findings)
+
+
+def test_backtick_inside_html_comment_cannot_mask_later_live_route(tmp_path: Path) -> None:
+    _write_base(tmp_path)
+    _write_conditional_owner(tmp_path, "docs/recovery.md")
+    _append(
+        tmp_path,
+        """
+## Notes
+
+<!-- an ordinary comment with an unmatched ` backtick -->
+
+<!-- agents-md: route owner="docs/recovery.md" when="after failure" purpose="recovery" -->
+- After failure, read [the recovery owner](docs/recovery.md) and treat a lone ` literally.
+""",
+    )
+
+    _, findings = audit_module.audit(tmp_path, "application", "single", "en")
+    assert not any(finding.code.startswith("routing.") for finding in findings)
+
+
+def test_unmatched_backticks_do_not_pair_across_markdown_block_boundaries(tmp_path: Path) -> None:
+    _write_base(tmp_path)
+    _write_conditional_owner(tmp_path, "docs/recovery.md")
+    _append(
+        tmp_path,
+        """
+Paragraph with an unmatched ` opener.
+
+## Recovery routing
+
+<!-- agents-md: route owner="docs/recovery.md" when="after failure" purpose="recovery" -->
+- After failure, read [the recovery owner](docs/recovery.md) and leave this unmatched ` literal.
+""",
+    )
+
+    _, findings = audit_module.audit(tmp_path, "application", "single", "en")
+    assert not any(finding.code.startswith("routing.") for finding in findings)
+
+
+@pytest.mark.parametrize("tag", ("pre", "script"))
+def test_raw_html_code_block_route_example_is_not_live(tmp_path: Path, tag: str) -> None:
+    _write_base(tmp_path)
+    _write_conditional_owner(tmp_path, "docs/recovery.md")
+    _append(
+        tmp_path,
+        f"""
+## Raw HTML example
+
+<{tag}>
+<!-- agents-md: route owner="docs/recovery.md" when="after failure" purpose="recovery" -->
+- After failure, read [the recovery owner](docs/recovery.md).
+</{tag}>
+""",
+    )
+
+    _, findings = audit_module.audit(tmp_path, "application", "single", "en")
+    assert "routing.trigger-unreachable" in _codes(findings)
+    assert "routing.route-prose-missing" not in _codes(findings)

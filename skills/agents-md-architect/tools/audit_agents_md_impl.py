@@ -298,12 +298,74 @@ def _routing_container_lines(lines: Sequence[tuple[int, str]]) -> list[tuple[int
     return normalized
 
 
-def _mask_inline_code_lines(lines: Sequence[tuple[int, str]]) -> list[tuple[int, str]]:
-    """Mask closed CommonMark-style backtick spans, including spans crossing newlines."""
-    if not lines:
-        return []
+RAW_HTML_CODE_START = re.compile(
+    r"^[ \\t]{0,3}<(?P<tag>script|pre|style|textarea)(?=[\\s>])",
+    re.I,
+)
+ATX_HEADING = re.compile(r"^[ \\t]{0,3}#{1,6}(?:[ \\t]+|$)")
+SETEXT_OR_THEMATIC_BOUNDARY = re.compile(
+    r"^[ \\t]{0,3}(?:=+[ \\t]*|-+[ \\t]*|(?:\\*[ \\t]*){3,}|(?:_[ \\t]*){3,})$"
+)
 
-    source = "\n".join(line for _line_number, line in lines)
+
+def _exclude_raw_html_code_blocks(lines: Sequence[tuple[int, str]]) -> list[tuple[int, str]]:
+    """Replace CommonMark type-1 raw HTML code containers with prose boundaries."""
+    filtered: list[tuple[int, str]] = []
+    raw_tag: str | None = None
+
+    for line_number, line in lines:
+        if raw_tag is not None:
+            if re.search(rf"</{re.escape(raw_tag)}[ \\t]*>", line, re.I) is not None:
+                raw_tag = None
+            filtered.append((line_number, ""))
+            continue
+
+        match = RAW_HTML_CODE_START.match(line)
+        if match is None:
+            filtered.append((line_number, line))
+            continue
+
+        raw_tag = match.group("tag").casefold()
+        if re.search(rf"</{re.escape(raw_tag)}[ \\t]*>", line[match.end() :], re.I) is not None:
+            raw_tag = None
+        filtered.append((line_number, ""))
+
+    return filtered
+
+
+def _is_inline_block_boundary(line: str) -> bool:
+    stripped = line.strip()
+    return (
+        not stripped
+        or ATX_HEADING.match(line) is not None
+        or SETEXT_OR_THEMATIC_BOUNDARY.match(line) is not None
+        or stripped.startswith("<!--")
+    )
+
+
+def _routing_inline_blocks(
+    lines: Sequence[tuple[int, str]],
+) -> list[list[tuple[int, str]]]:
+    """Split lines so inline-code matching cannot cross Markdown block boundaries."""
+    blocks: list[list[tuple[int, str]]] = []
+    current: list[tuple[int, str]] = []
+
+    def flush() -> None:
+        if current:
+            blocks.append(current.copy())
+            current.clear()
+
+    for line in lines:
+        if _is_inline_block_boundary(line[1]):
+            flush()
+            blocks.append([line])
+        else:
+            current.append(line)
+    flush()
+    return blocks
+
+
+def _backtick_runs(source: str) -> tuple[list[tuple[int, int, int]], list[int | None]]:
     runs: list[tuple[int, int, int]] = []
     index = 0
     while index < len(source):
@@ -322,82 +384,108 @@ def _mask_inline_code_lines(lines: Sequence[tuple[int, str]]) -> list[tuple[int,
         width = runs[run_index][2]
         next_same[run_index] = next_by_width.get(width)
         next_by_width[width] = run_index
+    return runs, next_same
 
+
+def _mask_routing_inline_block(
+    block: Sequence[tuple[int, str]],
+    *,
+    in_html_comment: bool,
+) -> tuple[list[tuple[int, str]], bool]:
+    """Mask inline code/comments in source order while preserving live control markers."""
+    if not block:
+        return [], in_html_comment
+
+    source = "\\n".join(line for _line_number, line in block)
     masked = list(source)
-    run_index = 0
-    while run_index < len(runs):
-        closing_index = next_same[run_index]
-        if closing_index is None:
-            run_index += 1
-            continue
-        start = runs[run_index][0]
-        end = runs[closing_index][1]
-        for position in range(start, end):
-            if masked[position] != "\n":
-                masked[position] = " "
-        run_index = closing_index + 1
+    runs, next_same = _backtick_runs(source)
+    run_at = {start: index for index, (start, _end, _width) in enumerate(runs)}
+    cursor = 0
 
-    masked_lines = "".join(masked).split("\n")
-    return [(line_number, masked_lines[index]) for index, (line_number, _line) in enumerate(lines)]
+    while cursor < len(source):
+        if in_html_comment:
+            end = source.find("-->", cursor)
+            if end < 0:
+                for position in range(cursor, len(source)):
+                    if masked[position] != "\\n":
+                        masked[position] = " "
+                cursor = len(source)
+                break
+            for position in range(cursor, end + 3):
+                if masked[position] != "\\n":
+                    masked[position] = " "
+            cursor = end + 3
+            in_html_comment = False
+            continue
+
+        run_index = run_at.get(cursor)
+        if run_index is not None:
+            closing_index = next_same[run_index]
+            if closing_index is not None:
+                end = runs[closing_index][1]
+                for position in range(cursor, end):
+                    if masked[position] != "\\n":
+                        masked[position] = " "
+                cursor = end
+                continue
+            cursor = runs[run_index][1]
+            continue
+
+        if source.startswith("<!--", cursor):
+            line_start = source.rfind("\\n", 0, cursor) + 1
+            line_end = source.find("\\n", cursor)
+            if line_end < 0:
+                line_end = len(source)
+            line_text = source[line_start:line_end]
+
+            if PROGRESSIVE_ROUTE_PREFIX.match(source, cursor) is not None:
+                cursor = line_end
+                continue
+            if CONDITIONAL_OWNER_MARKER.fullmatch(line_text.strip()) is not None:
+                cursor = line_end
+                continue
+
+            end = source.find("-->", cursor + 4)
+            if end < 0:
+                for position in range(cursor, len(source)):
+                    if masked[position] != "\\n":
+                        masked[position] = " "
+                in_html_comment = True
+                cursor = len(source)
+                break
+            for position in range(cursor, end + 3):
+                if masked[position] != "\\n":
+                    masked[position] = " "
+            cursor = end + 3
+            continue
+
+        cursor += 1
+
+    values = "".join(masked).split("\\n")
+    return (
+        [(line_number, values[index]) for index, (line_number, _line) in enumerate(block)],
+        in_html_comment,
+    )
 
 
 def _routing_active_lines(lines: Sequence[tuple[int, str]]) -> list[tuple[int, str]]:
-    """Return routing evidence outside code and ordinary HTML comments."""
+    """Return routing evidence outside code, raw HTML code blocks, and ordinary comments."""
     active: list[tuple[int, str]] = []
     in_html_comment = False
-    normalized = _mask_inline_code_lines(_routing_container_lines(lines))
+    normalized = _exclude_raw_html_code_blocks(_routing_container_lines(lines))
 
-    for line_number, line in normalized:
-        if not line.strip():
-            if not in_html_comment:
+    for block in _routing_inline_blocks(normalized):
+        masked_block, in_html_comment = _mask_routing_inline_block(
+            block,
+            in_html_comment=in_html_comment,
+        )
+        for line_number, line in masked_block:
+            if line.strip():
+                active.append((line_number, line))
+            elif not in_html_comment and not block[0][1].strip():
                 active.append((line_number, ""))
-            continue
-
-        visible_parts: list[str] = []
-        cursor = 0
-        while cursor < len(line):
-            if in_html_comment:
-                end = line.find("-->", cursor)
-                if end < 0:
-                    cursor = len(line)
-                    break
-                visible_parts.append(" ")
-                cursor = end + 3
-                in_html_comment = False
-                continue
-
-            start = line.find("<!--", cursor)
-            if start < 0:
-                visible_parts.append(line[cursor:])
-                break
-
-            visible_parts.append(line[cursor:start])
-            if PROGRESSIVE_ROUTE_PREFIX.match(line, start) is not None:
-                # Keep malformed/live route candidates visible so the route parser fails closed.
-                visible_parts.append(line[start:])
-                cursor = len(line)
-                break
-
-            if CONDITIONAL_OWNER_MARKER.fullmatch(line.strip()) is not None and not "".join(visible_parts).strip():
-                visible_parts.append(line[start:])
-                cursor = len(line)
-                break
-
-            # Keep a separator so removing a comment cannot splice an invalid Markdown link.
-            visible_parts.append(" ")
-            end = line.find("-->", start + 4)
-            if end < 0:
-                in_html_comment = True
-                cursor = len(line)
-                break
-            cursor = end + 3
-
-        visible = "".join(visible_parts)
-        if visible.strip():
-            active.append((line_number, visible))
 
     return active
-
 
 def _conditional_owner_markers(
     root: Path,
