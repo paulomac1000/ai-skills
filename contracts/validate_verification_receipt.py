@@ -176,13 +176,11 @@ def validate_receipt_semantics(
         missing_generic = [field for field in generic_fields if field not in corpus]
         if missing_generic:
             findings.append(
-                "governed validation-corpus receipts require subject accounting fields: "
-                + ", ".join(missing_generic)
+                "governed validation-corpus receipts require subject accounting fields: " + ", ".join(missing_generic)
             )
     elif accounting_profile in {None, LEGACY_CORPUS_PROFILE} and present_generic:
         findings.append(
-            "generic validation-corpus fields require test_corpus.accounting_profile="
-            f"{GOVERNED_CORPUS_PROFILE!r}"
+            f"generic validation-corpus fields require test_corpus.accounting_profile={GOVERNED_CORPUS_PROFILE!r}"
         )
 
     if governed_corpus and all(field in corpus for field in generic_fields):
@@ -191,9 +189,7 @@ def validate_receipt_semantics(
             discovered_subjects = _non_negative_int(
                 corpus.get("discovered_subjects"), "test_corpus.discovered_subjects"
             )
-            exercised_subjects = _non_negative_int(
-                corpus.get("exercised_subjects"), "test_corpus.exercised_subjects"
-            )
+            exercised_subjects = _non_negative_int(corpus.get("exercised_subjects"), "test_corpus.exercised_subjects")
         except VerificationReceiptError as error:
             findings.append(str(error))
         else:
@@ -212,8 +208,7 @@ def validate_receipt_semantics(
                     findings.append("test_corpus.exercised_subjects must equal executed_files")
                 if expected_subjects != discovered_subjects + len(missing_required_subjects):
                     findings.append(
-                        "test_corpus.expected_subjects must equal discovered_subjects plus "
-                        "missing_required_subjects"
+                        "test_corpus.expected_subjects must equal discovered_subjects plus missing_required_subjects"
                     )
 
     if receipt.get("verdict") == "pass":
