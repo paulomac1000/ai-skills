@@ -8,10 +8,19 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 TOOLS = ROOT / "skills" / "ci-cd-architect" / "tools"
+CONTRACTS = ROOT / "contracts"
 
 
 def _load(name: str):
     spec = importlib.util.spec_from_file_location(name, TOOLS / f"{name}.py")
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _load_contract(name: str):
+    spec = importlib.util.spec_from_file_location(name, CONTRACTS / f"{name}.py")
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -23,6 +32,7 @@ execution = _load("check_execution_integrity")
 parity = _load("check_local_ci_parity")
 isolation = _load("verify_state_isolation")
 bootstrap = _load("check_verification_bootstrap")
+receipt_validator = _load_contract("validate_verification_receipt")
 
 
 def test_manifest_drift_reproduces_34_discovered_23_selected(tmp_path: Path) -> None:
@@ -274,7 +284,9 @@ def test_state_snapshot_rejects_symlink_in_protected_tree(tmp_path: Path) -> Non
         isolation.snapshot([protected])
 
 
-def test_required_validation_subject_missing_is_non_green_even_when_discovery_shrinks(tmp_path: Path) -> None:
+def test_required_validation_subject_missing_is_non_green_even_when_discovery_shrinks(
+    tmp_path: Path,
+) -> None:
     (tmp_path / "scripts.yaml").write_text("script: {}\n", encoding="utf-8")
     result = test_corpus.evaluate(
         tmp_path,
@@ -295,7 +307,9 @@ def test_required_validation_subject_missing_is_non_green_even_when_discovery_sh
     assert result["verdict"] == "fail"
 
 
-def test_required_validation_subject_is_not_lost_to_semantic_discovery_heuristics(tmp_path: Path) -> None:
+def test_required_validation_subject_is_not_lost_to_semantic_discovery_heuristics(
+    tmp_path: Path,
+) -> None:
     target = tmp_path / "config" / "templated.yaml"
     target.parent.mkdir()
     target.write_text("value: '{{ foo }}'\n", encoding="utf-8")
@@ -331,3 +345,83 @@ def test_required_validation_subject_cannot_be_hidden_by_exclusion(tmp_path: Pat
             },
             observed_executed=set(),
         )
+
+
+def test_required_validation_subject_aliases_collapse_to_one_canonical_identity(tmp_path: Path) -> None:
+    (tmp_path / "automations.yaml").write_text("[]\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="duplicate required subject: automations.yaml"):
+        test_corpus.evaluate(
+            tmp_path,
+            {
+                "schema_version": 1,
+                "policy_revision": "governed-yaml/v1",
+                "mode": "automatic",
+                "include": ["*.yaml"],
+                "required_subjects": ["automations.yaml", "./automations.yaml"],
+            },
+            observed_executed={"automations.yaml"},
+        )
+
+
+def _verification_receipt_with_generic_corpus(**corpus_overrides: object) -> dict[str, object]:
+    corpus: dict[str, object] = {
+        "policy_revision": "fixture",
+        "discovered_files": 1,
+        "executed_files": 1,
+        "excluded_files": [],
+        "accounted_files": 1,
+        "discovery_drift": 0,
+        "execution_evidence": "observed",
+        "completeness": "complete",
+        "expected_subjects": 1,
+        "discovered_subjects": 1,
+        "exercised_subjects": 1,
+        "missing_required_subjects": [],
+    }
+    corpus.update(corpus_overrides)
+    return {
+        "schema_version": 1,
+        "candidate": {"source_revision": "a" * 40},
+        "bootstrap": {"policy_revision": "fixture", "declared_dependencies_only": True},
+        "test_corpus": corpus,
+        "execution_integrity": {
+            "cancelled": 0,
+            "pending": 0,
+            "unhandled_exceptions": 0,
+            "unraisable": 0,
+            "blocking_warnings": 0,
+            "leaked_async_work": 0,
+        },
+        "isolation": {"production_effective_state_touched": False},
+        "verdict": "pass",
+        "evidence_refs": ["fixture:evidence"],
+    }
+
+
+def test_verification_receipt_accepts_consistent_generic_corpus_fields() -> None:
+    receipt = _verification_receipt_with_generic_corpus()
+    assert receipt_validator.validate_receipt(receipt) == []
+
+
+def test_verification_receipt_rejects_missing_required_subject_on_pass() -> None:
+    receipt = _verification_receipt_with_generic_corpus(
+        expected_subjects=2,
+        missing_required_subjects=["automations.yaml"],
+        discovery_drift=1,
+    )
+    findings = receipt_validator.validate_receipt(receipt)
+    assert any("missing_required_subjects" in finding for finding in findings)
+    assert any("zero missing required validation subjects" in finding for finding in findings)
+
+
+def test_verification_receipt_rejects_partial_or_inconsistent_generic_corpus_fields() -> None:
+    partial = _verification_receipt_with_generic_corpus()
+    partial_corpus = partial["test_corpus"]
+    assert isinstance(partial_corpus, dict)
+    partial_corpus.pop("exercised_subjects")
+    partial_findings = receipt_validator.validate_receipt_semantics(partial)
+    assert any("generic validation-corpus fields must be supplied together" in item for item in partial_findings)
+
+    inconsistent = _verification_receipt_with_generic_corpus(discovered_subjects=0)
+    inconsistent_findings = receipt_validator.validate_receipt_semantics(inconsistent)
+    assert any("discovered_subjects must equal discovered_files" in item for item in inconsistent_findings)

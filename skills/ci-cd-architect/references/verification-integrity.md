@@ -14,7 +14,7 @@ verification:
 
 Use this reference when a gate can be green without proving that the intended work actually ran.
 
-A verification verdict is valid only when the intended test corpus was selected, actual selected-test execution is evidenced, selected tests terminated cleanly, verdict-affecting dependencies came from declared repository-owned or immutable sources, the local entrypoint represents every merge-blocking hosted gate or reports it as hosted-only, and validation did not mutate production-effective runtime state. The canonical combined receipt is `contracts/verification-receipt.schema.json`.
+A verification verdict is valid only when the intended validation corpus was selected, actual selected-subject execution is evidenced, selected work terminated cleanly, verdict-affecting dependencies came from declared repository-owned or immutable sources, the local entrypoint represents every merge-blocking hosted gate or reports it as hosted-only, and validation did not mutate production-effective runtime state. The canonical combined receipt is `contracts/verification-receipt.schema.json`.
 
 ## Validation corpus
 

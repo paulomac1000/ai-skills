@@ -79,24 +79,33 @@ def _required_subjects(root: Path, values: object) -> tuple[set[str], set[str], 
         values = []
     if not isinstance(values, list):
         raise ValueError("required_subjects must be a list")
+    resolved_root = root.resolve()
     declared: set[str] = set()
     existing: set[str] = set()
     missing: set[str] = set()
     for raw in values:
         if not isinstance(raw, str) or not raw.strip():
             raise ValueError("required_subjects must contain non-empty strings")
-        if raw in declared:
-            raise ValueError(f"duplicate required subject: {raw}")
+        relative = Path(raw)
+        if relative.is_absolute():
+            raise ValueError(f"required subject must be repository-relative: {raw}")
+        lexical = root / relative
+        current = root
+        for part in relative.parts:
+            current /= part
+            if current.is_symlink():
+                raise ValueError(f"required subject must not traverse a symlink: {raw}")
         path = _confined(root, raw)
-        declared.add(raw)
-        if path.is_symlink():
-            raise ValueError(f"required subject must not be a symlink: {raw}")
+        normalized = path.relative_to(resolved_root).as_posix()
+        if normalized in declared:
+            raise ValueError(f"duplicate required subject: {normalized}")
+        declared.add(normalized)
         if path.exists():
             if not path.is_file():
-                raise ValueError(f"required subject must be a regular file: {raw}")
-            existing.add(raw)
+                raise ValueError(f"required subject must be a regular file: {normalized}")
+            existing.add(normalized)
         else:
-            missing.add(raw)
+            missing.add(normalized)
     return declared, existing, missing
 
 

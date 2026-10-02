@@ -212,7 +212,8 @@ def validate_receipt_semantics(
                         )
                     if expected_subjects != discovered_subjects + len(missing_required_subjects):
                         findings.append(
-                            "test_corpus.expected_subjects must equal discovered_subjects plus missing_required_subjects"
+                            "test_corpus.expected_subjects must equal discovered_subjects plus "
+                            "missing_required_subjects"
                         )
 
     if receipt.get("verdict") == "pass":

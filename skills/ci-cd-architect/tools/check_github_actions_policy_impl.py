@@ -36,7 +36,10 @@ _TRUSTED_CI_WRITE_SCOPES = frozenset({"checks", "security-events"})
 _PROTECTED_RELEASE_WRITE_SCOPES = frozenset({"attestations", "contents", "id-token", "packages", "security-events"})
 
 _PROTECTED_PUBLISHER_FORBIDDEN_RUNS: tuple[tuple[re.Pattern[str], str], ...] = (
-    (re.compile(r"\bgit\s+(?:clone|checkout|switch|worktree\s+add)\b", re.IGNORECASE), "check out or materialize repository source"),
+    (
+        re.compile(r"\bgit\s+(?:clone|checkout|switch|worktree\s+add)\b", re.IGNORECASE),
+        "check out or materialize repository source",
+    ),
     (re.compile(r"\bdocker\s+(?:image\s+)?load\b", re.IGNORECASE), "load a candidate image"),
     (re.compile(r"\bdocker\s+import\b", re.IGNORECASE), "import a candidate image"),
     (re.compile(r"\bdocker\s+(?:build|buildx\s+build)\b", re.IGNORECASE), "build a candidate image"),
@@ -255,8 +258,12 @@ def _action_findings(path: Path, job_name: str, step_index: int, step: Any) -> l
     return findings
 
 
-
-def _protected_publisher_run_findings(path: Path, job_name: str, step_index: int, step: Any) -> list[Finding]:
+def _protected_publisher_run_findings(
+    path: Path,
+    job_name: str,
+    step_index: int,
+    step: Any,
+) -> list[Finding]:
     if not isinstance(step, dict) or not isinstance(step.get("run"), str):
         return []
     script = "\n".join(

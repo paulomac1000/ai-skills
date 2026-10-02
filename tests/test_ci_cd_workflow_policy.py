@@ -208,7 +208,11 @@ def test_impl_requires_explicit_hardened_dependencies() -> None:
     assert not hasattr(policy_impl, "main")
 
 
-def _protected_release_workflow(publish_steps: str, *, validation_steps: str = "") -> str:
+def _protected_release_workflow(
+    publish_steps: str,
+    *,
+    validation_steps: str = "",
+) -> str:
     return f"""
 # ai-skills-policy-profile: protected-release
 name: publish
@@ -242,7 +246,10 @@ def test_protected_release_allows_candidate_load_only_in_unprivileged_validation
     workflow = tmp_path / "publish.yml"
     workflow.write_text(
         _protected_release_workflow(
-            "      - run: docker buildx imagetools create --tag ghcr.io/acme/app:release ghcr.io/acme/app@sha256:" + "a" * 64,
+            (
+                "      - run: docker buildx imagetools create --tag ghcr.io/acme/app:release "
+                "ghcr.io/acme/app@sha256:" + "a" * 64
+            ),
             validation_steps="      - run: docker load --input bundle/release/image.tar",
         ),
         encoding="utf-8",
