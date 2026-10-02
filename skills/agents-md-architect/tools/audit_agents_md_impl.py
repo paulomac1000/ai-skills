@@ -267,15 +267,20 @@ def _routing_active_lines(lines: Sequence[tuple[int, str]]) -> list[tuple[int, s
 
     for line_number, source_line in lines:
         stripped = source_line.strip()
+        indented_code = _is_indented_code_line(source_line)
+        if not in_html_comment and not indented_code and PROGRESSIVE_ROUTE_PREFIX.search(stripped) is not None:
+            # Keep malformed route candidates visible so the route parser can fail closed.
+            active.append((line_number, source_line))
+            continue
         if (
             not in_html_comment
-            and not _is_indented_code_line(source_line)
-            and (
-                PROGRESSIVE_ROUTE_MARKER.fullmatch(stripped) is not None
-                or CONDITIONAL_OWNER_MARKER.fullmatch(stripped) is not None
-            )
+            and not indented_code
+            and CONDITIONAL_OWNER_MARKER.fullmatch(stripped) is not None
         ):
             active.append((line_number, source_line))
+            continue
+        if indented_code and not in_html_comment:
+            # An indented code sample cannot open a Markdown HTML comment.
             continue
 
         value = source_line
@@ -286,6 +291,7 @@ def _routing_active_lines(lines: Sequence[tuple[int, str]]) -> list[tuple[int, s
                 if end < 0:
                     value = ""
                     break
+                visible_parts.append(" ")
                 value = value[end + 3 :]
                 in_html_comment = False
                 continue
@@ -295,13 +301,14 @@ def _routing_active_lines(lines: Sequence[tuple[int, str]]) -> list[tuple[int, s
                 visible_parts.append(value)
                 break
             visible_parts.append(value[:start])
+            visible_parts.append(" ")
             end = value.find("-->", start + 4)
             if end < 0:
                 in_html_comment = True
                 break
             value = value[end + 3 :]
 
-        if _is_indented_code_line(source_line):
+        if indented_code:
             continue
         visible = "".join(visible_parts)
         if visible.strip():

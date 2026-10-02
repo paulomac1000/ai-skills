@@ -557,3 +557,81 @@ def test_hidden_conditional_owner_marker_does_not_satisfy_route(
 
     _, findings = audit_module.audit(tmp_path, "application", "single", "en")
     assert "routing.conditional-owner-marker-missing" in _codes(findings)
+
+
+@pytest.mark.parametrize(
+    "marker",
+    (
+        '<!-- agents-md: route owner="docs/recovery.md" when="after failure" purpose="recovery"',
+        '<!-- agents-md: route owner="docs/recovery.md" when="after failure" purpose="recovery" --> trailing',
+    ),
+)
+def test_malformed_route_prefix_fails_closed(tmp_path: Path, marker: str) -> None:
+    _write_base(tmp_path)
+    _append(
+        tmp_path,
+        f"""
+## Recovery routing
+
+{marker}
+- After failure, use the governed recovery procedure.
+""",
+    )
+
+    _, findings = audit_module.audit(tmp_path, "application", "single", "en")
+    assert "routing.route-marker-invalid" in _codes(findings)
+
+
+def test_indented_unclosed_comment_does_not_hide_later_live_route(tmp_path: Path) -> None:
+    _write_base(tmp_path)
+    _write_conditional_owner(tmp_path, "docs/recovery.md")
+    _append(
+        tmp_path,
+        """
+## Code example
+
+    <!--
+
+## Recovery routing
+
+<!-- agents-md: route owner="docs/recovery.md" when="after failure" purpose="recovery" -->
+- After failure, read [the recovery owner](docs/recovery.md).
+""",
+    )
+
+    _, findings = audit_module.audit(tmp_path, "application", "single", "en")
+    assert not any(finding.code.startswith("routing.") for finding in findings)
+
+
+def test_html_comment_cannot_splice_broken_owner_link_into_valid_reference(tmp_path: Path) -> None:
+    _write_base(tmp_path)
+    _write_conditional_owner(tmp_path, "docs/recovery.md")
+    _append(
+        tmp_path,
+        """
+## Recovery routing
+
+<!-- agents-md: route owner="docs/recovery.md" when="after failure" purpose="recovery" -->
+- After failure, read [the recovery owner](docs/<!-- note -->recovery.md).
+""",
+    )
+
+    _, findings = audit_module.audit(tmp_path, "application", "single", "en")
+    assert {"routing.route-prose-missing", "routing.trigger-unreachable"} <= _codes(findings)
+
+
+def test_inline_comment_outside_owner_link_preserves_valid_route(tmp_path: Path) -> None:
+    _write_base(tmp_path)
+    _write_conditional_owner(tmp_path, "docs/recovery.md")
+    _append(
+        tmp_path,
+        """
+## Recovery routing
+
+<!-- agents-md: route owner="docs/recovery.md" when="after failure" purpose="recovery" -->
+- After failure, <!-- rationale omitted --> read [the recovery owner](docs/recovery.md).
+""",
+    )
+
+    _, findings = audit_module.audit(tmp_path, "application", "single", "en")
+    assert not any(finding.code.startswith("routing.") for finding in findings)
