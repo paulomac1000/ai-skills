@@ -82,7 +82,7 @@ A blind route does not:
 
 The trigger must be visible before the first governed action, including after a mid-task transition. Do not put the only “read me when…” rule inside the unopened destination; a task that never reaches the condition should not load it.
 
-For mechanical proof, use an exact Markdown owner. In `AGENTS.md`:
+For mechanical proof, use an exact UTF-8 Markdown owner that fits the bounded owner scan. In `AGENTS.md`:
 
 ```markdown
 <!-- agents-md: route owner="docs/release.md" when="candidate becomes release-ready" purpose="release gates" invoke-owner="Makefile" -->
@@ -95,4 +95,4 @@ In `docs/release.md`:
 <!-- agents-md: conditional-owner -->
 ```
 
-`owner`, `when`, and `purpose` are required; `invoke-owner` is optional and all paths are repository-relative. The auditor rejects missing/unreadable owners, unreadable or absent markers, route markers without readable owner-linked prose, and duplicate editable control markers. Generated views may copy prose but not the `agents-md: route` marker. Re-evaluate routes when work changes phase. Static success proves the declaration graph, not model/platform timing.
+`owner`, `when`, and `purpose` are required; `invoke-owner` is optional and all paths are repository-relative. The auditor rejects missing/unreadable owners, unreadable or absent markers, route markers without readable owner-linked prose, and duplicate editable control markers. Generated views may copy prose but not the `agents-md: route` marker. Re-evaluate routes when work changes phase. Static success proves the declaration graph for mechanically eligible readable owners, not hidden markers in ineligible files or model/platform timing.

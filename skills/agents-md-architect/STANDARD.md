@@ -66,7 +66,7 @@ Place durable knowledge with the first applicable owner: always-required operati
 
 A conditional trigger must be observable **before the first action governed by the destination**, including after a mid-task transition. A trigger only inside its unopened destination is unreachable. A task that never reaches the condition should not load the procedure. After extraction the **pre-load stub** contains only the trigger/route plus safety needed before loading; it is not a second editable procedure.
 
-For repositories needing deterministic reachability evidence, the mechanical owner is an exact Markdown file. In the applicable `AGENTS.md`:
+For repositories needing deterministic reachability evidence, the mechanical owner is an exact UTF-8 Markdown file that fits the auditor's bounded owner scan. In the applicable `AGENTS.md`:
 
 ```markdown
 <!-- agents-md: route owner="docs/migrations.md" when="before schema change" purpose="rollback" invoke-owner="Makefile" -->
@@ -81,7 +81,7 @@ In `docs/migrations.md`:
 
 `owner`, `when`, and `purpose` are required; `invoke-owner` is optional. Owner paths are repository-relative. A marked destination has exactly one editable control marker. Generated projections may copy readable route prose, but MUST NOT copy `agents-md: route`; a copied control marker counts as a duplicate trigger owner.
 
-Static audit proves marker syntax, confinement, uniqueness, and structural reachability. It **does not prove semantic trigger timing** or platform loading; those require behavioral/provider evidence. See `references/profiles-and-routing.md`.
+Static audit proves marker syntax, confinement, uniqueness, and structural reachability among mechanically eligible readable owners. It **does not prove semantic trigger timing** or platform loading; those require behavioral/provider evidence. See `references/profiles-and-routing.md`.
 
 Every reference states when to read it and what decision it owns. Do not duplicate README content, lint configuration, CI definitions, architecture documents, inventories, or skill catalogs.
 
