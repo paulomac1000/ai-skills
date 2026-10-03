@@ -517,10 +517,7 @@ def _routing_block_lines(text: str) -> list[RoutingLine]:
                 active_raw_html = raw_html
                 if active_raw_html.ends_on_blank and not content.strip():
                     raw_html = None
-                elif (
-                    active_raw_html.end_pattern is not None
-                    and active_raw_html.end_pattern.search(content) is not None
-                ):
+                elif active_raw_html.end_pattern is not None and active_raw_html.end_pattern.search(content) is not None:
                     raw_html = None
                 normalized.append(RoutingLine(line_number, "", active_raw_html.container, False))
                 continue
@@ -577,10 +574,7 @@ def _routing_block_lines(text: str) -> list[RoutingLine]:
         detected_raw_html = _raw_html_state(content, container, paragraph_active=paragraph_active)
         if detected_raw_html is not None:
             raw_html = detected_raw_html
-            if (
-                detected_raw_html.end_pattern is not None
-                and detected_raw_html.end_pattern.search(content) is not None
-            ):
+            if detected_raw_html.end_pattern is not None and detected_raw_html.end_pattern.search(content) is not None:
                 raw_html = None
             paragraph_active = False
             normalized.append(RoutingLine(line_number, "", container, boundary_before))
