@@ -163,6 +163,7 @@ def audit(
         project_doc_fallback_filenames,
     )
     findings.extend(_impl._convert(item) for item in validation_findings)
+    findings.extend(_impl._progressive_routing_findings(safe_root, discovery, documents))
 
     reference_paragraphs: dict[str, tuple[str, int]] = {}
     for reference in ("README.md", "CHANGELOG.md"):
@@ -309,6 +310,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     "discovery": asdict(discovery),
                     "gate_source_inventory": asdict(inventory),
                     "findings": [asdict(item) for item in findings],
+                    "proof_boundary": _impl.PROGRESSIVE_ROUTING_PROOF_BOUNDARY,
                 },
                 indent=2,
                 sort_keys=True,
@@ -316,11 +318,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
     elif findings:
         print(_render_text(findings))
+        print(f"Proof boundary: {_impl.PROGRESSIVE_ROUTING_PROOF_BOUNDARY}")
     else:
         print(
             "AGENTS.md audit passed. "
             f"Gate entrypoints: {inventory.count}/{inventory.limit}; headroom {inventory.headroom}."
         )
+        print(f"Proof boundary: {_impl.PROGRESSIVE_ROUTING_PROOF_BOUNDARY}")
     has_error = any(item.severity == "error" for item in findings)
     has_warning = any(item.severity == "warning" for item in findings)
     return 1 if has_error or (args.strict and has_warning) else 0

@@ -1,0 +1,49 @@
+schema_version: 1
+skill: agents-md-architect
+suite: behavior
+cases:
+- id: negative-routing-no-transition
+  kind: representative
+  prompt: Implement a small pure-code change. Migration, release, recovery, destructive effects, and sensitive-data handling never occur.
+  baseline: optional
+  assertions:
+  - Keeps unrelated migration, release, and recovery procedures unloaded when their trigger never occurs.
+  - Uses only the always-loaded route/stub information relevant to the task.
+- id: mid-task-migration-transition
+  kind: representative
+  prompt: Begin a normal implementation task, then discover midway that the change requires a database schema migration.
+  baseline: optional
+  assertions:
+  - Detects the transition into migration before the first schema-governed action.
+  - Loads the canonical migration owner before proposing or executing migration mechanics.
+  - Preserves any pre-load safety invariant while obtaining the routed instructions.
+- id: extraction-preserves-behavior
+  kind: regression
+  prompt: Move a long migration procedure out of an oversized AGENTS.md into one conditional owner.
+  baseline: optional
+  assertions:
+  - Leaves a reachable condition-to-owner-to-purpose route on the always-loaded surface.
+  - Keeps only genuinely pre-load-critical safety facts inline and removes the substantive duplicate procedure.
+  - Reduces always-loaded authored bytes while preserving the governed behavior.
+- id: stale-or-removed-trigger
+  kind: regression
+  prompt: Review an extraction where a section link is stale and the only pre-load trigger was removed from AGENTS.md.
+  baseline: not-applicable
+  assertions:
+  - Rejects the extraction as incomplete rather than accepting individually valid files.
+  - Reports the stale route or unreachable conditional owner.
+- id: duplicate-trigger-index
+  kind: regression
+  prompt: Two editable routing tables now point to the same conditional release procedure with slightly different trigger wording.
+  baseline: not-applicable
+  assertions:
+  - Rejects parallel editable trigger ownership.
+  - Keeps one canonical trigger owner and permits only a derived/generated complete projection.
+- id: discover-before-invoke
+  kind: regression
+  prompt: A routed procedure requires a repository helper, but the exact launcher flags and test module are not yet loaded.
+  baseline: optional
+  assertions:
+  - Resolves the supported invocation from canonical metadata, launcher, manifest, help/catalog, or test inventory before execution.
+  - Does not normalize speculative failed commands into the discovery workflow.
+  - Surfaces a missing or ambiguous canonical interface as a readiness gap.

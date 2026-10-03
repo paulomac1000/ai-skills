@@ -16,6 +16,10 @@ Keep one repository-owned `AGENTS.md` contract, but do not assume every coding a
 
 Repository instructions remain behavioral context rather than a hard security boundary. Enforce prohibitions through permissions, hooks, policy engines, CI, or runtime controls when non-compliance would be unsafe.
 
+## Trigger ownership under progressive loading
+
+Skill metadata may own a trigger only when the exact product surface is evidenced to expose it before conditional loading. Otherwise keep the trigger in always-loaded `AGENTS.md` or a verified pre-load adapter. Static audit proves only the repository marker graph; product loading and mid-task timing remain provider/platform evidence.
+
 ## OpenAI Codex
 
 Codex builds project guidance from the project root to the current working directory. In each directory it selects the first available file in this order:

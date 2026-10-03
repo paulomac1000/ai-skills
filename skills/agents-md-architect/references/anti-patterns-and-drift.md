@@ -26,6 +26,18 @@ The file restates formatter, linter, compiler, or static-analysis configuration.
 
 The file lists paths without explaining when to read them or what they own. Each reference must answer both questions.
 
+## Circular or dead progressive routes
+
+The destination owns its only trigger or extraction removes the last pre-load route. Keep one trigger owner visible before the governed action.
+
+## Duplicate trigger registries
+
+Two editable indexes can drift. Keep one canonical trigger owner; a complete catalog must be derived/generated.
+
+## Speculative invocation archaeology
+
+Do not learn launch syntax through repeated failures when canonical metadata, a task runner, bounded `--help`, catalog, or test inventory exists. Discover before invoke; ambiguity is a readiness finding.
+
 ## Fossilized initialization
 
 A generated instruction file contains stale counts, versions, dates, ports, package lists, paths, or temporary migration state. Derive volatile facts automatically or remove them from durable policy.

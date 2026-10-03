@@ -20,8 +20,8 @@ skills:
       operating-modes-and-profiles: {rule_id: agents.modes.profiled, primary: true}
       canonical-ownership-and-architecture-boundaries: {rule_id: agents.ownership.boundaries, primary: true}
       safety-and-data-boundaries: {rule_id: agents.safety.fail-closed, primary: true}
-      commands-and-verification: {rule_id: agents.commands.executable, primary: true}
-      context-economy-and-routing: {rule_id: agents.context.routed, primary: true}
+      commands-and-verification: {rule_ids: [agents.commands.executable, agents.commands.discover-before-invoke], primary: true}
+      context-economy-and-routing: {rule_ids: [agents.context.routed, agents.context.trigger-safe], primary: true}
       nested-instructions: {rule_id: agents.nested.locality, primary: true}
       anti-patterns-and-drift: {rule_id: agents.drift.prevented, primary: true}
       definition-of-done: {rule_id: agents.completion.evidenced, primary: true}

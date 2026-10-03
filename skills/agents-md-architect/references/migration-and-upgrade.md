@@ -50,6 +50,10 @@ Prefer the smallest safe result:
 
 Record why the chosen class is necessary. Do not use a new skill version as the reason by itself.
 
+## Extraction and progressive-routing safety
+
+Treat extraction as a routing migration: choose one destination; preserve a pre-action trigger and only necessary pre-load safety; remove the old procedural copy; check stale links/backlinks/owner names; reject orphan/self triggers and duplicate editable indexes; rerun transition-time and negative-routing evals; compare always-loaded authored bytes before/after. Use the marker pair when mechanical orphan detection is required. Static success does not prove behavioral loading time.
+
 ## Verification
 
 Run discovery and validation with the target skill version, compare findings against the old validated tree, and distinguish validator/tooling deltas from actual repository-policy deltas. Any formatting or wording change made only to satisfy a parser should trigger a validator review before degrading the document.

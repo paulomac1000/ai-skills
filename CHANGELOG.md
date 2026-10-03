@@ -1,19 +1,21 @@
 # Changelog
 
-## 3.2.0 - Unreleased
+## 3.3.0 - 2026-10-03
 
 ### Added
 
 - Added `skill-architect` as the canonical owner of reusable Agent Skill admission, routing, progressive disclosure, resource selection, portability, behavioral evaluation, migration, and deprecation.
 - Added deterministic skill-package auditing and minimal scaffolding, plus a portable routing/behavior eval schema and representative repository-level `skill-architect` corpora.
+- Added trigger-safe progressive-routing audit markers and representative `agents-md-architect` routing/behavior eval corpora for orphan, duplicate, extraction, transition-time, negative-routing, and discover-before-invoke regressions.
 
 ### Changed
 
+- Extended `agents-md-architect` with owner-first knowledge placement, pre-load stubs, transition-time routing, platform-aware trigger ownership, and canonical invocation discovery before trial execution.
 - Generalized CI verification-corpus completeness beyond test-file discovery: policies can declare exact required governed subjects that remain expected when deleted or missed by discovery heuristics, with an explicit governed accounting profile and expected/discovered/exercised/missing evidence kept complete.
 - Strengthened protected-release workflow auditing so authority-bearing publisher jobs reject candidate checkout/materialization, rebuild/package, image load/import, candidate execution, shell-continuation bypasses, known build actions, and opaque reusable-workflow delegation while preserving registry-native exact-digest promotion.
 - Made skill descriptions an explicit pre-load routing contract, kept development evidence such as eval corpora, benchmark reports, and changelogs outside published runtime skill packages, and separated deterministic corpus validation from provenance-bound model observations.
 - Allowed skills without executable helpers to declare an empty `dependencies.tools` list while keeping tool-bearing skills inside the existing quality, typing, security, and coverage gates.
-- Synchronized all bundled stable skill version mirrors to `3.2.0` for this combined unreleased boundary.
+- Synchronized all bundled stable skill version mirrors to `3.3.0` for this combined unreleased boundary.
 
 ### Security and correctness
 
@@ -23,6 +25,7 @@
 ### Dependencies
 
 - Pinned the existing transitive security-sensitive dependencies to PyJWT 2.15.1 and urllib3 2.8.0, replacing advisory-affected PyJWT 2.13.0 and urllib3 2.7.0 in the regenerated development locks.
+- Bumped development tooling and regenerated the five committed native development locks: `build` 1.5.0 → 1.6.1, `mcp` 2.0.0 → 2.2.0 (with `mcp-types` 2.0.0 → 2.2.0), `mypy` 2.3.0 → 2.3.1, `pip` 26.2 → 26.2.1, and `ruff` 0.16.3 → 0.16.9.
 
 ## 3.0.0 - 2026-09-13
 

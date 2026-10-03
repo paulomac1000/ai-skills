@@ -16,10 +16,10 @@ Identify the affected instruction files, their scope, the canonical owner of eac
 
 ## Change workflow
 
-1. Reproduce the problem through a failed route, stale command, conflicting rule, missed safety boundary, or unnecessary context load.
+1. Reproduce the problem through a failed/dead route, stale command, conflicting rule, missed safety boundary, speculative invocation, or unnecessary context load.
 2. Change the canonical implementation, standard, workflow, or documentation owner first when the instruction only reflects that source.
 3. Update the smallest applicable root or nested instruction file.
-4. Add or update an executable regression when the failure can be checked mechanically.
+4. Add an executable regression where possible; progressive disclosure also needs a mid-task trigger case and a no-trigger negative case.
 5. Validate every relative link and all profile requirements.
 6. Run focused checks for changed behavior and the full repository gate.
 7. Review the final diff for duplicated policy, generated files, secrets, private data, temporary names, and unrelated edits.
@@ -30,6 +30,8 @@ Identify the affected instruction files, their scope, the canonical owner of eac
 | Claim | Minimum evidence |
 | --- | --- |
 | Link and structure are valid | Strict validator output |
+| Declared conditional route is reachable and unique | Static repository audit; semantic timing remains unproven |
+| Trigger fires before governed action | Model/platform behavior evidence on the exact surface |
 | Command is current | Command exists and representative execution result |
 | Local change is complete | Focused tests plus full local gate |
 | Hosted compatibility is proven | Provider-backed job on the exact revision |

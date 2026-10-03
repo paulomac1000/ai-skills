@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import string
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -14,7 +15,6 @@ from agents_md_types import (
     CONTRACT_MARKER,
     FENCE_OPENER,
     HEADING,
-    INLINE_LINK,
     LANGUAGE_NEGATIVE_DIRECTIVE,
     LANGUAGE_POSITIVE_DIRECTIVE,
     PATH_CUE,
@@ -22,6 +22,7 @@ from agents_md_types import (
     PATH_SUFFIXES,
     REFERENCE_DEFINITION,
     REFERENCE_USAGE,
+    SHORTCUT_REFERENCE_USAGE,
     CommandRule,
     Directive,
     LanguageName,
@@ -223,6 +224,408 @@ def _iter_code_spans(line: str) -> Iterator[str]:
         yield value
 
 
+@dataclass(frozen=True)
+class InlineLink:
+    """One non-image inline Markdown link with a decoded repository target."""
+
+    label: str
+    target: str
+    start: int
+    end: int
+
+
+INLINE_LINK_WORK_FACTOR = 4
+INLINE_LINK_MIN_WORK = 1024
+
+
+def _find_unescaped(
+    line: str,
+    character: str,
+    start: int,
+    max_steps: int,
+) -> tuple[int | None, int]:
+    index = start
+    steps = 0
+    while index < len(line) and steps < max_steps:
+        advance = 2 if line[index] == "\\" and index + 1 < len(line) else 1
+        if steps + advance > max_steps:
+            break
+        if advance == 1 and line[index] == character:
+            return index, steps + 1
+        index += advance
+        steps += advance
+    return None, steps
+
+
+def _find_label_end(
+    line: str,
+    start: int,
+    max_steps: int,
+) -> tuple[int | None, int]:
+    index = start
+    steps = 0
+    nested = 0
+    while index < len(line) and steps < max_steps:
+        if line[index] == "\\":
+            advance = 2 if index + 1 < len(line) else 1
+            if steps + advance > max_steps:
+                break
+            index += advance
+            steps += advance
+            continue
+        steps += 1
+        if line[index] == "[":
+            nested += 1
+        elif line[index] == "]":
+            if nested == 0:
+                return index, steps
+            nested -= 1
+        index += 1
+    return None, steps
+
+
+def _is_escaped(value: str, index: int) -> bool:
+    """Return whether the character at index is preceded by an odd backslash run."""
+    backslashes = 0
+    cursor = index - 1
+    while cursor >= 0 and value[cursor] == "\\":
+        backslashes += 1
+        cursor -= 1
+    return backslashes % 2 == 1
+
+
+def _merged_spans(spans: Sequence[tuple[int, int]]) -> tuple[tuple[int, int], ...]:
+    """Merge overlapping exclusion spans for active-Markdown scans."""
+    merged: list[tuple[int, int]] = []
+    for start, end in sorted(spans):
+        if not merged or start > merged[-1][1]:
+            merged.append((start, end))
+            continue
+        previous_start, previous_end = merged[-1]
+        merged[-1] = (previous_start, max(previous_end, end))
+    return tuple(merged)
+
+
+def _inside_spans(index: int, spans: Sequence[tuple[int, int]]) -> bool:
+    """Check a sorted non-overlapping span set in logarithmic time."""
+    low = 0
+    high = len(spans)
+    while low < high:
+        middle = (low + high) // 2
+        start, end = spans[middle]
+        if index < start:
+            high = middle
+        elif index >= end:
+            low = middle + 1
+        else:
+            return True
+    return False
+
+
+def _unescape_markdown_destination(value: str) -> str:
+    output: list[str] = []
+    index = 0
+    while index < len(value):
+        if value[index] == "\\" and index + 1 < len(value) and value[index + 1] in string.punctuation:
+            output.append(value[index + 1])
+            index += 2
+            continue
+        output.append(value[index])
+        index += 1
+    return "".join(output)
+
+
+def _inline_link_close(
+    line: str,
+    destination_start: int,
+    max_steps: int,
+) -> tuple[int | None, int]:
+    depth = 0
+    index = destination_start
+    steps = 0
+    in_angle_destination = index < len(line) and line[index] == "<"
+    title_quote: str | None = None
+    saw_top_level_space = False
+
+    while index < len(line) and steps < max_steps:
+        character = line[index]
+        if character == "\\":
+            advance = 2 if index + 1 < len(line) else 1
+            if steps + advance > max_steps:
+                break
+            index += advance
+            steps += advance
+            continue
+        steps += 1
+        if in_angle_destination:
+            if character == ">":
+                in_angle_destination = False
+            index += 1
+            continue
+        if title_quote is not None:
+            if character == title_quote:
+                title_quote = None
+            index += 1
+            continue
+        if depth == 0 and character.isspace():
+            saw_top_level_space = True
+            index += 1
+            continue
+        if saw_top_level_space and depth == 0 and character in {'"', "'"}:
+            title_quote = character
+            index += 1
+            continue
+        if character == "(":
+            depth += 1
+            index += 1
+            continue
+        if character == ")":
+            if depth == 0:
+                return index, steps
+            depth -= 1
+            index += 1
+            continue
+        index += 1
+    return None, steps
+
+
+def _valid_inline_link_title(value: str) -> bool:
+    if len(value) < 2:
+        return False
+    closing = {'"': '"', "'": "'", "(": ")"}.get(value[0])
+    if closing is None or value[-1] != closing:
+        return False
+
+    index = 1
+    while index < len(value) - 1:
+        if value[index] == "\\" and index + 1 < len(value) - 1:
+            index += 2
+            continue
+        if value[index] == closing:
+            return False
+        index += 1
+    return True
+
+
+def _parse_inline_link_target(body: str) -> tuple[bool, str]:
+    """Validate a Markdown destination/title payload and return its decoded target."""
+    leading_space = bool(body) and body[0].isspace()
+    value = body.strip()
+    if not value:
+        return True, ""
+    if leading_space and value[0] in {'"', "'", "("}:
+        return _valid_inline_link_title(value), ""
+
+    if value.startswith("<"):
+        end, _spent = _find_unescaped(value, ">", 1, len(value))
+        if end is None:
+            return False, ""
+        raw_target = value[: end + 1]
+        suffix = value[end + 1 :].strip()
+    else:
+        index = 0
+        while index < len(value):
+            if value[index] == "\\" and index + 1 < len(value):
+                index += 2
+                continue
+            if value[index].isspace():
+                break
+            index += 1
+        raw_target = value[:index]
+        suffix = value[index:].strip()
+
+    if suffix and not _valid_inline_link_title(suffix):
+        return False, ""
+    target = _unescape_markdown_destination(_strip_destination(raw_target))
+    return bool(raw_target), target
+
+
+def _inline_html_tag_spans(line: str) -> Iterator[tuple[int, int]]:
+    """Yield inline HTML tag spans so attribute text is not interpreted as Markdown."""
+    index = 0
+    while index < len(line):
+        start = line.find("<", index)
+        if start < 0 or start + 1 >= len(line):
+            return
+
+        cursor = start + 1
+        marker = line[cursor]
+        if marker == "/":
+            cursor += 1
+            if cursor >= len(line) or not line[cursor].isalpha():
+                index = start + 1
+                continue
+        elif not (marker.isalpha() or marker in {"!", "?"}):
+            index = start + 1
+            continue
+
+        quote: str | None = None
+        cursor += 1
+        while cursor < len(line):
+            character = line[cursor]
+            if quote is not None:
+                if character == quote:
+                    quote = None
+            elif character in {'"', "'"}:
+                quote = character
+            elif character == ">":
+                yield start, cursor + 1
+                index = cursor + 1
+                break
+            elif character == "<":
+                index = start + 1
+                break
+            cursor += 1
+        else:
+            index = start + 1
+            continue
+
+
+def _first_active_inline_link_start(
+    line: str,
+    start: int,
+    end: int,
+    excluded_spans: Sequence[tuple[int, int]],
+    max_steps: int,
+) -> tuple[int | None, int]:
+    """Find an active non-image inline link nested inside a label."""
+    index = start
+    spent_total = 0
+    while index < end and spent_total < max_steps:
+        candidate = line.find("[", index, end)
+        if candidate < 0:
+            return None, spent_total
+        if _is_escaped(line, candidate) or _inside_spans(candidate, excluded_spans):
+            index = candidate + 1
+            continue
+        if candidate > 0 and line[candidate - 1] == "!" and not _is_escaped(line, candidate - 1):
+            index = candidate + 1
+            continue
+
+        remaining = max_steps - spent_total
+        label_end, spent = _find_label_end(line, candidate + 1, remaining)
+        spent_total += spent
+        if label_end is None or label_end >= end:
+            index = candidate + 1
+            continue
+        if label_end + 1 >= end or line[label_end + 1] != "(":
+            index = label_end + 1
+            continue
+
+        remaining = max_steps - spent_total
+        close, spent = _inline_link_close(line, label_end + 2, remaining)
+        spent_total += spent
+        if close is None or close >= end:
+            index = label_end + 1
+            continue
+        valid_target, _target = _parse_inline_link_target(line[label_end + 2 : close])
+        if valid_target:
+            return candidate, spent_total
+        index = close + 1
+    return None, spent_total
+
+
+def _iter_inline_links(line: str) -> Iterator[InlineLink]:
+    """Yield active inline Markdown links under a linear work budget."""
+    index = 0
+    remaining_work = max(INLINE_LINK_MIN_WORK, len(line) * INLINE_LINK_WORK_FACTOR)
+    excluded_spans = _merged_spans(
+        (
+            *_image_label_spans(line),
+            *_inline_html_tag_spans(line),
+            *((start, end) for _value, start, end in _iter_code_span_matches(line)),
+        )
+    )
+    while index < len(line) and remaining_work > 0:
+        label_start = line.find("[", index)
+        if label_start < 0:
+            return
+        if _is_escaped(line, label_start):
+            index = label_start + 1
+            continue
+        if _inside_spans(label_start, excluded_spans):
+            index = label_start + 1
+            continue
+
+        is_image = label_start > 0 and line[label_start - 1] == "!" and not _is_escaped(line, label_start - 1)
+        label_end, spent = _find_label_end(line, label_start + 1, remaining_work)
+        remaining_work -= spent
+        if label_end is None:
+            return
+        if label_end + 1 >= len(line) or line[label_end + 1] != "(":
+            index = label_end + 1
+            continue
+
+        inner_start, spent = _first_active_inline_link_start(
+            line,
+            label_start + 1,
+            label_end,
+            excluded_spans,
+            remaining_work,
+        )
+        remaining_work -= spent
+        if inner_start is not None:
+            index = inner_start
+            continue
+
+        destination_start = label_end + 2
+        close, spent = _inline_link_close(line, destination_start, remaining_work)
+        remaining_work -= spent
+        if close is None:
+            index = label_end + 1
+            continue
+        if is_image:
+            index = close + 1
+            continue
+
+        valid_target, target = _parse_inline_link_target(line[destination_start:close])
+        if valid_target and target:
+            yield InlineLink(
+                label=line[label_start + 1 : label_end],
+                target=target,
+                start=label_start,
+                end=close + 1,
+            )
+        index = close + 1
+
+
+def _image_label_spans(line: str) -> Iterator[tuple[int, int]]:
+    """Yield complete active Markdown image spans under a linear work budget."""
+    index = 0
+    remaining_work = max(INLINE_LINK_MIN_WORK, len(line) * INLINE_LINK_WORK_FACTOR)
+    while index < len(line) and remaining_work > 0:
+        image_start = line.find("![", index)
+        if image_start < 0:
+            return
+        if _is_escaped(line, image_start):
+            index = image_start + 2
+            continue
+
+        label_start = image_start + 1
+        label_end, spent = _find_label_end(line, label_start + 1, remaining_work)
+        remaining_work -= spent
+        if label_end is None:
+            return
+
+        span_end = label_end + 1
+        if span_end < len(line) and line[span_end] == "(":
+            destination_start = span_end + 1
+            close, spent = _inline_link_close(line, destination_start, remaining_work)
+            remaining_work -= spent
+            if close is not None:
+                valid_target, _target = _parse_inline_link_target(line[destination_start:close])
+                if valid_target:
+                    span_end = close + 1
+        elif span_end < len(line) and line[span_end] == "[":
+            reference_end, spent = _find_unescaped(line, "]", span_end + 1, remaining_work)
+            remaining_work -= spent
+            if reference_end is not None:
+                span_end = reference_end + 1
+
+        yield image_start, span_end
+        index = span_end
+
+
 _GENERIC_REFERENCE_OWNER = re.compile(
     r"(?ix)(?:"
     r"\bits(?:\s+\w+){0,3}|"
@@ -275,23 +678,59 @@ def _is_path_candidate(
     )
 
 
+def _normalize_reference_label(label: str) -> str:
+    """Apply CommonMark-style case/whitespace normalization to a reference label."""
+    return " ".join(label.split()).casefold()
+
+
 def iter_references(visible_lines: Sequence[tuple[int, str]]) -> Iterator[tuple[int, str]]:
     """Yield active Markdown and code-span repository references."""
     definitions: dict[str, str] = {}
     for _, line in visible_lines:
         match = REFERENCE_DEFINITION.fullmatch(line)
         if match is not None:
-            definitions[match.group("label").casefold()] = _strip_destination(match.group("target"))
+            definitions.setdefault(
+                _normalize_reference_label(match.group("label")),
+                _strip_destination(match.group("target")),
+            )
 
     for line_number, line in visible_lines:
-        for match in INLINE_LINK.finditer(line):
-            yield line_number, _strip_destination(match.group("target"))
+        inline_links = tuple(_iter_inline_links(line))
+        for link in inline_links:
+            yield line_number, link.target
+
+        code_matches = tuple(_iter_code_span_matches(line))
+        base_spans: list[tuple[int, int]] = [
+            *_image_label_spans(line),
+            *_inline_html_tag_spans(line),
+            *((start, end) for _value, start, end in code_matches),
+            *((link.start, link.end) for link in inline_links),
+        ]
+        if REFERENCE_DEFINITION.fullmatch(line) is not None:
+            base_spans.append((0, len(line)))
+        excluded_spans = _merged_spans(base_spans)
+
+        full_reference_spans: list[tuple[int, int]] = []
         for match in REFERENCE_USAGE.finditer(line):
-            key = (match.group("ref") or match.group("label")).casefold()
+            if _inside_spans(match.start(), excluded_spans):
+                continue
+            full_reference_spans.append((match.start(), match.end()))
+            if _is_escaped(line, match.start()):
+                continue
+            key = _normalize_reference_label(match.group("ref") or match.group("label"))
             target = definitions.get(key)
             if target:
                 yield line_number, target
-        for span, start, end in _iter_code_span_matches(line):
+
+        shortcut_exclusions = _merged_spans((*excluded_spans, *full_reference_spans))
+        for match in SHORTCUT_REFERENCE_USAGE.finditer(line):
+            if _is_escaped(line, match.start()) or _inside_spans(match.start(), shortcut_exclusions):
+                continue
+            target = definitions.get(_normalize_reference_label(match.group("label")))
+            if target:
+                yield line_number, target
+
+        for span, start, end in code_matches:
             if _is_path_candidate(span, line, start, end):
                 yield line_number, span
 
@@ -527,8 +966,11 @@ def _extract_directives(visible_lines: Sequence[tuple[int, str]], language: Lang
 
 
 def _instruction_context(line: str) -> str:
-    without_code = re.sub(r"`[^`]*`", " ", line)
-    return INLINE_LINK.sub(lambda match: match.group("label"), without_code)
+    context = re.sub(r"`[^`]*`", " ", line)
+    links = list(_iter_inline_links(context))
+    for link in reversed(links):
+        context = context[: link.start] + link.label + context[link.end :]
+    return context
 
 
 def _extract_commands(visible_lines: Sequence[tuple[int, str]]) -> tuple[CommandRule, ...]:
@@ -598,9 +1040,7 @@ def _extract_ownership(
         if owns_contract is None:
             continue
 
-        linked = [
-            (match.group("label"), _strip_destination(match.group("target"))) for match in INLINE_LINK.finditer(line)
-        ]
+        linked = [(link.label, link.target) for link in _iter_inline_links(line)]
         code_targets = [
             span for span, start, end in _iter_code_span_matches(line) if _is_path_candidate(span, line, start, end)
         ]
