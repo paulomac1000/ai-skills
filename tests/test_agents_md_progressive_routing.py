@@ -1209,6 +1209,69 @@ def test_route_prose_accepts_valid_link_titles(tmp_path: Path, link: str) -> Non
     assert not any(finding.code.startswith("routing.") for finding in findings)
 
 
+@pytest.mark.parametrize(
+    "definition",
+    (
+        '[recovery]: docs/recovery.md "Recovery procedure"',
+        "[recovery]: docs/recovery.md 'Recovery procedure'",
+        "[recovery]: docs/recovery.md (Recovery procedure)",
+    ),
+)
+def test_route_prose_accepts_reference_definition_titles(tmp_path: Path, definition: str) -> None:
+    _write_base(tmp_path)
+    _write_conditional_owner(tmp_path, "docs/recovery.md")
+    _append(
+        tmp_path,
+        f"""
+## Recovery routing
+
+<!-- agents-md: route owner="docs/recovery.md" when="after failure" purpose="recovery" -->
+- After failure, read [the recovery owner][recovery] before recovery work.
+
+{definition}
+""",
+    )
+
+    _, findings = audit_module.audit(tmp_path, "application", "single", "en")
+    assert not any(finding.code.startswith("routing.") for finding in findings)
+
+
+def test_owner_link_inside_inline_html_attribute_is_not_route_prose(tmp_path: Path) -> None:
+    _write_base(tmp_path)
+    _write_conditional_owner(tmp_path, "docs/recovery.md")
+    _append(
+        tmp_path,
+        """
+## Recovery routing
+
+<!-- agents-md: route owner="docs/recovery.md" when="after failure" purpose="recovery" -->
+- After failure, inspect <span title="[owner](docs/recovery.md)">the recovery note</span>.
+""",
+    )
+
+    _, findings = audit_module.audit(tmp_path, "application", "single", "en")
+    assert {"routing.route-prose-missing", "routing.trigger-unreachable"} <= _codes(findings)
+
+
+def test_reference_owner_inside_inline_html_attribute_is_not_route_prose(tmp_path: Path) -> None:
+    _write_base(tmp_path)
+    _write_conditional_owner(tmp_path, "docs/recovery.md")
+    _append(
+        tmp_path,
+        """
+## Recovery routing
+
+<!-- agents-md: route owner="docs/recovery.md" when="after failure" purpose="recovery" -->
+- After failure, inspect <span title="[owner][recovery]">the recovery note</span>.
+
+[recovery]: docs/recovery.md
+""",
+    )
+
+    _, findings = audit_module.audit(tmp_path, "application", "single", "en")
+    assert {"routing.route-prose-missing", "routing.trigger-unreachable"} <= _codes(findings)
+
+
 def test_owner_link_nested_inside_image_description_is_not_route_prose(tmp_path: Path) -> None:
     _write_base(tmp_path)
     _write_conditional_owner(tmp_path, "docs/recovery.md")
