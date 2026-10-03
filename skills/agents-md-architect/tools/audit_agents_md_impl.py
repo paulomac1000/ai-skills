@@ -517,7 +517,9 @@ def _routing_block_lines(text: str) -> list[RoutingLine]:
                 active_raw_html = raw_html
                 if active_raw_html.ends_on_blank and not content.strip():
                     raw_html = None
-                elif active_raw_html.end_pattern is not None and active_raw_html.end_pattern.search(content) is not None:
+                elif (
+                    active_raw_html.end_pattern is not None and active_raw_html.end_pattern.search(content) is not None
+                ):
                     raw_html = None
                 normalized.append(RoutingLine(line_number, "", active_raw_html.container, False))
                 continue
