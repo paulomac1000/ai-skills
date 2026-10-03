@@ -264,14 +264,18 @@ def test_checkpoint_plan_reuses_current_artifacts_and_derives_minimum_recomputat
     }
     bindings = {
         checkpoint["id"]: {
-            dependency_id: current[dependency_id]
-            for dependency_id in checkpoint["dependency_refs"]
+            "generation": 3,
+            "dependencies": {
+                dependency_id: current[dependency_id]
+                for dependency_id in checkpoint["dependency_refs"]
+            },
         }
         for checkpoint in machine["checkpoints"]
     }
 
     baseline = validator.derive_checkpoint_plan(
         machine,
+        current_generation=3,
         current_dependencies=current,
         checkpoint_bindings=bindings,
     )
@@ -282,6 +286,7 @@ def test_checkpoint_plan_reuses_current_artifacts_and_derives_minimum_recomputat
     changed_late_policy["completion-policy"] = "completion-policy@v2"
     plan = validator.derive_checkpoint_plan(
         machine,
+        current_generation=3,
         current_dependencies=changed_late_policy,
         checkpoint_bindings=bindings,
     )
@@ -301,6 +306,7 @@ def test_checkpoint_plan_reuses_current_artifacts_and_derives_minimum_recomputat
     changed_candidate["candidate"] = "candidate@v2"
     invalidated = validator.derive_checkpoint_plan(
         machine,
+        current_generation=3,
         current_dependencies=changed_candidate,
         checkpoint_bindings=bindings,
     )
@@ -310,4 +316,17 @@ def test_checkpoint_plan_reuses_current_artifacts_and_derives_minimum_recomputat
         "completion-candidate",
     ]
     assert invalidated["earliestSafeStage"] == "queued"
+
+    next_generation = validator.derive_checkpoint_plan(
+        machine,
+        current_generation=4,
+        current_dependencies=current,
+        checkpoint_bindings=bindings,
+    )
+    assert next_generation["requiredRecomputations"] == [
+        "external-dispatch",
+        "provider-result",
+        "completion-candidate",
+    ]
+    assert next_generation["earliestSafeStage"] == "queued"
 
