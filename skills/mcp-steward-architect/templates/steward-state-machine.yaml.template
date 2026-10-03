@@ -12,10 +12,10 @@ states:
   - {id: cancelled, terminal: true, owner_lane: none, progress_effect: terminal, recovery: none, cancellation: reject, liveness: terminal, orphan_disposition: not-applicable}
   - {id: superseded, terminal: true, owner_lane: reconciliation, progress_effect: terminal, recovery: reconcile, cancellation: reject, liveness: terminal, orphan_disposition: not-applicable}
 producers:
-  - {id: submission-command, kind: public-ingress, entrypoint: __SUBMIT_ENTRYPOINT__, authority_source: caller-plus-policy}
-  - {id: workflow-runner, kind: worker-stage, entrypoint: __WORKFLOW_ENTRYPOINT__, authority_source: steward-runtime}
-  - {id: cancellation-command, kind: public-ingress, entrypoint: __CANCEL_ENTRYPOINT__, authority_source: caller-plus-policy}
-  - {id: recovery-runner, kind: reconciler, entrypoint: __RECOVERY_ENTRYPOINT__, authority_source: steward-runtime}
+  - {id: submission-command, kind: public-ingress, entrypoint: __SUBMIT_ENTRYPOINT__, authority_source: caller-plus-policy, contract_ref: steward.submit@1, boundary: public}
+  - {id: workflow-runner, kind: worker-stage, entrypoint: __WORKFLOW_ENTRYPOINT__, authority_source: steward-runtime, contract_ref: steward.workflow@2, boundary: internal}
+  - {id: cancellation-command, kind: public-ingress, entrypoint: __CANCEL_ENTRYPOINT__, authority_source: caller-plus-policy, contract_ref: steward.cancel@1, boundary: public}
+  - {id: recovery-runner, kind: reconciler, entrypoint: __RECOVERY_ENTRYPOINT__, authority_source: steward-runtime, contract_ref: steward.recovery@2, boundary: recovery-only}
 gates:
   - {id: work-admission, producer_refs: [submission-command], transition_refs: []}
   - {id: mutation-admission, producer_refs: [workflow-runner, cancellation-command, recovery-runner], transition_refs: [dispatch-start, cancel-start, completion-publish]}
