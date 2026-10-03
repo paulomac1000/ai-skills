@@ -700,6 +700,31 @@ def test_generator_dotnet_surface_carries_v3_design_pack() -> None:
     assert "operation.Generation != job.Generation" in runtime
     assert "evidence.Subject != job.Subject" in runtime
 
+    dotnet_machine = json.loads(files["src/Example.Mcp.Server/steward_state_machine.json"])
+    dotnet_entrypoints = {item["id"]: item["entrypoint"] for item in dotnet_machine["producers"]}
+    assert dotnet_entrypoints == {
+        "workflow-runner": "StewardSeedRuntime.RunOneDue",
+        "cancellation-command": "StewardSeedRuntime.Cancel",
+        "recovery-runner": "StewardRecoveryService.ExecuteAsync",
+    }
+    assert "public bool RunOneDue()" in runtime
+    assert "public StewardSeedJob Cancel(" in runtime
+
+    python_files = generator.steward_files(
+        "python", "example_steward", "Example Steward", "example-python", "verification"
+    )
+    python_machine = json.loads(python_files["src/example_steward/steward_state_machine.json"])
+    python_entrypoints = {item["id"]: item["entrypoint"] for item in python_machine["producers"]}
+    assert python_entrypoints == {
+        "workflow-runner": "StewardRuntime.run_once",
+        "cancellation-command": "StewardRuntime.cancel",
+        "recovery-runner": "StewardRuntime.recover_until_idle",
+    }
+    python_runtime = python_files["src/example_steward/steward_runtime.py"]
+    assert "def run_once(" in python_runtime
+    assert "def cancel(" in python_runtime
+    assert "def recover_until_idle(" in python_runtime
+
 
 def test_generated_recovery_guards_stale_selection_and_records_failures() -> None:
     dotnet_runtime = (
