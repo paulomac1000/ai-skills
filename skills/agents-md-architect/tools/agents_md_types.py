@@ -21,8 +21,8 @@ REFERENCE_DEFINITION = re.compile(
     r"^[ ]{0,3}\[(?P<label>[^\]\n]+)\]:[ \t]*(?P<target>\S+)"
     r"(?:[ \t]+(?P<title>\"(?:\\.|[^\"\n])*\"|'(?:\\.|[^'\n])*'|\((?:\\.|[^)\n])*\)))?[ \t]*$"
 )
-REFERENCE_USAGE = re.compile(r"\\[(?P<label>[^\\]\\n]+)\\]\\[(?P<ref>[^\\]\\n]*)\\]")
-SHORTCUT_REFERENCE_USAGE = re.compile(r"\\[(?P<label>[^\\]\\n]+)\\]")
+REFERENCE_USAGE = re.compile(r"\[(?P<label>[^\]\n]+)\]\[(?P<ref>[^\]\n]*)\]")
+SHORTCUT_REFERENCE_USAGE = re.compile(r"\[(?P<label>[^\]\n]+)\]")
 BARE_REFERENCE = re.compile(r"^\s*[-*]\s+(?:\[[^\]]+\]\([^)]+\)|`[^`]+`)\s*[.;]?\s*$")
 VERSIONED_NAME = re.compile(
     r"(?i)(?:agents|implementation|workflow|config|architecture|standard|current)"
