@@ -1228,7 +1228,7 @@ def validate_design_pack(
                 f"design-pack: capability {capability_id} must resolve to exactly one reviewed upstream contract"
             )
     for effect in mutation_policy["effects"]:
-        if effect["transition"] not in transition_ids and effect["transition"] not in {"cancel-start"}:
+        if effect["transition"] not in transition_ids:
             findings.append(
                 f"design-pack: mutation effect {effect['id']} references unknown transition {effect['transition']}"
             )
