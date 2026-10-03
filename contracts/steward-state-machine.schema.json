@@ -70,12 +70,14 @@
     "producer": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "kind", "entrypoint", "authority_source"],
+      "required": ["id", "kind", "entrypoint", "authority_source", "contract_ref", "boundary"],
       "properties": {
         "id": {"type": "string", "minLength": 1},
         "kind": {"enum": ["public-ingress", "worker-stage", "reconciler", "trusted-admin", "migration-recovery", "provider-adapter", "scheduler"]},
         "entrypoint": {"type": "string", "minLength": 1},
-        "authority_source": {"type": "string", "minLength": 1}
+        "authority_source": {"type": "string", "minLength": 1},
+        "contract_ref": {"type": "string", "pattern": "^[^@\\s]+@[1-9][0-9]*$"},
+        "boundary": {"enum": ["public", "internal", "trusted-only", "recovery-only"]}
       }
     },
     "gate": {
