@@ -503,9 +503,9 @@ def _state_machine_findings(value: dict[str, Any]) -> list[str]:
     subject_dependencies = [item["id"] for item in dependency_items if item["kind"] == "subject"]
     candidate_dependencies = [item["id"] for item in dependency_items if item["kind"] == "candidate"]
     if len(subject_dependencies) != 1:
-        findings.append("state-machine: schema v2 requires exactly one canonical subject dependency")
+        findings.append("state-machine: current schema requires exactly one canonical subject dependency")
     if len(candidate_dependencies) > 1:
-        findings.append("state-machine: schema v2 permits at most one canonical candidate dependency")
+        findings.append("state-machine: current schema permits at most one canonical candidate dependency")
 
     checkpoint_items = value.get("checkpoints", [])
     checkpoints = {item["id"]: item for item in checkpoint_items}
