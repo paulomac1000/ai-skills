@@ -471,7 +471,10 @@ def _apply_python_overlay(
     for path in list(files):
         if path.startswith(f"src/{package}/capabilities/") or path.startswith("tests/"):
             del files[path]
-    files[f"src/{package}/steward_runtime.py"] = _read_template("python/steward_runtime.py.template")
+    files[f"src/{package}/steward_runtime.py"] = _read_template(
+        "python/steward_runtime.py.template",
+        STATE_MACHINE_JSON=json.dumps(docs["steward_state_machine"], ensure_ascii=False, separators=(",", ":"), sort_keys=True),
+    )
     files[f"src/{package}/kernel.py"] = _read_template("python/kernel.py.template")
     files[f"src/{package}/server.py"] = _read_template("python/server.py.template", SERVER_NAME=server_name)
     files["tests/test_steward_runtime.py"] = _read_template("python/test_steward_runtime.py.template", PACKAGE=package)
