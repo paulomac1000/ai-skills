@@ -26,6 +26,7 @@ from agents_md_completion_evidence import (  # noqa: E402
     public_task_invocations,
 )
 from agents_md_parse import (  # noqa: E402
+    LIST_ITEM,
     _blockquote_depth_and_content,
     _is_fence_closer,
     _list_container_content,
@@ -276,6 +277,7 @@ class RoutingLine:
     text: str
     container: tuple[int, tuple[int, ...]]
     boundary_before: bool
+    prose_boundary_before: bool = False
 
 
 @dataclass(frozen=True)
@@ -542,6 +544,14 @@ def _routing_block_lines(text: str) -> list[RoutingLine]:
             list_indents = ()
         current_quote_depth = quote_depth
 
+        retained_list_indents = list(list_indents)
+        if quote_content.strip():
+            while retained_list_indents and not quote_content.startswith(" " * retained_list_indents[-1]):
+                retained_list_indents.pop()
+        active_indent = retained_list_indents[-1] if retained_list_indents else 0
+        list_candidate = quote_content[active_indent:] if active_indent else quote_content
+        starts_list_item = LIST_ITEM.fullmatch(list_candidate) is not None
+
         content, list_indents = _list_container_content(
             quote_content,
             list_indents,
@@ -549,6 +559,10 @@ def _routing_block_lines(text: str) -> list[RoutingLine]:
         )
         container = (quote_depth, list_indents)
         boundary_before = previous_container is not None and container != previous_container
+        previous_list_depth = len(previous_container[1]) if previous_container is not None else 0
+        prose_boundary_before = starts_list_item and (
+            previous_list_depth == 0 or len(list_indents) <= previous_list_depth
+        )
         previous_container = container
         if boundary_before:
             paragraph_active = False
@@ -598,7 +612,15 @@ def _routing_block_lines(text: str) -> list[RoutingLine]:
             paragraph_active = bool(remainder) and not _is_live_control_comment(remainder)
             continue
 
-        normalized.append(RoutingLine(line_number, content, container, boundary_before))
+        normalized.append(
+            RoutingLine(
+                line_number,
+                content,
+                container,
+                boundary_before,
+                prose_boundary_before=prose_boundary_before,
+            )
+        )
         paragraph_active = not (
             _is_live_control_comment(content)
             or ATX_HEADING.match(content) is not None
@@ -724,7 +746,9 @@ def _routing_active_lines(text: str) -> list[tuple[int, str]]:
     active: list[tuple[int, str]] = []
     for block in _routing_inline_blocks(_routing_block_lines(text)):
         masked_block = _mask_routing_inline_block(block)
-        for line_number, line in masked_block:
+        for item, (line_number, line) in zip(block, masked_block, strict=True):
+            if item.prose_boundary_before:
+                active.append((line_number, ""))
             if line.strip():
                 active.append((line_number, line))
             elif not block[0].text.strip():
