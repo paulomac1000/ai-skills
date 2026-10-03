@@ -453,10 +453,7 @@ def _iter_inline_links(line: str) -> Iterator[InlineLink]:
             return
         while html_index < len(html_spans) and html_spans[html_index][1] <= label_start:
             html_index += 1
-        if (
-            html_index < len(html_spans)
-            and html_spans[html_index][0] <= label_start < html_spans[html_index][1]
-        ):
+        if html_index < len(html_spans) and html_spans[html_index][0] <= label_start < html_spans[html_index][1]:
             index = html_spans[html_index][1]
             continue
         is_image = label_start > 0 and line[label_start - 1] == "!"
