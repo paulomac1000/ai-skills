@@ -494,6 +494,7 @@ def test_generator_emits_design_pack_and_semantic_surfaces() -> None:
         "steward/upstream-capability.yaml",
         "steward/acceptance.yaml",
         "steward/contracts/steward-state-machine.schema.json",
+        "steward/contracts/steward-checkpoint.schema.json",
         "steward/contracts/steward-mutation-policy.schema.json",
     ):
         assert path in files
