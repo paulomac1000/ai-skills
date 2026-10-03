@@ -1,5 +1,24 @@
 # Changelog
 
+## 3.4.0 - 2026-10-03
+
+### Added
+
+- Added machine-readable production-producer and gate reachability declarations for MCP Steward state machines, including explicit work-admission, mutation-admission, evidence-promotion, and completion-publication producer paths.
+- Added the canonical `steward-checkpoint` contract for generation-fenced artifact identity, exact semantic dependency bindings, upstream checkpoint artifact bindings, and recovery-critical subject, authority, ownership, progress, budget, deadline, blocker, and external-operation state.
+- Added deterministic checkpoint planning that derives reusable and stale artifacts, reason codes, the earliest safe resume stage, and the minimum recomputation set without replaying model transcript state.
+
+### Changed
+
+- Extended MCP Steward state-machine v2 with explicit non-terminal liveness/convergence semantics and fail-closed producer coverage while retaining validation support for existing state-machine v1 documents.
+- Extended Steward acceptance revision 2 so closure claims require real producer success/rejection paths, liveness closure, canonical checkpoint reuse, minimum recomputation, and transcript-independent restart behavior.
+- Strengthened Steward evidence/recovery guidance so late-stage outages do not invalidate unrelated current earlier evidence, while changed load-bearing dependencies and older workflow generations invalidate only the affected checkpoint closure.
+
+### Security and correctness
+
+- A test-only state construction can no longer stand in for a real production producer path, and non-terminal states without an owner, wake-up, recoverable external operation, reconciliation path, or authorized blocker fail conformance.
+- Checkpoint reuse fails closed on generation, machine, dependency-set, exact upstream artifact, or canonical binding drift, preventing stale work from being adopted by a newer workflow generation.
+
 ## 3.3.0 - 2026-10-03
 
 ### Added
