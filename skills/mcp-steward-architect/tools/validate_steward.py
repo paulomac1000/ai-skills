@@ -500,6 +500,12 @@ def _state_machine_findings(value: dict[str, Any]) -> list[str]:
     dependencies = {item["id"]: item for item in dependency_items}
     if len(dependencies) != len(dependency_items):
         findings.append("state-machine: duplicate semantic dependency ids")
+    subject_dependencies = [item["id"] for item in dependency_items if item["kind"] == "subject"]
+    candidate_dependencies = [item["id"] for item in dependency_items if item["kind"] == "candidate"]
+    if len(subject_dependencies) != 1:
+        findings.append("state-machine: schema v2 requires exactly one canonical subject dependency")
+    if len(candidate_dependencies) > 1:
+        findings.append("state-machine: schema v2 permits at most one canonical candidate dependency")
 
     checkpoint_items = value.get("checkpoints", [])
     checkpoints = {item["id"]: item for item in checkpoint_items}
@@ -508,10 +514,41 @@ def _state_machine_findings(value: dict[str, Any]) -> list[str]:
     orders = [item["order"] for item in checkpoint_items]
     if len(set(orders)) != len(orders):
         findings.append("state-machine: checkpoint order values must be unique")
+    adjacency: dict[str, set[str]] = {state_id: set() for state_id in states}
+    for transition in value["transitions"]:
+        source = transition["from"]
+        target = transition["to"]
+        if source in states and target in states and not states[source]["terminal"]:
+            adjacency[source].add(target)
+
+    def can_reach(start: str, target: str) -> bool:
+        if start == target:
+            return True
+        pending = [start]
+        visited = {start}
+        while pending:
+            current = pending.pop()
+            for successor in adjacency.get(current, set()):
+                if successor == target:
+                    return True
+                if successor not in visited and not states[successor]["terminal"]:
+                    visited.add(successor)
+                    pending.append(successor)
+        return False
+
     for checkpoint in checkpoint_items:
         checkpoint_id = checkpoint["id"]
-        if checkpoint["state"] not in states or checkpoint["resume_state"] not in states:
+        checkpoint_state = checkpoint["state"]
+        resume_state = checkpoint["resume_state"]
+        if checkpoint_state not in states or resume_state not in states:
             findings.append(f"state-machine: checkpoint {checkpoint_id} references unknown state")
+        else:
+            if states[resume_state]["terminal"]:
+                findings.append(f"state-machine: checkpoint {checkpoint_id} resume state must be nonterminal")
+            elif not can_reach(resume_state, checkpoint_state):
+                findings.append(
+                    f"state-machine: checkpoint {checkpoint_id} resume state cannot reach checkpoint state"
+                )
         missing_dependencies = sorted(set(checkpoint["dependency_refs"]) - set(dependencies))
         if missing_dependencies:
             findings.append(
@@ -550,7 +587,11 @@ def derive_checkpoint_plan(
     if current_generation < 1:
         raise ValueError("current_generation must be positive")
 
-    dependencies = {item["id"]: item for item in state_machine["semantic_dependencies"]}
+    dependency_items = state_machine["semantic_dependencies"]
+    dependencies = {item["id"]: item for item in dependency_items}
+    subject_dependency_id = next(item["id"] for item in dependency_items if item["kind"] == "subject")
+    candidate_dependency_ids = [item["id"] for item in dependency_items if item["kind"] == "candidate"]
+    candidate_dependency_id = candidate_dependency_ids[0] if candidate_dependency_ids else None
     unknown_dependencies = sorted(set(current_dependencies) - set(dependencies))
     if unknown_dependencies:
         raise ValueError("unknown semantic dependencies: " + ", ".join(unknown_dependencies))
@@ -634,6 +675,20 @@ def derive_checkpoint_plan(
                     elif bound_identity != current_identity:
                         direct_current = False
                         reason_codes.append(f"dependency-changed:{checkpoint_id}:{dependency_id}")
+
+                recovery = binding["recoveryBindings"]
+                current_subject = current_projection.get(subject_dependency_id)
+                if current_subject is None or recovery["subjectIdentity"] != current_subject:
+                    direct_current = False
+                    reason_codes.append(f"recovery-subject-mismatch:{checkpoint_id}")
+                current_candidate = (
+                    current_projection.get(candidate_dependency_id)
+                    if candidate_dependency_id is not None
+                    else None
+                )
+                if recovery["candidateIdentity"] != current_candidate:
+                    direct_current = False
+                    reason_codes.append(f"recovery-candidate-mismatch:{checkpoint_id}")
 
                 declared_upstreams = set(checkpoint["upstream_checkpoint_refs"])
                 bound_upstreams = set(binding["upstreamCheckpointBindings"])
