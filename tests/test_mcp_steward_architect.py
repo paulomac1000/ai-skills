@@ -404,6 +404,32 @@ def test_design_pack_rejects_unresolved_capability_profile_ref_and_producer_dime
         for item in findings
     )
 
+    legacy_machine = json.loads(json.dumps(docs["steward_state_machine"]))
+    legacy_machine["schema_version"] = 1
+    findings = validator.validate_design_pack(
+        profile=docs["steward_profile"],
+        state_machine=legacy_machine,
+        mutation_policy=docs["steward_mutation_policy"],
+        proof_recipe=docs["steward_proof_recipe"],
+        acceptance=docs["steward_acceptance"],
+        upstreams=[docs["steward_upstream_capability"]],
+    )
+    assert any("current conformance requires state-machine closure contract" in item for item in findings)
+    assert validator.validate_document("state-machine", legacy_machine) == []
+
+    legacy_acceptance = json.loads(json.dumps(docs["steward_acceptance"]))
+    legacy_acceptance["schema_version"] = 1
+    findings = validator.validate_design_pack(
+        profile=docs["steward_profile"],
+        state_machine=docs["steward_state_machine"],
+        mutation_policy=docs["steward_mutation_policy"],
+        proof_recipe=docs["steward_proof_recipe"],
+        acceptance=legacy_acceptance,
+        upstreams=[docs["steward_upstream_capability"]],
+    )
+    assert any("current conformance requires closure-bearing acceptance contract" in item for item in findings)
+    assert validator.validate_document("acceptance", legacy_acceptance) == []
+
 
 def test_job_validator_rejects_timezone_less_nested_lease_expiry() -> None:
     generator, validator = _generator("gen_lease_timestamp"), _validator("val_lease_timestamp")
