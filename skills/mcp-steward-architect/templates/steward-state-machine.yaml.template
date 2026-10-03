@@ -34,6 +34,17 @@ transitions:
   - {id: cancel-resolved, from: cancelling, to: cancelled, effect: local-state, mutation_gate: false, required_fences: [generation, attempt], failure_outcomes: [ReconciliationRequired], producer_refs: [recovery-runner]}
   - {id: evidence-ready, from: waiting-external, to: finalizing, effect: local-state, mutation_gate: false, required_fences: [generation, attempt], failure_outcomes: [InsufficientEvidence], producer_refs: [workflow-runner, recovery-runner]}
   - {id: completion-publish, from: finalizing, to: completed, effect: publication, mutation_gate: true, required_fences: [generation, attempt, candidate], failure_outcomes: [StaleCandidate, LostAuthority, InsufficientEvidence], producer_refs: [workflow-runner, recovery-runner]}
+  - {id: block-queued, from: queued, to: blocked, effect: local-state, mutation_gate: false, required_fences: [generation, attempt], failure_outcomes: [MutationRejected, BudgetUnavailable, DeadlineExpired], producer_refs: [workflow-runner, recovery-runner]}
+  - {id: block-reconciling, from: reconciling, to: blocked, effect: local-state, mutation_gate: false, required_fences: [generation, attempt], failure_outcomes: [MutationRejected, BudgetUnavailable, DeadlineExpired], producer_refs: [workflow-runner, recovery-runner]}
+  - {id: block-waiting-external, from: waiting-external, to: blocked, effect: local-state, mutation_gate: false, required_fences: [generation, attempt], failure_outcomes: [InsufficientEvidence, DeadlineExpired], producer_refs: [workflow-runner, recovery-runner]}
+  - {id: block-cancelling, from: cancelling, to: blocked, effect: local-state, mutation_gate: false, required_fences: [generation, attempt], failure_outcomes: [MutationRejected, BudgetUnavailable, DeadlineExpired], producer_refs: [workflow-runner, recovery-runner]}
+  - {id: block-finalizing, from: finalizing, to: blocked, effect: local-state, mutation_gate: false, required_fences: [generation, attempt], failure_outcomes: [InsufficientEvidence, MutationRejected, BudgetUnavailable], producer_refs: [workflow-runner, recovery-runner]}
+  - {id: supersede-queued, from: queued, to: superseded, effect: local-state, mutation_gate: false, required_fences: [generation], failure_outcomes: [], producer_refs: [submission-command]}
+  - {id: supersede-reconciling, from: reconciling, to: superseded, effect: local-state, mutation_gate: false, required_fences: [generation], failure_outcomes: [], producer_refs: [submission-command]}
+  - {id: supersede-waiting-external, from: waiting-external, to: superseded, effect: local-state, mutation_gate: false, required_fences: [generation], failure_outcomes: [], producer_refs: [submission-command]}
+  - {id: supersede-cancelling, from: cancelling, to: superseded, effect: local-state, mutation_gate: false, required_fences: [generation], failure_outcomes: [], producer_refs: [submission-command]}
+  - {id: supersede-blocked, from: blocked, to: superseded, effect: local-state, mutation_gate: false, required_fences: [generation], failure_outcomes: [], producer_refs: [submission-command]}
+  - {id: supersede-finalizing, from: finalizing, to: superseded, effect: local-state, mutation_gate: false, required_fences: [generation], failure_outcomes: [], producer_refs: [submission-command]}
 semantic_dependencies:
   - {id: subject, kind: subject, identity_source: job.subject, unknown_disposition: stale}
   - {id: candidate, kind: candidate, identity_source: job.candidate, unknown_disposition: stale}
