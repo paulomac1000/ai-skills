@@ -473,6 +473,16 @@ def test_production_acceptance_cannot_skip_independent_live_or_exact_full_path()
     generator, validator = _generator("gen_accept"), _validator("val_accept")
     plan = _docs(generator)["steward_acceptance"]
     assert validator.validate_document("acceptance", plan) == []
+    assert plan["schema_version"] == 2
+    assert plan["revision"] == 2
+    assert plan["closure"] == {
+        "producer_reachability_required": True,
+        "liveness_closure_required": True,
+        "real_producer_success_and_rejection_required": True,
+        "canonical_checkpoint_reuse_required": True,
+        "minimum_recomputation_required": True,
+        "transcript_independent_restart_required": True,
+    }
     prod = json.loads(json.dumps(plan))
     prod["claim_class"] = "production-workflow"
     findings = validator.validate_document("acceptance", prod)
