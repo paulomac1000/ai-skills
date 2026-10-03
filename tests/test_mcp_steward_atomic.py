@@ -225,3 +225,89 @@ def test_manifest_composes_server_and_consumer_standards() -> None:
     receipt = _receipt(documents, job)
     decision = _evaluate_external_dispatch(validator, documents, job, receipt)
     assert decision["disposition"] == "ReconciliationRequired"
+
+def test_state_machine_v2_requires_production_reachability_and_liveness_closure() -> None:
+    validator = _validator()
+    machine = json.loads(json.dumps(_documents()["steward_state_machine"]))
+    assert validator.validate_document("state-machine", machine) == []
+
+    unreachable = json.loads(json.dumps(machine))
+    unreachable["transitions"][0]["producer_refs"] = ["missing-producer"]
+    findings = validator.validate_document("state-machine", unreachable)
+    assert any("references unknown producers" in item for item in findings)
+
+    no_producer = json.loads(json.dumps(machine))
+    no_producer["transitions"][0]["producer_refs"] = []
+    findings = validator.validate_document("state-machine", no_producer)
+    assert any("no declared production producer path" in item or "non-empty" in item for item in findings)
+
+    orphan = json.loads(json.dumps(machine))
+    queued = next(item for item in orphan["states"] if item["id"] == "queued")
+    queued["owner_lane"] = "none"
+    queued["recovery"] = "none"
+    queued["liveness"] = "active-work"
+    findings = validator.validate_document("state-machine", orphan)
+    assert any("requires an owning lane" in item for item in findings)
+
+    direct_test_fixture_is_not_a_producer = json.loads(json.dumps(machine))
+    direct_test_fixture_is_not_a_producer["producers"][0]["kind"] = "test-fixture"
+    findings = validator.validate_document("state-machine", direct_test_fixture_is_not_a_producer)
+    assert any("is not one of" in item and "test-fixture" in item for item in findings)
+
+
+def test_checkpoint_plan_reuses_current_artifacts_and_derives_minimum_recomputation() -> None:
+    validator = _validator()
+    machine = _documents()["steward_state_machine"]
+    current = {
+        dependency["id"]: f"{dependency['id']}@v1"
+        for dependency in machine["semantic_dependencies"]
+    }
+    bindings = {
+        checkpoint["id"]: {
+            dependency_id: current[dependency_id]
+            for dependency_id in checkpoint["dependency_refs"]
+        }
+        for checkpoint in machine["checkpoints"]
+    }
+
+    baseline = validator.derive_checkpoint_plan(
+        machine,
+        current_dependencies=current,
+        checkpoint_bindings=bindings,
+    )
+    assert baseline["requiredRecomputations"] == []
+    assert baseline["earliestSafeStage"] is None
+
+    changed_late_policy = dict(current)
+    changed_late_policy["completion-policy"] = "completion-policy@v2"
+    plan = validator.derive_checkpoint_plan(
+        machine,
+        current_dependencies=changed_late_policy,
+        checkpoint_bindings=bindings,
+    )
+    assert plan["requiredRecomputations"] == ["completion-candidate"]
+    assert plan["earliestSafeStage"] == "finalizing"
+    assert plan["reusableArtifactRefs"] == ["external-operation-receipt", "provider-evidence"]
+    assert plan["staleArtifactRefs"] == ["completion-candidate"]
+
+    restarted = validator.derive_checkpoint_plan(
+        machine,
+        current_dependencies=changed_late_policy,
+        checkpoint_bindings=bindings,
+    )
+    assert restarted == plan
+
+    changed_candidate = dict(current)
+    changed_candidate["candidate"] = "candidate@v2"
+    invalidated = validator.derive_checkpoint_plan(
+        machine,
+        current_dependencies=changed_candidate,
+        checkpoint_bindings=bindings,
+    )
+    assert invalidated["requiredRecomputations"] == [
+        "external-dispatch",
+        "provider-result",
+        "completion-candidate",
+    ]
+    assert invalidated["earliestSafeStage"] == "queued"
+
