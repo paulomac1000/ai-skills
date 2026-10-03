@@ -12,6 +12,7 @@
     "states": {"type": "array", "minItems": 1, "maxItems": 128, "items": {"$ref": "#/$defs/state"}},
     "transitions": {"type": "array", "maxItems": 512, "items": {"$ref": "#/$defs/transition"}},
     "producers": {"type": "array", "minItems": 1, "maxItems": 128, "items": {"$ref": "#/$defs/producer"}},
+    "gates": {"type": "array", "minItems": 4, "maxItems": 32, "items": {"$ref": "#/$defs/gate"}},
     "semantic_dependencies": {"type": "array", "minItems": 1, "maxItems": 256, "items": {"$ref": "#/$defs/dependency"}},
     "checkpoints": {"type": "array", "minItems": 1, "maxItems": 256, "items": {"$ref": "#/$defs/checkpoint"}},
     "resume_policy": {"$ref": "#/$defs/resumePolicy"}
@@ -19,7 +20,7 @@
   "allOf": [
     {
       "if": {"properties": {"schema_version": {"const": 2}}, "required": ["schema_version"]},
-      "then": {"required": ["producers", "semantic_dependencies", "checkpoints", "resume_policy"]}
+      "then": {"required": ["producers", "gates", "semantic_dependencies", "checkpoints", "resume_policy"]}
     }
   ],
   "$defs": {
@@ -75,6 +76,16 @@
         "kind": {"enum": ["public-ingress", "worker-stage", "reconciler", "trusted-admin", "migration-recovery", "provider-adapter", "scheduler"]},
         "entrypoint": {"type": "string", "minLength": 1},
         "authority_source": {"type": "string", "minLength": 1}
+      }
+    },
+    "gate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "producer_refs", "transition_refs"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "producer_refs": {"$ref": "#/$defs/nonEmptyStringSet"},
+        "transition_refs": {"$ref": "#/$defs/stringSet"}
       }
     },
     "dependency": {
