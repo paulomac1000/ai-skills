@@ -31,6 +31,7 @@ STEWARD_CONTRACTS = (
     "steward-completion.schema.json",
     "upstream-capability.schema.json",
     "steward-state-machine.schema.json",
+    "steward-checkpoint.schema.json",
     "steward-mutation-policy.schema.json",
     "steward-proof-recipe.schema.json",
     "steward-acceptance.schema.json",
