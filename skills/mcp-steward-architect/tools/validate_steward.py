@@ -387,15 +387,174 @@ def _state_machine_findings(value: dict[str, Any]) -> list[str]:
     transition_ids = [item["id"] for item in value["transitions"]]
     if len(set(transition_ids)) != len(transition_ids):
         findings.append("state-machine: duplicate transition ids")
+
+    version = int(value.get("schema_version", 1))
+    producers: dict[str, dict[str, Any]] = {}
+    if version >= 2:
+        producer_items = value.get("producers", [])
+        producers = {item["id"]: item for item in producer_items}
+        if len(producers) != len(producer_items):
+            findings.append("state-machine: duplicate producer ids")
+
+    outgoing: dict[str, int] = {state_id: 0 for state_id in states}
     for transition in value["transitions"]:
+        transition_id = transition["id"]
         if transition["from"] not in states or transition["to"] not in states:
-            findings.append(f"state-machine: transition {transition['id']} references unknown state")
+            findings.append(f"state-machine: transition {transition_id} references unknown state")
+        elif states[transition["from"]]["terminal"]:
+            findings.append(f"state-machine: transition {transition_id} cannot originate from terminal state")
+        else:
+            outgoing[transition["from"]] = outgoing.get(transition["from"], 0) + 1
         if transition["effect"] in {"external-stateful", "publication"} and not transition["mutation_gate"]:
-            findings.append(f"state-machine: transition {transition['id']} requires mutation_gate=true")
+            findings.append(f"state-machine: transition {transition_id} requires mutation_gate=true")
+        if version >= 2:
+            refs = transition.get("producer_refs", [])
+            if not refs:
+                findings.append(f"state-machine: transition {transition_id} has no declared production producer path")
+            missing = sorted(set(refs) - set(producers))
+            if missing:
+                findings.append(
+                    f"state-machine: transition {transition_id} references unknown producers: {', '.join(missing)}"
+                )
+
     for state in value["states"]:
-        if not state["terminal"] and state["owner_lane"] == "none" and state["recovery"] != "blocked":
-            findings.append(f"state-machine: nonterminal state {state['id']} has no owner/recovery path")
+        state_id = state["id"]
+        if version < 2:
+            if not state["terminal"] and state["owner_lane"] == "none" and state["recovery"] != "blocked":
+                findings.append(f"state-machine: nonterminal state {state_id} has no owner/recovery path")
+            continue
+
+        liveness = state.get("liveness")
+        orphan = state.get("orphan_disposition")
+        if state["terminal"]:
+            if liveness != "terminal" or orphan != "not-applicable":
+                findings.append(f"state-machine: terminal state {state_id} must declare terminal/not-applicable liveness")
+            continue
+
+        if liveness in {None, "terminal"}:
+            findings.append(f"state-machine: nonterminal state {state_id} requires a nonterminal liveness class")
+        if orphan in {None, "not-applicable"}:
+            findings.append(f"state-machine: nonterminal state {state_id} requires an orphan/convergence disposition")
+        if liveness == "active-work" and state["owner_lane"] == "none":
+            findings.append(f"state-machine: active state {state_id} requires an owning lane")
+        if liveness == "scheduled-work" and state["recovery"] != "scheduled-wakeup":
+            findings.append(f"state-machine: scheduled state {state_id} requires scheduled-wakeup recovery")
+        if liveness == "external-operation" and state["recovery"] != "external-handle":
+            findings.append(f"state-machine: external-operation state {state_id} requires external-handle recovery")
+        if liveness == "recovery" and state["recovery"] != "reconcile":
+            findings.append(f"state-machine: recovery state {state_id} requires reconcile recovery")
+        if liveness == "authorized-blocker" and state["recovery"] != "blocked":
+            findings.append(f"state-machine: authorized blocker {state_id} requires blocked recovery")
+        if outgoing.get(state_id, 0) == 0 and liveness != "authorized-blocker":
+            findings.append(f"state-machine: nonterminal state {state_id} has no legal continuation or authorized blocker")
+
+    if version < 2:
+        return findings
+
+    dependency_items = value.get("semantic_dependencies", [])
+    dependencies = {item["id"]: item for item in dependency_items}
+    if len(dependencies) != len(dependency_items):
+        findings.append("state-machine: duplicate semantic dependency ids")
+
+    checkpoint_items = value.get("checkpoints", [])
+    checkpoints = {item["id"]: item for item in checkpoint_items}
+    if len(checkpoints) != len(checkpoint_items):
+        findings.append("state-machine: duplicate checkpoint ids")
+    orders = [item["order"] for item in checkpoint_items]
+    if len(set(orders)) != len(orders):
+        findings.append("state-machine: checkpoint order values must be unique")
+    artifact_refs = [item["artifact_ref"] for item in checkpoint_items]
+    if len(set(artifact_refs)) != len(artifact_refs):
+        findings.append("state-machine: checkpoint artifact_ref values must be unique")
+
+    for checkpoint in checkpoint_items:
+        checkpoint_id = checkpoint["id"]
+        if checkpoint["state"] not in states or checkpoint["resume_state"] not in states:
+            findings.append(f"state-machine: checkpoint {checkpoint_id} references unknown state")
+        missing_dependencies = sorted(set(checkpoint["dependency_refs"]) - set(dependencies))
+        if missing_dependencies:
+            findings.append(
+                f"state-machine: checkpoint {checkpoint_id} references unknown dependencies: {', '.join(missing_dependencies)}"
+            )
+        missing_upstream = sorted(set(checkpoint["upstream_checkpoint_refs"]) - set(checkpoints))
+        if missing_upstream:
+            findings.append(
+                f"state-machine: checkpoint {checkpoint_id} references unknown upstream checkpoints: {', '.join(missing_upstream)}"
+            )
+        if checkpoint_id in checkpoint["upstream_checkpoint_refs"]:
+            findings.append(f"state-machine: checkpoint {checkpoint_id} cannot depend on itself")
+        for upstream_id in checkpoint["upstream_checkpoint_refs"]:
+            upstream = checkpoints.get(upstream_id)
+            if upstream is not None and upstream["order"] >= checkpoint["order"]:
+                findings.append(
+                    f"state-machine: checkpoint {checkpoint_id} upstream {upstream_id} must have a lower order"
+                )
     return findings
+
+
+def derive_checkpoint_plan(
+    state_machine: dict[str, Any],
+    *,
+    current_dependencies: dict[str, str | None],
+    checkpoint_bindings: dict[str, dict[str, str | None]],
+) -> dict[str, Any]:
+    """Derive the minimum reusable/stale checkpoint set from exact semantic dependency identity."""
+
+    findings = validate_document("state-machine", state_machine)
+    if findings:
+        raise ValueError("invalid state-machine: " + "; ".join(findings))
+    if int(state_machine.get("schema_version", 1)) < 2:
+        raise ValueError("checkpoint planning requires state-machine schema_version 2")
+
+    dependencies = {item["id"]: item for item in state_machine["semantic_dependencies"]}
+    unknown_dependencies = sorted(set(current_dependencies) - set(dependencies))
+    if unknown_dependencies:
+        raise ValueError("unknown semantic dependencies: " + ", ".join(unknown_dependencies))
+
+    checkpoints = {item["id"]: item for item in state_machine["checkpoints"]}
+    unknown_checkpoints = sorted(set(checkpoint_bindings) - set(checkpoints))
+    if unknown_checkpoints:
+        raise ValueError("unknown checkpoint bindings: " + ", ".join(unknown_checkpoints))
+
+    current_projection = {dependency_id: current_dependencies.get(dependency_id) for dependency_id in sorted(dependencies)}
+    dependency_payload = {
+        "machine_id": state_machine["machine_id"],
+        "revision": state_machine["revision"],
+        "dependencies": current_projection,
+    }
+    dependency_digest = "sha256:" + hashlib.sha256(
+        json.dumps(dependency_payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    ).hexdigest()
+
+    checkpoint_current: dict[str, bool] = {}
+    ordered = sorted(state_machine["checkpoints"], key=lambda item: item["order"])
+    for checkpoint in ordered:
+        checkpoint_id = checkpoint["id"]
+        binding = checkpoint_bindings.get(checkpoint_id)
+        direct_current = isinstance(binding, dict)
+        if direct_current:
+            for dependency_id in checkpoint["dependency_refs"]:
+                current_identity = current_projection.get(dependency_id)
+                bound_identity = binding.get(dependency_id)
+                if current_identity is None or bound_identity is None or current_identity != bound_identity:
+                    direct_current = False
+                    break
+        upstream_current = all(checkpoint_current.get(item, False) for item in checkpoint["upstream_checkpoint_refs"])
+        checkpoint_current[checkpoint_id] = bool(direct_current and upstream_current)
+
+    reusable = [item for item in ordered if checkpoint_current[item["id"]]]
+    stale = [item for item in ordered if not checkpoint_current[item["id"]]]
+    stale_with_artifact = [item for item in stale if item["id"] in checkpoint_bindings]
+    return {
+        "earliestSafeStage": stale[0]["resume_state"] if stale else None,
+        "reusableArtifactRefs": [item["artifact_ref"] for item in reusable],
+        "staleArtifactRefs": [item["artifact_ref"] for item in stale_with_artifact],
+        "requiredRecomputations": [item["id"] for item in stale],
+        "dependencyDigest": dependency_digest,
+        "unknownDependencyRefs": [
+            dependency_id for dependency_id, identity in current_projection.items() if identity is None
+        ],
+    }
 
 
 def _mutation_policy_findings(value: dict[str, Any]) -> list[str]:
