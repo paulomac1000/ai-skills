@@ -417,6 +417,50 @@ def _state_machine_findings(value: dict[str, Any]) -> list[str]:
                     f"state-machine: transition {transition_id} references unknown producers: {', '.join(missing)}"
                 )
 
+    if version >= 2:
+        gate_items = value.get("gates", [])
+        gates = {item["id"]: item for item in gate_items}
+        if len(gates) != len(gate_items):
+            findings.append("state-machine: duplicate gate ids")
+        required_gates = {"work-admission", "mutation-admission", "evidence-promotion", "completion-publication"}
+        missing_gates = sorted(required_gates - set(gates))
+        if missing_gates:
+            findings.append("state-machine: missing required gates: " + ", ".join(missing_gates))
+        for gate in gate_items:
+            gate_id = gate["id"]
+            missing_producers = sorted(set(gate["producer_refs"]) - set(producers))
+            if missing_producers:
+                findings.append(
+                    f"state-machine: gate {gate_id} references unknown producers: {', '.join(missing_producers)}"
+                )
+            missing_transitions = sorted(set(gate["transition_refs"]) - set(transition_ids))
+            if missing_transitions:
+                findings.append(
+                    f"state-machine: gate {gate_id} references unknown transitions: {', '.join(missing_transitions)}"
+                )
+        mutation_gate = gates.get("mutation-admission")
+        if mutation_gate is not None:
+            required_mutation_transitions = {
+                item["id"] for item in value["transitions"] if item["mutation_gate"]
+            }
+            uncovered = sorted(required_mutation_transitions - set(mutation_gate["transition_refs"]))
+            if uncovered:
+                findings.append(
+                    "state-machine: mutation-admission gate does not cover mutation-gated transitions: "
+                    + ", ".join(uncovered)
+                )
+        completion_gate = gates.get("completion-publication")
+        if completion_gate is not None:
+            publication_transitions = {
+                item["id"] for item in value["transitions"] if item["effect"] == "publication"
+            }
+            uncovered = sorted(publication_transitions - set(completion_gate["transition_refs"]))
+            if uncovered:
+                findings.append(
+                    "state-machine: completion-publication gate does not cover publication transitions: "
+                    + ", ".join(uncovered)
+                )
+
     for state in value["states"]:
         state_id = state["id"]
         if version < 2:
