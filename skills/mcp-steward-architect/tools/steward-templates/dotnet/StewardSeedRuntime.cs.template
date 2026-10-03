@@ -115,6 +115,39 @@ public sealed record StewardHandoff(
     IReadOnlyList<string> ArtifactRefs, IReadOnlyList<string> ExternalOperationRefs, IReadOnlyList<string> Gaps,
     string? CorrelationId, DateTimeOffset SealedAt, string Digest, StewardParentContractRef? ParentContract = null);
 public sealed record StewardResult(StewardSeedJob Job, IReadOnlyList<StewardOperation> Operations, IReadOnlyList<StewardEvidence> Evidence, StewardCompletionEvaluation? Completion, StewardHandoff? Handoff);
+public sealed record StewardCheckpointArtifactBinding(
+    [property: System.Text.Json.Serialization.JsonPropertyName("artifactRef")] string ArtifactRef,
+    [property: System.Text.Json.Serialization.JsonPropertyName("artifactDigest")] string ArtifactDigest);
+public sealed record StewardCheckpointRecovery(
+    [property: System.Text.Json.Serialization.JsonPropertyName("subjectIdentity")] string SubjectIdentity,
+    [property: System.Text.Json.Serialization.JsonPropertyName("candidateIdentity")] string? CandidateIdentity,
+    [property: System.Text.Json.Serialization.JsonPropertyName("authorityRef")] string AuthorityRef,
+    [property: System.Text.Json.Serialization.JsonPropertyName("ownershipRef")] string? OwnershipRef,
+    [property: System.Text.Json.Serialization.JsonPropertyName("progressRevision")] long ProgressRevision,
+    [property: System.Text.Json.Serialization.JsonPropertyName("budgetRef")] string? BudgetRef,
+    [property: System.Text.Json.Serialization.JsonPropertyName("deadlineRef")] string? DeadlineRef,
+    [property: System.Text.Json.Serialization.JsonPropertyName("blockerRefs")] IReadOnlyList<string> BlockerRefs,
+    [property: System.Text.Json.Serialization.JsonPropertyName("externalOperationRefs")] IReadOnlyList<string> ExternalOperationRefs);
+public sealed record StewardCheckpoint(
+    [property: System.Text.Json.Serialization.JsonPropertyName("schema_version")] int SchemaVersion,
+    [property: System.Text.Json.Serialization.JsonPropertyName("checkpointId")] string CheckpointId,
+    [property: System.Text.Json.Serialization.JsonPropertyName("machineId")] string MachineId,
+    [property: System.Text.Json.Serialization.JsonPropertyName("machineRevision")] int MachineRevision,
+    [property: System.Text.Json.Serialization.JsonPropertyName("generation")] long Generation,
+    [property: System.Text.Json.Serialization.JsonPropertyName("artifactClass")] string ArtifactClass,
+    [property: System.Text.Json.Serialization.JsonPropertyName("artifactRef")] string ArtifactRef,
+    [property: System.Text.Json.Serialization.JsonPropertyName("artifactDigest")] string ArtifactDigest,
+    [property: System.Text.Json.Serialization.JsonPropertyName("dependencyBindings")] IReadOnlyDictionary<string, string> DependencyBindings,
+    [property: System.Text.Json.Serialization.JsonPropertyName("upstreamCheckpointBindings")] IReadOnlyDictionary<string, StewardCheckpointArtifactBinding> UpstreamCheckpointBindings,
+    [property: System.Text.Json.Serialization.JsonPropertyName("recoveryBindings")] StewardCheckpointRecovery RecoveryBindings);
+public sealed record StewardResumePlan(
+    string? EarliestSafeStage,
+    IReadOnlyList<string> ReusableArtifactRefs,
+    IReadOnlyList<string> StaleArtifactRefs,
+    IReadOnlyList<string> RequiredRecomputations,
+    string DependencyDigest,
+    IReadOnlyList<string> ReasonCodes,
+    IReadOnlyList<string> UnknownDependencyRefs);
 public sealed record StewardAuditEvent(long Sequence, string? JobId, string EventType, DateTimeOffset At, IReadOnlyDictionary<string, string> Detail);
 public sealed record StewardDoctorResult(StewardSeedJob? Job, int DeliveryUnknown, int CancellationUnknown, IReadOnlyList<StewardAuditEvent> Audit);
 
@@ -126,6 +159,10 @@ internal sealed record SeedCapability(string Id, string Source, string Revision,
 internal sealed record SeedMutationEffect(string Id, string OperationKind, string AuthoritySource, bool LeaseRequired, bool CandidateRequired, string CapabilityRef, SeedCapability CapabilityContract, bool DurableOperationRequired, int MinimumBudgetMs, int FinalizationReserveMs);
 internal sealed record SeedAuthority(string Source, string Principal, string Scope, string Target, string AttemptId, long JobVersion, string? LeaseOwner, long? LeaseFencingToken);
 internal sealed record SeedAction(string Kind, StewardSeedJob Job, StewardOperation Operation);
+internal sealed record SeedCheckpointDefinition(
+    string Id, int Order, string ArtifactClass, IReadOnlyList<string> DependencyRefs,
+    IReadOnlyList<string> UpstreamCheckpointRefs, string ResumeState);
+internal sealed record SeedCheckpointEntry(StewardCheckpoint Binding, JsonElement Artifact);
 
 internal sealed class StewardSeedState
 {
@@ -136,6 +173,7 @@ internal sealed class StewardSeedState
     public Dictionary<string, StewardEvidence> Evidence { get; init; } = [];
     public Dictionary<string, StewardCompletionEvaluation> Completions { get; init; } = [];
     public Dictionary<string, StewardHandoff> Handoffs { get; init; } = [];
+    public Dictionary<string, Dictionary<string, SeedCheckpointEntry>> Checkpoints { get; init; } = [];
     public List<StewardAuditEvent> Audit { get; init; } = [];
     public long AuditSequence { get; set; }
 }
@@ -150,6 +188,9 @@ internal sealed class SeedPolicy
     public required IReadOnlyDictionary<string, SeedMutationEffect> Effects { get; init; }
     public required SeedCapability Capability { get; init; }
     public required string RecipeDigest { get; init; }
+    public required string MachineId { get; init; }
+    public required int MachineRevision { get; init; }
+    public required IReadOnlyDictionary<string, SeedCheckpointDefinition> Checkpoints { get; init; }
     public required bool SupervisedRequired { get; init; }
     public StewardParentContractSnapshot? ConfiguredParentContract { get; init; }
 
@@ -254,10 +295,12 @@ internal sealed class SeedPolicy
         var root = Path.GetDirectoryName(Path.GetFullPath(profilePath)) ?? throw new InvalidOperationException("profile path has no directory");
         var mutationPath = Path.Combine(root, "steward_mutation_policy.json");
         var upstreamPath = Path.Combine(root, "steward_upstream_capability.json");
+        var stateMachinePath = Path.Combine(root, "steward_state_machine.json");
         using var profile = JsonDocument.Parse(File.ReadAllText(profilePath));
         using var proof = JsonDocument.Parse(File.ReadAllText(proofPath));
         using var mutation = JsonDocument.Parse(File.ReadAllText(mutationPath));
         using var upstream = JsonDocument.Parse(File.ReadAllText(upstreamPath));
+        using var stateMachine = JsonDocument.Parse(File.ReadAllText(stateMachinePath));
         var producerMap = proof.RootElement.GetProperty("producers").EnumerateArray().ToDictionary(
             item => item.GetProperty("producer_id").GetString()!,
             item => new SeedProducer(
@@ -301,6 +344,16 @@ internal sealed class SeedPolicy
         if (!string.Equals(contract.GetProperty("id").GetString(), capability.Id, StringComparison.Ordinal)
             || !string.Equals(CapabilityDigest(upstream.RootElement), capability.Digest, StringComparison.Ordinal))
             throw new InvalidOperationException("reviewed upstream capability semantic digest is invalid");
+        var checkpointDefinitions = stateMachine.RootElement.GetProperty("checkpoints").EnumerateArray().ToDictionary(
+            item => item.GetProperty("id").GetString()!,
+            item => new SeedCheckpointDefinition(
+                item.GetProperty("id").GetString()!,
+                item.GetProperty("order").GetInt32(),
+                item.GetProperty("artifact_class").GetString()!,
+                item.GetProperty("dependency_refs").EnumerateArray().Select(value => value.GetString()!).ToArray(),
+                item.GetProperty("upstream_checkpoint_refs").EnumerateArray().Select(value => value.GetString()!).ToArray(),
+                item.GetProperty("resume_state").GetString()!),
+            StringComparer.Ordinal);
         var revision = proof.RootElement.GetProperty("revision").GetInt32();
         using var recipeStream = new MemoryStream();
         using (var recipeWriter = new Utf8JsonWriter(recipeStream, new JsonWriterOptions { Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping }))
@@ -311,6 +364,9 @@ internal sealed class SeedPolicy
             RecipeId = $"{proof.RootElement.GetProperty("recipe_id").GetString()}@{revision}", ProofRevision = revision,
             Requirements = requirements, Producers = producerMap, Effects = effects, Capability = capability,
             RecipeDigest = recipeDigest,
+            MachineId = stateMachine.RootElement.GetProperty("machine_id").GetString()!,
+            MachineRevision = stateMachine.RootElement.GetProperty("revision").GetInt32(),
+            Checkpoints = checkpointDefinitions,
             SupervisedRequired = string.Equals(profile.RootElement.GetProperty("authority").GetProperty("parent_completion").GetString(), "explicit-contract-only", StringComparison.Ordinal),
             ConfiguredParentContract = ParseConfiguredParentContract(profile.RootElement),
         };
@@ -502,6 +558,194 @@ public sealed class StewardSeedRuntime : IDisposable
 
     public StewardSeedJob Status(string jobId) { lock (_gate) return CurrentJobLocked(jobId); }
 
+    public IReadOnlyList<StewardCheckpoint> Checkpoints(string jobId)
+    {
+        lock (_gate)
+        {
+            _ = CurrentJobLocked(jobId);
+            return _state.Checkpoints.GetValueOrDefault(jobId)?.Values
+                .Select(item => item.Binding).OrderBy(item => _policy.Checkpoints[item.CheckpointId].Order).ToArray()
+                ?? [];
+        }
+    }
+
+    public StewardResumePlan ResumePlan(string jobId)
+    {
+        lock (_gate) return ResumePlanLocked(CurrentJobLocked(jobId));
+    }
+
+    private Dictionary<string, string?> CurrentDependenciesLocked(StewardSeedJob job)
+    {
+        var submit = OperationLocked(job.JobId, "submit");
+        var providerResult = submit?.Result is { } result ? Digest(result) : null;
+        return new(StringComparer.Ordinal)
+        {
+            ["subject"] = Digest(job.Subject),
+            ["candidate"] = job.Candidate.Digest,
+            ["capability-contract"] = _policy.Capability.Digest,
+            ["provider-result"] = providerResult,
+            ["completion-policy"] = Digest(new { profileRevision = _policy.ProfileRevision, proofRecipeDigest = _policy.RecipeDigest }),
+        };
+    }
+
+    private StewardCheckpoint SealCheckpointLocked(string jobId, string checkpointId, string artifactRef, JsonElement artifact)
+    {
+        var job = CurrentJobLocked(jobId);
+        var definition = _policy.Checkpoints.GetValueOrDefault(checkpointId)
+            ?? throw new InvalidOperationException($"state machine has no checkpoint {checkpointId}");
+        var current = CurrentDependenciesLocked(job);
+        var dependencyBindings = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var dependencyId in definition.DependencyRefs)
+        {
+            if (!current.TryGetValue(dependencyId, out var identity) || string.IsNullOrWhiteSpace(identity))
+                throw new InvalidOperationException($"cannot seal {checkpointId}: dependency {dependencyId} is unknown");
+            dependencyBindings[dependencyId] = identity;
+        }
+        if (!_state.Checkpoints.TryGetValue(jobId, out var entries))
+        {
+            entries = new(StringComparer.Ordinal);
+            _state.Checkpoints[jobId] = entries;
+        }
+        var upstream = new Dictionary<string, StewardCheckpointArtifactBinding>(StringComparer.Ordinal);
+        foreach (var upstreamId in definition.UpstreamCheckpointRefs)
+        {
+            if (!entries.TryGetValue(upstreamId, out var upstreamEntry))
+                throw new InvalidOperationException($"cannot seal {checkpointId}: upstream checkpoint {upstreamId} is missing");
+            upstream[upstreamId] = new(upstreamEntry.Binding.ArtifactRef, upstreamEntry.Binding.ArtifactDigest);
+        }
+        var subjectIdentity = current["subject"] ?? throw new InvalidOperationException("subject identity missing");
+        var recovery = new StewardCheckpointRecovery(
+            subjectIdentity,
+            current["candidate"],
+            $"steward-runtime:{job.AttemptId}",
+            job.Lease?.Owner,
+            job.ProgressRevision,
+            job.ParentContract?.BudgetRef ?? $"deadline:{job.DeadlineAt:O}",
+            job.DeadlineAt.ToString("O"),
+            job.BlockedReason is null ? [] : [job.BlockedReason],
+            job.ExternalOperationRefs.Order(StringComparer.Ordinal).ToArray());
+        var binding = new StewardCheckpoint(
+            1, checkpointId, _policy.MachineId, _policy.MachineRevision, job.Generation,
+            definition.ArtifactClass, artifactRef, Digest(artifact), dependencyBindings, upstream, recovery);
+        var priorArtifactRef = entries.GetValueOrDefault(checkpointId)?.Binding.ArtifactRef;
+        entries[checkpointId] = new(binding, artifact.Clone());
+        var refs = (job.ArtifactRefs ?? Array.Empty<string>())
+            .Where(item => priorArtifactRef is null || !string.Equals(item, priorArtifactRef, StringComparison.Ordinal))
+            .Append(artifactRef).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
+        _state.Jobs[jobId] = job with { ArtifactRefs = refs };
+        AuditLocked(jobId, "checkpoint-sealed", new Dictionary<string, string>
+        {
+            ["checkpointId"] = checkpointId,
+            ["artifactRef"] = artifactRef,
+            ["artifactDigest"] = binding.ArtifactDigest,
+        });
+        return binding;
+    }
+
+    private StewardResumePlan ResumePlanLocked(StewardSeedJob job)
+    {
+        var current = CurrentDependenciesLocked(job);
+        var entries = _state.Checkpoints.GetValueOrDefault(job.JobId) ?? new(StringComparer.Ordinal);
+        var ordered = _policy.Checkpoints.Values.OrderBy(item => item.Order).ToArray();
+        var flags = new Dictionary<string, bool>(StringComparer.Ordinal);
+        var valid = new Dictionary<string, StewardCheckpoint>(StringComparer.Ordinal);
+        var reasons = new List<string>();
+
+        foreach (var definition in ordered)
+        {
+            var isCurrent = entries.TryGetValue(definition.Id, out var entry);
+            if (!isCurrent || entry is null)
+            {
+                reasons.Add($"checkpoint-missing:{definition.Id}");
+                flags[definition.Id] = false;
+                continue;
+            }
+            var binding = entry.Binding;
+            valid[definition.Id] = binding;
+            if (binding.CheckpointId != definition.Id || binding.MachineId != _policy.MachineId
+                || binding.MachineRevision != _policy.MachineRevision || binding.Generation != job.Generation
+                || binding.ArtifactClass != definition.ArtifactClass)
+            {
+                isCurrent = false;
+                reasons.Add($"checkpoint-identity-mismatch:{definition.Id}");
+            }
+            var declaredDependencies = definition.DependencyRefs.ToHashSet(StringComparer.Ordinal);
+            if (!binding.DependencyBindings.Keys.ToHashSet(StringComparer.Ordinal).SetEquals(declaredDependencies))
+            {
+                isCurrent = false;
+                reasons.Add($"checkpoint-dependency-set-mismatch:{definition.Id}");
+            }
+            foreach (var dependencyId in declaredDependencies.Order(StringComparer.Ordinal))
+            {
+                current.TryGetValue(dependencyId, out var identity);
+                if (identity is null)
+                {
+                    isCurrent = false;
+                    reasons.Add($"dependency-unknown:{definition.Id}:{dependencyId}");
+                }
+                else if (!binding.DependencyBindings.TryGetValue(dependencyId, out var boundIdentity)
+                    || !string.Equals(identity, boundIdentity, StringComparison.Ordinal))
+                {
+                    isCurrent = false;
+                    reasons.Add($"dependency-changed:{definition.Id}:{dependencyId}");
+                }
+            }
+            if (!string.Equals(binding.RecoveryBindings.SubjectIdentity, current.GetValueOrDefault("subject"), StringComparison.Ordinal))
+            {
+                isCurrent = false;
+                reasons.Add($"recovery-subject-mismatch:{definition.Id}");
+            }
+            if (!string.Equals(binding.RecoveryBindings.CandidateIdentity, current.GetValueOrDefault("candidate"), StringComparison.Ordinal))
+            {
+                isCurrent = false;
+                reasons.Add($"recovery-candidate-mismatch:{definition.Id}");
+            }
+            var declaredUpstream = definition.UpstreamCheckpointRefs.ToHashSet(StringComparer.Ordinal);
+            if (!binding.UpstreamCheckpointBindings.Keys.ToHashSet(StringComparer.Ordinal).SetEquals(declaredUpstream))
+            {
+                isCurrent = false;
+                reasons.Add($"checkpoint-upstream-set-mismatch:{definition.Id}");
+            }
+            foreach (var upstreamId in declaredUpstream.Order(StringComparer.Ordinal))
+            {
+                if (!flags.GetValueOrDefault(upstreamId) || !valid.TryGetValue(upstreamId, out var upstreamBinding))
+                {
+                    isCurrent = false;
+                    reasons.Add($"upstream-stale:{definition.Id}:{upstreamId}");
+                    continue;
+                }
+                var expected = new StewardCheckpointArtifactBinding(upstreamBinding.ArtifactRef, upstreamBinding.ArtifactDigest);
+                if (!binding.UpstreamCheckpointBindings.TryGetValue(upstreamId, out var actual)
+                    || actual.ArtifactRef != expected.ArtifactRef || actual.ArtifactDigest != expected.ArtifactDigest)
+                {
+                    isCurrent = false;
+                    reasons.Add($"upstream-artifact-changed:{definition.Id}:{upstreamId}");
+                }
+            }
+            flags[definition.Id] = isCurrent;
+        }
+
+        var reusable = ordered.Where(item => flags.GetValueOrDefault(item.Id)).ToArray();
+        var stale = ordered.Where(item => !flags.GetValueOrDefault(item.Id)).ToArray();
+        var dependencyProjection = current.OrderBy(item => item.Key, StringComparer.Ordinal)
+            .ToDictionary(item => item.Key, item => item.Value, StringComparer.Ordinal);
+        var dependencyDigest = Digest(new
+        {
+            machine_id = _policy.MachineId,
+            revision = _policy.MachineRevision,
+            generation = job.Generation,
+            dependencies = dependencyProjection,
+        });
+        return new(
+            stale.Length == 0 ? null : stale[0].ResumeState,
+            reusable.Select(item => entries[item.Id].Binding.ArtifactRef).ToArray(),
+            stale.Where(item => entries.ContainsKey(item.Id)).Select(item => entries[item.Id].Binding.ArtifactRef).ToArray(),
+            stale.Select(item => item.Id).ToArray(),
+            dependencyDigest,
+            reasons.Distinct(StringComparer.Ordinal).ToArray(),
+            dependencyProjection.Where(item => item.Value is null).Select(item => item.Key).ToArray());
+    }
+
     /// <summary>Canonical wire projection of steward_get: every member validates
     /// against its bundled contract (receipt/evidence/completion/handoff schemas).</summary>
     private static JsonObject SubjectDocument(StewardSubject subject) => new()
@@ -637,9 +881,53 @@ public sealed class StewardSeedRuntime : IDisposable
         ["cancellationCause"] = job.CancellationCause,
     };
 
+    private static JsonObject CheckpointDocument(StewardCheckpoint checkpoint) => new()
+    {
+        ["schema_version"] = checkpoint.SchemaVersion,
+        ["checkpointId"] = checkpoint.CheckpointId,
+        ["machineId"] = checkpoint.MachineId,
+        ["machineRevision"] = checkpoint.MachineRevision,
+        ["generation"] = checkpoint.Generation,
+        ["artifactClass"] = checkpoint.ArtifactClass,
+        ["artifactRef"] = checkpoint.ArtifactRef,
+        ["artifactDigest"] = checkpoint.ArtifactDigest,
+        ["dependencyBindings"] = new JsonObject(checkpoint.DependencyBindings.Select(item =>
+            new KeyValuePair<string, JsonNode?>(item.Key, JsonValue.Create(item.Value)))),
+        ["upstreamCheckpointBindings"] = new JsonObject(checkpoint.UpstreamCheckpointBindings.Select(item =>
+            new KeyValuePair<string, JsonNode?>(item.Key, new JsonObject
+            {
+                ["artifactRef"] = item.Value.ArtifactRef,
+                ["artifactDigest"] = item.Value.ArtifactDigest,
+            }))),
+        ["recoveryBindings"] = new JsonObject
+        {
+            ["subjectIdentity"] = checkpoint.RecoveryBindings.SubjectIdentity,
+            ["candidateIdentity"] = checkpoint.RecoveryBindings.CandidateIdentity,
+            ["authorityRef"] = checkpoint.RecoveryBindings.AuthorityRef,
+            ["ownershipRef"] = checkpoint.RecoveryBindings.OwnershipRef,
+            ["progressRevision"] = checkpoint.RecoveryBindings.ProgressRevision,
+            ["budgetRef"] = checkpoint.RecoveryBindings.BudgetRef,
+            ["deadlineRef"] = checkpoint.RecoveryBindings.DeadlineRef,
+            ["blockerRefs"] = new JsonArray(checkpoint.RecoveryBindings.BlockerRefs.Select(JsonValue.Create).ToArray()),
+            ["externalOperationRefs"] = new JsonArray(checkpoint.RecoveryBindings.ExternalOperationRefs.Select(JsonValue.Create).ToArray()),
+        },
+    };
+
+    private static JsonObject ResumePlanDocument(StewardResumePlan plan) => new()
+    {
+        ["earliestSafeStage"] = plan.EarliestSafeStage,
+        ["reusableArtifactRefs"] = new JsonArray(plan.ReusableArtifactRefs.Select(JsonValue.Create).ToArray()),
+        ["staleArtifactRefs"] = new JsonArray(plan.StaleArtifactRefs.Select(JsonValue.Create).ToArray()),
+        ["requiredRecomputations"] = new JsonArray(plan.RequiredRecomputations.Select(JsonValue.Create).ToArray()),
+        ["dependencyDigest"] = plan.DependencyDigest,
+        ["reasonCodes"] = new JsonArray(plan.ReasonCodes.Select(JsonValue.Create).ToArray()),
+        ["unknownDependencyRefs"] = new JsonArray(plan.UnknownDependencyRefs.Select(JsonValue.Create).ToArray()),
+    };
+
     public JsonObject GetDocument(string jobId)
     {
         var result = Get(jobId);
+        var checkpoints = Checkpoints(jobId);
         var root = new JsonObject
         {
             ["job"] = JobDocument(result.Job),
@@ -647,6 +935,8 @@ public sealed class StewardSeedRuntime : IDisposable
             ["evidence"] = new JsonArray(result.Evidence.Select(EvidenceDocument).ToArray()),
             ["completion"] = result.Completion is null ? null : CompletionDocument(result.Completion),
             ["handoff"] = result.Handoff is null ? null : HandoffDocument(result.Handoff),
+            ["checkpoints"] = new JsonArray(checkpoints.Select(CheckpointDocument).ToArray()),
+            ["resumePlan"] = ResumePlanDocument(ResumePlan(jobId)),
         };
         return root;
     }
@@ -1083,6 +1373,11 @@ public sealed class StewardSeedRuntime : IDisposable
             else if (op.OperationKind == "submit") _state.Jobs[job.JobId] = Advance(job, "waiting-external", "external-dispatched", "external-dispatched", cancellation: job.Cancellation);
         }
         AuditLocked(job.JobId, "external-dispatched", new Dictionary<string, string> { ["operationId"] = operationId, ["kind"] = op.OperationKind });
+        if (op.OperationKind == "submit")
+        {
+            var artifact = JsonSerializer.SerializeToElement(_state.Operations[operationId]);
+            SealCheckpointLocked(job.JobId, "external-dispatch", $"external-operation:{operationId}", artifact);
+        }
     }
 
     private void ReconcileLocked(string operationId, string handle, bool cancellationConfirmed)
@@ -1095,6 +1390,11 @@ public sealed class StewardSeedRuntime : IDisposable
             else if (op.OperationKind == "submit") _state.Jobs[job.JobId] = Advance(job, "waiting-external", "reconciled", "reconciled", cancellation: job.Cancellation);
         }
         AuditLocked(job.JobId, "reconciled", new Dictionary<string, string> { ["operationId"] = operationId, ["kind"] = op.OperationKind });
+        if (op.OperationKind == "submit")
+        {
+            var artifact = JsonSerializer.SerializeToElement(_state.Operations[operationId]);
+            SealCheckpointLocked(job.JobId, "external-dispatch", $"external-operation:{operationId}", artifact);
+        }
     }
 
     private void MarkSubmitCancelledLocked(string submitOperationId)
@@ -1191,6 +1491,13 @@ public sealed class StewardSeedRuntime : IDisposable
         _state.Jobs[job.JobId] = added ? Advance(job, "finalizing", "evidence-persisted", "evidence-persisted", cancellation: job.Cancellation)
             : Advance(job, "blocked", "blocked", "blocked:terminal-observation-insufficient-authority", cancellation: job.Cancellation, blockedReason: "terminal-observation-insufficient-authority");
         if (!added) AuditLocked(job.JobId, "blocked", new Dictionary<string, string> { ["reason"] = "terminal-observation-insufficient-authority" });
+        else
+        {
+            var evidenceArtifact = JsonSerializer.SerializeToElement(
+                _state.Evidence.Values.Where(item => item.JobId == job.JobId).OrderBy(item => item.EvidenceId, StringComparer.Ordinal).ToArray());
+            var artifactDigest = Digest(evidenceArtifact);
+            SealCheckpointLocked(job.JobId, "provider-result", $"provider-evidence:{job.JobId}:{artifactDigest[7..23]}", evidenceArtifact);
+        }
     }
 
     private static bool PayloadSubjectMatches(JsonElement payload, StewardSubject subject)
@@ -1270,7 +1577,13 @@ public sealed class StewardSeedRuntime : IDisposable
 
     private void FinalizeLocked(StewardSeedJob job)
     {
-        var completion = EvaluateCompletionLocked(job);
+        var plan = ResumePlanLocked(job);
+        _state.Checkpoints.GetValueOrDefault(job.JobId)?.TryGetValue("completion-candidate", out var existingCandidate);
+        var reuseCandidate = existingCandidate is not null && plan.ReusableArtifactRefs.Contains(existingCandidate.Binding.ArtifactRef);
+        var completion = reuseCandidate
+            ? existingCandidate!.Artifact.Deserialize<StewardCompletionEvaluation>()
+                ?? throw new InvalidDataException("completion checkpoint artifact cannot be deserialized")
+            : EvaluateCompletionLocked(job);
         if (completion.Disposition != "eligible")
         {
             _state.Jobs[job.JobId] = Advance(job, "blocked", "blocked", "blocked:completion-obligations-unresolved", cancellation: job.Cancellation, blockedReason: "completion-obligations-unresolved");
@@ -1287,6 +1600,13 @@ public sealed class StewardSeedRuntime : IDisposable
             return;
         }
         var publicationDecisionRef = $"admission-{Guid.NewGuid():N}";
+        if (!reuseCandidate)
+        {
+            var artifact = JsonSerializer.SerializeToElement(completion);
+            var digest = Digest(artifact);
+            SealCheckpointLocked(job.JobId, "completion-candidate", $"completion-candidate:{job.JobId}:{digest[7..23]}", artifact);
+            job = CurrentJobLocked(job.JobId);
+        }
         var handoff = CreateHandoff(job, completion);
         if (_faults.Trip("before-terminal-publication")) return;
         var lineage = _state.Lineages[job.LineageId];
@@ -1354,7 +1674,7 @@ public sealed class StewardSeedRuntime : IDisposable
         {
             var state = JsonSerializer.Deserialize<StewardSeedState>(File.ReadAllText(_snapshotPath)) ?? throw new JsonException("null Steward snapshot");
             if (state.Jobs is null || state.Lineages is null || state.Idempotency is null || state.Operations is null
-                || state.Evidence is null || state.Completions is null || state.Handoffs is null || state.Audit is null)
+                || state.Evidence is null || state.Completions is null || state.Handoffs is null || state.Checkpoints is null || state.Audit is null)
                 throw new JsonException("Steward snapshot contains null required collections");
             ValidateState(state);
             return state;
@@ -1367,7 +1687,8 @@ public sealed class StewardSeedRuntime : IDisposable
         if (state.Jobs.Any(item => item.Value is null) || state.Lineages.Any(item => item.Value is null)
             || state.Idempotency.Any(item => item.Value is null) || state.Operations.Any(item => item.Value is null)
             || state.Evidence.Any(item => item.Value is null) || state.Completions.Any(item => item.Value is null)
-            || state.Handoffs.Any(item => item.Value is null) || state.Audit.Any(item => item is null))
+            || state.Handoffs.Any(item => item.Value is null) || state.Checkpoints.Any(item => item.Value is null)
+            || state.Audit.Any(item => item is null))
             throw new JsonException("Steward snapshot contains null entries");
         foreach (var pair in state.Jobs)
         {
@@ -1450,6 +1771,19 @@ public sealed class StewardSeedRuntime : IDisposable
                 || handoff.Subject != job.Subject || handoff.Candidate != job.Candidate
                 || !string.Equals(ComputeHandoffDigest(handoff), handoff.Digest, StringComparison.Ordinal))
                 throw new JsonException("Steward snapshot contains an inconsistent handoff reference");
+        }
+        foreach (var jobCheckpoints in state.Checkpoints)
+        {
+            if (!state.Jobs.TryGetValue(jobCheckpoints.Key, out var job) || job is null)
+                throw new JsonException("Steward snapshot checkpoint references an unknown job");
+            foreach (var checkpoint in jobCheckpoints.Value)
+            {
+                var entry = checkpoint.Value;
+                if (entry is null || checkpoint.Key != entry.Binding.CheckpointId || entry.Binding.Generation != job.Generation
+                    || string.IsNullOrWhiteSpace(entry.Binding.ArtifactRef)
+                    || !string.Equals(Digest(entry.Artifact), entry.Binding.ArtifactDigest, StringComparison.Ordinal))
+                    throw new JsonException("Steward snapshot contains an inconsistent checkpoint binding");
+            }
         }
     }
 
