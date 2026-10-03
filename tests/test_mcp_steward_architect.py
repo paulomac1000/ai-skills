@@ -388,6 +388,22 @@ def test_design_pack_rejects_unresolved_capability_profile_ref_and_producer_dime
         "cannot observe required subject dimensions" in item for item in validator.validate_document("proof", proof)
     )
 
+    unknown_transition = json.loads(json.dumps(docs["steward_mutation_policy"]))
+    cancel_effect = next(item for item in unknown_transition["effects"] if item["id"] == "cancellation-dispatch")
+    cancel_effect["transition"] = "missing-cancel-transition"
+    findings = validator.validate_design_pack(
+        profile=docs["steward_profile"],
+        state_machine=docs["steward_state_machine"],
+        mutation_policy=unknown_transition,
+        proof_recipe=docs["steward_proof_recipe"],
+        acceptance=docs["steward_acceptance"],
+        upstreams=[docs["steward_upstream_capability"]],
+    )
+    assert any(
+        "mutation effect cancellation-dispatch references unknown transition missing-cancel-transition" in item
+        for item in findings
+    )
+
 
 def test_job_validator_rejects_timezone_less_nested_lease_expiry() -> None:
     generator, validator = _generator("gen_lease_timestamp"), _validator("val_lease_timestamp")
