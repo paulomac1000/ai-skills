@@ -16,6 +16,12 @@ A Steward's core promise is continuity across request, worker, provider, and pro
 
 Use separate identities for the semantic lineage, current job/generation, execution attempt, optimistic record version, and external operation. Do not overload one UUID or one monotonically increasing field to mean all of them.
 
+### Production reachability and liveness closure
+
+The state-machine definition names the production producer(s) for each intended reachable transition. A unit test that constructs a state row or calls an internal transition function directly is not a producer. Generated/runtime acceptance must map producer IDs to real public ingress, worker, reconciler, trusted command, migration/recovery, scheduler, or provider-adapter entrypoints.
+
+Every non-terminal state declares why it is live now and what happens if that liveness condition disappears. A healthy closure is exactly one of owned active work, scheduled bounded work, recoverable external work, deterministic recovery, or an authorized blocker/input wait. Anything else converges fail-closed/partial-terminal or is reported orphaned. Recovery recreates deterministic missing work once under generation/idempotency fencing and never retries ambiguous/non-replay-safe effects merely to make the graph look live.
+
 A recheck/replan creates a new lineage generation when an older result could otherwise become actionable. A retry of the same operation normally creates a new attempt within the current generation. Stale attempts may clean up but cannot publish.
 
 Optimistic state version and semantic work generation serve different purposes. State version orders/CAS-protects ordinary mutations. Work generation is an invalidation epoch: it advances when previously admitted work or its actionable result must become stale. A system may name these fields differently, but an ordinary state transition must not accidentally create a fresh work epoch for stale work.
@@ -71,6 +77,14 @@ A non-terminal job with no lease, no scheduled wakeup, no recoverable external h
 - multi-worker/multi-instance: transactional database with atomic leasing/CAS/equivalent.
 
 Never hold the state transaction open while awaiting a remote provider.
+
+## Semantic checkpoint currentness and minimum recomputation
+
+A checkpoint is a canonical stage artifact plus its exact artifact reference/digest, producing generation, state-machine identity/revision, exact semantic dependency identities, exact upstream checkpoint artifact references/digests, recovery bindings, and legal resume state. Attempt identity alone does not make a new semantic checkpoint.
+
+Derive currentness by exact dependency equality and transitive upstream currentness. Missing/unknown load-bearing identity is stale. A dependency change invalidates only declared dependents; a late-stage outage does not invalidate unrelated earlier CURRENT artifacts. Cross-generation reuse is rejected unless an explicit policy-owned compatibility proof exists. The supervisor derives `earliestSafeStage`, reusable/stale artifact refs, required recomputations and a dependency digest from durable state; restart derives the same plan without transcript/model memory.
+
+Canonical-first retry still applies: if a stable checkpoint identity is already owned by artifact A, a losing attempt that computed B reloads A before computing the resume plan or successors.
 
 ## Recovery checkpoints
 

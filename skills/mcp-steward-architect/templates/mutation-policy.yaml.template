@@ -24,7 +24,7 @@ effects:
     typed_outcomes: [Admitted, LostAuthority, CapabilityUnavailable, ReconciliationRequired, BudgetUnavailable]
   - id: cancellation-dispatch
     operation_kind: cancel
-    transition: cancel-start
+    transition: cancel-dispatch
     authority_source: steward-runtime
     lease_required: true
     subject_dimensions: [target]

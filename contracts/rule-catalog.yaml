@@ -1,5 +1,5 @@
 schema_version: 1
-catalog_version: 3.3.0
+catalog_version: 3.4.0
 skills:
   afds-doc-writer:
     rules:
@@ -354,9 +354,15 @@ skills:
     - id: steward.lifecycle.durable
       source: STANDARD.md#durable-job-and-state-ownership
       description: Long-running work uses durable authoritative job state with orthogonal operational, outcome, and failure semantics.
+    - id: steward.closure.reachable
+      source: STANDARD.md#producer-reachability-and-liveness-closure
+      description: Intended transitions have real production producers and every non-terminal state has a bounded legal liveness or convergence disposition.
     - id: steward.lineage.fenced
       source: STANDARD.md#lineage-generations-attempts-and-leases
       description: Attempts and lineage generations are fenced so stale workers and superseded jobs cannot publish current results.
+    - id: steward.checkpoint.current
+      source: STANDARD.md#semantic-checkpoints-and-dependency-scoped-reuse
+      description: Canonical checkpoints bind generation and exact semantic dependencies so restart can derive the earliest safe resume point and minimum recomputation set.
     - id: steward.mutation.admitted
       source: STANDARD.md#mutation-admission-and-candidate-identity
       description: Every authority-bearing effect revalidates current authority, lineage, exact subject/candidate, capability provenance, ambiguity, and budget and durably reserves stateful operations before dispatch.

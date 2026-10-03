@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://paulomac1000.github.io/ai-skills/contracts/steward-checkpoint.schema.json",
+  "title": "StewardCheckpoint",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "checkpointId",
+    "machineId",
+    "machineRevision",
+    "generation",
+    "artifactClass",
+    "artifactRef",
+    "artifactDigest",
+    "dependencyBindings",
+    "upstreamCheckpointBindings",
+    "recoveryBindings"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "checkpointId": {"type": "string", "minLength": 1},
+    "machineId": {"type": "string", "minLength": 1},
+    "machineRevision": {"type": "integer", "minimum": 1},
+    "generation": {"type": "integer", "minimum": 1},
+    "artifactClass": {"type": "string", "minLength": 1},
+    "artifactRef": {"type": "string", "minLength": 1},
+    "artifactDigest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "dependencyBindings": {
+      "type": "object",
+      "minProperties": 1,
+      "maxProperties": 256,
+      "propertyNames": {"minLength": 1},
+      "additionalProperties": {"type": "string", "minLength": 1}
+    },
+    "upstreamCheckpointBindings": {
+      "type": "object",
+      "maxProperties": 256,
+      "propertyNames": {"minLength": 1},
+      "additionalProperties": {"$ref": "#/$defs/artifactBinding"}
+    },
+    "recoveryBindings": {"$ref": "#/$defs/recoveryBindings"}
+  },
+  "$defs": {
+    "stringSet": {
+      "type": "array",
+      "uniqueItems": true,
+      "maxItems": 1024,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "nullableIdentity": {
+      "oneOf": [
+        {"type": "string", "minLength": 1},
+        {"type": "null"}
+      ]
+    },
+    "artifactBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifactRef", "artifactDigest"],
+      "properties": {
+        "artifactRef": {"type": "string", "minLength": 1},
+        "artifactDigest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+      }
+    },
+    "recoveryBindings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "subjectIdentity",
+        "candidateIdentity",
+        "authorityRef",
+        "ownershipRef",
+        "progressRevision",
+        "budgetRef",
+        "deadlineRef",
+        "blockerRefs",
+        "externalOperationRefs"
+      ],
+      "properties": {
+        "subjectIdentity": {"type": "string", "minLength": 1},
+        "candidateIdentity": {"$ref": "#/$defs/nullableIdentity"},
+        "authorityRef": {"type": "string", "minLength": 1},
+        "ownershipRef": {"$ref": "#/$defs/nullableIdentity"},
+        "progressRevision": {"type": "integer", "minimum": 0},
+        "budgetRef": {"$ref": "#/$defs/nullableIdentity"},
+        "deadlineRef": {"$ref": "#/$defs/nullableIdentity"},
+        "blockerRefs": {"$ref": "#/$defs/stringSet"},
+        "externalOperationRefs": {"$ref": "#/$defs/stringSet"}
+      }
+    }
+  }
+}

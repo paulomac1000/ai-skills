@@ -53,6 +53,7 @@ _TERMINAL = {"completed", "completed-with-gaps", "failed", "cancelled", "superse
 _RUNNABLE = {"queued", "reconciling", "waiting-external", "cancelling", "finalizing"}
 _OBSERVATION_GRADES = {"declared", "observed", "observed-effective", "functional-ready", "verified"}
 _PLACEHOLDER_AUTHORITY = {"", "unknown", "head", "latest", "default", "unset", "none"}
+_GENERATED_STATE_MACHINE: dict[str, Any] = json.loads(r'''__STATE_MACHINE_JSON__''')
 
 
 def _canonical(value: object) -> str:
@@ -566,6 +567,9 @@ class StewardStore:
               proof_recipe_id TEXT,binding_json TEXT,coverage_json TEXT,observed_at TEXT,expires_at TEXT,payload_digest TEXT);
             CREATE TABLE IF NOT EXISTS completion_evaluations(job_id TEXT PRIMARY KEY,value_json TEXT);
             CREATE TABLE IF NOT EXISTS steward_handoffs(job_id TEXT PRIMARY KEY,value_json TEXT);
+            CREATE TABLE IF NOT EXISTS steward_checkpoints(
+              job_id TEXT,checkpoint_id TEXT,value_json TEXT,artifact_json TEXT,
+              PRIMARY KEY(job_id,checkpoint_id));
             CREATE TABLE IF NOT EXISTS audit_events(
               sequence INTEGER PRIMARY KEY AUTOINCREMENT,job_id TEXT,event_type TEXT,at TEXT,detail_json TEXT);
             CREATE UNIQUE INDEX IF NOT EXISTS external_operations_job_kind_slot
@@ -731,6 +735,9 @@ class StewardStore:
             evrefs = db.execute(
                 "SELECT evidence_id FROM steward_evidence WHERE job_id=? ORDER BY observed_at", (job_id,)
             ).fetchall()
+            artifact_refs = db.execute(
+                "SELECT value_json FROM steward_checkpoints WHERE job_id=? ORDER BY checkpoint_id", (job_id,)
+            ).fetchall()
         if row is None:
             raise KeyError(job_id)
         lease = (
@@ -767,7 +774,12 @@ class StewardStore:
             "blockedReason": row["blocked_reason"],
             "externalOperationRefs": [str(item[0]) for item in refs],
             "evidenceRefs": [str(item[0]) for item in evrefs],
-            "artifactRefs": [],
+            "artifactRefs": sorted(
+                {
+                    str(json.loads(item[0])["artifactRef"])
+                    for item in artifact_refs
+                }
+            ),
             "failure": None,
             "parentContract": None if row["parent_contract_json"] is None else json.loads(row["parent_contract_json"]),
             "parentContractDigest": row["parent_contract_digest"],
@@ -1171,6 +1183,45 @@ class StewardStore:
                 "SELECT result_json FROM external_operations WHERE operation_id=?", (operation_id,)
             ).fetchone()
         return None if row is None or row[0] is None else json.loads(row[0])
+
+    def checkpoints(self, job_id: str) -> dict[str, dict[str, Any]]:
+        with self._connect() as db:
+            rows = db.execute(
+                "SELECT checkpoint_id,value_json FROM steward_checkpoints WHERE job_id=? ORDER BY checkpoint_id",
+                (job_id,),
+            ).fetchall()
+        return {str(row["checkpoint_id"]): json.loads(row["value_json"]) for row in rows}
+
+    def checkpoint_artifact(self, job_id: str, checkpoint_id: str) -> Any | None:
+        with self._connect() as db:
+            row = db.execute(
+                "SELECT artifact_json FROM steward_checkpoints WHERE job_id=? AND checkpoint_id=?",
+                (job_id, checkpoint_id),
+            ).fetchone()
+        return None if row is None else json.loads(row["artifact_json"])
+
+    def persist_checkpoint(self, job_id: str, checkpoint: dict[str, Any], artifact: Any) -> None:
+        checkpoint_id = str(checkpoint["checkpointId"])
+        with self._write() as db:
+            current = db.execute("SELECT generation FROM steward_jobs WHERE job_id=?", (job_id,)).fetchone()
+            if current is None:
+                raise KeyError(job_id)
+            if int(current["generation"]) != int(checkpoint["generation"]):
+                raise RuntimeError("checkpoint generation does not match authoritative job generation")
+            db.execute(
+                "INSERT OR REPLACE INTO steward_checkpoints(job_id,checkpoint_id,value_json,artifact_json) VALUES(?,?,?,?)",
+                (job_id, checkpoint_id, _canonical(checkpoint), _canonical(artifact)),
+            )
+            self._audit(
+                db,
+                job_id,
+                "checkpoint-sealed",
+                {
+                    "checkpointId": checkpoint_id,
+                    "artifactRef": str(checkpoint["artifactRef"]),
+                    "artifactDigest": str(checkpoint["artifactDigest"]),
+                },
+            )
 
     def evidence(self, job_id: str) -> list[dict[str, Any]]:
         with self._connect() as db:
@@ -1585,6 +1636,7 @@ class StewardRuntime:
         mutation_policy: dict[str, Any],
         *,
         upstream: dict[str, Any],
+        state_machine: dict[str, Any] | None = None,
         provider: FakeProvider | None = None,
         faults: FaultInjector | None = None,
     ) -> None:
@@ -1592,6 +1644,9 @@ class StewardRuntime:
             raise ValueError("explicit reviewed upstream capability and mutation policy are required")
         self.store, self.profile, self.proof_recipe = store, profile, proof_recipe
         self.mutation_policy, self.upstream = mutation_policy, upstream
+        self.state_machine = state_machine or json.loads(json.dumps(_GENERATED_STATE_MACHINE))
+        if int(self.state_machine.get("schema_version", 1)) < 2:
+            raise ValueError("generated Steward runtime requires the closure-bearing state-machine contract")
         self.provider, self.faults = provider or FakeProvider(), faults or FaultInjector()
         self._stop, self._thread = threading.Event(), None
         self._tick = 0
@@ -1669,7 +1724,10 @@ class StewardRuntime:
         return self.store.job(job_id)
 
     def get(self, job_id: str) -> dict[str, Any]:
-        return self.store.result(job_id)
+        result = self.store.result(job_id)
+        result["checkpoints"] = list(self.store.checkpoints(job_id).values())
+        result["resumePlan"] = self.resume_plan(job_id)
+        return result
 
     def cancel(self, job_id: str, cause: str = "caller_cancel") -> dict[str, Any]:
         return self.store.cancel(job_id, cause)
@@ -1688,6 +1746,7 @@ class StewardRuntime:
             "job": None if job_id is None else self.store.job(job_id),
             "deliveryUnknown": len(unknown),
             "cancellationUnknown": len(cancel_unknown),
+            "resumePlan": None if job_id is None else self.resume_plan(job_id),
             "audit": self.store.audit(job_id),
         }
 
@@ -1700,6 +1759,177 @@ class StewardRuntime:
     def _provider_approved(self, criterion: dict[str, Any]) -> bool:
         return not criterion["approved_producers"] or self.provider.producer_id in criterion["approved_producers"]
 
+    def _checkpoint_definition(self, checkpoint_id: str) -> dict[str, Any]:
+        for checkpoint in self.state_machine["checkpoints"]:
+            if checkpoint["id"] == checkpoint_id:
+                return checkpoint
+        raise RuntimeError(f"state machine has no checkpoint {checkpoint_id}")
+
+    def _semantic_dependencies(self, job_id: str) -> dict[str, str | None]:
+        job = self.store.job(job_id)
+        submit = self.store.operation_for_job(job_id, "submit")
+        provider_result: str | None = None
+        if submit is not None and submit.get("result_json") is not None:
+            provider_result = _digest(json.loads(str(submit["result_json"])))
+        return {
+            "subject": _digest(job["subject"]),
+            "candidate": str(job["candidate"]["digest"]),
+            "capability-contract": str(self.upstream["contract"]["digest"]),
+            "provider-result": provider_result,
+            "completion-policy": _digest(
+                {
+                    "profileRevision": self.profile["steward"]["contract_revision"],
+                    "proofRecipeDigest": _digest(self.proof_recipe),
+                }
+            ),
+        }
+
+    def _seal_checkpoint(self, job_id: str, checkpoint_id: str, artifact_ref: str, artifact: Any) -> dict[str, Any]:
+        definition = self._checkpoint_definition(checkpoint_id)
+        job = self.store.job(job_id)
+        dependencies = self._semantic_dependencies(job_id)
+        dependency_bindings: dict[str, str] = {}
+        for dependency_id in definition["dependency_refs"]:
+            identity = dependencies.get(str(dependency_id))
+            if identity is None:
+                raise RuntimeError(f"cannot seal {checkpoint_id}: dependency {dependency_id} is unknown")
+            dependency_bindings[str(dependency_id)] = identity
+        existing = self.store.checkpoints(job_id)
+        upstream_bindings: dict[str, dict[str, str]] = {}
+        for upstream_id in definition["upstream_checkpoint_refs"]:
+            upstream = existing.get(str(upstream_id))
+            if upstream is None:
+                raise RuntimeError(f"cannot seal {checkpoint_id}: upstream checkpoint {upstream_id} is missing")
+            upstream_bindings[str(upstream_id)] = {
+                "artifactRef": str(upstream["artifactRef"]),
+                "artifactDigest": str(upstream["artifactDigest"]),
+            }
+        lease = job.get("lease")
+        parent = job.get("parentContract")
+        budget_ref = None
+        if isinstance(parent, dict):
+            budget = parent.get("budget")
+            if isinstance(budget, dict):
+                budget_ref = budget.get("retryOrResourceBudgetRef")
+        checkpoint = {
+            "schema_version": 1,
+            "checkpointId": checkpoint_id,
+            "machineId": self.state_machine["machine_id"],
+            "machineRevision": self.state_machine["revision"],
+            "generation": job["generation"],
+            "artifactClass": definition["artifact_class"],
+            "artifactRef": artifact_ref,
+            "artifactDigest": _digest(artifact),
+            "dependencyBindings": dependency_bindings,
+            "upstreamCheckpointBindings": upstream_bindings,
+            "recoveryBindings": {
+                "subjectIdentity": dependencies["subject"],
+                "candidateIdentity": dependencies["candidate"],
+                "authorityRef": f"steward-runtime:{job['attemptId']}",
+                "ownershipRef": None if not isinstance(lease, dict) else lease.get("owner"),
+                "progressRevision": int(job["progressRevision"]),
+                "budgetRef": budget_ref or f"deadline:{job['deadlineAt']}",
+                "deadlineRef": job["deadlineAt"],
+                "blockerRefs": [] if job.get("blockedReason") is None else [str(job["blockedReason"])],
+                "externalOperationRefs": sorted(str(item) for item in job["externalOperationRefs"]),
+            },
+        }
+        self.store.persist_checkpoint(job_id, checkpoint, artifact)
+        return checkpoint
+
+    def resume_plan(self, job_id: str) -> dict[str, Any]:
+        job = self.store.job(job_id)
+        current = self._semantic_dependencies(job_id)
+        bindings = self.store.checkpoints(job_id)
+        ordered = sorted(self.state_machine["checkpoints"], key=lambda item: item["order"])
+        current_flags: dict[str, bool] = {}
+        valid: dict[str, dict[str, Any]] = {}
+        reasons: list[str] = []
+        for definition in ordered:
+            checkpoint_id = str(definition["id"])
+            binding = bindings.get(checkpoint_id)
+            is_current = isinstance(binding, dict)
+            if not is_current:
+                reasons.append(f"checkpoint-missing:{checkpoint_id}")
+            else:
+                valid[checkpoint_id] = binding
+                if (
+                    binding.get("checkpointId") != checkpoint_id
+                    or binding.get("machineId") != self.state_machine["machine_id"]
+                    or binding.get("machineRevision") != self.state_machine["revision"]
+                    or binding.get("generation") != job["generation"]
+                    or binding.get("artifactClass") != definition["artifact_class"]
+                ):
+                    is_current = False
+                    reasons.append(f"checkpoint-identity-mismatch:{checkpoint_id}")
+                declared = {str(item) for item in definition["dependency_refs"]}
+                bound = set(binding.get("dependencyBindings", {}))
+                if bound != declared:
+                    is_current = False
+                    reasons.append(f"checkpoint-dependency-set-mismatch:{checkpoint_id}")
+                for dependency_id in sorted(declared):
+                    identity = current.get(dependency_id)
+                    if identity is None:
+                        is_current = False
+                        reasons.append(f"dependency-unknown:{checkpoint_id}:{dependency_id}")
+                    elif binding.get("dependencyBindings", {}).get(dependency_id) != identity:
+                        is_current = False
+                        reasons.append(f"dependency-changed:{checkpoint_id}:{dependency_id}")
+                recovery = binding.get("recoveryBindings", {})
+                if recovery.get("subjectIdentity") != current.get("subject"):
+                    is_current = False
+                    reasons.append(f"recovery-subject-mismatch:{checkpoint_id}")
+                if recovery.get("candidateIdentity") != current.get("candidate"):
+                    is_current = False
+                    reasons.append(f"recovery-candidate-mismatch:{checkpoint_id}")
+                declared_upstream = {str(item) for item in definition["upstream_checkpoint_refs"]}
+                bound_upstream = set(binding.get("upstreamCheckpointBindings", {}))
+                if bound_upstream != declared_upstream:
+                    is_current = False
+                    reasons.append(f"checkpoint-upstream-set-mismatch:{checkpoint_id}")
+                for upstream_id in sorted(declared_upstream):
+                    upstream = valid.get(upstream_id)
+                    if not current_flags.get(upstream_id, False) or upstream is None:
+                        is_current = False
+                        reasons.append(f"upstream-stale:{checkpoint_id}:{upstream_id}")
+                    else:
+                        expected = {
+                            "artifactRef": upstream["artifactRef"],
+                            "artifactDigest": upstream["artifactDigest"],
+                        }
+                        if binding.get("upstreamCheckpointBindings", {}).get(upstream_id) != expected:
+                            is_current = False
+                            reasons.append(f"upstream-artifact-changed:{checkpoint_id}:{upstream_id}")
+            if is_current and checkpoint_id == "completion-candidate":
+                restored = self.store.checkpoint_artifact(job_id, checkpoint_id)
+                if not isinstance(restored, dict) or not self._completion_candidate_evidence_current(job_id, restored):
+                    is_current = False
+                    reasons.append("evidence-stale:completion-candidate")
+            current_flags[checkpoint_id] = is_current
+
+        reusable = [item for item in ordered if current_flags.get(str(item["id"]), False)]
+        stale = [item for item in ordered if not current_flags.get(str(item["id"]), False)]
+        projection = {key: current.get(key) for key in sorted(current)}
+        dependency_digest = _digest(
+            {
+                "machine_id": self.state_machine["machine_id"],
+                "revision": self.state_machine["revision"],
+                "generation": job["generation"],
+                "dependencies": projection,
+            }
+        )
+        return {
+            "earliestSafeStage": None if not stale else stale[0]["resume_state"],
+            "reusableArtifactRefs": [bindings[str(item["id"])]["artifactRef"] for item in reusable],
+            "staleArtifactRefs": [
+                bindings[str(item["id"])]["artifactRef"] for item in stale if str(item["id"]) in bindings
+            ],
+            "requiredRecomputations": [str(item["id"]) for item in stale],
+            "dependencyDigest": dependency_digest,
+            "reasonCodes": list(dict.fromkeys(reasons)),
+            "unknownDependencyRefs": [key for key, value in projection.items() if value is None],
+        }
+
     @staticmethod
     def _coverage_satisfies(criterion: dict[str, Any], evidence: dict[str, Any]) -> bool:
         coverage = evidence["coverage"]
@@ -1709,6 +1939,78 @@ class StewardRuntime:
         if semantics == "any-sufficient":
             return coverage["observed"] > 0
         return False
+
+    def _completion_candidate_evidence_current(self, job_id: str, artifact: dict[str, Any]) -> bool:
+        if artifact.get("disposition") != "eligible":
+            return False
+        job = self.store.job(job_id)
+        admitted_set = job.get("obligationSet")
+        if (
+            not isinstance(admitted_set, dict)
+            or artifact.get("obligationSetDigest") != admitted_set.get("digest")
+            or not isinstance(artifact.get("obligations"), list)
+        ):
+            return False
+        admitted = {str(item["id"]): item for item in admitted_set.get("obligations", [])}
+        persisted = artifact["obligations"]
+        if {str(item.get("id")) for item in persisted if isinstance(item, dict)} != set(admitted):
+            return False
+
+        evidence_view = self.store.evidence(job_id)
+        now = self.store.clock.now()
+        for obligation in persisted:
+            if not isinstance(obligation, dict):
+                return False
+            requirement_id = str(obligation.get("id"))
+            admitted_obligation = admitted.get(requirement_id)
+            live_criterion = next(
+                (item for item in self.proof_recipe["criteria"] if item["criterion_id"] == requirement_id),
+                None,
+            )
+            if (
+                admitted_obligation is None
+                or live_criterion is None
+                or _criterion_semantic_digest(live_criterion) != admitted_obligation.get("criterionDigest")
+            ):
+                return False
+            requirement = {
+                "id": requirement_id,
+                "required": admitted_obligation["required"],
+                "evidence_class": admitted_obligation["evidenceClass"],
+            }
+            criterion = self._criterion(requirement_id)
+            current_refs: list[str] = []
+            for item in evidence_view:
+                producer = self._producer(item["producerId"])
+                observed = _parse(item["observedAt"])
+                expires = _parse(item["expiresAt"]) if item["expiresAt"] else None
+                valid = (
+                    item["jobId"] == job_id
+                    and item["generation"] == job["generation"]
+                    and item["lineageId"] == job["lineageId"]
+                    and item["subject"] == job["subject"]
+                    and item["candidate"] == job["candidate"]
+                    and item["criterionId"] == requirement["id"]
+                    and item["claimId"] == criterion["canonical_claim"]
+                    and item["evidenceClass"] == requirement["evidence_class"]
+                    and item["proofRecipeId"] == self.recipe_id
+                    and (not criterion["approved_producers"] or item["producerId"] in criterion["approved_producers"])
+                    and producer is not None
+                    and item["observationGrade"] in _OBSERVATION_GRADES
+                    and _AUTHORITY_RANK[item["authorityClass"]] <= _AUTHORITY_RANK[producer["authority_ceiling"]]
+                    and _AUTHORITY_RANK[item["authorityClass"]] >= _AUTHORITY_RANK[criterion["required_authority"]]
+                    and item["binding"]["status"] == "complete"
+                    and set(criterion["binding_requirements"]) <= set(item["binding"]["satisfied"])
+                    and self._coverage_satisfies(criterion, item)
+                    and observed <= now
+                    and (now - observed).total_seconds() <= criterion["freshness_seconds"]
+                    and (expires is None or expires >= now)
+                )
+                if valid:
+                    current_refs.append(str(item["evidenceId"]))
+            if sorted(current_refs) != sorted(str(ref) for ref in obligation.get("evidenceRefs", [])):
+                return False
+        return True
 
     def completion_gate(self, job_id: str) -> dict[str, Any]:
         # Compose the whole decision from ONE consistent snapshot (#104); the read-set
@@ -1946,7 +2248,15 @@ class StewardRuntime:
         }
 
     def finalize_with_gate(self, job_id: str) -> None:
-        completion = self.completion_gate(job_id)
+        plan = self.resume_plan(job_id)
+        binding = self.store.checkpoints(job_id).get("completion-candidate")
+        completion = None
+        if isinstance(binding, dict) and binding.get("artifactRef") in plan["reusableArtifactRefs"]:
+            restored = self.store.checkpoint_artifact(job_id, "completion-candidate")
+            if isinstance(restored, dict) and self._completion_candidate_evidence_current(job_id, restored):
+                completion = restored
+        if completion is None:
+            completion = self.completion_gate(job_id)
         if completion["disposition"] != "eligible":
             self.store.block(job_id, "completion-obligations-unresolved")
             return
@@ -1977,6 +2287,13 @@ class StewardRuntime:
             self.store.block(job_id, f"mutation-admission:{admission['disposition']}")
             return
         decision_ref = f"admission-{uuid.uuid4().hex}"
+        if not (isinstance(binding, dict) and binding.get("artifactRef") in plan["reusableArtifactRefs"]):
+            binding = self._seal_checkpoint(
+                job_id,
+                "completion-candidate",
+                f"completion-candidate:{job_id}:{_digest(completion)[7:23]}",
+                completion,
+            )
         parent_contract = job.get("parentContract")
         handoff = {
             "schema_version": 2,
@@ -1990,7 +2307,7 @@ class StewardRuntime:
             "actionable": True,
             "outcome": "seed-provider-completed",
             "evidenceRefs": [ref for item in completion["obligations"] for ref in item["evidenceRefs"]],
-            "artifactRefs": [],
+            "artifactRefs": self.store.job(job_id)["artifactRefs"],
             "externalOperationRefs": job["externalOperationRefs"],
             "gaps": [],
             "correlationId": job_id,
@@ -2166,10 +2483,26 @@ class StewardRuntime:
             if self.faults.trip("after-dispatch") or self.faults.trip("before-handle-persist"):
                 return True
             self.store.bind_dispatch(submit["operation_id"], handle)
+            bound_submit = self.store.operation_for_job(job["jobId"], "submit") or submit
+            receipt = _receipt_document(bound_submit)
+            self._seal_checkpoint(
+                job["jobId"],
+                "external-dispatch",
+                f"external-operation:{submit['operation_id']}",
+                receipt,
+            )
             return True
         if submit["delivery"] == "delivery-unknown":
             self.store.reconcile_operation(
                 submit["operation_id"], self.provider.reconcile(submit["operation_id"], job["subject"])
+            )
+            bound_submit = self.store.operation_for_job(job["jobId"], "submit") or submit
+            receipt = _receipt_document(bound_submit)
+            self._seal_checkpoint(
+                job["jobId"],
+                "external-dispatch",
+                f"external-operation:{submit['operation_id']}",
+                receipt,
             )
             return True
         payload = self.store.result_payload(submit["operation_id"])
@@ -2241,6 +2574,14 @@ class StewardRuntime:
                     promoted = True
             if not promoted:
                 self.store.block(job["jobId"], "terminal-observation-insufficient-authority")
+            else:
+                evidence_artifact = self.store.evidence(job["jobId"])
+                self._seal_checkpoint(
+                    job["jobId"],
+                    "provider-result",
+                    f"provider-evidence:{job['jobId']}:{_digest(evidence_artifact)[7:23]}",
+                    evidence_artifact,
+                )
             return True
         if self.store.job(job["jobId"])["status"] == "finalizing":
             self.finalize_with_gate(job["jobId"])

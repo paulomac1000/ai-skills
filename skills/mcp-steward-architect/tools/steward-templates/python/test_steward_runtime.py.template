@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from __PACKAGE__.steward_runtime import (
@@ -127,6 +127,25 @@ class UnapprovedProvider(CountingProvider):
     producer_id = "unapproved-provider"
 
 
+def test_liveness_recovery_recreates_missing_deterministic_work_once(tmp_path: Path) -> None:
+    provider = CountingProvider()
+    runtime = _runtime(tmp_path / "liveness.db", provider=provider)
+    job_id = runtime.submit("repo", "abc", "idem-liveness")["jobId"]
+    assert runtime.status(job_id)["status"] == "queued"
+
+    runtime.recover_until_idle()
+    assert runtime.status(job_id)["status"] == "completed"
+    assert provider.dispatch_count == 1
+    assert provider.poll_count == 1
+
+    revision = runtime.status(job_id)["progressRevision"]
+    runtime.recover_until_idle()
+    runtime.recover_until_idle()
+    assert provider.dispatch_count == 1
+    assert provider.poll_count == 1
+    assert runtime.status(job_id)["progressRevision"] == revision
+
+
 def test_terminal_result_with_insufficient_authority_blocks_without_hot_poll(tmp_path: Path) -> None:
     provider = UnapprovedProvider()
     runtime = _runtime(tmp_path / "blocked.db", provider=provider)
@@ -166,3 +185,116 @@ def test_dispatch_budget_includes_deterministic_finalization_reserve(tmp_path: P
     runtime.run_once()
     assert provider.dispatch_count == 0
     assert runtime.status(job_id)["blockedReason"] == "mutation-admission:BudgetUnavailable"
+
+
+def test_checkpoint_plan_survives_restart_and_recomputes_only_changed_policy_stage(tmp_path: Path) -> None:
+    path = tmp_path / "checkpoint-reuse.db"
+    profile, proof, mutation, upstream = _docs()
+    provider = CountingProvider()
+    clock = FakeClock(datetime(2026, 1, 1, tzinfo=UTC))
+    first = StewardRuntime(
+        StewardStore(path, clock),
+        profile,
+        proof,
+        mutation,
+        upstream=upstream,
+        provider=provider,
+        faults=FaultInjector({"before-terminal-publication"}),
+    )
+    job_id = first.submit("repo", "abc", "idem-checkpoint-reuse")["jobId"]
+    for _ in range(5):
+        assert first.run_once() is True
+    assert first.status(job_id)["status"] == "finalizing"
+    before = first.get(job_id)
+    assert {item["checkpointId"] for item in before["checkpoints"]} == {
+        "external-dispatch",
+        "provider-result",
+        "completion-candidate",
+    }
+    assert len(before["job"]["artifactRefs"]) == 3
+    assert before["resumePlan"]["requiredRecomputations"] == []
+    assert before["resumePlan"]["earliestSafeStage"] is None
+    assert provider.dispatch_count == 1
+    assert provider.poll_count == 1
+    first.close()
+
+    restarted = StewardRuntime(
+        StewardStore(path, FakeClock(datetime(2026, 1, 1, tzinfo=UTC))),
+        profile,
+        proof,
+        mutation,
+        upstream=upstream,
+        provider=provider,
+    )
+    after_restart = restarted.resume_plan(job_id)
+    assert after_restart == before["resumePlan"]
+    assert restarted.status(job_id)["status"] == "finalizing"
+    restarted.close()
+
+    changed_profile = json.loads(json.dumps(profile))
+    changed_profile["steward"]["contract_revision"] = int(changed_profile["steward"]["contract_revision"]) + 1
+    changed = StewardRuntime(
+        StewardStore(path, FakeClock(datetime(2026, 1, 1, tzinfo=UTC))),
+        changed_profile,
+        proof,
+        mutation,
+        upstream=upstream,
+        provider=provider,
+    )
+    changed_plan = changed.resume_plan(job_id)
+    assert changed_plan["requiredRecomputations"] == ["completion-candidate"]
+    assert changed_plan["earliestSafeStage"] == "finalizing"
+    assert len(changed_plan["reusableArtifactRefs"]) == 2
+    assert len(changed_plan["staleArtifactRefs"]) == 1
+
+    assert changed.run_once() is True
+    assert changed.status(job_id)["status"] == "completed"
+    assert provider.dispatch_count == 1
+    assert provider.poll_count == 1
+    final_plan = changed.resume_plan(job_id)
+    assert final_plan["requiredRecomputations"] == []
+    assert final_plan["earliestSafeStage"] is None
+    changed.close()
+
+def test_completion_checkpoint_revalidates_evidence_freshness_after_restart(tmp_path: Path) -> None:
+    path = tmp_path / "checkpoint-expiry.db"
+    profile, proof, mutation, upstream = _docs()
+    provider = CountingProvider()
+    start = datetime(2026, 1, 1, tzinfo=UTC)
+    first = StewardRuntime(
+        StewardStore(path, FakeClock(start)),
+        profile,
+        proof,
+        mutation,
+        upstream=upstream,
+        provider=provider,
+        faults=FaultInjector({"before-terminal-publication"}),
+    )
+    job_id = first.submit("repo", "abc", "idem-checkpoint-expiry")["jobId"]
+    for _ in range(5):
+        assert first.run_once() is True
+    assert first.status(job_id)["status"] == "finalizing"
+    assert first.resume_plan(job_id)["requiredRecomputations"] == []
+    first.close()
+
+    restarted = StewardRuntime(
+        StewardStore(path, FakeClock(start + timedelta(seconds=301))),
+        profile,
+        proof,
+        mutation,
+        upstream=upstream,
+        provider=provider,
+    )
+    plan = restarted.resume_plan(job_id)
+    assert plan["requiredRecomputations"] == ["completion-candidate"]
+    assert plan["earliestSafeStage"] == "finalizing"
+    assert "evidence-stale:completion-candidate" in plan["reasonCodes"]
+    assert len(plan["reusableArtifactRefs"]) == 2
+    assert restarted.run_once() is True
+    assert restarted.status(job_id)["status"] == "blocked"
+    assert restarted.status(job_id)["blockedReason"] == "completion-obligations-unresolved"
+    assert restarted.get(job_id)["handoff"] is None
+    assert provider.dispatch_count == 1
+    assert provider.poll_count == 1
+    restarted.close()
+

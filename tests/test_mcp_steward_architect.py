@@ -188,7 +188,7 @@ def _handoff(validator: ModuleType, job: dict[str, Any]) -> dict[str, Any]:
 
 def test_manifest_is_v3_and_composes_base_standards() -> None:
     manifest = yaml.safe_load((SKILL / "manifest.yaml").read_text(encoding="utf-8"))
-    assert manifest["version"] == "3.3.0"
+    assert manifest["version"] == "3.4.0"
     assert manifest["dependencies"]["skills"] == ["mcp-server-architect", "mcp-server-consumer"]
     for required in manifest["required"]:
         assert (SKILL / required).is_file(), required
@@ -208,6 +208,7 @@ def test_all_steward_contract_schemas_are_closed_draft_2020_12() -> None:
         "steward-completion.schema.json",
         "upstream-capability.schema.json",
         "steward-state-machine.schema.json",
+        "steward-checkpoint.schema.json",
         "steward-mutation-policy.schema.json",
         "steward-proof-recipe.schema.json",
         "steward-acceptance.schema.json",
@@ -387,6 +388,48 @@ def test_design_pack_rejects_unresolved_capability_profile_ref_and_producer_dime
         "cannot observe required subject dimensions" in item for item in validator.validate_document("proof", proof)
     )
 
+    unknown_transition = json.loads(json.dumps(docs["steward_mutation_policy"]))
+    cancel_effect = next(item for item in unknown_transition["effects"] if item["id"] == "cancellation-dispatch")
+    cancel_effect["transition"] = "missing-cancel-transition"
+    findings = validator.validate_design_pack(
+        profile=docs["steward_profile"],
+        state_machine=docs["steward_state_machine"],
+        mutation_policy=unknown_transition,
+        proof_recipe=docs["steward_proof_recipe"],
+        acceptance=docs["steward_acceptance"],
+        upstreams=[docs["steward_upstream_capability"]],
+    )
+    assert any(
+        "mutation effect cancellation-dispatch references unknown transition missing-cancel-transition" in item
+        for item in findings
+    )
+
+    legacy_machine = json.loads(json.dumps(docs["steward_state_machine"]))
+    legacy_machine["schema_version"] = 1
+    findings = validator.validate_design_pack(
+        profile=docs["steward_profile"],
+        state_machine=legacy_machine,
+        mutation_policy=docs["steward_mutation_policy"],
+        proof_recipe=docs["steward_proof_recipe"],
+        acceptance=docs["steward_acceptance"],
+        upstreams=[docs["steward_upstream_capability"]],
+    )
+    assert any("current conformance requires state-machine closure contract" in item for item in findings)
+    assert validator.validate_document("state-machine", legacy_machine) == []
+
+    legacy_acceptance = json.loads(json.dumps(docs["steward_acceptance"]))
+    legacy_acceptance["schema_version"] = 1
+    findings = validator.validate_design_pack(
+        profile=docs["steward_profile"],
+        state_machine=docs["steward_state_machine"],
+        mutation_policy=docs["steward_mutation_policy"],
+        proof_recipe=docs["steward_proof_recipe"],
+        acceptance=legacy_acceptance,
+        upstreams=[docs["steward_upstream_capability"]],
+    )
+    assert any("current conformance requires closure-bearing acceptance contract" in item for item in findings)
+    assert validator.validate_document("acceptance", legacy_acceptance) == []
+
 
 def test_job_validator_rejects_timezone_less_nested_lease_expiry() -> None:
     generator, validator = _generator("gen_lease_timestamp"), _validator("val_lease_timestamp")
@@ -473,6 +516,16 @@ def test_production_acceptance_cannot_skip_independent_live_or_exact_full_path()
     generator, validator = _generator("gen_accept"), _validator("val_accept")
     plan = _docs(generator)["steward_acceptance"]
     assert validator.validate_document("acceptance", plan) == []
+    assert plan["schema_version"] == 2
+    assert plan["revision"] == 2
+    assert plan["closure"] == {
+        "producer_reachability_required": True,
+        "liveness_closure_required": True,
+        "real_producer_success_and_rejection_required": True,
+        "canonical_checkpoint_reuse_required": True,
+        "minimum_recomputation_required": True,
+        "transcript_independent_restart_required": True,
+    }
     prod = json.loads(json.dumps(plan))
     prod["claim_class"] = "production-workflow"
     findings = validator.validate_document("acceptance", prod)
@@ -494,6 +547,7 @@ def test_generator_emits_design_pack_and_semantic_surfaces() -> None:
         "steward/upstream-capability.yaml",
         "steward/acceptance.yaml",
         "steward/contracts/steward-state-machine.schema.json",
+        "steward/contracts/steward-checkpoint.schema.json",
         "steward/contracts/steward-mutation-policy.schema.json",
     ):
         assert path in files
@@ -699,6 +753,49 @@ def test_generator_dotnet_surface_carries_v3_design_pack() -> None:
     assert "pair.Key != job.JobId" in runtime
     assert "operation.Generation != job.Generation" in runtime
     assert "evidence.Subject != job.Subject" in runtime
+
+    dotnet_machine = json.loads(files["src/Example.Mcp.Server/steward_state_machine.json"])
+    dotnet_entrypoints = {item["id"]: item["entrypoint"] for item in dotnet_machine["producers"]}
+    producer_contracts = {
+        item["id"]: (item["contract_ref"], item["boundary"])
+        for item in dotnet_machine["producers"]
+    }
+    assert producer_contracts == {
+        "submission-command": ("steward.submit@1", "public"),
+        "workflow-runner": ("steward.workflow@2", "internal"),
+        "cancellation-command": ("steward.cancel@1", "public"),
+        "recovery-runner": ("steward.recovery@2", "recovery-only"),
+    }
+    assert dotnet_entrypoints == {
+        "submission-command": "StewardSeedRuntime.Submit",
+        "workflow-runner": "StewardSeedRuntime.RunOneDue",
+        "cancellation-command": "StewardSeedRuntime.Cancel",
+        "recovery-runner": "StewardRecoveryService.ExecuteAsync",
+    }
+    assert "public StewardAdmission Submit(" in runtime
+    assert "public bool RunOneDue()" in runtime
+    assert "public StewardSeedJob Cancel(" in runtime
+
+    python_files = generator.steward_files(
+        "python", "example_steward", "Example Steward", "example-python", "verification"
+    )
+    python_machine = json.loads(python_files["src/example_steward/steward_state_machine.json"])
+    python_entrypoints = {item["id"]: item["entrypoint"] for item in python_machine["producers"]}
+    assert {
+        item["id"]: (item["contract_ref"], item["boundary"])
+        for item in python_machine["producers"]
+    } == producer_contracts
+    assert python_entrypoints == {
+        "submission-command": "StewardRuntime.submit",
+        "workflow-runner": "StewardRuntime.run_once",
+        "cancellation-command": "StewardRuntime.cancel",
+        "recovery-runner": "StewardRuntime.recover_until_idle",
+    }
+    python_runtime = python_files["src/example_steward/steward_runtime.py"]
+    assert "def submit(" in python_runtime
+    assert "def run_once(" in python_runtime
+    assert "def cancel(" in python_runtime
+    assert "def recover_until_idle(" in python_runtime
 
 
 def test_generated_recovery_guards_stale_selection_and_records_failures() -> None:

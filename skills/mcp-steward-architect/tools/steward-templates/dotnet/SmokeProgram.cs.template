@@ -74,6 +74,120 @@ static void VerifyStewardSeed(string? exportHandoffPath = null, string? exportJo
                 File.WriteAllText(exportHandoffPath, getDocument["handoff"]!.ToJsonString());
         }
 
+        var checkpointProvider = new CountingSeedProvider();
+        var checkpointRoot = Path.Combine(root, "checkpoint-reuse");
+        string checkpointJob;
+        StewardResumePlan initialCheckpointPlan;
+        using (var checkpointRuntime = new StewardSeedRuntime(
+            checkpointRoot, clock, checkpointProvider, new SeedFaultInjector(["before-terminal-publication"]), profile, proof))
+        {
+            checkpointJob = checkpointRuntime.Submit("repo-checkpoint", "abc", "checkpoint-1").JobId;
+            for (var step = 0; step < 5; step++)
+                if (!checkpointRuntime.RunOneDue()) throw new InvalidOperationException("Checkpoint fixture stopped before completion-candidate seal.");
+            if (checkpointRuntime.Status(checkpointJob).Status != "finalizing")
+                throw new InvalidOperationException("Checkpoint fixture did not stop at finalizing publication boundary.");
+            var checkpoints = checkpointRuntime.Checkpoints(checkpointJob);
+            if (checkpoints.Count != 3
+                || !checkpoints.Select(item => item.CheckpointId).ToHashSet(StringComparer.Ordinal)
+                    .SetEquals(["external-dispatch", "provider-result", "completion-candidate"]))
+                throw new InvalidOperationException("Generated .NET runtime did not persist all canonical checkpoints.");
+            if ((checkpointRuntime.Status(checkpointJob).ArtifactRefs?.Count ?? 0) != 3)
+                throw new InvalidOperationException("Checkpoint artifact refs are missing from the canonical job projection.");
+            initialCheckpointPlan = checkpointRuntime.ResumePlan(checkpointJob);
+            if (initialCheckpointPlan.RequiredRecomputations.Count != 0 || initialCheckpointPlan.EarliestSafeStage is not null)
+                throw new InvalidOperationException("Fully current checkpoint chain unexpectedly requires recomputation.");
+            if (checkpointProvider.DispatchCount != 1 || checkpointProvider.PollCount != 1)
+                throw new InvalidOperationException("Checkpoint fixture performed duplicate provider work.");
+            var publicDocument = checkpointRuntime.GetDocument(checkpointJob);
+            if (publicDocument["checkpoints"] is not JsonArray publicCheckpoints || publicCheckpoints.Count != 3
+                || publicDocument["resumePlan"] is not JsonObject)
+                throw new InvalidOperationException("steward_get does not expose canonical checkpoints/resume plan.");
+        }
+        using (var checkpointRestart = new StewardSeedRuntime(
+            checkpointRoot, new FakeSeedClock(new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero)),
+            checkpointProvider, new SeedFaultInjector(), profile, proof))
+        {
+            var restartPlan = checkpointRestart.ResumePlan(checkpointJob);
+            if (restartPlan.DependencyDigest != initialCheckpointPlan.DependencyDigest
+                || !restartPlan.RequiredRecomputations.SequenceEqual(initialCheckpointPlan.RequiredRecomputations)
+                || !restartPlan.ReusableArtifactRefs.SequenceEqual(initialCheckpointPlan.ReusableArtifactRefs))
+                throw new InvalidOperationException("Restart did not derive the same transcript-independent checkpoint plan.");
+            if (checkpointRestart.Status(checkpointJob).Status != "finalizing")
+                throw new InvalidOperationException("Restart changed the durable checkpoint boundary before execution.");
+        }
+
+        var checkpointConfig = Path.Combine(root, "checkpoint-config");
+        Directory.CreateDirectory(checkpointConfig);
+        var sourceConfigRoot = Path.GetDirectoryName(profile)!;
+        foreach (var fileName in new[]
+        {
+            "steward_profile.json",
+            "steward_proof_recipe.json",
+            "steward_mutation_policy.json",
+            "steward_upstream_capability.json",
+            "steward_state_machine.json",
+        })
+            File.Copy(Path.Combine(sourceConfigRoot, fileName), Path.Combine(checkpointConfig, fileName), overwrite: true);
+        var changedProfilePath = Path.Combine(checkpointConfig, "steward_profile.json");
+        var changedProofPath = Path.Combine(checkpointConfig, "steward_proof_recipe.json");
+        var changedProfile = JsonNode.Parse(File.ReadAllText(changedProfilePath))!.AsObject();
+        var changedSteward = changedProfile["steward"]!.AsObject();
+        changedSteward["contract_revision"] = changedSteward["contract_revision"]!.GetValue<int>() + 1;
+        File.WriteAllText(changedProfilePath, changedProfile.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+        using (var changedCheckpointRuntime = new StewardSeedRuntime(
+            checkpointRoot, new FakeSeedClock(new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero)),
+            checkpointProvider, new SeedFaultInjector(), changedProfilePath, changedProofPath))
+        {
+            var changedPlan = changedCheckpointRuntime.ResumePlan(checkpointJob);
+            if (!changedPlan.RequiredRecomputations.SequenceEqual(["completion-candidate"])
+                || changedPlan.EarliestSafeStage != "finalizing"
+                || changedPlan.ReusableArtifactRefs.Count != 2
+                || changedPlan.StaleArtifactRefs.Count != 1)
+                throw new InvalidOperationException("Completion-policy drift did not invalidate only the dependent checkpoint.");
+            if (!changedCheckpointRuntime.RunOneDue() || changedCheckpointRuntime.Status(checkpointJob).Status != "completed")
+                throw new InvalidOperationException("Minimum-recomputation restart did not complete from the finalizing checkpoint.");
+            if (checkpointProvider.DispatchCount != 1 || checkpointProvider.PollCount != 1)
+                throw new InvalidOperationException("Minimum recomputation repeated unaffected provider work.");
+            var finalPlan = changedCheckpointRuntime.ResumePlan(checkpointJob);
+            if (finalPlan.RequiredRecomputations.Count != 0 || finalPlan.EarliestSafeStage is not null)
+                throw new InvalidOperationException("Recomputed completion checkpoint did not become current.");
+        }
+
+        var expiryProvider = new CountingSeedProvider();
+        var expiryRoot = Path.Combine(root, "checkpoint-expiry");
+        string expiryJob;
+        var expiryStart = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        using (var expiryRuntime = new StewardSeedRuntime(
+            expiryRoot, new FakeSeedClock(expiryStart), expiryProvider,
+            new SeedFaultInjector(["before-terminal-publication"]), profile, proof))
+        {
+            expiryJob = expiryRuntime.Submit("repo-expiry", "abc", "checkpoint-expiry-1").JobId;
+            for (var step = 0; step < 5; step++)
+                if (!expiryRuntime.RunOneDue()) throw new InvalidOperationException("Expiry checkpoint fixture stopped before completion-candidate seal.");
+            if (expiryRuntime.Status(expiryJob).Status != "finalizing"
+                || expiryRuntime.ResumePlan(expiryJob).RequiredRecomputations.Count != 0)
+                throw new InvalidOperationException("Expiry checkpoint fixture did not reach a reusable completion candidate.");
+        }
+        using (var expiryRestart = new StewardSeedRuntime(
+            expiryRoot, new FakeSeedClock(expiryStart.AddSeconds(301)), expiryProvider,
+            new SeedFaultInjector(), profile, proof))
+        {
+            var expiryPlan = expiryRestart.ResumePlan(expiryJob);
+            if (!expiryPlan.RequiredRecomputations.SequenceEqual(["completion-candidate"])
+                || expiryPlan.EarliestSafeStage != "finalizing"
+                || !expiryPlan.ReasonCodes.Contains("evidence-stale:completion-candidate", StringComparer.Ordinal)
+                || expiryPlan.ReusableArtifactRefs.Count != 2)
+                throw new InvalidOperationException("Expired evidence did not invalidate only the completion checkpoint.");
+            if (!expiryRestart.RunOneDue()
+                || expiryRestart.Status(expiryJob).Status != "blocked"
+                || expiryRestart.Status(expiryJob).BlockedReason != "completion-obligations-unresolved")
+                throw new InvalidOperationException("Expired completion candidate was published instead of being re-evaluated.");
+            if (expiryRestart.Get(expiryJob).Handoff is not null)
+                throw new InvalidOperationException("Expired completion evidence produced an actionable handoff.");
+            if (expiryProvider.DispatchCount != 1 || expiryProvider.PollCount != 1)
+                throw new InvalidOperationException("Evidence-expiry recomputation repeated unaffected provider work.");
+        }
+
         var cancelProvider = new CountingSeedProvider();
         var cancelRoot = Path.Combine(root, "cancel");
         string cancelJob;
