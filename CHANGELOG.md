@@ -19,6 +19,7 @@
 
 - A test-only state construction can no longer stand in for a real production producer path, and non-terminal states without an owner, wake-up, recoverable external operation, reconciliation path, or authorized blocker fail conformance.
 - Checkpoint reuse fails closed on generation, machine, dependency-set, exact upstream artifact, or canonical binding drift, preventing stale work from being adopted by a newer workflow generation.
+- Completion-candidate reuse now revalidates referenced evidence against the current clock, so evidence that expires between checkpoint sealing and restart forces only completion-stage recomputation and cannot produce a stale terminal handoff.
 
 ## 3.3.0 - 2026-10-03
 

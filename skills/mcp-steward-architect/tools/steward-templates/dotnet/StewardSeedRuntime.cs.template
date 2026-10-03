@@ -722,6 +722,12 @@ public sealed class StewardSeedRuntime : IDisposable
                     reasons.Add($"upstream-artifact-changed:{definition.Id}:{upstreamId}");
                 }
             }
+            if (isCurrent && definition.Id == "completion-candidate"
+                && !CompletionCandidateEvidenceCurrentLocked(job, entry.Artifact))
+            {
+                isCurrent = false;
+                reasons.Add("evidence-stale:completion-candidate");
+            }
             flags[definition.Id] = isCurrent;
         }
 
@@ -1575,13 +1581,52 @@ public sealed class StewardSeedRuntime : IDisposable
         return ev.ExpiresAt is null || ev.ExpiresAt >= _clock.UtcNow;
     }
 
+    private bool CompletionCandidateEvidenceCurrentLocked(StewardSeedJob job, JsonElement artifact)
+    {
+        StewardCompletionEvaluation? completion;
+        try
+        {
+            completion = artifact.Deserialize<StewardCompletionEvaluation>();
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+        if (completion is null || completion.Disposition != "eligible"
+            || completion.ObligationSetDigest != job.ObligationSet?.Digest)
+            return false;
+
+        var admitted = job.ObligationSet?.Obligations ?? Array.Empty<StewardObligationSnapshotItem>();
+        if (!completion.Obligations.Select(item => item.Id).ToHashSet(StringComparer.Ordinal)
+            .SetEquals(admitted.Select(item => item.Id)))
+            return false;
+
+        foreach (var persisted in completion.Obligations)
+        {
+            var snapshot = admitted.FirstOrDefault(item => item.Id == persisted.Id);
+            var req = _policy.Requirements.FirstOrDefault(item => item.Id == persisted.Id);
+            if (snapshot is null || req is null || req.CriterionDigest != snapshot.CriterionDigest)
+                return false;
+            var currentRefs = _state.Evidence.Values
+                .Where(item => EvidenceSatisfies(job, req, item))
+                .Select(item => item.EvidenceId)
+                .Order(StringComparer.Ordinal)
+                .ToArray();
+            if (!currentRefs.SequenceEqual(persisted.EvidenceRefs.Order(StringComparer.Ordinal)))
+                return false;
+        }
+        return true;
+    }
+
     private void FinalizeLocked(StewardSeedJob job)
     {
         var plan = ResumePlanLocked(job);
         SeedCheckpointEntry? existingCandidate = null;
         if (_state.Checkpoints.TryGetValue(job.JobId, out var jobCheckpoints))
             jobCheckpoints.TryGetValue("completion-candidate", out existingCandidate);
-        var reuseCandidate = existingCandidate is not null && plan.ReusableArtifactRefs.Contains(existingCandidate.Binding.ArtifactRef);
+        var reuseCandidate = existingCandidate is not null
+            && plan.ReusableArtifactRefs.Contains(existingCandidate.Binding.ArtifactRef)
+            && CompletionCandidateEvidenceCurrentLocked(job, existingCandidate.Artifact);
         var completion = reuseCandidate
             ? existingCandidate!.Artifact.Deserialize<StewardCompletionEvaluation>()
                 ?? throw new InvalidDataException("completion checkpoint artifact cannot be deserialized")

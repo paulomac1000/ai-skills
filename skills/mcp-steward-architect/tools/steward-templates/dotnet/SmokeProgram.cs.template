@@ -153,6 +153,41 @@ static void VerifyStewardSeed(string? exportHandoffPath = null, string? exportJo
                 throw new InvalidOperationException("Recomputed completion checkpoint did not become current.");
         }
 
+        var expiryProvider = new CountingSeedProvider();
+        var expiryRoot = Path.Combine(root, "checkpoint-expiry");
+        string expiryJob;
+        var expiryStart = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        using (var expiryRuntime = new StewardSeedRuntime(
+            expiryRoot, new FakeSeedClock(expiryStart), expiryProvider,
+            new SeedFaultInjector(["before-terminal-publication"]), profile, proof))
+        {
+            expiryJob = expiryRuntime.Submit("repo-expiry", "abc", "checkpoint-expiry-1").JobId;
+            for (var step = 0; step < 5; step++)
+                if (!expiryRuntime.RunOneDue()) throw new InvalidOperationException("Expiry checkpoint fixture stopped before completion-candidate seal.");
+            if (expiryRuntime.Status(expiryJob).Status != "finalizing"
+                || expiryRuntime.ResumePlan(expiryJob).RequiredRecomputations.Count != 0)
+                throw new InvalidOperationException("Expiry checkpoint fixture did not reach a reusable completion candidate.");
+        }
+        using (var expiryRestart = new StewardSeedRuntime(
+            expiryRoot, new FakeSeedClock(expiryStart.AddSeconds(301)), expiryProvider,
+            new SeedFaultInjector(), profile, proof))
+        {
+            var expiryPlan = expiryRestart.ResumePlan(expiryJob);
+            if (!expiryPlan.RequiredRecomputations.SequenceEqual(["completion-candidate"])
+                || expiryPlan.EarliestSafeStage != "finalizing"
+                || !expiryPlan.ReasonCodes.Contains("evidence-stale:completion-candidate", StringComparer.Ordinal)
+                || expiryPlan.ReusableArtifactRefs.Count != 2)
+                throw new InvalidOperationException("Expired evidence did not invalidate only the completion checkpoint.");
+            if (!expiryRestart.RunOneDue()
+                || expiryRestart.Status(expiryJob).Status != "blocked"
+                || expiryRestart.Status(expiryJob).BlockedReason != "completion-obligations-unresolved")
+                throw new InvalidOperationException("Expired completion candidate was published instead of being re-evaluated.");
+            if (expiryRestart.Get(expiryJob).Handoff is not null)
+                throw new InvalidOperationException("Expired completion evidence produced an actionable handoff.");
+            if (expiryProvider.DispatchCount != 1 || expiryProvider.PollCount != 1)
+                throw new InvalidOperationException("Evidence-expiry recomputation repeated unaffected provider work.");
+        }
+
         var cancelProvider = new CountingSeedProvider();
         var cancelRoot = Path.Combine(root, "cancel");
         string cancelJob;
