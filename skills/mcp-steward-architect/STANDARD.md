@@ -132,7 +132,7 @@ Cancellation provenance is semantic state with typed causes (`caller_cancel`, `p
 
 A local `cancelled` status MUST NOT imply upstream work stopped unless the upstream contract and observed cancellation outcome establish that fact. If cancel delivery is unknown, the Steward MUST reconcile before claiming confirmed remote cancellation or replaying a non-idempotent cancel.
 
-Cancellation MUST first fence new side effects. Not-delivered work may be abandoned safely; delivery-unknown work must be reconciled; delivered/running work follows the upstream cancel/observe contract. Cleanup remains bounded.
+Cancellation MUST first fence new side effects. A public cancellation request and a remote cancellation dispatch are distinct transitions: every non-terminal state accepted by the public cancel entrypoint MUST declare its local transition into cancellation handling, while any later remote cancel call is a separately mutation-gated external effect owned by the workflow/recovery path. Not-delivered work may be abandoned safely; delivery-unknown work must be reconciled; delivered/running work follows the upstream cancel/observe contract. Cleanup remains bounded.
 
 A durable Steward MUST NOT hold a primary workflow worker solely while waiting for an external durable operation whose state is reconstructable from durable local state. Such waiting SHOULD be checkpointed and handled by a bounded external-maintenance/reconciliation lane. Control/cancellation work MAY use a separately bounded reserve so saturation cannot prevent safe closure.
 
