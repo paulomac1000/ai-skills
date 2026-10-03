@@ -1348,6 +1348,64 @@ def test_first_duplicate_reference_definition_is_authoritative(tmp_path: Path) -
     assert {"routing.route-prose-missing", "routing.trigger-unreachable"} <= _codes(findings)
 
 
+def test_reference_label_whitespace_normalization_preserves_first_definition(tmp_path: Path) -> None:
+    _write_base(tmp_path)
+    _write_conditional_owner(tmp_path, "docs/recovery.md")
+    _write_conditional_owner(tmp_path, "docs/other.md")
+    _append(
+        tmp_path,
+        """
+## Recovery routing
+
+<!-- agents-md: route owner="docs/recovery.md" when="after failure" purpose="recovery" -->
+- After failure, read [owner][recovery plan] before recovery work.
+
+[recovery   plan]: docs/other.md
+[recovery plan]: docs/recovery.md
+""",
+    )
+
+    _, findings = audit_module.audit(tmp_path, "application", "single", "en")
+    assert {"routing.route-prose-missing", "routing.trigger-unreachable"} <= _codes(findings)
+
+
+def test_reference_label_whitespace_normalization_resolves_usage(tmp_path: Path) -> None:
+    _write_base(tmp_path)
+    _write_conditional_owner(tmp_path, "docs/recovery.md")
+    _append(
+        tmp_path,
+        """
+## Recovery routing
+
+<!-- agents-md: route owner="docs/recovery.md" when="after failure" purpose="recovery" -->
+- After failure, read [owner][recovery plan] before recovery work.
+
+[recovery   plan]: docs/recovery.md
+""",
+    )
+
+    _, findings = audit_module.audit(tmp_path, "application", "single", "en")
+    assert not any(finding.code.startswith("routing.") for finding in findings)
+
+
+def test_outer_owner_link_with_active_inner_link_is_not_route_prose(tmp_path: Path) -> None:
+    _write_base(tmp_path)
+    _write_conditional_owner(tmp_path, "docs/recovery.md")
+    _write_conditional_owner(tmp_path, "docs/other.md")
+    _append(
+        tmp_path,
+        """
+## Recovery routing
+
+<!-- agents-md: route owner="docs/recovery.md" when="after failure" purpose="recovery" -->
+- After failure, read [outer [other](docs/other.md)](docs/recovery.md).
+""",
+    )
+
+    _, findings = audit_module.audit(tmp_path, "application", "single", "en")
+    assert {"routing.route-prose-missing", "routing.trigger-unreachable"} <= _codes(findings)
+
+
 def test_later_html_attribute_is_masked_after_unterminated_tag(tmp_path: Path) -> None:
     _write_base(tmp_path)
     _write_conditional_owner(tmp_path, "docs/recovery.md")
