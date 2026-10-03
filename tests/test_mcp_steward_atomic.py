@@ -275,16 +275,45 @@ def test_checkpoint_plan_reuses_current_artifacts_and_derives_minimum_recomputat
         dependency["id"]: f"{dependency['id']}@v1"
         for dependency in machine["semantic_dependencies"]
     }
-    bindings = {
-        checkpoint["id"]: {
+
+    bindings: dict[str, dict[str, Any]] = {}
+    ordered = sorted(machine["checkpoints"], key=lambda item: item["order"])
+    for index, checkpoint in enumerate(ordered, start=1):
+        upstream_bindings = {
+            upstream_id: {
+                "artifactRef": bindings[upstream_id]["artifactRef"],
+                "artifactDigest": bindings[upstream_id]["artifactDigest"],
+            }
+            for upstream_id in checkpoint["upstream_checkpoint_refs"]
+        }
+        binding = {
+            "schema_version": 1,
+            "checkpointId": checkpoint["id"],
+            "machineId": machine["machine_id"],
+            "machineRevision": machine["revision"],
             "generation": 3,
-            "dependencies": {
+            "artifactClass": checkpoint["artifact_class"],
+            "artifactRef": f"artifact:{checkpoint['id']}:v1",
+            "artifactDigest": "sha256:" + f"{index:064x}",
+            "dependencyBindings": {
                 dependency_id: current[dependency_id]
                 for dependency_id in checkpoint["dependency_refs"]
             },
+            "upstreamCheckpointBindings": upstream_bindings,
+            "recoveryBindings": {
+                "subjectIdentity": current["subject"],
+                "candidateIdentity": current["candidate"],
+                "authorityRef": "authority:steward-runtime",
+                "ownershipRef": "lease:attempt-1",
+                "progressRevision": index,
+                "budgetRef": "budget:job-1",
+                "deadlineRef": "deadline:job-1",
+                "blockerRefs": [],
+                "externalOperationRefs": [],
+            },
         }
-        for checkpoint in machine["checkpoints"]
-    }
+        assert validator.validate_document("checkpoint", binding) == []
+        bindings[checkpoint["id"]] = binding
 
     baseline = validator.derive_checkpoint_plan(
         machine,
@@ -294,6 +323,24 @@ def test_checkpoint_plan_reuses_current_artifacts_and_derives_minimum_recomputat
     )
     assert baseline["requiredRecomputations"] == []
     assert baseline["earliestSafeStage"] is None
+    assert baseline["reasonCodes"] == []
+
+    late_outage_bindings = json.loads(json.dumps(bindings))
+    late_outage_bindings.pop("completion-candidate")
+    late_outage = validator.derive_checkpoint_plan(
+        machine,
+        current_generation=3,
+        current_dependencies=current,
+        checkpoint_bindings=late_outage_bindings,
+    )
+    assert late_outage["requiredRecomputations"] == ["completion-candidate"]
+    assert late_outage["earliestSafeStage"] == "finalizing"
+    assert late_outage["reusableArtifactRefs"] == [
+        "artifact:external-dispatch:v1",
+        "artifact:provider-result:v1",
+    ]
+    assert late_outage["staleArtifactRefs"] == []
+    assert late_outage["reasonCodes"] == ["checkpoint-missing:completion-candidate"]
 
     changed_late_policy = dict(current)
     changed_late_policy["completion-policy"] = "completion-policy@v2"
@@ -305,8 +352,14 @@ def test_checkpoint_plan_reuses_current_artifacts_and_derives_minimum_recomputat
     )
     assert plan["requiredRecomputations"] == ["completion-candidate"]
     assert plan["earliestSafeStage"] == "finalizing"
-    assert plan["reusableArtifactRefs"] == ["external-operation-receipt", "provider-evidence"]
-    assert plan["staleArtifactRefs"] == ["completion-candidate"]
+    assert plan["reusableArtifactRefs"] == [
+        "artifact:external-dispatch:v1",
+        "artifact:provider-result:v1",
+    ]
+    assert plan["staleArtifactRefs"] == ["artifact:completion-candidate:v1"]
+    assert plan["reasonCodes"] == [
+        "dependency-changed:completion-candidate:completion-policy"
+    ]
 
     restarted = validator.derive_checkpoint_plan(
         machine,
@@ -315,6 +368,42 @@ def test_checkpoint_plan_reuses_current_artifacts_and_derives_minimum_recomputat
         checkpoint_bindings=bindings,
     )
     assert restarted == plan
+
+    changed_evidence = dict(current)
+    changed_evidence["provider-result"] = "provider-result@v2"
+    evidence_plan = validator.derive_checkpoint_plan(
+        machine,
+        current_generation=3,
+        current_dependencies=changed_evidence,
+        checkpoint_bindings=bindings,
+    )
+    assert evidence_plan["requiredRecomputations"] == [
+        "provider-result",
+        "completion-candidate",
+    ]
+    assert evidence_plan["earliestSafeStage"] == "waiting-external"
+    assert evidence_plan["reusableArtifactRefs"] == ["artifact:external-dispatch:v1"]
+    assert "dependency-changed:provider-result:provider-result" in evidence_plan["reasonCodes"]
+    assert "upstream-stale:completion-candidate:provider-result" in evidence_plan["reasonCodes"]
+
+    changed_upstream_artifact = json.loads(json.dumps(bindings))
+    changed_upstream_artifact["completion-candidate"]["upstreamCheckpointBindings"]["provider-result"][
+        "artifactDigest"
+    ] = "sha256:" + "f" * 64
+    upstream_plan = validator.derive_checkpoint_plan(
+        machine,
+        current_generation=3,
+        current_dependencies=current,
+        checkpoint_bindings=changed_upstream_artifact,
+    )
+    assert upstream_plan["requiredRecomputations"] == ["completion-candidate"]
+    assert upstream_plan["reusableArtifactRefs"] == [
+        "artifact:external-dispatch:v1",
+        "artifact:provider-result:v1",
+    ]
+    assert upstream_plan["reasonCodes"] == [
+        "upstream-artifact-changed:completion-candidate:provider-result"
+    ]
 
     changed_candidate = dict(current)
     changed_candidate["candidate"] = "candidate@v2"
@@ -343,4 +432,8 @@ def test_checkpoint_plan_reuses_current_artifacts_and_derives_minimum_recomputat
         "completion-candidate",
     ]
     assert next_generation["earliestSafeStage"] == "queued"
-
+    assert all(
+        code.startswith("checkpoint-generation-mismatch:")
+        or code.startswith("upstream-stale:")
+        for code in next_generation["reasonCodes"]
+    )
