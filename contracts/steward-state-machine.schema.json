@@ -102,12 +102,12 @@
     "checkpoint": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "order", "state", "artifact_ref", "dependency_refs", "upstream_checkpoint_refs", "resume_state"],
+      "required": ["id", "order", "state", "artifact_class", "dependency_refs", "upstream_checkpoint_refs", "resume_state"],
       "properties": {
         "id": {"type": "string", "minLength": 1},
         "order": {"type": "integer", "minimum": 0},
         "state": {"type": "string", "minLength": 1},
-        "artifact_ref": {"type": "string", "minLength": 1},
+        "artifact_class": {"type": "string", "minLength": 1},
         "dependency_refs": {"$ref": "#/$defs/nonEmptyStringSet"},
         "upstream_checkpoint_refs": {"$ref": "#/$defs/stringSet"},
         "resume_state": {"type": "string", "minLength": 1}
