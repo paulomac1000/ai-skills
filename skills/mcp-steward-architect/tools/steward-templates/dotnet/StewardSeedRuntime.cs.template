@@ -908,20 +908,20 @@ public sealed class StewardSeedRuntime : IDisposable
             ["progressRevision"] = checkpoint.RecoveryBindings.ProgressRevision,
             ["budgetRef"] = checkpoint.RecoveryBindings.BudgetRef,
             ["deadlineRef"] = checkpoint.RecoveryBindings.DeadlineRef,
-            ["blockerRefs"] = new JsonArray(checkpoint.RecoveryBindings.BlockerRefs.Select(JsonValue.Create).ToArray()),
-            ["externalOperationRefs"] = new JsonArray(checkpoint.RecoveryBindings.ExternalOperationRefs.Select(JsonValue.Create).ToArray()),
+            ["blockerRefs"] = new JsonArray(checkpoint.RecoveryBindings.BlockerRefs.Select(item => JsonValue.Create(item)).ToArray()),
+            ["externalOperationRefs"] = new JsonArray(checkpoint.RecoveryBindings.ExternalOperationRefs.Select(item => JsonValue.Create(item)).ToArray()),
         },
     };
 
     private static JsonObject ResumePlanDocument(StewardResumePlan plan) => new()
     {
         ["earliestSafeStage"] = plan.EarliestSafeStage,
-        ["reusableArtifactRefs"] = new JsonArray(plan.ReusableArtifactRefs.Select(JsonValue.Create).ToArray()),
-        ["staleArtifactRefs"] = new JsonArray(plan.StaleArtifactRefs.Select(JsonValue.Create).ToArray()),
-        ["requiredRecomputations"] = new JsonArray(plan.RequiredRecomputations.Select(JsonValue.Create).ToArray()),
+        ["reusableArtifactRefs"] = new JsonArray(plan.ReusableArtifactRefs.Select(item => JsonValue.Create(item)).ToArray()),
+        ["staleArtifactRefs"] = new JsonArray(plan.StaleArtifactRefs.Select(item => JsonValue.Create(item)).ToArray()),
+        ["requiredRecomputations"] = new JsonArray(plan.RequiredRecomputations.Select(item => JsonValue.Create(item)).ToArray()),
         ["dependencyDigest"] = plan.DependencyDigest,
-        ["reasonCodes"] = new JsonArray(plan.ReasonCodes.Select(JsonValue.Create).ToArray()),
-        ["unknownDependencyRefs"] = new JsonArray(plan.UnknownDependencyRefs.Select(JsonValue.Create).ToArray()),
+        ["reasonCodes"] = new JsonArray(plan.ReasonCodes.Select(item => JsonValue.Create(item)).ToArray()),
+        ["unknownDependencyRefs"] = new JsonArray(plan.UnknownDependencyRefs.Select(item => JsonValue.Create(item)).ToArray()),
     };
 
     public JsonObject GetDocument(string jobId)
@@ -1620,7 +1620,8 @@ public sealed class StewardSeedRuntime : IDisposable
     {
         var parentRef = job.ParentContract is { } parent ? new StewardParentContractRef(parent.Mode, parent.ContractDigest, parent.ParentWorkId, parent.ParentGeneration) : null;
         var handoff = new StewardHandoff(2, $"handoff-{Guid.NewGuid():N}", job.JobId, job.LineageId, job.Generation, job.Subject, job.Candidate, "completed", true,
-            "seed-provider-completed", completion.Obligations.SelectMany(item => item.EvidenceRefs).ToArray(), [], job.ExternalOperationRefs.ToArray(), [], job.JobId, _clock.UtcNow, string.Empty, parentRef);
+            "seed-provider-completed", completion.Obligations.SelectMany(item => item.EvidenceRefs).ToArray(),
+            (job.ArtifactRefs ?? Array.Empty<string>()).ToArray(), job.ExternalOperationRefs.ToArray(), [], job.JobId, _clock.UtcNow, string.Empty, parentRef);
         return handoff with { Digest = ComputeHandoffDigest(handoff) };
     }
 
