@@ -1188,6 +1188,10 @@ def validate_design_pack(
         findings.extend(f"{kind}: {item}" for item in validate_document(kind, value))
     for index, upstream in enumerate(upstreams):
         findings.extend(f"upstream[{index}]: {item}" for item in validate_document("upstream", upstream))
+    if state_machine.get("schema_version") != 2:
+        findings.append("design-pack: current conformance requires state-machine closure contract")
+    if acceptance.get("schema_version") != 2:
+        findings.append("design-pack: current conformance requires closure-bearing acceptance contract")
     if findings:
         # Preserve cross-contract diagnostics even when an internally valid-looking
         # mutation effect also violates its own exact capability binding. This keeps
