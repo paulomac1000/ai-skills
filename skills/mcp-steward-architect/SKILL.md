@@ -16,15 +16,16 @@ A conforming Steward extends, and never weakens, `mcp-server-architect` for its 
 Before implementation produce a machine-readable Steward Design Pack covering:
 
 - authority envelope: owned/observed state, allowed mutations, verification/parent authority, forbidden claims;
-- durable state machine: states, terminality, lanes, legal transitions, progress, recovery, cancellation, fences;
+- durable state machine: states, terminality, lanes, legal transitions, real production producer paths, non-terminal liveness/convergence, progress, recovery, cancellation, fences;
 - identity: exact subject/candidate, lineage, semantic generation, attempt, optimistic version, decision/freshness dimensions;
+- semantic checkpoints: canonical artifact identity, exact dependency bindings, upstream checkpoint closure, generation fence, earliest safe resume and minimum recomputation;
 - proof catalog: claims, producers, authority/observation grade, binding, coverage, freshness, completion obligations;
 - every stateful external effect, including submit/cancel ambiguity, reconciliation, idempotency, affinity and handle recovery;
 - mutation state/effect and invariant-enforcement matrices;
 - deadline/budget algebra including reserve-before-start and deterministic finalization reserve;
 - persistence, disclosure, response, audit and provider projections; concurrency lanes; recovery equivalence; acceptance plan.
 
-Do not implement a material path with unknown authority, fabricated identity fallback, unowned state, or no failure/recovery disposition.
+Do not implement a material path with unknown authority, fabricated identity fallback, no real production producer, stranded non-terminal state, unowned semantic checkpoint, or no failure/recovery disposition.
 
 ## Required enforcement gates
 
@@ -39,23 +40,26 @@ Gate results are typed outcomes such as `Admitted`, `LostAuthority`, `StaleCandi
 
 1. Persist durable admission before returning a long-running job ID; public control roles are `submit/status/get/cancel/doctor` rather than a request-lived workflow.
 2. Capture semantic generation at admission/claim and fence every successor, side effect, evidence record and publication; optimistic record version remains distinct.
-3. Admit capabilities only from reviewed source/id/revision/digest contracts; health/liveness never proves capability support.
-4. For disclosure-bearing calls construct an explicitly approved safe projection before egress.
-5. Commit operation identity/start intent and mutation decision before the first byte of stateful dispatch.
-6. Distinguish rejection, pre-dispatch failure, delivered, delivery-unknown, caller cancellation and cancellation-delivery-unknown; reconcile ambiguity before replay.
-7. Treat remote cancellation as its own stateful operation. Local `cancelled` never proves remote stop when the contract requires remote resolution.
-8. Preserve recoverable remote handles and move reconstructable external waits to a bounded maintenance/reconciliation lane rather than occupying the primary worker.
-9. Make retries canonical-first: after dedupe/CAS/no-op, reload canonical persisted identity/output before any downstream decision.
-10. Bind verification/evidence to immutable `CandidateIdentity`; `verify(X)` may authorize only `publish(X)`.
-11. Promote evidence monotonically: incomplete binding/coverage, `unknown`, or `unobserved` cannot become stronger or complete-negative claims.
-12. Reserve operation budget before a leg starts; durable wall-clock deadlines survive restart and transport defaults cannot silently redefine them.
-13. Preserve inbound completion obligations and finalize only through the Completion Publication Gate after exact current subject/candidate re-read.
-14. Emit a durable structured timeline sufficient to reconstruct admission, mutation, dispatch, ambiguity, cancellation, evidence, recovery and publication without secrets.
-15. Status observation is bounded and progress-aware; repeated identical upstream state does not advance semantic progress or justify hot polling.
+3. Every intended material transition/gate names a real production producer entrypoint; direct test/domain-row construction is not reachability evidence.
+4. Every non-terminal state has an owned/scheduled/external/recovery/blocker liveness condition plus bounded orphan/convergence disposition; unchanged sweeps are idempotent.
+5. Bind canonical checkpoints to workflow generation and exact semantic dependencies; derive earliest safe resume and minimum recomputation without model transcript replay, and reject older-generation reuse by default.
+6. Admit capabilities only from reviewed source/id/revision/digest contracts; health/liveness never proves capability support.
+7. For disclosure-bearing calls construct an explicitly approved safe projection before egress.
+8. Commit operation identity/start intent and mutation decision before the first byte of stateful dispatch.
+9. Distinguish rejection, pre-dispatch failure, delivered, delivery-unknown, caller cancellation and cancellation-delivery-unknown; reconcile ambiguity before replay.
+10. Treat remote cancellation as its own stateful operation. Local `cancelled` never proves remote stop when the contract requires remote resolution.
+11. Preserve recoverable remote handles and move reconstructable external waits to a bounded maintenance/reconciliation lane rather than occupying the primary worker.
+12. Make retries canonical-first: after dedupe/CAS/no-op, reload canonical persisted identity/output before any downstream decision.
+13. Bind verification/evidence to immutable `CandidateIdentity`; `verify(X)` may authorize only `publish(X)`.
+14. Promote evidence monotonically: incomplete binding/coverage, `unknown`, or `unobserved` cannot become stronger or complete-negative claims.
+15. Reserve operation budget before a leg starts; durable wall-clock deadlines survive restart and transport defaults cannot silently redefine them.
+16. Preserve inbound completion obligations and finalize only through the Completion Publication Gate after exact current subject/candidate re-read.
+17. Emit a durable structured timeline sufficient to reconstruct admission, mutation, dispatch, ambiguity, cancellation, evidence, recovery and publication without secrets.
+18. Status observation is bounded and progress-aware; repeated identical upstream state does not advance semantic progress or justify hot polling.
 
 ## Review hot spots
 
-Prioritize stale generation adoption; mutation-gate→dispatch authority drift; health→capability confusion; verification→publication candidate drift; dispatch→handle-bind crash windows; local cancel→remote reality; terminal result→evidence overclaim/hot loops; observation→claim causal gaps; live→restart divergence; and focused tests→production acceptance overclaim.
+Prioritize unreachable production branches; stranded non-terminal states; stale generation adoption; incorrect checkpoint reuse/invalidation; full-workflow recomputation after unrelated late-stage failure; mutation-gate→dispatch authority drift; health→capability confusion; verification→publication candidate drift; dispatch→handle-bind crash windows; local cancel→remote reality; terminal result→evidence overclaim/hot loops; observation→claim causal gaps; live→restart divergence; and focused tests→production acceptance overclaim.
 
 ## References and tools
 
