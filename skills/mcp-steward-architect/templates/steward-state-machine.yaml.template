@@ -12,9 +12,9 @@ states:
   - {id: cancelled, terminal: true, owner_lane: none, progress_effect: terminal, recovery: none, cancellation: reject, liveness: terminal, orphan_disposition: not-applicable}
   - {id: superseded, terminal: true, owner_lane: reconciliation, progress_effect: terminal, recovery: reconcile, cancellation: reject, liveness: terminal, orphan_disposition: not-applicable}
 producers:
-  - {id: workflow-runner, kind: worker-stage, entrypoint: StewardRuntime.run_once, authority_source: steward-runtime}
-  - {id: cancellation-command, kind: public-ingress, entrypoint: StewardRuntime.cancel, authority_source: caller-plus-policy}
-  - {id: recovery-runner, kind: reconciler, entrypoint: StewardRuntime.run_once, authority_source: steward-runtime}
+  - {id: workflow-runner, kind: worker-stage, entrypoint: __WORKFLOW_ENTRYPOINT__, authority_source: steward-runtime}
+  - {id: cancellation-command, kind: public-ingress, entrypoint: __CANCEL_ENTRYPOINT__, authority_source: caller-plus-policy}
+  - {id: recovery-runner, kind: reconciler, entrypoint: __RECOVERY_ENTRYPOINT__, authority_source: steward-runtime}
 transitions:
   - {id: dispatch-start, from: queued, to: reconciling, effect: external-stateful, mutation_gate: true, required_fences: [generation, attempt, operation], failure_outcomes: [LostAuthority, ReconciliationRequired, BudgetUnavailable], producer_refs: [workflow-runner]}
   - {id: dispatch-bound, from: reconciling, to: waiting-external, effect: local-state, mutation_gate: false, required_fences: [generation, attempt], failure_outcomes: [StaleGeneration], producer_refs: [workflow-runner, recovery-runner]}
