@@ -495,8 +495,9 @@ def _state_machine_findings(value: dict[str, Any]) -> list[str]:
 def derive_checkpoint_plan(
     state_machine: dict[str, Any],
     *,
+    current_generation: int,
     current_dependencies: dict[str, str | None],
-    checkpoint_bindings: dict[str, dict[str, str | None]],
+    checkpoint_bindings: dict[str, dict[str, Any]],
 ) -> dict[str, Any]:
     """Derive the minimum reusable/stale checkpoint set from exact semantic dependency identity."""
 
@@ -517,9 +518,13 @@ def derive_checkpoint_plan(
         raise ValueError("unknown checkpoint bindings: " + ", ".join(unknown_checkpoints))
 
     current_projection = {dependency_id: current_dependencies.get(dependency_id) for dependency_id in sorted(dependencies)}
+    if current_generation < 1:
+        raise ValueError("current_generation must be positive")
+
     dependency_payload = {
         "machine_id": state_machine["machine_id"],
         "revision": state_machine["revision"],
+        "generation": current_generation,
         "dependencies": current_projection,
     }
     dependency_digest = "sha256:" + hashlib.sha256(
@@ -531,11 +536,16 @@ def derive_checkpoint_plan(
     for checkpoint in ordered:
         checkpoint_id = checkpoint["id"]
         binding = checkpoint_bindings.get(checkpoint_id)
-        direct_current = isinstance(binding, dict)
+        direct_current = (
+            isinstance(binding, dict)
+            and binding.get("generation") == current_generation
+            and isinstance(binding.get("dependencies"), dict)
+        )
         if direct_current:
+            bound_dependencies = binding["dependencies"]
             for dependency_id in checkpoint["dependency_refs"]:
                 current_identity = current_projection.get(dependency_id)
-                bound_identity = binding.get(dependency_id)
+                bound_identity = bound_dependencies.get(dependency_id)
                 if current_identity is None or bound_identity is None or current_identity != bound_identity:
                     direct_current = False
                     break
