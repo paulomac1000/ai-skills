@@ -57,6 +57,16 @@ A durable job MUST expose enough state to reconstruct ownership and recovery: jo
 
 Terminal states MUST NOT become active again. In-memory queues, callbacks, caches, model context, and memory systems are wake-up/acceleration mechanisms only.
 
+## Producer reachability and liveness closure
+
+Every intended reachable material transition or gate MUST name at least one real authorized production producer path. Valid producer classes include public MCP/API ingress, a worker stage, reconciler, trusted administrative/domain command, migration/recovery path, provider-result adapter, or scheduler. The Design Pack MUST bind each declared producer to a concrete runtime entrypoint or adapter owned by the implementation. Constructing a domain object, row, state, or command directly in a test does not prove production reachability.
+
+Every non-terminal state MUST declare a liveness condition equivalent to active owned work, scheduled bounded work, a recoverable external operation, deterministic recovery/remediation, or an explicit authorized blocker/input wait. It MUST also declare the bounded orphan/convergence disposition used when that condition is no longer true. A state with no valid owner, wake-up, recoverable external handle, reconciliation path, explicit blocker, or terminal/partial-terminal convergence is non-conformant.
+
+Recovery MAY recreate missing deterministic next work only through generation- and idempotency-fenced canonical state, at most once for the same semantic slot. It MUST NOT revive stale-generation work, turn delivery-unknown or otherwise non-replay-safe work into a retry merely to restore liveness, or emit repeated work/events when an unchanged liveness sweep observes the same healthy/blocked state.
+
+Generated/reference runtimes MUST either demonstrate the applicable producer/liveness paths through their real public/worker/recovery boundaries or explicitly declare a non-applicable transition/state. Test-only construction is never a substitute for that proof.
+
 ## Lineage generations attempts and leases
 
 Retrying an attempt and creating a new semantic generation are different operations. Recheck, refresh, replan, replacement, or invalidation MUST advance generation when prior actionable work becomes stale.
@@ -66,6 +76,26 @@ Optimistic version and semantic generation MUST NOT be overloaded when stale wor
 Every mutable update MUST be fenced by relevant version/attempt identity. Every actionable terminal publication MUST also be fenced by current lineage generation/current job.
 
 A lease is a mutation-authority primitive, not merely a scheduler hint. Operations that require a lease MUST re-check authoritative owner, epoch/fencing token, and expiry at the Mutation Admission Gate. Renewal MUST use upstream/storage-authoritative expiry/epoch; it MUST NOT infer success from `now + requestedDuration`. Ambiguous renewal blocks mutation. Long operations MUST have enough remaining lease/deadline for the operation plus deterministic finalization reserve.
+
+## Semantic checkpoints and dependency-scoped reuse
+
+Execution attempt, workflow generation, and semantic input identity are distinct. A retry of the same semantic work MUST NOT manufacture a new meaning merely because the attempt changed; conversely, a changed load-bearing semantic dependency MUST NOT inherit an artifact solely because its stage name or payload looks similar.
+
+A reusable canonical checkpoint MUST bind stable checkpoint/stage identity, canonical artifact/reference, workflow generation, the complete declared semantic dependency identities required for that artifact, upstream checkpoint dependencies, and the legal resume state. Dependency dimensions MAY include subject/candidate, effective evidence, target, policy, model/capability contract, validation environment, external-gate identity, or another explicitly governed input. Unknown/missing load-bearing identity is stale.
+
+For one current generation, checkpoint currentness is derived mechanically from exact dependency identity plus transitive upstream checkpoint currentness. A changed dependency invalidates only checkpoints that declare it and their downstream dependents. An unrelated late-stage provider/gate outage MUST NOT stale earlier CURRENT artifacts/evidence merely because the later operation failed. A checkpoint from an older workflow generation is stale by default and MUST NOT satisfy the new generation without an explicit policy-owned compatibility proof.
+
+The deterministic supervisor SHOULD expose a bounded derived resume result equivalent to:
+
+~~~yaml
+earliestSafeStage: ...
+reusableArtifactRefs: [...]
+staleArtifactRefs: [...]
+requiredRecomputations: [...]
+dependencyDigest: sha256:...
+~~~
+
+`earliestSafeStage` is the first legal stage whose required checkpoint is non-current; if every required checkpoint is current, no recomputation is required. Restart with the same durable state and semantic dependencies MUST derive the same result without replaying prior model conversation/transcript. A losing retry/CAS path reloads the canonical winning checkpoint before deriving successors. Similarity, reviewer prose, or a model assertion is not compatibility proof.
 
 ## Mutation admission and candidate identity
 
@@ -181,7 +211,7 @@ The durability claim MUST state process-restart, host/power-loss, multi-process,
 
 Retry-safe persistence is canonical-first. If a stable identity already has committed artifact/result A, a retry proposing B must converge on A; dedupe/CAS/no-op persistence MUST return/reload the canonical value/reference/digest and downstream work MUST consume it.
 
-Durable work and wake-up/outbox intent SHOULD commit atomically. Every nonterminal job MUST have current owner/lease, scheduled wake-up, recoverable external handle/reconciliation path, or explicit blocked reason.
+Durable work and wake-up/outbox intent SHOULD commit atomically. Every nonterminal job MUST satisfy the producer/liveness closure contract: current owned work, scheduled bounded work, recoverable external handle/reconciliation, or an explicit authorized blocker with a declared convergence disposition.
 
 Recovery equivalence is required: for the same durable input and externally observed reality, uninterrupted and restarted execution MUST converge on the same canonical observation/evidence/decision semantics. Recovery MUST NOT bypass mutation admission, evidence promotion, completion gates, disclosure policy, or candidate binding.
 
@@ -217,7 +247,7 @@ Long-lived durable state MUST NOT be mirrored into an ever-growing model convers
 
 Every safety/recovery invariant MUST have a negative regression. Use controllable time and deterministic barriers/events/fault points, not timing sleeps, for races.
 
-Coverage MUST include reservation/dispatch/handle/result/evidence/finalization/cancellation crash windows; lost wakeups; idempotency; delivery and cancel ambiguity; lease/renewal fencing; stale-generation successor races; cancellation versus completion; canonical A versus retry-local B; candidate drift after verification; capability provenance versus health; private-egress sentinels; incomplete claim binding; negative-plus-unobserved aggregation; terminal-result insufficient-authority no-hot-loop; deadline/finalization edges; recovery equivalence; and exact packaged runtime prerequisites.
+Coverage MUST include reservation/dispatch/handle/result/evidence/finalization/cancellation crash windows; lost wakeups; idempotency; delivery and cancel ambiguity; lease/renewal fencing; stale-generation successor races; cancellation versus completion; canonical A versus retry-local B; production-producer reachability; stranded non-terminal states; semantic-checkpoint currentness and minimum recomputation; cross-generation checkpoint rejection; candidate drift after verification; capability provenance versus health; private-egress sentinels; incomplete claim binding; negative-plus-unobserved aggregation; terminal-result insufficient-authority no-hot-loop; deadline/finalization edges; recovery equivalence; and exact packaged runtime prerequisites.
 
 Provider adapters MUST be tested against observed upstream-contract fixtures. Test source presence is not execution evidence.
 
