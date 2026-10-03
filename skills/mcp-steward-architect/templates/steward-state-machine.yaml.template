@@ -1,20 +1,39 @@
-schema_version: 1
+schema_version: 2
 machine_id: __STEWARD_ID__-state-machine
-revision: 1
+revision: 2
 states:
-  - {id: queued, terminal: false, owner_lane: workflow, progress_effect: advances, recovery: scheduled-wakeup, cancellation: fence-and-reconcile}
-  - {id: reconciling, terminal: false, owner_lane: reconciliation, progress_effect: advances, recovery: reconcile, cancellation: fence-and-reconcile}
-  - {id: waiting-external, terminal: false, owner_lane: external-maintenance, progress_effect: no-change, recovery: external-handle, cancellation: fence-and-reconcile}
-  - {id: cancelling, terminal: false, owner_lane: control, progress_effect: advances, recovery: reconcile, cancellation: fence-and-reconcile}
-  - {id: blocked, terminal: false, owner_lane: none, progress_effect: no-change, recovery: blocked, cancellation: terminalize-if-no-unresolved-effect}
-  - {id: finalizing, terminal: false, owner_lane: workflow, progress_effect: advances, recovery: scheduled-wakeup, cancellation: fence-and-reconcile}
-  - {id: completed, terminal: true, owner_lane: none, progress_effect: terminal, recovery: none, cancellation: reject}
-  - {id: cancelled, terminal: true, owner_lane: none, progress_effect: terminal, recovery: none, cancellation: reject}
-  - {id: superseded, terminal: true, owner_lane: reconciliation, progress_effect: terminal, recovery: reconcile, cancellation: reject}
+  - {id: queued, terminal: false, owner_lane: workflow, progress_effect: advances, recovery: scheduled-wakeup, cancellation: fence-and-reconcile, liveness: scheduled-work, orphan_disposition: recreate-bounded}
+  - {id: reconciling, terminal: false, owner_lane: reconciliation, progress_effect: advances, recovery: reconcile, cancellation: fence-and-reconcile, liveness: recovery, orphan_disposition: reconcile}
+  - {id: waiting-external, terminal: false, owner_lane: external-maintenance, progress_effect: no-change, recovery: external-handle, cancellation: fence-and-reconcile, liveness: external-operation, orphan_disposition: reconcile}
+  - {id: cancelling, terminal: false, owner_lane: control, progress_effect: advances, recovery: reconcile, cancellation: fence-and-reconcile, liveness: recovery, orphan_disposition: reconcile}
+  - {id: blocked, terminal: false, owner_lane: none, progress_effect: no-change, recovery: blocked, cancellation: terminalize-if-no-unresolved-effect, liveness: authorized-blocker, orphan_disposition: authorized-block}
+  - {id: finalizing, terminal: false, owner_lane: workflow, progress_effect: advances, recovery: scheduled-wakeup, cancellation: fence-and-reconcile, liveness: scheduled-work, orphan_disposition: recreate-bounded}
+  - {id: completed, terminal: true, owner_lane: none, progress_effect: terminal, recovery: none, cancellation: reject, liveness: terminal, orphan_disposition: not-applicable}
+  - {id: cancelled, terminal: true, owner_lane: none, progress_effect: terminal, recovery: none, cancellation: reject, liveness: terminal, orphan_disposition: not-applicable}
+  - {id: superseded, terminal: true, owner_lane: reconciliation, progress_effect: terminal, recovery: reconcile, cancellation: reject, liveness: terminal, orphan_disposition: not-applicable}
+producers:
+  - {id: workflow-runner, kind: worker-stage, entrypoint: StewardRuntime.run_once, authority_source: steward-runtime}
+  - {id: cancellation-command, kind: public-ingress, entrypoint: StewardRuntime.cancel, authority_source: caller-plus-policy}
+  - {id: recovery-runner, kind: reconciler, entrypoint: StewardRuntime.run_once, authority_source: steward-runtime}
 transitions:
-  - {id: dispatch-start, from: queued, to: reconciling, effect: external-stateful, mutation_gate: true, required_fences: [generation, attempt, operation], failure_outcomes: [LostAuthority, ReconciliationRequired, BudgetUnavailable]}
-  - {id: dispatch-bound, from: reconciling, to: waiting-external, effect: local-state, mutation_gate: false, required_fences: [generation, attempt], failure_outcomes: [StaleGeneration]}
-  - {id: cancel-start, from: waiting-external, to: cancelling, effect: external-stateful, mutation_gate: true, required_fences: [generation, attempt, operation], failure_outcomes: [LostAuthority, ReconciliationRequired, BudgetUnavailable]}
-  - {id: cancel-resolved, from: cancelling, to: cancelled, effect: local-state, mutation_gate: false, required_fences: [generation, attempt], failure_outcomes: [ReconciliationRequired]}
-  - {id: evidence-ready, from: waiting-external, to: finalizing, effect: local-state, mutation_gate: false, required_fences: [generation, attempt], failure_outcomes: [InsufficientEvidence]}
-  - {id: completion-publish, from: finalizing, to: completed, effect: publication, mutation_gate: true, required_fences: [generation, attempt, candidate], failure_outcomes: [StaleCandidate, LostAuthority, InsufficientEvidence]}
+  - {id: dispatch-start, from: queued, to: reconciling, effect: external-stateful, mutation_gate: true, required_fences: [generation, attempt, operation], failure_outcomes: [LostAuthority, ReconciliationRequired, BudgetUnavailable], producer_refs: [workflow-runner]}
+  - {id: dispatch-bound, from: reconciling, to: waiting-external, effect: local-state, mutation_gate: false, required_fences: [generation, attempt], failure_outcomes: [StaleGeneration], producer_refs: [workflow-runner, recovery-runner]}
+  - {id: cancel-start, from: waiting-external, to: cancelling, effect: external-stateful, mutation_gate: true, required_fences: [generation, attempt, operation], failure_outcomes: [LostAuthority, ReconciliationRequired, BudgetUnavailable], producer_refs: [cancellation-command]}
+  - {id: cancel-resolved, from: cancelling, to: cancelled, effect: local-state, mutation_gate: false, required_fences: [generation, attempt], failure_outcomes: [ReconciliationRequired], producer_refs: [recovery-runner]}
+  - {id: evidence-ready, from: waiting-external, to: finalizing, effect: local-state, mutation_gate: false, required_fences: [generation, attempt], failure_outcomes: [InsufficientEvidence], producer_refs: [workflow-runner, recovery-runner]}
+  - {id: completion-publish, from: finalizing, to: completed, effect: publication, mutation_gate: true, required_fences: [generation, attempt, candidate], failure_outcomes: [StaleCandidate, LostAuthority, InsufficientEvidence], producer_refs: [workflow-runner, recovery-runner]}
+semantic_dependencies:
+  - {id: subject, kind: subject, identity_source: job.subject, unknown_disposition: stale}
+  - {id: candidate, kind: candidate, identity_source: job.candidate, unknown_disposition: stale}
+  - {id: capability-contract, kind: capability, identity_source: upstream.contract.digest, unknown_disposition: stale}
+  - {id: provider-result, kind: evidence, identity_source: evidence.payloadDigest, unknown_disposition: stale}
+  - {id: completion-policy, kind: policy, identity_source: profile.completion+proof-recipe, unknown_disposition: stale}
+checkpoints:
+  - {id: external-dispatch, order: 10, state: reconciling, artifact_ref: external-operation-receipt, dependency_refs: [subject, candidate, capability-contract], upstream_checkpoint_refs: [], resume_state: queued}
+  - {id: provider-result, order: 20, state: waiting-external, artifact_ref: provider-evidence, dependency_refs: [subject, candidate, capability-contract, provider-result], upstream_checkpoint_refs: [external-dispatch], resume_state: waiting-external}
+  - {id: completion-candidate, order: 30, state: finalizing, artifact_ref: completion-candidate, dependency_refs: [subject, candidate, completion-policy], upstream_checkpoint_refs: [provider-result], resume_state: finalizing}
+resume_policy:
+  derivation: dependency-closure
+  unknown_dependency: stale
+  requires_model_transcript: false
+  minimum_recomputation: true
