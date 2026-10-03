@@ -297,6 +297,7 @@ def test_checkpoint_plan_reuses_current_artifacts_and_derives_minimum_recomputat
 
     restarted = validator.derive_checkpoint_plan(
         machine,
+        current_generation=3,
         current_dependencies=changed_late_policy,
         checkpoint_bindings=bindings,
     )
