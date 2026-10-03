@@ -17,7 +17,10 @@ LegacyProfileName = Literal["monorepo"]
 HEADING = re.compile(r"^(?P<level>#{1,6})\s+(?P<title>.+?)\s*$")
 FENCE_OPENER = re.compile(r"^(?P<indent>[ \t]{0,3})(?P<marker>`{3,}|~{3,})(?P<info>[^\r\n]*)$")
 INLINE_LINK = re.compile(r"(?<!!)\[(?P<label>[^\]\n]+)\]\((?P<target>[^)\n]+)\)")
-REFERENCE_DEFINITION = re.compile(r"^[ ]{0,3}\[(?P<label>[^\]\n]+)\]:\s*(?P<target>\S+)")
+REFERENCE_DEFINITION = re.compile(
+    r"^[ ]{0,3}\[(?P<label>[^\]\n]+)\]:[ \t]*(?P<target>\S+)"
+    r"(?:[ \t]+(?P<title>\"(?:\\.|[^\"\n])*\"|'(?:\\.|[^'\n])*'|\((?:\\.|[^)\n])*\)))?[ \t]*$"
+)
 REFERENCE_USAGE = re.compile(r"(?<!!)\[(?P<label>[^\]\n]+)\]\[(?P<ref>[^\]\n]*)\]")
 BARE_REFERENCE = re.compile(r"^\s*[-*]\s+(?:\[[^\]]+\]\([^)]+\)|`[^`]+`)\s*[.;]?\s*$")
 VERSIONED_NAME = re.compile(
