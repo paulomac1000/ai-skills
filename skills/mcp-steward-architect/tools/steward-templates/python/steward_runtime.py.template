@@ -2231,7 +2231,7 @@ class StewardRuntime:
             "actionable": True,
             "outcome": "seed-provider-completed",
             "evidenceRefs": [ref for item in completion["obligations"] for ref in item["evidenceRefs"]],
-            "artifactRefs": [],
+            "artifactRefs": self.store.job(job_id)["artifactRefs"],
             "externalOperationRefs": job["externalOperationRefs"],
             "gaps": [],
             "correlationId": job_id,
