@@ -1578,7 +1578,9 @@ public sealed class StewardSeedRuntime : IDisposable
     private void FinalizeLocked(StewardSeedJob job)
     {
         var plan = ResumePlanLocked(job);
-        _state.Checkpoints.GetValueOrDefault(job.JobId)?.TryGetValue("completion-candidate", out var existingCandidate);
+        SeedCheckpointEntry? existingCandidate = null;
+        if (_state.Checkpoints.TryGetValue(job.JobId, out var jobCheckpoints))
+            jobCheckpoints.TryGetValue("completion-candidate", out existingCandidate);
         var reuseCandidate = existingCandidate is not null && plan.ReusableArtifactRefs.Contains(existingCandidate.Binding.ArtifactRef);
         var completion = reuseCandidate
             ? existingCandidate!.Artifact.Deserialize<StewardCompletionEvaluation>()
