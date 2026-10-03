@@ -427,9 +427,11 @@ def _state_machine_findings(value: dict[str, Any]) -> list[str]:
         missing_gates = sorted(required_gates - set(gates))
         if missing_gates:
             findings.append("state-machine: missing required gates: " + ", ".join(missing_gates))
+        transitions_by_id = {item["id"]: item for item in value["transitions"]}
         for gate in gate_items:
             gate_id = gate["id"]
-            missing_producers = sorted(set(gate["producer_refs"]) - set(producers))
+            gate_producers = set(gate["producer_refs"])
+            missing_producers = sorted(gate_producers - set(producers))
             if missing_producers:
                 findings.append(
                     f"state-machine: gate {gate_id} references unknown producers: {', '.join(missing_producers)}"
@@ -439,6 +441,15 @@ def _state_machine_findings(value: dict[str, Any]) -> list[str]:
                 findings.append(
                     f"state-machine: gate {gate_id} references unknown transitions: {', '.join(missing_transitions)}"
                 )
+            for transition_id in sorted(set(gate["transition_refs"]) & set(transitions_by_id)):
+                missing_paths = sorted(
+                    set(transitions_by_id[transition_id].get("producer_refs", [])) - gate_producers
+                )
+                if missing_paths:
+                    findings.append(
+                        f"state-machine: gate {gate_id} does not cover transition {transition_id} producer paths: "
+                        + ", ".join(missing_paths)
+                    )
         mutation_gate = gates.get("mutation-admission")
         if mutation_gate is not None:
             required_mutation_transitions = {item["id"] for item in value["transitions"] if item["mutation_gate"]}
