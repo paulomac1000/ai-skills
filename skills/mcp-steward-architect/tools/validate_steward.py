@@ -25,6 +25,7 @@ _SCHEMA_FILES = {
     "completion": "steward-completion.schema.json",
     "upstream": "upstream-capability.schema.json",
     "state-machine": "steward-state-machine.schema.json",
+    "checkpoint": "steward-checkpoint.schema.json",
     "mutation-policy": "steward-mutation-policy.schema.json",
     "proof": "steward-proof-recipe.schema.json",
     "acceptance": "steward-acceptance.schema.json",
@@ -507,7 +508,7 @@ def _state_machine_findings(value: dict[str, Any]) -> list[str]:
     orders = [item["order"] for item in checkpoint_items]
     if len(set(orders)) != len(orders):
         findings.append("state-machine: checkpoint order values must be unique")
-    artifact_refs = [item["artifact_ref"] for item in checkpoint_items]
+    artifact_refs = [item["artifact_class"] for item in checkpoint_items]
     if len(set(artifact_refs)) != len(artifact_refs):
         findings.append("state-machine: checkpoint artifact_ref values must be unique")
 
@@ -543,13 +544,15 @@ def derive_checkpoint_plan(
     current_dependencies: dict[str, str | None],
     checkpoint_bindings: dict[str, dict[str, Any]],
 ) -> dict[str, Any]:
-    """Derive the minimum reusable/stale checkpoint set from exact semantic dependency identity."""
+    """Derive the minimum reusable/stale checkpoint set from exact canonical bindings."""
 
     findings = validate_document("state-machine", state_machine)
     if findings:
         raise ValueError("invalid state-machine: " + "; ".join(findings))
     if int(state_machine.get("schema_version", 1)) < 2:
         raise ValueError("checkpoint planning requires state-machine schema_version 2")
+    if current_generation < 1:
+        raise ValueError("current_generation must be positive")
 
     dependencies = {item["id"]: item for item in state_machine["semantic_dependencies"]}
     unknown_dependencies = sorted(set(current_dependencies) - set(dependencies))
@@ -561,10 +564,10 @@ def derive_checkpoint_plan(
     if unknown_checkpoints:
         raise ValueError("unknown checkpoint bindings: " + ", ".join(unknown_checkpoints))
 
-    current_projection = {dependency_id: current_dependencies.get(dependency_id) for dependency_id in sorted(dependencies)}
-    if current_generation < 1:
-        raise ValueError("current_generation must be positive")
-
+    current_projection = {
+        dependency_id: current_dependencies.get(dependency_id)
+        for dependency_id in sorted(dependencies)
+    }
     dependency_payload = {
         "machine_id": state_machine["machine_id"],
         "revision": state_machine["revision"],
@@ -572,44 +575,120 @@ def derive_checkpoint_plan(
         "dependencies": current_projection,
     }
     dependency_digest = "sha256:" + hashlib.sha256(
-        json.dumps(dependency_payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode("utf-8")
+        json.dumps(
+            dependency_payload,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
     ).hexdigest()
 
     checkpoint_current: dict[str, bool] = {}
+    valid_bindings: dict[str, dict[str, Any]] = {}
+    reason_codes: list[str] = []
     ordered = sorted(state_machine["checkpoints"], key=lambda item: item["order"])
+
     for checkpoint in ordered:
         checkpoint_id = checkpoint["id"]
         binding = checkpoint_bindings.get(checkpoint_id)
-        direct_current = (
-            isinstance(binding, dict)
-            and binding.get("generation") == current_generation
-            and isinstance(binding.get("dependencies"), dict)
-        )
-        if direct_current:
-            bound_dependencies = binding["dependencies"]
-            for dependency_id in checkpoint["dependency_refs"]:
-                current_identity = current_projection.get(dependency_id)
-                bound_identity = bound_dependencies.get(dependency_id)
-                if current_identity is None or bound_identity is None or current_identity != bound_identity:
-                    direct_current = False
-                    break
-        upstream_current = all(checkpoint_current.get(item, False) for item in checkpoint["upstream_checkpoint_refs"])
-        checkpoint_current[checkpoint_id] = bool(direct_current and upstream_current)
+        direct_current = True
 
-    reusable = [item for item in ordered if checkpoint_current[item["id"]]]
+        if binding is None:
+            direct_current = False
+            reason_codes.append(f"checkpoint-missing:{checkpoint_id}")
+        elif not isinstance(binding, dict):
+            direct_current = False
+            reason_codes.append(f"checkpoint-invalid:{checkpoint_id}")
+        else:
+            binding_findings = validate_document("checkpoint", binding)
+            if binding_findings:
+                direct_current = False
+                reason_codes.append(f"checkpoint-invalid:{checkpoint_id}")
+            else:
+                valid_bindings[checkpoint_id] = binding
+                if binding["checkpointId"] != checkpoint_id:
+                    direct_current = False
+                    reason_codes.append(f"checkpoint-id-mismatch:{checkpoint_id}")
+                if (
+                    binding["machineId"] != state_machine["machine_id"]
+                    or binding["machineRevision"] != state_machine["revision"]
+                ):
+                    direct_current = False
+                    reason_codes.append(f"checkpoint-machine-mismatch:{checkpoint_id}")
+                if binding["generation"] != current_generation:
+                    direct_current = False
+                    reason_codes.append(f"checkpoint-generation-mismatch:{checkpoint_id}")
+                if binding["artifactClass"] != checkpoint["artifact_class"]:
+                    direct_current = False
+                    reason_codes.append(f"checkpoint-artifact-class-mismatch:{checkpoint_id}")
+
+                declared_dependencies = set(checkpoint["dependency_refs"])
+                bound_dependencies = set(binding["dependencyBindings"])
+                if bound_dependencies != declared_dependencies:
+                    direct_current = False
+                    reason_codes.append(f"checkpoint-dependency-set-mismatch:{checkpoint_id}")
+                for dependency_id in sorted(declared_dependencies):
+                    current_identity = current_projection.get(dependency_id)
+                    bound_identity = binding["dependencyBindings"].get(dependency_id)
+                    if current_identity is None:
+                        direct_current = False
+                        reason_codes.append(f"dependency-unknown:{checkpoint_id}:{dependency_id}")
+                    elif bound_identity != current_identity:
+                        direct_current = False
+                        reason_codes.append(f"dependency-changed:{checkpoint_id}:{dependency_id}")
+
+                declared_upstreams = set(checkpoint["upstream_checkpoint_refs"])
+                bound_upstreams = set(binding["upstreamCheckpointBindings"])
+                if bound_upstreams != declared_upstreams:
+                    direct_current = False
+                    reason_codes.append(f"checkpoint-upstream-set-mismatch:{checkpoint_id}")
+
+                for upstream_id in sorted(declared_upstreams):
+                    if not checkpoint_current.get(upstream_id, False):
+                        direct_current = False
+                        reason_codes.append(f"upstream-stale:{checkpoint_id}:{upstream_id}")
+                        continue
+                    upstream_binding = valid_bindings.get(upstream_id)
+                    if upstream_binding is None:
+                        direct_current = False
+                        reason_codes.append(f"upstream-binding-invalid:{checkpoint_id}:{upstream_id}")
+                        continue
+                    expected_upstream = {
+                        "artifactRef": upstream_binding["artifactRef"],
+                        "artifactDigest": upstream_binding["artifactDigest"],
+                    }
+                    if binding["upstreamCheckpointBindings"].get(upstream_id) != expected_upstream:
+                        direct_current = False
+                        reason_codes.append(f"upstream-artifact-changed:{checkpoint_id}:{upstream_id}")
+
+        checkpoint_current[checkpoint_id] = direct_current
+
+    reusable = [
+        item for item in ordered
+        if checkpoint_current[item["id"]] and item["id"] in valid_bindings
+    ]
     stale = [item for item in ordered if not checkpoint_current[item["id"]]]
-    stale_with_artifact = [item for item in stale if item["id"] in checkpoint_bindings]
+    stale_with_artifact = [
+        item for item in stale
+        if item["id"] in valid_bindings
+    ]
     return {
         "earliestSafeStage": stale[0]["resume_state"] if stale else None,
-        "reusableArtifactRefs": [item["artifact_ref"] for item in reusable],
-        "staleArtifactRefs": [item["artifact_ref"] for item in stale_with_artifact],
+        "reusableArtifactRefs": [
+            valid_bindings[item["id"]]["artifactRef"] for item in reusable
+        ],
+        "staleArtifactRefs": [
+            valid_bindings[item["id"]]["artifactRef"] for item in stale_with_artifact
+        ],
         "requiredRecomputations": [item["id"] for item in stale],
         "dependencyDigest": dependency_digest,
+        "reasonCodes": list(dict.fromkeys(reason_codes)),
         "unknownDependencyRefs": [
-            dependency_id for dependency_id, identity in current_projection.items() if identity is None
+            dependency_id
+            for dependency_id, identity in current_projection.items()
+            if identity is None
         ],
     }
-
 
 def _mutation_policy_findings(value: dict[str, Any]) -> list[str]:
     findings: list[str] = []
