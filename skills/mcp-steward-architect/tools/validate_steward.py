@@ -542,7 +542,7 @@ def derive_checkpoint_plan(
     *,
     current_generation: int,
     current_dependencies: dict[str, str | None],
-    checkpoint_bindings: dict[str, dict[str, Any]],
+    checkpoint_bindings: dict[str, Any],
 ) -> dict[str, Any]:
     """Derive the minimum reusable/stale checkpoint set from exact canonical bindings."""
 
