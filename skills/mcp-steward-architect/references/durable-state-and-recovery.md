@@ -80,7 +80,7 @@ Never hold the state transaction open while awaiting a remote provider.
 
 ## Semantic checkpoint currentness and minimum recomputation
 
-A checkpoint is a canonical stage artifact plus its producing generation, exact semantic dependency identities, upstream checkpoint references, and legal resume state. Attempt identity alone does not make a new semantic checkpoint.
+A checkpoint is a canonical stage artifact plus its exact artifact reference/digest, producing generation, state-machine identity/revision, exact semantic dependency identities, exact upstream checkpoint artifact references/digests, recovery bindings, and legal resume state. Attempt identity alone does not make a new semantic checkpoint.
 
 Derive currentness by exact dependency equality and transitive upstream currentness. Missing/unknown load-bearing identity is stale. A dependency change invalidates only declared dependents; a late-stage outage does not invalidate unrelated earlier CURRENT artifacts. Cross-generation reuse is rejected unless an explicit policy-owned compatibility proof exists. The supervisor derives `earliestSafeStage`, reusable/stale artifact refs, required recomputations and a dependency digest from durable state; restart derives the same plan without transcript/model memory.
 
