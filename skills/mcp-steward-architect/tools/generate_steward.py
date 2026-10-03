@@ -31,6 +31,7 @@ STEWARD_CONTRACTS = (
     "steward-completion.schema.json",
     "upstream-capability.schema.json",
     "steward-state-machine.schema.json",
+    "steward-checkpoint.schema.json",
     "steward-mutation-policy.schema.json",
     "steward-proof-recipe.schema.json",
     "steward-acceptance.schema.json",
@@ -126,10 +127,10 @@ def _profile_document(steward_id: str, profile: str, *, durability_profile: str)
         "schema_version": 2,
         "steward": {"id": steward_id, "kind": profile, "contract_revision": 2},
         "contracts": {
-            "state_machine": f"{steward_id}-state-machine@1",
+            "state_machine": f"{steward_id}-state-machine@2",
             "mutation_policy": f"{steward_id}-mutation-policy@1",
             "proof_recipe": f"{steward_id}-seed-proof@1",
-            "acceptance": f"{steward_id}-acceptance@1",
+            "acceptance": f"{steward_id}-acceptance@2",
         },
         "features": {
             "durable_external_async": True,
@@ -195,9 +196,30 @@ def _profile_document(steward_id: str, profile: str, *, durability_profile: str)
     }
 
 
-def _state_machine_document(steward_id: str) -> dict[str, Any]:
+def _state_machine_document(steward_id: str, language: str = "python") -> dict[str, Any]:
     text = (DESIGN_TEMPLATES / "steward-state-machine.yaml.template").read_text(encoding="utf-8")
-    return yaml.safe_load(text.replace("__STEWARD_ID__", steward_id))
+    entrypoints = {
+        "python": {
+            "__SUBMIT_ENTRYPOINT__": "StewardRuntime.submit",
+            "__WORKFLOW_ENTRYPOINT__": "StewardRuntime.run_once",
+            "__CANCEL_ENTRYPOINT__": "StewardRuntime.cancel",
+            "__RECOVERY_ENTRYPOINT__": "StewardRuntime.recover_until_idle",
+        },
+        "dotnet": {
+            "__SUBMIT_ENTRYPOINT__": "StewardSeedRuntime.Submit",
+            "__WORKFLOW_ENTRYPOINT__": "StewardSeedRuntime.RunOneDue",
+            "__CANCEL_ENTRYPOINT__": "StewardSeedRuntime.Cancel",
+            "__RECOVERY_ENTRYPOINT__": "StewardRecoveryService.ExecuteAsync",
+        },
+    }
+    try:
+        replacements = entrypoints[language]
+    except KeyError as exc:
+        raise ValueError(f"unsupported Steward state-machine language: {language}") from exc
+    text = text.replace("__STEWARD_ID__", steward_id)
+    for marker, value in replacements.items():
+        text = text.replace(marker, value)
+    return yaml.safe_load(text)
 
 
 def _mutation_policy_document(steward_id: str, capability: dict[str, Any]) -> dict[str, Any]:
@@ -243,7 +265,7 @@ def _mutation_policy_document(steward_id: str, capability: dict[str, Any]) -> di
             {
                 "id": "cancellation-dispatch",
                 "operation_kind": "cancel",
-                "transition": "cancel-start",
+                "transition": "cancel-dispatch",
                 "authority_source": "steward-runtime",
                 "lease_required": True,
                 "subject_dimensions": ["target"],
@@ -334,9 +356,9 @@ def _proof_recipe_document(steward_id: str) -> dict[str, Any]:
 
 def _acceptance_document(steward_id: str) -> dict[str, Any]:
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "acceptance_id": f"{steward_id}-acceptance",
-        "revision": 1,
+        "revision": 2,
         "claim_class": "structural",
         "required_lanes": ["implementer", "canonical-full", "fault-restart", "inherited-mcp", "exact-artifact"],
         "independent_required": False,
@@ -345,6 +367,14 @@ def _acceptance_document(steward_id: str) -> dict[str, Any]:
             "full_path_required": True,
             "runtime_prerequisites_declared": True,
             "restart_boundary_required": True,
+        },
+        "closure": {
+            "producer_reachability_required": True,
+            "liveness_closure_required": True,
+            "real_producer_success_and_rejection_required": True,
+            "canonical_checkpoint_reuse_required": True,
+            "minimum_recomputation_required": True,
+            "transcript_independent_restart_required": True,
         },
     }
 
@@ -420,11 +450,13 @@ def _capability_digest_vectors_document() -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def _embedded_docs(steward_id: str, profile: str, durability: str) -> dict[str, dict[str, Any]]:
+def _embedded_docs(
+    steward_id: str, profile: str, durability: str, language: str = "python"
+) -> dict[str, dict[str, Any]]:
     upstream = _upstream_document(steward_id)
     return {
         "steward_profile": _profile_document(steward_id, profile, durability_profile=durability),
-        "steward_state_machine": _state_machine_document(steward_id),
+        "steward_state_machine": _state_machine_document(steward_id, language),
         "steward_mutation_policy": _mutation_policy_document(steward_id, upstream),
         "steward_proof_recipe": _proof_recipe_document(steward_id),
         "steward_upstream_capability": upstream,
@@ -439,7 +471,12 @@ def _apply_python_overlay(
     for path in list(files):
         if path.startswith(f"src/{package}/capabilities/") or path.startswith("tests/"):
             del files[path]
-    files[f"src/{package}/steward_runtime.py"] = _read_template("python/steward_runtime.py.template")
+    files[f"src/{package}/steward_runtime.py"] = _read_template(
+        "python/steward_runtime.py.template",
+        STATE_MACHINE_JSON=json.dumps(
+            docs["steward_state_machine"], ensure_ascii=False, separators=(",", ":"), sort_keys=True
+        ),
+    )
     files[f"src/{package}/kernel.py"] = _read_template("python/kernel.py.template")
     files[f"src/{package}/server.py"] = _read_template("python/server.py.template", SERVER_NAME=server_name)
     files["tests/test_steward_runtime.py"] = _read_template("python/test_steward_runtime.py.template", PACKAGE=package)
@@ -591,7 +628,7 @@ def steward_files(language: str, identity: str, server_name: str, steward_id: st
     base = _base_generator(language)
     files = dict(base.project_files(identity, server_name))
     durability = "single-node-durable" if language == "python" else "constrained-file"
-    docs = _embedded_docs(steward_id, profile, durability)
+    docs = _embedded_docs(steward_id, profile, durability, language)
     if language == "python":
         _apply_python_overlay(files, identity, server_name, docs)
     else:

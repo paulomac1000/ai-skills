@@ -231,6 +231,26 @@ controls:
     waivable: false
     required_evidence: [unit]
     test_selectors: [tests/test_mcp_steward_atomic.py::test_stale_generation_handoff_cannot_be_actionable_before_digest_check]
+  - id: steward.closure.production-path
+    parent_rule_id: steward.closure.reachable
+    skill: mcp-steward-architect
+    source: skills/mcp-steward-architect/STANDARD.md#producer-reachability-and-liveness-closure
+    description: Intended state-machine transitions have declared real production producers and non-terminal states cannot become ownerless/wakeup-less orphans.
+    applies_when: {maturity_at_least: L2}
+    severity: blocking
+    waivable: false
+    required_evidence: [unit, integration]
+    test_selectors: [tests/test_mcp_steward_atomic.py::test_state_machine_v2_requires_production_reachability_and_liveness_closure]
+  - id: steward.checkpoint.minimum-recompute
+    parent_rule_id: steward.checkpoint.current
+    skill: mcp-steward-architect
+    source: skills/mcp-steward-architect/STANDARD.md#semantic-checkpoints-and-dependency-scoped-reuse
+    description: Exact semantic dependency identity and workflow generation derive reusable/stale checkpoints, earliest safe resume, and the minimum recomputation set.
+    applies_when: {maturity_at_least: L2}
+    severity: blocking
+    waivable: false
+    required_evidence: [unit, integration]
+    test_selectors: [tests/test_mcp_steward_atomic.py::test_checkpoint_plan_reuses_current_artifacts_and_derives_minimum_recomputation]
   - id: steward.credentials.no-privilege-failover
     parent_rule_id: steward.credentials.fail-closed
     skill: mcp-steward-architect

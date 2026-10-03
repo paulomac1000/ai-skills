@@ -1,6 +1,6 @@
-schema_version: 1
+schema_version: 2
 acceptance_id: __STEWARD_ID__-acceptance
-revision: 1
+revision: 2
 claim_class: structural
 required_lanes:
   - implementer
@@ -14,3 +14,10 @@ exact_artifact:
   full_path_required: true
   runtime_prerequisites_declared: true
   restart_boundary_required: true
+closure:
+  producer_reachability_required: true
+  liveness_closure_required: true
+  real_producer_success_and_rejection_required: true
+  canonical_checkpoint_reuse_required: true
+  minimum_recomputation_required: true
+  transcript_independent_restart_required: true

@@ -64,6 +64,24 @@ capability/readiness/mutation authority, and current-probe acceptance stays epoc
 4. insert/dedupe/CAS says A already owns the identity;
 5. assert returned canonical result is A and every downstream gate/job/evidence/handoff binds A, not B.
 
+### Producer and liveness closure
+
+1. remove the only real producer reference for an intended transition and assert validation rejects it;
+2. prove a direct test-only domain/state construction does not count as a production producer;
+3. place a non-terminal state in a condition with no owner, wake-up, external handle, reconciliation path, or authorized blocker and assert fail-closed/orphan diagnosis;
+4. run repeated unchanged liveness sweeps and assert no duplicate work/event storm;
+5. make missing deterministic next work reconstructable and assert it is recreated at most once under generation/idempotency fencing;
+6. make dead work delivery-unknown/non-replay-safe and assert liveness repair never blind-retries it.
+
+### Semantic checkpoint minimum recomputation
+
+1. bind three canonical checkpoints to exact semantic dependencies in one current generation;
+2. change only a dependency of the final checkpoint and assert earlier artifacts remain reusable, only the final checkpoint is stale, and `earliestSafeStage` is the final-stage resume point;
+3. restart from the same durable bindings and assert the derived plan/digest is identical without transcript state;
+4. change a dependency of the first checkpoint and assert transitive downstream invalidation;
+5. keep dependencies identical but advance workflow generation and assert older checkpoints do not satisfy the new generation without explicit compatibility proof;
+6. simulate a late-stage provider/gate outage without dependency change and assert unrelated CURRENT earlier evidence is not rerun.
+
 ### Remote dispatch succeeds, local bind fails
 
 1. durable start intent exists;
@@ -100,7 +118,12 @@ For verification/completion/update flows, assert known required revision/generat
 - required work is never silently dropped;
 - credential fallback cannot increase privilege;
 - blocked private/unknown data never reaches disclosure-bearing adapters;
-- repeated identical observations cannot advance semantic progress.
+- repeated identical observations cannot advance semantic progress;
+- every intended reachable transition has a real production producer path;
+- every non-terminal state has one declared liveness/convergence disposition;
+- unchanged semantic dependencies preserve CURRENT checkpoints within the current generation;
+- older-generation checkpoints are stale without explicit compatibility proof;
+- dependency-scoped invalidation never expands to unrelated checkpoints by default.
 
 ## Acceptance evidence
 

@@ -6,15 +6,40 @@
   "additionalProperties": false,
   "required": ["schema_version", "machine_id", "revision", "states", "transitions"],
   "properties": {
-    "schema_version": {"const": 1},
+    "schema_version": {"enum": [1, 2]},
     "machine_id": {"type": "string", "minLength": 1},
     "revision": {"type": "integer", "minimum": 1},
     "states": {"type": "array", "minItems": 1, "maxItems": 128, "items": {"$ref": "#/$defs/state"}},
-    "transitions": {"type": "array", "maxItems": 512, "items": {"$ref": "#/$defs/transition"}}
+    "transitions": {"type": "array", "maxItems": 512, "items": {"$ref": "#/$defs/transition"}},
+    "producers": {"type": "array", "minItems": 1, "maxItems": 128, "items": {"$ref": "#/$defs/producer"}},
+    "gates": {"type": "array", "minItems": 4, "maxItems": 32, "items": {"$ref": "#/$defs/gate"}},
+    "semantic_dependencies": {"type": "array", "minItems": 1, "maxItems": 256, "items": {"$ref": "#/$defs/dependency"}},
+    "checkpoints": {"type": "array", "minItems": 1, "maxItems": 256, "items": {"$ref": "#/$defs/checkpoint"}},
+    "resume_policy": {"$ref": "#/$defs/resumePolicy"}
   },
+  "allOf": [
+    {
+      "if": {"properties": {"schema_version": {"const": 2}}, "required": ["schema_version"]},
+      "then": {"required": ["producers", "gates", "semantic_dependencies", "checkpoints", "resume_policy"]}
+    }
+  ],
   "$defs": {
+    "stringSet": {
+      "type": "array",
+      "uniqueItems": true,
+      "maxItems": 256,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "nonEmptyStringSet": {
+      "type": "array",
+      "uniqueItems": true,
+      "minItems": 1,
+      "maxItems": 256,
+      "items": {"type": "string", "minLength": 1}
+    },
     "state": {
-      "type": "object", "additionalProperties": false,
+      "type": "object",
+      "additionalProperties": false,
       "required": ["id", "terminal", "owner_lane", "progress_effect", "recovery", "cancellation"],
       "properties": {
         "id": {"type": "string", "minLength": 1},
@@ -22,11 +47,14 @@
         "owner_lane": {"enum": ["workflow", "external-maintenance", "reconciliation", "control", "none"]},
         "progress_effect": {"enum": ["advances", "no-change", "terminal"]},
         "recovery": {"enum": ["scheduled-wakeup", "external-handle", "reconcile", "blocked", "none"]},
-        "cancellation": {"enum": ["reject", "fence-and-reconcile", "terminalize-if-no-unresolved-effect"]}
+        "cancellation": {"enum": ["reject", "fence-and-reconcile", "terminalize-if-no-unresolved-effect"]},
+        "liveness": {"enum": ["active-work", "scheduled-work", "external-operation", "recovery", "authorized-blocker", "terminal"]},
+        "orphan_disposition": {"enum": ["recreate-bounded", "reconcile", "authorized-block", "fail-closed", "partial-terminal", "not-applicable"]}
       }
     },
     "transition": {
-      "type": "object", "additionalProperties": false,
+      "type": "object",
+      "additionalProperties": false,
       "required": ["id", "from", "to", "effect", "mutation_gate", "required_fences", "failure_outcomes"],
       "properties": {
         "id": {"type": "string", "minLength": 1},
@@ -34,8 +62,68 @@
         "to": {"type": "string", "minLength": 1},
         "effect": {"enum": ["none", "local-state", "external-stateful", "publication"]},
         "mutation_gate": {"type": "boolean"},
-        "required_fences": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
-        "failure_outcomes": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
+        "required_fences": {"$ref": "#/$defs/stringSet"},
+        "failure_outcomes": {"$ref": "#/$defs/stringSet"},
+        "producer_refs": {"$ref": "#/$defs/nonEmptyStringSet"}
+      }
+    },
+    "producer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "entrypoint", "authority_source", "contract_ref", "boundary"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "kind": {"enum": ["public-ingress", "worker-stage", "reconciler", "trusted-admin", "migration-recovery", "provider-adapter", "scheduler"]},
+        "entrypoint": {"type": "string", "minLength": 1},
+        "authority_source": {"type": "string", "minLength": 1},
+        "contract_ref": {"type": "string", "pattern": "^[^@\\s]+@[1-9][0-9]*$"},
+        "boundary": {"enum": ["public", "internal", "trusted-only", "recovery-only"]}
+      }
+    },
+    "gate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "producer_refs", "transition_refs"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "producer_refs": {"$ref": "#/$defs/nonEmptyStringSet"},
+        "transition_refs": {"$ref": "#/$defs/stringSet"}
+      }
+    },
+    "dependency": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "identity_source", "unknown_disposition"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "kind": {"enum": ["subject", "candidate", "evidence", "target", "policy", "model", "capability", "environment", "external-gate", "other"]},
+        "identity_source": {"type": "string", "minLength": 1},
+        "unknown_disposition": {"const": "stale"}
+      }
+    },
+    "checkpoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "order", "state", "artifact_class", "dependency_refs", "upstream_checkpoint_refs", "resume_state"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "order": {"type": "integer", "minimum": 0},
+        "state": {"type": "string", "minLength": 1},
+        "artifact_class": {"type": "string", "minLength": 1},
+        "dependency_refs": {"$ref": "#/$defs/nonEmptyStringSet"},
+        "upstream_checkpoint_refs": {"$ref": "#/$defs/stringSet"},
+        "resume_state": {"type": "string", "minLength": 1}
+      }
+    },
+    "resumePolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["derivation", "unknown_dependency", "requires_model_transcript", "minimum_recomputation"],
+      "properties": {
+        "derivation": {"const": "dependency-closure"},
+        "unknown_dependency": {"const": "stale"},
+        "requires_model_transcript": {"const": false},
+        "minimum_recomputation": {"const": true}
       }
     }
   }

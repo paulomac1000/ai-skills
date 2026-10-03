@@ -225,3 +225,293 @@ def test_manifest_composes_server_and_consumer_standards() -> None:
     receipt = _receipt(documents, job)
     decision = _evaluate_external_dispatch(validator, documents, job, receipt)
     assert decision["disposition"] == "ReconciliationRequired"
+
+
+def test_state_machine_v2_requires_production_reachability_and_liveness_closure() -> None:
+    validator = _validator()
+    machine = json.loads(json.dumps(_documents()["steward_state_machine"]))
+    assert validator.validate_document("state-machine", machine) == []
+
+    unreachable = json.loads(json.dumps(machine))
+    unreachable["transitions"][0]["producer_refs"] = ["missing-producer"]
+    findings = validator.validate_document("state-machine", unreachable)
+    assert any("references unknown producers" in item for item in findings)
+
+    no_producer = json.loads(json.dumps(machine))
+    no_producer["transitions"][0]["producer_refs"] = []
+    findings = validator.validate_document("state-machine", no_producer)
+    assert any("no declared production producer path" in item or "non-empty" in item for item in findings)
+
+    orphan = json.loads(json.dumps(machine))
+    queued = next(item for item in orphan["states"] if item["id"] == "queued")
+    queued["owner_lane"] = "none"
+    queued["recovery"] = "none"
+    queued["liveness"] = "active-work"
+    findings = validator.validate_document("state-machine", orphan)
+    assert any("requires an owning lane" in item for item in findings)
+
+    direct_test_fixture_is_not_a_producer = json.loads(json.dumps(machine))
+    direct_test_fixture_is_not_a_producer["producers"][0]["kind"] = "test-fixture"
+    findings = validator.validate_document("state-machine", direct_test_fixture_is_not_a_producer)
+    assert any("is not one of" in item and "test-fixture" in item for item in findings)
+
+    gate_without_producer = json.loads(json.dumps(machine))
+    work_gate = next(item for item in gate_without_producer["gates"] if item["id"] == "work-admission")
+    work_gate["producer_refs"] = ["missing-producer"]
+    findings = validator.validate_document("state-machine", gate_without_producer)
+    assert any("gate work-admission references unknown producers" in item for item in findings)
+
+    uncovered_mutation = json.loads(json.dumps(machine))
+    mutation_gate = next(item for item in uncovered_mutation["gates"] if item["id"] == "mutation-admission")
+    mutation_gate["transition_refs"].remove("dispatch-start")
+    findings = validator.validate_document("state-machine", uncovered_mutation)
+    assert any("does not cover mutation-gated transitions" in item for item in findings)
+
+    gate_missing_transition_producer = json.loads(json.dumps(machine))
+    completion_gate = next(
+        item for item in gate_missing_transition_producer["gates"] if item["id"] == "completion-publication"
+    )
+    completion_gate["producer_refs"] = ["workflow-runner"]
+    findings = validator.validate_document("state-machine", gate_missing_transition_producer)
+    assert any(
+        "gate completion-publication does not cover transition completion-publish producer paths: recovery-runner"
+        in item
+        for item in findings
+    )
+
+    cancellable_states = {item["id"] for item in machine["states"] if not item["terminal"]}
+    cancellation_sources = {
+        item["from"]
+        for item in machine["transitions"]
+        if item["to"] == "cancelling" and "cancellation-command" in item["producer_refs"]
+    }
+    assert cancellation_sources == cancellable_states
+    cancellation_dispatch = next(item for item in machine["transitions"] if item["id"] == "cancel-dispatch")
+    assert cancellation_dispatch["from"] == "cancelling"
+    assert cancellation_dispatch["to"] == "cancelling"
+    assert cancellation_dispatch["producer_refs"] == ["workflow-runner", "recovery-runner"]
+
+    nonterminal_states = {item["id"] for item in machine["states"] if not item["terminal"]}
+    supersession_sources = {
+        item["from"]
+        for item in machine["transitions"]
+        if item["to"] == "superseded" and "submission-command" in item["producer_refs"]
+    }
+    assert supersession_sources == nonterminal_states
+    block_sources = {
+        item["from"]
+        for item in machine["transitions"]
+        if item["to"] == "blocked" and set(item["producer_refs"]) >= {"workflow-runner", "recovery-runner"}
+    }
+    assert {"queued", "reconciling", "waiting-external", "cancelling", "finalizing"} <= block_sources
+
+    shared_artifact_class = json.loads(json.dumps(machine))
+    shared_artifact_class["checkpoints"][1]["artifact_class"] = shared_artifact_class["checkpoints"][0]["artifact_class"]
+    assert validator.validate_document("state-machine", shared_artifact_class) == []
+
+    terminal_resume = json.loads(json.dumps(machine))
+    terminal_resume["checkpoints"][0]["resume_state"] = "completed"
+    findings = validator.validate_document("state-machine", terminal_resume)
+    assert any("resume state must be nonterminal" in item for item in findings)
+
+    unreachable_resume = json.loads(json.dumps(machine))
+    unreachable_resume["checkpoints"][0]["resume_state"] = "finalizing"
+    findings = validator.validate_document("state-machine", unreachable_resume)
+    assert any("resume state cannot reach checkpoint state" in item for item in findings)
+
+
+def test_checkpoint_plan_reuses_current_artifacts_and_derives_minimum_recomputation() -> None:
+    validator = _validator()
+    machine = _documents()["steward_state_machine"]
+    current = {
+        dependency["id"]: f"{dependency['id']}@v1"
+        for dependency in machine["semantic_dependencies"]
+    }
+
+    bindings: dict[str, dict[str, Any]] = {}
+    ordered = sorted(machine["checkpoints"], key=lambda item: item["order"])
+    for index, checkpoint in enumerate(ordered, start=1):
+        upstream_bindings = {
+            upstream_id: {
+                "artifactRef": bindings[upstream_id]["artifactRef"],
+                "artifactDigest": bindings[upstream_id]["artifactDigest"],
+            }
+            for upstream_id in checkpoint["upstream_checkpoint_refs"]
+        }
+        binding = {
+            "schema_version": 1,
+            "checkpointId": checkpoint["id"],
+            "machineId": machine["machine_id"],
+            "machineRevision": machine["revision"],
+            "generation": 3,
+            "artifactClass": checkpoint["artifact_class"],
+            "artifactRef": f"artifact:{checkpoint['id']}:v1",
+            "artifactDigest": "sha256:" + f"{index:064x}",
+            "dependencyBindings": {
+                dependency_id: current[dependency_id]
+                for dependency_id in checkpoint["dependency_refs"]
+            },
+            "upstreamCheckpointBindings": upstream_bindings,
+            "recoveryBindings": {
+                "subjectIdentity": current["subject"],
+                "candidateIdentity": current["candidate"],
+                "authorityRef": "authority:steward-runtime",
+                "ownershipRef": "lease:attempt-1",
+                "progressRevision": index,
+                "budgetRef": "budget:job-1",
+                "deadlineRef": "deadline:job-1",
+                "blockerRefs": [],
+                "externalOperationRefs": [],
+            },
+        }
+        assert validator.validate_document("checkpoint", binding) == []
+        bindings[checkpoint["id"]] = binding
+
+    baseline = validator.derive_checkpoint_plan(
+        machine,
+        current_generation=3,
+        current_dependencies=current,
+        checkpoint_bindings=bindings,
+    )
+    assert baseline["requiredRecomputations"] == []
+    assert baseline["earliestSafeStage"] is None
+    assert baseline["reasonCodes"] == []
+
+    late_outage_bindings = json.loads(json.dumps(bindings))
+    late_outage_bindings.pop("completion-candidate")
+    late_outage = validator.derive_checkpoint_plan(
+        machine,
+        current_generation=3,
+        current_dependencies=current,
+        checkpoint_bindings=late_outage_bindings,
+    )
+    assert late_outage["requiredRecomputations"] == ["completion-candidate"]
+    assert late_outage["earliestSafeStage"] == "finalizing"
+    assert late_outage["reusableArtifactRefs"] == [
+        "artifact:external-dispatch:v1",
+        "artifact:provider-result:v1",
+    ]
+    assert late_outage["staleArtifactRefs"] == []
+    assert late_outage["reasonCodes"] == ["checkpoint-missing:completion-candidate"]
+
+    changed_late_policy = dict(current)
+    changed_late_policy["completion-policy"] = "completion-policy@v2"
+    plan = validator.derive_checkpoint_plan(
+        machine,
+        current_generation=3,
+        current_dependencies=changed_late_policy,
+        checkpoint_bindings=bindings,
+    )
+    assert plan["requiredRecomputations"] == ["completion-candidate"]
+    assert plan["earliestSafeStage"] == "finalizing"
+    assert plan["reusableArtifactRefs"] == [
+        "artifact:external-dispatch:v1",
+        "artifact:provider-result:v1",
+    ]
+    assert plan["staleArtifactRefs"] == ["artifact:completion-candidate:v1"]
+    assert plan["reasonCodes"] == [
+        "dependency-changed:completion-candidate:completion-policy"
+    ]
+
+    restarted = validator.derive_checkpoint_plan(
+        machine,
+        current_generation=3,
+        current_dependencies=changed_late_policy,
+        checkpoint_bindings=bindings,
+    )
+    assert restarted == plan
+
+    changed_evidence = dict(current)
+    changed_evidence["provider-result"] = "provider-result@v2"
+    evidence_plan = validator.derive_checkpoint_plan(
+        machine,
+        current_generation=3,
+        current_dependencies=changed_evidence,
+        checkpoint_bindings=bindings,
+    )
+    assert evidence_plan["requiredRecomputations"] == [
+        "provider-result",
+        "completion-candidate",
+    ]
+    assert evidence_plan["earliestSafeStage"] == "waiting-external"
+    assert evidence_plan["reusableArtifactRefs"] == ["artifact:external-dispatch:v1"]
+    assert "dependency-changed:provider-result:provider-result" in evidence_plan["reasonCodes"]
+    assert "upstream-stale:completion-candidate:provider-result" in evidence_plan["reasonCodes"]
+
+    mismatched_recovery_subject = json.loads(json.dumps(bindings))
+    mismatched_recovery_subject["completion-candidate"]["recoveryBindings"]["subjectIdentity"] = "subject:other"
+    recovery_subject_plan = validator.derive_checkpoint_plan(
+        machine,
+        current_generation=3,
+        current_dependencies=current,
+        checkpoint_bindings=mismatched_recovery_subject,
+    )
+    assert recovery_subject_plan["requiredRecomputations"] == ["completion-candidate"]
+    assert recovery_subject_plan["reasonCodes"] == ["recovery-subject-mismatch:completion-candidate"]
+
+    mismatched_recovery_candidate = json.loads(json.dumps(bindings))
+    mismatched_recovery_candidate["provider-result"]["recoveryBindings"]["candidateIdentity"] = "candidate:other"
+    recovery_candidate_plan = validator.derive_checkpoint_plan(
+        machine,
+        current_generation=3,
+        current_dependencies=current,
+        checkpoint_bindings=mismatched_recovery_candidate,
+    )
+    assert recovery_candidate_plan["requiredRecomputations"] == [
+        "provider-result",
+        "completion-candidate",
+    ]
+    assert "recovery-candidate-mismatch:provider-result" in recovery_candidate_plan["reasonCodes"]
+    assert "upstream-stale:completion-candidate:provider-result" in recovery_candidate_plan["reasonCodes"]
+
+    changed_upstream_artifact = json.loads(json.dumps(bindings))
+    changed_upstream_artifact["completion-candidate"]["upstreamCheckpointBindings"]["provider-result"][
+        "artifactDigest"
+    ] = "sha256:" + "f" * 64
+    upstream_plan = validator.derive_checkpoint_plan(
+        machine,
+        current_generation=3,
+        current_dependencies=current,
+        checkpoint_bindings=changed_upstream_artifact,
+    )
+    assert upstream_plan["requiredRecomputations"] == ["completion-candidate"]
+    assert upstream_plan["reusableArtifactRefs"] == [
+        "artifact:external-dispatch:v1",
+        "artifact:provider-result:v1",
+    ]
+    assert upstream_plan["reasonCodes"] == [
+        "upstream-artifact-changed:completion-candidate:provider-result"
+    ]
+
+    changed_candidate = dict(current)
+    changed_candidate["candidate"] = "candidate@v2"
+    invalidated = validator.derive_checkpoint_plan(
+        machine,
+        current_generation=3,
+        current_dependencies=changed_candidate,
+        checkpoint_bindings=bindings,
+    )
+    assert invalidated["requiredRecomputations"] == [
+        "external-dispatch",
+        "provider-result",
+        "completion-candidate",
+    ]
+    assert invalidated["earliestSafeStage"] == "queued"
+
+    next_generation = validator.derive_checkpoint_plan(
+        machine,
+        current_generation=4,
+        current_dependencies=current,
+        checkpoint_bindings=bindings,
+    )
+    assert next_generation["requiredRecomputations"] == [
+        "external-dispatch",
+        "provider-result",
+        "completion-candidate",
+    ]
+    assert next_generation["earliestSafeStage"] == "queued"
+    assert all(
+        code.startswith("checkpoint-generation-mismatch:")
+        or code.startswith("upstream-stale:")
+        for code in next_generation["reasonCodes"]
+    )
