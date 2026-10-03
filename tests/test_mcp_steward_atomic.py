@@ -267,6 +267,30 @@ def test_state_machine_v2_requires_production_reachability_and_liveness_closure(
     findings = validator.validate_document("state-machine", uncovered_mutation)
     assert any("does not cover mutation-gated transitions" in item for item in findings)
 
+    gate_missing_transition_producer = json.loads(json.dumps(machine))
+    completion_gate = next(
+        item for item in gate_missing_transition_producer["gates"] if item["id"] == "completion-publication"
+    )
+    completion_gate["producer_refs"] = ["workflow-runner"]
+    findings = validator.validate_document("state-machine", gate_missing_transition_producer)
+    assert any(
+        "gate completion-publication does not cover transition completion-publish producer paths: recovery-runner"
+        in item
+        for item in findings
+    )
+
+    cancellable_states = {item["id"] for item in machine["states"] if not item["terminal"]}
+    cancellation_sources = {
+        item["from"]
+        for item in machine["transitions"]
+        if item["to"] == "cancelling" and "cancellation-command" in item["producer_refs"]
+    }
+    assert cancellation_sources == cancellable_states
+    cancellation_dispatch = next(item for item in machine["transitions"] if item["id"] == "cancel-dispatch")
+    assert cancellation_dispatch["from"] == "cancelling"
+    assert cancellation_dispatch["to"] == "cancelling"
+    assert cancellation_dispatch["producer_refs"] == ["workflow-runner", "recovery-runner"]
+
     shared_artifact_class = json.loads(json.dumps(machine))
     shared_artifact_class["checkpoints"][1]["artifact_class"] = shared_artifact_class["checkpoints"][0]["artifact_class"]
     assert validator.validate_document("state-machine", shared_artifact_class) == []
