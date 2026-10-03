@@ -1272,6 +1272,114 @@ def test_reference_owner_inside_inline_html_attribute_is_not_route_prose(tmp_pat
     assert {"routing.route-prose-missing", "routing.trigger-unreachable"} <= _codes(findings)
 
 
+def test_escaped_inline_owner_link_is_not_route_prose(tmp_path: Path) -> None:
+    _write_base(tmp_path)
+    _write_conditional_owner(tmp_path, "docs/recovery.md")
+    _append(
+        tmp_path,
+        r"""
+## Recovery routing
+
+<!-- agents-md: route owner="docs/recovery.md" when="after failure" purpose="recovery" -->
+- After failure, the literal \[owner](docs/recovery.md) is not a route.
+""",
+    )
+
+    _, findings = audit_module.audit(tmp_path, "application", "single", "en")
+    assert {"routing.route-prose-missing", "routing.trigger-unreachable"} <= _codes(findings)
+
+
+def test_reference_syntax_inside_inline_link_is_not_separate_route_prose(tmp_path: Path) -> None:
+    _write_base(tmp_path)
+    _write_conditional_owner(tmp_path, "docs/recovery.md")
+    _append(
+        tmp_path,
+        """
+## Recovery routing
+
+<!-- agents-md: route owner="docs/recovery.md" when="after failure" purpose="recovery" -->
+- After failure, read [other](docs/other.md "[owner][recovery]").
+
+[recovery]: docs/recovery.md
+""",
+    )
+
+    _, findings = audit_module.audit(tmp_path, "application", "single", "en")
+    assert {"routing.route-prose-missing", "routing.trigger-unreachable"} <= _codes(findings)
+
+
+def test_route_prose_accepts_shortcut_reference_link(tmp_path: Path) -> None:
+    _write_base(tmp_path)
+    _write_conditional_owner(tmp_path, "docs/recovery.md")
+    _append(
+        tmp_path,
+        """
+## Recovery routing
+
+<!-- agents-md: route owner="docs/recovery.md" when="after failure" purpose="recovery" -->
+- After failure, read [recovery] before recovery work.
+
+[recovery]: docs/recovery.md
+""",
+    )
+
+    _, findings = audit_module.audit(tmp_path, "application", "single", "en")
+    assert not any(finding.code.startswith("routing.") for finding in findings)
+
+
+def test_later_html_attribute_is_masked_after_unterminated_tag(tmp_path: Path) -> None:
+    _write_base(tmp_path)
+    _write_conditional_owner(tmp_path, "docs/recovery.md")
+    _append(
+        tmp_path,
+        """
+## Recovery routing
+
+<!-- agents-md: route owner="docs/recovery.md" when="after failure" purpose="recovery" -->
+- After failure, malformed <x title="unfinished and <span title="[owner](docs/recovery.md)">note</span>.
+""",
+    )
+
+    _, findings = audit_module.audit(tmp_path, "application", "single", "en")
+    assert {"routing.route-prose-missing", "routing.trigger-unreachable"} <= _codes(findings)
+
+
+def test_owner_link_inside_code_span_is_not_route_prose(tmp_path: Path) -> None:
+    _write_base(tmp_path)
+    _write_conditional_owner(tmp_path, "docs/recovery.md")
+    _append(
+        tmp_path,
+        """
+## Recovery routing
+
+<!-- agents-md: route owner="docs/recovery.md" when="after failure" purpose="recovery" -->
+- After failure, the literal `[owner](docs/recovery.md)` is only an example.
+""",
+    )
+
+    _, findings = audit_module.audit(tmp_path, "application", "single", "en")
+    assert {"routing.route-prose-missing", "routing.trigger-unreachable"} <= _codes(findings)
+
+
+def test_shortcut_reference_inside_image_is_not_route_prose(tmp_path: Path) -> None:
+    _write_base(tmp_path)
+    _write_conditional_owner(tmp_path, "docs/recovery.md")
+    _append(
+        tmp_path,
+        """
+## Recovery routing
+
+<!-- agents-md: route owner="docs/recovery.md" when="after failure" purpose="recovery" -->
+- After failure, inspect ![recovery].
+
+[recovery]: docs/recovery.md
+""",
+    )
+
+    _, findings = audit_module.audit(tmp_path, "application", "single", "en")
+    assert {"routing.route-prose-missing", "routing.trigger-unreachable"} <= _codes(findings)
+
+
 def test_owner_link_nested_inside_image_description_is_not_route_prose(tmp_path: Path) -> None:
     _write_base(tmp_path)
     _write_conditional_owner(tmp_path, "docs/recovery.md")
