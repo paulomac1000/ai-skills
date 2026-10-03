@@ -127,6 +127,25 @@ class UnapprovedProvider(CountingProvider):
     producer_id = "unapproved-provider"
 
 
+def test_liveness_recovery_recreates_missing_deterministic_work_once(tmp_path: Path) -> None:
+    provider = CountingProvider()
+    runtime = _runtime(tmp_path / "liveness.db", provider=provider)
+    job_id = runtime.submit("repo", "abc", "idem-liveness")["jobId"]
+    assert runtime.status(job_id)["status"] == "queued"
+
+    runtime.recover_until_idle()
+    assert runtime.status(job_id)["status"] == "completed"
+    assert provider.dispatch_count == 1
+    assert provider.poll_count == 1
+
+    revision = runtime.status(job_id)["progressRevision"]
+    runtime.recover_until_idle()
+    runtime.recover_until_idle()
+    assert provider.dispatch_count == 1
+    assert provider.poll_count == 1
+    assert runtime.status(job_id)["progressRevision"] == revision
+
+
 def test_terminal_result_with_insufficient_authority_blocks_without_hot_poll(tmp_path: Path) -> None:
     provider = UnapprovedProvider()
     runtime = _runtime(tmp_path / "blocked.db", provider=provider)
