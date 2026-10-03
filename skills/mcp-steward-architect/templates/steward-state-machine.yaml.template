@@ -18,13 +18,19 @@ producers:
   - {id: recovery-runner, kind: reconciler, entrypoint: __RECOVERY_ENTRYPOINT__, authority_source: steward-runtime, contract_ref: steward.recovery@2, boundary: recovery-only}
 gates:
   - {id: work-admission, producer_refs: [submission-command], transition_refs: []}
-  - {id: mutation-admission, producer_refs: [workflow-runner, cancellation-command, recovery-runner], transition_refs: [dispatch-start, cancel-start, completion-publish]}
+  - {id: mutation-admission, producer_refs: [workflow-runner, recovery-runner], transition_refs: [dispatch-start, cancel-dispatch, completion-publish]}
   - {id: evidence-promotion, producer_refs: [workflow-runner, recovery-runner], transition_refs: [evidence-ready]}
   - {id: completion-publication, producer_refs: [workflow-runner, recovery-runner], transition_refs: [completion-publish]}
 transitions:
   - {id: dispatch-start, from: queued, to: reconciling, effect: external-stateful, mutation_gate: true, required_fences: [generation, attempt, operation], failure_outcomes: [LostAuthority, ReconciliationRequired, BudgetUnavailable], producer_refs: [workflow-runner]}
   - {id: dispatch-bound, from: reconciling, to: waiting-external, effect: local-state, mutation_gate: false, required_fences: [generation, attempt], failure_outcomes: [StaleGeneration], producer_refs: [workflow-runner, recovery-runner]}
-  - {id: cancel-start, from: waiting-external, to: cancelling, effect: external-stateful, mutation_gate: true, required_fences: [generation, attempt, operation], failure_outcomes: [LostAuthority, ReconciliationRequired, BudgetUnavailable], producer_refs: [cancellation-command]}
+  - {id: cancel-request-queued, from: queued, to: cancelling, effect: local-state, mutation_gate: false, required_fences: [generation, attempt], failure_outcomes: [LostAuthority], producer_refs: [cancellation-command]}
+  - {id: cancel-request-reconciling, from: reconciling, to: cancelling, effect: local-state, mutation_gate: false, required_fences: [generation, attempt], failure_outcomes: [LostAuthority], producer_refs: [cancellation-command]}
+  - {id: cancel-request-waiting-external, from: waiting-external, to: cancelling, effect: local-state, mutation_gate: false, required_fences: [generation, attempt], failure_outcomes: [LostAuthority], producer_refs: [cancellation-command]}
+  - {id: cancel-request-cancelling, from: cancelling, to: cancelling, effect: local-state, mutation_gate: false, required_fences: [generation, attempt], failure_outcomes: [LostAuthority], producer_refs: [cancellation-command]}
+  - {id: cancel-request-blocked, from: blocked, to: cancelling, effect: local-state, mutation_gate: false, required_fences: [generation, attempt], failure_outcomes: [LostAuthority], producer_refs: [cancellation-command]}
+  - {id: cancel-request-finalizing, from: finalizing, to: cancelling, effect: local-state, mutation_gate: false, required_fences: [generation, attempt], failure_outcomes: [LostAuthority], producer_refs: [cancellation-command]}
+  - {id: cancel-dispatch, from: cancelling, to: cancelling, effect: external-stateful, mutation_gate: true, required_fences: [generation, attempt, operation], failure_outcomes: [LostAuthority, ReconciliationRequired, BudgetUnavailable], producer_refs: [workflow-runner, recovery-runner]}
   - {id: cancel-resolved, from: cancelling, to: cancelled, effect: local-state, mutation_gate: false, required_fences: [generation, attempt], failure_outcomes: [ReconciliationRequired], producer_refs: [recovery-runner]}
   - {id: evidence-ready, from: waiting-external, to: finalizing, effect: local-state, mutation_gate: false, required_fences: [generation, attempt], failure_outcomes: [InsufficientEvidence], producer_refs: [workflow-runner, recovery-runner]}
   - {id: completion-publish, from: finalizing, to: completed, effect: publication, mutation_gate: true, required_fences: [generation, attempt, candidate], failure_outcomes: [StaleCandidate, LostAuthority, InsufficientEvidence], producer_refs: [workflow-runner, recovery-runner]}
