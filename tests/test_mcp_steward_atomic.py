@@ -267,6 +267,10 @@ def test_state_machine_v2_requires_production_reachability_and_liveness_closure(
     findings = validator.validate_document("state-machine", uncovered_mutation)
     assert any("does not cover mutation-gated transitions" in item for item in findings)
 
+    shared_artifact_class = json.loads(json.dumps(machine))
+    shared_artifact_class["checkpoints"][1]["artifact_class"] = shared_artifact_class["checkpoints"][0]["artifact_class"]
+    assert validator.validate_document("state-machine", shared_artifact_class) == []
+
 
 def test_checkpoint_plan_reuses_current_artifacts_and_derives_minimum_recomputation() -> None:
     validator = _validator()
