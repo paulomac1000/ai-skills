@@ -35,9 +35,9 @@ semantic_dependencies:
   - {id: provider-result, kind: evidence, identity_source: evidence.payloadDigest, unknown_disposition: stale}
   - {id: completion-policy, kind: policy, identity_source: profile.completion+proof-recipe, unknown_disposition: stale}
 checkpoints:
-  - {id: external-dispatch, order: 10, state: reconciling, artifact_ref: external-operation-receipt, dependency_refs: [subject, candidate, capability-contract], upstream_checkpoint_refs: [], resume_state: queued}
-  - {id: provider-result, order: 20, state: waiting-external, artifact_ref: provider-evidence, dependency_refs: [subject, candidate, capability-contract, provider-result], upstream_checkpoint_refs: [external-dispatch], resume_state: waiting-external}
-  - {id: completion-candidate, order: 30, state: finalizing, artifact_ref: completion-candidate, dependency_refs: [subject, candidate, completion-policy], upstream_checkpoint_refs: [provider-result], resume_state: finalizing}
+  - {id: external-dispatch, order: 10, state: reconciling, artifact_class: external-operation-receipt, dependency_refs: [subject, candidate, capability-contract], upstream_checkpoint_refs: [], resume_state: queued}
+  - {id: provider-result, order: 20, state: waiting-external, artifact_class: provider-evidence, dependency_refs: [subject, candidate, capability-contract, provider-result], upstream_checkpoint_refs: [external-dispatch], resume_state: waiting-external}
+  - {id: completion-candidate, order: 30, state: finalizing, artifact_class: completion-candidate, dependency_refs: [subject, candidate, completion-policy], upstream_checkpoint_refs: [provider-result], resume_state: finalizing}
 resume_policy:
   derivation: dependency-closure
   unknown_dependency: stale
