@@ -18,6 +18,8 @@ Do not conflate intended/configured, observed, observed-effective, validated, an
 
 Evidence should bind exact subject/revision or runtime generation, producer identity, observation method, authority class, timestamp/freshness, and digest. Where a proof recipe/policy controls semantics, evidence must also bind the recipe identity or provide producer attestation of it.
 
+When evidence is reused through a semantic checkpoint, the checkpoint must bind the exact evidence identity/revision or digest as a declared semantic dependency. Reuse does not refresh observation time, increase authority, repair incomplete binding/coverage, or turn UNKNOWN/unobserved evidence into CURRENT evidence. If the effective evidence identity changes, only checkpoints that declare it and their downstream dependents become stale; unrelated earlier CURRENT evidence remains current under its own freshness rules.
+
 ## Authority is effective identity, not a label
 
 Caller-supplied metadata such as `evidenceAuthority=peer`, `verified=true`, a provider display name, or prose claiming independent review does not create authority. The Steward derives authority from authenticated/effective principal, producer identity, configured trust/policy, and the evidence channel that actually produced the observation.
