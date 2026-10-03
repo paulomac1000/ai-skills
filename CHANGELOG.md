@@ -1,6 +1,6 @@
 # Changelog
 
-## 3.3.0 - Unreleased
+## 3.3.0 - 2026-10-03
 
 ### Added
 
@@ -25,6 +25,7 @@
 ### Dependencies
 
 - Pinned the existing transitive security-sensitive dependencies to PyJWT 2.15.1 and urllib3 2.8.0, replacing advisory-affected PyJWT 2.13.0 and urllib3 2.7.0 in the regenerated development locks.
+- Bumped development tooling and regenerated the five native development locks: `build` 1.5.0 → 1.6.1, `mcp`/`mcp-types` 2.0.0 → 2.2.0, `mypy` 2.3.0 → 2.3.1, `pip` 26.2 → 26.2.1, and `ruff` 0.16.3 → 0.16.9.
 
 ## 3.0.0 - 2026-09-13
 
