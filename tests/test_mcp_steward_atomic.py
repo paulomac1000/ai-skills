@@ -224,7 +224,10 @@ def test_manifest_composes_server_and_consumer_standards() -> None:
     job = _job()
     receipt = _receipt(documents, job)
     decision = _evaluate_external_dispatch(validator, documents, job, receipt)
-    assert decision["disposition"] == "ReconciliationRequired"\n\n\ndef test_state_machine_v2_requires_production_reachability_and_liveness_closure() -> None:
+    assert decision["disposition"] == "ReconciliationRequired"
+
+
+def test_state_machine_v2_requires_production_reachability_and_liveness_closure() -> None:
     validator = _validator()
     machine = json.loads(json.dumps(_documents()["steward_state_machine"]))
     assert validator.validate_document("state-machine", machine) == []
