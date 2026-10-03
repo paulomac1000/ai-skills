@@ -256,6 +256,33 @@ def _find_unescaped(
     return None, steps
 
 
+def _find_label_end(
+    line: str,
+    start: int,
+    max_steps: int,
+) -> tuple[int | None, int]:
+    index = start
+    steps = 0
+    nested = 0
+    while index < len(line) and steps < max_steps:
+        if line[index] == "\\":
+            advance = 2 if index + 1 < len(line) else 1
+            if steps + advance > max_steps:
+                break
+            index += advance
+            steps += advance
+            continue
+        steps += 1
+        if line[index] == "[":
+            nested += 1
+        elif line[index] == "]":
+            if nested == 0:
+                return index, steps
+            nested -= 1
+        index += 1
+    return None, steps
+
+
 def _unescape_markdown_destination(value: str) -> str:
     output: list[str] = []
     index = 0
@@ -323,6 +350,57 @@ def _inline_link_close(
     return None, steps
 
 
+def _valid_inline_link_title(value: str) -> bool:
+    if len(value) < 2:
+        return False
+    closing = {'"': '"', "'": "'", "(": ")"}.get(value[0])
+    if closing is None or value[-1] != closing:
+        return False
+
+    index = 1
+    while index < len(value) - 1:
+        if value[index] == "\\" and index + 1 < len(value) - 1:
+            index += 2
+            continue
+        if value[index] == closing:
+            return False
+        index += 1
+    return True
+
+
+def _parse_inline_link_target(body: str) -> tuple[bool, str]:
+    """Validate a Markdown destination/title payload and return its decoded target."""
+    leading_space = bool(body) and body[0].isspace()
+    value = body.strip()
+    if not value:
+        return True, ""
+    if leading_space and value[0] in {'"', "'", "("}:
+        return _valid_inline_link_title(value), ""
+
+    if value.startswith("<"):
+        end, _spent = _find_unescaped(value, ">", 1, len(value))
+        if end is None:
+            return False, ""
+        raw_target = value[: end + 1]
+        suffix = value[end + 1 :].strip()
+    else:
+        index = 0
+        while index < len(value):
+            if value[index] == "\\" and index + 1 < len(value):
+                index += 2
+                continue
+            if value[index].isspace():
+                break
+            index += 1
+        raw_target = value[:index]
+        suffix = value[index:].strip()
+
+    if suffix and not _valid_inline_link_title(suffix):
+        return False, ""
+    target = _unescape_markdown_destination(_strip_destination(raw_target))
+    return bool(raw_target), target
+
+
 def _iter_inline_links(line: str) -> Iterator[InlineLink]:
     """Yield inline Markdown links with balanced destinations under a linear work budget."""
     index = 0
@@ -331,16 +409,14 @@ def _iter_inline_links(line: str) -> Iterator[InlineLink]:
         label_start = line.find("[", index)
         if label_start < 0:
             return
-        if label_start > 0 and line[label_start - 1] == "!":
-            index = label_start + 1
-            continue
+        is_image = label_start > 0 and line[label_start - 1] == "!"
 
-        label_end, spent = _find_unescaped(line, "]", label_start + 1, remaining_work)
+        label_end, spent = _find_label_end(line, label_start + 1, remaining_work)
         remaining_work -= spent
         if label_end is None:
             return
         if label_end + 1 >= len(line) or line[label_end + 1] != "(":
-            index = label_start + 1
+            index = label_end + 1
             continue
 
         destination_start = label_end + 2
@@ -349,12 +425,15 @@ def _iter_inline_links(line: str) -> Iterator[InlineLink]:
         if close is None:
             index = label_end + 1
             continue
+        if is_image:
+            index = close + 1
+            continue
 
-        raw_target = _strip_destination(line[destination_start:close])
-        if raw_target:
+        valid_target, target = _parse_inline_link_target(line[destination_start:close])
+        if valid_target and target:
             yield InlineLink(
                 label=line[label_start + 1 : label_end],
-                target=_unescape_markdown_destination(raw_target),
+                target=target,
                 start=label_start,
                 end=close + 1,
             )

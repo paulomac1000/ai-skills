@@ -809,7 +809,11 @@ def _route_prose_line_numbers(
         if not started:
             if not stripped or stripped.startswith("<!--"):
                 continue
-            if stripped.startswith("#") or PROGRESSIVE_ROUTE_PREFIX.search(stripped) is not None:
+            if (
+                stripped.startswith("#")
+                or SETEXT_OR_THEMATIC_BOUNDARY.match(candidate) is not None
+                or PROGRESSIVE_ROUTE_PREFIX.search(stripped) is not None
+            ):
                 return set()
             started = True
             line_numbers.add(line_number)
@@ -817,7 +821,11 @@ def _route_prose_line_numbers(
 
         if not stripped:
             break
-        if stripped.startswith("#") or PROGRESSIVE_ROUTE_PREFIX.search(stripped) is not None:
+        if (
+            stripped.startswith("#")
+            or SETEXT_OR_THEMATIC_BOUNDARY.match(candidate) is not None
+            or PROGRESSIVE_ROUTE_PREFIX.search(stripped) is not None
+        ):
             break
         if stripped.startswith("<!--"):
             continue

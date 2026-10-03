@@ -1131,3 +1131,89 @@ def test_route_prose_accepts_balanced_and_escaped_parentheses(
 )
 def test_inline_link_scanner_has_bounded_work_on_malformed_long_lines(line: str) -> None:
     assert list(parse_module._iter_inline_links(line)) == []
+
+
+@pytest.mark.parametrize(
+    "link",
+    (
+        "[the recovery owner](docs/recovery.md garbage)",
+        "[the recovery owner](docs/recovery.md \"title\" trailing)",
+    ),
+)
+def test_route_prose_rejects_invalid_link_suffix(tmp_path: Path, link: str) -> None:
+    _write_base(tmp_path)
+    _write_conditional_owner(tmp_path, "docs/recovery.md")
+    _append(
+        tmp_path,
+        f"""
+## Recovery routing
+
+<!-- agents-md: route owner="docs/recovery.md" when="after failure" purpose="recovery" -->
+- After failure, read {link} before recovery work.
+""",
+    )
+
+    _, findings = audit_module.audit(tmp_path, "application", "single", "en")
+    assert {"routing.route-prose-missing", "routing.trigger-unreachable"} <= _codes(findings)
+
+
+@pytest.mark.parametrize(
+    "link",
+    (
+        '[the recovery owner](docs/recovery.md "Recovery title")',
+        "[the recovery owner](docs/recovery.md 'Recovery title')",
+        "[the recovery owner](docs/recovery.md (Recovery title))",
+    ),
+)
+def test_route_prose_accepts_valid_link_titles(tmp_path: Path, link: str) -> None:
+    _write_base(tmp_path)
+    _write_conditional_owner(tmp_path, "docs/recovery.md")
+    _append(
+        tmp_path,
+        f"""
+## Recovery routing
+
+<!-- agents-md: route owner="docs/recovery.md" when="after failure" purpose="recovery" -->
+- After failure, read {link} before recovery work.
+""",
+    )
+
+    _, findings = audit_module.audit(tmp_path, "application", "single", "en")
+    assert not any(finding.code.startswith("routing.") for finding in findings)
+
+
+def test_owner_link_nested_inside_image_description_is_not_route_prose(tmp_path: Path) -> None:
+    _write_base(tmp_path)
+    _write_conditional_owner(tmp_path, "docs/recovery.md")
+    _append(
+        tmp_path,
+        """
+## Recovery routing
+
+<!-- agents-md: route owner="docs/recovery.md" when="after failure" purpose="recovery" -->
+- After failure, see ![diagram with [owner](docs/recovery.md)](diagram.png).
+""",
+    )
+
+    _, findings = audit_module.audit(tmp_path, "application", "single", "en")
+    assert {"routing.route-prose-missing", "routing.trigger-unreachable"} <= _codes(findings)
+
+
+@pytest.mark.parametrize("boundary", ("---", "==="))
+def test_route_prose_stops_at_setext_or_thematic_boundary(tmp_path: Path, boundary: str) -> None:
+    _write_base(tmp_path)
+    _write_conditional_owner(tmp_path, "docs/recovery.md")
+    _append(
+        tmp_path,
+        f"""
+## Recovery routing
+
+<!-- agents-md: route owner="docs/recovery.md" when="after failure" purpose="recovery" -->
+Unrelated heading
+{boundary}
+[owner](docs/recovery.md)
+""",
+    )
+
+    _, findings = audit_module.audit(tmp_path, "application", "single", "en")
+    assert {"routing.route-prose-missing", "routing.trigger-unreachable"} <= _codes(findings)
