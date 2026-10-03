@@ -1071,3 +1071,32 @@ def test_completed_comment_before_route_marker_on_same_line_preserves_route(tmp_
 
     _, findings = audit_module.audit(tmp_path, "application", "single", "en")
     assert not any(finding.code.startswith("routing.") for finding in findings)
+
+
+@pytest.mark.parametrize(
+    ("owner_relative", "link_target"),
+    (
+        ("docs/foo_(bar).md", "docs/foo_(bar).md"),
+        ("docs/foo_(bar).md", r"docs/foo_\(bar\).md"),
+        ("docs/foo_(bar_(baz)).md", "docs/foo_(bar_(baz)).md"),
+    ),
+)
+def test_route_prose_accepts_balanced_and_escaped_parentheses(
+    tmp_path: Path,
+    owner_relative: str,
+    link_target: str,
+) -> None:
+    _write_base(tmp_path)
+    _write_conditional_owner(tmp_path, owner_relative)
+    _append(
+        tmp_path,
+        f"""
+## Recovery routing
+
+<!-- agents-md: route owner="{owner_relative}" when="after failure" purpose="recovery" -->
+- After failure, read [the recovery owner]({link_target}) before recovery work.
+""",
+    )
+
+    _, findings = audit_module.audit(tmp_path, "application", "single", "en")
+    assert not any(finding.code.startswith("routing.") for finding in findings)

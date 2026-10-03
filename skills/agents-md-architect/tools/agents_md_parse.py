@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import string
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -14,7 +15,6 @@ from agents_md_types import (
     CONTRACT_MARKER,
     FENCE_OPENER,
     HEADING,
-    INLINE_LINK,
     LANGUAGE_NEGATIVE_DIRECTIVE,
     LANGUAGE_POSITIVE_DIRECTIVE,
     PATH_CUE,
@@ -223,6 +223,118 @@ def _iter_code_spans(line: str) -> Iterator[str]:
         yield value
 
 
+@dataclass(frozen=True)
+class InlineLink:
+    """One non-image inline Markdown link with a decoded repository target."""
+
+    label: str
+    target: str
+    start: int
+    end: int
+
+
+def _find_unescaped(line: str, character: str, start: int) -> int | None:
+    index = start
+    while index < len(line):
+        if line[index] == "\\":
+            index += 2
+            continue
+        if line[index] == character:
+            return index
+        index += 1
+    return None
+
+
+def _unescape_markdown_destination(value: str) -> str:
+    output: list[str] = []
+    index = 0
+    while index < len(value):
+        if value[index] == "\\" and index + 1 < len(value) and value[index + 1] in string.punctuation:
+            output.append(value[index + 1])
+            index += 2
+            continue
+        output.append(value[index])
+        index += 1
+    return "".join(output)
+
+
+def _inline_link_close(line: str, destination_start: int) -> int | None:
+    depth = 0
+    index = destination_start
+    in_angle_destination = index < len(line) and line[index] == "<"
+    title_quote: str | None = None
+    saw_top_level_space = False
+
+    while index < len(line):
+        character = line[index]
+        if character == "\\":
+            index += 2
+            continue
+        if in_angle_destination:
+            if character == ">":
+                in_angle_destination = False
+            index += 1
+            continue
+        if title_quote is not None:
+            if character == title_quote:
+                title_quote = None
+            index += 1
+            continue
+        if depth == 0 and character.isspace():
+            saw_top_level_space = True
+            index += 1
+            continue
+        if saw_top_level_space and depth == 0 and character in {'"', "'"}:
+            title_quote = character
+            index += 1
+            continue
+        if character == "(":
+            depth += 1
+            index += 1
+            continue
+        if character == ")":
+            if depth == 0:
+                return index
+            depth -= 1
+            index += 1
+            continue
+        index += 1
+    return None
+
+
+def _iter_inline_links(line: str) -> Iterator[InlineLink]:
+    """Yield inline Markdown links with balanced and escaped destinations."""
+    index = 0
+    while index < len(line):
+        label_start = line.find("[", index)
+        if label_start < 0:
+            return
+        if label_start > 0 and line[label_start - 1] == "!":
+            index = label_start + 1
+            continue
+
+        label_end = _find_unescaped(line, "]", label_start + 1)
+        if label_end is None or label_end + 1 >= len(line) or line[label_end + 1] != "(":
+            index = label_start + 1
+            continue
+
+        destination_start = label_end + 2
+        close = _inline_link_close(line, destination_start)
+        if close is None:
+            index = label_start + 1
+            continue
+
+        raw_target = _strip_destination(line[destination_start:close])
+        if raw_target:
+            yield InlineLink(
+                label=line[label_start + 1 : label_end],
+                target=_unescape_markdown_destination(raw_target),
+                start=label_start,
+                end=close + 1,
+            )
+        index = close + 1
+
+
 _GENERIC_REFERENCE_OWNER = re.compile(
     r"(?ix)(?:"
     r"\bits(?:\s+\w+){0,3}|"
@@ -284,8 +396,8 @@ def iter_references(visible_lines: Sequence[tuple[int, str]]) -> Iterator[tuple[
             definitions[match.group("label").casefold()] = _strip_destination(match.group("target"))
 
     for line_number, line in visible_lines:
-        for match in INLINE_LINK.finditer(line):
-            yield line_number, _strip_destination(match.group("target"))
+        for link in _iter_inline_links(line):
+            yield line_number, link.target
         for match in REFERENCE_USAGE.finditer(line):
             key = (match.group("ref") or match.group("label")).casefold()
             target = definitions.get(key)
@@ -527,8 +639,11 @@ def _extract_directives(visible_lines: Sequence[tuple[int, str]], language: Lang
 
 
 def _instruction_context(line: str) -> str:
-    without_code = re.sub(r"`[^`]*`", " ", line)
-    return INLINE_LINK.sub(lambda match: match.group("label"), without_code)
+    context = re.sub(r"`[^`]*`", " ", line)
+    links = list(_iter_inline_links(context))
+    for link in reversed(links):
+        context = context[: link.start] + link.label + context[link.end :]
+    return context
 
 
 def _extract_commands(visible_lines: Sequence[tuple[int, str]]) -> tuple[CommandRule, ...]:
@@ -598,9 +713,7 @@ def _extract_ownership(
         if owns_contract is None:
             continue
 
-        linked = [
-            (match.group("label"), _strip_destination(match.group("target"))) for match in INLINE_LINK.finditer(line)
-        ]
+        linked = [(link.label, link.target) for link in _iter_inline_links(line)]
         code_targets = [
             span for span, start, end in _iter_code_span_matches(line) if _is_path_candidate(span, line, start, end)
         ]
