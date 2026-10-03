@@ -481,6 +481,50 @@ def _inline_html_tag_spans(line: str) -> Iterator[tuple[int, int]]:
             continue
 
 
+def _first_active_inline_link_start(
+    line: str,
+    start: int,
+    end: int,
+    excluded_spans: Sequence[tuple[int, int]],
+    max_steps: int,
+) -> tuple[int | None, int]:
+    """Find an active non-image inline link nested inside a label."""
+    index = start
+    spent_total = 0
+    while index < end and spent_total < max_steps:
+        candidate = line.find("[", index, end)
+        if candidate < 0:
+            return None, spent_total
+        if _is_escaped(line, candidate) or _inside_spans(candidate, excluded_spans):
+            index = candidate + 1
+            continue
+        if candidate > 0 and line[candidate - 1] == "!" and not _is_escaped(line, candidate - 1):
+            index = candidate + 1
+            continue
+
+        remaining = max_steps - spent_total
+        label_end, spent = _find_label_end(line, candidate + 1, remaining)
+        spent_total += spent
+        if label_end is None or label_end >= end:
+            index = candidate + 1
+            continue
+        if label_end + 1 >= end or line[label_end + 1] != "(":
+            index = label_end + 1
+            continue
+
+        remaining = max_steps - spent_total
+        close, spent = _inline_link_close(line, label_end + 2, remaining)
+        spent_total += spent
+        if close is None or close >= end:
+            index = label_end + 1
+            continue
+        valid_target, _target = _parse_inline_link_target(line[label_end + 2 : close])
+        if valid_target:
+            return candidate, spent_total
+        index = close + 1
+    return None, spent_total
+
+
 def _iter_inline_links(line: str) -> Iterator[InlineLink]:
     """Yield active inline Markdown links under a linear work budget."""
     index = 0
@@ -509,6 +553,18 @@ def _iter_inline_links(line: str) -> Iterator[InlineLink]:
             return
         if label_end + 1 >= len(line) or line[label_end + 1] != "(":
             index = label_end + 1
+            continue
+
+        inner_start, spent = _first_active_inline_link_start(
+            line,
+            label_start + 1,
+            label_end,
+            excluded_spans,
+            remaining_work,
+        )
+        remaining_work -= spent
+        if inner_start is not None:
+            index = inner_start
             continue
 
         destination_start = label_end + 2
@@ -621,6 +677,11 @@ def _is_path_candidate(
     )
 
 
+def _normalize_reference_label(label: str) -> str:
+    """Apply CommonMark-style case/whitespace normalization to a reference label."""
+    return " ".join(label.split()).casefold()
+
+
 def iter_references(visible_lines: Sequence[tuple[int, str]]) -> Iterator[tuple[int, str]]:
     """Yield active Markdown and code-span repository references."""
     definitions: dict[str, str] = {}
@@ -628,7 +689,7 @@ def iter_references(visible_lines: Sequence[tuple[int, str]]) -> Iterator[tuple[
         match = REFERENCE_DEFINITION.fullmatch(line)
         if match is not None:
             definitions.setdefault(
-                match.group("label").casefold(),
+                _normalize_reference_label(match.group("label")),
                 _strip_destination(match.group("target")),
             )
 
@@ -655,7 +716,7 @@ def iter_references(visible_lines: Sequence[tuple[int, str]]) -> Iterator[tuple[
             full_reference_spans.append((match.start(), match.end()))
             if _is_escaped(line, match.start()):
                 continue
-            key = (match.group("ref") or match.group("label")).casefold()
+            key = _normalize_reference_label(match.group("ref") or match.group("label"))
             target = definitions.get(key)
             if target:
                 yield line_number, target
@@ -664,7 +725,7 @@ def iter_references(visible_lines: Sequence[tuple[int, str]]) -> Iterator[tuple[
         for match in SHORTCUT_REFERENCE_USAGE.finditer(line):
             if _is_escaped(line, match.start()) or _inside_spans(match.start(), shortcut_exclusions):
                 continue
-            target = definitions.get(match.group("label").casefold())
+            target = definitions.get(_normalize_reference_label(match.group("label")))
             if target:
                 yield line_number, target
 
