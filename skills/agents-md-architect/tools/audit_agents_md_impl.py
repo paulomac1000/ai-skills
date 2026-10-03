@@ -364,9 +364,7 @@ HTML_BLOCK_TAGS = frozenset(
 )
 TYPE1_HTML_TAGS = frozenset({"script", "pre", "style", "textarea"})
 ATX_HEADING = re.compile(r"^[ \t]{0,3}#{1,6}(?:[ \t]+|$)")
-SETEXT_OR_THEMATIC_BOUNDARY = re.compile(
-    r"^[ \t]{0,3}(?:=+[ \t]*|-+[ \t]*|(?:\*[ \t]*){3,}|(?:_[ \t]*){3,})$"
-)
+SETEXT_OR_THEMATIC_BOUNDARY = re.compile(r"^[ \t]{0,3}(?:=+[ \t]*|-+[ \t]*|(?:\*[ \t]*){3,}|(?:_[ \t]*){3,})$")
 
 
 def _strip_blockquote_depth(line: str, depth: int) -> str | None:
@@ -516,12 +514,12 @@ def _routing_block_lines(text: str) -> list[RoutingLine]:
         if raw_html is not None:
             same_container, content, retained = _content_in_container(source_line, raw_html.container)
             if same_container:
-                state = raw_html
-                if state.ends_on_blank and not content.strip():
+                raw_state = raw_html
+                if raw_state.ends_on_blank and not content.strip():
                     raw_html = None
-                elif state.end_pattern is not None and state.end_pattern.search(content) is not None:
+                elif raw_state.end_pattern is not None and raw_state.end_pattern.search(content) is not None:
                     raw_html = None
-                normalized.append(RoutingLine(line_number, "", state.container, False))
+                normalized.append(RoutingLine(line_number, "", raw_state.container, False))
                 continue
             list_indents = retained
             raw_html = None
@@ -585,9 +583,17 @@ def _routing_block_lines(text: str) -> list[RoutingLine]:
         stripped = content.strip()
         if stripped.startswith("<!--") and not _is_live_control_comment(content):
             paragraph_active = False
-            normalized.append(RoutingLine(line_number, "", container, boundary_before))
             if "-->" not in content:
+                normalized.append(RoutingLine(line_number, "", container, boundary_before))
                 block_comment_container = container
+                continue
+
+            # A completed ordinary comment can share a line with active prose or a live
+            # routing control. Keep the source line so the inline masker removes only
+            # the comment rather than discarding the remainder.
+            normalized.append(RoutingLine(line_number, content, container, boundary_before))
+            remainder = content[content.find("-->") + 3 :].strip()
+            paragraph_active = bool(remainder) and not _is_live_control_comment(remainder)
             continue
 
         normalized.append(RoutingLine(line_number, content, container, boundary_before))

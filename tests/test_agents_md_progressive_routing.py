@@ -231,6 +231,7 @@ def test_route_and_invocation_owner_reject_absolute_paths(tmp_path: Path) -> Non
         b"\xff\xfe\x00not-utf8",
         ("<!-- agents-md: conditional-owner -->\n" + "x" * (256 * 1024)).encode("utf-8"),
     ),
+    ids=("invalid-utf8", "oversized"),
 )
 def test_unreadable_conditional_owner_fails_closed_without_false_missing_marker(
     tmp_path: Path,
@@ -454,6 +455,7 @@ def test_percent_encoded_absolute_route_owner_is_rejected(tmp_path: Path) -> Non
         b"\xff\xfe\x00unrelated-invalid-utf8",
         ("# Unrelated\n\n" + "x" * (256 * 1024)).encode("utf-8"),
     ),
+    ids=("invalid-utf8", "oversized"),
 )
 def test_unrelated_unreadable_markdown_does_not_block_routing_audit(
     tmp_path: Path,
@@ -1052,3 +1054,20 @@ def test_type7_custom_html_after_blank_line_remains_raw_html_block(tmp_path: Pat
 
     _, findings = audit_module.audit(tmp_path, "application", "single", "en")
     assert "routing.trigger-unreachable" in _codes(findings)
+
+
+def test_completed_comment_before_route_marker_on_same_line_preserves_route(tmp_path: Path) -> None:
+    _write_base(tmp_path)
+    _write_conditional_owner(tmp_path, "docs/recovery.md")
+    _append(
+        tmp_path,
+        """
+## Recovery routing
+
+<!-- explanatory note --> <!-- agents-md: route owner="docs/recovery.md" when="after failure" purpose="recovery" -->
+- After failure, read [the recovery owner](docs/recovery.md).
+""",
+    )
+
+    _, findings = audit_module.audit(tmp_path, "application", "single", "en")
+    assert not any(finding.code.startswith("routing.") for finding in findings)
