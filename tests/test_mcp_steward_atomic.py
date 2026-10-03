@@ -224,9 +224,7 @@ def test_manifest_composes_server_and_consumer_standards() -> None:
     job = _job()
     receipt = _receipt(documents, job)
     decision = _evaluate_external_dispatch(validator, documents, job, receipt)
-    assert decision["disposition"] == "ReconciliationRequired"
-
-def test_state_machine_v2_requires_production_reachability_and_liveness_closure() -> None:
+    assert decision["disposition"] == "ReconciliationRequired"\n\n\ndef test_state_machine_v2_requires_production_reachability_and_liveness_closure() -> None:
     validator = _validator()
     machine = json.loads(json.dumps(_documents()["steward_state_machine"]))
     assert validator.validate_document("state-machine", machine) == []
@@ -253,6 +251,18 @@ def test_state_machine_v2_requires_production_reachability_and_liveness_closure(
     direct_test_fixture_is_not_a_producer["producers"][0]["kind"] = "test-fixture"
     findings = validator.validate_document("state-machine", direct_test_fixture_is_not_a_producer)
     assert any("is not one of" in item and "test-fixture" in item for item in findings)
+
+    gate_without_producer = json.loads(json.dumps(machine))
+    work_gate = next(item for item in gate_without_producer["gates"] if item["id"] == "work-admission")
+    work_gate["producer_refs"] = ["missing-producer"]
+    findings = validator.validate_document("state-machine", gate_without_producer)
+    assert any("gate work-admission references unknown producers" in item for item in findings)
+
+    uncovered_mutation = json.loads(json.dumps(machine))
+    mutation_gate = next(item for item in uncovered_mutation["gates"] if item["id"] == "mutation-admission")
+    mutation_gate["transition_refs"].remove("dispatch-start")
+    findings = validator.validate_document("state-machine", uncovered_mutation)
+    assert any("does not cover mutation-gated transitions" in item for item in findings)
 
 
 def test_checkpoint_plan_reuses_current_artifacts_and_derives_minimum_recomputation() -> None:
