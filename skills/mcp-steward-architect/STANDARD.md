@@ -81,7 +81,7 @@ A lease is a mutation-authority primitive, not merely a scheduler hint. Operatio
 
 Execution attempt, workflow generation, and semantic input identity are distinct. A retry of the same semantic work MUST NOT manufacture a new meaning merely because the attempt changed; conversely, a changed load-bearing semantic dependency MUST NOT inherit an artifact solely because its stage name or payload looks similar.
 
-A reusable canonical checkpoint MUST bind stable checkpoint/stage identity, canonical artifact/reference, workflow generation, the complete declared semantic dependency identities required for that artifact, upstream checkpoint dependencies, and the legal resume state. Dependency dimensions MAY include subject/candidate, effective evidence, target, policy, model/capability contract, validation environment, external-gate identity, or another explicitly governed input. Unknown/missing load-bearing identity is stale.
+A reusable canonical checkpoint MUST bind stable checkpoint/stage identity, exact canonical artifact reference and digest, workflow generation, state-machine identity/revision, the complete declared semantic dependency identities required for that artifact, exact upstream checkpoint artifact references/digests, the legal resume state, and the mechanical recovery bindings needed by a fresh worker (subject/candidate, authority/ownership, progress, budgets/deadlines, blockers and external-operation references as applicable). Dependency dimensions MAY include subject/candidate, effective evidence, target, policy, model/capability contract, validation environment, external-gate identity, or another explicitly governed input. Unknown/missing load-bearing identity is stale.
 
 For one current generation, checkpoint currentness is derived mechanically from exact dependency identity plus transitive upstream checkpoint currentness. A changed dependency invalidates only checkpoints that declare it and their downstream dependents. An unrelated late-stage provider/gate outage MUST NOT stale earlier CURRENT artifacts/evidence merely because the later operation failed. A checkpoint from an older workflow generation is stale by default and MUST NOT satisfy the new generation without an explicit policy-owned compatibility proof.
 
@@ -93,6 +93,7 @@ reusableArtifactRefs: [...]
 staleArtifactRefs: [...]
 requiredRecomputations: [...]
 dependencyDigest: sha256:...
+reasonCodes: [...]
 ~~~
 
 `earliestSafeStage` is the first legal stage whose required checkpoint is non-current; if every required checkpoint is current, no recomputation is required. Restart with the same durable state and semantic dependencies MUST derive the same result without replaying prior model conversation/transcript. A losing retry/CAS path reloads the canonical winning checkpoint before deriving successors. Similarity, reviewer prose, or a model assertion is not compatibility proof.
