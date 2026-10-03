@@ -531,6 +531,7 @@ def _iter_inline_links(line: str) -> Iterator[InlineLink]:
     remaining_work = max(INLINE_LINK_MIN_WORK, len(line) * INLINE_LINK_WORK_FACTOR)
     excluded_spans = _merged_spans(
         (
+            *_image_label_spans(line),
             *_inline_html_tag_spans(line),
             *((start, end) for _value, start, end in _iter_code_span_matches(line)),
         )
