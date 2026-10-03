@@ -442,9 +442,7 @@ def _state_machine_findings(value: dict[str, Any]) -> list[str]:
                     f"state-machine: gate {gate_id} references unknown transitions: {', '.join(missing_transitions)}"
                 )
             for transition_id in sorted(set(gate["transition_refs"]) & set(transitions_by_id)):
-                missing_paths = sorted(
-                    set(transitions_by_id[transition_id].get("producer_refs", [])) - gate_producers
-                )
+                missing_paths = sorted(set(transitions_by_id[transition_id].get("producer_refs", [])) - gate_producers)
                 if missing_paths:
                     findings.append(
                         f"state-machine: gate {gate_id} does not cover transition {transition_id} producer paths: "
