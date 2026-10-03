@@ -4,7 +4,7 @@ steward:
   kind: generic
   contract_revision: 1
 contracts:
-  state_machine: steward-state-machine@1
+  state_machine: steward-state-machine@2
   mutation_policy: steward-mutation-policy@1
   proof_recipe: steward-proof-recipe@2
   acceptance: steward-acceptance@1
