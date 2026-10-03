@@ -112,8 +112,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          ref_json="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG" 2>/dev/null || true)"
-          if [[ -n "$ref_json" ]]; then
+          if ref_json="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG" 2>/dev/null)"; then
             object_type="$(jq -r '.object.type' <<<"$ref_json")"
             object_sha="$(jq -r '.object.sha' <<<"$ref_json")"
             if [[ "$object_type" == "tag" ]]; then
