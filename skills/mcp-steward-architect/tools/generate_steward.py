@@ -199,11 +199,13 @@ def _state_machine_document(steward_id: str, language: str = "python") -> dict[s
     text = (DESIGN_TEMPLATES / "steward-state-machine.yaml.template").read_text(encoding="utf-8")
     entrypoints = {
         "python": {
+            "__SUBMIT_ENTRYPOINT__": "StewardRuntime.submit",
             "__WORKFLOW_ENTRYPOINT__": "StewardRuntime.run_once",
             "__CANCEL_ENTRYPOINT__": "StewardRuntime.cancel",
             "__RECOVERY_ENTRYPOINT__": "StewardRuntime.recover_until_idle",
         },
         "dotnet": {
+            "__SUBMIT_ENTRYPOINT__": "StewardSeedRuntime.Submit",
             "__WORKFLOW_ENTRYPOINT__": "StewardSeedRuntime.RunOneDue",
             "__CANCEL_ENTRYPOINT__": "StewardSeedRuntime.Cancel",
             "__RECOVERY_ENTRYPOINT__": "StewardRecoveryService.ExecuteAsync",
