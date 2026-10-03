@@ -126,7 +126,7 @@ def _profile_document(steward_id: str, profile: str, *, durability_profile: str)
         "schema_version": 2,
         "steward": {"id": steward_id, "kind": profile, "contract_revision": 2},
         "contracts": {
-            "state_machine": f"{steward_id}-state-machine@1",
+            "state_machine": f"{steward_id}-state-machine@2",
             "mutation_policy": f"{steward_id}-mutation-policy@1",
             "proof_recipe": f"{steward_id}-seed-proof@1",
             "acceptance": f"{steward_id}-acceptance@1",
