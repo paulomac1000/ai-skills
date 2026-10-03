@@ -441,9 +441,7 @@ def _state_machine_findings(value: dict[str, Any]) -> list[str]:
                 )
         mutation_gate = gates.get("mutation-admission")
         if mutation_gate is not None:
-            required_mutation_transitions = {
-                item["id"] for item in value["transitions"] if item["mutation_gate"]
-            }
+            required_mutation_transitions = {item["id"] for item in value["transitions"] if item["mutation_gate"]}
             uncovered = sorted(required_mutation_transitions - set(mutation_gate["transition_refs"]))
             if uncovered:
                 findings.append(
@@ -452,9 +450,7 @@ def _state_machine_findings(value: dict[str, Any]) -> list[str]:
                 )
         completion_gate = gates.get("completion-publication")
         if completion_gate is not None:
-            publication_transitions = {
-                item["id"] for item in value["transitions"] if item["effect"] == "publication"
-            }
+            publication_transitions = {item["id"] for item in value["transitions"] if item["effect"] == "publication"}
             uncovered = sorted(publication_transitions - set(completion_gate["transition_refs"]))
             if uncovered:
                 findings.append(
@@ -473,7 +469,9 @@ def _state_machine_findings(value: dict[str, Any]) -> list[str]:
         orphan = state.get("orphan_disposition")
         if state["terminal"]:
             if liveness != "terminal" or orphan != "not-applicable":
-                findings.append(f"state-machine: terminal state {state_id} must declare terminal/not-applicable liveness")
+                findings.append(
+                    f"state-machine: terminal state {state_id} must declare terminal/not-applicable liveness"
+                )
             continue
 
         if liveness in {None, "terminal"}:
@@ -491,7 +489,9 @@ def _state_machine_findings(value: dict[str, Any]) -> list[str]:
         if liveness == "authorized-blocker" and state["recovery"] != "blocked":
             findings.append(f"state-machine: authorized blocker {state_id} requires blocked recovery")
         if outgoing.get(state_id, 0) == 0 and liveness != "authorized-blocker":
-            findings.append(f"state-machine: nonterminal state {state_id} has no legal continuation or authorized blocker")
+            findings.append(
+                f"state-machine: nonterminal state {state_id} has no legal continuation or authorized blocker"
+            )
 
     if version < 2:
         return findings
@@ -565,8 +565,7 @@ def derive_checkpoint_plan(
         raise ValueError("unknown checkpoint bindings: " + ", ".join(unknown_checkpoints))
 
     current_projection = {
-        dependency_id: current_dependencies.get(dependency_id)
-        for dependency_id in sorted(dependencies)
+        dependency_id: current_dependencies.get(dependency_id) for dependency_id in sorted(dependencies)
     }
     dependency_payload = {
         "machine_id": state_machine["machine_id"],
@@ -574,14 +573,17 @@ def derive_checkpoint_plan(
         "generation": current_generation,
         "dependencies": current_projection,
     }
-    dependency_digest = "sha256:" + hashlib.sha256(
-        json.dumps(
-            dependency_payload,
-            ensure_ascii=False,
-            separators=(",", ":"),
-            sort_keys=True,
-        ).encode("utf-8")
-    ).hexdigest()
+    dependency_digest = (
+        "sha256:"
+        + hashlib.sha256(
+            json.dumps(
+                dependency_payload,
+                ensure_ascii=False,
+                separators=(",", ":"),
+                sort_keys=True,
+            ).encode("utf-8")
+        ).hexdigest()
+    )
 
     checkpoint_current: dict[str, bool] = {}
     valid_bindings: dict[str, dict[str, Any]] = {}
@@ -663,32 +665,21 @@ def derive_checkpoint_plan(
 
         checkpoint_current[checkpoint_id] = direct_current
 
-    reusable = [
-        item for item in ordered
-        if checkpoint_current[item["id"]] and item["id"] in valid_bindings
-    ]
+    reusable = [item for item in ordered if checkpoint_current[item["id"]] and item["id"] in valid_bindings]
     stale = [item for item in ordered if not checkpoint_current[item["id"]]]
-    stale_with_artifact = [
-        item for item in stale
-        if item["id"] in valid_bindings
-    ]
+    stale_with_artifact = [item for item in stale if item["id"] in valid_bindings]
     return {
         "earliestSafeStage": stale[0]["resume_state"] if stale else None,
-        "reusableArtifactRefs": [
-            valid_bindings[item["id"]]["artifactRef"] for item in reusable
-        ],
-        "staleArtifactRefs": [
-            valid_bindings[item["id"]]["artifactRef"] for item in stale_with_artifact
-        ],
+        "reusableArtifactRefs": [valid_bindings[item["id"]]["artifactRef"] for item in reusable],
+        "staleArtifactRefs": [valid_bindings[item["id"]]["artifactRef"] for item in stale_with_artifact],
         "requiredRecomputations": [item["id"] for item in stale],
         "dependencyDigest": dependency_digest,
         "reasonCodes": list(dict.fromkeys(reason_codes)),
         "unknownDependencyRefs": [
-            dependency_id
-            for dependency_id, identity in current_projection.items()
-            if identity is None
+            dependency_id for dependency_id, identity in current_projection.items() if identity is None
         ],
     }
+
 
 def _mutation_policy_findings(value: dict[str, Any]) -> list[str]:
     findings: list[str] = []
