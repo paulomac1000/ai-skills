@@ -291,6 +291,20 @@ def test_state_machine_v2_requires_production_reachability_and_liveness_closure(
     assert cancellation_dispatch["to"] == "cancelling"
     assert cancellation_dispatch["producer_refs"] == ["workflow-runner", "recovery-runner"]
 
+    nonterminal_states = {item["id"] for item in machine["states"] if not item["terminal"]}
+    supersession_sources = {
+        item["from"]
+        for item in machine["transitions"]
+        if item["to"] == "superseded" and "submission-command" in item["producer_refs"]
+    }
+    assert supersession_sources == nonterminal_states
+    block_sources = {
+        item["from"]
+        for item in machine["transitions"]
+        if item["to"] == "blocked" and set(item["producer_refs"]) >= {"workflow-runner", "recovery-runner"}
+    }
+    assert {"queued", "reconciling", "waiting-external", "cancelling", "finalizing"} <= block_sources
+
     shared_artifact_class = json.loads(json.dumps(machine))
     shared_artifact_class["checkpoints"][1]["artifact_class"] = shared_artifact_class["checkpoints"][0]["artifact_class"]
     assert validator.validate_document("state-machine", shared_artifact_class) == []
