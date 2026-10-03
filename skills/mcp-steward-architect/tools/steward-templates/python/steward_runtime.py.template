@@ -53,6 +53,7 @@ _TERMINAL = {"completed", "completed-with-gaps", "failed", "cancelled", "superse
 _RUNNABLE = {"queued", "reconciling", "waiting-external", "cancelling", "finalizing"}
 _OBSERVATION_GRADES = {"declared", "observed", "observed-effective", "functional-ready", "verified"}
 _PLACEHOLDER_AUTHORITY = {"", "unknown", "head", "latest", "default", "unset", "none"}
+_GENERATED_STATE_MACHINE: dict[str, Any] = json.loads(r'''__STATE_MACHINE_JSON__''')
 
 
 def _canonical(value: object) -> str:
@@ -1643,9 +1644,7 @@ class StewardRuntime:
             raise ValueError("explicit reviewed upstream capability and mutation policy are required")
         self.store, self.profile, self.proof_recipe = store, profile, proof_recipe
         self.mutation_policy, self.upstream = mutation_policy, upstream
-        self.state_machine = state_machine or json.loads(
-            files(__package__).joinpath("steward_state_machine.json").read_text(encoding="utf-8")
-        )
+        self.state_machine = state_machine or json.loads(json.dumps(_GENERATED_STATE_MACHINE))
         if int(self.state_machine.get("schema_version", 1)) < 2:
             raise ValueError("generated Steward runtime requires the closure-bearing state-machine contract")
         self.provider, self.faults = provider or FakeProvider(), faults or FaultInjector()
