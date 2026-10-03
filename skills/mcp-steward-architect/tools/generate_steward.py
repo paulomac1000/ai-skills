@@ -195,9 +195,28 @@ def _profile_document(steward_id: str, profile: str, *, durability_profile: str)
     }
 
 
-def _state_machine_document(steward_id: str) -> dict[str, Any]:
+def _state_machine_document(steward_id: str, language: str = "python") -> dict[str, Any]:
     text = (DESIGN_TEMPLATES / "steward-state-machine.yaml.template").read_text(encoding="utf-8")
-    return yaml.safe_load(text.replace("__STEWARD_ID__", steward_id))
+    entrypoints = {
+        "python": {
+            "__WORKFLOW_ENTRYPOINT__": "StewardRuntime.run_once",
+            "__CANCEL_ENTRYPOINT__": "StewardRuntime.cancel",
+            "__RECOVERY_ENTRYPOINT__": "StewardRuntime.recover_until_idle",
+        },
+        "dotnet": {
+            "__WORKFLOW_ENTRYPOINT__": "StewardSeedRuntime.RunOneDue",
+            "__CANCEL_ENTRYPOINT__": "StewardSeedRuntime.Cancel",
+            "__RECOVERY_ENTRYPOINT__": "StewardRecoveryService.ExecuteAsync",
+        },
+    }
+    try:
+        replacements = entrypoints[language]
+    except KeyError as exc:
+        raise ValueError(f"unsupported Steward state-machine language: {language}") from exc
+    text = text.replace("__STEWARD_ID__", steward_id)
+    for marker, value in replacements.items():
+        text = text.replace(marker, value)
+    return yaml.safe_load(text)
 
 
 def _mutation_policy_document(steward_id: str, capability: dict[str, Any]) -> dict[str, Any]:
@@ -420,11 +439,13 @@ def _capability_digest_vectors_document() -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def _embedded_docs(steward_id: str, profile: str, durability: str) -> dict[str, dict[str, Any]]:
+def _embedded_docs(
+    steward_id: str, profile: str, durability: str, language: str = "python"
+) -> dict[str, dict[str, Any]]:
     upstream = _upstream_document(steward_id)
     return {
         "steward_profile": _profile_document(steward_id, profile, durability_profile=durability),
-        "steward_state_machine": _state_machine_document(steward_id),
+        "steward_state_machine": _state_machine_document(steward_id, language),
         "steward_mutation_policy": _mutation_policy_document(steward_id, upstream),
         "steward_proof_recipe": _proof_recipe_document(steward_id),
         "steward_upstream_capability": upstream,
@@ -591,7 +612,7 @@ def steward_files(language: str, identity: str, server_name: str, steward_id: st
     base = _base_generator(language)
     files = dict(base.project_files(identity, server_name))
     durability = "single-node-durable" if language == "python" else "constrained-file"
-    docs = _embedded_docs(steward_id, profile, durability)
+    docs = _embedded_docs(steward_id, profile, durability, language)
     if language == "python":
         _apply_python_overlay(files, identity, server_name, docs)
     else:
