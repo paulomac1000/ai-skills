@@ -1129,8 +1129,35 @@ def test_route_prose_accepts_balanced_and_escaped_parentheses(
     ),
     ids=("unclosed-labels", "unclosed-destinations"),
 )
-def test_inline_link_scanner_has_bounded_work_on_malformed_long_lines(line: str) -> None:
+def test_inline_link_scanner_has_bounded_work_on_malformed_long_lines(
+    line: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    spent = 0
+    original_label = parse_module._find_label_end
+    original_close = parse_module._inline_link_close
+
+    def counting_label(value: str, start: int, max_steps: int) -> tuple[int | None, int]:
+        nonlocal spent
+        result = original_label(value, start, max_steps)
+        spent += result[1]
+        return result
+
+    def counting_close(value: str, start: int, max_steps: int) -> tuple[int | None, int]:
+        nonlocal spent
+        result = original_close(value, start, max_steps)
+        spent += result[1]
+        return result
+
+    monkeypatch.setattr(parse_module, "_find_label_end", counting_label)
+    monkeypatch.setattr(parse_module, "_inline_link_close", counting_close)
+
     assert list(parse_module._iter_inline_links(line)) == []
+    budget = max(
+        parse_module.INLINE_LINK_MIN_WORK,
+        len(line) * parse_module.INLINE_LINK_WORK_FACTOR,
+    )
+    assert spent <= budget
 
 
 @pytest.mark.parametrize(
