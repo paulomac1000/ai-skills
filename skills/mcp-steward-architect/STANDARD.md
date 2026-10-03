@@ -36,7 +36,7 @@ Authority-bearing values are non-defaultable. Lease identity/expiry, exact revis
 
 ## Design pack and enforcement gates
 
-Before implementation, an applicable Steward MUST define a machine-readable Design Pack containing the profile, state machine, mutation policy, proof recipe, upstream capability contracts, and acceptance plan.
+Before implementation, an applicable Steward MUST define a machine-readable Design Pack containing the profile, state machine, mutation policy, proof recipe, upstream capability contracts, and acceptance plan. Legacy state-machine and acceptance documents MAY remain individually readable/validatable for bounded migration, but a current conformance claim MUST use the closure-bearing contract revisions required by the current Design Pack; legacy document validity is not current Steward conformance.
 
 The design MUST identify four application-level gates:
 
