@@ -401,14 +401,64 @@ def _parse_inline_link_target(body: str) -> tuple[bool, str]:
     return bool(raw_target), target
 
 
+def _inline_html_tag_spans(line: str) -> Iterator[tuple[int, int]]:
+    """Yield inline HTML tag spans so attribute text is not interpreted as Markdown."""
+    index = 0
+    while index < len(line):
+        start = line.find("<", index)
+        if start < 0 or start + 1 >= len(line):
+            return
+
+        cursor = start + 1
+        marker = line[cursor]
+        if marker == "/":
+            cursor += 1
+            if cursor >= len(line) or not line[cursor].isalpha():
+                index = start + 1
+                continue
+        elif not (marker.isalpha() or marker in {"!", "?"}):
+            index = start + 1
+            continue
+
+        quote: str | None = None
+        cursor += 1
+        while cursor < len(line):
+            character = line[cursor]
+            if quote is not None:
+                if character == quote:
+                    quote = None
+            elif character in {'"', "'"}:
+                quote = character
+            elif character == ">":
+                yield start, cursor + 1
+                index = cursor + 1
+                break
+            elif character == "<":
+                index = start + 1
+                break
+            cursor += 1
+        else:
+            return
+
+
 def _iter_inline_links(line: str) -> Iterator[InlineLink]:
     """Yield inline Markdown links with balanced destinations under a linear work budget."""
     index = 0
     remaining_work = max(INLINE_LINK_MIN_WORK, len(line) * INLINE_LINK_WORK_FACTOR)
+    html_spans = tuple(_inline_html_tag_spans(line))
+    html_index = 0
     while index < len(line) and remaining_work > 0:
         label_start = line.find("[", index)
         if label_start < 0:
             return
+        while html_index < len(html_spans) and html_spans[html_index][1] <= label_start:
+            html_index += 1
+        if (
+            html_index < len(html_spans)
+            and html_spans[html_index][0] <= label_start < html_spans[html_index][1]
+        ):
+            index = html_spans[html_index][1]
+            continue
         is_image = label_start > 0 and line[label_start - 1] == "!"
 
         label_end, spent = _find_label_end(line, label_start + 1, remaining_work)
@@ -521,14 +571,14 @@ def iter_references(visible_lines: Sequence[tuple[int, str]]) -> Iterator[tuple[
         for link in _iter_inline_links(line):
             yield line_number, link.target
 
-        image_spans = tuple(_image_label_spans(line))
-        image_index = 0
+        excluded_spans = tuple(sorted((*_image_label_spans(line), *_inline_html_tag_spans(line))))
+        excluded_index = 0
         for match in REFERENCE_USAGE.finditer(line):
-            while image_index < len(image_spans) and image_spans[image_index][1] <= match.start():
-                image_index += 1
+            while excluded_index < len(excluded_spans) and excluded_spans[excluded_index][1] <= match.start():
+                excluded_index += 1
             if (
-                image_index < len(image_spans)
-                and image_spans[image_index][0] <= match.start() < image_spans[image_index][1]
+                excluded_index < len(excluded_spans)
+                and excluded_spans[excluded_index][0] <= match.start() < excluded_spans[excluded_index][1]
             ):
                 continue
             key = (match.group("ref") or match.group("label")).casefold()
