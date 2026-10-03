@@ -713,6 +713,16 @@ def test_generator_dotnet_surface_carries_v3_design_pack() -> None:
 
     dotnet_machine = json.loads(files["src/Example.Mcp.Server/steward_state_machine.json"])
     dotnet_entrypoints = {item["id"]: item["entrypoint"] for item in dotnet_machine["producers"]}
+    producer_contracts = {
+        item["id"]: (item["contract_ref"], item["boundary"])
+        for item in dotnet_machine["producers"]
+    }
+    assert producer_contracts == {
+        "submission-command": ("steward.submit@1", "public"),
+        "workflow-runner": ("steward.workflow@2", "internal"),
+        "cancellation-command": ("steward.cancel@1", "public"),
+        "recovery-runner": ("steward.recovery@2", "recovery-only"),
+    }
     assert dotnet_entrypoints == {
         "submission-command": "StewardSeedRuntime.Submit",
         "workflow-runner": "StewardSeedRuntime.RunOneDue",
@@ -728,6 +738,10 @@ def test_generator_dotnet_surface_carries_v3_design_pack() -> None:
     )
     python_machine = json.loads(python_files["src/example_steward/steward_state_machine.json"])
     python_entrypoints = {item["id"]: item["entrypoint"] for item in python_machine["producers"]}
+    assert {
+        item["id"]: (item["contract_ref"], item["boundary"])
+        for item in python_machine["producers"]
+    } == producer_contracts
     assert python_entrypoints == {
         "submission-command": "StewardRuntime.submit",
         "workflow-runner": "StewardRuntime.run_once",
