@@ -546,9 +546,7 @@ def _state_machine_findings(value: dict[str, Any]) -> list[str]:
             if states[resume_state]["terminal"]:
                 findings.append(f"state-machine: checkpoint {checkpoint_id} resume state must be nonterminal")
             elif not can_reach(resume_state, checkpoint_state):
-                findings.append(
-                    f"state-machine: checkpoint {checkpoint_id} resume state cannot reach checkpoint state"
-                )
+                findings.append(f"state-machine: checkpoint {checkpoint_id} resume state cannot reach checkpoint state")
         missing_dependencies = sorted(set(checkpoint["dependency_refs"]) - set(dependencies))
         if missing_dependencies:
             findings.append(
@@ -682,9 +680,7 @@ def derive_checkpoint_plan(
                     direct_current = False
                     reason_codes.append(f"recovery-subject-mismatch:{checkpoint_id}")
                 current_candidate = (
-                    current_projection.get(candidate_dependency_id)
-                    if candidate_dependency_id is not None
-                    else None
+                    current_projection.get(candidate_dependency_id) if candidate_dependency_id is not None else None
                 )
                 if recovery["candidateIdentity"] != current_candidate:
                     direct_current = False
