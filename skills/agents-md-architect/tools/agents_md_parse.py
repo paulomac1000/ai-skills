@@ -627,7 +627,10 @@ def iter_references(visible_lines: Sequence[tuple[int, str]]) -> Iterator[tuple[
     for _, line in visible_lines:
         match = REFERENCE_DEFINITION.fullmatch(line)
         if match is not None:
-            definitions[match.group("label").casefold()] = _strip_destination(match.group("target"))
+            definitions.setdefault(
+                match.group("label").casefold(),
+                _strip_destination(match.group("target")),
+            )
 
     for line_number, line in visible_lines:
         inline_links = tuple(_iter_inline_links(line))
