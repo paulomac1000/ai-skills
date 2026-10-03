@@ -1,0 +1,144 @@
+# ai-skills-policy-profile: protected-release
+name: Release ai-skills 3.3.0
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/release-3.3.0.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-ai-skills-3.3.0
+  cancel-in-progress: false
+
+env:
+  RELEASE_SHA: 351c3f0243f9822cf673d0b6ed6349f246021e13
+  RELEASE_TAG: v3.3.0
+  RELEASE_VERSION: 3.3.0
+  PACKAGE_NAME: ai-skills-3.3.0.tar.gz
+
+jobs:
+  package:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.RELEASE_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify immutable release identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$RELEASE_SHA"
+          git merge-base --is-ancestor "$RELEASE_SHA" origin/main
+          test "$(grep -m1 '^The current repository release is ' README.md)" = 'The current repository release is `3.3.0`. All bundled skills are published with `maturity: stable` and are intended for production adoption. Each skill declares its compatibility, dependencies, evidence lanes, and required entry points in `manifest.yaml`.'
+          grep -q '^## 3.3.0 - 2026-10-03$' CHANGELOG.md
+      - name: Build immutable source package and release notes
+        shell: bash
+        env:
+          PACKAGE_PATH: ${{ runner.temp }}/ai-skills-3.3.0.tar.gz
+          NOTES_PATH: ${{ runner.temp }}/RELEASE_NOTES.md
+          SUMS_PATH: ${{ runner.temp }}/SHA256SUMS
+        run: |
+          set -euo pipefail
+          git archive --format=tar.gz --prefix="ai-skills-$RELEASE_VERSION/" -o "$PACKAGE_PATH" "$RELEASE_SHA"
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          text = Path("CHANGELOG.md").read_text(encoding="utf-8")
+          marker = "## 3.3.0 - 2026-10-03"
+          start = text.index(marker)
+          next_heading = text.find("\n## ", start + len(marker))
+          section = text[start:] if next_heading < 0 else text[start:next_heading]
+          Path(os.environ["NOTES_PATH"]).write_text(section.rstrip() + "\n", encoding="utf-8")
+          PY
+          cd "${RUNNER_TEMP}"
+          sha256sum "$PACKAGE_NAME" > SHA256SUMS
+          test -s "$PACKAGE_PATH"
+          test -s "$NOTES_PATH"
+          test -s "$SUMS_PATH"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: release-package-3.3.0
+          path: |
+            ${{ runner.temp }}/ai-skills-3.3.0.tar.gz
+            ${{ runner.temp }}/RELEASE_NOTES.md
+            ${{ runner.temp }}/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    needs: package
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: release-3.3.0
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - name: Download validated package artifact
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir release
+          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "release-package-3.3.0" --dir release
+          cd release
+          sha256sum -c SHA256SUMS
+          test -s "$PACKAGE_NAME"
+          test -s RELEASE_NOTES.md
+      - name: Verify release revision is on main
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          status="$(gh api "repos/$GITHUB_REPOSITORY/compare/$RELEASE_SHA...main" --jq .status)"
+          case "$status" in
+            ahead|identical) ;;
+            *) echo "Release SHA is not an ancestor of main: $status" >&2; exit 1 ;;
+          esac
+      - name: Create or verify annotated release tag
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          ref_json="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG" 2>/dev/null || true)"
+          if [[ -n "$ref_json" ]]; then
+            object_type="$(jq -r '.object.type' <<<"$ref_json")"
+            object_sha="$(jq -r '.object.sha' <<<"$ref_json")"
+            if [[ "$object_type" == "tag" ]]; then
+              target_sha="$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$object_sha" --jq .object.sha)"
+            elif [[ "$object_type" == "commit" ]]; then
+              target_sha="$object_sha"
+            else
+              echo "Unexpected tag object type: $object_type" >&2
+              exit 1
+            fi
+            test "$target_sha" = "$RELEASE_SHA"
+          else
+            tag_object="$(gh api --method POST "repos/$GITHUB_REPOSITORY/git/tags"               -f tag="$RELEASE_TAG"               -f message="ai-skills $RELEASE_VERSION"               -f object="$RELEASE_SHA"               -f type=commit               --jq .sha)"
+            gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs"               -f ref="refs/tags/$RELEASE_TAG"               -f sha="$tag_object" >/dev/null
+          fi
+      - name: Create GitHub Release and upload package
+        shell: bash
+        working-directory: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY"               --title "ai-skills $RELEASE_VERSION"               --notes-file RELEASE_NOTES.md               --latest
+          else
+            gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY"               --verify-tag               --title "ai-skills $RELEASE_VERSION"               --notes-file RELEASE_NOTES.md               --latest
+          fi
+          gh release upload "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY"             "$PACKAGE_NAME" SHA256SUMS --clobber
