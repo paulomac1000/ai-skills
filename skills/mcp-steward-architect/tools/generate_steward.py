@@ -130,7 +130,7 @@ def _profile_document(steward_id: str, profile: str, *, durability_profile: str)
             "state_machine": f"{steward_id}-state-machine@2",
             "mutation_policy": f"{steward_id}-mutation-policy@1",
             "proof_recipe": f"{steward_id}-seed-proof@1",
-            "acceptance": f"{steward_id}-acceptance@1",
+            "acceptance": f"{steward_id}-acceptance@2",
         },
         "features": {
             "durable_external_async": True,
@@ -356,9 +356,9 @@ def _proof_recipe_document(steward_id: str) -> dict[str, Any]:
 
 def _acceptance_document(steward_id: str) -> dict[str, Any]:
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "acceptance_id": f"{steward_id}-acceptance",
-        "revision": 1,
+        "revision": 2,
         "claim_class": "structural",
         "required_lanes": ["implementer", "canonical-full", "fault-restart", "inherited-mcp", "exact-artifact"],
         "independent_required": False,
@@ -368,8 +368,15 @@ def _acceptance_document(steward_id: str) -> dict[str, Any]:
             "runtime_prerequisites_declared": True,
             "restart_boundary_required": True,
         },
+        "closure": {
+            "producer_reachability_required": True,
+            "liveness_closure_required": True,
+            "real_producer_success_and_rejection_required": True,
+            "canonical_checkpoint_reuse_required": True,
+            "minimum_recomputation_required": True,
+            "transcript_independent_restart_required": True,
+        },
     }
-
 
 def _read_template(relative: str, **replacements: str) -> str:
     text = (TEMPLATES / relative).read_text(encoding="utf-8")
