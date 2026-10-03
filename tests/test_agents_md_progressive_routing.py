@@ -1327,6 +1327,27 @@ def test_route_prose_accepts_shortcut_reference_link(tmp_path: Path) -> None:
     assert not any(finding.code.startswith("routing.") for finding in findings)
 
 
+def test_first_duplicate_reference_definition_is_authoritative(tmp_path: Path) -> None:
+    _write_base(tmp_path)
+    _write_conditional_owner(tmp_path, "docs/recovery.md")
+    _write_conditional_owner(tmp_path, "docs/other.md")
+    _append(
+        tmp_path,
+        """
+## Recovery routing
+
+<!-- agents-md: route owner="docs/recovery.md" when="after failure" purpose="recovery" -->
+- After failure, read [owner][recovery] before recovery work.
+
+[recovery]: docs/other.md
+[recovery]: docs/recovery.md
+""",
+    )
+
+    _, findings = audit_module.audit(tmp_path, "application", "single", "en")
+    assert {"routing.route-prose-missing", "routing.trigger-unreachable"} <= _codes(findings)
+
+
 def test_later_html_attribute_is_masked_after_unterminated_tag(tmp_path: Path) -> None:
     _write_base(tmp_path)
     _write_conditional_owner(tmp_path, "docs/recovery.md")
