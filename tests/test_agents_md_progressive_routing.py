@@ -13,6 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 TOOLS = ROOT / "skills/agents-md-architect/tools"
 sys.path.insert(0, str(TOOLS))
 
+import agents_md_parse as parse_module  # noqa: E402
 import audit_agents_md as audit_module  # noqa: E402
 
 
@@ -982,7 +983,7 @@ def test_long_invalid_custom_html_is_bounded_and_not_a_route(tmp_path: Path) -> 
     assert isinstance(findings, list)
 
 
-def test_route_marker_inside_unclosed_inline_comment_is_not_live(tmp_path: Path) -> None:
+def test_block_route_marker_interrupts_prior_unclosed_inline_comment(tmp_path: Path) -> None:
     _write_base(tmp_path)
     _write_conditional_owner(tmp_path, "docs/recovery.md")
     _append(
@@ -992,6 +993,24 @@ def test_route_marker_inside_unclosed_inline_comment_is_not_live(tmp_path: Path)
 
 Paragraph text <!-- unfinished inline comment
 <!-- agents-md: route owner="docs/recovery.md" when="after failure" purpose="recovery" -->
+- After failure, read [the recovery owner](docs/recovery.md).
+""",
+    )
+
+    _, findings = audit_module.audit(tmp_path, "application", "single", "en")
+    assert not any(finding.code.startswith("routing.") for finding in findings)
+
+
+def test_route_marker_inside_same_inline_comment_paragraph_is_not_live(tmp_path: Path) -> None:
+    _write_base(tmp_path)
+    _write_conditional_owner(tmp_path, "docs/recovery.md")
+    _append(
+        tmp_path,
+        """
+## Notes
+
+Paragraph text <!-- unfinished inline comment
+continued comment <!-- agents-md: route owner="docs/recovery.md" when="after failure" purpose="recovery" -->
 still commented -->
 - After failure, read [the recovery owner](docs/recovery.md).
 """,
@@ -1100,3 +1119,15 @@ def test_route_prose_accepts_balanced_and_escaped_parentheses(
 
     _, findings = audit_module.audit(tmp_path, "application", "single", "en")
     assert not any(finding.code.startswith("routing.") for finding in findings)
+
+
+@pytest.mark.parametrize(
+    "line",
+    (
+        "[" * 32768,
+        "[a](" * 8192,
+    ),
+    ids=("unclosed-labels", "unclosed-destinations"),
+)
+def test_inline_link_scanner_has_bounded_work_on_malformed_long_lines(line: str) -> None:
+    assert list(parse_module._iter_inline_links(line)) == []

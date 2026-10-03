@@ -233,16 +233,27 @@ class InlineLink:
     end: int
 
 
-def _find_unescaped(line: str, character: str, start: int) -> int | None:
+INLINE_LINK_WORK_FACTOR = 4
+INLINE_LINK_MIN_WORK = 1024
+
+
+def _find_unescaped(
+    line: str,
+    character: str,
+    start: int,
+    max_steps: int,
+) -> tuple[int | None, int]:
     index = start
-    while index < len(line):
-        if line[index] == "\\":
-            index += 2
-            continue
-        if line[index] == character:
-            return index
-        index += 1
-    return None
+    steps = 0
+    while index < len(line) and steps < max_steps:
+        advance = 2 if line[index] == "\\" and index + 1 < len(line) else 1
+        if steps + advance > max_steps:
+            break
+        if advance == 1 and line[index] == character:
+            return index, steps + 1
+        index += advance
+        steps += advance
+    return None, steps
 
 
 def _unescape_markdown_destination(value: str) -> str:
@@ -258,18 +269,28 @@ def _unescape_markdown_destination(value: str) -> str:
     return "".join(output)
 
 
-def _inline_link_close(line: str, destination_start: int) -> int | None:
+def _inline_link_close(
+    line: str,
+    destination_start: int,
+    max_steps: int,
+) -> tuple[int | None, int]:
     depth = 0
     index = destination_start
+    steps = 0
     in_angle_destination = index < len(line) and line[index] == "<"
     title_quote: str | None = None
     saw_top_level_space = False
 
-    while index < len(line):
+    while index < len(line) and steps < max_steps:
         character = line[index]
         if character == "\\":
-            index += 2
+            advance = 2 if index + 1 < len(line) else 1
+            if steps + advance > max_steps:
+                break
+            index += advance
+            steps += advance
             continue
+        steps += 1
         if in_angle_destination:
             if character == ">":
                 in_angle_destination = False
@@ -294,18 +315,19 @@ def _inline_link_close(line: str, destination_start: int) -> int | None:
             continue
         if character == ")":
             if depth == 0:
-                return index
+                return index, steps
             depth -= 1
             index += 1
             continue
         index += 1
-    return None
+    return None, steps
 
 
 def _iter_inline_links(line: str) -> Iterator[InlineLink]:
-    """Yield inline Markdown links with balanced and escaped destinations."""
+    """Yield inline Markdown links with balanced destinations under a linear work budget."""
     index = 0
-    while index < len(line):
+    remaining_work = max(INLINE_LINK_MIN_WORK, len(line) * INLINE_LINK_WORK_FACTOR)
+    while index < len(line) and remaining_work > 0:
         label_start = line.find("[", index)
         if label_start < 0:
             return
@@ -313,15 +335,19 @@ def _iter_inline_links(line: str) -> Iterator[InlineLink]:
             index = label_start + 1
             continue
 
-        label_end = _find_unescaped(line, "]", label_start + 1)
-        if label_end is None or label_end + 1 >= len(line) or line[label_end + 1] != "(":
+        label_end, spent = _find_unescaped(line, "]", label_start + 1, remaining_work)
+        remaining_work -= spent
+        if label_end is None:
+            return
+        if label_end + 1 >= len(line) or line[label_end + 1] != "(":
             index = label_start + 1
             continue
 
         destination_start = label_end + 2
-        close = _inline_link_close(line, destination_start)
+        close, spent = _inline_link_close(line, destination_start, remaining_work)
+        remaining_work -= spent
         if close is None:
-            index = label_start + 1
+            index = label_end + 1
             continue
 
         raw_target = _strip_destination(line[destination_start:close])

@@ -613,6 +613,7 @@ def _is_inline_block_boundary(line: RoutingLine) -> bool:
     return (
         line.boundary_before
         or not stripped
+        or _strip_markdown_indent(line.text).startswith("<!--")
         or ATX_HEADING.match(line.text) is not None
         or SETEXT_OR_THEMATIC_BOUNDARY.match(line.text) is not None
     )
