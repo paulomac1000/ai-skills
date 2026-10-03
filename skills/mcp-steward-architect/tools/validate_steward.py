@@ -508,10 +508,6 @@ def _state_machine_findings(value: dict[str, Any]) -> list[str]:
     orders = [item["order"] for item in checkpoint_items]
     if len(set(orders)) != len(orders):
         findings.append("state-machine: checkpoint order values must be unique")
-    artifact_refs = [item["artifact_class"] for item in checkpoint_items]
-    if len(set(artifact_refs)) != len(artifact_refs):
-        findings.append("state-machine: checkpoint artifact_ref values must be unique")
-
     for checkpoint in checkpoint_items:
         checkpoint_id = checkpoint["id"]
         if checkpoint["state"] not in states or checkpoint["resume_state"] not in states:
