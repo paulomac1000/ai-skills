@@ -1,12 +1,13 @@
 # Changelog
 
-## 3.4.0 - 2026-10-03
+## 3.4.0 - 2026-10-04
 
 ### Added
 
 - Added machine-readable production-producer and gate reachability declarations for MCP Steward state machines, including explicit work-admission, mutation-admission, evidence-promotion, and completion-publication producer paths.
 - Added the canonical `steward-checkpoint` contract for generation-fenced artifact identity, exact semantic dependency bindings, upstream checkpoint artifact bindings, and recovery-critical subject, authority, ownership, progress, budget, deadline, blocker, and external-operation state.
 - Added deterministic checkpoint planning that derives reusable and stale artifacts, reason codes, the earliest safe resume stage, and the minimum recomputation set without replaying model transcript state.
+- Generated Python and .NET Steward runtimes now durably persist canonical checkpoint bindings and artifact payloads, expose deterministic `resumePlan` projections, restart from persisted state without transcript replay, and recompute only checkpoint closure affected by changed semantic dependencies.
 
 ### Changed
 
