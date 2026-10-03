@@ -378,6 +378,7 @@ def _acceptance_document(steward_id: str) -> dict[str, Any]:
         },
     }
 
+
 def _read_template(relative: str, **replacements: str) -> str:
     text = (TEMPLATES / relative).read_text(encoding="utf-8")
     for key, value in replacements.items():
