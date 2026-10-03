@@ -502,11 +502,7 @@ def _iter_inline_links(line: str) -> Iterator[InlineLink]:
             index = label_start + 1
             continue
 
-        is_image = (
-            label_start > 0
-            and line[label_start - 1] == "!"
-            and not _is_escaped(line, label_start - 1)
-        )
+        is_image = label_start > 0 and line[label_start - 1] == "!" and not _is_escaped(line, label_start - 1)
         label_end, spent = _find_label_end(line, label_start + 1, remaining_work)
         remaining_work -= spent
         if label_end is None:
