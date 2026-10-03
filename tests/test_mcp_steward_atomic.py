@@ -271,6 +271,16 @@ def test_state_machine_v2_requires_production_reachability_and_liveness_closure(
     shared_artifact_class["checkpoints"][1]["artifact_class"] = shared_artifact_class["checkpoints"][0]["artifact_class"]
     assert validator.validate_document("state-machine", shared_artifact_class) == []
 
+    terminal_resume = json.loads(json.dumps(machine))
+    terminal_resume["checkpoints"][0]["resume_state"] = "completed"
+    findings = validator.validate_document("state-machine", terminal_resume)
+    assert any("resume state must be nonterminal" in item for item in findings)
+
+    unreachable_resume = json.loads(json.dumps(machine))
+    unreachable_resume["checkpoints"][0]["resume_state"] = "finalizing"
+    findings = validator.validate_document("state-machine", unreachable_resume)
+    assert any("resume state cannot reach checkpoint state" in item for item in findings)
+
 
 def test_checkpoint_plan_reuses_current_artifacts_and_derives_minimum_recomputation() -> None:
     validator = _validator()
@@ -389,6 +399,32 @@ def test_checkpoint_plan_reuses_current_artifacts_and_derives_minimum_recomputat
     assert evidence_plan["reusableArtifactRefs"] == ["artifact:external-dispatch:v1"]
     assert "dependency-changed:provider-result:provider-result" in evidence_plan["reasonCodes"]
     assert "upstream-stale:completion-candidate:provider-result" in evidence_plan["reasonCodes"]
+
+    mismatched_recovery_subject = json.loads(json.dumps(bindings))
+    mismatched_recovery_subject["completion-candidate"]["recoveryBindings"]["subjectIdentity"] = "subject:other"
+    recovery_subject_plan = validator.derive_checkpoint_plan(
+        machine,
+        current_generation=3,
+        current_dependencies=current,
+        checkpoint_bindings=mismatched_recovery_subject,
+    )
+    assert recovery_subject_plan["requiredRecomputations"] == ["completion-candidate"]
+    assert recovery_subject_plan["reasonCodes"] == ["recovery-subject-mismatch:completion-candidate"]
+
+    mismatched_recovery_candidate = json.loads(json.dumps(bindings))
+    mismatched_recovery_candidate["provider-result"]["recoveryBindings"]["candidateIdentity"] = "candidate:other"
+    recovery_candidate_plan = validator.derive_checkpoint_plan(
+        machine,
+        current_generation=3,
+        current_dependencies=current,
+        checkpoint_bindings=mismatched_recovery_candidate,
+    )
+    assert recovery_candidate_plan["requiredRecomputations"] == [
+        "provider-result",
+        "completion-candidate",
+    ]
+    assert "recovery-candidate-mismatch:provider-result" in recovery_candidate_plan["reasonCodes"]
+    assert "upstream-stale:completion-candidate:provider-result" in recovery_candidate_plan["reasonCodes"]
 
     changed_upstream_artifact = json.loads(json.dumps(bindings))
     changed_upstream_artifact["completion-candidate"]["upstreamCheckpointBindings"]["provider-result"][
