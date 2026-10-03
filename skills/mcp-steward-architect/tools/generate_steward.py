@@ -265,7 +265,7 @@ def _mutation_policy_document(steward_id: str, capability: dict[str, Any]) -> di
             {
                 "id": "cancellation-dispatch",
                 "operation_kind": "cancel",
-                "transition": "cancel-start",
+                "transition": "cancel-dispatch",
                 "authority_source": "steward-runtime",
                 "lease_required": True,
                 "subject_dimensions": ["target"],
