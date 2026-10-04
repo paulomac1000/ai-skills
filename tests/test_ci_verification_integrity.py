@@ -438,6 +438,36 @@ def test_verification_receipt_binds_candidate_digest_to_exact_artifact_evidence(
     )
 
 
+def test_verification_receipt_rejects_semantically_tampered_artifact_profile() -> None:
+    exact = artifact_evidence.construct_artifact_evidence(
+        [artifact_evidence.ArtifactEntry("package.bin", b"payload")],
+        subject_ref="artifact:candidate",
+        profile=artifact_evidence.ConstructionProfile(
+            "artifact-tree/v1",
+            "policy:artifact-evidence/v1",
+        ),
+        requested_kind="package_spec",
+        requested_value="package>=1",
+        enumeration_complete=True,
+    )
+    digest = exact["observed_identity"]["artifact_digest"]
+    assert isinstance(digest, str)
+    exact["construction_profile"]["revision"] = "tampered/v2"
+
+    receipt = _verification_receipt_with_generic_corpus()
+    candidate = receipt["candidate"]
+    assert isinstance(candidate, dict)
+    candidate["artifact_digest"] = digest
+    candidate["artifact_evidence"] = exact
+
+    findings = receipt_validator.validate_receipt(receipt)
+    assert any(
+        "candidate.artifact_evidence: construction_profile.profile_digest"
+        in finding
+        for finding in findings
+    )
+
+
 def test_verification_receipt_rejects_digest_with_non_exact_artifact_evidence() -> None:
     partial = artifact_evidence.construct_artifact_evidence(
         [artifact_evidence.ArtifactEntry("package.bin", b"payload")],
