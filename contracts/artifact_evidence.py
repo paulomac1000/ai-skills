@@ -522,13 +522,36 @@ def require_exact_artifact_digest(evidence: object) -> str:
     return digest
 
 
+def _canonical_profile_digest(profile: Mapping[str, Any]) -> str | None:
+    if set(profile) != _PROFILE_FIELDS:
+        return None
+    bounds = profile.get("bounds")
+    if not isinstance(bounds, Mapping) or set(bounds) != _BOUND_FIELDS:
+        return None
+    try:
+        reconstructed = ConstructionProfile(
+            revision=profile.get("revision"),
+            policy_ref=profile.get("policy_ref"),
+            bounds=ArtifactBounds(
+                max_files=bounds.get("max_files"),
+                max_bytes=bounds.get("max_bytes"),
+                max_depth=bounds.get("max_depth"),
+                max_duration_ms=bounds.get("max_duration_ms"),
+            ),
+        )
+    except ArtifactEvidenceError:
+        return None
+    expected = _profile_document(reconstructed)
+    if any(profile.get(field) != expected[field] for field in _PROFILE_FIELDS):
+        return None
+    return expected["profile_digest"]
+
+
 def construction_profiles_comparable(
     left: Mapping[str, Any],
     right: Mapping[str, Any],
 ) -> bool:
     """V1 evidence is comparable only under the same valid profile digest."""
-    left_digest = left.get("profile_digest")
-    right_digest = right.get("profile_digest")
-    return (
-        isinstance(left_digest, str) and _DIGEST_RE.fullmatch(left_digest) is not None and left_digest == right_digest
-    )
+    left_digest = _canonical_profile_digest(left)
+    right_digest = _canonical_profile_digest(right)
+    return left_digest is not None and left_digest == right_digest
