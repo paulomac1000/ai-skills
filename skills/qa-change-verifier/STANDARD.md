@@ -42,7 +42,7 @@ If `proof_classes` is omitted, the deterministic helper derives the minimum mapp
 
 ## Criterion completeness and exact evidence
 
-Evidence granting candidate confidence MUST identify the exact candidate revision and the exact acceptance-contract digest. Evidence from another candidate or admitted contract is stale unless an owning policy has a mechanically proven safe-reuse rule.
+Evidence granting candidate confidence MUST identify a non-empty exact candidate revision and the exact acceptance-contract digest. Evidence from another candidate or admitted contract is stale unless an owning policy has a mechanically proven safe-reuse rule. An `exact_artifact` proof additionally carries an `ExactEvidenceBinding` whose candidate and evidence revisions match the current candidate and whose artifact digest is a valid SHA-256 identity; a proof-class label alone is not artifact evidence.
 
 A green layer count is not acceptance when a required criterion is uncovered. Each required proof class must have current evidence. `FAIL` is a hard criterion failure; `UNKNOWN` and missing evidence remain incomplete rather than being averaged into PASS.
 
@@ -64,7 +64,7 @@ When policy requires semantic review, use `contracts/semantic-review-plan.schema
 
 Review priority follows consequence and semantic ownership rather than LOC or filename order. Supported risk reasons include authority boundaries, state transitions, persistence/migration, external side effects, retry/idempotency, concurrency, security boundaries, public contracts, cross-component invariants, rollback/recovery, analogue drift, and diagnostic egress.
 
-A plan may contain user/system flows, focus areas, analogous implementations, and invariant matrices. Required criteria mapped to `semantic_review` have explicit plan coverage. An empty or generic “review these files” plan cannot satisfy a required criterion: a focus area identifies concrete paths, risk reasons, and invariants. When a concrete repository path set is available, deterministic validation rejects unresolved path references rather than treating arbitrary strings as coverage.
+A plan may contain user/system flows, focus areas, analogous implementations, and invariant matrices. Required criteria mapped to `semantic_review` have explicit plan coverage. Semantic-review PASS evidence is accepted only when the evaluator has validated the plan against the same candidate and acceptance contract (and current base when supplied) and the evidence carries that exact plan digest. Widening or revising the plan therefore invalidates older semantic-review evidence even when the candidate SHA is unchanged. An empty or generic “review these files” plan cannot satisfy a required criterion: a focus area identifies concrete paths, risk reasons, and invariants. When a concrete repository path set is available, deterministic validation rejects unresolved path references rather than treating arbitrary strings as coverage.
 
 The default freshness rule is `plan(C1) is stale for C2`. Base-dependent plans are stale after a material base change. Reuse is allowed only when policy can mechanically establish unchanged load-bearing dependencies; provider UI state or prose is insufficient.
 
