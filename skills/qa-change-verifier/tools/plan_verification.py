@@ -536,9 +536,7 @@ def validate_semantic_review_plan(
                 elif known_path_refs is not None:
                     unresolved = sorted(set(path_refs) - known_path_refs)
                     if unresolved:
-                        findings.append(
-                            f"focus area {identifier} references unresolved paths: {', '.join(unresolved)}"
-                        )
+                        findings.append(f"focus area {identifier} references unresolved paths: {', '.join(unresolved)}")
             elif collection_name == "invariant_matrices":
                 dimensions = _strings(item.get("dimensions")) or []
                 unknown = sorted(set(dimensions) - INVARIANT_DIMENSIONS)
@@ -584,9 +582,7 @@ def evaluate_acceptance(
             if authorized_waiver:
                 waived.update(affected)
             else:
-                findings.append(
-                    f"known gap {gap.gap_id} claims policy waiver without trusted authorization/reference"
-                )
+                findings.append(f"known gap {gap.gap_id} claims policy waiver without trusted authorization/reference")
                 blocked.update(affected)
         elif gap.disposition == "not_applicable":
             findings.append(f"known gap {gap.gap_id} cannot self-declare required criteria not applicable")
