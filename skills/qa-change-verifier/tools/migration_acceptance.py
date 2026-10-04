@@ -222,13 +222,22 @@ def evaluate_migration_acceptance(
             findings.append(f"unsupported migration input {spec.input_ref} was silently normalized to current")
 
     if require_interrupted_recovery:
+        recovery_input_refs = {
+            spec.input_ref
+            for spec in supported
+            if spec.input_ref in supported_refs and spec.kind in {MigrationInputKind.FRESH, MigrationInputKind.LEGACY}
+        }
         recovery_cases = [
             case
             for case in evidence_cases
-            if case.result is MigrationCaseResult.INTERRUPTED and case.input_ref in supported_refs
+            if case.result is MigrationCaseResult.INTERRUPTED and case.input_ref in recovery_input_refs
         ]
+        for case in recovery_cases:
+            spec = spec_by_ref.get(case.input_ref)
+            if spec is not None:
+                _validate_pre_state(spec, case, current_schema if current_schema_valid else "", findings)
         if not recovery_cases:
-            findings.append("interrupted supported migration recovery case is required")
+            findings.append("interrupted mutating supported migration recovery case is required")
         elif not any(_non_empty_string_sequence(case.recovery_evidence_refs) for case in recovery_cases):
             findings.append("interrupted migration case did not prove recovery invariants")
 

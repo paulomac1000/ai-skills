@@ -288,4 +288,49 @@ def test_unsupported_interruption_cannot_satisfy_supported_recovery_proof() -> N
         ),
     )
     assessment = _evaluate(module, cases)
-    assert "interrupted supported migration recovery case is required" in assessment.findings
+    assert "interrupted mutating supported migration recovery case is required" in assessment.findings
+
+
+def test_current_noop_cannot_satisfy_migration_recovery_obligation() -> None:
+    module = _load("migration_acceptance_recovery_noop", TOOL)
+    cases = (
+        _case(module, "fresh", None, legacy_refs=(), absent_refs=()),
+        _case(module, "v1", "v1"),
+        _case(module, "v0", "v0", module.MigrationCaseResult.REJECT, "v0", data_refs=()),
+        _case(
+            module,
+            "current",
+            CURRENT,
+            module.MigrationCaseResult.INTERRUPTED,
+            CURRENT,
+            legacy_refs=(),
+            absent_refs=(),
+            data_refs=(),
+            recovery_refs=("recovery:current-noop",),
+        ),
+    )
+    assessment = _evaluate(module, cases)
+    assert "interrupted mutating supported migration recovery case is required" in assessment.findings
+
+
+def test_interrupted_legacy_recovery_still_requires_valid_legacy_prestate() -> None:
+    module = _load("migration_acceptance_recovery_prestate", TOOL)
+    cases = (
+        _case(module, "fresh", None, legacy_refs=(), absent_refs=()),
+        _case(module, "v1", "v1"),
+        _case(module, "v0", "v0", module.MigrationCaseResult.REJECT, "v0", data_refs=()),
+        _case(
+            module,
+            "v1",
+            CURRENT,
+            module.MigrationCaseResult.INTERRUPTED,
+            CURRENT,
+            legacy_refs=("schema:legacy-column",),
+            absent_refs=("schema:no-current-column",),
+            data_refs=(),
+            recovery_refs=("recovery:claimed-rollback",),
+        ),
+    )
+    assessment = _evaluate(module, cases)
+    assert any("pre-state mismatch" in finding for finding in assessment.findings)
+    assert "migration input v1 was already current before migration" in assessment.findings
