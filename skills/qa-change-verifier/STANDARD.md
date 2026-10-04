@@ -38,7 +38,7 @@ Planner decomposition may refine the work but cannot silently remove or weaken a
 
 For contract v1, the digest is `sha256:` plus lowercase SHA-256 of UTF-8 JSON for the complete object with the `digest` member omitted, object keys sorted lexicographically, no insignificant whitespace, and non-ASCII characters encoded directly rather than escaped. Array order is part of v1 identity. The same construction applies to Semantic Review Plan v1. A producer using another language must reproduce this byte contract or treat the digest as opaque rather than invent a competing normalization.
 
-If `proof_classes` is omitted, the deterministic helper derives the minimum mapping from obligation kinds. A repository/policy may declare a more precise mapping. `UNKNOWN`, missing, stale, vacuous, or semantically incomplete evidence for a required criterion is non-green.
+The deterministic helper always derives the minimum proof mapping from the referenced obligation kinds. Explicit `proof_classes` augment that minimum; they may add narrower or specialized proof but MUST NOT replace or weaken the obligation-kind minimum. `UNKNOWN`, missing, stale, vacuous, or semantically incomplete evidence for a required criterion is non-green.
 
 ## Criterion completeness and exact evidence
 
