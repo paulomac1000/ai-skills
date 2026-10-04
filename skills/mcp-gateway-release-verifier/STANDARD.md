@@ -29,7 +29,7 @@ Public lifecycle evidence must exercise an identifier produced by one operation 
 
 Local acceptance MUST begin from a clean candidate and disposable state, ports, HOME/XDG roots, and config. It composes build and migration preflight, isolated launch, exact-candidate acceptance, real-transport dogfood, this release verifier, durable async polling, migration invariants, and ownership-scoped cleanup. A port conflict or failed phase is non-green. Cleanup may delete only resources carrying the current run's ownership marker beneath its sandbox root.
 
-When persistent schema/storage migration is part of the candidate, migration preflight/invariants are green only with a `qa-change-verifier` migration-acceptance receipt bound to the same candidate revision. That receipt must prove the declared predecessor/unsupported matrix, pre-current legacy state, exact production migration entrypoint/revision, representative data invariants, and required interrupted-recovery behavior. A non-migration candidate does not need this additional receipt.
+When persistent schema/storage migration is part of the candidate, migration preflight/invariants are green only with a `qa-change-verifier` migration-acceptance receipt bound to the same candidate revision. That receipt must prove the declared predecessor/unsupported matrix, expose each exercised input ref/kind/schema identity, pre-current legacy state, exact production migration entrypoint/revision, representative data invariants, and required interrupted-recovery behavior. A non-migration candidate does not need this additional receipt.
 
 ## Bounded receipt
 

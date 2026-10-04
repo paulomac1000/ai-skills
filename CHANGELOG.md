@@ -4,7 +4,7 @@
 
 ### Added
 
-- Added a provider-neutral migration-acceptance evaluator that binds the exact candidate, current schema, supported and unsupported input states, immutable fixture identity, production migration entrypoint/revision, data invariants, and interrupted-recovery evidence.
+- Added a provider-neutral migration-acceptance evaluator that binds the exact candidate, current schema, supported and unsupported input states, immutable fixture identity, production migration entrypoint/revision, data invariants, interrupted-recovery evidence, and bounded exercised-input ref/kind/schema identities.
 - Added adversarial regressions for accidental current-bootstrap setup, wrong migrator identity/revision, missing supported predecessors, silent unsupported-state normalization, unsupported recovery substitution, and conditional current-schema rerun.
 
 ### Changed
@@ -14,7 +14,7 @@
 
 ### Security and correctness
 
-- Legacy-upgrade evidence now fails closed when the pre-state is already current, required legacy/current-absence characteristics are unproven, the wrong production migrator is exercised, representative data invariants are absent, or an unsupported state is normalized into apparent success.
+- Legacy-upgrade evidence now fails closed when the pre-state is already current, required legacy/current-absence characteristics are unproven, the wrong production migrator is exercised, representative data invariants are absent, or a known/unknown unsupported state is normalized into apparent success.
 - Recovery evidence from an unsupported input or current-schema no-op path can no longer satisfy the recovery obligation for a mutating supported migration, and interrupted legacy cases must still prove their exact legacy pre-state.
 
 ## 3.8.0 - 2026-10-04

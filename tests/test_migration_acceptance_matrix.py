@@ -115,7 +115,12 @@ def test_complete_matrix_passes_and_receipt_names_exercised_inputs() -> None:
     assert assessment.status == "pass"
     receipt = assessment.receipt()
     assert receipt["candidate_revision"] == CANDIDATE
-    assert receipt["exercised_inputs"] == ["current", "fresh", "v0", "v1"]
+    assert receipt["exercised_inputs"] == [
+        {"input_ref": "current", "kind": "current", "schema_identity": CURRENT},
+        {"input_ref": "fresh", "kind": "fresh", "schema_identity": None},
+        {"input_ref": "v0", "kind": "unsupported", "schema_identity": "v0"},
+        {"input_ref": "v1", "kind": "legacy", "schema_identity": "v1"},
+    ]
     assert module.validate_migration_acceptance_receipt(receipt) == ()
 
 
@@ -241,7 +246,10 @@ def test_receipt_validation_is_closed_and_fail_closed() -> None:
         "current_schema": CURRENT,
         "production_entrypoint": ENTRY,
         "production_entrypoint_revision": ENTRY_REV,
-        "exercised_inputs": ["fresh", "v1"],
+        "exercised_inputs": [
+            {"input_ref": "fresh", "kind": "fresh", "schema_identity": None},
+            {"input_ref": "v1", "kind": "legacy", "schema_identity": "v1"},
+        ],
         "failures": [],
     }
     assert module.validate_migration_acceptance_receipt(valid) == ()
@@ -371,3 +379,73 @@ def test_public_evaluator_rejects_malformed_boundary_types_without_raising() -> 
     assert "migration input v1 has invalid kind" in assessment.findings
     assert "migration case fresh observed_pre_schema must be string or null" in assessment.findings
     assert "migration case fresh has invalid result" in assessment.findings
+
+
+def test_unknown_unsupported_state_is_rejected_without_inventing_schema_identity() -> None:
+    module = _load("migration_acceptance_unknown_unsupported", TOOL)
+    supported, _ = _specs(module)
+    cases = (
+        _case(module, "fresh", None, legacy_refs=(), absent_refs=()),
+        _case(module, "v1", "v1"),
+        _case(
+            module,
+            "unknown",
+            None,
+            module.MigrationCaseResult.REJECT,
+            None,
+            legacy_refs=(),
+            absent_refs=("schema:current-characteristic-absent",),
+            data_refs=(),
+        ),
+        _case(
+            module,
+            "v1",
+            "v1",
+            module.MigrationCaseResult.INTERRUPTED,
+            "v1",
+            data_refs=(),
+            recovery_refs=("recovery:transaction-rolled-back",),
+        ),
+    )
+    assessment = module.evaluate_migration_acceptance(
+        candidate_revision=CANDIDATE,
+        current_schema=CURRENT,
+        production_entrypoint=ENTRY,
+        production_entrypoint_revision=ENTRY_REV,
+        supported_inputs=supported,
+        unsupported_inputs=(
+            module.MigrationInputSpec("unknown", module.MigrationInputKind.UNSUPPORTED, None),
+        ),
+        cases=cases,
+    )
+    assert assessment.status == "pass"
+    assert assessment.receipt()["exercised_inputs"] == [
+        {"input_ref": "fresh", "kind": "fresh", "schema_identity": None},
+        {"input_ref": "unknown", "kind": "unsupported", "schema_identity": None},
+        {"input_ref": "v1", "kind": "legacy", "schema_identity": "v1"},
+    ]
+
+
+def test_receipt_rejects_malformed_or_duplicate_exercised_input_identity() -> None:
+    module = _load("migration_acceptance_receipt_inputs", TOOL)
+    receipt = {
+        "schema_version": 1,
+        "verdict": "pass",
+        "candidate_revision": CANDIDATE,
+        "current_schema": CURRENT,
+        "production_entrypoint": ENTRY,
+        "production_entrypoint_revision": ENTRY_REV,
+        "exercised_inputs": [
+            {"input_ref": "v1", "kind": "legacy", "schema_identity": "v1"},
+            {"input_ref": "v1", "kind": "legacy", "schema_identity": "v1"},
+        ],
+        "failures": [],
+    }
+    findings = module.validate_migration_acceptance_receipt(receipt)
+    assert any("exercised_inputs" in finding for finding in findings)
+
+    receipt["exercised_inputs"] = [
+        {"input_ref": "unknown", "kind": "unsupported", "schema_identity": ""},
+    ]
+    findings = module.validate_migration_acceptance_receipt(receipt)
+    assert any("exercised_inputs" in finding for finding in findings)

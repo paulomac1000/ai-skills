@@ -94,12 +94,12 @@ The matrix proves separately:
 2. every declared supported predecessor reaches current through the production migrator;
 3. representative persisted data and required ownership/key/index invariants survive;
 4. current-schema rerun is exercised only when production requires idempotent rerun;
-5. unsupported, too-old, or ambiguous starting state is deliberately rejected and cannot be silently normalized to current; and
+5. unsupported, too-old, unknown, or ambiguous starting state is deliberately rejected and cannot be silently normalized to current; an unsupported entry may carry a known schema identity or an explicit unknown/null identity, but it remains distinct from `fresh`; and
 6. interrupted/failed migration follows the declared transaction/recovery contract.
 
 Historical fixtures or builders are immutable/version-pinned evidence inputs. Changing them changes the compatibility claim and requires review. Dropping support changes the declared matrix explicitly rather than deleting a failing predecessor fixture.
 
-Use `tools/migration_acceptance.py` to compose a bounded receipt that names the exact candidate revision, current schema, production entrypoint revision, and exercised input identities. The helper evaluates evidence; it does not execute a product migrator or turn caller-authored labels into proof. Product tests remain responsible for executable pre-state assertions, migration invocation, data checks, and recovery observations.
+Use `tools/migration_acceptance.py` to compose a bounded receipt that names the exact candidate revision, current schema, production entrypoint revision, and each exercised input's stable ref, kind, and declared schema identity. The helper evaluates evidence; it does not execute a product migrator or turn caller-authored labels into proof. Product tests remain responsible for executable pre-state assertions, migration invocation, data checks, and recovery observations.
 
 ## Failure attribution
 

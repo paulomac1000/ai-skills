@@ -46,7 +46,7 @@ class MigrationCaseEvidence:
 class MigrationAcceptanceAssessment:
     status: str
     findings: tuple[str, ...]
-    exercised_inputs: tuple[str, ...]
+    exercised_inputs: tuple[MigrationInputSpec, ...]
     candidate_revision: str
     current_schema: str
     production_entrypoint: str
@@ -60,7 +60,14 @@ class MigrationAcceptanceAssessment:
             "current_schema": self.current_schema,
             "production_entrypoint": self.production_entrypoint,
             "production_entrypoint_revision": self.production_entrypoint_revision,
-            "exercised_inputs": list(self.exercised_inputs),
+            "exercised_inputs": [
+                {
+                    "input_ref": item.input_ref,
+                    "kind": item.kind.value,
+                    "schema_identity": item.schema_identity,
+                }
+                for item in self.exercised_inputs
+            ],
             "failures": list(self.findings),
         }
 
@@ -127,9 +134,12 @@ def evaluate_migration_acceptance(
             findings.append(f"unsupported input {ref} must use kind=unsupported")
         if not expected_unsupported and raw_kind is MigrationInputKind.UNSUPPORTED:
             findings.append(f"supported input {ref} cannot use kind=unsupported")
-        if raw_kind in {MigrationInputKind.LEGACY, MigrationInputKind.CURRENT, MigrationInputKind.UNSUPPORTED}:
+        if raw_kind in {MigrationInputKind.LEGACY, MigrationInputKind.CURRENT}:
             if not _non_empty_string(spec.schema_identity):
                 findings.append(f"input {ref} requires schema_identity")
+        elif raw_kind is MigrationInputKind.UNSUPPORTED:
+            if spec.schema_identity is not None and not _non_empty_string(spec.schema_identity):
+                findings.append(f"unsupported input {ref} schema_identity must be a non-empty string or null")
         elif spec.schema_identity is not None:
             findings.append(f"fresh input {ref} must use schema_identity=None")
         if (
@@ -255,7 +265,7 @@ def evaluate_migration_acceptance(
         elif not any(_non_empty_string_sequence(case.recovery_evidence_refs) for case in recovery_cases):
             findings.append("interrupted migration case did not prove recovery invariants")
 
-    exercised = tuple(sorted(case_by_ref))
+    exercised = tuple(spec_by_ref[ref] for ref in sorted(case_by_ref))
     unique_findings = tuple(sorted(set(findings)))
     return MigrationAcceptanceAssessment(
         status="pass" if not unique_findings else "fail",
@@ -302,8 +312,10 @@ def validate_migration_acceptance_receipt(receipt: object) -> tuple[str, ...]:
         if not _non_empty_string(value):
             findings.append(f"migration acceptance receipt {field} must be a non-empty string")
     exercised = receipt.get("exercised_inputs")
-    if not _string_array(exercised, allow_empty=False):
-        findings.append("migration acceptance receipt exercised_inputs must be a non-empty unique string array")
+    if not _exercised_input_array(exercised):
+        findings.append(
+            "migration acceptance receipt exercised_inputs must be a non-empty unique array of input identity objects"
+        )
     failures = receipt.get("failures")
     if not _string_array(failures, allow_empty=True):
         findings.append("migration acceptance receipt failures must be a unique string array")
@@ -370,6 +382,32 @@ def _validate_string_refs(value: object, field: str, findings: list[str]) -> Non
         findings.append(f"{field} must be a unique tuple of non-empty strings")
 
 
+def _exercised_input_array(value: object) -> bool:
+    if not isinstance(value, list) or not value:
+        return False
+    seen: set[str] = set()
+    for item in value:
+        if not isinstance(item, dict) or set(item) != {"input_ref", "kind", "schema_identity"}:
+            return False
+        input_ref = item.get("input_ref")
+        kind = item.get("kind")
+        schema_identity = item.get("schema_identity")
+        if not _non_empty_string(input_ref) or input_ref in seen:
+            return False
+        seen.add(input_ref)
+        if kind not in {member.value for member in MigrationInputKind}:
+            return False
+        if kind in {MigrationInputKind.LEGACY.value, MigrationInputKind.CURRENT.value}:
+            if not _non_empty_string(schema_identity):
+                return False
+        elif kind == MigrationInputKind.FRESH.value:
+            if schema_identity is not None:
+                return False
+        elif schema_identity is not None and not _non_empty_string(schema_identity):
+            return False
+    return True
+
+
 def _string_array(value: object, *, allow_empty: bool) -> bool:
     if not isinstance(value, list):
         return False
@@ -393,10 +431,13 @@ def _validate_pre_state(
             f"migration input {spec.input_ref} pre-state mismatch: expected {spec.schema_identity}, "
             f"observed {case.observed_pre_schema}"
         )
-    if spec.kind in {MigrationInputKind.LEGACY, MigrationInputKind.UNSUPPORTED}:
+    if spec.kind is MigrationInputKind.LEGACY:
         if not _non_empty_string_sequence(case.legacy_characteristic_refs):
             findings.append(f"migration input {spec.input_ref} lacks legacy pre-state proof")
         if not _non_empty_string_sequence(case.absent_current_characteristic_refs):
             findings.append(f"migration input {spec.input_ref} lacks proof current characteristics were absent")
-        if current_schema and case.observed_pre_schema == current_schema:
-            findings.append(f"migration input {spec.input_ref} was already current before migration")
+    elif spec.kind is MigrationInputKind.UNSUPPORTED:
+        if not _non_empty_string_sequence(case.absent_current_characteristic_refs):
+            findings.append(f"migration input {spec.input_ref} lacks proof current characteristics were absent")
+    if current_schema and case.observed_pre_schema == current_schema:
+        findings.append(f"migration input {spec.input_ref} was already current before migration")
