@@ -1173,9 +1173,7 @@ def evaluate_acceptance(
                     item.exercise_discriminant.strip()
                 )
                 if not valid_fail_discriminant:
-                    findings.append(
-                        f"criterion {criterion_id} FAIL lacks required proof-of-exercise discriminant"
-                    )
+                    findings.append(f"criterion {criterion_id} FAIL lacks required proof-of-exercise discriminant")
                     continue
 
             if item.proof_class == "exact_artifact":
