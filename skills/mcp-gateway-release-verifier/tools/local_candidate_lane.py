@@ -157,9 +157,7 @@ def compose_local_lane_receipt(
                 obligations = contract.get("obligations")
                 assert isinstance(obligations, list)
                 migration_required = any(
-                    isinstance(item, dict)
-                    and item.get("required") is True
-                    and item.get("kind") == "migration"
+                    isinstance(item, dict) and item.get("required") is True and item.get("kind") == "migration"
                     for item in obligations
                 )
                 scope_valid = True
