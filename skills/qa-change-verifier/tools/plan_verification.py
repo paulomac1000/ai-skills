@@ -1176,6 +1176,13 @@ def evaluate_acceptance(
                     findings.append(f"criterion {criterion_id} FAIL lacks required proof-of-exercise discriminant")
                     continue
 
+            if criterion.get("fixture_fidelity") == "provider_faithful" and item.fixture_source not in {
+                FixtureSource.CAPTURED_PROVIDER,
+                FixtureSource.OFFICIAL_CONTRACT,
+            }:
+                findings.append(f"criterion {criterion_id} provider-faithful FAIL lacks provider-faithful fixture evidence")
+                continue
+
             if item.proof_class == "exact_artifact":
                 binding = item.exact_evidence_binding
                 if (
