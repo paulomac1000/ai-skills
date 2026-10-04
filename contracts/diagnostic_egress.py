@@ -200,16 +200,15 @@ def build_safe_diagnostic(
     )
     if not isinstance(classification, DiagnosticClassification):
         return fallback
-    if (
-        not isinstance(classification.category, str)
-        or not isinstance(classification.reason_code, str)
-        or not isinstance(classification.severity, str)
-    ):
+    category: object = classification.category
+    reason_code: object = classification.reason_code
+    severity: object = classification.severity
+    if not isinstance(category, str) or not isinstance(reason_code, str) or not isinstance(severity, str):
         return fallback
-    reason = policy.reasons.get(classification.reason_code)
+    reason = policy.reasons.get(reason_code)
     if reason is None:
         return fallback
-    if classification.category != reason.category or classification.severity != reason.severity:
+    if category != reason.category or severity != reason.severity:
         return fallback
 
     output_fields: list[dict[str, SafeScalar | str]] = []
@@ -243,9 +242,9 @@ def build_safe_diagnostic(
     return {
         "schema_version": 1,
         "construction_revision": policy.revision,
-        "category": classification.category,
-        "reason_code": classification.reason_code,
-        "severity": classification.severity,
+        "category": category,
+        "reason_code": reason_code,
+        "severity": severity,
         "safe_fields": output_fields,
         "source_payload_included": False,
         "truncated": truncated,
