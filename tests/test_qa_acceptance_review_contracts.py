@@ -1306,6 +1306,175 @@ def test_known_gap_snapshot_rejects_incomplete_or_malformed_records() -> None:
     assert "known gap id must be a non-empty string" in assessment.findings
 
 
+def test_acceptance_rejects_malformed_evidence_and_nested_bindings_without_raising() -> None:
+    module = _load("qa_malformed_evidence_input", TOOL)
+    contract: dict[str, object] = {
+        "schema_version": 1,
+        "change_id": "malformed-evidence",
+        "revision": "r1",
+        "obligations": [
+            {"id": "O1", "kind": "functional", "statement": "preserve behavior", "required": True}
+        ],
+        "criteria": [
+            {
+                "id": "C1",
+                "obligation_refs": ["O1"],
+                "expected_outcome": "behavior is preserved",
+                "rejection_condition": "behavior is not preserved",
+                "required": True,
+                "proof_classes": ["integration"],
+            }
+        ],
+    }
+    contract["digest"] = module.compute_change_contract_digest(contract)
+    snapshot = _gap_snapshot(module, contract)
+
+    malformed_record = module.evaluate_acceptance(
+        contract,
+        candidate_revision="candidate-1",
+        evidence=[{}],
+        trusted_known_gap_snapshot=snapshot,
+    )
+    assert malformed_record.status == module.AcceptanceStatus.INCOMPLETE
+    assert "evidence entries must be CriterionEvidence records" in malformed_record.findings
+
+    malformed_binding = module.CriterionEvidence(
+        "C1",
+        "integration",
+        module.EvidenceStatus.PASS,
+        "candidate-1",
+        contract["digest"],
+        exact_evidence_binding={"artifact_digest": "sha256:" + "a" * 64},
+    )
+    assessment = module.evaluate_acceptance(
+        contract,
+        candidate_revision="candidate-1",
+        evidence=[malformed_binding],
+        trusted_known_gap_snapshot=snapshot,
+    )
+    assert assessment.status == module.AcceptanceStatus.INCOMPLETE
+    assert "evidence for C1 exact_evidence_binding has invalid record type" in assessment.findings
+
+    malformed_fixture = module.CriterionEvidence(
+        "C1",
+        "integration",
+        module.EvidenceStatus.PASS,
+        "candidate-1",
+        contract["digest"],
+        fixture_source=[],
+    )
+    assessment = module.evaluate_acceptance(
+        contract,
+        candidate_revision="candidate-1",
+        evidence=[malformed_fixture],
+        trusted_known_gap_snapshot=snapshot,
+    )
+    assert assessment.status == module.AcceptanceStatus.INCOMPLETE
+    assert "evidence for C1 has invalid fixture_source" in assessment.findings
+
+
+def test_acceptance_rejects_malformed_policy_and_optional_runtime_inputs() -> None:
+    module = _load("qa_malformed_policy_input", TOOL)
+    contract: dict[str, object] = {
+        "schema_version": 1,
+        "change_id": "malformed-policy",
+        "revision": "r1",
+        "obligations": [
+            {"id": "O1", "kind": "functional", "statement": "preserve behavior", "required": True}
+        ],
+        "criteria": [
+            {
+                "id": "C1",
+                "obligation_refs": ["O1"],
+                "expected_outcome": "behavior is preserved",
+                "rejection_condition": "behavior is not preserved",
+                "required": True,
+                "proof_classes": ["integration"],
+            }
+        ],
+    }
+    contract["digest"] = module.compute_change_contract_digest(contract)
+    evidence = [
+        module.CriterionEvidence(
+            "C1",
+            "integration",
+            module.EvidenceStatus.PASS,
+            "candidate-1",
+            contract["digest"],
+        )
+    ]
+    snapshot = _gap_snapshot(module, contract)
+
+    malformed_waiver = module.evaluate_acceptance(
+        contract,
+        candidate_revision="candidate-1",
+        evidence=evidence,
+        trusted_known_gap_snapshot=snapshot,
+        trusted_policy_waivers=[None],
+    )
+    assert malformed_waiver.status == module.AcceptanceStatus.INCOMPLETE
+    assert (
+        "trusted policy waiver entries must be PolicyWaiverAuthorization records"
+        in malformed_waiver.findings
+    )
+
+    bad_scope = module.PolicyWaiverAuthorization(
+        "policy:bad-scope",
+        "G1",
+        None,
+        "candidate-1",
+        contract["digest"],
+    )
+    malformed_scope = module.evaluate_acceptance(
+        contract,
+        candidate_revision="candidate-1",
+        evidence=evidence,
+        trusted_known_gap_snapshot=snapshot,
+        trusted_policy_waivers=[bad_scope],
+    )
+    assert malformed_scope.status == module.AcceptanceStatus.INCOMPLETE
+    assert "trusted policy waiver policy:bad-scope must scope at least one criterion" in malformed_scope.findings
+
+    malformed_known_gaps = module.evaluate_acceptance(
+        contract,
+        candidate_revision="candidate-1",
+        evidence=evidence,
+        known_gaps=7,
+        trusted_known_gap_snapshot=snapshot,
+    )
+    assert malformed_known_gaps.status == module.AcceptanceStatus.INCOMPLETE
+    assert "known_gaps must be an array of KnownGap records" in malformed_known_gaps.findings
+
+    malformed_plan = module.evaluate_acceptance(
+        contract,
+        candidate_revision="candidate-1",
+        evidence=evidence,
+        trusted_known_gap_snapshot=snapshot,
+        semantic_review_plan=7,
+    )
+    assert malformed_plan.status == module.AcceptanceStatus.INCOMPLETE
+    assert "semantic_review_plan must be an object or null" in malformed_plan.findings
+
+    malformed_paths = module.evaluate_acceptance(
+        contract,
+        candidate_revision="candidate-1",
+        evidence=evidence,
+        trusted_known_gap_snapshot=snapshot,
+        known_path_refs=["src/not-a-set.py"],
+    )
+    assert malformed_paths.status == module.AcceptanceStatus.INCOMPLETE
+    assert "known_path_refs must be a set of non-empty strings" in malformed_paths.findings
+
+    malformed_contract = module.evaluate_acceptance(
+        7,
+        candidate_revision="candidate-1",
+        evidence=evidence,
+        trusted_known_gap_snapshot=snapshot,
+    )
+    assert malformed_contract.status == module.AcceptanceStatus.INCOMPLETE
+    assert "acceptance contract must be an object" in malformed_contract.findings
+
+
 def test_contract_schemas_are_closed_and_machine_readable() -> None:
     for path in (CHANGE_SCHEMA, REVIEW_SCHEMA):
         schema = json.loads(path.read_text(encoding="utf-8"))
