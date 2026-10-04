@@ -75,7 +75,7 @@ unsupported subject/file semantics
   -> coverage=unknown + no artifact digest
 ```
 
-Bounds belong to the construction profile and are included in its digest. Qualification must demonstrate that representative supported artifacts fit the selected profile; increasing a bound changes profile identity but does not weaken subject coverage. V1 exposes no exclusion input. The policy-owned collector defines the artifact root and proves enumeration completeness; repository/model/candidate content cannot self-remove files and still claim exact coverage.
+Bounds belong to the construction profile and are included in its digest. `max_bytes` counts normalized UTF-8 path bytes plus regular-file content bytes; fixed framing overhead is separately bounded by `max_files`. Qualification must demonstrate that representative supported artifacts fit the selected profile; increasing a bound changes profile identity but does not weaken subject coverage. V1 exposes no exclusion input. The policy-owned collector defines the artifact root and proves enumeration completeness; repository/model/candidate content cannot self-remove files and still claim exact coverage.
 
 Requested identity is immutable admission evidence. Observed identity records what was actually found. A fallback observation may establish an exact artifact digest while `requested_identity_matched` remains false or unknown. The artifact constructor never promotes `source_compatibility_established` or `runtime_compatibility_established`; those claims require their owning evidence.
 
