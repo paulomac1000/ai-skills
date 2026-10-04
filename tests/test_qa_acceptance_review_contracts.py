@@ -275,6 +275,7 @@ def test_vacuous_deferred_wrong_fixture_and_missing_exercise_are_non_green() -> 
         candidate_revision="candidate-1",
         evidence=evidence,
         semantic_review_plan=plan,
+        current_base_revision="base-1",
     )
     assert assessment.status == module.AcceptanceStatus.INCOMPLETE
     assert any("vacuous PASS" in finding for finding in assessment.findings)
@@ -289,6 +290,7 @@ def test_vacuous_deferred_wrong_fixture_and_missing_exercise_are_non_green() -> 
         candidate_revision="candidate-1",
         evidence=evidence,
         semantic_review_plan=plan,
+        current_base_revision="base-1",
     )
     assert any("proof-of-exercise" in finding for finding in assessment.findings)
 
@@ -306,6 +308,7 @@ def test_vacuous_deferred_wrong_fixture_and_missing_exercise_are_non_green() -> 
         candidate_revision="candidate-1",
         evidence=evidence,
         semantic_review_plan=plan,
+        current_base_revision="base-1",
     )
     assert any("incomplete/deferred semantic coverage" in finding for finding in assessment.findings)
 
@@ -347,6 +350,7 @@ def test_current_complete_evidence_passes_but_known_gap_cannot_self_waive() -> N
         candidate_revision="candidate-1",
         evidence=evidence,
         semantic_review_plan=plan,
+        current_base_revision="base-1",
     )
     assert assessment.status == module.AcceptanceStatus.PASS
 
@@ -359,6 +363,7 @@ def test_current_complete_evidence_passes_but_known_gap_cannot_self_waive() -> N
         evidence=evidence,
         known_gaps=[reported_waiver],
         semantic_review_plan=plan,
+        current_base_revision="base-1",
     )
     assert assessment.status == module.AcceptanceStatus.INCOMPLETE
     assert any(
@@ -380,6 +385,7 @@ def test_current_complete_evidence_passes_but_known_gap_cannot_self_waive() -> N
         known_gaps=[reported_waiver],
         trusted_policy_waivers=[stale_authorization],
         semantic_review_plan=plan,
+        current_base_revision="base-1",
     ).status == module.AcceptanceStatus.INCOMPLETE
 
     wrong_scope = module.PolicyWaiverAuthorization(
@@ -396,6 +402,7 @@ def test_current_complete_evidence_passes_but_known_gap_cannot_self_waive() -> N
         known_gaps=[reported_waiver],
         trusted_policy_waivers=[wrong_scope],
         semantic_review_plan=plan,
+        current_base_revision="base-1",
     ).status == module.AcceptanceStatus.INCOMPLETE
 
     authorized = module.PolicyWaiverAuthorization(
@@ -412,6 +419,7 @@ def test_current_complete_evidence_passes_but_known_gap_cannot_self_waive() -> N
         known_gaps=[reported_waiver],
         trusted_policy_waivers=[authorized],
         semantic_review_plan=plan,
+        current_base_revision="base-1",
     )
     assert assessment.status == module.AcceptanceStatus.PASS
     assert assessment.waived_criteria == ("C1",)
@@ -463,6 +471,7 @@ def test_resolved_gap_must_be_current_but_current_resolution_does_not_block() ->
         evidence=evidence,
         known_gaps=[current],
         semantic_review_plan=plan,
+        current_base_revision="base-1",
     )
     assert current_assessment.status == module.AcceptanceStatus.PASS
     stale = module.KnownGap(
@@ -479,6 +488,7 @@ def test_resolved_gap_must_be_current_but_current_resolution_does_not_block() ->
         evidence=evidence,
         known_gaps=[stale],
         semantic_review_plan=plan,
+        current_base_revision="base-1",
     )
     assert stale_assessment.status == module.AcceptanceStatus.INCOMPLETE
 
@@ -570,6 +580,7 @@ def test_provider_fidelity_is_criterion_scoped_not_per_proof_class() -> None:
         candidate_revision="candidate-1",
         evidence=evidence,
         semantic_review_plan=plan,
+        current_base_revision="base-1",
     )
     assert assessment.status == module.AcceptanceStatus.PASS
     assert assessment.satisfied_criteria == ("C1", "C2")
@@ -636,6 +647,7 @@ def test_semantic_review_evidence_requires_current_validated_plan_digest() -> No
         candidate_revision="candidate-1",
         evidence=missing_binding,
         semantic_review_plan=plan,
+        current_base_revision="base-1",
     )
     assert assessment.status == module.AcceptanceStatus.INCOMPLETE
     assert any("not bound to the current validated plan" in finding for finding in assessment.findings)
@@ -661,6 +673,7 @@ def test_semantic_review_evidence_requires_current_validated_plan_digest() -> No
         candidate_revision="candidate-1",
         evidence=stale_binding,
         semantic_review_plan=widened,
+        current_base_revision="base-1",
     )
     assert stale_assessment.status == module.AcceptanceStatus.INCOMPLETE
     assert any("not bound to the current validated plan" in finding for finding in stale_assessment.findings)
@@ -681,7 +694,70 @@ def test_semantic_review_evidence_requires_current_validated_plan_digest() -> No
         candidate_revision="candidate-1",
         evidence=current_evidence,
         semantic_review_plan=widened,
+        current_base_revision="base-1",
     ).status == module.AcceptanceStatus.PASS
+
+
+def test_base_bound_semantic_review_requires_current_base_revision() -> None:
+    module = _load("qa_semantic_base_binding", TOOL)
+    contract = _contract(module)
+    digest = contract["digest"]
+    plan = _review_plan(module, contract)
+    evidence = [
+        module.CriterionEvidence(
+            "C1",
+            "integration",
+            module.EvidenceStatus.PASS,
+            "candidate-1",
+            digest,
+            exercise_discriminant="guard-hit",
+        ),
+        module.CriterionEvidence(
+            "C2",
+            "security_review",
+            module.EvidenceStatus.PASS,
+            "candidate-1",
+            digest,
+            fixture_source=module.FixtureSource.CAPTURED_PROVIDER,
+        ),
+        module.CriterionEvidence(
+            "C2",
+            "semantic_review",
+            module.EvidenceStatus.PASS,
+            "candidate-1",
+            digest,
+            fixture_source=module.FixtureSource.SYNTHETIC,
+            semantic_review_plan_digest=plan["digest"],
+        ),
+    ]
+
+    missing_base = module.evaluate_acceptance(
+        contract,
+        candidate_revision="candidate-1",
+        evidence=evidence,
+        semantic_review_plan=plan,
+    )
+    assert missing_base.status == module.AcceptanceStatus.INCOMPLETE
+    assert "base-bound semantic review plan requires the current base revision" in missing_base.findings
+
+    stale_base = module.evaluate_acceptance(
+        contract,
+        candidate_revision="candidate-1",
+        evidence=evidence,
+        semantic_review_plan=plan,
+        current_base_revision="base-0",
+    )
+    assert stale_base.status == module.AcceptanceStatus.INCOMPLETE
+    assert any("stale for the current base" in finding for finding in stale_base.findings)
+
+    current = module.evaluate_acceptance(
+        contract,
+        candidate_revision="candidate-1",
+        evidence=evidence,
+        semantic_review_plan=plan,
+        current_base_revision="base-1",
+    )
+    assert current.status == module.AcceptanceStatus.PASS
 
 
 def test_exact_artifact_proof_requires_exact_candidate_artifact_binding() -> None:
