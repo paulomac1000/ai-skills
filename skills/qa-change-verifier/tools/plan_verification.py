@@ -751,6 +751,7 @@ def evaluate_acceptance(
     trusted_policy_waivers: Sequence[PolicyWaiverAuthorization] = (),
     semantic_review_plan: Mapping[str, Any] | None = None,
     current_base_revision: str | None = None,
+    known_path_refs: set[str] | None = None,
 ) -> AcceptanceAssessment:
     findings = list(validate_change_acceptance_contract(contract))
     if not isinstance(candidate_revision, str) or not candidate_revision.strip():
@@ -834,6 +835,7 @@ def evaluate_acceptance(
                 acceptance_contract=contract,
                 current_candidate_revision=candidate_revision,
                 current_base_revision=current_base_revision,
+                known_path_refs=known_path_refs,
             )
             if plan_findings:
                 findings.extend(f"semantic review plan invalid: {finding}" for finding in plan_findings)
