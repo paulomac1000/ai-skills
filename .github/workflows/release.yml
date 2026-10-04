@@ -222,6 +222,7 @@ jobs:
         env:
           ARCHIVE_SHA256: ${{ needs.prepare.outputs.archive_sha256 }}
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
           RELEASE_SHA: ${{ needs.prepare.outputs.release_sha }}
           TAG: ${{ needs.prepare.outputs.tag }}
           VERSION: ${{ needs.prepare.outputs.version }}

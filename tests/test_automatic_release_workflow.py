@@ -54,6 +54,8 @@ def test_release_publisher_is_separate_and_does_not_checkout_or_build_candidate(
     assert "git archive" not in rendered
     assert "python -m build" not in rendered
     assert "gh release create" in rendered
+    assert "GH_REPO" in rendered
+    assert "github.repository" in rendered
     assert "sha256sum -c SHA256SUMS" in rendered
 
 
