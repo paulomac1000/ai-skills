@@ -181,6 +181,13 @@ class DiagnosticEgressTests(unittest.TestCase):
             self.assertEqual(record["reason_code"], "diagnostic.unclassified")
             self.assertEqual(record["safe_fields"], [])
 
+    def test_semantic_validator_requires_current_policy(self) -> None:
+        valid = build_safe_diagnostic(None, policy=POLICY)
+        self.assertEqual(
+            validate_diagnostic_egress_semantics(valid),
+            ("current diagnostic policy is required for semantic validation",),
+        )
+
     def test_semantic_validator_rejects_freeform_or_payload_bearing_records(self) -> None:
         valid = build_safe_diagnostic(None, policy=POLICY)
         payload_bearing = {**valid, "source_payload_included": True}

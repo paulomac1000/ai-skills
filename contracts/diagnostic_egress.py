@@ -267,9 +267,13 @@ def classify_and_build(
 
 
 def validate_diagnostic_egress_semantics(record: object, *, policy: DiagnosticPolicy | None = None) -> tuple[str, ...]:
-    """Validate semantic constraints that protect broader-trust sinks."""
+    """Validate protected-sink semantics against the current trusted policy."""
     if not isinstance(record, Mapping):
         return ("diagnostic egress record must be an object",)
+    if policy is None:
+        return ("current diagnostic policy is required for semantic validation",)
+    if not isinstance(policy, DiagnosticPolicy):
+        raise DiagnosticEgressError("policy must be a DiagnosticPolicy")
 
     findings: list[str] = []
     missing = sorted(_ROOT_FIELDS - set(record))
@@ -326,34 +330,31 @@ def validate_diagnostic_egress_semantics(record: object, *, policy: DiagnosticPo
         if field.get("provenance") not in _PROVENANCE:
             findings.append(f"safe_fields[{index}].provenance is not trusted")
 
-    if policy is not None:
-        if not isinstance(policy, DiagnosticPolicy):
-            raise DiagnosticEgressError("policy must be a DiagnosticPolicy")
-        if revision != policy.revision:
-            findings.append("construction_revision does not match current policy")
-        reason = policy.reasons.get(reason_code) if isinstance(reason_code, str) else None
-        if reason is None:
-            if reason_code != _FALLBACK_REASON or fields:
-                findings.append("reason_code is not allowed by policy")
-            if reason_code == _FALLBACK_REASON and (
-                category != _FALLBACK_CATEGORY or record.get("severity") != _FALLBACK_SEVERITY
+    if revision != policy.revision:
+        findings.append("construction_revision does not match current policy")
+    reason = policy.reasons.get(reason_code) if isinstance(reason_code, str) else None
+    if reason is None:
+        if reason_code != _FALLBACK_REASON or fields:
+            findings.append("reason_code is not allowed by policy")
+        if reason_code == _FALLBACK_REASON and (
+            category != _FALLBACK_CATEGORY or record.get("severity") != _FALLBACK_SEVERITY
+        ):
+            findings.append("generic fallback category/severity is not canonical")
+    else:
+        if category != reason.category or record.get("severity") != reason.severity:
+            findings.append("category/severity do not match reason policy")
+        for index, field in enumerate(fields):
+            if not isinstance(field, Mapping):
+                continue
+            name = field.get("name")
+            provenance = field.get("provenance")
+            field_policy = reason.fields.get(name) if isinstance(name, str) else None
+            value = field.get("value")
+            if (
+                field_policy is None
+                or provenance not in field_policy.provenances
+                or not _value_allowed(value, field_policy)
             ):
-                findings.append("generic fallback category/severity is not canonical")
-        else:
-            if category != reason.category or record.get("severity") != reason.severity:
-                findings.append("category/severity do not match reason policy")
-            for index, field in enumerate(fields):
-                if not isinstance(field, Mapping):
-                    continue
-                name = field.get("name")
-                provenance = field.get("provenance")
-                field_policy = reason.fields.get(name) if isinstance(name, str) else None
-                value = field.get("value")
-                if (
-                    field_policy is None
-                    or provenance not in field_policy.provenances
-                    or not _value_allowed(value, field_policy)
-                ):
-                    findings.append(f"safe_fields[{index}] is not allowed by current reason policy")
+                findings.append(f"safe_fields[{index}] is not allowed by current reason policy")
 
     return tuple(sorted(set(findings)))
