@@ -13,4 +13,6 @@ Treat missing, stale, vacuous, deferred, wrong-fixture, incompletely bound, or m
 
 When semantic review is required, define the exact candidate/base scope with `contracts/semantic-review-plan.schema.json`: trace the important flows, identify high-consequence focus areas and invariants, and select applicable negative-space dimensions. The plan is an input to review, not the review verdict; downstream ReviewReceipt policy remains separately owned.
 
+For persistent-schema or storage migrations, use `tools/migration_acceptance.py` to prove the declared fresh/legacy/unsupported input matrix, the pre-migration state before any current bootstrap can run, the exact production migrator identity/revision, representative data survival, and required interruption/recovery behavior. A green migration test that started from an already-current fixture or invoked another migrator is harness failure, not compatibility evidence.
+
 Risk-only callers remain supported. Low-risk changes may stay on static/unit layers; medium and high risk progressively require integration, exact-artifact, real-transport, external E2E, security review, and post-deploy evidence as specified by the planner.

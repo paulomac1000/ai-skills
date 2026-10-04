@@ -124,6 +124,7 @@ skills:
       risk-planning: {rule_id: qa.risk.planned, primary: true}
       immutable-change-acceptance-contract: {rule_id: qa.acceptance.immutable, primary: true}
       criterion-completeness-and-exact-evidence: {rule_id: qa.acceptance.evidence, primary: true}
+      migration-acceptance: {rule_id: qa.migration.acceptance, primary: true}
       known-gaps-and-waiver-authority: {rule_id: qa.gaps.authorized, primary: true}
       semantic-review-plan: {rule_id: qa.review.scoped, primary: true}
       negative-space-and-invariant-families: {rule_id: qa.review.negative-space, primary: true}

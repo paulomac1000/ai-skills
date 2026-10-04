@@ -92,6 +92,7 @@ TYPE_PATHS = (
     "skills/mcp-steward-architect/tools/generate_steward.py",
     "skills/mcp-steward-architect/tools/validate_steward.py",
     "skills/qa-change-verifier/tools/plan_verification.py",
+    "skills/qa-change-verifier/tools/migration_acceptance.py",
     "skills/readme-architect/tools/audit_readme.py",
     "skills/readme-architect/tools/collect_readme_evidence.py",
     "skills/skill-architect/tools/audit_skill.py",

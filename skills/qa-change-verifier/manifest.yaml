@@ -57,6 +57,7 @@ required:
 - SKILL.md
 - STANDARD.md
 - tools/plan_verification.py
+- tools/migration_acceptance.py
 categories:
 - core
 - tools

@@ -1,0 +1,361 @@
+"""Deterministic migration-matrix acceptance helpers."""
+
+from __future__ import annotations
+
+from collections.abc import Sequence
+from dataclasses import dataclass
+from enum import StrEnum
+from typing import TypeVar
+
+T = TypeVar("T")
+
+
+class MigrationInputKind(StrEnum):
+    FRESH = "fresh"
+    LEGACY = "legacy"
+    CURRENT = "current"
+    UNSUPPORTED = "unsupported"
+
+
+class MigrationCaseResult(StrEnum):
+    PASS = "pass"
+    REJECT = "reject"
+    INTERRUPTED = "interrupted"
+
+
+@dataclass(frozen=True)
+class MigrationInputSpec:
+    input_ref: str
+    kind: MigrationInputKind
+    schema_identity: str | None
+
+
+@dataclass(frozen=True)
+class MigrationCaseEvidence:
+    input_ref: str
+    fixture_identity: str
+    observed_pre_schema: str | None
+    legacy_characteristic_refs: tuple[str, ...]
+    absent_current_characteristic_refs: tuple[str, ...]
+    exercised_entrypoint: str
+    exercised_entrypoint_revision: str
+    result: MigrationCaseResult
+    observed_post_schema: str | None
+    data_invariant_refs: tuple[str, ...]
+    recovery_evidence_refs: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class MigrationAcceptanceAssessment:
+    status: str
+    findings: tuple[str, ...]
+    exercised_inputs: tuple[str, ...]
+    candidate_revision: str
+    current_schema: str
+    production_entrypoint: str
+    production_entrypoint_revision: str
+
+    def receipt(self) -> dict[str, object]:
+        return {
+            "schema_version": 1,
+            "verdict": self.status,
+            "candidate_revision": self.candidate_revision,
+            "current_schema": self.current_schema,
+            "production_entrypoint": self.production_entrypoint,
+            "production_entrypoint_revision": self.production_entrypoint_revision,
+            "exercised_inputs": list(self.exercised_inputs),
+            "failures": list(self.findings),
+        }
+
+
+def evaluate_migration_acceptance(
+    *,
+    candidate_revision: str,
+    current_schema: str,
+    production_entrypoint: str,
+    production_entrypoint_revision: str,
+    supported_inputs: Sequence[MigrationInputSpec],
+    unsupported_inputs: Sequence[MigrationInputSpec],
+    cases: Sequence[MigrationCaseEvidence],
+    require_current_rerun: bool = False,
+    require_interrupted_recovery: bool = True,
+) -> MigrationAcceptanceAssessment:
+    """Evaluate migration-matrix evidence without executing a product migrator."""
+    findings: list[str] = []
+    candidate_valid = _non_empty_string(candidate_revision)
+    current_schema_valid = _non_empty_string(current_schema)
+    entrypoint_valid = _non_empty_string(production_entrypoint)
+    entrypoint_revision_valid = _non_empty_string(production_entrypoint_revision)
+    if not candidate_valid:
+        findings.append("candidate_revision must be a non-empty string")
+    if not current_schema_valid:
+        findings.append("current_schema must be a non-empty string")
+    if not entrypoint_valid:
+        findings.append("production_entrypoint must be a non-empty string")
+    if not entrypoint_revision_valid:
+        findings.append("production_entrypoint_revision must be a non-empty string")
+    if not isinstance(require_current_rerun, bool):
+        findings.append("require_current_rerun must be boolean")
+        require_current_rerun = False
+    if not isinstance(require_interrupted_recovery, bool):
+        findings.append("require_interrupted_recovery must be boolean")
+        require_interrupted_recovery = True
+
+    supported = _record_sequence(supported_inputs, MigrationInputSpec, "supported_inputs", findings)
+    unsupported = _record_sequence(unsupported_inputs, MigrationInputSpec, "unsupported_inputs", findings)
+    evidence_cases = _record_sequence(cases, MigrationCaseEvidence, "cases", findings)
+
+    spec_by_ref: dict[str, MigrationInputSpec] = {}
+    supported_refs: set[str] = set()
+    matrix_items = tuple((item, False) for item in supported) + tuple((item, True) for item in unsupported)
+    for spec, expected_unsupported in matrix_items:
+        ref = spec.input_ref
+        if not _non_empty_string(ref):
+            findings.append("migration input_ref must be a non-empty string")
+            continue
+        if ref in spec_by_ref:
+            findings.append(f"duplicate migration input_ref: {ref}")
+            continue
+        if not isinstance(spec.kind, MigrationInputKind):
+            findings.append(f"migration input {ref} has invalid kind")
+            continue
+        if expected_unsupported and spec.kind is not MigrationInputKind.UNSUPPORTED:
+            findings.append(f"unsupported input {ref} must use kind=unsupported")
+        if not expected_unsupported and spec.kind is MigrationInputKind.UNSUPPORTED:
+            findings.append(f"supported input {ref} cannot use kind=unsupported")
+        if spec.kind in {MigrationInputKind.LEGACY, MigrationInputKind.CURRENT, MigrationInputKind.UNSUPPORTED}:
+            if not _non_empty_string(spec.schema_identity):
+                findings.append(f"input {ref} requires schema_identity")
+        elif spec.schema_identity is not None:
+            findings.append(f"fresh input {ref} must use schema_identity=None")
+        if spec.kind is MigrationInputKind.CURRENT and current_schema_valid and spec.schema_identity != current_schema:
+            findings.append(f"current input {ref} does not match current_schema")
+        spec_by_ref[ref] = spec
+        if not expected_unsupported:
+            supported_refs.add(ref)
+
+    if not any(
+        spec.kind is MigrationInputKind.FRESH for spec in supported if isinstance(spec.kind, MigrationInputKind)
+    ):
+        findings.append("supported migration matrix must include a fresh/empty input")
+
+    case_by_ref: dict[str, list[MigrationCaseEvidence]] = {}
+    for case in evidence_cases:
+        ref = case.input_ref
+        if not _non_empty_string(ref):
+            findings.append("migration case input_ref must be a non-empty string")
+            continue
+        if not _non_empty_string(case.fixture_identity):
+            findings.append(f"migration case {ref} requires immutable fixture_identity")
+        if case.observed_pre_schema is not None and not isinstance(case.observed_pre_schema, str):
+            findings.append(f"migration case {ref} observed_pre_schema must be string or null")
+        if case.observed_post_schema is not None and not isinstance(case.observed_post_schema, str):
+            findings.append(f"migration case {ref} observed_post_schema must be string or null")
+        _validate_string_refs(
+            case.legacy_characteristic_refs,
+            f"migration case {ref} legacy_characteristic_refs",
+            findings,
+        )
+        _validate_string_refs(
+            case.absent_current_characteristic_refs,
+            f"migration case {ref} absent_current_characteristic_refs",
+            findings,
+        )
+        _validate_string_refs(case.data_invariant_refs, f"migration case {ref} data_invariant_refs", findings)
+        _validate_string_refs(case.recovery_evidence_refs, f"migration case {ref} recovery_evidence_refs", findings)
+        if not _non_empty_string(case.exercised_entrypoint):
+            findings.append(f"migration case {ref} requires exercised_entrypoint")
+        elif entrypoint_valid and case.exercised_entrypoint != production_entrypoint:
+            findings.append(f"migration case {ref} exercised wrong entrypoint: {case.exercised_entrypoint}")
+        if not _non_empty_string(case.exercised_entrypoint_revision):
+            findings.append(f"migration case {ref} requires exercised_entrypoint_revision")
+        elif entrypoint_revision_valid and case.exercised_entrypoint_revision != production_entrypoint_revision:
+            findings.append(
+                f"migration case {ref} exercised wrong entrypoint revision: {case.exercised_entrypoint_revision}"
+            )
+        if not isinstance(case.result, MigrationCaseResult):
+            findings.append(f"migration case {ref} has invalid result")
+            continue
+        if ref not in spec_by_ref:
+            findings.append(f"migration case references undeclared input: {ref}")
+            continue
+        case_by_ref.setdefault(ref, []).append(case)
+
+    for ref, values in case_by_ref.items():
+        terminal = [case for case in values if case.result in {MigrationCaseResult.PASS, MigrationCaseResult.REJECT}]
+        if len(terminal) > 1:
+            findings.append(f"migration input {ref} has multiple terminal cases")
+
+    for spec in supported:
+        if spec.input_ref not in supported_refs:
+            continue
+        values = case_by_ref.get(spec.input_ref, [])
+        terminal = next(
+            (case for case in values if case.result in {MigrationCaseResult.PASS, MigrationCaseResult.REJECT}),
+            None,
+        )
+        if terminal is None:
+            if spec.kind is MigrationInputKind.CURRENT and not require_current_rerun:
+                continue
+            findings.append(f"supported migration input not exercised: {spec.input_ref}")
+            continue
+        _validate_pre_state(spec, terminal, current_schema if current_schema_valid else "", findings)
+        if terminal.result is not MigrationCaseResult.PASS:
+            findings.append(f"supported migration input {spec.input_ref} did not pass")
+        if current_schema_valid and terminal.observed_post_schema != current_schema:
+            findings.append(f"supported migration input {spec.input_ref} did not reach current schema")
+        if not _non_empty_string_sequence(terminal.data_invariant_refs):
+            findings.append(f"supported migration input {spec.input_ref} did not prove data invariants")
+
+    for spec in unsupported:
+        if spec.input_ref not in spec_by_ref:
+            continue
+        values = case_by_ref.get(spec.input_ref, [])
+        terminal = next(
+            (case for case in values if case.result in {MigrationCaseResult.PASS, MigrationCaseResult.REJECT}),
+            None,
+        )
+        if terminal is None:
+            findings.append(f"unsupported migration input not exercised: {spec.input_ref}")
+            continue
+        _validate_pre_state(spec, terminal, current_schema if current_schema_valid else "", findings)
+        if terminal.result is not MigrationCaseResult.REJECT:
+            findings.append(f"unsupported migration input {spec.input_ref} was not deliberately rejected")
+        if current_schema_valid and terminal.observed_post_schema == current_schema:
+            findings.append(f"unsupported migration input {spec.input_ref} was silently normalized to current")
+
+    if require_interrupted_recovery:
+        recovery_cases = [case for case in evidence_cases if case.result is MigrationCaseResult.INTERRUPTED]
+        if not recovery_cases:
+            findings.append("interrupted migration recovery case is required")
+        elif not any(_non_empty_string_sequence(case.recovery_evidence_refs) for case in recovery_cases):
+            findings.append("interrupted migration case did not prove recovery invariants")
+
+    exercised = tuple(sorted(case_by_ref))
+    unique_findings = tuple(sorted(set(findings)))
+    return MigrationAcceptanceAssessment(
+        status="pass" if not unique_findings else "fail",
+        findings=unique_findings,
+        exercised_inputs=exercised,
+        candidate_revision=candidate_revision if isinstance(candidate_revision, str) else "",
+        current_schema=current_schema if isinstance(current_schema, str) else "",
+        production_entrypoint=production_entrypoint if isinstance(production_entrypoint, str) else "",
+        production_entrypoint_revision=(
+            production_entrypoint_revision if isinstance(production_entrypoint_revision, str) else ""
+        ),
+    )
+
+
+def validate_migration_acceptance_receipt(receipt: object) -> tuple[str, ...]:
+    """Validate the bounded receipt consumed by candidate/release gates."""
+    if not isinstance(receipt, dict):
+        return ("migration acceptance receipt must be an object",)
+    allowed = {
+        "schema_version",
+        "verdict",
+        "candidate_revision",
+        "current_schema",
+        "production_entrypoint",
+        "production_entrypoint_revision",
+        "exercised_inputs",
+        "failures",
+    }
+    findings: list[str] = []
+    extra = sorted(set(receipt) - allowed)
+    if extra:
+        findings.append("migration acceptance receipt has unknown fields: " + ", ".join(extra))
+    version = receipt.get("schema_version")
+    if isinstance(version, bool) or version != 1:
+        findings.append("migration acceptance receipt schema_version must be integer 1")
+    verdict = receipt.get("verdict")
+    if verdict not in {"pass", "fail"}:
+        findings.append("migration acceptance receipt verdict must be pass or fail")
+    for field in (
+        "candidate_revision",
+        "current_schema",
+        "production_entrypoint",
+        "production_entrypoint_revision",
+    ):
+        value = receipt.get(field)
+        if not _non_empty_string(value):
+            findings.append(f"migration acceptance receipt {field} must be a non-empty string")
+    exercised = receipt.get("exercised_inputs")
+    if not _string_array(exercised, allow_empty=False):
+        findings.append("migration acceptance receipt exercised_inputs must be a non-empty unique string array")
+    failures = receipt.get("failures")
+    if not _string_array(failures, allow_empty=True):
+        findings.append("migration acceptance receipt failures must be a unique string array")
+    elif verdict == "pass" and failures:
+        findings.append("passing migration acceptance receipt cannot contain failures")
+    elif verdict == "fail" and not failures:
+        findings.append("failing migration acceptance receipt must contain failures")
+    return tuple(sorted(set(findings)))
+
+
+def _record_sequence(
+    value: object, expected_type: type[T], field: str, findings: list[str]
+) -> tuple[T, ...]:
+    if not isinstance(value, Sequence) or isinstance(value, (str, bytes, bytearray)):
+        findings.append(f"{field} must be an array")
+        return ()
+    result = []
+    for item in value:
+        if not isinstance(item, expected_type):
+            findings.append(f"{field} entries must be {expected_type.__name__} records")
+            continue
+        result.append(item)
+    return tuple(result)
+
+
+def _non_empty_string(value: object) -> bool:
+    return isinstance(value, str) and bool(value.strip())
+
+
+def _non_empty_string_sequence(value: object) -> bool:
+    return (
+        isinstance(value, tuple)
+        and bool(value)
+        and all(_non_empty_string(item) for item in value)
+        and len(set(value)) == len(value)
+    )
+
+
+def _validate_string_refs(value: object, field: str, findings: list[str]) -> None:
+    if (
+        not isinstance(value, tuple)
+        or not all(_non_empty_string(item) for item in value)
+        or len(set(value)) != len(value)
+    ):
+        findings.append(f"{field} must be a unique tuple of non-empty strings")
+
+
+def _string_array(value: object, *, allow_empty: bool) -> bool:
+    if not isinstance(value, list):
+        return False
+    if not allow_empty and not value:
+        return False
+    return all(_non_empty_string(item) for item in value) and len(set(value)) == len(value)
+
+
+def _validate_pre_state(
+    spec: MigrationInputSpec,
+    case: MigrationCaseEvidence,
+    current_schema: str,
+    findings: list[str],
+) -> None:
+    if spec.kind is MigrationInputKind.FRESH:
+        if case.observed_pre_schema is not None:
+            findings.append(f"fresh migration input {spec.input_ref} was not empty before migration")
+        return
+    if case.observed_pre_schema != spec.schema_identity:
+        findings.append(
+            f"migration input {spec.input_ref} pre-state mismatch: expected {spec.schema_identity}, "
+            f"observed {case.observed_pre_schema}"
+        )
+    if spec.kind in {MigrationInputKind.LEGACY, MigrationInputKind.UNSUPPORTED}:
+        if not _non_empty_string_sequence(case.legacy_characteristic_refs):
+            findings.append(f"migration input {spec.input_ref} lacks legacy pre-state proof")
+        if not _non_empty_string_sequence(case.absent_current_characteristic_refs):
+            findings.append(f"migration input {spec.input_ref} lacks proof current characteristics were absent")
+        if current_schema and case.observed_pre_schema == current_schema:
+            findings.append(f"migration input {spec.input_ref} was already current before migration")

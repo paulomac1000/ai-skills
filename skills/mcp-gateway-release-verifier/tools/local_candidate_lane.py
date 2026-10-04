@@ -36,6 +36,9 @@ class LocalCandidateEvidence:
     migration_invariants_verdict: str
     artifact_digest: str = ""
     probe_client_receipt: dict[str, object] | None = None
+    candidate_revision: str = ""
+    migration_acceptance_required: bool = False
+    migration_acceptance_receipt: dict[str, object] | None = None
 
 
 def compose_local_lane_receipt(evidence: LocalCandidateEvidence) -> dict[str, object]:
@@ -98,6 +101,42 @@ def compose_local_lane_receipt(evidence: LocalCandidateEvidence) -> dict[str, ob
         module.validate_client_provenance(probe_receipt, artifact_digest)
     except module.ExactCandidateAcceptanceError as exc:
         failures.append(f"probe_client_receipt_rejected:{exc}")
+
+    if not isinstance(evidence.migration_acceptance_required, bool):
+        failures.append("migration_acceptance_required_invalid")
+    elif evidence.migration_acceptance_required:
+        if not isinstance(evidence.candidate_revision, str) or not evidence.candidate_revision.strip():
+            failures.append("candidate_revision_missing_for_migration")
+        migration_receipt = evidence.migration_acceptance_receipt
+        if migration_receipt is None:
+            failures.append("migration_acceptance_receipt_missing")
+        else:
+            migration_path = (
+                Path(__file__).resolve().parents[2]
+                / "qa-change-verifier"
+                / "tools"
+                / "migration_acceptance.py"
+            )
+            migration_spec = importlib.util.spec_from_file_location("local_lane_migration_acceptance", migration_path)
+            assert migration_spec is not None and migration_spec.loader is not None
+            migration_module = importlib.util.module_from_spec(migration_spec)
+            sys.modules[migration_spec.name] = migration_module
+            migration_spec.loader.exec_module(migration_module)
+            migration_findings = migration_module.validate_migration_acceptance_receipt(migration_receipt)
+            if migration_findings:
+                failures.extend(f"migration_acceptance_receipt_rejected:{item}" for item in migration_findings)
+            elif migration_receipt.get("candidate_revision") != evidence.candidate_revision:
+                failures.append("migration_acceptance_receipt_candidate_mismatch")
+            elif migration_receipt.get("verdict") != "pass":
+                failures.append("migration_acceptance_receipt_non_green")
+            else:
+                receipt["migration_acceptance"] = {
+                    "verdict": "pass",
+                    "candidate_revision": migration_receipt["candidate_revision"],
+                    "current_schema": migration_receipt["current_schema"],
+                    "exercised_inputs": migration_receipt["exercised_inputs"],
+                }
+
     receipt["verdict"] = "pass" if not failures else "fail"
     receipt["failures"] = failures
     return receipt

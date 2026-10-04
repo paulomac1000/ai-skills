@@ -80,6 +80,27 @@ For diagnostic egress, consume the repository-level `contracts/diagnostic-egress
 
 A newly discovered omitted invariant dimension may revise the plan; the new plan receives a new semantic digest and exact-candidate binding rather than silently widening the old receipt. Deterministic validation checks declared shape, published schema-version/type/length bounds, and references but does not claim static heuristics can discover all semantically applicable risks or invariants.
 
+## Migration acceptance
+
+When a change modifies persistent schema/storage or claims compatibility with historical persisted state, acceptance MUST declare the current schema identity, the exact production migration entrypoint and its revision, every supported input state, and the intentionally unsupported/ambiguous input classes. Fresh/empty installation evidence is separate from legacy-upgrade evidence; neither substitutes for the other.
+
+Every supported legacy fixture is constructed or restored **without executing the current bootstrap/migration path first**. Before the candidate migrator runs, executable preflight evidence proves the intended legacy schema/version, selected legacy characteristics, selected current characteristics that are still absent, and an immutable fixture/snapshot identity. A filename, variable name, or caller assertion such as `v5.db` is not pre-migration proof.
+
+Migration acceptance invokes the same coordinator/entrypoint used by production startup or deployment and binds that implementation to an exact revision. An alias, helper, test migrator, or another database layer with a compatible interface is not equivalent; exercising it is harness failure. When several migration layers exist, the acceptance matrix names the layer under test.
+
+The matrix proves separately:
+
+1. fresh/empty state reaches the current schema;
+2. every declared supported predecessor reaches current through the production migrator;
+3. representative persisted data and required ownership/key/index invariants survive;
+4. current-schema rerun is exercised only when production requires idempotent rerun;
+5. unsupported, too-old, or ambiguous starting state is deliberately rejected and cannot be silently normalized to current; and
+6. interrupted/failed migration follows the declared transaction/recovery contract.
+
+Historical fixtures or builders are immutable/version-pinned evidence inputs. Changing them changes the compatibility claim and requires review. Dropping support changes the declared matrix explicitly rather than deleting a failing predecessor fixture.
+
+Use `tools/migration_acceptance.py` to compose a bounded receipt that names the exact candidate revision, current schema, production entrypoint revision, and exercised input identities. The helper evaluates evidence; it does not execute a product migrator or turn caller-authored labels into proof. Product tests remain responsible for executable pre-state assertions, migration invocation, data checks, and recovery observations.
+
 ## Failure attribution
 
 Verification MUST distinguish harness failure from product failure. A broken harness blocks the affected verification claim but is not evidence that the product failed; a product failure remains product evidence even when the harness also has faults. Mixed conditions stay explicit until separated.

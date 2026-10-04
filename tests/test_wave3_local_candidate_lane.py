@@ -144,3 +144,78 @@ def test_local_lane_tool_is_manifested_and_in_all_quality_inventories() -> None:
         inventories.POLICY_COVERAGE_PATHS,
     ):
         assert _covered(targets, path)
+
+
+def _migration_receipt(*, candidate_revision: str = "candidate-1", verdict: str = "pass") -> dict[str, object]:
+    failures = [] if verdict == "pass" else ["legacy-prestate-not-proven"]
+    return {
+        "schema_version": 1,
+        "verdict": verdict,
+        "candidate_revision": candidate_revision,
+        "current_schema": "v2",
+        "production_entrypoint": "app.Migrations.run",
+        "production_entrypoint_revision": "sha256:migrator-v2",
+        "exercised_inputs": ["fresh", "v1", "v0"],
+        "failures": failures,
+    }
+
+
+def test_non_migration_candidate_remains_backward_compatible_without_migration_receipt() -> None:
+    module = _load("wave3_local_lane_non_migration", TOOL)
+    receipt = module.compose_local_lane_receipt(_evidence(module))
+    assert receipt["verdict"] == "pass"
+    assert "migration_acceptance" not in receipt
+
+
+def test_migration_candidate_requires_green_exact_candidate_migration_receipt() -> None:
+    module = _load("wave3_local_lane_migration", TOOL)
+    missing = module.compose_local_lane_receipt(
+        _evidence(
+            module,
+            candidate_revision="candidate-1",
+            migration_acceptance_required=True,
+        )
+    )
+    assert missing["verdict"] == "fail"
+    assert "migration_acceptance_receipt_missing" in missing["failures"]
+
+    valid = module.compose_local_lane_receipt(
+        _evidence(
+            module,
+            candidate_revision="candidate-1",
+            migration_acceptance_required=True,
+            migration_acceptance_receipt=_migration_receipt(),
+        )
+    )
+    assert valid["verdict"] == "pass"
+    assert valid["migration_acceptance"] == {
+        "verdict": "pass",
+        "candidate_revision": "candidate-1",
+        "current_schema": "v2",
+        "exercised_inputs": ["fresh", "v1", "v0"],
+    }
+
+
+def test_migration_candidate_rejects_stale_or_non_green_migration_receipt() -> None:
+    module = _load("wave3_local_lane_migration_stale", TOOL)
+    stale = module.compose_local_lane_receipt(
+        _evidence(
+            module,
+            candidate_revision="candidate-2",
+            migration_acceptance_required=True,
+            migration_acceptance_receipt=_migration_receipt(candidate_revision="candidate-1"),
+        )
+    )
+    assert stale["verdict"] == "fail"
+    assert "migration_acceptance_receipt_candidate_mismatch" in stale["failures"]
+
+    failed = module.compose_local_lane_receipt(
+        _evidence(
+            module,
+            candidate_revision="candidate-1",
+            migration_acceptance_required=True,
+            migration_acceptance_receipt=_migration_receipt(verdict="fail"),
+        )
+    )
+    assert failed["verdict"] == "fail"
+    assert "migration_acceptance_receipt_non_green" in failed["failures"]
