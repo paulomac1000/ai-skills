@@ -1,5 +1,5 @@
 schema_version: 1
-catalog_version: 3.4.0
+catalog_version: 3.5.0
 skills:
   afds-doc-writer:
     rules:
@@ -408,6 +408,35 @@ skills:
     - id: steward.generator.durable
       source: STANDARD.md#generated-baseline
       description: The Steward generator extends canonical MCP generators and emits a durable recovery-oriented architecture seed rather than a hello-world server.
+  qa-change-verifier:
+    rules:
+    - id: qa.risk.planned
+      source: STANDARD.md#risk-planning
+      description: Risk selects a deterministic minimum verification depth while criterion-specific proof can add narrower required evidence.
+    - id: qa.acceptance.immutable
+      source: STANDARD.md#immutable-change-acceptance-contract
+      description: Required change obligations and falsifiable criteria have one immutable semantic identity and cannot be silently weakened by planner decomposition.
+    - id: qa.acceptance.evidence
+      source: STANDARD.md#criterion-completeness-and-exact-evidence
+      description: Required criteria need current non-vacuous exact-candidate proof with complete semantic coverage and applicable fixture fidelity.
+    - id: qa.gaps.authorized
+      source: STANDARD.md#known-gaps-and-waiver-authority
+      description: Known gaps remain non-green until current evidence resolves them or trusted policy explicitly authorizes a scoped waiver.
+    - id: qa.review.scoped
+      source: STANDARD.md#semantic-review-plan
+      description: Semantic review scope is exact-candidate-bound and prioritizes high-consequence flows, paths, criteria, and invariants rather than changed-line count.
+    - id: qa.review.negative-space
+      source: STANDARD.md#negative-space-and-invariant-families
+      description: Applicable invariant families review negative-space and analogous paths so happy-path fixes cannot hide boundary or analogue drift.
+    - id: qa.failure.attributed
+      source: STANDARD.md#failure-attribution
+      description: Harness failures and product failures remain distinct evidence classes.
+    - id: qa.composition.bounded
+      source: STANDARD.md#composition-boundaries
+      description: Change acceptance and review-scope planning compose with delivery, Steward, and ReviewReceipt owners without redefining their authority.
+    - id: qa.completion.evidenced
+      source: STANDARD.md#definition-of-done
+      description: Completion requires stable admitted semantics, complete criterion proof, current review scope where required, and explicit non-green residuals.
   readme-architect:
     rules:
     - id: readme.evidence.owned

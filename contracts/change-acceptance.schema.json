@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/paulomac1000/ai-skills/blob/main/contracts/change-acceptance.schema.json",
+  "title": "Immutable software change acceptance contract",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "change_id", "revision", "digest", "obligations", "criteria"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "change_id": {"type": "string", "minLength": 1, "maxLength": 256},
+    "revision": {"type": "string", "minLength": 1, "maxLength": 256},
+    "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "obligations": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "kind", "statement", "required"],
+        "properties": {
+          "id": {"type": "string", "minLength": 1, "maxLength": 128},
+          "kind": {"enum": ["functional", "contract", "data", "security", "performance", "observability", "migration", "operational"]},
+          "statement": {"type": "string", "minLength": 1, "maxLength": 4096},
+          "source_ref": {"type": ["string", "null"], "maxLength": 2048},
+          "required": {"type": "boolean"}
+        }
+      }
+    },
+    "criteria": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "obligation_refs", "expected_outcome", "rejection_condition", "required"],
+        "properties": {
+          "id": {"type": "string", "minLength": 1, "maxLength": 128},
+          "obligation_refs": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 128}},
+          "expected_outcome": {"type": "string", "minLength": 1, "maxLength": 4096},
+          "rejection_condition": {"type": "string", "minLength": 1, "maxLength": 4096},
+          "required": {"type": "boolean"},
+          "proof_classes": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {"enum": ["static", "unit", "integration", "exact_artifact", "real_transport", "external_e2e", "security_review", "post_deploy", "semantic_review"]}
+          },
+          "proof_of_exercise_required": {"type": "boolean"},
+          "fixture_fidelity": {"enum": ["synthetic_allowed", "provider_faithful"]}
+        }
+      }
+    }
+  }
+}

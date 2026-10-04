@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/paulomac1000/ai-skills/blob/main/contracts/semantic-review-plan.schema.json",
+  "title": "Semantic review plan",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "plan_id", "revision", "digest", "candidate_revision", "flows", "focus_areas", "invariant_matrices"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "plan_id": {"type": "string", "minLength": 1, "maxLength": 256},
+    "revision": {"type": "string", "minLength": 1, "maxLength": 256},
+    "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "candidate_revision": {"type": "string", "minLength": 1, "maxLength": 256},
+    "base_revision": {"type": ["string", "null"], "maxLength": 256},
+    "policy_revision": {"type": ["string", "null"], "maxLength": 256},
+    "acceptance_contract_digest": {"type": ["string", "null"], "pattern": "^sha256:[0-9a-f]{64}$"},
+    "flows": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "entry_point", "terminal_outcome", "criterion_refs"],
+        "properties": {
+          "id": {"type": "string", "minLength": 1, "maxLength": 128},
+          "entry_point": {"type": "string", "minLength": 1, "maxLength": 2048},
+          "terminal_outcome": {"type": "string", "minLength": 1, "maxLength": 2048},
+          "criterion_refs": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 128}}
+        }
+      }
+    },
+    "focus_areas": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "path_refs", "risk_reasons", "criterion_refs", "invariants"],
+        "properties": {
+          "id": {"type": "string", "minLength": 1, "maxLength": 128},
+          "path_refs": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 2048}},
+          "risk_reasons": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"enum": ["authority_boundary", "state_transition", "persistence_or_migration", "external_side_effect", "retry_or_idempotency", "concurrency", "security_boundary", "public_contract", "cross_component_invariant", "rollback_or_recovery", "analogue_drift", "diagnostic_egress"]}},
+          "criterion_refs": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 128}},
+          "invariants": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 2048}},
+          "analogue_refs": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 2048}}
+        }
+      }
+    },
+    "invariant_matrices": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "invariant_ref", "dimensions", "criterion_refs"],
+        "properties": {
+          "id": {"type": "string", "minLength": 1, "maxLength": 128},
+          "invariant_ref": {"type": "string", "minLength": 1, "maxLength": 2048},
+          "dimensions": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {"enum": ["present_valid", "invalid", "missing", "explicit_null", "empty_container", "wrong_type", "malformed_value", "unknown", "stale", "concurrent", "recovery", "conflicting_identity", "conflicting_generation", "conflicting_digest", "alias_or_duplicate_equal", "conflicting_aliases", "unexpected_extra_source", "ambiguous_fallback", "known_provider_wording", "alternate_provider_wording", "internal_apostrophe_or_nested_quote", "multiline_payload", "unicode_or_control_characters", "nested_wrapper_error", "very_long_error", "unknown_wording", "source_payload_embedded"]}
+          },
+          "criterion_refs": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 128}},
+          "analogue_refs": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 2048}}
+        }
+      }
+    }
+  }
+}

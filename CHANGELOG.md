@@ -1,5 +1,19 @@
 # Changelog
 
+## 3.5.0 - 2026-10-04
+
+### Added
+
+- Added a repository-level immutable change-acceptance contract for stable obligations, falsifiable criteria, deterministic proof-class mapping, exact-candidate evidence, and explicitly authorized policy waivers.
+- Added a semantic review plan contract for exact candidate/base-scoped flows, focus areas, analogous paths, invariant matrices, negative-space review, and diagnostic-egress risk families.
+- Added qa-change-verifier regressions for missing, stale, vacuous, deferred, provider-unfaithful, and non-exercised evidence, plus known-gap authority and semantic-review-plan freshness.
+
+### Changed
+
+- Extended qa-change-verifier's risk planner without breaking risk-only callers so required criteria can add specific proof layers and semantic-review requirements without weakening obligation-kind proof minimums, while preserving harness-versus-product failure attribution.
+- Hardened acceptance evidence binding so blank candidate identities fail closed, exact-artifact proofs require current artifact bindings, semantic-review evidence is tied to the exact validated review-plan digest, hard FAIL evidence is authoritative only after required proof identity, proof-of-exercise, and provider-fixture fidelity validation, and acceptance consumes complete candidate/contract-bound known-gap registry snapshots whose full records cannot be replaced by caller-supplied gap semantics; malformed validator roots, path sets, snapshot/evidence/policy/runtime boundary shapes, and load-bearing/unknown gaps without criterion scope now fail closed.
+- Aligned QA helper validation with the published contract schemas for schema-version typing and string bounds, made supplied base identity bidirectional/fail-closed, and validated primary/analogue review paths against concrete known repository paths through final acceptance.
+
 ## 3.4.0 - 2026-10-04
 
 ### Added
