@@ -79,24 +79,30 @@ def evaluate_migration_acceptance(
 ) -> MigrationAcceptanceAssessment:
     """Evaluate migration-matrix evidence without executing a product migrator."""
     findings: list[str] = []
-    candidate_valid = _non_empty_string(candidate_revision)
-    current_schema_valid = _non_empty_string(current_schema)
-    entrypoint_valid = _non_empty_string(production_entrypoint)
-    entrypoint_revision_valid = _non_empty_string(production_entrypoint_revision)
-    if not candidate_valid:
+    candidate_value = candidate_revision if _non_empty_string(candidate_revision) else ""
+    current_schema_value = current_schema if _non_empty_string(current_schema) else ""
+    entrypoint_value = production_entrypoint if _non_empty_string(production_entrypoint) else ""
+    entrypoint_revision_value = (
+        production_entrypoint_revision if _non_empty_string(production_entrypoint_revision) else ""
+    )
+    if not candidate_value:
         findings.append("candidate_revision must be a non-empty string")
-    if not current_schema_valid:
+    if not current_schema_value:
         findings.append("current_schema must be a non-empty string")
-    if not entrypoint_valid:
+    if not entrypoint_value:
         findings.append("production_entrypoint must be a non-empty string")
-    if not entrypoint_revision_valid:
+    if not entrypoint_revision_value:
         findings.append("production_entrypoint_revision must be a non-empty string")
-    if not isinstance(require_current_rerun, bool):
+    if isinstance(require_current_rerun, bool):
+        require_current_rerun_value = require_current_rerun
+    else:
         findings.append("require_current_rerun must be boolean")
-        require_current_rerun = False
-    if not isinstance(require_interrupted_recovery, bool):
+        require_current_rerun_value = False
+    if isinstance(require_interrupted_recovery, bool):
+        require_interrupted_recovery_value = require_interrupted_recovery
+    else:
         findings.append("require_interrupted_recovery must be boolean")
-        require_interrupted_recovery = True
+        require_interrupted_recovery_value = True
 
     supported = _migration_input_specs(supported_inputs, "supported_inputs", findings)
     unsupported = _migration_input_specs(unsupported_inputs, "unsupported_inputs", findings)
@@ -126,7 +132,7 @@ def evaluate_migration_acceptance(
                 findings.append(f"input {ref} requires schema_identity")
         elif spec.schema_identity is not None:
             findings.append(f"fresh input {ref} must use schema_identity=None")
-        if raw_kind is MigrationInputKind.CURRENT and current_schema_valid and spec.schema_identity != current_schema:
+        if raw_kind is MigrationInputKind.CURRENT and current_schema_valid and spec.schema_identity != current_schema_value:
             findings.append(f"current input {ref} does not match current_schema")
         spec_by_ref[ref] = spec
         if not expected_unsupported:
@@ -165,11 +171,11 @@ def evaluate_migration_acceptance(
         _validate_string_refs(case.recovery_evidence_refs, f"migration case {ref} recovery_evidence_refs", findings)
         if not _non_empty_string(case.exercised_entrypoint):
             findings.append(f"migration case {ref} requires exercised_entrypoint")
-        elif entrypoint_valid and case.exercised_entrypoint != production_entrypoint:
+        elif entrypoint_valid and case.exercised_entrypoint != entrypoint_value:
             findings.append(f"migration case {ref} exercised wrong entrypoint: {case.exercised_entrypoint}")
         if not _non_empty_string(case.exercised_entrypoint_revision):
             findings.append(f"migration case {ref} requires exercised_entrypoint_revision")
-        elif entrypoint_revision_valid and case.exercised_entrypoint_revision != production_entrypoint_revision:
+        elif entrypoint_revision_valid and case.exercised_entrypoint_revision != entrypoint_revision_value:
             findings.append(
                 f"migration case {ref} exercised wrong entrypoint revision: {case.exercised_entrypoint_revision}"
             )
@@ -196,11 +202,11 @@ def evaluate_migration_acceptance(
             None,
         )
         if terminal is None:
-            if spec.kind is MigrationInputKind.CURRENT and not require_current_rerun:
+            if spec.kind is MigrationInputKind.CURRENT and not require_current_rerun_value:
                 continue
             findings.append(f"supported migration input not exercised: {spec.input_ref}")
             continue
-        _validate_pre_state(spec, terminal, current_schema if current_schema_valid else "", findings)
+        _validate_pre_state(spec, terminal, current_schema_value, findings)
         if terminal.result is not MigrationCaseResult.PASS:
             findings.append(f"supported migration input {spec.input_ref} did not pass")
         if current_schema_valid and terminal.observed_post_schema != current_schema:
@@ -219,13 +225,13 @@ def evaluate_migration_acceptance(
         if terminal is None:
             findings.append(f"unsupported migration input not exercised: {spec.input_ref}")
             continue
-        _validate_pre_state(spec, terminal, current_schema if current_schema_valid else "", findings)
+        _validate_pre_state(spec, terminal, current_schema_value, findings)
         if terminal.result is not MigrationCaseResult.REJECT:
             findings.append(f"unsupported migration input {spec.input_ref} was not deliberately rejected")
         if current_schema_valid and terminal.observed_post_schema == current_schema:
             findings.append(f"unsupported migration input {spec.input_ref} was silently normalized to current")
 
-    if require_interrupted_recovery:
+    if require_interrupted_recovery_value:
         recovery_input_refs = {
             spec.input_ref
             for spec in supported
@@ -239,7 +245,7 @@ def evaluate_migration_acceptance(
         for case in recovery_cases:
             spec = spec_by_ref.get(case.input_ref)
             if spec is not None:
-                _validate_pre_state(spec, case, current_schema if current_schema_valid else "", findings)
+                _validate_pre_state(spec, case, current_schema_value, findings)
         if not recovery_cases:
             findings.append("interrupted mutating supported migration recovery case is required")
         elif not any(_non_empty_string_sequence(case.recovery_evidence_refs) for case in recovery_cases):
@@ -251,12 +257,10 @@ def evaluate_migration_acceptance(
         status="pass" if not unique_findings else "fail",
         findings=unique_findings,
         exercised_inputs=exercised,
-        candidate_revision=candidate_revision if isinstance(candidate_revision, str) else "",
-        current_schema=current_schema if isinstance(current_schema, str) else "",
-        production_entrypoint=production_entrypoint if isinstance(production_entrypoint, str) else "",
-        production_entrypoint_revision=(
-            production_entrypoint_revision if isinstance(production_entrypoint_revision, str) else ""
-        ),
+        candidate_revision=candidate_value,
+        current_schema=current_schema_value,
+        production_entrypoint=entrypoint_value,
+        production_entrypoint_revision=entrypoint_revision_value,
     )
 
 
