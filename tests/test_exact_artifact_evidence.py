@@ -109,7 +109,7 @@ def test_representative_large_artifact_fits_reviewed_profile() -> None:
     blob = b"x" * 8192
     entries = [
         module.ArtifactEntry(f"pkg/{index:04d}.bin", blob)
-        for index in range(2500)
+        for index in range(2600)
     ]
 
     result = _evidence(
@@ -125,7 +125,7 @@ def test_representative_large_artifact_fits_reviewed_profile() -> None:
     )
 
     assert result["coverage"]["state"] == "exact"
-    assert result["coverage"]["file_count"] == 2500
+    assert result["coverage"]["file_count"] == 2600
     assert result["coverage"]["byte_count"] > 20 * 1024 * 1024
     assert result["coverage"]["max_depth_observed"] == 2
     assert result["coverage"]["limit_hit"] is False
