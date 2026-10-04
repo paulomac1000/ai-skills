@@ -318,9 +318,9 @@ def _indexes(contract: Mapping[str, Any]) -> tuple[dict[str, Mapping[str, Any]],
 
 def _proofs(criterion: Mapping[str, Any], obligations: Mapping[str, Mapping[str, Any]]) -> tuple[str, ...]:
     declared = _strings(criterion.get("proof_classes"))
-    if declared:
-        return tuple(dict.fromkeys(declared))
     result: list[str] = []
+    if declared:
+        result.extend(declared)
     for ref in _strings(criterion.get("obligation_refs")) or []:
         obligation = obligations.get(ref)
         if obligation:
