@@ -77,6 +77,33 @@ class DiagnosticEgressTests(unittest.TestCase):
             self.assertNotIn(payload, encoded)
             self.assertNotIn("sensor.secret", encoded)
 
+    def test_malformed_typed_classification_fails_closed_without_raising(self) -> None:
+        malformed = [
+            DiagnosticClassification("upstream", "upstream.invalid_request", "error"),
+            DiagnosticClassification("upstream", "upstream.invalid_request", "error"),
+            DiagnosticClassification("upstream", "upstream.invalid_request", "error"),
+            DiagnosticClassification("upstream", "upstream.invalid_request", "error"),
+        ]
+        object.__setattr__(malformed[0], "reason_code", ["unhashable"])
+        object.__setattr__(malformed[1], "fields", None)
+        object.__setattr__(
+            malformed[2],
+            "fields",
+            (DiagnosticField("operation", "template_validate", ["unhashable"]),),
+        )
+        object.__setattr__(
+            malformed[3],
+            "fields",
+            (DiagnosticField(["unhashable"], "template_validate", "canonical_identifier"),),
+        )
+
+        for classification in malformed:
+            with self.subTest(classification=repr(classification)):
+                record = build_safe_diagnostic(classification, policy=POLICY)
+                self.assertEqual(record["reason_code"], "diagnostic.unclassified")
+                self.assertEqual(record["safe_fields"], [])
+                self.assertFalse(record["source_payload_included"])
+
     def test_adversarial_provider_and_source_text_cannot_cross_protected_sink(self) -> None:
         variants = [
             "Bad template: {{ states('sensor.office') }}",
@@ -207,6 +234,49 @@ class DiagnosticEgressTests(unittest.TestCase):
         extra_message = {**valid, "message": "copied source payload"}
         findings = validate_diagnostic_egress_semantics(extra_message, policy=POLICY)
         self.assertTrue(any("unknown diagnostic fields" in item for item in findings))
+
+        root_key_payload = "SENSITIVE_TEMPLATE_TAIL"
+        root_key_record = {**valid, root_key_payload: "ignored"}
+        findings = validate_diagnostic_egress_semantics(root_key_record, policy=POLICY)
+        self.assertNotIn(root_key_payload, json.dumps(findings))
+
+        nested_key_payload = "SENSITIVE_NESTED_TAIL"
+        nested_key_record = {
+            **valid,
+            "reason_code": "upstream.invalid_request",
+            "category": "upstream",
+            "safe_fields": [
+                {
+                    "name": "operation",
+                    "value": "template_validate",
+                    "provenance": "canonical_identifier",
+                    nested_key_payload: "ignored",
+                }
+            ],
+        }
+        findings = validate_diagnostic_egress_semantics(nested_key_record, policy=POLICY)
+        self.assertNotIn(nested_key_payload, json.dumps(findings))
+
+        duplicate_name_payload = "sensitive_token_tail"
+        duplicate_name_record = {
+            **valid,
+            "reason_code": "upstream.invalid_request",
+            "category": "upstream",
+            "safe_fields": [
+                {
+                    "name": duplicate_name_payload,
+                    "value": "template_validate",
+                    "provenance": "canonical_identifier",
+                },
+                {
+                    "name": duplicate_name_payload,
+                    "value": "template_validate",
+                    "provenance": "canonical_identifier",
+                },
+            ],
+        }
+        findings = validate_diagnostic_egress_semantics(duplicate_name_record, policy=POLICY)
+        self.assertNotIn(duplicate_name_payload, json.dumps(findings))
 
         forged_fallback = {**valid, "category": "upstream", "severity": "info"}
         findings = validate_diagnostic_egress_semantics(forged_fallback, policy=POLICY)

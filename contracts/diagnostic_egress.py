@@ -200,6 +200,12 @@ def build_safe_diagnostic(
     )
     if not isinstance(classification, DiagnosticClassification):
         return fallback
+    if (
+        not isinstance(classification.category, str)
+        or not isinstance(classification.reason_code, str)
+        or not isinstance(classification.severity, str)
+    ):
+        return fallback
     reason = policy.reasons.get(classification.reason_code)
     if reason is None:
         return fallback
@@ -208,11 +214,15 @@ def build_safe_diagnostic(
 
     output_fields: list[dict[str, SafeScalar | str]] = []
     seen: set[str] = set()
-    raw_fields: Sequence[object] = classification.fields
-    if len(raw_fields) > 16:
+    raw_fields: object = classification.fields
+    if not isinstance(raw_fields, (tuple, list)) or len(raw_fields) > 16:
         return fallback
     for field in raw_fields:
-        if not isinstance(field, DiagnosticField):
+        if (
+            not isinstance(field, DiagnosticField)
+            or not isinstance(field.name, str)
+            or not isinstance(field.provenance, str)
+        ):
             return fallback
         field_policy = reason.fields.get(field.name)
         if field.name in seen or field_policy is None:
@@ -279,9 +289,9 @@ def validate_diagnostic_egress_semantics(record: object, *, policy: DiagnosticPo
     missing = sorted(_ROOT_FIELDS - set(record))
     if missing:
         findings.append("missing diagnostic fields: " + ", ".join(missing))
-    extra = sorted(set(record) - _ROOT_FIELDS)
+    extra = set(record) - _ROOT_FIELDS
     if extra:
-        findings.append("unknown diagnostic fields: " + ", ".join(extra))
+        findings.append("unknown diagnostic fields are present")
     if record.get("schema_version") != 1:
         findings.append("schema_version must be 1")
     revision = record.get("construction_revision")
@@ -315,14 +325,14 @@ def validate_diagnostic_egress_semantics(record: object, *, policy: DiagnosticPo
         if not isinstance(field, Mapping):
             findings.append(f"safe_fields[{index}] must be an object")
             continue
-        unknown = sorted(set(field) - _SAFE_FIELD_FIELDS)
+        unknown = set(field) - _SAFE_FIELD_FIELDS
         if unknown:
-            findings.append(f"safe_fields[{index}] has unknown fields: " + ", ".join(unknown))
+            findings.append(f"safe_fields[{index}] has unknown fields")
         name = field.get("name")
         if not isinstance(name, str) or not _NAME_RE.fullmatch(name):
             findings.append(f"safe_fields[{index}].name must be a bounded stable token")
         elif name in seen:
-            findings.append(f"safe_fields contains duplicate name: {name}")
+            findings.append(f"safe_fields[{index}].name duplicates an earlier safe field")
         else:
             seen.add(name)
         if not _safe_scalar(field.get("value")):
