@@ -50,7 +50,7 @@ A negative/failure-path criterion that requires proof of exercise must carry a b
 
 Producer `PASS` and semantic coverage are separate. Deferred load-bearing evidence, `coverage_complete=false`, or a nonzero deferred count cannot satisfy a criterion that requires complete coverage.
 
-For provider/parser-dependent criteria marked `provider_faithful`, at least one load-bearing proof uses captured provider evidence or an authoritative contract shape. A simplified synthetic fixture may prove a mechanism but not provider compatibility.
+For provider/parser-dependent criteria marked `provider_faithful`, every load-bearing proof that can decide acceptance uses captured provider evidence or an authoritative contract shape. This applies before either PASS or hard FAIL is authoritative. A simplified synthetic fixture may prove a mechanism but not provider compatibility.
 
 ## Known gaps and waiver authority
 
