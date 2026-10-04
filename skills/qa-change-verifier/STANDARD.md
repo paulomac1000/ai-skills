@@ -56,7 +56,7 @@ For provider/parser-dependent criteria marked `provider_faithful`, at least one 
 
 Implementers, models, reviewers, and validators may report a stable known gap, but reporting a gap never grants authority to accept it. A gap intersecting a required criterion remains non-green when its impact is load-bearing or unknown.
 
-`waived_by_policy` is valid only with trusted policy authorization, explicit scope, and a durable waiver reference. An implementer cannot self-declare a required criterion `not_applicable`. A resolved gap is current only when its resolution is bound to the current candidate and acceptance-contract digest. Known gaps remain durable across handoff/summary boundaries by stable reference; omission from later prose does not resolve them.
+`waived_by_policy` is valid only with trusted policy authorization, explicit scope, and a durable waiver reference. Implementer-reported `KnownGap` data carries no authorization fields: waiver authority is a separate policy-owned record bound to the gap id, explicit criterion refs, exact candidate revision, exact acceptance-contract digest, and durable waiver reference. Callers MUST source that authorization from a trusted policy boundary rather than reconstructing it from implementer/model input. An implementer cannot self-declare a required criterion `not_applicable`. A resolved gap is current only when its resolution is bound to the current candidate and acceptance-contract digest. Known gaps remain durable across handoff/summary boundaries by stable reference; omission from later prose does not resolve them.
 
 ## Semantic review plan
 
