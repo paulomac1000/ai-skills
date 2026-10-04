@@ -629,6 +629,61 @@ def test_review_plan_resolves_analogue_paths_against_known_paths() -> None:
     ) == ()
 
 
+def test_acceptance_forwards_known_paths_into_semantic_review_validation() -> None:
+    module = _load("qa_acceptance_known_paths", TOOL)
+    contract = _contract(module)
+    digest = contract["digest"]
+    plan = _review_plan(module, contract)
+    evidence = [
+        module.CriterionEvidence(
+            "C1",
+            "integration",
+            module.EvidenceStatus.PASS,
+            "candidate-1",
+            digest,
+            exercise_discriminant="guard-hit",
+        ),
+        module.CriterionEvidence(
+            "C2",
+            "security_review",
+            module.EvidenceStatus.PASS,
+            "candidate-1",
+            digest,
+            fixture_source=module.FixtureSource.CAPTURED_PROVIDER,
+        ),
+        module.CriterionEvidence(
+            "C2",
+            "semantic_review",
+            module.EvidenceStatus.PASS,
+            "candidate-1",
+            digest,
+            fixture_source=module.FixtureSource.SYNTHETIC,
+            semantic_review_plan_digest=plan["digest"],
+        ),
+    ]
+
+    incomplete = module.evaluate_acceptance(
+        contract,
+        candidate_revision="candidate-1",
+        evidence=evidence,
+        semantic_review_plan=plan,
+        current_base_revision="base-1",
+        known_path_refs={"src/diagnostics.py"},
+    )
+    assert incomplete.status == module.AcceptanceStatus.INCOMPLETE
+    assert any("unresolved analogue paths: src/provider_errors.py" in finding for finding in incomplete.findings)
+
+    complete = module.evaluate_acceptance(
+        contract,
+        candidate_revision="candidate-1",
+        evidence=evidence,
+        semantic_review_plan=plan,
+        current_base_revision="base-1",
+        known_path_refs={"src/diagnostics.py", "src/provider_errors.py"},
+    )
+    assert complete.status == module.AcceptanceStatus.PASS
+
+
 def test_review_plan_rejects_missing_required_scope_collections_without_contract() -> None:
     module = _load("qa_review_required_collections", TOOL)
     contract = _contract(module)
