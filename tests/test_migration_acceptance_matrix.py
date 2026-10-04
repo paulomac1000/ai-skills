@@ -479,3 +479,21 @@ def test_receipt_boundary_handles_unhashable_kind_and_empty_failure_evidence() -
         "failures": ["migration matrix preflight failed"],
     }
     assert module.validate_migration_acceptance_receipt(failed_before_execution) == ()
+
+
+def test_receipt_boundary_rejects_unhashable_verdict_and_non_string_field_names() -> None:
+    module = _load("migration_acceptance_receipt_outer_boundary", TOOL)
+    malformed = {
+        "schema_version": 1,
+        "verdict": [],
+        "candidate_revision": CANDIDATE,
+        "current_schema": CURRENT,
+        "production_entrypoint": ENTRY,
+        "production_entrypoint_revision": ENTRY_REV,
+        "exercised_inputs": [],
+        "failures": [],
+        7: "unexpected",
+    }
+    findings = module.validate_migration_acceptance_receipt(malformed)
+    assert "migration acceptance receipt verdict must be pass or fail" in findings
+    assert "migration acceptance receipt field names must be strings" in findings

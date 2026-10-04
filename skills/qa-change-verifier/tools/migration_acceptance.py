@@ -293,14 +293,17 @@ def validate_migration_acceptance_receipt(receipt: object) -> tuple[str, ...]:
         "failures",
     }
     findings: list[str] = []
-    extra = sorted(set(receipt) - allowed)
+    raw_keys = list(receipt)
+    if not all(isinstance(key, str) for key in raw_keys):
+        findings.append("migration acceptance receipt field names must be strings")
+    extra = sorted(key for key in raw_keys if isinstance(key, str) and key not in allowed)
     if extra:
         findings.append("migration acceptance receipt has unknown fields: " + ", ".join(extra))
     version = receipt.get("schema_version")
     if isinstance(version, bool) or version != 1:
         findings.append("migration acceptance receipt schema_version must be integer 1")
     verdict = receipt.get("verdict")
-    if verdict not in {"pass", "fail"}:
+    if not isinstance(verdict, str) or verdict not in {"pass", "fail"}:
         findings.append("migration acceptance receipt verdict must be pass or fail")
     for field in (
         "candidate_revision",
