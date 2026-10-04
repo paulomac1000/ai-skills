@@ -57,7 +57,7 @@
             "type": "array",
             "minItems": 1,
             "uniqueItems": true,
-            "items": {"enum": ["present_valid", "missing", "explicit_null", "empty_container", "wrong_type", "malformed_value", "unknown", "stale", "conflicting_identity", "conflicting_generation", "conflicting_digest", "alias_or_duplicate_equal", "conflicting_aliases", "unexpected_extra_source", "ambiguous_fallback", "known_provider_wording", "alternate_provider_wording", "internal_apostrophe_or_nested_quote", "multiline_payload", "unicode_or_control_characters", "nested_wrapper_error", "very_long_error", "unknown_wording", "source_payload_embedded"]}
+            "items": {"enum": ["present_valid", "invalid", "missing", "explicit_null", "empty_container", "wrong_type", "malformed_value", "unknown", "stale", "concurrent", "recovery", "conflicting_identity", "conflicting_generation", "conflicting_digest", "alias_or_duplicate_equal", "conflicting_aliases", "unexpected_extra_source", "ambiguous_fallback", "known_provider_wording", "alternate_provider_wording", "internal_apostrophe_or_nested_quote", "multiline_payload", "unicode_or_control_characters", "nested_wrapper_error", "very_long_error", "unknown_wording", "source_payload_embedded"]}
           },
           "criterion_refs": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 128}},
           "analogue_refs": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 2048}}
