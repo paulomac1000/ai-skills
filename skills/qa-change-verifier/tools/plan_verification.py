@@ -329,6 +329,10 @@ def _proofs(criterion: Mapping[str, Any], obligations: Mapping[str, Mapping[str,
 
 
 def validate_change_acceptance_contract(contract: Mapping[str, Any]) -> tuple[str, ...]:
+    raw_contract: object = contract
+    if not isinstance(raw_contract, Mapping):
+        return ("acceptance contract must be an object",)
+
     findings: list[str] = []
     extra = sorted(set(contract) - _CHANGE_ROOT)
     if extra:
@@ -517,7 +521,19 @@ def validate_semantic_review_plan(
     current_base_revision: str | None = None,
     known_path_refs: set[str] | None = None,
 ) -> tuple[str, ...]:
+    raw_plan: object = plan
+    if not isinstance(raw_plan, Mapping):
+        return ("semantic review plan must be an object",)
+
     findings: list[str] = []
+    raw_known_path_refs: object = known_path_refs
+    if raw_known_path_refs is not None and (
+        not isinstance(raw_known_path_refs, (set, frozenset))
+        or not all(isinstance(ref, str) and ref.strip() for ref in raw_known_path_refs)
+    ):
+        findings.append("known_path_refs must be a set of non-empty strings")
+        known_path_refs = None
+
     extra = sorted(set(plan) - _REVIEW_ROOT)
     if extra:
         findings.append("unknown semantic-review-plan fields: " + ", ".join(extra))
@@ -1146,6 +1162,21 @@ def evaluate_acceptance(
                     f"criterion {criterion_id} FAIL evidence uses non-required proof class: {item.proof_class}"
                 )
                 continue
+
+            if criterion.get("proof_of_exercise_required") is True:
+                if item.discriminating_observations <= 0:
+                    findings.append(
+                        f"criterion {criterion_id} FAIL lacks discriminating proof-of-exercise observations"
+                    )
+                    continue
+                valid_fail_discriminant = isinstance(item.exercise_discriminant, str) and bool(
+                    item.exercise_discriminant.strip()
+                )
+                if not valid_fail_discriminant:
+                    findings.append(
+                        f"criterion {criterion_id} FAIL lacks required proof-of-exercise discriminant"
+                    )
+                    continue
 
             if item.proof_class == "exact_artifact":
                 binding = item.exact_evidence_binding
