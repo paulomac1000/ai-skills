@@ -359,6 +359,9 @@ def validate_change_acceptance_contract(contract: Mapping[str, Any]) -> tuple[st
             findings.append(f"obligation {identifier} required must be boolean")
         if not isinstance(item.get("statement"), str) or not str(item["statement"]).strip():
             findings.append(f"obligation {identifier} statement must be a non-empty string")
+        source_ref = item.get("source_ref")
+        if source_ref is not None and not isinstance(source_ref, str):
+            findings.append(f"obligation {identifier} source_ref must be a string or null")
 
     criteria: dict[str, Mapping[str, Any]] = {}
     required_coverage: set[str] = set()
@@ -381,9 +384,15 @@ def validate_change_acceptance_contract(contract: Mapping[str, Any]) -> tuple[st
         if not isinstance(required, bool):
             findings.append(f"criterion {identifier} required must be boolean")
             required = False
-        refs = _strings(item.get("obligation_refs")) or []
-        if not refs:
+        raw_refs = item.get("obligation_refs")
+        refs = _strings(raw_refs)
+        if refs is None:
+            findings.append(f"criterion {identifier} obligation_refs must be an array of non-empty strings")
+            refs = []
+        elif not refs:
             findings.append(f"criterion {identifier} must reference at least one obligation")
+        elif len(set(refs)) != len(refs):
+            findings.append(f"criterion {identifier} obligation_refs must be unique")
         for ref in refs:
             if ref not in obligations:
                 findings.append(f"criterion {identifier} references unknown obligation: {ref}")
@@ -392,12 +401,22 @@ def validate_change_acceptance_contract(contract: Mapping[str, Any]) -> tuple[st
         for field in ("expected_outcome", "rejection_condition"):
             if not isinstance(item.get(field), str) or not str(item[field]).strip():
                 findings.append(f"criterion {identifier} {field} must be a non-empty string")
+        declared_proofs = item.get("proof_classes")
+        if "proof_classes" in item:
+            parsed_proofs = _strings(declared_proofs)
+            if parsed_proofs is None or not parsed_proofs:
+                findings.append(f"criterion {identifier} proof_classes must be a non-empty array of strings")
+            elif len(set(parsed_proofs)) != len(parsed_proofs):
+                findings.append(f"criterion {identifier} proof_classes must be unique")
         proofs = _proofs(item, obligations)
         unknown = sorted(set(proofs) - set(PROOF_CLASSES))
         if unknown:
             findings.append(f"criterion {identifier} has unknown proof classes: {', '.join(unknown)}")
         if required and not proofs:
             findings.append(f"required criterion {identifier} has no deterministic proof mapping")
+        proof_of_exercise = item.get("proof_of_exercise_required")
+        if "proof_of_exercise_required" in item and not isinstance(proof_of_exercise, bool):
+            findings.append(f"criterion {identifier} proof_of_exercise_required must be boolean")
         if item.get("fixture_fidelity", "synthetic_allowed") not in {"synthetic_allowed", "provider_faithful"}:
             findings.append(f"criterion {identifier} has invalid fixture_fidelity")
     for identifier, item in obligations.items():
@@ -581,7 +600,8 @@ def evaluate_acceptance(
         if not affected:
             continue
         if gap.disposition == "waived_by_policy":
-            authorized_waiver = gap.waiver_authorized and bool(gap.waiver_ref and gap.waiver_ref.strip())
+            waiver_ref_valid = isinstance(gap.waiver_ref, str) and bool(gap.waiver_ref.strip())
+            authorized_waiver = gap.waiver_authorized is True and waiver_ref_valid
             if authorized_waiver:
                 waived.update(affected)
             else:
@@ -620,12 +640,13 @@ def evaluate_acceptance(
             if item.discriminating_observations <= 0:
                 findings.append(f"criterion {criterion_id} has vacuous PASS with zero discriminating observations")
                 continue
-            if not item.coverage_complete or item.deferred_count > 0:
+            if item.coverage_complete is not True or item.deferred_count != 0:
                 findings.append(f"criterion {criterion_id} has incomplete/deferred semantic coverage")
                 continue
-            if criterion.get("proof_of_exercise_required") is True and not (
-                item.exercise_discriminant and item.exercise_discriminant.strip()
-            ):
+            valid_discriminant = isinstance(item.exercise_discriminant, str) and bool(
+                item.exercise_discriminant.strip()
+            )
+            if criterion.get("proof_of_exercise_required") is True and not valid_discriminant:
                 findings.append(f"criterion {criterion_id} lacks required proof-of-exercise discriminant")
                 continue
             provider_faithful = criterion.get("fixture_fidelity") == "provider_faithful"
