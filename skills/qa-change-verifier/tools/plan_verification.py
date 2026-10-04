@@ -224,6 +224,15 @@ class KnownGap:
 
 
 @dataclass(frozen=True)
+class KnownGapRegistrySnapshot:
+    snapshot_ref: str
+    candidate_revision: str
+    contract_digest: str
+    gap_ids: tuple[str, ...]
+    complete: bool = True
+
+
+@dataclass(frozen=True)
 class PolicyWaiverAuthorization:
     waiver_ref: str
     gap_id: str
@@ -447,7 +456,11 @@ def validate_change_acceptance_contract(contract: Mapping[str, Any]) -> tuple[st
         proof_of_exercise = item.get("proof_of_exercise_required")
         if "proof_of_exercise_required" in item and not isinstance(proof_of_exercise, bool):
             findings.append(f"criterion {identifier} proof_of_exercise_required must be boolean")
-        if item.get("fixture_fidelity", "synthetic_allowed") not in {"synthetic_allowed", "provider_faithful"}:
+        fixture_fidelity = item.get("fixture_fidelity", "synthetic_allowed")
+        if not isinstance(fixture_fidelity, str) or fixture_fidelity not in {
+            "synthetic_allowed",
+            "provider_faithful",
+        }:
             findings.append(f"criterion {identifier} has invalid fixture_fidelity")
     for identifier, item in obligations.items():
         if item.get("required") is True and identifier not in required_coverage:
@@ -748,6 +761,7 @@ def evaluate_acceptance(
     candidate_revision: str,
     evidence: Sequence[CriterionEvidence],
     known_gaps: Sequence[KnownGap] = (),
+    trusted_known_gap_snapshot: KnownGapRegistrySnapshot | None = None,
     trusted_policy_waivers: Sequence[PolicyWaiverAuthorization] = (),
     semantic_review_plan: Mapping[str, Any] | None = None,
     current_base_revision: str | None = None,
@@ -765,6 +779,43 @@ def evaluate_acceptance(
     waived: set[str] = set()
     blocked: set[str] = set()
     hard_fail = False
+
+    supplied_gap_ids: list[str] = []
+    malformed_gap_identity = False
+    for gap in known_gaps:
+        if not isinstance(gap.gap_id, str) or not gap.gap_id.strip():
+            findings.append("known gap id must be a non-empty string")
+            malformed_gap_identity = True
+            continue
+        supplied_gap_ids.append(gap.gap_id)
+    if len(set(supplied_gap_ids)) != len(supplied_gap_ids):
+        findings.append("known gap ids must be unique")
+        malformed_gap_identity = True
+
+    if trusted_known_gap_snapshot is None:
+        findings.append("trusted complete known-gap registry snapshot is required")
+    else:
+        snapshot_identity_valid = (
+            isinstance(trusted_known_gap_snapshot.snapshot_ref, str)
+            and bool(trusted_known_gap_snapshot.snapshot_ref.strip())
+        )
+        if not snapshot_identity_valid:
+            findings.append("known-gap registry snapshot_ref must be a non-empty string")
+        if trusted_known_gap_snapshot.complete is not True:
+            findings.append("known-gap registry snapshot must be complete")
+        if trusted_known_gap_snapshot.candidate_revision != candidate_revision:
+            findings.append("known-gap registry snapshot is stale for the current candidate")
+        if trusted_known_gap_snapshot.contract_digest != digest:
+            findings.append("known-gap registry snapshot is bound to a different acceptance contract")
+
+        snapshot_gap_ids = _strings(trusted_known_gap_snapshot.gap_ids)
+        if snapshot_gap_ids is None:
+            findings.append("known-gap registry snapshot gap_ids must be an array of non-empty strings")
+        else:
+            if len(set(snapshot_gap_ids)) != len(snapshot_gap_ids):
+                findings.append("known-gap registry snapshot gap_ids must be unique")
+            if not malformed_gap_identity and set(snapshot_gap_ids) != set(supplied_gap_ids):
+                findings.append("known-gap registry snapshot does not match supplied known gaps")
 
     trusted_waiver_scope: dict[str, set[str]] = {}
     for authorization in trusted_policy_waivers:
