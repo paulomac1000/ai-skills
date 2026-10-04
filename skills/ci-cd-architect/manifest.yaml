@@ -53,6 +53,8 @@ dependencies:
     - PyYAML>=6.0.3,<7
   shared_resources:
   - contracts/verification-receipt.schema.json
+  - contracts/artifact-evidence.schema.json
+  - contracts/artifact_evidence.py
   - contracts/runtime-identity.schema.json
   - contracts/validate_verification_receipt.py
 deprecation:
