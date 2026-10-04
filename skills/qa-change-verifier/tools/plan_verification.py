@@ -228,7 +228,7 @@ class KnownGapRegistrySnapshot:
     snapshot_ref: str
     candidate_revision: str
     contract_digest: str
-    gap_ids: tuple[str, ...]
+    gaps: tuple[KnownGap, ...]
     complete: bool = True
 
 
@@ -780,24 +780,13 @@ def evaluate_acceptance(
     blocked: set[str] = set()
     hard_fail = False
 
-    supplied_gap_ids: list[str] = []
-    malformed_gap_identity = False
-    for gap in known_gaps:
-        if not isinstance(gap.gap_id, str) or not gap.gap_id.strip():
-            findings.append("known gap id must be a non-empty string")
-            malformed_gap_identity = True
-            continue
-        supplied_gap_ids.append(gap.gap_id)
-    if len(set(supplied_gap_ids)) != len(supplied_gap_ids):
-        findings.append("known gap ids must be unique")
-        malformed_gap_identity = True
-
+    effective_gaps: tuple[KnownGap, ...] = ()
+    snapshot_by_id: dict[str, KnownGap] = {}
     if trusted_known_gap_snapshot is None:
         findings.append("trusted complete known-gap registry snapshot is required")
     else:
-        snapshot_identity_valid = (
-            isinstance(trusted_known_gap_snapshot.snapshot_ref, str)
-            and bool(trusted_known_gap_snapshot.snapshot_ref.strip())
+        snapshot_identity_valid = isinstance(trusted_known_gap_snapshot.snapshot_ref, str) and bool(
+            trusted_known_gap_snapshot.snapshot_ref.strip()
         )
         if not snapshot_identity_valid:
             findings.append("known-gap registry snapshot_ref must be a non-empty string")
@@ -808,14 +797,71 @@ def evaluate_acceptance(
         if trusted_known_gap_snapshot.contract_digest != digest:
             findings.append("known-gap registry snapshot is bound to a different acceptance contract")
 
-        snapshot_gap_ids = _strings(trusted_known_gap_snapshot.gap_ids)
-        if snapshot_gap_ids is None:
-            findings.append("known-gap registry snapshot gap_ids must be an array of non-empty strings")
+        raw_snapshot_gaps = trusted_known_gap_snapshot.gaps
+        if not isinstance(raw_snapshot_gaps, Sequence) or isinstance(
+            raw_snapshot_gaps, (str, bytes, bytearray)
+        ):
+            findings.append("known-gap registry snapshot gaps must be an array")
         else:
-            if len(set(snapshot_gap_ids)) != len(snapshot_gap_ids):
-                findings.append("known-gap registry snapshot gap_ids must be unique")
-            if not malformed_gap_identity and set(snapshot_gap_ids) != set(supplied_gap_ids):
-                findings.append("known-gap registry snapshot does not match supplied known gaps")
+            for gap in raw_snapshot_gaps:
+                if not isinstance(gap, KnownGap):
+                    findings.append("known-gap registry snapshot entries must be KnownGap records")
+                    continue
+                if not isinstance(gap.gap_id, str) or not gap.gap_id.strip():
+                    findings.append("known gap id must be a non-empty string")
+                    continue
+                if gap.gap_id in snapshot_by_id:
+                    findings.append(f"duplicate known gap id in registry snapshot: {gap.gap_id}")
+                    continue
+
+                refs = _strings(gap.affected_criterion_refs)
+                if refs is None:
+                    findings.append(
+                        f"known gap {gap.gap_id} affected_criterion_refs must be an array of non-empty strings"
+                    )
+                    continue
+                if len(set(refs)) != len(refs):
+                    findings.append(f"known gap {gap.gap_id} affected_criterion_refs must be unique")
+                    continue
+                unknown_refs = sorted(set(refs) - set(criteria))
+                if unknown_refs:
+                    findings.append(
+                        f"known gap {gap.gap_id} references unknown criteria: {', '.join(unknown_refs)}"
+                    )
+                    continue
+                if gap.load_bearing is not None and not isinstance(gap.load_bearing, bool):
+                    findings.append(f"known gap {gap.gap_id} load_bearing must be boolean or null")
+                    continue
+                if gap.disposition not in {"unresolved", "resolved", "not_applicable", "waived_by_policy"}:
+                    findings.append(f"known gap {gap.gap_id} has invalid disposition")
+                    continue
+                if gap.candidate_revision is not None and (
+                    not isinstance(gap.candidate_revision, str) or not gap.candidate_revision.strip()
+                ):
+                    findings.append(f"known gap {gap.gap_id} candidate_revision must be a non-empty string or null")
+                    continue
+                if gap.contract_digest is not None and (
+                    not isinstance(gap.contract_digest, str) or not _DIGEST.fullmatch(gap.contract_digest)
+                ):
+                    findings.append(f"known gap {gap.gap_id} contract_digest must be null or sha256 digest")
+                    continue
+                snapshot_by_id[gap.gap_id] = gap
+
+            if len(snapshot_by_id) == len(raw_snapshot_gaps):
+                effective_gaps = tuple(snapshot_by_id.values())
+
+    if known_gaps:
+        supplied_by_id: dict[str, KnownGap] = {}
+        for gap in known_gaps:
+            if not isinstance(gap, KnownGap) or not isinstance(gap.gap_id, str) or not gap.gap_id.strip():
+                findings.append("supplied known gaps must contain identified KnownGap records")
+                continue
+            if gap.gap_id in supplied_by_id:
+                findings.append(f"duplicate supplied known gap id: {gap.gap_id}")
+                continue
+            supplied_by_id[gap.gap_id] = gap
+        if supplied_by_id != snapshot_by_id:
+            findings.append("supplied known gaps do not match trusted registry records")
 
     trusted_waiver_scope: dict[str, set[str]] = {}
     for authorization in trusted_policy_waivers:
@@ -839,7 +885,7 @@ def evaluate_acceptance(
         if scope:
             trusted_waiver_scope.setdefault(authorization.gap_id, set()).update(scope)
 
-    for gap in known_gaps:
+    for gap in effective_gaps:
         affected = {
             ref for ref in gap.affected_criterion_refs if ref in criteria and criteria[ref].get("required") is True
         }
