@@ -1,6 +1,6 @@
 schema_version: 1
 name: mcp-server-architect
-version: 3.6.0
+version: 3.7.0
 maturity: stable
 skill_format: ai-skills/v1
 normative_entrypoint: STANDARD.md
@@ -115,6 +115,9 @@ dependencies:
   tools:
   - python
   - dotnet-sdk
+  shared_resources:
+  - contracts/diagnostic-egress.schema.json
+  - contracts/diagnostic_egress.py
 deprecation:
   policy: semantic-versioning
   minimum_notice: one-minor-release

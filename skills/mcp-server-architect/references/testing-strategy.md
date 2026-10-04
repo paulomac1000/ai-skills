@@ -54,6 +54,8 @@ Inject a raw-function bypass into a disposable adapter and prove parity tests fa
 
 Exercise authentication, per-target authorization, operator gates, trusted approval, idempotency, conflict preconditions, blocked data, command and path policy, URL resolution, Origin/CORS, rate limits, and recursive response/log minimization.
 
+Diagnostic-egress tests consume `contracts/diagnostic-egress.schema.json` and cover internal apostrophes/nested quotes, escaped/double quotes, changed provider prefixes/suffixes, embedded source/template fragments, multiline text, Unicode/control or malformed-decode paths, very long errors, nested/wrapped errors, secret-looking and ordinary values, and unknown wording. Protected sinks such as stderr, receipts, summaries, logs, and model-visible responses assert that raw source/provider payload is absent; only stable reason/category/severity plus policy-allowlisted bounded fields may cross the boundary. Unknown or unsafe classification yields the generic fallback, while any retained raw forensic detail is represented only by an opaque access-controlled reference.
+
 Target tests cover requested target unavailable, configured default unavailable, prohibition of silent fallback, identity changing between discovery and mutation, DNS rebinding, redirect escape, IPv4/IPv6/IDNA normalization, host-key or certificate mismatch, and resolved target in audit and response metadata.
 
 Risk inference tests combine every signal monotonically. Untrusted metadata may escalate but cannot prove read-only, replay safety, trusted confirmation, or consumer policy. Typed consumer-owned trust values are separate objects, not booleans that upgrade fields from the same untrusted map.
