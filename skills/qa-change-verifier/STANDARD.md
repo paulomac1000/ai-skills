@@ -70,11 +70,11 @@ The default freshness rule is `plan(C1) is stale for C2`. Base-dependent plans a
 
 For identity, authority, admission, provenance, parser/schema, state, and recovery boundaries, review the applicable negative space around the invariant instead of only the changed happy path. Select dimensions from the actual risk; do not impose the full matrix on unrelated pure functions.
 
-Structured-input dimensions may distinguish present-valid, missing, explicit null, empty container, wrong type, malformed value, unknown, stale, conflicting identity/generation/digest, equal aliases, conflicting aliases, unexpected extra sources, and ambiguous fallback. Analogous branches/adapters can be grouped so one repaired path does not hide analogue drift.
+Structured-input dimensions may distinguish present-valid, invalid, missing, explicit null, empty container, wrong type, malformed value, unknown, stale, concurrent, recovery, conflicting identity/generation/digest, equal aliases, conflicting aliases, unexpected extra sources, and ambiguous fallback. Dimensions may be collapsed only when the owning contract proves they are semantically equivalent for the reviewed invariant. Analogous branches/adapters can be grouped so one repaired path does not hide analogue drift.
 
 For diagnostic egress, consume the reusable diagnostic-safety contract and consider known/alternate provider wording, internal apostrophes or nested quotes, multiline and Unicode/control input, nested wrappers, long errors, unknown wording, and source/request payload embedded in an upstream error. Prefer constructing typed/allowlisted diagnostics over copying arbitrary error strings and attempting heuristic redaction.
 
-A newly discovered omitted invariant dimension may revise the plan; the new plan receives a new semantic digest and exact-candidate binding rather than silently widening the old receipt.
+A newly discovered omitted invariant dimension may revise the plan; the new plan receives a new semantic digest and exact-candidate binding rather than silently widening the old receipt. Deterministic validation checks declared shape and references but does not claim static heuristics can discover all semantically applicable risks or invariants.
 
 ## Failure attribution
 
