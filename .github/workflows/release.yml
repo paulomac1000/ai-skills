@@ -29,6 +29,7 @@ jobs:
       version: ${{ steps.release.outputs.version }}
       tag: ${{ steps.release.outputs.tag }}
       archive_sha256: ${{ steps.package.outputs.archive_sha256 }}
+      checksum_sha256: ${{ steps.package.outputs.checksum_sha256 }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -172,7 +173,9 @@ jobs:
           archive_sha256="$(sha256sum "$archive" | awk '{print $1}')"
           printf '%s  %s\n' "$archive_sha256" "$(basename "$archive")" > release-payload/SHA256SUMS
           (cd release-payload && sha256sum -c SHA256SUMS)
+          checksum_sha256="$(sha256sum release-payload/SHA256SUMS | awk '{print $1}')"
           echo "archive_sha256=$archive_sha256" >> "$GITHUB_OUTPUT"
+          echo "checksum_sha256=$checksum_sha256" >> "$GITHUB_OUTPUT"
       - name: Upload prepared release payload
         if: steps.release.outputs.release_needed == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
@@ -202,6 +205,7 @@ jobs:
         shell: bash
         env:
           ARCHIVE_SHA256: ${{ needs.prepare.outputs.archive_sha256 }}
+          CHECKSUM_SHA256: ${{ needs.prepare.outputs.checksum_sha256 }}
           RELEASE_SHA: ${{ needs.prepare.outputs.release_sha }}
           TAG: ${{ needs.prepare.outputs.tag }}
           VERSION: ${{ needs.prepare.outputs.version }}
@@ -211,16 +215,19 @@ jobs:
           [[ "$TAG" == "v$VERSION" ]]
           [[ "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]]
           [[ "$ARCHIVE_SHA256" =~ ^[0-9a-f]{64}$ ]]
+          [[ "$CHECKSUM_SHA256" =~ ^[0-9a-f]{64}$ ]]
           archive="release-payload/ai-skills-$VERSION.tar.gz"
           test -f "$archive"
           test -f release-payload/SHA256SUMS
           test -f release-payload/release-notes.md
           test "$(sha256sum "$archive" | awk '{print $1}')" = "$ARCHIVE_SHA256"
+          test "$(sha256sum release-payload/SHA256SUMS | awk '{print $1}')" = "$CHECKSUM_SHA256"
           (cd release-payload && sha256sum -c SHA256SUMS)
       - name: Create or converge exact GitHub tag and release
         shell: bash
         env:
           ARCHIVE_SHA256: ${{ needs.prepare.outputs.archive_sha256 }}
+          CHECKSUM_SHA256: ${{ needs.prepare.outputs.checksum_sha256 }}
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           RELEASE_SHA: ${{ needs.prepare.outputs.release_sha }}
@@ -232,8 +239,10 @@ jobs:
           [[ "$TAG" == "v$VERSION" ]]
           [[ "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]]
           [[ "$ARCHIVE_SHA256" =~ ^[0-9a-f]{64}$ ]]
+          [[ "$CHECKSUM_SHA256" =~ ^[0-9a-f]{64}$ ]]
           archive="release-payload/ai-skills-$VERSION.tar.gz"
           archive_name="$(basename "$archive")"
+          checksum_name="SHA256SUMS"
 
           resolve_tag_commit() {
             local ref_type ref_sha
@@ -271,11 +280,45 @@ jobs:
             test "$(resolve_tag_commit)" = "$RELEASE_SHA"
           fi
 
+          asset_count() {
+            local name="$1"
+            gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" \
+              --jq "[.assets[] | select(.name == \"$name\")] | length"
+          }
+
+          asset_digest() {
+            local name="$1"
+            gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" \
+              --jq ".assets[] | select(.name == \"$name\") | .digest"
+          }
+
           if gh release view "$TAG" >/dev/null 2>&1; then
+            release_state="$(
+              gh release view "$TAG" --json isDraft,isPrerelease \
+                --jq '[.isDraft, .isPrerelease] | @tsv'
+            )"
+            test "$release_state" = $'false\tfalse'
+
+            archive_count="$(asset_count "$archive_name")"
+            checksum_count="$(asset_count "$checksum_name")"
+            test "$archive_count" -le 1
+            test "$checksum_count" -le 1
+            if [[ "$archive_count" == "1" ]]; then
+              test "$(asset_digest "$archive_name")" = "sha256:$ARCHIVE_SHA256"
+            fi
+            if [[ "$checksum_count" == "1" ]]; then
+              test "$(asset_digest "$checksum_name")" = "sha256:$CHECKSUM_SHA256"
+            fi
+
             gh release edit "$TAG" \
               --title "ai-skills $VERSION" \
               --notes-file release-payload/release-notes.md
-            gh release upload "$TAG" "$archive" release-payload/SHA256SUMS --clobber
+            if [[ "$archive_count" == "0" ]]; then
+              gh release upload "$TAG" "$archive"
+            fi
+            if [[ "$checksum_count" == "0" ]]; then
+              gh release upload "$TAG" release-payload/SHA256SUMS
+            fi
           else
             gh release create "$TAG" \
               --verify-tag \
@@ -285,13 +328,7 @@ jobs:
           fi
 
           test "$(resolve_tag_commit)" = "$RELEASE_SHA"
-          asset_digest="$(
-            gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" \
-              --jq ".assets[] | select(.name == \"$archive_name\") | .digest"
-          )"
-          test "$asset_digest" = "sha256:$ARCHIVE_SHA256"
-          checksum_assets="$(
-            gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" \
-              --jq '[.assets[] | select(.name == "SHA256SUMS")] | length'
-          )"
-          test "$checksum_assets" = "1"
+          test "$(asset_count "$archive_name")" = "1"
+          test "$(asset_count "$checksum_name")" = "1"
+          test "$(asset_digest "$archive_name")" = "sha256:$ARCHIVE_SHA256"
+          test "$(asset_digest "$checksum_name")" = "sha256:$CHECKSUM_SHA256"

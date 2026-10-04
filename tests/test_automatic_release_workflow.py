@@ -57,6 +57,9 @@ def test_release_publisher_is_separate_and_does_not_checkout_or_build_candidate(
     assert "GH_REPO" in rendered
     assert "github.repository" in rendered
     assert "sha256sum -c SHA256SUMS" in rendered
+    assert "--clobber" not in rendered
+    assert "asset_digest" in rendered
+    assert "CHECKSUM_SHA256" in rendered
 
 
 def test_main_ci_runs_are_not_cancelled_by_later_main_pushes() -> None:
@@ -81,3 +84,14 @@ def test_repository_release_policy_defaults_to_automatic_finalization() -> None:
     assert "## Publication finalization" in standard
     assert "automatic-after-integration" in standard
     assert ".github/workflows/release.yml" in agents
+
+
+def test_release_retry_fails_closed_on_existing_asset_digest_conflict() -> None:
+    text = RELEASE.read_text(encoding="utf-8")
+    assert 'test "$(asset_digest "$archive_name")" = "sha256:$ARCHIVE_SHA256"' in text
+    assert 'test "$(asset_digest "$checksum_name")" = "sha256:$CHECKSUM_SHA256"' in text
+    assert 'test "$archive_count" -le 1' in text
+    assert 'test "$checksum_count" -le 1' in text
+    assert 'if [[ "$archive_count" == "0" ]]' in text
+    assert 'if [[ "$checksum_count" == "0" ]]' in text
+    assert "--clobber" not in text
