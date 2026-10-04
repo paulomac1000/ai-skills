@@ -223,13 +223,9 @@ def validate_receipt_semantics(
                 candidate_digest = candidate.get("artifact_digest")
                 if evidence_state == "exact":
                     if candidate_digest != evidence_digest:
-                        findings.append(
-                            "candidate.artifact_digest must equal the exact artifact evidence digest"
-                        )
+                        findings.append("candidate.artifact_digest must equal the exact artifact evidence digest")
                 elif candidate_digest is not None:
-                    findings.append(
-                        "candidate.artifact_digest cannot be paired with non-exact artifact evidence"
-                    )
+                    findings.append("candidate.artifact_digest cannot be paired with non-exact artifact evidence")
 
     if receipt.get("verdict") == "pass":
         if accounted != discovered:
