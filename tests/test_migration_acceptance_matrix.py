@@ -497,3 +497,44 @@ def test_receipt_boundary_rejects_unhashable_verdict_and_non_string_field_names(
     findings = module.validate_migration_acceptance_receipt(malformed)
     assert "migration acceptance receipt verdict must be pass or fail" in findings
     assert "migration acceptance receipt field names must be strings" in findings
+
+
+def test_fresh_recovery_cannot_replace_legacy_upgrade_recovery_when_legacy_is_supported() -> None:
+    module = _load("migration_acceptance_legacy_recovery_priority", TOOL)
+    cases = (
+        _case(module, "fresh", None, legacy_refs=(), absent_refs=(), data_refs=()),
+        _case(module, "v1", "v1"),
+        _case(module, "v0", "v0", module.MigrationCaseResult.REJECT, "v0", data_refs=()),
+        _case(
+            module,
+            "fresh",
+            None,
+            module.MigrationCaseResult.INTERRUPTED,
+            None,
+            legacy_refs=(),
+            absent_refs=(),
+            data_refs=(),
+            recovery_refs=("recovery:fresh-only",),
+        ),
+    )
+    assessment = _evaluate(module, cases)
+    assert "interrupted mutating supported migration recovery case is required" in assessment.findings
+
+
+def test_fresh_install_does_not_require_preexisting_data_survival_evidence() -> None:
+    module = _load("migration_acceptance_fresh_data", TOOL)
+    cases = (
+        _case(module, "fresh", None, legacy_refs=(), absent_refs=(), data_refs=()),
+        _case(module, "v1", "v1"),
+        _case(module, "v0", "v0", module.MigrationCaseResult.REJECT, "v0", data_refs=()),
+        _case(
+            module,
+            "v1",
+            "v1",
+            module.MigrationCaseResult.INTERRUPTED,
+            "v1",
+            data_refs=(),
+            recovery_refs=("recovery:transaction-rolled-back",),
+        ),
+    )
+    assert _evaluate(module, cases).status == "pass"

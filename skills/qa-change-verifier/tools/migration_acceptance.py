@@ -235,7 +235,9 @@ def evaluate_migration_acceptance(
             findings.append(f"supported migration input {spec.input_ref} did not pass")
         if current_schema_value and terminal.observed_post_schema != current_schema_value:
             findings.append(f"supported migration input {spec.input_ref} did not reach current schema")
-        if not _non_empty_string_sequence(terminal.data_invariant_refs):
+        if spec.kind in {MigrationInputKind.LEGACY, MigrationInputKind.CURRENT} and not _non_empty_string_sequence(
+            terminal.data_invariant_refs
+        ):
             findings.append(f"supported migration input {spec.input_ref} did not prove data invariants")
 
     for spec in unsupported:
@@ -256,10 +258,15 @@ def evaluate_migration_acceptance(
             findings.append(f"unsupported migration input {spec.input_ref} was silently normalized to current")
 
     if require_interrupted_recovery_value:
-        recovery_input_refs = {
+        legacy_recovery_refs = {
             spec.input_ref
             for spec in supported
-            if spec.input_ref in supported_refs and spec.kind in {MigrationInputKind.FRESH, MigrationInputKind.LEGACY}
+            if spec.input_ref in supported_refs and spec.kind is MigrationInputKind.LEGACY
+        }
+        recovery_input_refs = legacy_recovery_refs or {
+            spec.input_ref
+            for spec in supported
+            if spec.input_ref in supported_refs and spec.kind is MigrationInputKind.FRESH
         }
         recovery_cases = [
             case
