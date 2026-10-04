@@ -476,6 +476,78 @@ profiles:
     result_files:
     - repository-junit.xml
     execution_id: repository
+  - kind: rule
+    subject: qa.risk.planned
+    selectors:
+    - '*test_qa_acceptance_review_contracts*'
+    - '*test_wave3_qa_change_verifier*'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: qa.acceptance.immutable
+    selectors:
+    - '*test_qa_acceptance_review_contracts*'
+    - '*test_wave3_qa_change_verifier*'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: qa.acceptance.evidence
+    selectors:
+    - '*test_qa_acceptance_review_contracts*'
+    - '*test_wave3_qa_change_verifier*'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: qa.gaps.authorized
+    selectors:
+    - '*test_qa_acceptance_review_contracts*'
+    - '*test_wave3_qa_change_verifier*'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: qa.review.scoped
+    selectors:
+    - '*test_qa_acceptance_review_contracts*'
+    - '*test_wave3_qa_change_verifier*'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: qa.review.negative-space
+    selectors:
+    - '*test_qa_acceptance_review_contracts*'
+    - '*test_wave3_qa_change_verifier*'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: qa.failure.attributed
+    selectors:
+    - '*test_qa_acceptance_review_contracts*'
+    - '*test_wave3_qa_change_verifier*'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: qa.composition.bounded
+    selectors:
+    - '*test_qa_acceptance_review_contracts*'
+    - '*test_wave3_qa_change_verifier*'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: qa.completion.evidenced
+    selectors:
+    - '*test_qa_acceptance_review_contracts*'
+    - '*test_wave3_qa_change_verifier*'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
   - kind: artifact
     subject: adoption-contract-schema
     selectors:

@@ -139,6 +139,18 @@ def test_required_obligation_and_malformed_references_fail_closed() -> None:
     contract["digest"] = module.compute_change_contract_digest(contract)
     assert "criterion C1 references unknown obligation: missing" in module.validate_change_acceptance_contract(contract)
 
+    empty = {
+        "schema_version": 1,
+        "change_id": "empty",
+        "revision": "r1",
+        "obligations": [],
+        "criteria": [],
+    }
+    empty["digest"] = module.compute_change_contract_digest(empty)
+    empty_findings = module.validate_change_acceptance_contract(empty)
+    assert "obligations must contain at least one entry" in empty_findings
+    assert "criteria must contain at least one entry" in empty_findings
+
 
 def test_risk_only_planning_is_backward_compatible_and_criteria_add_specific_proofs() -> None:
     module = _load("qa_contract_plan", TOOL)
@@ -274,8 +286,20 @@ def test_current_complete_evidence_passes_but_known_gap_cannot_self_waive() -> N
     assert assessment.status == module.AcceptanceStatus.INCOMPLETE
     assert any("without trusted authorization" in finding for finding in assessment.findings)
 
-    authorized = module.KnownGap(
+    authorized_without_ref = module.KnownGap(
         "G1", ("C1",), True, disposition="waived_by_policy", waiver_authorized=True
+    )
+    assert module.evaluate_acceptance(
+        contract, candidate_revision="candidate-1", evidence=evidence, known_gaps=[authorized_without_ref]
+    ).status == module.AcceptanceStatus.INCOMPLETE
+
+    authorized = module.KnownGap(
+        "G1",
+        ("C1",),
+        True,
+        disposition="waived_by_policy",
+        waiver_authorized=True,
+        waiver_ref="policy-waiver:G1",
     )
     assert module.evaluate_acceptance(
         contract, candidate_revision="candidate-1", evidence=evidence, known_gaps=[authorized]
@@ -361,6 +385,13 @@ def test_semantic_review_plan_is_exact_candidate_bound_and_covers_required_revie
     findings = module.validate_semantic_review_plan(plan, acceptance_contract=contract)
     assert "required semantic-review criteria lack plan coverage: C2" in findings
 
+    unresolved = module.validate_semantic_review_plan(
+        _review_plan(module, contract),
+        acceptance_contract=contract,
+        known_path_refs={"src/other.py"},
+    )
+    assert "focus area R1 references unresolved paths: src/diagnostics.py" in unresolved
+
 
 def test_review_plan_rejects_unknown_refs_and_accepts_boundary_and_diagnostic_negative_space() -> None:
     module = _load("qa_review_negative_space", TOOL)
@@ -403,7 +434,12 @@ def test_authorized_policy_waiver_is_alternate_satisfaction_not_pass_evidence() 
         )
     ]
     waiver = module.KnownGap(
-        "G2", ("C2",), True, disposition="waived_by_policy", waiver_authorized=True
+        "G2",
+        ("C2",),
+        True,
+        disposition="waived_by_policy",
+        waiver_authorized=True,
+        waiver_ref="policy-waiver:G2",
     )
     assessment = module.evaluate_acceptance(
         contract, candidate_revision="candidate-1", evidence=evidence, known_gaps=[waiver]

@@ -54,7 +54,7 @@ For provider/parser-dependent criteria marked `provider_faithful`, at least one 
 
 Implementers, models, reviewers, and validators may report a stable known gap, but reporting a gap never grants authority to accept it. A gap intersecting a required criterion remains non-green when its impact is load-bearing or unknown.
 
-`waived_by_policy` is valid only with trusted policy authorization and explicit scope. An implementer cannot self-declare a required criterion `not_applicable`. A resolved gap is current only when its resolution is bound to the current candidate and acceptance-contract digest. Known gaps remain durable across handoff/summary boundaries by stable reference; omission from later prose does not resolve them.
+`waived_by_policy` is valid only with trusted policy authorization, explicit scope, and a durable waiver reference. An implementer cannot self-declare a required criterion `not_applicable`. A resolved gap is current only when its resolution is bound to the current candidate and acceptance-contract digest. Known gaps remain durable across handoff/summary boundaries by stable reference; omission from later prose does not resolve them.
 
 ## Semantic review plan
 
@@ -62,7 +62,7 @@ When policy requires semantic review, use `contracts/semantic-review-plan.schema
 
 Review priority follows consequence and semantic ownership rather than LOC or filename order. Supported risk reasons include authority boundaries, state transitions, persistence/migration, external side effects, retry/idempotency, concurrency, security boundaries, public contracts, cross-component invariants, rollback/recovery, analogue drift, and diagnostic egress.
 
-A plan may contain user/system flows, focus areas, analogous implementations, and invariant matrices. Required criteria mapped to `semantic_review` have explicit plan coverage. An empty or generic “review these files” plan cannot satisfy a required criterion: a focus area identifies concrete paths, risk reasons, and invariants.
+A plan may contain user/system flows, focus areas, analogous implementations, and invariant matrices. Required criteria mapped to `semantic_review` have explicit plan coverage. An empty or generic “review these files” plan cannot satisfy a required criterion: a focus area identifies concrete paths, risk reasons, and invariants. When a concrete repository path set is available, deterministic validation rejects unresolved path references rather than treating arbitrary strings as coverage.
 
 The default freshness rule is `plan(C1) is stale for C2`. Base-dependent plans are stale after a material base change. Reuse is allowed only when policy can mechanically establish unchanged load-bearing dependencies; provider UI state or prose is insufficient.
 

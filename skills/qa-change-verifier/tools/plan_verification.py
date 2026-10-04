@@ -33,23 +33,59 @@ OBLIGATION_KINDS = (
     "operational",
 )
 DEFAULT_PROOFS = {
-    "functional": ("integration",), "contract": ("exact_artifact",), "data": ("integration",),
-    "security": ("security_review",), "performance": ("external_e2e",), "observability": ("integration",),
-    "migration": ("integration", "exact_artifact"), "operational": ("post_deploy",),
+    "functional": ("integration",),
+    "contract": ("exact_artifact",),
+    "data": ("integration",),
+    "security": ("security_review",),
+    "performance": ("external_e2e",),
+    "observability": ("integration",),
+    "migration": ("integration", "exact_artifact"),
+    "operational": ("post_deploy",),
 }
-REVIEW_RISK_REASONS = frozenset({
-    "authority_boundary", "state_transition", "persistence_or_migration", "external_side_effect",
-    "retry_or_idempotency", "concurrency", "security_boundary", "public_contract", "cross_component_invariant",
-    "rollback_or_recovery", "analogue_drift", "diagnostic_egress",
-})
-INVARIANT_DIMENSIONS = frozenset({
-    "present_valid", "missing", "explicit_null", "empty_container", "wrong_type", "malformed_value", "unknown",
-    "stale", "conflicting_identity", "conflicting_generation", "conflicting_digest", "alias_or_duplicate_equal",
-    "conflicting_aliases", "unexpected_extra_source", "ambiguous_fallback", "known_provider_wording",
-    "alternate_provider_wording", "internal_apostrophe_or_nested_quote", "multiline_payload",
-    "unicode_or_control_characters", "nested_wrapper_error", "very_long_error", "unknown_wording",
-    "source_payload_embedded",
-})
+REVIEW_RISK_REASONS = frozenset(
+    {
+        "authority_boundary",
+        "state_transition",
+        "persistence_or_migration",
+        "external_side_effect",
+        "retry_or_idempotency",
+        "concurrency",
+        "security_boundary",
+        "public_contract",
+        "cross_component_invariant",
+        "rollback_or_recovery",
+        "analogue_drift",
+        "diagnostic_egress",
+    }
+)
+INVARIANT_DIMENSIONS = frozenset(
+    {
+        "present_valid",
+        "missing",
+        "explicit_null",
+        "empty_container",
+        "wrong_type",
+        "malformed_value",
+        "unknown",
+        "stale",
+        "conflicting_identity",
+        "conflicting_generation",
+        "conflicting_digest",
+        "alias_or_duplicate_equal",
+        "conflicting_aliases",
+        "unexpected_extra_source",
+        "ambiguous_fallback",
+        "known_provider_wording",
+        "alternate_provider_wording",
+        "internal_apostrophe_or_nested_quote",
+        "multiline_payload",
+        "unicode_or_control_characters",
+        "nested_wrapper_error",
+        "very_long_error",
+        "unknown_wording",
+        "source_payload_embedded",
+    }
+)
 _CHANGE_ROOT = frozenset({"schema_version", "change_id", "revision", "digest", "obligations", "criteria"})
 _OBLIGATION_FIELDS = frozenset({"id", "kind", "statement", "source_ref", "required"})
 _CRITERION_FIELDS = frozenset(
@@ -179,6 +215,7 @@ class KnownGap:
     load_bearing: bool | None
     disposition: str = "unresolved"
     waiver_authorized: bool = False
+    waiver_ref: str | None = None
     candidate_revision: str | None = None
     contract_digest: str | None = None
 
@@ -231,10 +268,14 @@ def validate_exact_evidence(binding: ExactEvidenceBinding, *, artifact_required:
 
 
 def _risk(change: ChangeRisk) -> RiskLevel:
-    score = ({"docs": 0, "internal": 1, "public_contract": 3}.get(change.change_surface, 2)
-             + {"local": 0, "component": 1, "multi_component": 2, "external": 3}.get(change.blast_radius, 2)
-             + int(change.stateful) + 2 * int(change.security_sensitive) + int(change.external_dependency)
-             + int(change.post_deploy_observable))
+    score = (
+        {"docs": 0, "internal": 1, "public_contract": 3}.get(change.change_surface, 2)
+        + {"local": 0, "component": 1, "multi_component": 2, "external": 3}.get(change.blast_radius, 2)
+        + int(change.stateful)
+        + 2 * int(change.security_sensitive)
+        + int(change.external_dependency)
+        + int(change.post_deploy_observable)
+    )
     if change.security_sensitive or change.change_surface == "public_contract" or score >= 6:
         return RiskLevel.HIGH
     return RiskLevel.MEDIUM if score >= 2 else RiskLevel.LOW
@@ -288,6 +329,10 @@ def validate_change_acceptance_contract(contract: Mapping[str, Any]) -> tuple[st
     if not isinstance(raw_criteria, list):
         findings.append("criteria must be an array")
         return tuple(sorted(set(findings)))
+    if not raw_obligations:
+        findings.append("obligations must contain at least one entry")
+    if not raw_criteria:
+        findings.append("criteria must contain at least one entry")
 
     obligations: dict[str, Mapping[str, Any]] = {}
     for item in raw_obligations:
@@ -369,7 +414,9 @@ def _criterion_plans(contract: Mapping[str, Any]) -> tuple[CriterionProofPlan, .
 
 def plan_verification(change: ChangeRisk, acceptance_contract: Mapping[str, Any] | None = None) -> VerificationPlan:
     risk = _risk(change)
-    layers = LAYERS[:2] if risk is RiskLevel.LOW else LAYERS[:4] if risk is RiskLevel.MEDIUM else LAYERS
+    layers: tuple[str, ...] = (
+        LAYERS[:2] if risk is RiskLevel.LOW else LAYERS[:4] if risk is RiskLevel.MEDIUM else LAYERS
+    )
     findings: tuple[str, ...] = ()
     digest: str | None = None
     criterion_plans: tuple[CriterionProofPlan, ...] = ()
@@ -403,6 +450,7 @@ def validate_semantic_review_plan(
     acceptance_contract: Mapping[str, Any] | None = None,
     current_candidate_revision: str | None = None,
     current_base_revision: str | None = None,
+    known_path_refs: set[str] | None = None,
 ) -> tuple[str, ...]:
     findings: list[str] = []
     extra = sorted(set(plan) - _REVIEW_ROOT)
@@ -482,8 +530,15 @@ def validate_semantic_review_plan(
                 unknown = sorted(set(risks) - REVIEW_RISK_REASONS)
                 if unknown:
                     findings.append(f"focus area {identifier} has unknown risk reasons: {', '.join(unknown)}")
-                if not (_strings(item.get("path_refs")) and _strings(item.get("invariants"))):
+                path_refs = _strings(item.get("path_refs"))
+                if not (path_refs and _strings(item.get("invariants"))):
                     findings.append(f"focus area {identifier} must identify concrete paths and invariants")
+                elif known_path_refs is not None:
+                    unresolved = sorted(set(path_refs) - known_path_refs)
+                    if unresolved:
+                        findings.append(
+                            f"focus area {identifier} references unresolved paths: {', '.join(unresolved)}"
+                        )
             elif collection_name == "invariant_matrices":
                 dimensions = _strings(item.get("dimensions")) or []
                 unknown = sorted(set(dimensions) - INVARIANT_DIMENSIONS)
@@ -498,6 +553,7 @@ def validate_semantic_review_plan(
     if missing:
         findings.append("required semantic-review criteria lack plan coverage: " + ", ".join(missing))
     return tuple(sorted(set(findings)))
+
 
 def evaluate_acceptance(
     contract: Mapping[str, Any],
@@ -519,17 +575,18 @@ def evaluate_acceptance(
 
     for gap in known_gaps:
         affected = {
-            ref
-            for ref in gap.affected_criterion_refs
-            if ref in criteria and criteria[ref].get("required") is True
+            ref for ref in gap.affected_criterion_refs if ref in criteria and criteria[ref].get("required") is True
         }
         if not affected:
             continue
         if gap.disposition == "waived_by_policy":
-            if gap.waiver_authorized:
+            authorized_waiver = gap.waiver_authorized and bool(gap.waiver_ref and gap.waiver_ref.strip())
+            if authorized_waiver:
                 waived.update(affected)
             else:
-                findings.append(f"known gap {gap.gap_id} claims policy waiver without trusted authorization")
+                findings.append(
+                    f"known gap {gap.gap_id} claims policy waiver without trusted authorization/reference"
+                )
                 blocked.update(affected)
         elif gap.disposition == "not_applicable":
             findings.append(f"known gap {gap.gap_id} cannot self-declare required criteria not applicable")
