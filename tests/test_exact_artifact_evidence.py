@@ -273,6 +273,26 @@ def test_requested_identity_survives_fallback_observation() -> None:
     assert module.validate_artifact_evidence_semantics(result) == ()
 
 
+def test_semantic_validator_rejects_exact_coverage_beyond_profile_bounds() -> None:
+    module = _load()
+    exact = _evidence(module, [module.ArtifactEntry("a", b"a")])
+
+    cases = (
+        ("file_count", exact["construction_profile"]["bounds"]["max_files"] + 1, "max_files"),
+        ("byte_count", exact["construction_profile"]["bounds"]["max_bytes"] + 1, "max_bytes"),
+        (
+            "max_depth_observed",
+            exact["construction_profile"]["bounds"]["max_depth"] + 1,
+            "max_depth",
+        ),
+    )
+    for field, value, bound in cases:
+        tampered = json.loads(json.dumps(exact))
+        tampered["coverage"][field] = value
+        findings = module.validate_artifact_evidence_semantics(tampered)
+        assert f"exact coverage exceeds construction_profile.bounds.{bound}" in findings
+
+
 def test_exact_digest_does_not_establish_source_or_runtime_compatibility() -> None:
     module = _load()
     result = _evidence(module, [module.ArtifactEntry("a", b"a")])
