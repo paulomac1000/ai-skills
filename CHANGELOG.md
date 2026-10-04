@@ -11,7 +11,7 @@
 ### Changed
 
 - Extended qa-change-verifier's risk planner without breaking risk-only callers so required criteria can add specific proof layers and semantic-review requirements while preserving harness-versus-product failure attribution.
-- Hardened acceptance evidence binding so blank candidate identities fail closed, exact-artifact proofs require current artifact bindings, semantic-review PASS evidence is tied to the exact validated review-plan digest, and acceptance consumes complete candidate/contract-bound known-gap registry snapshots whose full records cannot be replaced by caller-supplied gap semantics; malformed snapshot/evidence/policy/runtime boundary shapes and load-bearing/unknown gaps without criterion scope now fail closed.
+- Hardened acceptance evidence binding so blank candidate identities fail closed, exact-artifact proofs require current artifact bindings, semantic-review evidence is tied to the exact validated review-plan digest, hard FAIL evidence is authoritative only after its required proof-class identity binding validates, and acceptance consumes complete candidate/contract-bound known-gap registry snapshots whose full records cannot be replaced by caller-supplied gap semantics; malformed snapshot/evidence/policy/runtime boundary shapes and load-bearing/unknown gaps without criterion scope now fail closed.
 - Aligned QA helper validation with the published contract schemas for schema-version typing and string bounds, made supplied base identity bidirectional/fail-closed, and validated primary/analogue review paths against concrete known repository paths through final acceptance.
 
 ## 3.4.0 - 2026-10-04
