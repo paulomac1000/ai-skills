@@ -132,7 +132,7 @@ def evaluate_migration_acceptance(
                 findings.append(f"input {ref} requires schema_identity")
         elif spec.schema_identity is not None:
             findings.append(f"fresh input {ref} must use schema_identity=None")
-        if raw_kind is MigrationInputKind.CURRENT and current_schema_valid and spec.schema_identity != current_schema_value:
+        if raw_kind is MigrationInputKind.CURRENT and current_schema_value and spec.schema_identity != current_schema_value:
             findings.append(f"current input {ref} does not match current_schema")
         spec_by_ref[ref] = spec
         if not expected_unsupported:
@@ -171,11 +171,11 @@ def evaluate_migration_acceptance(
         _validate_string_refs(case.recovery_evidence_refs, f"migration case {ref} recovery_evidence_refs", findings)
         if not _non_empty_string(case.exercised_entrypoint):
             findings.append(f"migration case {ref} requires exercised_entrypoint")
-        elif entrypoint_valid and case.exercised_entrypoint != entrypoint_value:
+        elif entrypoint_value and case.exercised_entrypoint != entrypoint_value:
             findings.append(f"migration case {ref} exercised wrong entrypoint: {case.exercised_entrypoint}")
         if not _non_empty_string(case.exercised_entrypoint_revision):
             findings.append(f"migration case {ref} requires exercised_entrypoint_revision")
-        elif entrypoint_revision_valid and case.exercised_entrypoint_revision != entrypoint_revision_value:
+        elif entrypoint_revision_value and case.exercised_entrypoint_revision != entrypoint_revision_value:
             findings.append(
                 f"migration case {ref} exercised wrong entrypoint revision: {case.exercised_entrypoint_revision}"
             )
@@ -209,7 +209,7 @@ def evaluate_migration_acceptance(
         _validate_pre_state(spec, terminal, current_schema_value, findings)
         if terminal.result is not MigrationCaseResult.PASS:
             findings.append(f"supported migration input {spec.input_ref} did not pass")
-        if current_schema_valid and terminal.observed_post_schema != current_schema:
+        if current_schema_value and terminal.observed_post_schema != current_schema_value:
             findings.append(f"supported migration input {spec.input_ref} did not reach current schema")
         if not _non_empty_string_sequence(terminal.data_invariant_refs):
             findings.append(f"supported migration input {spec.input_ref} did not prove data invariants")
@@ -228,7 +228,7 @@ def evaluate_migration_acceptance(
         _validate_pre_state(spec, terminal, current_schema_value, findings)
         if terminal.result is not MigrationCaseResult.REJECT:
             findings.append(f"unsupported migration input {spec.input_ref} was not deliberately rejected")
-        if current_schema_valid and terminal.observed_post_schema == current_schema:
+        if current_schema_value and terminal.observed_post_schema == current_schema_value:
             findings.append(f"unsupported migration input {spec.input_ref} was silently normalized to current")
 
     if require_interrupted_recovery_value:
