@@ -18,6 +18,30 @@ _ENCODING = "length-prefixed-file-tree-v1"
 _PATH_NORMALIZATION = "relative-posix-nfc-v1"
 _METADATA_MODE = "regular-file-content-only-v1"
 _DOMAIN = b"ai-skills/artifact-tree/v1\x00"
+_REQUESTED_KINDS = frozenset({"version", "package_spec", "source_revision", "artifact_digest", "other"})
+_ROOT_FIELDS = frozenset(
+    {
+        "schema_version",
+        "subject_ref",
+        "construction_profile",
+        "coverage",
+        "requested_identity",
+        "observed_identity",
+        "claims",
+    }
+)
+_PROFILE_FIELDS = frozenset(
+    {
+        "revision",
+        "policy_ref",
+        "profile_digest",
+        "canonical_encoding",
+        "path_normalization",
+        "metadata_mode",
+        "bounds",
+    }
+)
+_BOUND_FIELDS = frozenset({"max_files", "max_bytes", "max_depth", "max_duration_ms"})
 
 CoverageState = Literal["exact", "partial", "unknown"]
 TruthState = Literal["true", "false", "unknown"]
@@ -61,8 +85,12 @@ class ConstructionProfile:
     def __post_init__(self) -> None:
         if not isinstance(self.revision, str) or not self.revision.strip():
             raise ArtifactEvidenceError("profile revision must be a non-empty string")
+        if len(self.revision) > 256:
+            raise ArtifactEvidenceError("profile revision must be at most 256 characters")
         if not isinstance(self.policy_ref, str) or not self.policy_ref.strip():
             raise ArtifactEvidenceError("profile policy_ref must be a non-empty string")
+        if len(self.policy_ref) > 2048:
+            raise ArtifactEvidenceError("profile policy_ref must be at most 2048 characters")
 
 
 def _sha256(data: bytes) -> str:
@@ -210,10 +238,24 @@ def construct_artifact_evidence(
     V1 intentionally has no exclusion argument. Policy establishes the subject
     root and the complete inventory before it may set enumeration_complete=True.
     """
+    if not isinstance(profile, ConstructionProfile):
+        raise ArtifactEvidenceError("profile must be a ConstructionProfile record")
     if not isinstance(subject_ref, str) or not subject_ref.strip():
         raise ArtifactEvidenceError("subject_ref must be a non-empty string")
+    if len(subject_ref) > 2048:
+        raise ArtifactEvidenceError("subject_ref must be at most 2048 characters")
+    if requested_kind not in _REQUESTED_KINDS:
+        raise ArtifactEvidenceError("requested_kind is not supported")
     if not isinstance(requested_value, str) or not requested_value.strip():
         raise ArtifactEvidenceError("requested_value must be a non-empty string")
+    if len(requested_value) > 2048:
+        raise ArtifactEvidenceError("requested_value must be at most 2048 characters")
+    if package_version is not None and (not isinstance(package_version, str) or len(package_version) > 256):
+        raise ArtifactEvidenceError("package_version must be null or a string of at most 256 characters")
+    if source_revision is not None and (not isinstance(source_revision, str) or len(source_revision) > 256):
+        raise ArtifactEvidenceError("source_revision must be null or a string of at most 256 characters")
+    if not callable(clock_ns):
+        raise ArtifactEvidenceError("clock_ns must be callable")
     if not isinstance(enumeration_complete, bool):
         raise ArtifactEvidenceError("enumeration_complete must be boolean")
     if not isinstance(observation_refs, Sequence) or isinstance(
@@ -221,8 +263,13 @@ def construct_artifact_evidence(
         (str, bytes, bytearray),
     ):
         raise ArtifactEvidenceError("observation_refs must be an array of strings")
-    if not all(isinstance(item, str) and item.strip() for item in observation_refs):
-        raise ArtifactEvidenceError("observation_refs entries must be non-empty strings")
+    if not all(
+        isinstance(item, str) and item.strip() and len(item) <= 2048
+        for item in observation_refs
+    ):
+        raise ArtifactEvidenceError(
+            "observation_refs entries must be non-empty strings of at most 2048 characters"
+        )
     if len(set(observation_refs)) != len(observation_refs):
         raise ArtifactEvidenceError("observation_refs must be unique")
 
@@ -267,18 +314,20 @@ def construct_artifact_evidence(
         if not isinstance(entry.content, bytes):
             raise ArtifactEvidenceError(f"artifact content must be bytes: {path}")
 
+        path_bytes = path.encode("utf-8")
         depth = len(path.split("/"))
         max_depth_observed = max(max_depth_observed, depth)
         if depth > bounds.max_depth:
             return non_exact("partial", "depth_limit", limit_hit=True, complete=False)
         if file_count + 1 > bounds.max_files:
             return non_exact("partial", "file_limit", limit_hit=True, complete=False)
-        if byte_count + len(entry.content) > bounds.max_bytes:
+        entry_bytes = len(path_bytes) + len(entry.content)
+        if byte_count + entry_bytes > bounds.max_bytes:
             return non_exact("partial", "byte_limit", limit_hit=True, complete=False)
 
-        buffered.append((path.encode("utf-8"), entry.content))
+        buffered.append((path_bytes, entry.content))
         file_count += 1
-        byte_count += len(entry.content)
+        byte_count += entry_bytes
 
     if _elapsed_ms(started, clock_ns) > bounds.max_duration_ms:
         return non_exact(
@@ -352,12 +401,27 @@ def validate_artifact_evidence_semantics(evidence: object) -> tuple[str, ...]:
         return ("artifact evidence must be an object",)
 
     findings: list[str] = []
+    extra_root = sorted(set(evidence) - _ROOT_FIELDS)
+    if extra_root:
+        findings.append("unknown artifact evidence fields: " + ", ".join(extra_root))
+
     profile = evidence.get("construction_profile")
     if not isinstance(profile, Mapping):
         return ("construction_profile must be an object",)
+    extra_profile = sorted(set(profile) - _PROFILE_FIELDS)
+    if extra_profile:
+        findings.append(
+            "unknown construction_profile fields: " + ", ".join(extra_profile)
+        )
     bounds = profile.get("bounds")
     if not isinstance(bounds, Mapping):
-        return ("construction_profile.bounds must be an object",)
+        findings.append("construction_profile.bounds must be an object")
+        return tuple(sorted(set(findings)))
+    extra_bounds = sorted(set(bounds) - _BOUND_FIELDS)
+    if extra_bounds:
+        findings.append(
+            "unknown construction_profile.bounds fields: " + ", ".join(extra_bounds)
+        )
 
     try:
         reconstructed = ConstructionProfile(
@@ -407,6 +471,12 @@ def validate_artifact_evidence_semantics(evidence: object) -> tuple[str, ...]:
     artifact_digest = observed.get("artifact_digest")
     artifact_exact = claims.get("artifact_exact")
     if state == "exact":
+        if coverage.get("limit_hit") is not False:
+            findings.append("exact coverage requires limit_hit=false")
+        if coverage.get("omitted_reason") is not None:
+            findings.append("exact coverage requires omitted_reason=null")
+        if coverage.get("enumeration_complete") is not True:
+            findings.append("exact coverage requires enumeration_complete=true")
         if not isinstance(artifact_digest, str) or not _DIGEST_RE.fullmatch(artifact_digest):
             findings.append("exact coverage requires a valid observed artifact digest")
         if artifact_exact != "true":
@@ -417,6 +487,8 @@ def validate_artifact_evidence_semantics(evidence: object) -> tuple[str, ...]:
         if artifact_exact == "true":
             findings.append("non-exact coverage cannot claim artifact_exact=true")
 
+    if requested.get("preserved_from_admission") is not True:
+        findings.append("requested identity must remain preserved from admission")
     if claims.get("source_compatibility_established") != "unknown":
         findings.append("artifact construction cannot establish source compatibility")
     if claims.get("runtime_compatibility_established") != "unknown":
