@@ -15,7 +15,7 @@ _REASON_RE = re.compile(r"^[a-z][a-z0-9_.-]{0,127}$")
 _REVISION_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/@+\-]{0,127}$")
 _REF_RE = re.compile(
     r"^(?:(?:[A-Za-z][A-Za-z0-9+.-]{1,31})://|urn:)"
-    r"[A-Za-z0-9][A-Za-z0-9._:/@+\-]{0,479}$"
+    r"[A-Za-z0-9][A-Za-z0-9._:/@+\-]*$"
 )
 _PROVENANCE = frozenset({"trusted_runtime", "canonical_identifier", "provider_code"})
 _SEVERITIES = frozenset({"info", "warning", "error"})
@@ -75,6 +75,8 @@ class DiagnosticReasonPolicy:
     fields: Mapping[str, DiagnosticFieldPolicy]
 
     def __post_init__(self) -> None:
+        if not isinstance(self.fields, Mapping):
+            raise DiagnosticEgressError("reason fields must be a mapping")
         object.__setattr__(self, "fields", MappingProxyType(dict(self.fields)))
 
 
@@ -84,11 +86,11 @@ class DiagnosticPolicy:
     reasons: Mapping[str, DiagnosticReasonPolicy]
 
     def __post_init__(self) -> None:
+        if not isinstance(self.reasons, Mapping):
+            raise DiagnosticEgressError("reasons must be a mapping")
         object.__setattr__(self, "reasons", MappingProxyType(dict(self.reasons)))
         if not isinstance(self.revision, str) or not _REVISION_RE.fullmatch(self.revision):
             raise DiagnosticEgressError("policy revision must be a bounded opaque token")
-        if not isinstance(self.reasons, Mapping):
-            raise DiagnosticEgressError("reasons must be a mapping")
         for reason_code, reason in self.reasons.items():
             if not isinstance(reason_code, str) or not _REASON_RE.fullmatch(reason_code):
                 raise DiagnosticEgressError("reason codes must be bounded stable tokens")
@@ -146,7 +148,7 @@ def _safe_scalar(value: object) -> bool:
 
 
 def _safe_ref(value: object) -> bool:
-    return isinstance(value, str) and bool(_REF_RE.fullmatch(value))
+    return isinstance(value, str) and len(value) <= 512 and bool(_REF_RE.fullmatch(value))
 
 
 def _value_allowed(value: object, field_policy: DiagnosticFieldPolicy) -> bool:

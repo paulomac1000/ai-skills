@@ -92,7 +92,8 @@ class DiagnosticEgressTests(unittest.TestCase):
             b"\xff\xfe\x80malformed",
         ]
         for raw in variants:
-            with self.subTest(raw=raw[:80]):
+            raw_repr = raw if isinstance(raw, str) else repr(raw)
+            with self.subTest(raw=raw_repr[:80]):
                 def hostile_classifier(value: object) -> DiagnosticClassification:
                     return DiagnosticClassification(
                         category="upstream",
@@ -106,7 +107,7 @@ class DiagnosticEgressTests(unittest.TestCase):
                 self.assertEqual(record["reason_code"], "diagnostic.unclassified")
                 self.assertEqual(record["safe_fields"], [])
                 self.assertFalse(record["source_payload_included"])
-                self.assertNotIn(raw, serialized)
+                self.assertNotIn(raw_repr, serialized)
 
     def test_apostrophe_and_alternate_wording_regression_does_not_leak_template_tail(self) -> None:
         raw = "HTTP 400 alternate wording: couldn't parse '{{ states('sensor.kitchen') }}' tail=SENSITIVE_TEMPLATE_TAIL"
