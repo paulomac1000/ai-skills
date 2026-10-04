@@ -767,6 +767,14 @@ def evaluate_acceptance(
     current_base_revision: str | None = None,
     known_path_refs: set[str] | None = None,
 ) -> AcceptanceAssessment:
+    raw_contract: object = contract
+    if not isinstance(raw_contract, Mapping):
+        return AcceptanceAssessment(
+            AcceptanceStatus.INCOMPLETE,
+            ("acceptance contract must be an object",),
+            (),
+        )
+
     findings = list(validate_change_acceptance_contract(contract))
     if not isinstance(candidate_revision, str) or not candidate_revision.strip():
         findings.append("candidate_revision must be a non-empty string")
@@ -779,6 +787,116 @@ def evaluate_acceptance(
     waived: set[str] = set()
     blocked: set[str] = set()
     hard_fail = False
+
+    validated_evidence: list[CriterionEvidence] = []
+    raw_evidence: object = evidence
+    if not isinstance(raw_evidence, Sequence) or isinstance(raw_evidence, (str, bytes, bytearray)):
+        findings.append("evidence must be an array of CriterionEvidence records")
+    else:
+        for raw_item in raw_evidence:
+            if not isinstance(raw_item, CriterionEvidence):
+                findings.append("evidence entries must be CriterionEvidence records")
+                continue
+            item = raw_item
+
+            criterion_id: object = item.criterion_id
+            if not isinstance(criterion_id, str) or not criterion_id.strip() or criterion_id not in criteria:
+                findings.append("evidence criterion_id must identify a known criterion")
+                continue
+
+            proof_class: object = item.proof_class
+            if not isinstance(proof_class, str) or proof_class not in PROOF_CLASSES:
+                findings.append(f"evidence for {criterion_id} has invalid proof_class")
+                continue
+
+            status: object = item.status
+            if not isinstance(status, EvidenceStatus):
+                findings.append(f"evidence for {criterion_id} has invalid status")
+                continue
+
+            evidence_revision: object = item.candidate_revision
+            if not isinstance(evidence_revision, str) or not evidence_revision.strip():
+                findings.append(f"evidence for {criterion_id} candidate_revision must be a non-empty string")
+                continue
+
+            evidence_contract_digest: object = item.contract_digest
+            if not isinstance(evidence_contract_digest, str) or not _DIGEST.fullmatch(evidence_contract_digest):
+                findings.append(f"evidence for {criterion_id} contract_digest must be a sha256 digest")
+                continue
+
+            observations: object = item.discriminating_observations
+            if type(observations) is not int:
+                findings.append(f"evidence for {criterion_id} discriminating_observations must be an integer")
+                continue
+
+            exercise_discriminant: object = item.exercise_discriminant
+            if exercise_discriminant is not None and not isinstance(exercise_discriminant, str):
+                findings.append(f"evidence for {criterion_id} exercise_discriminant must be a string or null")
+                continue
+
+            coverage_complete: object = item.coverage_complete
+            if not isinstance(coverage_complete, bool):
+                findings.append(f"evidence for {criterion_id} coverage_complete must be boolean")
+                continue
+
+            deferred_count: object = item.deferred_count
+            if type(deferred_count) is not int:
+                findings.append(f"evidence for {criterion_id} deferred_count must be an integer")
+                continue
+
+            fixture_source: object = item.fixture_source
+            if fixture_source is not None and not isinstance(fixture_source, FixtureSource):
+                findings.append(f"evidence for {criterion_id} has invalid fixture_source")
+                continue
+
+            semantic_digest: object = item.semantic_review_plan_digest
+            if semantic_digest is not None and (
+                not isinstance(semantic_digest, str) or not _DIGEST.fullmatch(semantic_digest)
+            ):
+                findings.append(f"evidence for {criterion_id} semantic_review_plan_digest must be null or sha256 digest")
+                continue
+
+            raw_binding: object = item.exact_evidence_binding
+            if raw_binding is not None:
+                if not isinstance(raw_binding, ExactEvidenceBinding):
+                    findings.append(f"evidence for {criterion_id} exact_evidence_binding has invalid record type")
+                    continue
+
+                binding_candidate: object = raw_binding.candidate_revision
+                binding_revision: object = raw_binding.evidence_revision
+                binding_digest: object = raw_binding.artifact_digest
+                if not isinstance(binding_candidate, str) or not binding_candidate.strip():
+                    findings.append(
+                        f"evidence for {criterion_id} exact binding candidate_revision must be a non-empty string"
+                    )
+                    continue
+                if not isinstance(binding_revision, str) or not binding_revision.strip():
+                    findings.append(
+                        f"evidence for {criterion_id} exact binding evidence_revision must be a non-empty string"
+                    )
+                    continue
+                if binding_digest is not None and (
+                    not isinstance(binding_digest, str) or not _DIGEST.fullmatch(binding_digest)
+                ):
+                    findings.append(
+                        f"evidence for {criterion_id} exact binding artifact_digest must be null or sha256 digest"
+                    )
+                    continue
+
+            validated_evidence.append(item)
+
+    raw_known_path_refs: object = known_path_refs
+    if raw_known_path_refs is not None:
+        if not isinstance(raw_known_path_refs, (set, frozenset)) or not all(
+            isinstance(ref, str) and ref.strip() for ref in raw_known_path_refs
+        ):
+            findings.append("known_path_refs must be a set of non-empty strings")
+            known_path_refs = None
+
+    raw_semantic_review_plan: object = semantic_review_plan
+    if raw_semantic_review_plan is not None and not isinstance(raw_semantic_review_plan, Mapping):
+        findings.append("semantic_review_plan must be an object or null")
+        semantic_review_plan = None
 
     effective_gaps: tuple[KnownGap, ...] = ()
     snapshot_by_id: dict[str, KnownGap] = {}
@@ -874,40 +992,83 @@ def evaluate_acceptance(
             if len(snapshot_by_id) == len(raw_snapshot_gaps):
                 effective_gaps = tuple(snapshot_by_id.values())
 
-    if known_gaps:
-        supplied_by_id: dict[str, KnownGap] = {}
-        for gap in known_gaps:
-            if not isinstance(gap, KnownGap) or not isinstance(gap.gap_id, str) or not gap.gap_id.strip():
+    supplied_by_id: dict[str, KnownGap] = {}
+    raw_known_gaps: object = known_gaps
+    supplied_items: list[object] = []
+    if not isinstance(raw_known_gaps, Sequence) or isinstance(raw_known_gaps, (str, bytes, bytearray)):
+        findings.append("known_gaps must be an array of KnownGap records")
+    else:
+        supplied_items = list(raw_known_gaps)
+        for raw_gap in supplied_items:
+            if not isinstance(raw_gap, KnownGap):
+                findings.append("supplied known gaps must contain KnownGap records")
+                continue
+            gap_id: object = raw_gap.gap_id
+            if not isinstance(gap_id, str) or not gap_id.strip():
                 findings.append("supplied known gaps must contain identified KnownGap records")
                 continue
-            if gap.gap_id in supplied_by_id:
-                findings.append(f"duplicate supplied known gap id: {gap.gap_id}")
+            if gap_id in supplied_by_id:
+                findings.append(f"duplicate supplied known gap id: {gap_id}")
                 continue
-            supplied_by_id[gap.gap_id] = gap
-        if supplied_by_id != snapshot_by_id:
-            findings.append("supplied known gaps do not match trusted registry records")
+            supplied_by_id[gap_id] = raw_gap
+
+    if supplied_items and supplied_by_id != snapshot_by_id:
+        findings.append("supplied known gaps do not match trusted registry records")
 
     trusted_waiver_scope: dict[str, set[str]] = {}
-    for authorization in trusted_policy_waivers:
-        valid_identity = (
-            isinstance(authorization.waiver_ref, str)
-            and bool(authorization.waiver_ref.strip())
-            and isinstance(authorization.gap_id, str)
-            and bool(authorization.gap_id.strip())
-        )
-        if (
-            not valid_identity
-            or authorization.candidate_revision != candidate_revision
-            or authorization.contract_digest != digest
-        ):
+    validated_waivers: list[PolicyWaiverAuthorization] = []
+    raw_waivers: object = trusted_policy_waivers
+    if not isinstance(raw_waivers, Sequence) or isinstance(raw_waivers, (str, bytes, bytearray)):
+        findings.append("trusted_policy_waivers must be an array of PolicyWaiverAuthorization records")
+    else:
+        for raw_authorization in raw_waivers:
+            if not isinstance(raw_authorization, PolicyWaiverAuthorization):
+                findings.append("trusted policy waiver entries must be PolicyWaiverAuthorization records")
+                continue
+            authorization = raw_authorization
+
+            waiver_ref: object = authorization.waiver_ref
+            gap_id: object = authorization.gap_id
+            if not isinstance(waiver_ref, str) or not waiver_ref.strip():
+                findings.append("trusted policy waiver_ref must be a non-empty string")
+                continue
+            if not isinstance(gap_id, str) or not gap_id.strip():
+                findings.append("trusted policy gap_id must be a non-empty string")
+                continue
+
+            raw_refs: object = authorization.criterion_refs
+            refs = _strings(raw_refs)
+            if not refs:
+                findings.append(f"trusted policy waiver {waiver_ref} must scope at least one criterion")
+                continue
+            if len(set(refs)) != len(refs):
+                findings.append(f"trusted policy waiver {waiver_ref} criterion_refs must be unique")
+                continue
+            invalid_refs = sorted(
+                ref for ref in refs if ref not in criteria or criteria[ref].get("required") is not True
+            )
+            if invalid_refs:
+                findings.append(
+                    f"trusted policy waiver {waiver_ref} references non-required or unknown criteria: "
+                    + ", ".join(invalid_refs)
+                )
+                continue
+
+            waiver_candidate: object = authorization.candidate_revision
+            waiver_digest: object = authorization.contract_digest
+            if not isinstance(waiver_candidate, str) or not waiver_candidate.strip():
+                findings.append(f"trusted policy waiver {waiver_ref} candidate_revision must be a non-empty string")
+                continue
+            if not isinstance(waiver_digest, str) or not _DIGEST.fullmatch(waiver_digest):
+                findings.append(f"trusted policy waiver {waiver_ref} contract_digest must be a sha256 digest")
+                continue
+
+            validated_waivers.append(authorization)
+
+    for authorization in validated_waivers:
+        if authorization.candidate_revision != candidate_revision or authorization.contract_digest != digest:
             continue
-        scope = {
-            ref
-            for ref in authorization.criterion_refs
-            if isinstance(ref, str) and ref in criteria and criteria[ref].get("required") is True
-        }
-        if scope:
-            trusted_waiver_scope.setdefault(authorization.gap_id, set()).update(scope)
+        trusted_waiver_scope.setdefault(authorization.gap_id, set()).update(authorization.criterion_refs)
 
     for gap in effective_gaps:
         affected = {
@@ -969,7 +1130,7 @@ def evaluate_acceptance(
         required = set(_proofs(criterion, obligations))
         current = [
             item
-            for item in evidence
+            for item in validated_evidence
             if item.criterion_id == criterion_id
             and item.candidate_revision == candidate_revision
             and item.contract_digest == digest
