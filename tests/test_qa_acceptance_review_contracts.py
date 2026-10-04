@@ -159,6 +159,14 @@ def test_required_obligation_and_malformed_references_fail_closed() -> None:
     assert "duplicate obligation id: O1" in duplicate_findings
     assert "duplicate criterion id: C1" in duplicate_findings
 
+    malformed = _contract(module)
+    malformed["criteria"][0]["proof_classes"] = "integration"
+    malformed["criteria"][0]["proof_of_exercise_required"] = "yes"
+    malformed["digest"] = module.compute_change_contract_digest(malformed)
+    malformed_findings = module.validate_change_acceptance_contract(malformed)
+    assert "criterion C1 proof_classes must be a non-empty array of strings" in malformed_findings
+    assert "criterion C1 proof_of_exercise_required must be boolean" in malformed_findings
+
 
 def test_risk_only_planning_is_backward_compatible_and_criteria_add_specific_proofs() -> None:
     module = _load("qa_contract_plan", TOOL)
@@ -268,6 +276,18 @@ def test_vacuous_deferred_wrong_fixture_and_missing_exercise_are_non_green() -> 
     )
     assessment = module.evaluate_acceptance(contract, candidate_revision="candidate-1", evidence=evidence)
     assert any("proof-of-exercise" in finding for finding in assessment.findings)
+
+    evidence[0] = module.CriterionEvidence(
+        "C1",
+        "integration",
+        module.EvidenceStatus.PASS,
+        "candidate-1",
+        digest,
+        exercise_discriminant="guard-hit",
+        deferred_count=-1,
+    )
+    assessment = module.evaluate_acceptance(contract, candidate_revision="candidate-1", evidence=evidence)
+    assert any("incomplete/deferred semantic coverage" in finding for finding in assessment.findings)
 
 
 def test_current_complete_evidence_passes_but_known_gap_cannot_self_waive() -> None:
