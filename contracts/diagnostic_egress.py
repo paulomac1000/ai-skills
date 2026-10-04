@@ -6,13 +6,17 @@ from __future__ import annotations
 import re
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import Any, Literal
 
 _TOKEN_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/@+\-]{0,255}$")
 _NAME_RE = re.compile(r"^[a-z][a-z0-9_.-]{0,63}$")
 _REASON_RE = re.compile(r"^[a-z][a-z0-9_.-]{0,127}$")
 _REVISION_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/@+\-]{0,127}$")
-_REF_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/@+\-]{0,511}$")
+_REF_RE = re.compile(
+    r"^(?:(?:[A-Za-z][A-Za-z0-9+.-]{1,31})://|urn:)"
+    r"[A-Za-z0-9][A-Za-z0-9._:/@+\-]{0,479}$"
+)
 _PROVENANCE = frozenset({"trusted_runtime", "canonical_identifier", "provider_code"})
 _SEVERITIES = frozenset({"info", "warning", "error"})
 _ROOT_FIELDS = frozenset(
@@ -70,6 +74,9 @@ class DiagnosticReasonPolicy:
     severity: Severity
     fields: Mapping[str, DiagnosticFieldPolicy]
 
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "fields", MappingProxyType(dict(self.fields)))
+
 
 @dataclass(frozen=True)
 class DiagnosticPolicy:
@@ -77,6 +84,7 @@ class DiagnosticPolicy:
     reasons: Mapping[str, DiagnosticReasonPolicy]
 
     def __post_init__(self) -> None:
+        object.__setattr__(self, "reasons", MappingProxyType(dict(self.reasons)))
         if not isinstance(self.revision, str) or not _REVISION_RE.fullmatch(self.revision):
             raise DiagnosticEgressError("policy revision must be a bounded opaque token")
         if not isinstance(self.reasons, Mapping):

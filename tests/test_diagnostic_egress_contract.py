@@ -54,11 +54,11 @@ class DiagnosticEgressTests(unittest.TestCase):
                 ),
             ),
             policy=POLICY,
-            raw_detail_ref="forensics/error-42",
+            raw_detail_ref="forensic://error-42",
         )
         self.assertEqual(record["reason_code"], "upstream.invalid_request")
         self.assertFalse(record["source_payload_included"])
-        self.assertEqual(record["raw_detail_ref"], "forensics/error-42")
+        self.assertEqual(record["raw_detail_ref"], "forensic://error-42")
         self.assertEqual(validate_diagnostic_egress_semantics(record, policy=POLICY), ())
         self.assertNotIn("message", record)
         self.assertNotIn("detail", record)
@@ -89,6 +89,7 @@ class DiagnosticEgressTests(unittest.TestCase):
             "api_key=sk-live-looking-but-test-only",
             "ordinary-user-value-with-description text",
             "SENSITIVE_TEMPLATE_TAIL",
+            b"\xff\xfe\x80malformed",
         ]
         for raw in variants:
             with self.subTest(raw=raw[:80]):
@@ -127,10 +128,40 @@ class DiagnosticEgressTests(unittest.TestCase):
         self.assertEqual(record["reason_code"], "diagnostic.unclassified")
 
     def test_raw_detail_is_only_an_opaque_reference(self) -> None:
-        record = build_safe_diagnostic(None, policy=POLICY, raw_detail_ref="raw error body with spaces")
-        self.assertIsNone(record["raw_detail_ref"])
+        for unsafe in ("raw error body with spaces", "SENSITIVE_TEMPLATE_TAIL", "template/tail"):
+            with self.subTest(unsafe=unsafe):
+                record = build_safe_diagnostic(None, policy=POLICY, raw_detail_ref=unsafe)
+                self.assertIsNone(record["raw_detail_ref"])
         safe = build_safe_diagnostic(None, policy=POLICY, raw_detail_ref="vault://diag/abc-123")
         self.assertEqual(safe["raw_detail_ref"], "vault://diag/abc-123")
+
+    def test_policy_snapshot_is_immutable_after_construction(self) -> None:
+        mutable_fields = {
+            "operation": DiagnosticFieldPolicy(
+                provenances=frozenset({"canonical_identifier"}),
+                allowed_strings=frozenset({"template_validate"}),
+            )
+        }
+        mutable_reasons = {
+            "upstream.invalid_request": DiagnosticReasonPolicy("upstream", "error", mutable_fields)
+        }
+        policy = DiagnosticPolicy("snapshot/v1", mutable_reasons)
+        mutable_fields["payload"] = DiagnosticFieldPolicy(
+            provenances=frozenset({"canonical_identifier"}),
+            allowed_strings=frozenset({"SENSITIVE_TEMPLATE_TAIL"}),
+        )
+        mutable_reasons["new.reason"] = DiagnosticReasonPolicy("upstream", "error", {})
+        record = build_safe_diagnostic(
+            DiagnosticClassification(
+                "upstream",
+                "upstream.invalid_request",
+                "error",
+                (DiagnosticField("payload", "SENSITIVE_TEMPLATE_TAIL", "canonical_identifier"),),
+            ),
+            policy=policy,
+        )
+        self.assertEqual(record["reason_code"], "diagnostic.unclassified")
+        self.assertNotIn("new.reason", policy.reasons)
 
     def test_policy_blocks_wrong_provenance_unknown_fields_and_duplicates(self) -> None:
         bad = [
