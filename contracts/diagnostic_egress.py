@@ -208,9 +208,10 @@ def build_safe_diagnostic(
 
     output_fields: list[dict[str, SafeScalar | str]] = []
     seen: set[str] = set()
-    if len(classification.fields) > 16:
+    raw_fields: Sequence[object] = classification.fields
+    if len(raw_fields) > 16:
         return fallback
-    for field in classification.fields:
+    for field in raw_fields:
         if not isinstance(field, DiagnosticField):
             return fallback
         field_policy = reason.fields.get(field.name)
