@@ -61,6 +61,72 @@ def _probe_receipt(artifact_digest: str) -> dict[str, object]:
     }
 
 
+def _change_acceptance_contract(*, migration: bool) -> dict[str, object]:
+    import hashlib
+    import json
+
+    obligation_kind = "migration" if migration else "functional"
+    obligation_id = "migration-scope" if migration else "non-migration-scope"
+    contract: dict[str, object] = {
+        "schema_version": 1,
+        "change_id": "candidate-scope",
+        "revision": "scope-v1",
+        "obligations": [
+            {
+                "id": obligation_id,
+                "kind": obligation_kind,
+                "statement": "Declare whether persistent migration acceptance is required.",
+                "source_ref": "policy:candidate-scope",
+                "required": True,
+            }
+        ],
+        "criteria": [
+            {
+                "id": "scope-proof",
+                "obligation_refs": [obligation_id],
+                "expected_outcome": "Candidate scope is admitted before local acceptance.",
+                "rejection_condition": "Candidate scope is missing, stale, or invalid.",
+                "required": True,
+            }
+        ],
+    }
+    encoded = json.dumps(contract, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
+    contract["digest"] = "sha256:" + hashlib.sha256(encoded).hexdigest()
+    return contract
+
+
+def _candidate_scope(
+    module: ModuleType,
+    *,
+    migration: bool = False,
+    candidate_revision: str = "candidate-1",
+    contract_valid: bool = True,
+) -> object:
+    contract = _change_acceptance_contract(migration=migration)
+    if not contract_valid:
+        contract["digest"] = "sha256:" + "0" * 64
+    return module.TrustedCandidateScopeEvidence(
+        scope_ref="policy:candidate-scope/candidate-1",
+        candidate_revision=candidate_revision,
+        acceptance_contract_digest=contract["digest"],
+        acceptance_contract=contract,
+    )
+
+
+def _compose(
+    module: ModuleType,
+    *,
+    migration_scope: bool = False,
+    scope: object | None = None,
+    **changes: object,
+) -> dict[str, object]:
+    trusted_scope = _candidate_scope(module, migration=migration_scope) if scope is None else scope
+    return module.compose_local_lane_receipt(
+        _evidence(module, **changes),
+        trusted_candidate_scope=trusted_scope,
+    )
+
+
 def _evidence(module: ModuleType, **changes: object) -> object:
     values: dict[str, object] = {
         "clean_candidate": True,
@@ -78,6 +144,7 @@ def _evidence(module: ModuleType, **changes: object) -> object:
         "migration_invariants_verdict": "pass",
         "artifact_digest": "sha256:" + "d" * 64,
         "probe_client_receipt": _probe_receipt("sha256:" + "d" * 64),
+        "candidate_revision": "candidate-1",
     }
     values.update(changes)
     return module.LocalCandidateEvidence(**values)
@@ -85,27 +152,27 @@ def _evidence(module: ModuleType, **changes: object) -> object:
 
 def test_complete_local_candidate_lane_passes() -> None:
     module = _load("wave3_local_lane_happy", TOOL)
-    receipt = module.compose_local_lane_receipt(_evidence(module))
-    assert receipt == {
-        "schema_version": 1,
-        "verdict": "pass",
-        "ports": [43101, 43102],
-        "failures": [],
-    }
+    receipt = _compose(module)
+    assert receipt["schema_version"] == 1
+    assert receipt["verdict"] == "pass"
+    assert receipt["ports"] == [43101, 43102]
+    assert receipt["failures"] == []
+    scope = receipt["candidate_scope"]
+    assert isinstance(scope, dict)
+    assert scope["candidate_revision"] == "candidate-1"
+    assert scope["migration_required"] is False
 
 
 def test_port_conflict_fails_closed_before_release_confidence() -> None:
     module = _load("wave3_local_lane_port", TOOL)
-    receipt = module.compose_local_lane_receipt(_evidence(module, occupied_ports=frozenset({43102})))
+    receipt = _compose(module, occupied_ports=frozenset({43102}))
     assert receipt["verdict"] == "fail"
     assert receipt["failures"] == ["port_conflict:43102"]
 
 
 def test_any_composed_acceptance_phase_failure_is_non_green() -> None:
     module = _load("wave3_local_lane_phase", TOOL)
-    receipt = module.compose_local_lane_receipt(
-        _evidence(module, migration_preflight_verdict="fail", durable_polling_verdict="fail")
-    )
+    receipt = _compose(module, migration_preflight_verdict="fail", durable_polling_verdict="fail")
     assert receipt["verdict"] == "fail"
     assert "migration_preflight_verdict" in receipt["failures"]
     assert "durable_polling_verdict" in receipt["failures"]
@@ -220,32 +287,29 @@ def _migration_payload(*, candidate_revision: str = "candidate-1", valid: bool =
     }
 
 
-def test_non_migration_candidate_remains_backward_compatible_without_migration_payload() -> None:
+def test_non_migration_candidate_requires_trusted_scope_but_not_migration_payload() -> None:
     module = _load("wave3_local_lane_non_migration", TOOL)
-    receipt = module.compose_local_lane_receipt(_evidence(module))
+    receipt = _compose(module)
     assert receipt["verdict"] == "pass"
     assert "migration_acceptance" not in receipt
+    assert receipt["candidate_scope"]["migration_required"] is False
 
 
 def test_migration_candidate_requires_green_exact_candidate_migration_payload() -> None:
     module = _load("wave3_local_lane_migration", TOOL)
-    missing = module.compose_local_lane_receipt(
-        _evidence(
-            module,
-            candidate_revision="candidate-1",
-            migration_acceptance_required=True,
-        )
+    missing = _compose(
+        module,
+        migration_scope=True,
+        candidate_revision="candidate-1",
     )
     assert missing["verdict"] == "fail"
     assert "migration_acceptance_payload_missing" in missing["failures"]
 
-    valid = module.compose_local_lane_receipt(
-        _evidence(
-            module,
-            candidate_revision="candidate-1",
-            migration_acceptance_required=True,
-            migration_acceptance_payload=_migration_payload(),
-        )
+    valid = _compose(
+        module,
+        migration_scope=True,
+        candidate_revision="candidate-1",
+        migration_acceptance_payload=_migration_payload(),
     )
     assert valid["verdict"] == "pass"
     assert valid["migration_acceptance"] == {
@@ -262,24 +326,23 @@ def test_migration_candidate_requires_green_exact_candidate_migration_payload() 
 
 def test_migration_candidate_rejects_stale_or_non_green_migration_payload() -> None:
     module = _load("wave3_local_lane_migration_stale", TOOL)
+    stale_scope = _candidate_scope(module, migration=True, candidate_revision="candidate-2")
     stale = module.compose_local_lane_receipt(
         _evidence(
             module,
             candidate_revision="candidate-2",
-            migration_acceptance_required=True,
             migration_acceptance_payload=_migration_payload(candidate_revision="candidate-1"),
-        )
+        ),
+        trusted_candidate_scope=stale_scope,
     )
     assert stale["verdict"] == "fail"
     assert "migration_acceptance_receipt_candidate_mismatch" in stale["failures"]
 
-    failed = module.compose_local_lane_receipt(
-        _evidence(
-            module,
-            candidate_revision="candidate-1",
-            migration_acceptance_required=True,
-            migration_acceptance_payload=_migration_payload(valid=False),
-        )
+    failed = _compose(
+        module,
+        migration_scope=True,
+        candidate_revision="candidate-1",
+        migration_acceptance_payload=_migration_payload(valid=False),
     )
     assert failed["verdict"] == "fail"
     assert any(item.startswith("migration_acceptance_failed:") for item in failed["failures"])
@@ -297,13 +360,53 @@ def test_caller_authored_receipt_shape_cannot_bypass_canonical_migration_evaluat
         "exercised_inputs": [],
         "failures": [],
     }
-    receipt = module.compose_local_lane_receipt(
-        _evidence(
-            module,
-            candidate_revision="candidate-1",
-            migration_acceptance_required=True,
-            migration_acceptance_payload=forged_receipt,
-        )
+    receipt = _compose(
+        module,
+        migration_scope=True,
+        candidate_revision="candidate-1",
+        migration_acceptance_payload=forged_receipt,
     )
     assert receipt["verdict"] == "fail"
     assert any(item.startswith("migration_acceptance_failed:") for item in receipt["failures"])
+
+
+def test_candidate_scope_is_mandatory_exact_candidate_bound_and_cannot_be_suppressed_by_flag() -> None:
+    module = _load("wave3_local_lane_candidate_scope", TOOL)
+    missing = module.compose_local_lane_receipt(_evidence(module))
+    assert missing["verdict"] == "fail"
+    assert "candidate_scope_missing_or_untrusted" in missing["failures"]
+
+    stale_scope = _candidate_scope(module, candidate_revision="candidate-2")
+    stale = module.compose_local_lane_receipt(
+        _evidence(module, candidate_revision="candidate-1"),
+        trusted_candidate_scope=stale_scope,
+    )
+    assert stale["verdict"] == "fail"
+    assert "candidate_scope_candidate_mismatch" in stale["failures"]
+    assert "migration_acceptance_required" not in module.LocalCandidateEvidence.__dataclass_fields__
+
+
+def test_invalid_admitted_scope_contract_fails_closed() -> None:
+    module = _load("wave3_local_lane_invalid_scope", TOOL)
+    invalid_scope = _candidate_scope(module, contract_valid=False)
+    receipt = module.compose_local_lane_receipt(
+        _evidence(module),
+        trusted_candidate_scope=invalid_scope,
+    )
+    assert receipt["verdict"] == "fail"
+    assert any(item.startswith("candidate_scope_contract_rejected:") for item in receipt["failures"])
+
+
+def test_required_migration_scope_cannot_be_bypassed_by_omitting_payload() -> None:
+    module = _load("wave3_local_lane_scope_migration_required", TOOL)
+    receipt = _compose(module, migration_scope=True)
+    assert receipt["verdict"] == "fail"
+    assert receipt["candidate_scope"]["migration_required"] is True
+    assert "migration_acceptance_payload_missing" in receipt["failures"]
+
+
+def test_non_migration_scope_rejects_contradictory_migration_payload() -> None:
+    module = _load("wave3_local_lane_scope_contradiction", TOOL)
+    receipt = _compose(module, migration_acceptance_payload=_migration_payload())
+    assert receipt["verdict"] == "fail"
+    assert "migration_acceptance_payload_out_of_scope" in receipt["failures"]

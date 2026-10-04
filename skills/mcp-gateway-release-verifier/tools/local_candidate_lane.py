@@ -20,6 +20,16 @@ _REQUIRED_PASS_FIELDS = (
 
 
 @dataclass(frozen=True)
+class TrustedCandidateScopeEvidence:
+    """Policy/admission-owned candidate scope; implementer evidence cannot mint this authority."""
+
+    scope_ref: object
+    candidate_revision: object
+    acceptance_contract_digest: object
+    acceptance_contract: object
+
+
+@dataclass(frozen=True)
 class LocalCandidateEvidence:
     clean_candidate: bool
     disposable_state: bool
@@ -37,11 +47,14 @@ class LocalCandidateEvidence:
     artifact_digest: str = ""
     probe_client_receipt: dict[str, object] | None = None
     candidate_revision: str = ""
-    migration_acceptance_required: object = False
     migration_acceptance_payload: object = None
 
 
-def compose_local_lane_receipt(evidence: LocalCandidateEvidence) -> dict[str, object]:
+def compose_local_lane_receipt(
+    evidence: LocalCandidateEvidence,
+    *,
+    trusted_candidate_scope: TrustedCandidateScopeEvidence | None = None,
+) -> dict[str, object]:
     """Return a deterministic fail-closed local candidate lane receipt.
 
     A passing lane requires a canonical probe client receipt: the candidate
@@ -102,12 +115,59 @@ def compose_local_lane_receipt(evidence: LocalCandidateEvidence) -> dict[str, ob
     except module.ExactCandidateAcceptanceError as exc:
         failures.append(f"probe_client_receipt_rejected:{exc}")
 
-    if not isinstance(evidence.migration_acceptance_required, bool):
-        failures.append("migration_acceptance_required_invalid")
-    elif evidence.migration_acceptance_required:
-        if not isinstance(evidence.candidate_revision, str) or not evidence.candidate_revision.strip():
-            failures.append("candidate_revision_missing_for_migration")
-        migration_payload = evidence.migration_acceptance_payload
+    migration_required = False
+    scope_valid = False
+    if not isinstance(evidence.candidate_revision, str) or not evidence.candidate_revision.strip():
+        failures.append("candidate_revision_missing_for_scope")
+    if not isinstance(trusted_candidate_scope, TrustedCandidateScopeEvidence):
+        failures.append("candidate_scope_missing_or_untrusted")
+    else:
+        scope = trusted_candidate_scope
+        if not isinstance(scope.scope_ref, str) or not scope.scope_ref.strip():
+            failures.append("candidate_scope_ref_invalid")
+        if not isinstance(scope.candidate_revision, str) or not scope.candidate_revision.strip():
+            failures.append("candidate_scope_revision_invalid")
+        elif scope.candidate_revision != evidence.candidate_revision:
+            failures.append("candidate_scope_candidate_mismatch")
+        if not isinstance(scope.acceptance_contract_digest, str) or not scope.acceptance_contract_digest.strip():
+            failures.append("candidate_scope_contract_digest_invalid")
+
+        scope_path = Path(__file__).resolve().parents[2] / "qa-change-verifier" / "tools" / "plan_verification.py"
+        scope_spec = importlib.util.spec_from_file_location("local_lane_candidate_scope", scope_path)
+        assert scope_spec is not None and scope_spec.loader is not None
+        scope_module = importlib.util.module_from_spec(scope_spec)
+        sys.modules[scope_spec.name] = scope_module
+        scope_spec.loader.exec_module(scope_module)
+        contract_findings = scope_module.validate_change_acceptance_contract(scope.acceptance_contract)
+        if contract_findings:
+            failures.extend(f"candidate_scope_contract_rejected:{item}" for item in contract_findings)
+        elif scope.acceptance_contract.get("digest") != scope.acceptance_contract_digest:
+            failures.append("candidate_scope_contract_digest_mismatch")
+        elif (
+            isinstance(scope.scope_ref, str)
+            and scope.scope_ref.strip()
+            and scope.candidate_revision == evidence.candidate_revision
+            and isinstance(scope.acceptance_contract_digest, str)
+            and scope.acceptance_contract_digest.strip()
+        ):
+            obligations = scope.acceptance_contract.get("obligations")
+            assert isinstance(obligations, list)
+            migration_required = any(
+                isinstance(item, dict)
+                and item.get("required") is True
+                and item.get("kind") == "migration"
+                for item in obligations
+            )
+            scope_valid = True
+            receipt["candidate_scope"] = {
+                "scope_ref": scope.scope_ref,
+                "candidate_revision": scope.candidate_revision,
+                "acceptance_contract_digest": scope.acceptance_contract_digest,
+                "migration_required": migration_required,
+            }
+
+    migration_payload = evidence.migration_acceptance_payload
+    if scope_valid and migration_required:
         if migration_payload is None:
             failures.append("migration_acceptance_payload_missing")
         else:
@@ -135,6 +195,8 @@ def compose_local_lane_receipt(evidence: LocalCandidateEvidence) -> dict[str, ob
                     "current_schema": migration_receipt["current_schema"],
                     "exercised_inputs": migration_receipt["exercised_inputs"],
                 }
+    elif scope_valid and migration_payload is not None:
+        failures.append("migration_acceptance_payload_out_of_scope")
 
     receipt["verdict"] = "pass" if not failures else "fail"
     receipt["failures"] = failures

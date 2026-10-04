@@ -10,7 +10,7 @@
 ### Changed
 
 - Extended `qa-change-verifier` with a normative persistent-schema migration matrix that keeps fresh installation, legacy upgrade, optional current-schema idempotence, unsupported input, and interrupted recovery as distinct proof cases.
-- Extended the MCP local candidate lane to evaluate raw migration evidence through `qa-change-verifier` and accept only the receipt issued by that canonical in-process evaluation when persistent migration is in scope, while preserving backward compatibility for non-migration candidates.
+- Extended the MCP local candidate lane to derive migration scope from exact-candidate-bound trusted admission evidence backed by a validated immutable change-acceptance contract, then evaluate raw migration evidence through `qa-change-verifier` and accept only the canonical in-process receipt when a required migration obligation is admitted; missing/invalid scope and contradictory payloads fail closed.
 
 ### Security and correctness
 
