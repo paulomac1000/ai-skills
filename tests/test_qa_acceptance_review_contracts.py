@@ -112,6 +112,21 @@ def _review_plan(module: ModuleType, contract: dict[str, object]) -> dict[str, o
     return plan
 
 
+def _gap_snapshot(
+    module: ModuleType,
+    contract: dict[str, object],
+    gaps: tuple[object, ...] | list[object] = (),
+    *,
+    candidate_revision: str = "candidate-1",
+):
+    return module.KnownGapRegistrySnapshot(
+        snapshot_ref=f"known-gaps:{candidate_revision}:snapshot-1",
+        candidate_revision=candidate_revision,
+        contract_digest=contract["digest"],
+        gaps=tuple(gaps),
+    )
+
+
 def test_change_acceptance_contract_has_stable_semantic_digest_and_no_mutable_state() -> None:
     module = _load("qa_contract_digest", TOOL)
     contract = _contract(module)
@@ -238,7 +253,7 @@ def test_acceptance_is_incomplete_when_one_required_criterion_is_uncovered_or_st
             exercise_discriminant="guard-hit",
         )
     ]
-    assessment = module.evaluate_acceptance(contract, candidate_revision="candidate-1", evidence=evidence)
+    assessment = module.evaluate_acceptance(contract, candidate_revision="candidate-1", evidence=evidence, trusted_known_gap_snapshot=_gap_snapshot(module, contract, ()))
     assert assessment.status == module.AcceptanceStatus.INCOMPLETE
     assert any("required criterion C2 lacks current proof" in finding for finding in assessment.findings)
 
@@ -252,7 +267,7 @@ def test_acceptance_is_incomplete_when_one_required_criterion_is_uncovered_or_st
             exercise_discriminant="guard-hit",
         )
     ]
-    assessment = module.evaluate_acceptance(contract, candidate_revision="candidate-1", evidence=stale)
+    assessment = module.evaluate_acceptance(contract, candidate_revision="candidate-1", evidence=stale, trusted_known_gap_snapshot=_gap_snapshot(module, contract, ()))
     assert assessment.status == module.AcceptanceStatus.INCOMPLETE
     assert "C1" not in assessment.satisfied_criteria
 
@@ -272,6 +287,8 @@ def test_acceptance_is_incomplete_when_one_required_criterion_is_uncovered_or_st
     ]
     changed_assessment = module.evaluate_acceptance(
         changed, candidate_revision="candidate-1", evidence=old_contract_evidence
+    ,
+        trusted_known_gap_snapshot=_gap_snapshot(module, changed, ()),
     )
     assert changed_assessment.status == module.AcceptanceStatus.INCOMPLETE
     assert "C1" not in changed_assessment.satisfied_criteria
@@ -312,6 +329,8 @@ def test_vacuous_deferred_wrong_fixture_and_missing_exercise_are_non_green() -> 
         evidence=evidence,
         semantic_review_plan=plan,
         current_base_revision="base-1",
+    
+        trusted_known_gap_snapshot=_gap_snapshot(module, contract, ()),
     )
     assert assessment.status == module.AcceptanceStatus.INCOMPLETE
     assert any("vacuous PASS" in finding for finding in assessment.findings)
@@ -327,6 +346,8 @@ def test_vacuous_deferred_wrong_fixture_and_missing_exercise_are_non_green() -> 
         evidence=evidence,
         semantic_review_plan=plan,
         current_base_revision="base-1",
+    
+        trusted_known_gap_snapshot=_gap_snapshot(module, contract, ()),
     )
     assert any("proof-of-exercise" in finding for finding in assessment.findings)
 
@@ -345,6 +366,8 @@ def test_vacuous_deferred_wrong_fixture_and_missing_exercise_are_non_green() -> 
         evidence=evidence,
         semantic_review_plan=plan,
         current_base_revision="base-1",
+    
+        trusted_known_gap_snapshot=_gap_snapshot(module, contract, ()),
     )
     assert any("incomplete/deferred semantic coverage" in finding for finding in assessment.findings)
 
@@ -387,6 +410,8 @@ def test_current_complete_evidence_passes_but_known_gap_cannot_self_waive() -> N
         evidence=evidence,
         semantic_review_plan=plan,
         current_base_revision="base-1",
+    
+        trusted_known_gap_snapshot=_gap_snapshot(module, contract, ()),
     )
     assert assessment.status == module.AcceptanceStatus.PASS
 
@@ -400,6 +425,8 @@ def test_current_complete_evidence_passes_but_known_gap_cannot_self_waive() -> N
         known_gaps=[reported_waiver],
         semantic_review_plan=plan,
         current_base_revision="base-1",
+    
+        trusted_known_gap_snapshot=_gap_snapshot(module, contract, [reported_waiver]),
     )
     assert assessment.status == module.AcceptanceStatus.INCOMPLETE
     assert any(
@@ -422,6 +449,8 @@ def test_current_complete_evidence_passes_but_known_gap_cannot_self_waive() -> N
         trusted_policy_waivers=[stale_authorization],
         semantic_review_plan=plan,
         current_base_revision="base-1",
+    
+        trusted_known_gap_snapshot=_gap_snapshot(module, contract, [reported_waiver]),
     ).status == module.AcceptanceStatus.INCOMPLETE
 
     wrong_scope = module.PolicyWaiverAuthorization(
@@ -439,6 +468,8 @@ def test_current_complete_evidence_passes_but_known_gap_cannot_self_waive() -> N
         trusted_policy_waivers=[wrong_scope],
         semantic_review_plan=plan,
         current_base_revision="base-1",
+    
+        trusted_known_gap_snapshot=_gap_snapshot(module, contract, [reported_waiver]),
     ).status == module.AcceptanceStatus.INCOMPLETE
 
     authorized = module.PolicyWaiverAuthorization(
@@ -456,6 +487,8 @@ def test_current_complete_evidence_passes_but_known_gap_cannot_self_waive() -> N
         trusted_policy_waivers=[authorized],
         semantic_review_plan=plan,
         current_base_revision="base-1",
+    
+        trusted_known_gap_snapshot=_gap_snapshot(module, contract, [reported_waiver]),
     )
     assert assessment.status == module.AcceptanceStatus.PASS
     assert assessment.waived_criteria == ("C1",)
@@ -508,6 +541,8 @@ def test_resolved_gap_must_be_current_but_current_resolution_does_not_block() ->
         known_gaps=[current],
         semantic_review_plan=plan,
         current_base_revision="base-1",
+    
+        trusted_known_gap_snapshot=_gap_snapshot(module, contract, [current]),
     )
     assert current_assessment.status == module.AcceptanceStatus.PASS
     stale = module.KnownGap(
@@ -525,6 +560,8 @@ def test_resolved_gap_must_be_current_but_current_resolution_does_not_block() ->
         known_gaps=[stale],
         semantic_review_plan=plan,
         current_base_revision="base-1",
+    
+        trusted_known_gap_snapshot=_gap_snapshot(module, contract, [stale]),
     )
     assert stale_assessment.status == module.AcceptanceStatus.INCOMPLETE
 
@@ -669,6 +706,8 @@ def test_acceptance_forwards_known_paths_into_semantic_review_validation() -> No
         semantic_review_plan=plan,
         current_base_revision="base-1",
         known_path_refs={"src/diagnostics.py"},
+    
+        trusted_known_gap_snapshot=_gap_snapshot(module, contract, ()),
     )
     assert incomplete.status == module.AcceptanceStatus.INCOMPLETE
     assert any("unresolved analogue paths: src/provider_errors.py" in finding for finding in incomplete.findings)
@@ -680,6 +719,8 @@ def test_acceptance_forwards_known_paths_into_semantic_review_validation() -> No
         semantic_review_plan=plan,
         current_base_revision="base-1",
         known_path_refs={"src/diagnostics.py", "src/provider_errors.py"},
+    
+        trusted_known_gap_snapshot=_gap_snapshot(module, contract, ()),
     )
     assert complete.status == module.AcceptanceStatus.PASS
 
@@ -738,6 +779,8 @@ def test_provider_fidelity_is_criterion_scoped_not_per_proof_class() -> None:
         evidence=evidence,
         semantic_review_plan=plan,
         current_base_revision="base-1",
+    
+        trusted_known_gap_snapshot=_gap_snapshot(module, contract, ()),
     )
     assert assessment.status == module.AcceptanceStatus.PASS
     assert assessment.satisfied_criteria == ("C1", "C2")
@@ -805,6 +848,8 @@ def test_semantic_review_evidence_requires_current_validated_plan_digest() -> No
         evidence=missing_binding,
         semantic_review_plan=plan,
         current_base_revision="base-1",
+    
+        trusted_known_gap_snapshot=_gap_snapshot(module, contract, ()),
     )
     assert assessment.status == module.AcceptanceStatus.INCOMPLETE
     assert any("not bound to the current validated plan" in finding for finding in assessment.findings)
@@ -831,6 +876,8 @@ def test_semantic_review_evidence_requires_current_validated_plan_digest() -> No
         evidence=stale_binding,
         semantic_review_plan=widened,
         current_base_revision="base-1",
+    
+        trusted_known_gap_snapshot=_gap_snapshot(module, contract, ()),
     )
     assert stale_assessment.status == module.AcceptanceStatus.INCOMPLETE
     assert any("not bound to the current validated plan" in finding for finding in stale_assessment.findings)
@@ -852,6 +899,8 @@ def test_semantic_review_evidence_requires_current_validated_plan_digest() -> No
         evidence=current_evidence,
         semantic_review_plan=widened,
         current_base_revision="base-1",
+    
+        trusted_known_gap_snapshot=_gap_snapshot(module, contract, ()),
     ).status == module.AcceptanceStatus.PASS
 
 
@@ -893,6 +942,8 @@ def test_base_bound_semantic_review_requires_current_base_revision() -> None:
         candidate_revision="candidate-1",
         evidence=evidence,
         semantic_review_plan=plan,
+    
+        trusted_known_gap_snapshot=_gap_snapshot(module, contract, ()),
     )
     assert missing_base.status == module.AcceptanceStatus.INCOMPLETE
     assert "base-bound semantic review plan requires the current base revision" in missing_base.findings
@@ -903,6 +954,8 @@ def test_base_bound_semantic_review_requires_current_base_revision() -> None:
         evidence=evidence,
         semantic_review_plan=plan,
         current_base_revision="base-0",
+    
+        trusted_known_gap_snapshot=_gap_snapshot(module, contract, ()),
     )
     assert stale_base.status == module.AcceptanceStatus.INCOMPLETE
     assert any("stale for the current base" in finding for finding in stale_base.findings)
@@ -913,6 +966,8 @@ def test_base_bound_semantic_review_requires_current_base_revision() -> None:
         evidence=evidence,
         semantic_review_plan=plan,
         current_base_revision="base-1",
+    
+        trusted_known_gap_snapshot=_gap_snapshot(module, contract, ()),
     )
     assert current.status == module.AcceptanceStatus.PASS
 
@@ -944,6 +999,8 @@ def test_base_bound_semantic_review_requires_current_base_revision() -> None:
         evidence=unbound_evidence,
         semantic_review_plan=unbound,
         current_base_revision="base-1",
+    
+        trusted_known_gap_snapshot=_gap_snapshot(module, contract, ()),
     )
     assert supplied_base.status == module.AcceptanceStatus.INCOMPLETE
     assert any("stale for the current base" in finding for finding in supplied_base.findings)
@@ -984,6 +1041,8 @@ def test_exact_artifact_proof_requires_exact_candidate_artifact_binding() -> Non
     ]
     assessment = module.evaluate_acceptance(
         contract, candidate_revision="candidate-1", evidence=missing
+    ,
+        trusted_known_gap_snapshot=_gap_snapshot(module, contract, ()),
     )
     assert assessment.status == module.AcceptanceStatus.INCOMPLETE
     assert any("lacks valid exact evidence binding" in finding for finding in assessment.findings)
@@ -1005,6 +1064,8 @@ def test_exact_artifact_proof_requires_exact_candidate_artifact_binding() -> Non
     ]
     assert module.evaluate_acceptance(
         contract, candidate_revision="candidate-1", evidence=stale
+    ,
+        trusted_known_gap_snapshot=_gap_snapshot(module, contract, ()),
     ).status == module.AcceptanceStatus.INCOMPLETE
 
     current_binding = module.ExactEvidenceBinding(
@@ -1024,6 +1085,8 @@ def test_exact_artifact_proof_requires_exact_candidate_artifact_binding() -> Non
     ]
     assessment = module.evaluate_acceptance(
         contract, candidate_revision="candidate-1", evidence=current
+    ,
+        trusted_known_gap_snapshot=_gap_snapshot(module, contract, ()),
     )
     assert assessment.status == module.AcceptanceStatus.PASS
 
@@ -1061,6 +1124,127 @@ def test_acceptance_rejects_blank_candidate_revision_before_evidence_matching() 
     assessment = module.evaluate_acceptance(contract, candidate_revision="", evidence=evidence)
     assert assessment.status == module.AcceptanceStatus.INCOMPLETE
     assert "candidate_revision must be a non-empty string" in assessment.findings
+
+
+def test_known_gap_snapshot_is_complete_and_caller_omission_cannot_erase_gap() -> None:
+    module = _load("qa_gap_snapshot_completeness", TOOL)
+    contract: dict[str, object] = {
+        "schema_version": 1,
+        "change_id": "gap-snapshot",
+        "revision": "r1",
+        "obligations": [
+            {"id": "O1", "kind": "functional", "statement": "preserve behavior", "required": True}
+        ],
+        "criteria": [
+            {
+                "id": "C1",
+                "obligation_refs": ["O1"],
+                "expected_outcome": "behavior is preserved",
+                "rejection_condition": "behavior is not preserved",
+                "required": True,
+                "proof_classes": ["integration"],
+            }
+        ],
+    }
+    contract["digest"] = module.compute_change_contract_digest(contract)
+    evidence = [
+        module.CriterionEvidence(
+            "C1", "integration", module.EvidenceStatus.PASS, "candidate-1", contract["digest"]
+        )
+    ]
+    gap = module.KnownGap("G1", ("C1",), True, disposition="unresolved")
+    snapshot = _gap_snapshot(module, contract, [gap])
+
+    no_snapshot = module.evaluate_acceptance(
+        contract,
+        candidate_revision="candidate-1",
+        evidence=evidence,
+    )
+    assert no_snapshot.status == module.AcceptanceStatus.INCOMPLETE
+    assert "trusted complete known-gap registry snapshot is required" in no_snapshot.findings
+
+    omitted_from_caller = module.evaluate_acceptance(
+        contract,
+        candidate_revision="candidate-1",
+        evidence=evidence,
+        trusted_known_gap_snapshot=snapshot,
+    )
+    assert omitted_from_caller.status == module.AcceptanceStatus.INCOMPLETE
+    assert any("remains load-bearing" in finding for finding in omitted_from_caller.findings)
+
+    tampered = module.KnownGap("G1", (), False, disposition="resolved")
+    tampered_caller = module.evaluate_acceptance(
+        contract,
+        candidate_revision="candidate-1",
+        evidence=evidence,
+        known_gaps=[tampered],
+        trusted_known_gap_snapshot=snapshot,
+    )
+    assert tampered_caller.status == module.AcceptanceStatus.INCOMPLETE
+    assert "supplied known gaps do not match trusted registry records" in tampered_caller.findings
+    assert any("remains load-bearing" in finding for finding in tampered_caller.findings)
+
+    empty_snapshot = _gap_snapshot(module, contract)
+    assert module.evaluate_acceptance(
+        contract,
+        candidate_revision="candidate-1",
+        evidence=evidence,
+        trusted_known_gap_snapshot=empty_snapshot,
+    ).status == module.AcceptanceStatus.PASS
+
+
+def test_known_gap_snapshot_rejects_incomplete_or_malformed_records() -> None:
+    module = _load("qa_gap_snapshot_validation", TOOL)
+    contract: dict[str, object] = {
+        "schema_version": 1,
+        "change_id": "gap-snapshot-validation",
+        "revision": "r1",
+        "obligations": [
+            {"id": "O1", "kind": "functional", "statement": "preserve behavior", "required": True}
+        ],
+        "criteria": [
+            {
+                "id": "C1",
+                "obligation_refs": ["O1"],
+                "expected_outcome": "behavior is preserved",
+                "rejection_condition": "behavior is not preserved",
+                "required": True,
+                "proof_classes": ["integration"],
+            }
+        ],
+    }
+    contract["digest"] = module.compute_change_contract_digest(contract)
+    evidence = [
+        module.CriterionEvidence(
+            "C1", "integration", module.EvidenceStatus.PASS, "candidate-1", contract["digest"]
+        )
+    ]
+    incomplete = module.KnownGapRegistrySnapshot(
+        "known-gaps:incomplete",
+        "candidate-1",
+        contract["digest"],
+        (),
+        complete=False,
+    )
+    assessment = module.evaluate_acceptance(
+        contract,
+        candidate_revision="candidate-1",
+        evidence=evidence,
+        trusted_known_gap_snapshot=incomplete,
+    )
+    assert assessment.status == module.AcceptanceStatus.INCOMPLETE
+    assert "known-gap registry snapshot must be complete" in assessment.findings
+
+    unknown_ref = module.KnownGap("G1", ("missing",), True)
+    malformed = _gap_snapshot(module, contract, [unknown_ref])
+    assessment = module.evaluate_acceptance(
+        contract,
+        candidate_revision="candidate-1",
+        evidence=evidence,
+        trusted_known_gap_snapshot=malformed,
+    )
+    assert assessment.status == module.AcceptanceStatus.INCOMPLETE
+    assert "known gap G1 references unknown criteria: missing" in assessment.findings
 
 
 def test_contract_schemas_are_closed_and_machine_readable() -> None:
@@ -1103,6 +1287,8 @@ def test_authorized_policy_waiver_is_alternate_satisfaction_not_pass_evidence() 
         evidence=evidence,
         known_gaps=[gap],
         trusted_policy_waivers=[authorization],
+    
+        trusted_known_gap_snapshot=_gap_snapshot(module, contract, [gap]),
     )
     assert assessment.status == module.AcceptanceStatus.PASS
     assert assessment.satisfied_criteria == ("C1",)
