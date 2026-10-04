@@ -1,5 +1,16 @@
 # Changelog
 
+## 3.6.0 - 2026-10-04
+
+### Added
+
+- Added a provider-neutral exact artifact evidence contract and reference constructor with collision-safe length-prefixed file-tree framing, explicit construction-profile identity, and bounded `exact|partial|unknown` coverage.
+- Added regression coverage for delimiter-framing collisions, large supported artifacts, file/byte/depth/time limits, requested-versus-observed fallback identity, and construction-profile freshness.
+
+### Changed
+
+- Extended CI/CD verification receipts and guidance so exact artifact identity is distinct from requested package/source/runtime compatibility, non-exact coverage cannot publish an exact digest, and candidate-defined exclusions cannot shrink the v1 evidence subject.
+
 ## 3.5.0 - 2026-10-04
 
 ### Added
