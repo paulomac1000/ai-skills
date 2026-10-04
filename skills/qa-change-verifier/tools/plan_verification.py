@@ -324,11 +324,15 @@ def validate_change_acceptance_contract(contract: Mapping[str, Any]) -> tuple[st
     extra = sorted(set(contract) - _CHANGE_ROOT)
     if extra:
         findings.append("unknown change-acceptance fields: " + ", ".join(extra))
-    if contract.get("schema_version") != 1:
-        findings.append("schema_version must be 1")
+    schema_version = contract.get("schema_version")
+    if type(schema_version) is not int or schema_version != 1:
+        findings.append("schema_version must be integer 1")
     for field in ("change_id", "revision"):
-        if not isinstance(contract.get(field), str) or not str(contract[field]).strip():
+        value = contract.get(field)
+        if not isinstance(value, str) or not value.strip():
             findings.append(f"{field} must be a non-empty string")
+        elif len(value) > 256:
+            findings.append(f"{field} must be at most 256 characters")
     digest = contract.get("digest")
     if not isinstance(digest, str) or not _DIGEST.fullmatch(digest):
         findings.append("digest must be sha256:<64 lowercase hex>")
@@ -358,6 +362,9 @@ def validate_change_acceptance_contract(contract: Mapping[str, Any]) -> tuple[st
         if not isinstance(identifier, str) or not identifier.strip():
             findings.append("obligation id must be a non-empty string")
             continue
+        if len(identifier) > 128:
+            findings.append(f"obligation id must be at most 128 characters: {identifier[:32]}...")
+            continue
         if identifier in obligations:
             findings.append(f"duplicate obligation id: {identifier}")
             continue
@@ -366,11 +373,16 @@ def validate_change_acceptance_contract(contract: Mapping[str, Any]) -> tuple[st
             findings.append(f"unknown obligation kind for {identifier}: {item.get('kind')!r}")
         if not isinstance(item.get("required"), bool):
             findings.append(f"obligation {identifier} required must be boolean")
-        if not isinstance(item.get("statement"), str) or not str(item["statement"]).strip():
+        statement = item.get("statement")
+        if not isinstance(statement, str) or not statement.strip():
             findings.append(f"obligation {identifier} statement must be a non-empty string")
+        elif len(statement) > 4096:
+            findings.append(f"obligation {identifier} statement must be at most 4096 characters")
         source_ref = item.get("source_ref")
         if source_ref is not None and not isinstance(source_ref, str):
             findings.append(f"obligation {identifier} source_ref must be a string or null")
+        elif isinstance(source_ref, str) and len(source_ref) > 2048:
+            findings.append(f"obligation {identifier} source_ref must be at most 2048 characters")
 
     criteria: dict[str, Mapping[str, Any]] = {}
     required_coverage: set[str] = set()
@@ -384,6 +396,9 @@ def validate_change_acceptance_contract(contract: Mapping[str, Any]) -> tuple[st
         identifier = item.get("id")
         if not isinstance(identifier, str) or not identifier.strip():
             findings.append("criterion id must be a non-empty string")
+            continue
+        if len(identifier) > 128:
+            findings.append(f"criterion id must be at most 128 characters: {identifier[:32]}...")
             continue
         if identifier in criteria:
             findings.append(f"duplicate criterion id: {identifier}")
@@ -402,14 +417,20 @@ def validate_change_acceptance_contract(contract: Mapping[str, Any]) -> tuple[st
             findings.append(f"criterion {identifier} must reference at least one obligation")
         elif len(set(refs)) != len(refs):
             findings.append(f"criterion {identifier} obligation_refs must be unique")
+        too_long_refs = [ref for ref in refs if len(ref) > 128]
+        if too_long_refs:
+            findings.append(f"criterion {identifier} obligation_refs must be at most 128 characters")
         for ref in refs:
             if ref not in obligations:
                 findings.append(f"criterion {identifier} references unknown obligation: {ref}")
             elif required:
                 required_coverage.add(ref)
         for field in ("expected_outcome", "rejection_condition"):
-            if not isinstance(item.get(field), str) or not str(item[field]).strip():
+            value = item.get(field)
+            if not isinstance(value, str) or not value.strip():
                 findings.append(f"criterion {identifier} {field} must be a non-empty string")
+            elif len(value) > 4096:
+                findings.append(f"criterion {identifier} {field} must be at most 4096 characters")
         declared_proofs = item.get("proof_classes")
         if "proof_classes" in item:
             parsed_proofs = _strings(declared_proofs)
@@ -487,16 +508,22 @@ def validate_semantic_review_plan(
     extra = sorted(set(plan) - _REVIEW_ROOT)
     if extra:
         findings.append("unknown semantic-review-plan fields: " + ", ".join(extra))
-    if plan.get("schema_version") != 1:
-        findings.append("schema_version must be 1")
+    schema_version = plan.get("schema_version")
+    if type(schema_version) is not int or schema_version != 1:
+        findings.append("schema_version must be integer 1")
     for field in ("plan_id", "revision", "candidate_revision"):
-        if not isinstance(plan.get(field), str) or not str(plan[field]).strip():
+        value = plan.get(field)
+        if not isinstance(value, str) or not value.strip():
             findings.append(f"{field} must be a non-empty string")
+        elif len(value) > 256:
+            findings.append(f"{field} must be at most 256 characters")
 
     for field in ("base_revision", "policy_revision"):
         value = plan.get(field)
         if value is not None and not isinstance(value, str):
             findings.append(f"{field} must be a string or null")
+        elif isinstance(value, str) and len(value) > 256:
+            findings.append(f"{field} must be at most 256 characters")
     acceptance_digest = plan.get("acceptance_contract_digest")
     if acceptance_digest is not None and (
         not isinstance(acceptance_digest, str) or not _DIGEST.fullmatch(acceptance_digest)
@@ -511,7 +538,7 @@ def validate_semantic_review_plan(
     if current_candidate_revision is not None and plan.get("candidate_revision") != current_candidate_revision:
         findings.append("semantic review plan is stale for the current candidate")
     base_revision = plan.get("base_revision")
-    if current_base_revision is not None and base_revision is not None and base_revision != current_base_revision:
+    if current_base_revision is not None and base_revision != current_base_revision:
         findings.append("semantic review plan is stale for the current base")
 
     known: set[str] = set()
@@ -553,6 +580,9 @@ def validate_semantic_review_plan(
             if not isinstance(identifier, str) or not identifier.strip():
                 findings.append(f"{collection_name} id must be a non-empty string")
                 continue
+            if len(identifier) > 128:
+                findings.append(f"{collection_name} id must be at most 128 characters")
+                item_valid = False
             if identifier in seen:
                 findings.append(f"duplicate {collection_name} id: {identifier}")
                 item_valid = False
@@ -565,6 +595,9 @@ def validate_semantic_review_plan(
                 item_valid = False
             elif len(set(refs)) != len(refs):
                 findings.append(f"{collection_name} {identifier} criterion_refs must be unique")
+                item_valid = False
+            if any(len(ref) > 128 for ref in refs):
+                findings.append(f"{collection_name} {identifier} criterion_refs must be at most 128 characters")
                 item_valid = False
 
             unknown_refs = sorted(ref for ref in refs if known and ref not in known)
@@ -584,6 +617,13 @@ def validate_semantic_review_plan(
                 ):
                     findings.append(f"flow {identifier} must identify an entry point and terminal outcome")
                     item_valid = False
+                else:
+                    if len(entry) > 2048:
+                        findings.append(f"flow {identifier} entry_point must be at most 2048 characters")
+                        item_valid = False
+                    if len(terminal) > 2048:
+                        findings.append(f"flow {identifier} terminal_outcome must be at most 2048 characters")
+                        item_valid = False
 
             elif collection_name == "focus_areas":
                 risks = _strings(item.get("risk_reasons"))
@@ -611,6 +651,12 @@ def validate_semantic_review_plan(
                     if len(set(invariants)) != len(invariants):
                         findings.append(f"focus area {identifier} invariants must be unique")
                         item_valid = False
+                    if any(len(ref) > 2048 for ref in path_refs):
+                        findings.append(f"focus area {identifier} path_refs must be at most 2048 characters")
+                        item_valid = False
+                    if any(len(invariant) > 2048 for invariant in invariants):
+                        findings.append(f"focus area {identifier} invariants must be at most 2048 characters")
+                        item_valid = False
                     if known_path_refs is not None:
                         unresolved = sorted(set(path_refs) - known_path_refs)
                         if unresolved:
@@ -624,9 +670,21 @@ def validate_semantic_review_plan(
                     if analogue_refs is None:
                         findings.append(f"focus area {identifier} analogue_refs must be an array of strings")
                         item_valid = False
-                    elif len(set(analogue_refs)) != len(analogue_refs):
-                        findings.append(f"focus area {identifier} analogue_refs must be unique")
-                        item_valid = False
+                    else:
+                        if len(set(analogue_refs)) != len(analogue_refs):
+                            findings.append(f"focus area {identifier} analogue_refs must be unique")
+                            item_valid = False
+                        if any(len(ref) > 2048 for ref in analogue_refs):
+                            findings.append(f"focus area {identifier} analogue_refs must be at most 2048 characters")
+                            item_valid = False
+                        if known_path_refs is not None:
+                            unresolved_analogues = sorted(set(analogue_refs) - known_path_refs)
+                            if unresolved_analogues:
+                                findings.append(
+                                    f"focus area {identifier} references unresolved analogue paths: "
+                                    + ", ".join(unresolved_analogues)
+                                )
+                                item_valid = False
 
                 if item_valid:
                     focus_covered.update(refs)
@@ -651,15 +709,32 @@ def validate_semantic_review_plan(
                 if not isinstance(invariant_ref, str) or not invariant_ref.strip():
                     findings.append(f"invariant matrix {identifier} must identify an invariant")
                     item_valid = False
+                elif len(invariant_ref) > 2048:
+                    findings.append(f"invariant matrix {identifier} invariant_ref must be at most 2048 characters")
+                    item_valid = False
 
                 if "analogue_refs" in item:
                     analogue_refs = _strings(item.get("analogue_refs"))
                     if analogue_refs is None:
                         findings.append(f"invariant matrix {identifier} analogue_refs must be an array of strings")
                         item_valid = False
-                    elif len(set(analogue_refs)) != len(analogue_refs):
-                        findings.append(f"invariant matrix {identifier} analogue_refs must be unique")
-                        item_valid = False
+                    else:
+                        if len(set(analogue_refs)) != len(analogue_refs):
+                            findings.append(f"invariant matrix {identifier} analogue_refs must be unique")
+                            item_valid = False
+                        if any(len(ref) > 2048 for ref in analogue_refs):
+                            findings.append(
+                                f"invariant matrix {identifier} analogue_refs must be at most 2048 characters"
+                            )
+                            item_valid = False
+                        if known_path_refs is not None:
+                            unresolved_analogues = sorted(set(analogue_refs) - known_path_refs)
+                            if unresolved_analogues:
+                                findings.append(
+                                    f"invariant matrix {identifier} references unresolved analogue paths: "
+                                    + ", ".join(unresolved_analogues)
+                                )
+                                item_valid = False
 
     missing = sorted(required_review - focus_covered)
     if missing:
