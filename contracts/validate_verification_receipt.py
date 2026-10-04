@@ -15,6 +15,11 @@ from typing import Any
 from jsonschema import Draft202012Validator, FormatChecker
 from referencing import Registry, Resource
 
+try:
+    from contracts.artifact_evidence import validate_artifact_evidence_semantics
+except ModuleNotFoundError:  # Direct script execution from the contracts directory.
+    from artifact_evidence import validate_artifact_evidence_semantics
+
 CONTRACTS = Path(__file__).resolve().parent
 DEFAULT_SCHEMA = CONTRACTS / "verification-receipt.schema.json"
 MAX_RECEIPT_BYTES = 2 * 1024 * 1024
@@ -215,6 +220,10 @@ def validate_receipt_semantics(
     if isinstance(candidate, Mapping):
         artifact_evidence = candidate.get("artifact_evidence")
         if isinstance(artifact_evidence, Mapping):
+            findings.extend(
+                f"candidate.artifact_evidence: {finding}"
+                for finding in validate_artifact_evidence_semantics(artifact_evidence)
+            )
             coverage = artifact_evidence.get("coverage")
             observed_identity = artifact_evidence.get("observed_identity")
             if isinstance(coverage, Mapping) and isinstance(observed_identity, Mapping):
