@@ -808,9 +808,7 @@ def evaluate_acceptance(
 
             refs = _strings(gap.affected_criterion_refs)
             if refs is None:
-                findings.append(
-                    f"known gap {gap.gap_id} affected_criterion_refs must be an array of non-empty strings"
-                )
+                findings.append(f"known gap {gap.gap_id} affected_criterion_refs must be an array of non-empty strings")
                 continue
             if len(set(refs)) != len(refs):
                 findings.append(f"known gap {gap.gap_id} affected_criterion_refs must be unique")
