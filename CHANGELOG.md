@@ -1,5 +1,22 @@
 # Changelog
 
+## 3.9.0 - 2026-10-04
+
+### Added
+
+- Added a provider-neutral migration-acceptance evaluator that binds the exact candidate, current schema, supported and unsupported input states, immutable fixture identity, production migration entrypoint/revision, data invariants, and interrupted-recovery evidence.
+- Added adversarial regressions for accidental current-bootstrap setup, wrong migrator identity/revision, missing supported predecessors, silent unsupported-state normalization, unsupported recovery substitution, and conditional current-schema rerun.
+
+### Changed
+
+- Extended `qa-change-verifier` with a normative persistent-schema migration matrix that keeps fresh installation, legacy upgrade, optional current-schema idempotence, unsupported input, and interrupted recovery as distinct proof cases.
+- Extended the MCP local candidate lane to require a current `qa-change-verifier` migration-acceptance receipt when persistent migration is in scope while preserving backward compatibility for non-migration candidates.
+
+### Security and correctness
+
+- Legacy-upgrade evidence now fails closed when the pre-state is already current, required legacy/current-absence characteristics are unproven, the wrong production migrator is exercised, representative data invariants are absent, or an unsupported state is normalized into apparent success.
+- Recovery evidence from an unsupported input path can no longer satisfy the recovery obligation for supported migrations.
+
 ## 3.8.0 - 2026-10-04
 
 ### Added
