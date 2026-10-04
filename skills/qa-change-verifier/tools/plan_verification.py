@@ -749,6 +749,10 @@ def evaluate_acceptance(
     if semantic_review_required:
         if semantic_review_plan is None:
             findings.append("required semantic-review proof lacks a validated semantic review plan")
+        elif semantic_review_plan.get("base_revision") is not None and (
+            not isinstance(current_base_revision, str) or not current_base_revision.strip()
+        ):
+            findings.append("base-bound semantic review plan requires the current base revision")
         else:
             plan_findings = validate_semantic_review_plan(
                 semantic_review_plan,
