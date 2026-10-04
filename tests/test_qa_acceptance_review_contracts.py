@@ -171,6 +171,42 @@ def test_required_obligation_and_malformed_references_fail_closed() -> None:
     assert "criterion C1 proof_of_exercise_required must be boolean" in malformed_findings
 
 
+
+
+def test_acceptance_helper_rejects_schema_boolean_version_and_length_violations() -> None:
+    module = _load("qa_contract_schema_parity", TOOL)
+
+    boolean_version = _contract(module)
+    boolean_version["schema_version"] = True
+    boolean_version["digest"] = module.compute_change_contract_digest(boolean_version)
+    assert "schema_version must be integer 1" in module.validate_change_acceptance_contract(boolean_version)
+
+    oversized = _contract(module)
+    oversized["change_id"] = "c" * 257
+    oversized["revision"] = "r" * 257
+    oversized["obligations"][0]["statement"] = "s" * 4097
+    oversized["obligations"][0]["source_ref"] = "p" * 2049
+    oversized["criteria"][0]["expected_outcome"] = "e" * 4097
+    oversized["criteria"][0]["rejection_condition"] = "x" * 4097
+    oversized["digest"] = module.compute_change_contract_digest(oversized)
+    findings = module.validate_change_acceptance_contract(oversized)
+    assert "change_id must be at most 256 characters" in findings
+    assert "revision must be at most 256 characters" in findings
+    assert "obligation O1 statement must be at most 4096 characters" in findings
+    assert "obligation O1 source_ref must be at most 2048 characters" in findings
+    assert "criterion C1 expected_outcome must be at most 4096 characters" in findings
+    assert "criterion C1 rejection_condition must be at most 4096 characters" in findings
+
+    oversized_ids = _contract(module)
+    oversized_ids["obligations"][0]["id"] = "o" * 129
+    oversized_ids["criteria"][0]["id"] = "c" * 129
+    oversized_ids["criteria"][1]["obligation_refs"] = ["r" * 129]
+    oversized_ids["digest"] = module.compute_change_contract_digest(oversized_ids)
+    id_findings = module.validate_change_acceptance_contract(oversized_ids)
+    assert any("obligation id must be at most 128 characters" in finding for finding in id_findings)
+    assert any("criterion id must be at most 128 characters" in finding for finding in id_findings)
+    assert "criterion C2 obligation_refs must be at most 128 characters" in id_findings
+
 def test_risk_only_planning_is_backward_compatible_and_criteria_add_specific_proofs() -> None:
     module = _load("qa_contract_plan", TOOL)
     change = module.ChangeRisk(change_surface="docs", blast_radius="local", candidate_revision="candidate-1")
@@ -527,6 +563,72 @@ def test_semantic_review_plan_is_exact_candidate_bound_and_covers_required_revie
     assert "focus area R1 references unresolved paths: src/diagnostics.py" in unresolved
 
 
+def test_review_helper_rejects_schema_boolean_version_and_length_violations() -> None:
+    module = _load("qa_review_schema_parity", TOOL)
+    contract = _contract(module)
+
+    boolean_version = _review_plan(module, contract)
+    boolean_version["schema_version"] = True
+    boolean_version["digest"] = module.compute_semantic_review_plan_digest(boolean_version)
+    assert "schema_version must be integer 1" in module.validate_semantic_review_plan(
+        boolean_version, acceptance_contract=contract
+    )
+
+    oversized = _review_plan(module, contract)
+    oversized["plan_id"] = "p" * 257
+    oversized["revision"] = "r" * 257
+    oversized["candidate_revision"] = "c" * 257
+    oversized["base_revision"] = "b" * 257
+    oversized["policy_revision"] = "q" * 257
+    oversized["flows"][0]["entry_point"] = "e" * 2049
+    oversized["flows"][0]["terminal_outcome"] = "t" * 2049
+    oversized["focus_areas"][0]["path_refs"] = ["p" * 2049]
+    oversized["focus_areas"][0]["invariants"] = ["i" * 2049]
+    oversized["focus_areas"][0]["analogue_refs"] = ["a" * 2049]
+    oversized["invariant_matrices"][0]["invariant_ref"] = "m" * 2049
+    oversized["invariant_matrices"][0]["analogue_refs"] = ["a" * 2049]
+    oversized["digest"] = module.compute_semantic_review_plan_digest(oversized)
+    findings = module.validate_semantic_review_plan(oversized, acceptance_contract=contract)
+    assert "plan_id must be at most 256 characters" in findings
+    assert "revision must be at most 256 characters" in findings
+    assert "candidate_revision must be at most 256 characters" in findings
+    assert "base_revision must be at most 256 characters" in findings
+    assert "policy_revision must be at most 256 characters" in findings
+    assert "flow F1 entry_point must be at most 2048 characters" in findings
+    assert "flow F1 terminal_outcome must be at most 2048 characters" in findings
+    assert "focus area R1 path_refs must be at most 2048 characters" in findings
+    assert "focus area R1 invariants must be at most 2048 characters" in findings
+    assert "focus area R1 analogue_refs must be at most 2048 characters" in findings
+    assert "invariant matrix M1 invariant_ref must be at most 2048 characters" in findings
+    assert "invariant matrix M1 analogue_refs must be at most 2048 characters" in findings
+
+
+def test_review_plan_resolves_analogue_paths_against_known_paths() -> None:
+    module = _load("qa_review_analogue_paths", TOOL)
+    contract = _contract(module)
+    plan = _review_plan(module, contract)
+    plan["invariant_matrices"][0]["analogue_refs"] = ["src/matrix_analogue.py"]
+    plan["digest"] = module.compute_semantic_review_plan_digest(plan)
+
+    findings = module.validate_semantic_review_plan(
+        plan,
+        acceptance_contract=contract,
+        known_path_refs={"src/diagnostics.py"},
+    )
+    assert "focus area R1 references unresolved analogue paths: src/provider_errors.py" in findings
+    assert "invariant matrix M1 references unresolved analogue paths: src/matrix_analogue.py" in findings
+
+    assert module.validate_semantic_review_plan(
+        plan,
+        acceptance_contract=contract,
+        known_path_refs={
+            "src/diagnostics.py",
+            "src/provider_errors.py",
+            "src/matrix_analogue.py",
+        },
+    ) == ()
+
+
 def test_review_plan_rejects_missing_required_scope_collections_without_contract() -> None:
     module = _load("qa_review_required_collections", TOOL)
     contract = _contract(module)
@@ -758,6 +860,38 @@ def test_base_bound_semantic_review_requires_current_base_revision() -> None:
         current_base_revision="base-1",
     )
     assert current.status == module.AcceptanceStatus.PASS
+
+    unbound = json.loads(json.dumps(plan))
+    unbound["base_revision"] = None
+    unbound["digest"] = module.compute_semantic_review_plan_digest(unbound)
+    unbound_evidence = [
+        item
+        if item.proof_class != "semantic_review"
+        else module.CriterionEvidence(
+            item.criterion_id,
+            item.proof_class,
+            item.status,
+            item.candidate_revision,
+            item.contract_digest,
+            discriminating_observations=item.discriminating_observations,
+            exercise_discriminant=item.exercise_discriminant,
+            coverage_complete=item.coverage_complete,
+            deferred_count=item.deferred_count,
+            fixture_source=item.fixture_source,
+            exact_evidence_binding=item.exact_evidence_binding,
+            semantic_review_plan_digest=unbound["digest"],
+        )
+        for item in evidence
+    ]
+    supplied_base = module.evaluate_acceptance(
+        contract,
+        candidate_revision="candidate-1",
+        evidence=unbound_evidence,
+        semantic_review_plan=unbound,
+        current_base_revision="base-1",
+    )
+    assert supplied_base.status == module.AcceptanceStatus.INCOMPLETE
+    assert any("stale for the current base" in finding for finding in supplied_base.findings)
 
 
 def test_exact_artifact_proof_requires_exact_candidate_artifact_binding() -> None:
