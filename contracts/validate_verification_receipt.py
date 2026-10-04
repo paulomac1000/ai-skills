@@ -211,6 +211,26 @@ def validate_receipt_semantics(
                         "test_corpus.expected_subjects must equal discovered_subjects plus missing_required_subjects"
                     )
 
+    candidate = receipt.get("candidate")
+    if isinstance(candidate, Mapping):
+        artifact_evidence = candidate.get("artifact_evidence")
+        if isinstance(artifact_evidence, Mapping):
+            coverage = artifact_evidence.get("coverage")
+            observed_identity = artifact_evidence.get("observed_identity")
+            if isinstance(coverage, Mapping) and isinstance(observed_identity, Mapping):
+                evidence_state = coverage.get("state")
+                evidence_digest = observed_identity.get("artifact_digest")
+                candidate_digest = candidate.get("artifact_digest")
+                if evidence_state == "exact":
+                    if candidate_digest != evidence_digest:
+                        findings.append(
+                            "candidate.artifact_digest must equal the exact artifact evidence digest"
+                        )
+                elif candidate_digest is not None:
+                    findings.append(
+                        "candidate.artifact_digest cannot be paired with non-exact artifact evidence"
+                    )
+
     if receipt.get("verdict") == "pass":
         if accounted != discovered:
             findings.append("pass requires every discovered file to be executed or covered by an active exclusion")
