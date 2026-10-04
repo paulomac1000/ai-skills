@@ -151,6 +151,14 @@ def test_required_obligation_and_malformed_references_fail_closed() -> None:
     assert "obligations must contain at least one entry" in empty_findings
     assert "criteria must contain at least one entry" in empty_findings
 
+    duplicate = _contract(module)
+    duplicate["obligations"].append(dict(duplicate["obligations"][0]))
+    duplicate["criteria"].append(dict(duplicate["criteria"][0]))
+    duplicate["digest"] = module.compute_change_contract_digest(duplicate)
+    duplicate_findings = module.validate_change_acceptance_contract(duplicate)
+    assert "duplicate obligation id: O1" in duplicate_findings
+    assert "duplicate criterion id: C1" in duplicate_findings
+
 
 def test_risk_only_planning_is_backward_compatible_and_criteria_add_specific_proofs() -> None:
     module = _load("qa_contract_plan", TOOL)
@@ -200,6 +208,26 @@ def test_acceptance_is_incomplete_when_one_required_criterion_is_uncovered_or_st
     assessment = module.evaluate_acceptance(contract, candidate_revision="candidate-1", evidence=stale)
     assert assessment.status == module.AcceptanceStatus.INCOMPLETE
     assert "C1" not in assessment.satisfied_criteria
+
+    previous_digest = contract["digest"]
+    changed = json.loads(json.dumps(contract))
+    changed["criteria"][0]["expected_outcome"] = "changed admitted behavior"
+    changed["digest"] = module.compute_change_contract_digest(changed)
+    old_contract_evidence = [
+        module.CriterionEvidence(
+            "C1",
+            "integration",
+            module.EvidenceStatus.PASS,
+            "candidate-1",
+            previous_digest,
+            exercise_discriminant="guard-hit",
+        )
+    ]
+    changed_assessment = module.evaluate_acceptance(
+        changed, candidate_revision="candidate-1", evidence=old_contract_evidence
+    )
+    assert changed_assessment.status == module.AcceptanceStatus.INCOMPLETE
+    assert "C1" not in changed_assessment.satisfied_criteria
 
 
 def test_vacuous_deferred_wrong_fixture_and_missing_exercise_are_non_green() -> None:
@@ -376,6 +404,10 @@ def test_semantic_review_plan_is_exact_candidate_bound_and_covers_required_revie
         plan, acceptance_contract=contract, current_candidate_revision="candidate-2"
     )
     assert "semantic review plan is stale for the current candidate" in stale_findings
+    stale_base = module.validate_semantic_review_plan(
+        plan, acceptance_contract=contract, current_base_revision="base-2"
+    )
+    assert "semantic review plan is stale for the current base" in stale_base
 
     plan = _review_plan(module, contract)
     plan["flows"] = []
@@ -399,9 +431,12 @@ def test_review_plan_rejects_unknown_refs_and_accepts_boundary_and_diagnostic_ne
     plan = _review_plan(module, contract)
     plan["focus_areas"][0]["criterion_refs"] = ["missing"]
     plan["invariant_matrices"][0]["dimensions"] = [
+        "invalid",
         "missing",
         "explicit_null",
         "wrong_type",
+        "concurrent",
+        "recovery",
         "conflicting_aliases",
         "alternate_provider_wording",
         "source_payload_embedded",
