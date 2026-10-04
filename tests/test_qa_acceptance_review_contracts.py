@@ -222,6 +222,29 @@ def test_acceptance_helper_rejects_schema_boolean_version_and_length_violations(
     assert any("criterion id must be at most 128 characters" in finding for finding in id_findings)
     assert "criterion C2 obligation_refs must be at most 128 characters" in id_findings
 
+def test_public_validators_reject_malformed_roots_and_path_sets_without_raising() -> None:
+    module = _load("qa_public_validator_roots", TOOL)
+
+    assert module.validate_change_acceptance_contract([]) == (
+        "acceptance contract must be an object",
+    )
+    assert module.validate_change_acceptance_contract("not-an-object") == (
+        "acceptance contract must be an object",
+    )
+    assert module.validate_semantic_review_plan([]) == (
+        "semantic review plan must be an object",
+    )
+
+    contract = _contract(module)
+    plan = _review_plan(module, contract)
+    findings = module.validate_semantic_review_plan(
+        plan,
+        acceptance_contract=contract,
+        known_path_refs=["src/diagnostics.py"],
+    )
+    assert "known_path_refs must be a set of non-empty strings" in findings
+
+
 def test_risk_only_planning_is_backward_compatible_and_criteria_add_specific_proofs() -> None:
     module = _load("qa_contract_plan", TOOL)
     change = module.ChangeRisk(change_surface="docs", blast_radius="local", candidate_revision="candidate-1")
@@ -1050,6 +1073,101 @@ def test_base_bound_semantic_review_requires_current_base_revision() -> None:
     )
     assert supplied_base.status == module.AcceptanceStatus.INCOMPLETE
     assert any("stale for the current base" in finding for finding in supplied_base.findings)
+
+
+def test_fail_evidence_requires_proof_of_exercise_before_hard_failure() -> None:
+    module = _load("qa_fail_proof_of_exercise", TOOL)
+    contract: dict[str, object] = {
+        "schema_version": 1,
+        "change_id": "failure-proof",
+        "revision": "r1",
+        "obligations": [
+            {
+                "id": "O1",
+                "kind": "functional",
+                "statement": "reject the exercised invalid path",
+                "required": True,
+            }
+        ],
+        "criteria": [
+            {
+                "id": "C1",
+                "obligation_refs": ["O1"],
+                "expected_outcome": "invalid path is rejected",
+                "rejection_condition": "candidate violates the exercised guard",
+                "required": True,
+                "proof_classes": ["integration"],
+                "proof_of_exercise_required": True,
+            }
+        ],
+    }
+    contract["digest"] = module.compute_change_contract_digest(contract)
+    snapshot = _gap_snapshot(module, contract)
+
+    zero_observations = [
+        module.CriterionEvidence(
+            "C1",
+            "integration",
+            module.EvidenceStatus.FAIL,
+            "candidate-1",
+            contract["digest"],
+            discriminating_observations=0,
+        )
+    ]
+    assessment = module.evaluate_acceptance(
+        contract,
+        candidate_revision="candidate-1",
+        evidence=zero_observations,
+        trusted_known_gap_snapshot=snapshot,
+    )
+    assert assessment.status == module.AcceptanceStatus.INCOMPLETE
+    assert any(
+        "FAIL lacks discriminating proof-of-exercise observations" in finding
+        for finding in assessment.findings
+    )
+    assert not any("has current FAIL evidence" in finding for finding in assessment.findings)
+
+    missing_discriminant = [
+        module.CriterionEvidence(
+            "C1",
+            "integration",
+            module.EvidenceStatus.FAIL,
+            "candidate-1",
+            contract["digest"],
+            discriminating_observations=1,
+        )
+    ]
+    assessment = module.evaluate_acceptance(
+        contract,
+        candidate_revision="candidate-1",
+        evidence=missing_discriminant,
+        trusted_known_gap_snapshot=snapshot,
+    )
+    assert assessment.status == module.AcceptanceStatus.INCOMPLETE
+    assert any(
+        "FAIL lacks required proof-of-exercise discriminant" in finding
+        for finding in assessment.findings
+    )
+
+    exercised_failure = [
+        module.CriterionEvidence(
+            "C1",
+            "integration",
+            module.EvidenceStatus.FAIL,
+            "candidate-1",
+            contract["digest"],
+            discriminating_observations=1,
+            exercise_discriminant="guard-hit",
+        )
+    ]
+    assessment = module.evaluate_acceptance(
+        contract,
+        candidate_revision="candidate-1",
+        evidence=exercised_failure,
+        trusted_known_gap_snapshot=snapshot,
+    )
+    assert assessment.status == module.AcceptanceStatus.FAIL
+    assert "required criterion C1 has current FAIL evidence" in assessment.findings
 
 
 def test_exact_artifact_proof_requires_exact_candidate_artifact_binding() -> None:
