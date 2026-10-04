@@ -328,33 +328,67 @@ def test_current_complete_evidence_passes_but_known_gap_cannot_self_waive() -> N
     )
     assert assessment.status == module.AcceptanceStatus.PASS
 
-    self_waived = module.KnownGap(
-        "G1", ("C1",), True, disposition="waived_by_policy", waiver_authorized=False
+    reported_waiver = module.KnownGap(
+        "G1", ("C1",), True, disposition="waived_by_policy"
     )
     assessment = module.evaluate_acceptance(
-        contract, candidate_revision="candidate-1", evidence=evidence, known_gaps=[self_waived]
+        contract,
+        candidate_revision="candidate-1",
+        evidence=evidence,
+        known_gaps=[reported_waiver],
     )
     assert assessment.status == module.AcceptanceStatus.INCOMPLETE
-    assert any("without trusted authorization" in finding for finding in assessment.findings)
+    assert any(
+        "lacks matching trusted policy authorization" in finding
+        for finding in assessment.findings
+    )
 
-    authorized_without_ref = module.KnownGap(
-        "G1", ("C1",), True, disposition="waived_by_policy", waiver_authorized=True
+    stale_authorization = module.PolicyWaiverAuthorization(
+        waiver_ref="policy-waiver:G1",
+        gap_id="G1",
+        criterion_refs=("C1",),
+        candidate_revision="candidate-0",
+        contract_digest=digest,
     )
     assert module.evaluate_acceptance(
-        contract, candidate_revision="candidate-1", evidence=evidence, known_gaps=[authorized_without_ref]
+        contract,
+        candidate_revision="candidate-1",
+        evidence=evidence,
+        known_gaps=[reported_waiver],
+        trusted_policy_waivers=[stale_authorization],
     ).status == module.AcceptanceStatus.INCOMPLETE
 
-    authorized = module.KnownGap(
-        "G1",
-        ("C1",),
-        True,
-        disposition="waived_by_policy",
-        waiver_authorized=True,
+    wrong_scope = module.PolicyWaiverAuthorization(
         waiver_ref="policy-waiver:G1",
+        gap_id="G1",
+        criterion_refs=("C2",),
+        candidate_revision="candidate-1",
+        contract_digest=digest,
     )
     assert module.evaluate_acceptance(
-        contract, candidate_revision="candidate-1", evidence=evidence, known_gaps=[authorized]
-    ).status == module.AcceptanceStatus.PASS
+        contract,
+        candidate_revision="candidate-1",
+        evidence=evidence,
+        known_gaps=[reported_waiver],
+        trusted_policy_waivers=[wrong_scope],
+    ).status == module.AcceptanceStatus.INCOMPLETE
+
+    authorized = module.PolicyWaiverAuthorization(
+        waiver_ref="policy-waiver:G1",
+        gap_id="G1",
+        criterion_refs=("C1",),
+        candidate_revision="candidate-1",
+        contract_digest=digest,
+    )
+    assessment = module.evaluate_acceptance(
+        contract,
+        candidate_revision="candidate-1",
+        evidence=evidence,
+        known_gaps=[reported_waiver],
+        trusted_policy_waivers=[authorized],
+    )
+    assert assessment.status == module.AcceptanceStatus.PASS
+    assert assessment.waived_criteria == ("C1",)
 
 
 def test_resolved_gap_must_be_current_but_current_resolution_does_not_block() -> None:
@@ -433,12 +467,11 @@ def test_semantic_review_plan_is_exact_candidate_bound_and_covers_required_revie
     assert "semantic review plan is stale for the current base" in stale_base
 
     plan = _review_plan(module, contract)
-    plan["flows"] = []
     plan["focus_areas"] = []
     plan["invariant_matrices"] = []
     plan["digest"] = module.compute_semantic_review_plan_digest(plan)
     findings = module.validate_semantic_review_plan(plan, acceptance_contract=contract)
-    assert "required semantic-review criteria lack plan coverage: C2" in findings
+    assert "required semantic-review criteria lack valid focus-area coverage: C2" in findings
 
     unresolved = module.validate_semantic_review_plan(
         _review_plan(module, contract),
@@ -446,6 +479,59 @@ def test_semantic_review_plan_is_exact_candidate_bound_and_covers_required_revie
         known_path_refs={"src/other.py"},
     )
     assert "focus area R1 references unresolved paths: src/diagnostics.py" in unresolved
+
+
+def test_review_plan_rejects_missing_required_scope_collections_without_contract() -> None:
+    module = _load("qa_review_required_collections", TOOL)
+    contract = _contract(module)
+    plan = _review_plan(module, contract)
+    del plan["flows"]
+    del plan["focus_areas"]
+    del plan["invariant_matrices"]
+    plan["digest"] = module.compute_semantic_review_plan_digest(plan)
+
+    findings = module.validate_semantic_review_plan(plan)
+    assert "flows is required" in findings
+    assert "focus_areas is required" in findings
+    assert "invariant_matrices is required" in findings
+
+
+def test_provider_fidelity_is_criterion_scoped_not_per_proof_class() -> None:
+    module = _load("qa_provider_fidelity_scope", TOOL)
+    contract = _contract(module)
+    digest = contract["digest"]
+    evidence = [
+        module.CriterionEvidence(
+            "C1",
+            "integration",
+            module.EvidenceStatus.PASS,
+            "candidate-1",
+            digest,
+            exercise_discriminant="guard-hit",
+        ),
+        module.CriterionEvidence(
+            "C2",
+            "security_review",
+            module.EvidenceStatus.PASS,
+            "candidate-1",
+            digest,
+            fixture_source=module.FixtureSource.CAPTURED_PROVIDER,
+        ),
+        module.CriterionEvidence(
+            "C2",
+            "semantic_review",
+            module.EvidenceStatus.PASS,
+            "candidate-1",
+            digest,
+            fixture_source=module.FixtureSource.SYNTHETIC,
+        ),
+    ]
+
+    assessment = module.evaluate_acceptance(
+        contract, candidate_revision="candidate-1", evidence=evidence
+    )
+    assert assessment.status == module.AcceptanceStatus.PASS
+    assert assessment.satisfied_criteria == ("C1", "C2")
 
 
 def test_review_plan_rejects_unknown_refs_and_accepts_boundary_and_diagnostic_negative_space() -> None:
@@ -491,16 +577,25 @@ def test_authorized_policy_waiver_is_alternate_satisfaction_not_pass_evidence() 
             exercise_discriminant="guard-hit",
         )
     ]
-    waiver = module.KnownGap(
+    gap = module.KnownGap(
         "G2",
         ("C2",),
         True,
         disposition="waived_by_policy",
-        waiver_authorized=True,
+    )
+    authorization = module.PolicyWaiverAuthorization(
         waiver_ref="policy-waiver:G2",
+        gap_id="G2",
+        criterion_refs=("C2",),
+        candidate_revision="candidate-1",
+        contract_digest=digest,
     )
     assessment = module.evaluate_acceptance(
-        contract, candidate_revision="candidate-1", evidence=evidence, known_gaps=[waiver]
+        contract,
+        candidate_revision="candidate-1",
+        evidence=evidence,
+        known_gaps=[gap],
+        trusted_policy_waivers=[authorization],
     )
     assert assessment.status == module.AcceptanceStatus.PASS
     assert assessment.satisfied_criteria == ("C1",)
