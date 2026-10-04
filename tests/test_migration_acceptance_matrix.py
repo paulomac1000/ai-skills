@@ -334,3 +334,40 @@ def test_interrupted_legacy_recovery_still_requires_valid_legacy_prestate() -> N
     assessment = _evaluate(module, cases)
     assert any("pre-state mismatch" in finding for finding in assessment.findings)
     assert "migration input v1 was already current before migration" in assessment.findings
+
+
+def test_public_evaluator_rejects_malformed_boundary_types_without_raising() -> None:
+    module = _load("migration_acceptance_malformed_boundary", TOOL)
+    malformed_spec = module.MigrationInputSpec("v1", "legacy", "v1")
+    malformed_case = module.MigrationCaseEvidence(
+        input_ref="fresh",
+        fixture_identity="fixture:fresh",
+        observed_pre_schema=7,
+        legacy_characteristic_refs=(),
+        absent_current_characteristic_refs=(),
+        exercised_entrypoint=ENTRY,
+        exercised_entrypoint_revision=ENTRY_REV,
+        result="pass",
+        observed_post_schema=CURRENT,
+        data_invariant_refs=("data:shape",),
+    )
+    assessment = module.evaluate_migration_acceptance(
+        candidate_revision=7,
+        current_schema=CURRENT,
+        production_entrypoint=ENTRY,
+        production_entrypoint_revision=ENTRY_REV,
+        supported_inputs=(
+            module.MigrationInputSpec("fresh", module.MigrationInputKind.FRESH, None),
+            malformed_spec,
+        ),
+        unsupported_inputs=(),
+        cases=(malformed_case,),
+        require_current_rerun="yes",
+        require_interrupted_recovery=False,
+    )
+    assert assessment.status == "fail"
+    assert "candidate_revision must be a non-empty string" in assessment.findings
+    assert "require_current_rerun must be boolean" in assessment.findings
+    assert "migration input v1 has invalid kind" in assessment.findings
+    assert "migration case fresh observed_pre_schema must be string or null" in assessment.findings
+    assert "migration case fresh has invalid result" in assessment.findings

@@ -67,15 +67,15 @@ class MigrationAcceptanceAssessment:
 
 def evaluate_migration_acceptance(
     *,
-    candidate_revision: str,
-    current_schema: str,
-    production_entrypoint: str,
-    production_entrypoint_revision: str,
-    supported_inputs: Sequence[MigrationInputSpec],
-    unsupported_inputs: Sequence[MigrationInputSpec],
-    cases: Sequence[MigrationCaseEvidence],
-    require_current_rerun: bool = False,
-    require_interrupted_recovery: bool = True,
+    candidate_revision: object,
+    current_schema: object,
+    production_entrypoint: object,
+    production_entrypoint_revision: object,
+    supported_inputs: object,
+    unsupported_inputs: object,
+    cases: object,
+    require_current_rerun: object = False,
+    require_interrupted_recovery: object = True,
 ) -> MigrationAcceptanceAssessment:
     """Evaluate migration-matrix evidence without executing a product migrator."""
     findings: list[str] = []
@@ -113,19 +113,20 @@ def evaluate_migration_acceptance(
         if ref in spec_by_ref:
             findings.append(f"duplicate migration input_ref: {ref}")
             continue
-        if not isinstance(spec.kind, MigrationInputKind):
+        raw_kind: object = spec.kind
+        if not isinstance(raw_kind, MigrationInputKind):
             findings.append(f"migration input {ref} has invalid kind")
             continue
-        if expected_unsupported and spec.kind is not MigrationInputKind.UNSUPPORTED:
+        if expected_unsupported and raw_kind is not MigrationInputKind.UNSUPPORTED:
             findings.append(f"unsupported input {ref} must use kind=unsupported")
-        if not expected_unsupported and spec.kind is MigrationInputKind.UNSUPPORTED:
+        if not expected_unsupported and raw_kind is MigrationInputKind.UNSUPPORTED:
             findings.append(f"supported input {ref} cannot use kind=unsupported")
-        if spec.kind in {MigrationInputKind.LEGACY, MigrationInputKind.CURRENT, MigrationInputKind.UNSUPPORTED}:
+        if raw_kind in {MigrationInputKind.LEGACY, MigrationInputKind.CURRENT, MigrationInputKind.UNSUPPORTED}:
             if not _non_empty_string(spec.schema_identity):
                 findings.append(f"input {ref} requires schema_identity")
         elif spec.schema_identity is not None:
             findings.append(f"fresh input {ref} must use schema_identity=None")
-        if spec.kind is MigrationInputKind.CURRENT and current_schema_valid and spec.schema_identity != current_schema:
+        if raw_kind is MigrationInputKind.CURRENT and current_schema_valid and spec.schema_identity != current_schema:
             findings.append(f"current input {ref} does not match current_schema")
         spec_by_ref[ref] = spec
         if not expected_unsupported:
@@ -144,9 +145,11 @@ def evaluate_migration_acceptance(
             continue
         if not _non_empty_string(case.fixture_identity):
             findings.append(f"migration case {ref} requires immutable fixture_identity")
-        if case.observed_pre_schema is not None and not isinstance(case.observed_pre_schema, str):
+        raw_pre_schema: object = case.observed_pre_schema
+        raw_post_schema: object = case.observed_post_schema
+        if raw_pre_schema is not None and not isinstance(raw_pre_schema, str):
             findings.append(f"migration case {ref} observed_pre_schema must be string or null")
-        if case.observed_post_schema is not None and not isinstance(case.observed_post_schema, str):
+        if raw_post_schema is not None and not isinstance(raw_post_schema, str):
             findings.append(f"migration case {ref} observed_post_schema must be string or null")
         _validate_string_refs(
             case.legacy_characteristic_refs,
@@ -170,7 +173,8 @@ def evaluate_migration_acceptance(
             findings.append(
                 f"migration case {ref} exercised wrong entrypoint revision: {case.exercised_entrypoint_revision}"
             )
-        if not isinstance(case.result, MigrationCaseResult):
+        raw_result: object = case.result
+        if not isinstance(raw_result, MigrationCaseResult):
             findings.append(f"migration case {ref} has invalid result")
             continue
         if ref not in spec_by_ref:
