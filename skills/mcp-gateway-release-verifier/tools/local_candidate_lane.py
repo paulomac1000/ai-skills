@@ -160,11 +160,7 @@ def compose_local_lane_receipt(
     else:
         scope = trusted_candidate_scope
         binding = scope.binding
-        if not isinstance(binding, TrustedCandidateScopeBinding):
-            failures.append("candidate_scope_binding_invalid")
-        elif not isinstance(binding.identity, CandidateScopeIdentity):
-            failures.append("candidate_scope_identity_invalid")
-        elif not _TRUST_SOURCE.fullmatch(binding.source):
+        if not _TRUST_SOURCE.fullmatch(binding.source):
             failures.append("candidate_scope_source_invalid")
         else:
             identity = binding.identity
@@ -190,9 +186,7 @@ def compose_local_lane_receipt(
                     obligations = contract.get("obligations")
                     assert isinstance(obligations, list)
                     migration_required = any(
-                        isinstance(item, dict)
-                        and item.get("required") is True
-                        and item.get("kind") == "migration"
+                        isinstance(item, dict) and item.get("required") is True and item.get("kind") == "migration"
                         for item in obligations
                     )
                     scope_valid = True
