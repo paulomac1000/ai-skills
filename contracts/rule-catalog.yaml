@@ -96,6 +96,9 @@ skills:
     - id: cicd.workflow.least-privilege
       source: STANDARD.md#universal-workflow-controls
       description: Workflows are bounded, least-privileged, pinned, and concurrency-safe.
+    - id: cicd.artifact.evidence
+      source: STANDARD.md#exact-artifact-evidence-construction
+      description: Exact artifact identity uses collision-safe profile-bound construction, complete bounded coverage, and separate requested-versus-observed identity claims.
     - id: cicd.workflow.profiled
       source: STANDARD.md#workflow-policy-profiles
       description: Pull request, trusted CI, and protected release workflows are audited under explicit fail-closed profiles.
