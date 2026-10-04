@@ -594,9 +594,7 @@ def validate_semantic_review_plan(
                     item_valid = False
                 unknown_risks = sorted(set(risks) - REVIEW_RISK_REASONS)
                 if unknown_risks:
-                    findings.append(
-                        f"focus area {identifier} has unknown risk reasons: {', '.join(unknown_risks)}"
-                    )
+                    findings.append(f"focus area {identifier} has unknown risk reasons: {', '.join(unknown_risks)}")
                     item_valid = False
 
                 path_refs = _strings(item.get("path_refs"))
