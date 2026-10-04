@@ -1154,9 +1154,7 @@ def evaluate_acceptance(
                     or binding.candidate_revision != candidate_revision
                     or not validate_exact_evidence(binding, artifact_required=True)
                 ):
-                    findings.append(
-                        f"criterion {criterion_id} exact-artifact FAIL lacks valid exact evidence binding"
-                    )
+                    findings.append(f"criterion {criterion_id} exact-artifact FAIL lacks valid exact evidence binding")
                     continue
 
             if item.proof_class == "semantic_review":
