@@ -209,6 +209,8 @@ class CriterionEvidence:
     coverage_complete: bool = True
     deferred_count: int = 0
     fixture_source: FixtureSource | None = None
+    exact_evidence_binding: ExactEvidenceBinding | None = None
+    semantic_review_plan_digest: str | None = None
 
 
 @dataclass(frozen=True)
@@ -672,8 +674,12 @@ def evaluate_acceptance(
     evidence: Sequence[CriterionEvidence],
     known_gaps: Sequence[KnownGap] = (),
     trusted_policy_waivers: Sequence[PolicyWaiverAuthorization] = (),
+    semantic_review_plan: Mapping[str, Any] | None = None,
+    current_base_revision: str | None = None,
 ) -> AcceptanceAssessment:
     findings = list(validate_change_acceptance_contract(contract))
+    if not isinstance(candidate_revision, str) or not candidate_revision.strip():
+        findings.append("candidate_revision must be a non-empty string")
     if findings:
         return AcceptanceAssessment(AcceptanceStatus.INCOMPLETE, tuple(sorted(set(findings))), ())
 
@@ -733,6 +739,28 @@ def evaluate_acceptance(
             findings.append(f"known gap {gap.gap_id} remains load-bearing or impact-unknown")
             blocked.update(affected)
 
+    semantic_review_plan_digest: str | None = None
+    semantic_review_required = any(
+        criterion.get("required") is True
+        and criterion_id not in waived
+        and "semantic_review" in _proofs(criterion, obligations)
+        for criterion_id, criterion in criteria.items()
+    )
+    if semantic_review_required:
+        if semantic_review_plan is None:
+            findings.append("required semantic-review proof lacks a validated semantic review plan")
+        else:
+            plan_findings = validate_semantic_review_plan(
+                semantic_review_plan,
+                acceptance_contract=contract,
+                current_candidate_revision=candidate_revision,
+                current_base_revision=current_base_revision,
+            )
+            if plan_findings:
+                findings.extend(f"semantic review plan invalid: {finding}" for finding in plan_findings)
+            else:
+                semantic_review_plan_digest = str(semantic_review_plan["digest"])
+
     for criterion_id, criterion in criteria.items():
         if criterion.get("required") is not True or criterion_id in waived:
             continue
@@ -766,6 +794,25 @@ def evaluate_acceptance(
             if criterion.get("proof_of_exercise_required") is True and not valid_discriminant:
                 findings.append(f"criterion {criterion_id} lacks required proof-of-exercise discriminant")
                 continue
+
+            if item.proof_class == "exact_artifact":
+                binding = item.exact_evidence_binding
+                if (
+                    binding is None
+                    or binding.candidate_revision != candidate_revision
+                    or not validate_exact_evidence(binding, artifact_required=True)
+                ):
+                    findings.append(f"criterion {criterion_id} exact-artifact proof lacks valid exact evidence binding")
+                    continue
+
+            if item.proof_class == "semantic_review":
+                if semantic_review_plan_digest is None:
+                    continue
+                if item.semantic_review_plan_digest != semantic_review_plan_digest:
+                    findings.append(
+                        f"criterion {criterion_id} semantic-review proof is not bound to the current validated plan"
+                    )
+                    continue
 
             passed.add(item.proof_class)
             if item.fixture_source in {FixtureSource.CAPTURED_PROVIDER, FixtureSource.OFFICIAL_CONTRACT}:
