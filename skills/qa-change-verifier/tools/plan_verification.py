@@ -803,9 +803,7 @@ def evaluate_acceptance(
             findings.append("known-gap registry snapshot is bound to a different acceptance contract")
 
         raw_snapshot_gaps: object = trusted_known_gap_snapshot.gaps
-        if not isinstance(raw_snapshot_gaps, Sequence) or isinstance(
-            raw_snapshot_gaps, (str, bytes, bytearray)
-        ):
+        if not isinstance(raw_snapshot_gaps, Sequence) or isinstance(raw_snapshot_gaps, (str, bytes, bytearray)):
             findings.append("known-gap registry snapshot gaps must be an array")
         else:
             for raw_gap in raw_snapshot_gaps:
@@ -825,9 +823,7 @@ def evaluate_acceptance(
                 raw_refs: object = gap.affected_criterion_refs
                 refs = _strings(raw_refs)
                 if refs is None:
-                    findings.append(
-                        f"known gap {gap_id} affected_criterion_refs must be an array of non-empty strings"
-                    )
+                    findings.append(f"known gap {gap_id} affected_criterion_refs must be an array of non-empty strings")
                     continue
                 if len(set(refs)) != len(refs):
                     findings.append(f"known gap {gap_id} affected_criterion_refs must be unique")
