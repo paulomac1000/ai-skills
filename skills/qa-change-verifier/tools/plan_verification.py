@@ -1180,7 +1180,9 @@ def evaluate_acceptance(
                 FixtureSource.CAPTURED_PROVIDER,
                 FixtureSource.OFFICIAL_CONTRACT,
             }:
-                findings.append(f"criterion {criterion_id} provider-faithful FAIL lacks provider-faithful fixture evidence")
+                findings.append(
+                    f"criterion {criterion_id} provider-faithful FAIL lacks provider-faithful fixture evidence"
+                )
                 continue
 
             if item.proof_class == "exact_artifact":
