@@ -797,39 +797,81 @@ def evaluate_acceptance(
         if trusted_known_gap_snapshot.contract_digest != digest:
             findings.append("known-gap registry snapshot is bound to a different acceptance contract")
 
-        raw_snapshot_gaps = trusted_known_gap_snapshot.gaps
-        for gap in raw_snapshot_gaps:
-            if not gap.gap_id.strip():
-                findings.append("known gap id must be a non-empty string")
-                continue
-            if gap.gap_id in snapshot_by_id:
-                findings.append(f"duplicate known gap id in registry snapshot: {gap.gap_id}")
-                continue
+        raw_snapshot_gaps: object = trusted_known_gap_snapshot.gaps
+        if not isinstance(raw_snapshot_gaps, Sequence) or isinstance(
+            raw_snapshot_gaps, (str, bytes, bytearray)
+        ):
+            findings.append("known-gap registry snapshot gaps must be an array")
+        else:
+            for raw_gap in raw_snapshot_gaps:
+                if not isinstance(raw_gap, KnownGap):
+                    findings.append("known-gap registry snapshot entries must be KnownGap records")
+                    continue
+                gap = raw_gap
 
-            refs = _strings(gap.affected_criterion_refs)
-            if refs is None:
-                findings.append(f"known gap {gap.gap_id} affected_criterion_refs must be an array of non-empty strings")
-                continue
-            if len(set(refs)) != len(refs):
-                findings.append(f"known gap {gap.gap_id} affected_criterion_refs must be unique")
-                continue
-            unknown_refs = sorted(set(refs) - set(criteria))
-            if unknown_refs:
-                findings.append(f"known gap {gap.gap_id} references unknown criteria: {', '.join(unknown_refs)}")
-                continue
-            if gap.disposition not in {"unresolved", "resolved", "not_applicable", "waived_by_policy"}:
-                findings.append(f"known gap {gap.gap_id} has invalid disposition")
-                continue
-            if gap.candidate_revision is not None and not gap.candidate_revision.strip():
-                findings.append(f"known gap {gap.gap_id} candidate_revision must be a non-empty string or null")
-                continue
-            if gap.contract_digest is not None and not _DIGEST.fullmatch(gap.contract_digest):
-                findings.append(f"known gap {gap.gap_id} contract_digest must be null or sha256 digest")
-                continue
-            snapshot_by_id[gap.gap_id] = gap
+                gap_id: object = gap.gap_id
+                if not isinstance(gap_id, str) or not gap_id.strip():
+                    findings.append("known gap id must be a non-empty string")
+                    continue
+                if gap_id in snapshot_by_id:
+                    findings.append(f"duplicate known gap id in registry snapshot: {gap_id}")
+                    continue
 
-        if len(snapshot_by_id) == len(raw_snapshot_gaps):
-            effective_gaps = tuple(snapshot_by_id.values())
+                raw_refs: object = gap.affected_criterion_refs
+                refs = _strings(raw_refs)
+                if refs is None:
+                    findings.append(
+                        f"known gap {gap_id} affected_criterion_refs must be an array of non-empty strings"
+                    )
+                    continue
+                if len(set(refs)) != len(refs):
+                    findings.append(f"known gap {gap_id} affected_criterion_refs must be unique")
+                    continue
+
+                raw_load_bearing: object = gap.load_bearing
+                if raw_load_bearing is not None and not isinstance(raw_load_bearing, bool):
+                    findings.append(f"known gap {gap_id} load_bearing must be boolean or null")
+                    continue
+
+                raw_disposition: object = gap.disposition
+                if not isinstance(raw_disposition, str) or raw_disposition not in {
+                    "unresolved",
+                    "resolved",
+                    "not_applicable",
+                    "waived_by_policy",
+                }:
+                    findings.append(f"known gap {gap_id} has invalid disposition")
+                    continue
+
+                if not refs and raw_disposition == "unresolved" and raw_load_bearing is not False:
+                    findings.append(
+                        f"known gap {gap_id} with load-bearing or unknown impact must reference at least one criterion"
+                    )
+                    continue
+
+                unknown_refs = sorted(set(refs) - set(criteria))
+                if unknown_refs:
+                    findings.append(f"known gap {gap_id} references unknown criteria: {', '.join(unknown_refs)}")
+                    continue
+
+                raw_candidate_revision: object = gap.candidate_revision
+                if raw_candidate_revision is not None and (
+                    not isinstance(raw_candidate_revision, str) or not raw_candidate_revision.strip()
+                ):
+                    findings.append(f"known gap {gap_id} candidate_revision must be a non-empty string or null")
+                    continue
+
+                raw_contract_digest: object = gap.contract_digest
+                if raw_contract_digest is not None and (
+                    not isinstance(raw_contract_digest, str) or not _DIGEST.fullmatch(raw_contract_digest)
+                ):
+                    findings.append(f"known gap {gap_id} contract_digest must be null or sha256 digest")
+                    continue
+
+                snapshot_by_id[gap_id] = gap
+
+            if len(snapshot_by_id) == len(raw_snapshot_gaps):
+                effective_gaps = tuple(snapshot_by_id.values())
 
     if known_gaps:
         supplied_by_id: dict[str, KnownGap] = {}
