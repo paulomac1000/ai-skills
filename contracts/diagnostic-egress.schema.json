@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/paulomac1000/ai-skills/blob/main/contracts/diagnostic-egress.schema.json",
+  "title": "Structured diagnostic egress",
+  "description": "Bounded protected-sink diagnostic constructed from trusted typed classification rather than copied source/provider text.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "construction_revision",
+    "category",
+    "reason_code",
+    "severity",
+    "safe_fields",
+    "source_payload_included",
+    "truncated",
+    "raw_detail_ref"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "construction_revision": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@+\\-]*$"
+    },
+    "category": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[a-z][a-z0-9_.-]*$"
+    },
+    "reason_code": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[a-z][a-z0-9_.-]*$"
+    },
+    "severity": {"enum": ["info", "warning", "error"]},
+    "safe_fields": {
+      "type": "array",
+      "maxItems": 16,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "value", "provenance"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "pattern": "^[a-z][a-z0-9_.-]*$"
+          },
+          "value": {
+            "oneOf": [
+              {"type": "boolean"},
+              {"type": "integer", "minimum": -9223372036854775808, "maximum": 9223372036854775807},
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256,
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@+\\-]*$"
+              }
+            ]
+          },
+          "provenance": {"enum": ["trusted_runtime", "canonical_identifier", "provider_code"]}
+        }
+      }
+    },
+    "source_payload_included": {"const": false},
+    "truncated": {"type": "boolean"},
+    "raw_detail_ref": {
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@+\\-]*$"
+        }
+      ]
+    }
+  }
+}

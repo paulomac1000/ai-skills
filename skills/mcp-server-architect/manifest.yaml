@@ -115,6 +115,9 @@ dependencies:
   tools:
   - python
   - dotnet-sdk
+  shared_resources:
+  - contracts/diagnostic-egress.schema.json
+  - contracts/diagnostic_egress.py
 deprecation:
   policy: semantic-versioning
   minimum_notice: one-minor-release

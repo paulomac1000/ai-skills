@@ -48,6 +48,8 @@ dependencies:
   shared_resources:
   - contracts/change-acceptance.schema.json
   - contracts/semantic-review-plan.schema.json
+  - contracts/diagnostic-egress.schema.json
+  - contracts/diagnostic_egress.py
 deprecation:
   policy: semantic-versioning
   minimum_notice: one-minor-release
