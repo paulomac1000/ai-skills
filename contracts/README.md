@@ -16,6 +16,8 @@ The files in this directory make adoption evidence comparable across every skill
 
 - `rule-catalog.yaml` assigns stable identifiers to the complete adoption rule set for each skill.
 - `standard-rule-map.yaml` maps every normative `STANDARD.md` H2 heading to a stable rule or an explicit, reviewed exclusion.
+- `change-acceptance.schema.json` defines immutable software-change obligations and falsifiable acceptance criteria without mutable satisfaction state.
+- `semantic-review-plan.schema.json` binds candidate/base-specific semantic-review flows, focus areas, and invariant matrices to stable criteria.
 - `adoption-assessment.schema.json` is the canonical structural contract for assessment documents.
 - `adoption-assessment.yaml.template` is the generic assessment used by AFDS, AGENTS.md, CI/CD, MCP server, and MCP consumer adoptions.
 - `validate_adoption.py` runs schema validation first, then validates semantics, immutable revisions, symlink-free local implementation paths and artifact trees, waivers, exact compatibility tuples, extensions, rollback, risks, and approval independence.

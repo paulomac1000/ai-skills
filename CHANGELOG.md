@@ -1,5 +1,17 @@
 # Changelog
 
+## 3.5.0 - 2026-10-04
+
+### Added
+
+- Added a repository-level immutable change-acceptance contract for stable obligations, falsifiable criteria, deterministic proof-class mapping, exact-candidate evidence, and explicitly authorized policy waivers.
+- Added a semantic review plan contract for exact candidate/base-scoped flows, focus areas, analogous paths, invariant matrices, negative-space review, and diagnostic-egress risk families.
+- Added qa-change-verifier regressions for missing, stale, vacuous, deferred, provider-unfaithful, and non-exercised evidence, plus known-gap authority and semantic-review-plan freshness.
+
+### Changed
+
+- Extended qa-change-verifier's risk planner without breaking risk-only callers so required criteria can add specific proof layers and semantic-review requirements while preserving harness-versus-product failure attribution.
+
 ## 3.4.0 - 2026-10-04
 
 ### Added

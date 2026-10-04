@@ -117,6 +117,17 @@ skills:
       acceptance-ladder-and-exact-workflow-artifact: {rule_id: steward.acceptance.layered, primary: true}
       generated-baseline: {rule_id: steward.generator.durable, primary: true}
       verification: {rule_id: steward.acceptance.layered}
+  qa-change-verifier:
+    headings:
+      risk-planning: {rule_id: qa.risk.planned, primary: true}
+      immutable-change-acceptance-contract: {rule_id: qa.acceptance.immutable, primary: true}
+      criterion-completeness-and-exact-evidence: {rule_id: qa.acceptance.evidence, primary: true}
+      known-gaps-and-waiver-authority: {rule_id: qa.gaps.authorized, primary: true}
+      semantic-review-plan: {rule_id: qa.review.scoped, primary: true}
+      negative-space-and-invariant-families: {rule_id: qa.review.negative-space, primary: true}
+      failure-attribution: {rule_id: qa.failure.attributed, primary: true}
+      composition-boundaries: {rule_id: qa.composition.bounded, primary: true}
+      definition-of-done: {rule_id: qa.completion.evidenced, primary: true}
   readme-architect:
     headings:
       purpose: {excluded: true, rationale: Informational scope heading, not an independently assessable invariant.}
