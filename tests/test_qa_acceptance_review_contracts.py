@@ -903,6 +903,52 @@ def test_semantic_review_evidence_requires_current_validated_plan_digest() -> No
         trusted_known_gap_snapshot=_gap_snapshot(module, contract, ()),
     ).status == module.AcceptanceStatus.PASS
 
+    unbound_fail = base_evidence + [
+        module.CriterionEvidence(
+            "C2",
+            "semantic_review",
+            module.EvidenceStatus.FAIL,
+            "candidate-1",
+            digest,
+            fixture_source=module.FixtureSource.CAPTURED_PROVIDER,
+        )
+    ]
+    assessment = module.evaluate_acceptance(
+        contract,
+        candidate_revision="candidate-1",
+        evidence=unbound_fail,
+        semantic_review_plan=widened,
+        current_base_revision="base-1",
+        trusted_known_gap_snapshot=_gap_snapshot(module, contract),
+    )
+    assert assessment.status == module.AcceptanceStatus.INCOMPLETE
+    assert any(
+        "semantic-review FAIL is not bound to the current validated plan" in finding
+        for finding in assessment.findings
+    )
+
+    bound_fail = base_evidence + [
+        module.CriterionEvidence(
+            "C2",
+            "semantic_review",
+            module.EvidenceStatus.FAIL,
+            "candidate-1",
+            digest,
+            fixture_source=module.FixtureSource.CAPTURED_PROVIDER,
+            semantic_review_plan_digest=widened["digest"],
+        )
+    ]
+    assessment = module.evaluate_acceptance(
+        contract,
+        candidate_revision="candidate-1",
+        evidence=bound_fail,
+        semantic_review_plan=widened,
+        current_base_revision="base-1",
+        trusted_known_gap_snapshot=_gap_snapshot(module, contract),
+    )
+    assert assessment.status == module.AcceptanceStatus.FAIL
+    assert "required criterion C2 has current FAIL evidence" in assessment.findings
+
 
 def test_base_bound_semantic_review_requires_current_base_revision() -> None:
     module = _load("qa_semantic_base_binding", TOOL)
@@ -1089,6 +1135,87 @@ def test_exact_artifact_proof_requires_exact_candidate_artifact_binding() -> Non
         trusted_known_gap_snapshot=_gap_snapshot(module, contract, ()),
     )
     assert assessment.status == module.AcceptanceStatus.PASS
+
+    unbound_fail = [
+        module.CriterionEvidence(
+            "C1",
+            "exact_artifact",
+            module.EvidenceStatus.FAIL,
+            "candidate-1",
+            digest,
+        )
+    ]
+    assessment = module.evaluate_acceptance(
+        contract,
+        candidate_revision="candidate-1",
+        evidence=unbound_fail,
+        trusted_known_gap_snapshot=_gap_snapshot(module, contract),
+    )
+    assert assessment.status == module.AcceptanceStatus.INCOMPLETE
+    assert any(
+        "exact-artifact FAIL lacks valid exact evidence binding" in finding
+        for finding in assessment.findings
+    )
+    assert not any("has current FAIL evidence" in finding for finding in assessment.findings)
+
+    stale_fail = [
+        module.CriterionEvidence(
+            "C1",
+            "exact_artifact",
+            module.EvidenceStatus.FAIL,
+            "candidate-1",
+            digest,
+            exact_evidence_binding=stale_binding,
+        )
+    ]
+    assessment = module.evaluate_acceptance(
+        contract,
+        candidate_revision="candidate-1",
+        evidence=stale_fail,
+        trusted_known_gap_snapshot=_gap_snapshot(module, contract),
+    )
+    assert assessment.status == module.AcceptanceStatus.INCOMPLETE
+    assert any(
+        "exact-artifact FAIL lacks valid exact evidence binding" in finding
+        for finding in assessment.findings
+    )
+
+    bound_fail = [
+        module.CriterionEvidence(
+            "C1",
+            "exact_artifact",
+            module.EvidenceStatus.FAIL,
+            "candidate-1",
+            digest,
+            exact_evidence_binding=current_binding,
+        )
+    ]
+    assessment = module.evaluate_acceptance(
+        contract,
+        candidate_revision="candidate-1",
+        evidence=bound_fail,
+        trusted_known_gap_snapshot=_gap_snapshot(module, contract),
+    )
+    assert assessment.status == module.AcceptanceStatus.FAIL
+    assert "required criterion C1 has current FAIL evidence" in assessment.findings
+
+    non_required_fail = [
+        module.CriterionEvidence(
+            "C1",
+            "integration",
+            module.EvidenceStatus.FAIL,
+            "candidate-1",
+            digest,
+        )
+    ]
+    assessment = module.evaluate_acceptance(
+        contract,
+        candidate_revision="candidate-1",
+        evidence=non_required_fail,
+        trusted_known_gap_snapshot=_gap_snapshot(module, contract),
+    )
+    assert assessment.status == module.AcceptanceStatus.INCOMPLETE
+    assert "criterion C1 FAIL evidence uses non-required proof class: integration" in assessment.findings
 
 
 def test_acceptance_rejects_blank_candidate_revision_before_evidence_matching() -> None:
