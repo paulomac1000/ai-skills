@@ -354,6 +354,10 @@ def test_profile_digest_detects_material_change_and_manual_tampering() -> None:
         "profile_digest" in finding
         for finding in module.validate_artifact_evidence_semantics(tampered)
     )
+    assert not module.construction_profiles_comparable(
+        one["construction_profile"],
+        tampered["construction_profile"],
+    )
 
 
 def test_candidate_defined_exclusion_field_is_rejected() -> None:
