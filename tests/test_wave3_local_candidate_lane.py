@@ -254,8 +254,8 @@ def test_migration_candidate_requires_green_exact_candidate_migration_payload() 
         "current_schema": "v2",
         "exercised_inputs": [
             {"input_ref": "fresh", "kind": "fresh", "schema_identity": None},
-            {"input_ref": "v1", "kind": "legacy", "schema_identity": "v1"},
             {"input_ref": "v0", "kind": "unsupported", "schema_identity": "v0"},
+            {"input_ref": "v1", "kind": "legacy", "schema_identity": "v1"},
         ],
     }
 
