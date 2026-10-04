@@ -312,9 +312,10 @@ def validate_migration_acceptance_receipt(receipt: object) -> tuple[str, ...]:
         if not _non_empty_string(value):
             findings.append(f"migration acceptance receipt {field} must be a non-empty string")
     exercised = receipt.get("exercised_inputs")
-    if not _exercised_input_array(exercised):
+    allow_empty_exercised = verdict == "fail"
+    if not _exercised_input_array(exercised, allow_empty=allow_empty_exercised):
         findings.append(
-            "migration acceptance receipt exercised_inputs must be a non-empty unique array of input identity objects"
+            "migration acceptance receipt exercised_inputs must be a unique array of input identity objects"
         )
     failures = receipt.get("failures")
     if not _string_array(failures, allow_empty=True):
@@ -382,9 +383,11 @@ def _validate_string_refs(value: object, field: str, findings: list[str]) -> Non
         findings.append(f"{field} must be a unique tuple of non-empty strings")
 
 
-def _exercised_input_array(value: object) -> bool:
-    if not isinstance(value, list) or not value:
+def _exercised_input_array(value: object, *, allow_empty: bool) -> bool:
+    if not isinstance(value, list):
         return False
+    if not value:
+        return allow_empty
     seen: set[str] = set()
     for item in value:
         if not isinstance(item, dict) or set(item) != {"input_ref", "kind", "schema_identity"}:
@@ -392,10 +395,10 @@ def _exercised_input_array(value: object) -> bool:
         input_ref = item.get("input_ref")
         kind = item.get("kind")
         schema_identity = item.get("schema_identity")
-        if not _non_empty_string(input_ref) or input_ref in seen:
+        if not isinstance(input_ref, str) or not input_ref.strip() or input_ref in seen:
             return False
         seen.add(input_ref)
-        if kind not in {member.value for member in MigrationInputKind}:
+        if not isinstance(kind, str) or kind not in {member.value for member in MigrationInputKind}:
             return False
         if kind in {MigrationInputKind.LEGACY.value, MigrationInputKind.CURRENT.value}:
             if not _non_empty_string(schema_identity):

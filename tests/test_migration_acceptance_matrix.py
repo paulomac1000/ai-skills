@@ -449,3 +449,33 @@ def test_receipt_rejects_malformed_or_duplicate_exercised_input_identity() -> No
     ]
     findings = module.validate_migration_acceptance_receipt(receipt)
     assert any("exercised_inputs" in finding for finding in findings)
+
+
+def test_receipt_boundary_handles_unhashable_kind_and_empty_failure_evidence() -> None:
+    module = _load("migration_acceptance_receipt_boundary", TOOL)
+    malformed = {
+        "schema_version": 1,
+        "verdict": "pass",
+        "candidate_revision": CANDIDATE,
+        "current_schema": CURRENT,
+        "production_entrypoint": ENTRY,
+        "production_entrypoint_revision": ENTRY_REV,
+        "exercised_inputs": [
+            {"input_ref": "unknown", "kind": [], "schema_identity": None},
+        ],
+        "failures": [],
+    }
+    findings = module.validate_migration_acceptance_receipt(malformed)
+    assert any("exercised_inputs" in finding for finding in findings)
+
+    failed_before_execution = {
+        "schema_version": 1,
+        "verdict": "fail",
+        "candidate_revision": CANDIDATE,
+        "current_schema": CURRENT,
+        "production_entrypoint": ENTRY,
+        "production_entrypoint_revision": ENTRY_REV,
+        "exercised_inputs": [],
+        "failures": ["migration matrix preflight failed"],
+    }
+    assert module.validate_migration_acceptance_receipt(failed_before_execution) == ()
