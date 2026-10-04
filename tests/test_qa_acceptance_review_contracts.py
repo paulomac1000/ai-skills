@@ -119,6 +119,9 @@ def test_change_acceptance_contract_has_stable_semantic_digest_and_no_mutable_st
     changed = json.loads(json.dumps(contract))
     changed["criteria"][0]["expected_outcome"] = "different behavior"
     assert module.compute_change_contract_digest(changed) != contract["digest"]
+
+    reordered = {key: contract[key] for key in reversed(contract)}
+    assert module.compute_change_contract_digest(reordered) == contract["digest"]
     schema = json.loads(CHANGE_SCHEMA.read_text(encoding="utf-8"))
     criterion_properties = schema["properties"]["criteria"]["items"]["properties"]
     assert "status" not in criterion_properties
