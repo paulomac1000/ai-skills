@@ -57,10 +57,18 @@ class DiagnosticClassification:
 
 
 @dataclass(frozen=True)
+class DiagnosticFieldPolicy:
+    provenances: frozenset[str]
+    allowed_strings: frozenset[str] = frozenset()
+    integer_range: tuple[int, int] | None = None
+    allow_boolean: bool = False
+
+
+@dataclass(frozen=True)
 class DiagnosticReasonPolicy:
     category: str
     severity: Severity
-    fields: Mapping[str, frozenset[str]]
+    fields: Mapping[str, DiagnosticFieldPolicy]
 
 
 @dataclass(frozen=True)
@@ -84,11 +92,41 @@ class DiagnosticPolicy:
                 raise DiagnosticEgressError("reason severity is not supported")
             if not isinstance(reason.fields, Mapping):
                 raise DiagnosticEgressError("reason fields must be a mapping")
-            for name, provenance in reason.fields.items():
+            for name, field_policy in reason.fields.items():
                 if not isinstance(name, str) or not _NAME_RE.fullmatch(name):
                     raise DiagnosticEgressError("safe field names must be bounded stable tokens")
-                if not isinstance(provenance, frozenset) or not provenance or not provenance <= _PROVENANCE:
+                if not isinstance(field_policy, DiagnosticFieldPolicy):
+                    raise DiagnosticEgressError("safe fields must use DiagnosticFieldPolicy")
+                if (
+                    not isinstance(field_policy.provenances, frozenset)
+                    or not field_policy.provenances
+                    or not field_policy.provenances <= _PROVENANCE
+                ):
                     raise DiagnosticEgressError("safe field provenance allowlists must be non-empty and trusted")
+                if not isinstance(field_policy.allowed_strings, frozenset) or any(
+                    not isinstance(value, str) or not _TOKEN_RE.fullmatch(value)
+                    for value in field_policy.allowed_strings
+                ):
+                    raise DiagnosticEgressError("allowed string values must be bounded policy-owned tokens")
+                if not isinstance(field_policy.allow_boolean, bool):
+                    raise DiagnosticEgressError("allow_boolean must be boolean")
+                if field_policy.integer_range is not None:
+                    integer_range = field_policy.integer_range
+                    if (
+                        not isinstance(integer_range, tuple)
+                        or len(integer_range) != 2
+                        or any(isinstance(value, bool) or not isinstance(value, int) for value in integer_range)
+                        or integer_range[0] > integer_range[1]
+                        or integer_range[0] < -(2**63)
+                        or integer_range[1] > 2**63 - 1
+                    ):
+                        raise DiagnosticEgressError("integer_range must be an ordered signed-64-bit pair")
+                if (
+                    not field_policy.allowed_strings
+                    and field_policy.integer_range is None
+                    and not field_policy.allow_boolean
+                ):
+                    raise DiagnosticEgressError("safe field policy must allow at least one bounded value class")
 
 
 def _safe_scalar(value: object) -> bool:
@@ -101,6 +139,17 @@ def _safe_scalar(value: object) -> bool:
 
 def _safe_ref(value: object) -> bool:
     return isinstance(value, str) and bool(_REF_RE.fullmatch(value))
+
+
+def _value_allowed(value: object, field_policy: DiagnosticFieldPolicy) -> bool:
+    if isinstance(value, bool):
+        return field_policy.allow_boolean
+    if isinstance(value, int):
+        if field_policy.integer_range is None:
+            return False
+        lower, upper = field_policy.integer_range
+        return lower <= value <= upper
+    return isinstance(value, str) and value in field_policy.allowed_strings
 
 
 def _fallback(*, revision: str, truncated: bool, raw_detail_ref: str | None) -> dict[str, Any]:
@@ -154,13 +203,13 @@ def build_safe_diagnostic(
     for field in classification.fields:
         if not isinstance(field, DiagnosticField):
             return fallback
-        allowed_provenance = reason.fields.get(field.name)
-        if field.name in seen or allowed_provenance is None:
+        field_policy = reason.fields.get(field.name)
+        if field.name in seen or field_policy is None:
             return fallback
         seen.add(field.name)
-        if field.provenance not in allowed_provenance or field.provenance not in _PROVENANCE:
+        if field.provenance not in field_policy.provenances or field.provenance not in _PROVENANCE:
             return fallback
-        if not _safe_scalar(field.value):
+        if not _safe_scalar(field.value) or not _value_allowed(field.value, field_policy):
             return fallback
         output_fields.append(
             {
@@ -212,6 +261,9 @@ def validate_diagnostic_egress_semantics(record: object, *, policy: DiagnosticPo
         return ("diagnostic egress record must be an object",)
 
     findings: list[str] = []
+    missing = sorted(_ROOT_FIELDS - set(record))
+    if missing:
+        findings.append("missing diagnostic fields: " + ", ".join(missing))
     extra = sorted(set(record) - _ROOT_FIELDS)
     if extra:
         findings.append("unknown diagnostic fields: " + ", ".join(extra))
@@ -272,6 +324,10 @@ def validate_diagnostic_egress_semantics(record: object, *, policy: DiagnosticPo
         if reason is None:
             if reason_code != _FALLBACK_REASON or fields:
                 findings.append("reason_code is not allowed by policy")
+            if reason_code == _FALLBACK_REASON and (
+                category != _FALLBACK_CATEGORY or record.get("severity") != _FALLBACK_SEVERITY
+            ):
+                findings.append("generic fallback category/severity is not canonical")
         else:
             if category != reason.category or record.get("severity") != reason.severity:
                 findings.append("category/severity do not match reason policy")
@@ -280,8 +336,13 @@ def validate_diagnostic_egress_semantics(record: object, *, policy: DiagnosticPo
                     continue
                 name = field.get("name")
                 provenance = field.get("provenance")
-                allowed = reason.fields.get(name) if isinstance(name, str) else None
-                if allowed is None or provenance not in allowed:
+                field_policy = reason.fields.get(name) if isinstance(name, str) else None
+                value = field.get("value")
+                if (
+                    field_policy is None
+                    or provenance not in field_policy.provenances
+                    or not _value_allowed(value, field_policy)
+                ):
                     findings.append(f"safe_fields[{index}] is not allowed by current reason policy")
 
     return tuple(sorted(set(findings)))

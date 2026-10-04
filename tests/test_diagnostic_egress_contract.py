@@ -11,6 +11,7 @@ sys.path.insert(0, str(ROOT))
 from contracts.diagnostic_egress import (  # noqa: E402
     DiagnosticClassification,
     DiagnosticField,
+    DiagnosticFieldPolicy,
     DiagnosticPolicy,
     DiagnosticReasonPolicy,
     build_safe_diagnostic,
@@ -26,8 +27,14 @@ POLICY = DiagnosticPolicy(
             category="upstream",
             severity="error",
             fields={
-                "status_code": frozenset({"provider_code"}),
-                "operation": frozenset({"canonical_identifier"}),
+                "status_code": DiagnosticFieldPolicy(
+                    provenances=frozenset({"provider_code"}),
+                    integer_range=(100, 599),
+                ),
+                "operation": DiagnosticFieldPolicy(
+                    provenances=frozenset({"canonical_identifier"}),
+                    allowed_strings=frozenset({"template_validate"}),
+                ),
             },
         )
     },
@@ -81,6 +88,7 @@ class DiagnosticEgressTests(unittest.TestCase):
             "WrapperError(InnerError(template='{{ nested }}'))",
             "api_key=sk-live-looking-but-test-only",
             "ordinary-user-value-with-description text",
+            "SENSITIVE_TEMPLATE_TAIL",
         ]
         for raw in variants:
             with self.subTest(raw=raw[:80]):
@@ -160,6 +168,15 @@ class DiagnosticEgressTests(unittest.TestCase):
         extra_message = {**valid, "message": "copied source payload"}
         findings = validate_diagnostic_egress_semantics(extra_message, policy=POLICY)
         self.assertTrue(any("unknown diagnostic fields" in item for item in findings))
+
+        forged_fallback = {**valid, "category": "upstream", "severity": "info"}
+        findings = validate_diagnostic_egress_semantics(forged_fallback, policy=POLICY)
+        self.assertTrue(any("fallback category/severity" in item for item in findings))
+
+        missing_field = dict(valid)
+        missing_field.pop("raw_detail_ref")
+        findings = validate_diagnostic_egress_semantics(missing_field, policy=POLICY)
+        self.assertTrue(any("missing diagnostic fields" in item for item in findings))
 
     def test_schema_structurally_forbids_freeform_diagnostic_members(self) -> None:
         schema = json.loads((ROOT / "contracts/diagnostic-egress.schema.json").read_text(encoding="utf-8"))
