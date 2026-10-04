@@ -55,7 +55,7 @@ For structured file-tree evidence, the v1 canonical profile is deliberately narr
 - entries are sorted by normalized UTF-8 path bytes;
 - every structural field is length-prefixed and file entries use a domain-separated encoding, so path/content boundaries cannot collide with delimiter bytes in file contents;
 - v1 covers regular-file path and content bytes only. Symlinks and other file types are non-exact under this profile. Permission/executable/mode metadata is not silently ignored when it is load-bearing; such a policy requires another explicit construction profile;
-- file-count, byte-count, depth, and duration limits are policy-owned profile data. Hitting any required bound yields `partial` rather than an exact digest;
+- file-count, byte-count, depth, and duration limits are policy-owned profile data. The byte count includes normalized UTF-8 path bytes plus file-content bytes, so path payload cannot bypass the bound. Hitting any required bound yields `partial` rather than an exact digest;
 - an incomplete inventory or unsupported file type is `partial` or `unknown`, never exact.
 
 The subject root, inventory completeness, profile revision, and bounds are established by trusted policy/collector authority. The v1 constructor intentionally accepts no candidate-defined exclusion list. A candidate cannot make evidence exact by omitting load-bearing files from its own subject definition.
