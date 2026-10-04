@@ -809,6 +809,78 @@ def test_provider_fidelity_is_criterion_scoped_not_per_proof_class() -> None:
     assert assessment.satisfied_criteria == ("C1", "C2")
 
 
+def test_provider_faithful_failure_requires_faithful_fixture() -> None:
+    module = _load("qa_provider_fidelity_fail", TOOL)
+    contract: dict[str, object] = {
+        "schema_version": 1,
+        "change_id": "provider-failure",
+        "revision": "r1",
+        "obligations": [
+            {
+                "id": "O1",
+                "kind": "contract",
+                "statement": "preserve provider compatibility",
+                "required": True,
+            }
+        ],
+        "criteria": [
+            {
+                "id": "C1",
+                "obligation_refs": ["O1"],
+                "expected_outcome": "provider-compatible input is accepted",
+                "rejection_condition": "provider-compatible input fails",
+                "required": True,
+                "proof_classes": ["integration"],
+                "fixture_fidelity": "provider_faithful",
+            }
+        ],
+    }
+    contract["digest"] = module.compute_change_contract_digest(contract)
+    snapshot = _gap_snapshot(module, contract)
+
+    synthetic_failure = [
+        module.CriterionEvidence(
+            "C1",
+            "integration",
+            module.EvidenceStatus.FAIL,
+            "candidate-1",
+            contract["digest"],
+            fixture_source=module.FixtureSource.SYNTHETIC,
+        )
+    ]
+    assessment = module.evaluate_acceptance(
+        contract,
+        candidate_revision="candidate-1",
+        evidence=synthetic_failure,
+        trusted_known_gap_snapshot=snapshot,
+    )
+    assert assessment.status == module.AcceptanceStatus.INCOMPLETE
+    assert any(
+        "provider-faithful FAIL lacks provider-faithful fixture evidence" in finding
+        for finding in assessment.findings
+    )
+    assert not any("has current FAIL evidence" in finding for finding in assessment.findings)
+
+    captured_failure = [
+        module.CriterionEvidence(
+            "C1",
+            "integration",
+            module.EvidenceStatus.FAIL,
+            "candidate-1",
+            contract["digest"],
+            fixture_source=module.FixtureSource.CAPTURED_PROVIDER,
+        )
+    ]
+    assessment = module.evaluate_acceptance(
+        contract,
+        candidate_revision="candidate-1",
+        evidence=captured_failure,
+        trusted_known_gap_snapshot=snapshot,
+    )
+    assert assessment.status == module.AcceptanceStatus.FAIL
+    assert "required criterion C1 has current FAIL evidence" in assessment.findings
+
+
 def test_review_plan_rejects_unknown_refs_and_accepts_boundary_and_diagnostic_negative_space() -> None:
     module = _load("qa_review_negative_space", TOOL)
     contract = _contract(module)
