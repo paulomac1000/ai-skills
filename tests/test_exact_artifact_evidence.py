@@ -273,6 +273,20 @@ def test_exact_digest_does_not_establish_source_or_runtime_compatibility() -> No
     assert _schema_errors(tampered)
 
 
+def test_fail_closed_digest_accessor_is_reusable_by_lineage_consumers() -> None:
+    module = _load()
+    exact = _evidence(module, [module.ArtifactEntry("a", b"a")])
+    assert module.require_exact_artifact_digest(exact) == exact["observed_identity"]["artifact_digest"]
+
+    partial = _evidence(
+        module,
+        [module.ArtifactEntry("a", b"a")],
+        enumeration_complete=False,
+    )
+    with pytest.raises(module.ArtifactEvidenceError, match="not exact"):
+        module.require_exact_artifact_digest(partial)
+
+
 def test_profile_digest_detects_material_change_and_manual_tampering() -> None:
     module = _load()
     one = _evidence(
