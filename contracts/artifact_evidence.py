@@ -263,13 +263,8 @@ def construct_artifact_evidence(
         (str, bytes, bytearray),
     ):
         raise ArtifactEvidenceError("observation_refs must be an array of strings")
-    if not all(
-        isinstance(item, str) and item.strip() and len(item) <= 2048
-        for item in observation_refs
-    ):
-        raise ArtifactEvidenceError(
-            "observation_refs entries must be non-empty strings of at most 2048 characters"
-        )
+    if not all(isinstance(item, str) and item.strip() and len(item) <= 2048 for item in observation_refs):
+        raise ArtifactEvidenceError("observation_refs entries must be non-empty strings of at most 2048 characters")
     if len(set(observation_refs)) != len(observation_refs):
         raise ArtifactEvidenceError("observation_refs must be unique")
 
@@ -410,18 +405,14 @@ def validate_artifact_evidence_semantics(evidence: object) -> tuple[str, ...]:
         return ("construction_profile must be an object",)
     extra_profile = sorted(set(profile) - _PROFILE_FIELDS)
     if extra_profile:
-        findings.append(
-            "unknown construction_profile fields: " + ", ".join(extra_profile)
-        )
+        findings.append("unknown construction_profile fields: " + ", ".join(extra_profile))
     bounds = profile.get("bounds")
     if not isinstance(bounds, Mapping):
         findings.append("construction_profile.bounds must be an object")
         return tuple(sorted(set(findings)))
     extra_bounds = sorted(set(bounds) - _BOUND_FIELDS)
     if extra_bounds:
-        findings.append(
-            "unknown construction_profile.bounds fields: " + ", ".join(extra_bounds)
-        )
+        findings.append("unknown construction_profile.bounds fields: " + ", ".join(extra_bounds))
 
     try:
         reconstructed = ConstructionProfile(
