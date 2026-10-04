@@ -853,7 +853,9 @@ def evaluate_acceptance(
             if semantic_digest is not None and (
                 not isinstance(semantic_digest, str) or not _DIGEST.fullmatch(semantic_digest)
             ):
-                findings.append(f"evidence for {criterion_id} semantic_review_plan_digest must be null or sha256 digest")
+                findings.append(
+                    f"evidence for {criterion_id} semantic_review_plan_digest must be null or sha256 digest"
+                )
                 continue
 
             raw_binding: object = item.exact_evidence_binding
@@ -1003,14 +1005,14 @@ def evaluate_acceptance(
             if not isinstance(raw_gap, KnownGap):
                 findings.append("supplied known gaps must contain KnownGap records")
                 continue
-            gap_id: object = raw_gap.gap_id
-            if not isinstance(gap_id, str) or not gap_id.strip():
+            supplied_gap_id: object = raw_gap.gap_id
+            if not isinstance(supplied_gap_id, str) or not supplied_gap_id.strip():
                 findings.append("supplied known gaps must contain identified KnownGap records")
                 continue
-            if gap_id in supplied_by_id:
-                findings.append(f"duplicate supplied known gap id: {gap_id}")
+            if supplied_gap_id in supplied_by_id:
+                findings.append(f"duplicate supplied known gap id: {supplied_gap_id}")
                 continue
-            supplied_by_id[gap_id] = raw_gap
+            supplied_by_id[supplied_gap_id] = raw_gap
 
     if supplied_items and supplied_by_id != snapshot_by_id:
         findings.append("supplied known gaps do not match trusted registry records")
@@ -1028,24 +1030,24 @@ def evaluate_acceptance(
             authorization = raw_authorization
 
             waiver_ref: object = authorization.waiver_ref
-            gap_id: object = authorization.gap_id
+            waiver_gap_id: object = authorization.gap_id
             if not isinstance(waiver_ref, str) or not waiver_ref.strip():
                 findings.append("trusted policy waiver_ref must be a non-empty string")
                 continue
-            if not isinstance(gap_id, str) or not gap_id.strip():
+            if not isinstance(waiver_gap_id, str) or not waiver_gap_id.strip():
                 findings.append("trusted policy gap_id must be a non-empty string")
                 continue
 
-            raw_refs: object = authorization.criterion_refs
-            refs = _strings(raw_refs)
-            if not refs:
+            waiver_raw_refs: object = authorization.criterion_refs
+            waiver_refs = _strings(waiver_raw_refs)
+            if not waiver_refs:
                 findings.append(f"trusted policy waiver {waiver_ref} must scope at least one criterion")
                 continue
-            if len(set(refs)) != len(refs):
+            if len(set(waiver_refs)) != len(waiver_refs):
                 findings.append(f"trusted policy waiver {waiver_ref} criterion_refs must be unique")
                 continue
             invalid_refs = sorted(
-                ref for ref in refs if ref not in criteria or criteria[ref].get("required") is not True
+                ref for ref in waiver_refs if ref not in criteria or criteria[ref].get("required") is not True
             )
             if invalid_refs:
                 findings.append(
@@ -1135,9 +1137,44 @@ def evaluate_acceptance(
             and item.candidate_revision == candidate_revision
             and item.contract_digest == digest
         ]
-        if any(item.status is EvidenceStatus.FAIL for item in current):
+        authoritative_fail = False
+        for item in current:
+            if item.status is not EvidenceStatus.FAIL:
+                continue
+            if item.proof_class not in required:
+                findings.append(
+                    f"criterion {criterion_id} FAIL evidence uses non-required proof class: {item.proof_class}"
+                )
+                continue
+
+            if item.proof_class == "exact_artifact":
+                binding = item.exact_evidence_binding
+                if (
+                    binding is None
+                    or binding.candidate_revision != candidate_revision
+                    or not validate_exact_evidence(binding, artifact_required=True)
+                ):
+                    findings.append(
+                        f"criterion {criterion_id} exact-artifact FAIL lacks valid exact evidence binding"
+                    )
+                    continue
+
+            if item.proof_class == "semantic_review":
+                if (
+                    semantic_review_plan_digest is None
+                    or item.semantic_review_plan_digest != semantic_review_plan_digest
+                ):
+                    findings.append(
+                        f"criterion {criterion_id} semantic-review FAIL is not bound to the current validated plan"
+                    )
+                    continue
+
             findings.append(f"required criterion {criterion_id} has current FAIL evidence")
             hard_fail = True
+            authoritative_fail = True
+            break
+
+        if authoritative_fail:
             continue
 
         passed: set[str] = set()
