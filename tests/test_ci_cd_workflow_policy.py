@@ -449,3 +449,9 @@ def test_protected_release_rejects_compose_with_options_before_command(tmp_path:
         encoding="utf-8",
     )
     assert any("through Compose" in message for message in _messages(workflow))
+
+
+def test_repository_automatic_release_workflow_passes_protected_release_policy() -> None:
+    workflow = ROOT / ".github" / "workflows" / "release.yml"
+    findings = audit_workflow(workflow, ROOT)
+    assert findings == []

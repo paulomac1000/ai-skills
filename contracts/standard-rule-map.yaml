@@ -34,6 +34,7 @@ skills:
       evidence-and-changelog-content: {rule_id: release.evidence.curated, primary: true}
       semantic-version-classification: {rule_id: release.semver.behavior, primary: true}
       scope-growth-and-idempotence: {rule_id: release.idempotence.scope, primary: true}
+      publication-finalization: {rule_id: release.publication.finalized, primary: true}
       mcp-compatibility-profile: {rule_id: release.mcp.compatibility, primary: true}
       legacy-and-release-dates: {rule_id: release.legacy.fail-closed, primary: true}
       verification-and-findings: {rule_id: release.verification.history, primary: true}

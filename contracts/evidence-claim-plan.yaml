@@ -678,6 +678,14 @@ profiles:
     - repository-junit.xml
     execution_id: repository
   - kind: rule
+    subject: release.publication.finalized
+    selectors:
+    - '*test_automatic_release_workflow*'
+    - '*test_repository_automatic_release_workflow_passes_protected_release_policy*'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
     subject: skill.admission.justified
     selectors:
     - '*test_skill_architect::test_skill_admission_contract_is_present'

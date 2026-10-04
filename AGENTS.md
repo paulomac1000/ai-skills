@@ -43,6 +43,8 @@ Use this file when implementing, migrating, reviewing, or maintaining content in
 - This repository projects one release version across `README.md`, `CHANGELOG.md`, every skill `manifest.yaml`, and release templates; all projections must agree at completion.
 - A published stable release uses the plain SemVer version and `maturity: stable`; preserve prerelease examples only when they test generic SemVer behavior and cannot be confused with the current repository version.
 - The release version validator adapter at `scripts/check_release_version.py` runs the canonical history-aware validator and must pass against the pull-request base before merge.
+- This repository declares `automatic-after-integration` publication. A successful `CI` push run on `main` for a commit that changes the repository version triggers `.github/workflows/release.yml`, which must publish the exact `v<version>` tag, GitHub Release, `ai-skills-<version>.tar.gz`, and `SHA256SUMS` without a second human confirmation.
+- Release publication is fail-closed and idempotent: an existing tag must resolve to the same integrated commit, release assets must converge to the prepared checksum, and a release-bearing task is not complete at merge time while the automatic release workflow is failed or unresolved.
 
 ## README changes
 
@@ -103,6 +105,7 @@ A change is complete only when:
 - Linux, macOS, Windows, Python, .NET, and container claims remain consistent with the manifest and compatibility matrix where applicable;
 - local artifacts such as coverage databases, caches, build output, and virtual environments are ignored and untracked;
 - full CI is green on the exact final SHA;
+- for a version-bearing change after integration, the automatic release workflow is terminal-green on the integrated SHA and the declared tag, provider release, and package assets are identity-verified;
 - automated findings are resolved or explicitly rejected with a grounded reason;
 - independent approval is obtained after the final change when production acceptance is required.
 

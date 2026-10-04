@@ -1,5 +1,22 @@
 # Changelog
 
+## 3.8.0 - 2026-10-04
+
+### Added
+
+- Added automatic post-integration release finalization for repositories that explicitly declare it: a successful integration gate can now drive a protected tag/provider-release/package flow without a second conversational confirmation.
+- Added an ai-skills GitHub Release workflow that consumes successful `CI` runs on `main`, prepares an exact source archive and checksum without publication authority, then creates or converges the exact `v<version>` tag, GitHub Release, `ai-skills-<version>.tar.gz`, and `SHA256SUMS` from a separate protected publisher.
+
+### Changed
+
+- Changed `changelog-release-architect` so `automatic-after-integration` publication is part of release completion rather than an opt-in follow-up; merged-but-unpublished release boundaries remain incomplete or explicitly blocked.
+- Changed CI concurrency identity so pull-request runs may still supersede stale runs while each `main` push has a distinct concurrency key, preventing a later integration from cancelling the CI evidence needed to release an earlier version.
+
+### Security and correctness
+
+- Automatic publication binds to the exact integrated SHA and a successful provider CI run, validates the release transition again, keeps repository checkout/package construction out of the write-authorized publisher, and fails closed on tag or asset digest conflicts.
+- Release retries are idempotent only after proving an existing tag resolves to the same integrated commit; package assets are revalidated against the prepared SHA-256 before completion.
+
 ## 3.7.0 - 2026-10-04
 
 ### Added
