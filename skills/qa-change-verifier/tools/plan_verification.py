@@ -848,7 +848,7 @@ def evaluate_acceptance(
                     findings.append(f"known gap {gap_id} has invalid disposition")
                     continue
 
-                if not refs and raw_disposition == "unresolved" and raw_load_bearing is not False:
+                if not refs and raw_load_bearing is not False:
                     findings.append(
                         f"known gap {gap_id} with load-bearing or unknown impact must reference at least one criterion"
                     )
