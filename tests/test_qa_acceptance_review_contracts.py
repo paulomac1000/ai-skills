@@ -1247,6 +1247,52 @@ def test_known_gap_snapshot_rejects_incomplete_or_malformed_records() -> None:
     assert "known gap G1 references unknown criteria: missing" in assessment.findings
 
 
+    unscoped = module.KnownGap("G2", (), True, disposition="unresolved")
+    unscoped_snapshot = _gap_snapshot(module, contract, [unscoped])
+    assessment = module.evaluate_acceptance(
+        contract,
+        candidate_revision="candidate-1",
+        evidence=evidence,
+        trusted_known_gap_snapshot=unscoped_snapshot,
+    )
+    assert assessment.status == module.AcceptanceStatus.INCOMPLETE
+    assert (
+        "known gap G2 with load-bearing or unknown impact must reference at least one criterion"
+        in assessment.findings
+    )
+
+    malformed_gaps = module.KnownGapRegistrySnapshot(
+        "known-gaps:malformed-shape",
+        "candidate-1",
+        contract["digest"],
+        None,
+    )
+    assessment = module.evaluate_acceptance(
+        contract,
+        candidate_revision="candidate-1",
+        evidence=evidence,
+        trusted_known_gap_snapshot=malformed_gaps,
+    )
+    assert assessment.status == module.AcceptanceStatus.INCOMPLETE
+    assert "known-gap registry snapshot gaps must be an array" in assessment.findings
+
+    malformed_gap_id = module.KnownGap(7, ("C1",), True)
+    malformed_record = module.KnownGapRegistrySnapshot(
+        "known-gaps:malformed-record",
+        "candidate-1",
+        contract["digest"],
+        (malformed_gap_id,),
+    )
+    assessment = module.evaluate_acceptance(
+        contract,
+        candidate_revision="candidate-1",
+        evidence=evidence,
+        trusted_known_gap_snapshot=malformed_record,
+    )
+    assert assessment.status == module.AcceptanceStatus.INCOMPLETE
+    assert "known gap id must be a non-empty string" in assessment.findings
+
+
 def test_contract_schemas_are_closed_and_machine_readable() -> None:
     for path in (CHANGE_SCHEMA, REVIEW_SCHEMA):
         schema = json.loads(path.read_text(encoding="utf-8"))
