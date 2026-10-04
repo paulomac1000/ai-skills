@@ -86,11 +86,21 @@ def evaluate_migration_acceptance(
 ) -> MigrationAcceptanceAssessment:
     """Evaluate migration-matrix evidence without executing a product migrator."""
     findings: list[str] = []
-    candidate_value = candidate_revision if _non_empty_string(candidate_revision) else ""
-    current_schema_value = current_schema if _non_empty_string(current_schema) else ""
-    entrypoint_value = production_entrypoint if _non_empty_string(production_entrypoint) else ""
+    candidate_value = (
+        candidate_revision if isinstance(candidate_revision, str) and candidate_revision.strip() else ""
+    )
+    current_schema_value = (
+        current_schema if isinstance(current_schema, str) and current_schema.strip() else ""
+    )
+    entrypoint_value = (
+        production_entrypoint
+        if isinstance(production_entrypoint, str) and production_entrypoint.strip()
+        else ""
+    )
     entrypoint_revision_value = (
-        production_entrypoint_revision if _non_empty_string(production_entrypoint_revision) else ""
+        production_entrypoint_revision
+        if isinstance(production_entrypoint_revision, str) and production_entrypoint_revision.strip()
+        else ""
     )
     if not candidate_value:
         findings.append("candidate_revision must be a non-empty string")
