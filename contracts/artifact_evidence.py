@@ -444,6 +444,25 @@ def validate_artifact_evidence_semantics(evidence: object) -> tuple[str, ...]:
     return tuple(sorted(set(findings)))
 
 
+def require_exact_artifact_digest(evidence: object) -> str:
+    """Return the digest only when current artifact evidence is semantically exact."""
+    findings = validate_artifact_evidence_semantics(evidence)
+    if findings:
+        raise ArtifactEvidenceError("; ".join(findings))
+    if not isinstance(evidence, Mapping):
+        raise ArtifactEvidenceError("artifact evidence must be an object")
+    coverage = evidence.get("coverage")
+    observed = evidence.get("observed_identity")
+    if not isinstance(coverage, Mapping) or coverage.get("state") != "exact":
+        raise ArtifactEvidenceError("artifact evidence is not exact")
+    if not isinstance(observed, Mapping):
+        raise ArtifactEvidenceError("observed_identity must be an object")
+    digest = observed.get("artifact_digest")
+    if not isinstance(digest, str) or not _DIGEST_RE.fullmatch(digest):
+        raise ArtifactEvidenceError("exact artifact evidence has no valid digest")
+    return digest
+
+
 def construction_profiles_comparable(
     left: Mapping[str, Any],
     right: Mapping[str, Any],
