@@ -782,6 +782,11 @@ def evaluate_acceptance(
 
     effective_gaps: tuple[KnownGap, ...] = ()
     snapshot_by_id: dict[str, KnownGap] = {}
+    raw_trusted_snapshot: object = trusted_known_gap_snapshot
+    if raw_trusted_snapshot is not None and not isinstance(raw_trusted_snapshot, KnownGapRegistrySnapshot):
+        findings.append("trusted known-gap registry snapshot must be a KnownGapRegistrySnapshot record")
+        trusted_known_gap_snapshot = None
+
     if trusted_known_gap_snapshot is None:
         findings.append("trusted complete known-gap registry snapshot is required")
     else:
