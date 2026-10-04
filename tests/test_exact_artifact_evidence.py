@@ -126,7 +126,8 @@ def test_representative_large_artifact_fits_reviewed_profile() -> None:
 
     assert result["coverage"]["state"] == "exact"
     assert result["coverage"]["file_count"] == 2600
-    assert result["coverage"]["byte_count"] > 20 * 1024 * 1024
+    expected_bytes = 2500 * (8192 + len("pkg/0000.bin".encode("utf-8")))
+    assert result["coverage"]["byte_count"] == expected_bytes
     assert result["coverage"]["max_depth_observed"] == 2
     assert result["coverage"]["limit_hit"] is False
     assert result["coverage"]["omitted_reason"] is None
