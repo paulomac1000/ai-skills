@@ -381,9 +381,7 @@ def validate_artifact_evidence_semantics(evidence: object) -> tuple[str, ...]:
             "metadata_mode",
         ):
             if profile.get(field) != expected_profile[field]:
-                findings.append(
-                    f"construction_profile.{field} does not match canonical profile semantics"
-                )
+                findings.append(f"construction_profile.{field} does not match canonical profile semantics")
 
     coverage = evidence.get("coverage")
     requested = evidence.get("requested_identity")
@@ -437,9 +435,7 @@ def validate_artifact_evidence_semantics(evidence: object) -> tuple[str, ...]:
             source_revision=source_revision if isinstance(source_revision, str) else None,
         )
         if claims.get("requested_identity_matched") != expected_match:
-            findings.append(
-                "requested_identity_matched does not match requested and observed identity"
-            )
+            findings.append("requested_identity_matched does not match requested and observed identity")
 
     return tuple(sorted(set(findings)))
 
@@ -471,7 +467,5 @@ def construction_profiles_comparable(
     left_digest = left.get("profile_digest")
     right_digest = right.get("profile_digest")
     return (
-        isinstance(left_digest, str)
-        and _DIGEST_RE.fullmatch(left_digest) is not None
-        and left_digest == right_digest
+        isinstance(left_digest, str) and _DIGEST_RE.fullmatch(left_digest) is not None and left_digest == right_digest
     )
