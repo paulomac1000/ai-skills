@@ -86,16 +86,10 @@ def evaluate_migration_acceptance(
 ) -> MigrationAcceptanceAssessment:
     """Evaluate migration-matrix evidence without executing a product migrator."""
     findings: list[str] = []
-    candidate_value = (
-        candidate_revision if isinstance(candidate_revision, str) and candidate_revision.strip() else ""
-    )
-    current_schema_value = (
-        current_schema if isinstance(current_schema, str) and current_schema.strip() else ""
-    )
+    candidate_value = candidate_revision if isinstance(candidate_revision, str) and candidate_revision.strip() else ""
+    current_schema_value = current_schema if isinstance(current_schema, str) and current_schema.strip() else ""
     entrypoint_value = (
-        production_entrypoint
-        if isinstance(production_entrypoint, str) and production_entrypoint.strip()
-        else ""
+        production_entrypoint if isinstance(production_entrypoint, str) and production_entrypoint.strip() else ""
     )
     entrypoint_revision_value = (
         production_entrypoint_revision
@@ -213,30 +207,32 @@ def evaluate_migration_acceptance(
         case_by_ref.setdefault(ref, []).append(case)
 
     for ref, values in case_by_ref.items():
-        terminal = [case for case in values if case.result in {MigrationCaseResult.PASS, MigrationCaseResult.REJECT}]
-        if len(terminal) > 1:
+        terminal_cases = [
+            case for case in values if case.result in {MigrationCaseResult.PASS, MigrationCaseResult.REJECT}
+        ]
+        if len(terminal_cases) > 1:
             findings.append(f"migration input {ref} has multiple terminal cases")
 
     for spec in supported:
         if spec.input_ref not in supported_refs:
             continue
         values = case_by_ref.get(spec.input_ref, [])
-        terminal = next(
+        supported_terminal = next(
             (case for case in values if case.result in {MigrationCaseResult.PASS, MigrationCaseResult.REJECT}),
             None,
         )
-        if terminal is None:
+        if supported_terminal is None:
             if spec.kind is MigrationInputKind.CURRENT and not require_current_rerun_value:
                 continue
             findings.append(f"supported migration input not exercised: {spec.input_ref}")
             continue
-        _validate_pre_state(spec, terminal, current_schema_value, findings)
-        if terminal.result is not MigrationCaseResult.PASS:
+        _validate_pre_state(spec, supported_terminal, current_schema_value, findings)
+        if supported_terminal.result is not MigrationCaseResult.PASS:
             findings.append(f"supported migration input {spec.input_ref} did not pass")
-        if current_schema_value and terminal.observed_post_schema != current_schema_value:
+        if current_schema_value and supported_terminal.observed_post_schema != current_schema_value:
             findings.append(f"supported migration input {spec.input_ref} did not reach current schema")
         if spec.kind in {MigrationInputKind.LEGACY, MigrationInputKind.CURRENT} and not _non_empty_string_sequence(
-            terminal.data_invariant_refs
+            supported_terminal.data_invariant_refs
         ):
             findings.append(f"supported migration input {spec.input_ref} did not prove data invariants")
 
@@ -244,17 +240,17 @@ def evaluate_migration_acceptance(
         if spec.input_ref not in spec_by_ref:
             continue
         values = case_by_ref.get(spec.input_ref, [])
-        terminal = next(
+        unsupported_terminal = next(
             (case for case in values if case.result in {MigrationCaseResult.PASS, MigrationCaseResult.REJECT}),
             None,
         )
-        if terminal is None:
+        if unsupported_terminal is None:
             findings.append(f"unsupported migration input not exercised: {spec.input_ref}")
             continue
-        _validate_pre_state(spec, terminal, current_schema_value, findings)
-        if terminal.result is not MigrationCaseResult.REJECT:
+        _validate_pre_state(spec, unsupported_terminal, current_schema_value, findings)
+        if unsupported_terminal.result is not MigrationCaseResult.REJECT:
             findings.append(f"unsupported migration input {spec.input_ref} was not deliberately rejected")
-        if current_schema_value and terminal.observed_post_schema == current_schema_value:
+        if current_schema_value and unsupported_terminal.observed_post_schema == current_schema_value:
             findings.append(f"unsupported migration input {spec.input_ref} was silently normalized to current")
 
     if require_interrupted_recovery_value:
@@ -274,9 +270,9 @@ def evaluate_migration_acceptance(
             if case.result is MigrationCaseResult.INTERRUPTED and case.input_ref in recovery_input_refs
         ]
         for case in recovery_cases:
-            spec = spec_by_ref.get(case.input_ref)
-            if spec is not None:
-                _validate_pre_state(spec, case, current_schema_value, findings)
+            recovery_spec = spec_by_ref.get(case.input_ref)
+            if recovery_spec is not None:
+                _validate_pre_state(recovery_spec, case, current_schema_value, findings)
         if not recovery_cases:
             findings.append("interrupted mutating supported migration recovery case is required")
         elif not any(_non_empty_string_sequence(case.recovery_evidence_refs) for case in recovery_cases):

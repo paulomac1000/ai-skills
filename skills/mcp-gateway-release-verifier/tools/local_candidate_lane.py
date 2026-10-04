@@ -37,7 +37,7 @@ class LocalCandidateEvidence:
     artifact_digest: str = ""
     probe_client_receipt: dict[str, object] | None = None
     candidate_revision: str = ""
-    migration_acceptance_required: bool = False
+    migration_acceptance_required: object = False
     migration_acceptance_receipt: dict[str, object] | None = None
 
 
@@ -112,10 +112,7 @@ def compose_local_lane_receipt(evidence: LocalCandidateEvidence) -> dict[str, ob
             failures.append("migration_acceptance_receipt_missing")
         else:
             migration_path = (
-                Path(__file__).resolve().parents[2]
-                / "qa-change-verifier"
-                / "tools"
-                / "migration_acceptance.py"
+                Path(__file__).resolve().parents[2] / "qa-change-verifier" / "tools" / "migration_acceptance.py"
             )
             migration_spec = importlib.util.spec_from_file_location("local_lane_migration_acceptance", migration_path)
             assert migration_spec is not None and migration_spec.loader is not None
