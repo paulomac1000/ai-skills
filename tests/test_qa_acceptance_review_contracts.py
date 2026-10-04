@@ -245,6 +245,7 @@ def test_vacuous_deferred_wrong_fixture_and_missing_exercise_are_non_green() -> 
     module = _load("qa_contract_integrity", TOOL)
     contract = _contract(module)
     digest = contract["digest"]
+    plan = _review_plan(module, contract)
     evidence = [
         module.CriterionEvidence(
             "C1", "integration", module.EvidenceStatus.PASS, "candidate-1", digest, discriminating_observations=0
@@ -266,9 +267,15 @@ def test_vacuous_deferred_wrong_fixture_and_missing_exercise_are_non_green() -> 
             "candidate-1",
             digest,
             fixture_source=module.FixtureSource.SYNTHETIC,
+            semantic_review_plan_digest=plan["digest"],
         ),
     ]
-    assessment = module.evaluate_acceptance(contract, candidate_revision="candidate-1", evidence=evidence)
+    assessment = module.evaluate_acceptance(
+        contract,
+        candidate_revision="candidate-1",
+        evidence=evidence,
+        semantic_review_plan=plan,
+    )
     assert assessment.status == module.AcceptanceStatus.INCOMPLETE
     assert any("vacuous PASS" in finding for finding in assessment.findings)
     assert any("incomplete/deferred semantic coverage" in finding for finding in assessment.findings)
@@ -277,7 +284,12 @@ def test_vacuous_deferred_wrong_fixture_and_missing_exercise_are_non_green() -> 
     evidence[0] = module.CriterionEvidence(
         "C1", "integration", module.EvidenceStatus.PASS, "candidate-1", digest, exercise_discriminant=None
     )
-    assessment = module.evaluate_acceptance(contract, candidate_revision="candidate-1", evidence=evidence)
+    assessment = module.evaluate_acceptance(
+        contract,
+        candidate_revision="candidate-1",
+        evidence=evidence,
+        semantic_review_plan=plan,
+    )
     assert any("proof-of-exercise" in finding for finding in assessment.findings)
 
     evidence[0] = module.CriterionEvidence(
@@ -289,7 +301,12 @@ def test_vacuous_deferred_wrong_fixture_and_missing_exercise_are_non_green() -> 
         exercise_discriminant="guard-hit",
         deferred_count=-1,
     )
-    assessment = module.evaluate_acceptance(contract, candidate_revision="candidate-1", evidence=evidence)
+    assessment = module.evaluate_acceptance(
+        contract,
+        candidate_revision="candidate-1",
+        evidence=evidence,
+        semantic_review_plan=plan,
+    )
     assert any("incomplete/deferred semantic coverage" in finding for finding in assessment.findings)
 
 
@@ -297,6 +314,7 @@ def test_current_complete_evidence_passes_but_known_gap_cannot_self_waive() -> N
     module = _load("qa_contract_gap", TOOL)
     contract = _contract(module)
     digest = contract["digest"]
+    plan = _review_plan(module, contract)
     evidence = [
         module.CriterionEvidence(
             "C1",
@@ -321,10 +339,14 @@ def test_current_complete_evidence_passes_but_known_gap_cannot_self_waive() -> N
             "candidate-1",
             digest,
             fixture_source=module.FixtureSource.OFFICIAL_CONTRACT,
+            semantic_review_plan_digest=plan["digest"],
         ),
     ]
     assessment = module.evaluate_acceptance(
-        contract, candidate_revision="candidate-1", evidence=evidence
+        contract,
+        candidate_revision="candidate-1",
+        evidence=evidence,
+        semantic_review_plan=plan,
     )
     assert assessment.status == module.AcceptanceStatus.PASS
 
@@ -336,6 +358,7 @@ def test_current_complete_evidence_passes_but_known_gap_cannot_self_waive() -> N
         candidate_revision="candidate-1",
         evidence=evidence,
         known_gaps=[reported_waiver],
+        semantic_review_plan=plan,
     )
     assert assessment.status == module.AcceptanceStatus.INCOMPLETE
     assert any(
@@ -356,6 +379,7 @@ def test_current_complete_evidence_passes_but_known_gap_cannot_self_waive() -> N
         evidence=evidence,
         known_gaps=[reported_waiver],
         trusted_policy_waivers=[stale_authorization],
+        semantic_review_plan=plan,
     ).status == module.AcceptanceStatus.INCOMPLETE
 
     wrong_scope = module.PolicyWaiverAuthorization(
@@ -371,6 +395,7 @@ def test_current_complete_evidence_passes_but_known_gap_cannot_self_waive() -> N
         evidence=evidence,
         known_gaps=[reported_waiver],
         trusted_policy_waivers=[wrong_scope],
+        semantic_review_plan=plan,
     ).status == module.AcceptanceStatus.INCOMPLETE
 
     authorized = module.PolicyWaiverAuthorization(
@@ -386,6 +411,7 @@ def test_current_complete_evidence_passes_but_known_gap_cannot_self_waive() -> N
         evidence=evidence,
         known_gaps=[reported_waiver],
         trusted_policy_waivers=[authorized],
+        semantic_review_plan=plan,
     )
     assert assessment.status == module.AcceptanceStatus.PASS
     assert assessment.waived_criteria == ("C1",)
@@ -395,6 +421,7 @@ def test_resolved_gap_must_be_current_but_current_resolution_does_not_block() ->
     module = _load("qa_contract_resolved_gap", TOOL)
     contract = _contract(module)
     digest = contract["digest"]
+    plan = _review_plan(module, contract)
     evidence = [
         module.CriterionEvidence(
             "C1",
@@ -419,6 +446,7 @@ def test_resolved_gap_must_be_current_but_current_resolution_does_not_block() ->
             "candidate-1",
             digest,
             fixture_source=module.FixtureSource.CAPTURED_PROVIDER,
+            semantic_review_plan_digest=plan["digest"],
         ),
     ]
     current = module.KnownGap(
@@ -430,7 +458,11 @@ def test_resolved_gap_must_be_current_but_current_resolution_does_not_block() ->
         contract_digest=digest,
     )
     current_assessment = module.evaluate_acceptance(
-        contract, candidate_revision="candidate-1", evidence=evidence, known_gaps=[current]
+        contract,
+        candidate_revision="candidate-1",
+        evidence=evidence,
+        known_gaps=[current],
+        semantic_review_plan=plan,
     )
     assert current_assessment.status == module.AcceptanceStatus.PASS
     stale = module.KnownGap(
@@ -442,7 +474,11 @@ def test_resolved_gap_must_be_current_but_current_resolution_does_not_block() ->
         contract_digest=digest,
     )
     stale_assessment = module.evaluate_acceptance(
-        contract, candidate_revision="candidate-1", evidence=evidence, known_gaps=[stale]
+        contract,
+        candidate_revision="candidate-1",
+        evidence=evidence,
+        known_gaps=[stale],
+        semantic_review_plan=plan,
     )
     assert stale_assessment.status == module.AcceptanceStatus.INCOMPLETE
 
@@ -500,6 +536,7 @@ def test_provider_fidelity_is_criterion_scoped_not_per_proof_class() -> None:
     module = _load("qa_provider_fidelity_scope", TOOL)
     contract = _contract(module)
     digest = contract["digest"]
+    plan = _review_plan(module, contract)
     evidence = [
         module.CriterionEvidence(
             "C1",
@@ -524,11 +561,15 @@ def test_provider_fidelity_is_criterion_scoped_not_per_proof_class() -> None:
             "candidate-1",
             digest,
             fixture_source=module.FixtureSource.SYNTHETIC,
+            semantic_review_plan_digest=plan["digest"],
         ),
     ]
 
     assessment = module.evaluate_acceptance(
-        contract, candidate_revision="candidate-1", evidence=evidence
+        contract,
+        candidate_revision="candidate-1",
+        evidence=evidence,
+        semantic_review_plan=plan,
     )
     assert assessment.status == module.AcceptanceStatus.PASS
     assert assessment.satisfied_criteria == ("C1", "C2")
@@ -554,6 +595,207 @@ def test_review_plan_rejects_unknown_refs_and_accepts_boundary_and_diagnostic_ne
     findings = module.validate_semantic_review_plan(plan, acceptance_contract=contract)
     assert "focus_areas R1 references unknown criterion: missing" in findings
     assert not any("unknown dimensions" in finding for finding in findings)
+
+
+def test_semantic_review_evidence_requires_current_validated_plan_digest() -> None:
+    module = _load("qa_semantic_evidence_binding", TOOL)
+    contract = _contract(module)
+    digest = contract["digest"]
+    plan = _review_plan(module, contract)
+    base_evidence = [
+        module.CriterionEvidence(
+            "C1",
+            "integration",
+            module.EvidenceStatus.PASS,
+            "candidate-1",
+            digest,
+            exercise_discriminant="guard-hit",
+        ),
+        module.CriterionEvidence(
+            "C2",
+            "security_review",
+            module.EvidenceStatus.PASS,
+            "candidate-1",
+            digest,
+            fixture_source=module.FixtureSource.CAPTURED_PROVIDER,
+        ),
+    ]
+
+    missing_binding = base_evidence + [
+        module.CriterionEvidence(
+            "C2",
+            "semantic_review",
+            module.EvidenceStatus.PASS,
+            "candidate-1",
+            digest,
+            fixture_source=module.FixtureSource.SYNTHETIC,
+        )
+    ]
+    assessment = module.evaluate_acceptance(
+        contract,
+        candidate_revision="candidate-1",
+        evidence=missing_binding,
+        semantic_review_plan=plan,
+    )
+    assert assessment.status == module.AcceptanceStatus.INCOMPLETE
+    assert any("not bound to the current validated plan" in finding for finding in assessment.findings)
+
+    old_digest = plan["digest"]
+    widened = json.loads(json.dumps(plan))
+    widened["revision"] = "r2"
+    widened["focus_areas"][0]["invariants"].append("unknown provider wording remains bounded")
+    widened["digest"] = module.compute_semantic_review_plan_digest(widened)
+    stale_binding = base_evidence + [
+        module.CriterionEvidence(
+            "C2",
+            "semantic_review",
+            module.EvidenceStatus.PASS,
+            "candidate-1",
+            digest,
+            fixture_source=module.FixtureSource.SYNTHETIC,
+            semantic_review_plan_digest=old_digest,
+        )
+    ]
+    stale_assessment = module.evaluate_acceptance(
+        contract,
+        candidate_revision="candidate-1",
+        evidence=stale_binding,
+        semantic_review_plan=widened,
+    )
+    assert stale_assessment.status == module.AcceptanceStatus.INCOMPLETE
+    assert any("not bound to the current validated plan" in finding for finding in stale_assessment.findings)
+
+    current_evidence = base_evidence + [
+        module.CriterionEvidence(
+            "C2",
+            "semantic_review",
+            module.EvidenceStatus.PASS,
+            "candidate-1",
+            digest,
+            fixture_source=module.FixtureSource.SYNTHETIC,
+            semantic_review_plan_digest=widened["digest"],
+        )
+    ]
+    assert module.evaluate_acceptance(
+        contract,
+        candidate_revision="candidate-1",
+        evidence=current_evidence,
+        semantic_review_plan=widened,
+    ).status == module.AcceptanceStatus.PASS
+
+
+def test_exact_artifact_proof_requires_exact_candidate_artifact_binding() -> None:
+    module = _load("qa_exact_artifact_binding", TOOL)
+    contract: dict[str, object] = {
+        "schema_version": 1,
+        "change_id": "artifact-change",
+        "revision": "r1",
+        "obligations": [
+            {
+                "id": "O1",
+                "kind": "contract",
+                "statement": "published artifact matches candidate",
+                "required": True,
+            }
+        ],
+        "criteria": [
+            {
+                "id": "C1",
+                "obligation_refs": ["O1"],
+                "expected_outcome": "candidate artifact is exercised",
+                "rejection_condition": "proof comes from another revision or lacks artifact identity",
+                "required": True,
+                "proof_classes": ["exact_artifact"],
+            }
+        ],
+    }
+    contract["digest"] = module.compute_change_contract_digest(contract)
+    digest = contract["digest"]
+
+    missing = [
+        module.CriterionEvidence(
+            "C1", "exact_artifact", module.EvidenceStatus.PASS, "candidate-1", digest
+        )
+    ]
+    assessment = module.evaluate_acceptance(
+        contract, candidate_revision="candidate-1", evidence=missing
+    )
+    assert assessment.status == module.AcceptanceStatus.INCOMPLETE
+    assert any("lacks valid exact evidence binding" in finding for finding in assessment.findings)
+
+    stale_binding = module.ExactEvidenceBinding(
+        candidate_revision="candidate-0",
+        evidence_revision="candidate-0",
+        artifact_digest="sha256:" + "a" * 64,
+    )
+    stale = [
+        module.CriterionEvidence(
+            "C1",
+            "exact_artifact",
+            module.EvidenceStatus.PASS,
+            "candidate-1",
+            digest,
+            exact_evidence_binding=stale_binding,
+        )
+    ]
+    assert module.evaluate_acceptance(
+        contract, candidate_revision="candidate-1", evidence=stale
+    ).status == module.AcceptanceStatus.INCOMPLETE
+
+    current_binding = module.ExactEvidenceBinding(
+        candidate_revision="candidate-1",
+        evidence_revision="candidate-1",
+        artifact_digest="sha256:" + "b" * 64,
+    )
+    current = [
+        module.CriterionEvidence(
+            "C1",
+            "exact_artifact",
+            module.EvidenceStatus.PASS,
+            "candidate-1",
+            digest,
+            exact_evidence_binding=current_binding,
+        )
+    ]
+    assessment = module.evaluate_acceptance(
+        contract, candidate_revision="candidate-1", evidence=current
+    )
+    assert assessment.status == module.AcceptanceStatus.PASS
+
+
+def test_acceptance_rejects_blank_candidate_revision_before_evidence_matching() -> None:
+    module = _load("qa_blank_candidate", TOOL)
+    contract: dict[str, object] = {
+        "schema_version": 1,
+        "change_id": "blank-candidate",
+        "revision": "r1",
+        "obligations": [
+            {"id": "O1", "kind": "functional", "statement": "prove behavior", "required": True}
+        ],
+        "criteria": [
+            {
+                "id": "C1",
+                "obligation_refs": ["O1"],
+                "expected_outcome": "behavior is proven",
+                "rejection_condition": "behavior is not proven",
+                "required": True,
+                "proof_classes": ["integration"],
+            }
+        ],
+    }
+    contract["digest"] = module.compute_change_contract_digest(contract)
+    evidence = [
+        module.CriterionEvidence(
+            "C1",
+            "integration",
+            module.EvidenceStatus.PASS,
+            "",
+            contract["digest"],
+        )
+    ]
+    assessment = module.evaluate_acceptance(contract, candidate_revision="", evidence=evidence)
+    assert assessment.status == module.AcceptanceStatus.INCOMPLETE
+    assert "candidate_revision must be a non-empty string" in assessment.findings
 
 
 def test_contract_schemas_are_closed_and_machine_readable() -> None:
