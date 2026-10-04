@@ -269,3 +269,23 @@ def test_tool_is_manifested_and_in_quality_inventories() -> None:
         inventories.POLICY_COVERAGE_PATHS,
     ):
         assert _covered(targets, path)
+
+
+def test_unsupported_interruption_cannot_satisfy_supported_recovery_proof() -> None:
+    module = _load("migration_acceptance_recovery_scope", TOOL)
+    cases = (
+        _case(module, "fresh", None, legacy_refs=(), absent_refs=()),
+        _case(module, "v1", "v1"),
+        _case(module, "v0", "v0", module.MigrationCaseResult.REJECT, "v0", data_refs=()),
+        _case(
+            module,
+            "v0",
+            "v0",
+            module.MigrationCaseResult.INTERRUPTED,
+            "v0",
+            data_refs=(),
+            recovery_refs=("recovery:unsupported-path",),
+        ),
+    )
+    assessment = _evaluate(module, cases)
+    assert "interrupted supported migration recovery case is required" in assessment.findings

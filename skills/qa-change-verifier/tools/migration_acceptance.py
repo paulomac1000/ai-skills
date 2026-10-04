@@ -5,9 +5,6 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import TypeVar
-
-T = TypeVar("T")
 
 
 class MigrationInputKind(StrEnum):
@@ -101,9 +98,9 @@ def evaluate_migration_acceptance(
         findings.append("require_interrupted_recovery must be boolean")
         require_interrupted_recovery = True
 
-    supported = _record_sequence(supported_inputs, MigrationInputSpec, "supported_inputs", findings)
-    unsupported = _record_sequence(unsupported_inputs, MigrationInputSpec, "unsupported_inputs", findings)
-    evidence_cases = _record_sequence(cases, MigrationCaseEvidence, "cases", findings)
+    supported = _migration_input_specs(supported_inputs, "supported_inputs", findings)
+    unsupported = _migration_input_specs(unsupported_inputs, "unsupported_inputs", findings)
+    evidence_cases = _migration_cases(cases, "cases", findings)
 
     spec_by_ref: dict[str, MigrationInputSpec] = {}
     supported_refs: set[str] = set()
@@ -225,9 +222,13 @@ def evaluate_migration_acceptance(
             findings.append(f"unsupported migration input {spec.input_ref} was silently normalized to current")
 
     if require_interrupted_recovery:
-        recovery_cases = [case for case in evidence_cases if case.result is MigrationCaseResult.INTERRUPTED]
+        recovery_cases = [
+            case
+            for case in evidence_cases
+            if case.result is MigrationCaseResult.INTERRUPTED and case.input_ref in supported_refs
+        ]
         if not recovery_cases:
-            findings.append("interrupted migration recovery case is required")
+            findings.append("interrupted supported migration recovery case is required")
         elif not any(_non_empty_string_sequence(case.recovery_evidence_refs) for case in recovery_cases):
             findings.append("interrupted migration case did not prove recovery invariants")
 
@@ -292,16 +293,35 @@ def validate_migration_acceptance_receipt(receipt: object) -> tuple[str, ...]:
     return tuple(sorted(set(findings)))
 
 
-def _record_sequence(
-    value: object, expected_type: type[T], field: str, findings: list[str]
-) -> tuple[T, ...]:
+def _migration_input_specs(
+    value: object,
+    field: str,
+    findings: list[str],
+) -> tuple[MigrationInputSpec, ...]:
     if not isinstance(value, Sequence) or isinstance(value, (str, bytes, bytearray)):
         findings.append(f"{field} must be an array")
         return ()
-    result = []
+    result: list[MigrationInputSpec] = []
     for item in value:
-        if not isinstance(item, expected_type):
-            findings.append(f"{field} entries must be {expected_type.__name__} records")
+        if not isinstance(item, MigrationInputSpec):
+            findings.append(f"{field} entries must be MigrationInputSpec records")
+            continue
+        result.append(item)
+    return tuple(result)
+
+
+def _migration_cases(
+    value: object,
+    field: str,
+    findings: list[str],
+) -> tuple[MigrationCaseEvidence, ...]:
+    if not isinstance(value, Sequence) or isinstance(value, (str, bytes, bytearray)):
+        findings.append(f"{field} must be an array")
+        return ()
+    result: list[MigrationCaseEvidence] = []
+    for item in value:
+        if not isinstance(item, MigrationCaseEvidence):
+            findings.append(f"{field} entries must be MigrationCaseEvidence records")
             continue
         result.append(item)
     return tuple(result)
