@@ -1276,6 +1276,19 @@ def test_known_gap_snapshot_rejects_incomplete_or_malformed_records() -> None:
     assert assessment.status == module.AcceptanceStatus.INCOMPLETE
     assert "known-gap registry snapshot gaps must be an array" in assessment.findings
 
+
+    malformed_container = module.evaluate_acceptance(
+        contract,
+        candidate_revision="candidate-1",
+        evidence=evidence,
+        trusted_known_gap_snapshot={"gaps": ()},
+    )
+    assert malformed_container.status == module.AcceptanceStatus.INCOMPLETE
+    assert (
+        "trusted known-gap registry snapshot must be a KnownGapRegistrySnapshot record"
+        in malformed_container.findings
+    )
+
     malformed_gap_id = module.KnownGap(7, ("C1",), True)
     malformed_record = module.KnownGapRegistrySnapshot(
         "known-gaps:malformed-record",
