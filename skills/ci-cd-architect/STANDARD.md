@@ -45,6 +45,25 @@ Define stable delivery invariants for Python, .NET, MCP, documentation, package,
 
 The canonical machine-readable semantics for validation-corpus completeness, execution integrity, dependency bootstrap, local/hosted parity, and protected-state isolation are described in `references/verification-integrity.md` and compose into the repository-level `contracts/verification-receipt.schema.json`. Individual language or MCP profiles consume those semantics rather than inventing private definitions of `PASS`.
 
+## Exact artifact evidence construction
+
+An artifact digest is exact evidence only when its **construction semantics and coverage are exact**. Producers use the repository-level `contracts/artifact-evidence.schema.json` contract rather than treating a bare SHA-256 string as proof of how an artifact was covered.
+
+For structured file-tree evidence, the v1 canonical profile is deliberately narrow:
+
+- paths are relative POSIX paths normalized to Unicode NFC, with no absolute, empty, dot, parent, backslash, or NUL-bearing segments;
+- entries are sorted by normalized UTF-8 path bytes;
+- every structural field is length-prefixed and file entries use a domain-separated encoding, so path/content boundaries cannot collide with delimiter bytes in file contents;
+- v1 covers regular-file path and content bytes only. Symlinks and other file types are non-exact under this profile. Permission/executable/mode metadata is not silently ignored when it is load-bearing; such a policy requires another explicit construction profile;
+- file-count, byte-count, depth, and duration limits are policy-owned profile data. Hitting any required bound yields `partial` rather than an exact digest;
+- an incomplete inventory or unsupported file type is `partial` or `unknown`, never exact.
+
+The subject root, inventory completeness, profile revision, and bounds are established by trusted policy/collector authority. The v1 constructor intentionally accepts no candidate-defined exclusion list. A candidate cannot make evidence exact by omitting load-bearing files from its own subject definition.
+
+Requested/admitted identity and observed identity remain separate. A fallback may observe exact artifact bytes and still prove that the requested version/source did not match, or leave that relationship unknown. `artifact_exact=true` proves only the bytes/structure covered by the named construction profile; it does not imply source, requested-package, runtime, or policy compatibility.
+
+Construction profile identity is part of freshness. Material changes to encoding, normalization, metadata semantics, bounds, or policy revision create a different profile digest; old evidence is not silently comparable to the new profile. Runtime/source lineage and verification receipts consume the artifact evidence or its provenance reference rather than redefining artifact hashing.
+
 ## Workflow policy profiles
 
 The trusted auditor evaluates one explicit trust profile. A workflow declares it in a leading comment or in the repository-owned `.github/workflow-policy.yaml` map:
