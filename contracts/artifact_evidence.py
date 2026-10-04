@@ -462,6 +462,27 @@ def validate_artifact_evidence_semantics(evidence: object) -> tuple[str, ...]:
     artifact_digest = observed.get("artifact_digest")
     artifact_exact = claims.get("artifact_exact")
     if state == "exact":
+        file_count = coverage.get("file_count")
+        if (
+            isinstance(file_count, int)
+            and not isinstance(file_count, bool)
+            and file_count > reconstructed.bounds.max_files
+        ):
+            findings.append("exact coverage exceeds construction_profile.bounds.max_files")
+        byte_count = coverage.get("byte_count")
+        if (
+            isinstance(byte_count, int)
+            and not isinstance(byte_count, bool)
+            and byte_count > reconstructed.bounds.max_bytes
+        ):
+            findings.append("exact coverage exceeds construction_profile.bounds.max_bytes")
+        max_depth_observed = coverage.get("max_depth_observed")
+        if (
+            isinstance(max_depth_observed, int)
+            and not isinstance(max_depth_observed, bool)
+            and max_depth_observed > reconstructed.bounds.max_depth
+        ):
+            findings.append("exact coverage exceeds construction_profile.bounds.max_depth")
         if coverage.get("limit_hit") is not False:
             findings.append("exact coverage requires limit_hit=false")
         if coverage.get("omitted_reason") is not None:
