@@ -77,6 +77,25 @@ Repeated runs update the same release section, add new evidenced outcomes, remov
 
 If the base advances, recompute the merge base. A target that no longer forms a valid single transition produces `BASELINE_DRIFT`; do not bump around it automatically.
 
+## Publication finalization
+
+A repository release contract MUST make publication mode explicit when provider publication exists. Supported policy shapes include `automatic-after-integration`, `explicit-manual`, and externally owned publication. Do not infer a deployment target merely because a repository has a version or changelog.
+
+For `automatic-after-integration`, integrating a valid version transition onto the governed branch is authorization to run the already-declared protected release path; it does not require another conversational confirmation. The automatic path MUST:
+
+- bind publication to the exact integrated commit, not merely the pre-merge pull-request head;
+- start only from provider evidence that the repository-declared integration gate for that commit completed successfully;
+- derive the tag and provider release identity from the canonical version at that integrated commit;
+- create artifacts before publication authority is granted, then make the write-authorized publisher consume only those prepared immutable artifacts;
+- keep the publisher free of candidate checkout, rebuild, package-build, candidate execution, and unrelated deployment authority;
+- be idempotent: a retry may converge an existing release only after proving its tag resolves to the same integrated commit and its declared artifacts match the expected digest;
+- fail closed on tag/release identity conflicts, stale evidence, missing provider authority, or artifact mismatch; and
+- verify the resulting provider tag, release, and declared package/artifact identities before calling the release complete.
+
+A repository MAY include deployment in automatic finalization only when deployment is an explicit part of its release contract with its own protected authority and rollback semantics. Automatic release finalization never invents a deployment target.
+
+If the repository declares automatic finalization, “merged” is an intermediate state. Completion requires either a terminal successful publication or an explicit blocked result with evidence. A tool limitation is not permission to silently change the publication mode.
+
 ## MCP compatibility profile
 
 For MCP servers, the public compatibility surface includes tool/resource/prompt names, input schemas, required arguments, response semantics, errors, manifests, discovery, transports, authentication/authorization, target selection, retry/ambiguous-outcome behavior, and externally relevant session state.
@@ -112,9 +131,12 @@ Stable findings are:
 - `REVISION_EVIDENCE_STALE`
 - `VERSION_MIRROR_DRIFT`
 - `BASELINE_DRIFT`
+- `RELEASE_PUBLICATION_CONTRACT_MISSING`
+- `RELEASE_PUBLICATION_BLOCKED`
+- `RELEASE_IDENTITY_CONFLICT`
 
 `VERSION_ALREADY_CLAIMED` is informational: reuse the target.
 
 ## Definition of done
 
-The release boundary and baseline are explicit; one canonical owner is known; at most one repository-version transition exists; mirrors agree; the changelog describes the complete notable consumer impact; breaking/deprecation/migration information is actionable; claims are bound to appropriate evidence; repeated execution preserves the same target; and repository release gates pass or unavailable checks are reported precisely.
+The release boundary and baseline are explicit; one canonical owner is known; at most one repository-version transition exists; mirrors agree; the changelog describes the complete notable consumer impact; breaking/deprecation/migration information is actionable; claims are bound to appropriate evidence; repeated execution preserves the same target; and repository release gates pass or unavailable checks are reported precisely. When publication mode is `automatic-after-integration`, definition of done additionally requires terminal provider publication for the exact integrated SHA, verified tag/release/artifact identity, or an explicit blocking finding that prevents those claims.

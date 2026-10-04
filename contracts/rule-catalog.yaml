@@ -88,6 +88,9 @@ skills:
     - id: release.verification.history
       source: STANDARD.md#verification-and-findings
       description: History-aware verification checks merge base, version transitions, release headings, mirrors, and evidence before completion.
+    - id: release.publication.finalized
+      source: STANDARD.md#publication-finalization
+      description: Automatic post-integration publication binds to the exact integrated SHA, consumes prepared immutable artifacts in a protected publisher, and verifies tag, release, and artifact identity before completion.
   ci-cd-architect:
     rules:
     - id: cicd.layers.separated

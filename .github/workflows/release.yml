@@ -1,0 +1,296 @@
+# ai-skills-policy-profile: protected-release
+name: Release
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.event.workflow_run.head_sha }}
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    outputs:
+      release_needed: ${{ steps.release.outputs.release_needed }}
+      base_sha: ${{ steps.release.outputs.base_sha }}
+      release_sha: ${{ steps.release.outputs.release_sha }}
+      version: ${{ steps.release.outputs.version }}
+      tag: ${{ steps.release.outputs.tag }}
+      archive_sha256: ${{ steps.package.outputs.archive_sha256 }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify trusted integration identity
+        shell: bash
+        env:
+          RELEASE_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "$RELEASE_SHA"
+          git merge-base --is-ancestor "$RELEASE_SHA" origin/main
+      - name: Resolve repository release transition
+        id: release
+        shell: bash
+        env:
+          RELEASE_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          python3 - "$RELEASE_SHA" "$GITHUB_OUTPUT" <<'PY'
+          from __future__ import annotations
+
+          import re
+          import subprocess
+          import sys
+          from pathlib import Path
+
+          release_sha, output_path = sys.argv[1:]
+          if re.fullmatch(r"[0-9a-f]{40}", release_sha) is None:
+              raise SystemExit("release SHA must be full lowercase hex")
+
+          actual = subprocess.run(
+              ["git", "rev-parse", "HEAD"],
+              check=True,
+              capture_output=True,
+              text=True,
+          ).stdout.strip()
+          if actual != release_sha:
+              raise SystemExit("checked-out revision does not match workflow_run head")
+
+          parent_line = subprocess.run(
+              ["git", "rev-list", "--parents", "-n", "1", release_sha],
+              check=True,
+              capture_output=True,
+              text=True,
+          ).stdout.strip().split()
+          if len(parent_line) < 2:
+              raise SystemExit("release commit has no integrated parent")
+          base_sha = parent_line[1]
+
+          version_re = re.compile(r"(?m)^version:\s*['\"]?(\d+\.\d+\.\d+)['\"]?\s*$")
+
+          def parse_version(text: str, label: str) -> str:
+              match = version_re.search(text)
+              if match is None:
+                  raise SystemExit(f"{label}: stable version is missing")
+              return match.group(1)
+
+          manifests = sorted(Path("skills").glob("*/manifest.yaml"))
+          if not manifests:
+              raise SystemExit("no skill manifests found")
+          current = {parse_version(path.read_text(encoding="utf-8"), str(path)) for path in manifests}
+          if len(current) != 1:
+              raise SystemExit(f"current skill versions disagree: {sorted(current)}")
+          version = next(iter(current))
+
+          previous: set[str] = set()
+          for path in manifests:
+              shown = subprocess.run(
+                  ["git", "show", f"{base_sha}:{path.as_posix()}"],
+                  check=False,
+                  capture_output=True,
+                  text=True,
+              )
+              if shown.returncode == 0:
+                  previous.add(parse_version(shown.stdout, f"{base_sha}:{path}"))
+          if len(previous) != 1:
+              raise SystemExit(f"baseline skill versions disagree or are unavailable: {sorted(previous)}")
+          base_version = next(iter(previous))
+
+          release_needed = version != base_version
+          with Path(output_path).open("a", encoding="utf-8") as handle:
+              handle.write(f"release_needed={'true' if release_needed else 'false'}\n")
+              handle.write(f"base_sha={base_sha}\n")
+              handle.write(f"release_sha={release_sha}\n")
+              handle.write(f"version={version}\n")
+              handle.write(f"tag=v{version}\n")
+          PY
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        if: steps.release.outputs.release_needed == 'true'
+        with:
+          python-version: "3.12"
+          architecture: x64
+          cache: pip
+          cache-dependency-path: requirements-dev-linux-x64-py312.lock
+      - name: Install locked validation dependencies
+        if: steps.release.outputs.release_needed == 'true'
+        run: python scripts/install_locked.py
+      - name: Revalidate the integrated release boundary
+        if: steps.release.outputs.release_needed == 'true'
+        env:
+          BASE_SHA: ${{ steps.release.outputs.base_sha }}
+        run: python scripts/check_release_version.py --base "$BASE_SHA"
+      - name: Build exact source release payload
+        if: steps.release.outputs.release_needed == 'true'
+        id: package
+        shell: bash
+        env:
+          RELEASE_SHA: ${{ steps.release.outputs.release_sha }}
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          [[ "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          mkdir -p release-payload
+          archive="release-payload/ai-skills-$VERSION.tar.gz"
+          git archive --format=tar.gz --prefix="ai-skills-$VERSION/" "$RELEASE_SHA" -o "$archive"
+          python - "$VERSION" <<'PY'
+          from __future__ import annotations
+
+          import re
+          import sys
+          from pathlib import Path
+
+          version = sys.argv[1]
+          changelog = Path("CHANGELOG.md").read_text(encoding="utf-8")
+          pattern = re.compile(
+              rf"(?ms)^## {re.escape(version)} - [^\n]+\n.*?(?=^## |\Z)"
+          )
+          match = pattern.search(changelog)
+          if match is None:
+              raise SystemExit(f"CHANGELOG.md has no release section for {version}")
+          Path("release-payload/release-notes.md").write_text(
+              match.group(0).rstrip() + "\n",
+              encoding="utf-8",
+          )
+          PY
+          archive_sha256="$(sha256sum "$archive" | awk '{print $1}')"
+          printf '%s  %s\n' "$archive_sha256" "$(basename "$archive")" > release-payload/SHA256SUMS
+          (cd release-payload && sha256sum -c SHA256SUMS)
+          echo "archive_sha256=$archive_sha256" >> "$GITHUB_OUTPUT"
+      - name: Upload prepared release payload
+        if: steps.release.outputs.release_needed == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: release-payload-${{ steps.release.outputs.version }}
+          path: |
+            release-payload/ai-skills-${{ steps.release.outputs.version }}.tar.gz
+            release-payload/SHA256SUMS
+            release-payload/release-notes.md
+          if-no-files-found: error
+          retention-days: 30
+
+  publish:
+    if: needs.prepare.outputs.release_needed == 'true'
+    needs: prepare
+    environment: release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: release-payload-${{ needs.prepare.outputs.version }}
+          path: release-payload
+      - name: Verify prepared release payload
+        shell: bash
+        env:
+          ARCHIVE_SHA256: ${{ needs.prepare.outputs.archive_sha256 }}
+          RELEASE_SHA: ${{ needs.prepare.outputs.release_sha }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          [[ "$TAG" == "v$VERSION" ]]
+          [[ "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$ARCHIVE_SHA256" =~ ^[0-9a-f]{64}$ ]]
+          archive="release-payload/ai-skills-$VERSION.tar.gz"
+          test -f "$archive"
+          test -f release-payload/SHA256SUMS
+          test -f release-payload/release-notes.md
+          test "$(sha256sum "$archive" | awk '{print $1}')" = "$ARCHIVE_SHA256"
+          (cd release-payload && sha256sum -c SHA256SUMS)
+      - name: Create or converge exact GitHub tag and release
+        shell: bash
+        env:
+          ARCHIVE_SHA256: ${{ needs.prepare.outputs.archive_sha256 }}
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SHA: ${{ needs.prepare.outputs.release_sha }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          [[ "$TAG" == "v$VERSION" ]]
+          [[ "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$ARCHIVE_SHA256" =~ ^[0-9a-f]{64}$ ]]
+          archive="release-payload/ai-skills-$VERSION.tar.gz"
+          archive_name="$(basename "$archive")"
+
+          resolve_tag_commit() {
+            local ref_type ref_sha
+            ref_type="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" --jq '.object.type')"
+            ref_sha="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" --jq '.object.sha')"
+            case "$ref_type" in
+              commit)
+                printf '%s\n' "$ref_sha"
+                ;;
+              tag)
+                gh api "repos/$GITHUB_REPOSITORY/git/tags/$ref_sha" --jq '.object.sha'
+                ;;
+              *)
+                echo "unsupported tag object type: $ref_type" >&2
+                return 1
+                ;;
+            esac
+          }
+
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" >/dev/null 2>&1; then
+            test "$(resolve_tag_commit)" = "$RELEASE_SHA"
+          else
+            tag_object_sha="$(
+              gh api --method POST "repos/$GITHUB_REPOSITORY/git/tags" \
+                -f tag="$TAG" \
+                -f message="ai-skills $VERSION" \
+                -f object="$RELEASE_SHA" \
+                -f type=commit \
+                --jq '.sha'
+            )"
+            [[ "$tag_object_sha" =~ ^[0-9a-f]{40}$ ]]
+            gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" \
+              -f ref="refs/tags/$TAG" \
+              -f sha="$tag_object_sha" >/dev/null
+            test "$(resolve_tag_commit)" = "$RELEASE_SHA"
+          fi
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" \
+              --title "ai-skills $VERSION" \
+              --notes-file release-payload/release-notes.md
+            gh release upload "$TAG" "$archive" release-payload/SHA256SUMS --clobber
+          else
+            gh release create "$TAG" \
+              --verify-tag \
+              --title "ai-skills $VERSION" \
+              --notes-file release-payload/release-notes.md \
+              "$archive" release-payload/SHA256SUMS
+          fi
+
+          test "$(resolve_tag_commit)" = "$RELEASE_SHA"
+          asset_digest="$(
+            gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" \
+              --jq ".assets[] | select(.name == \"$archive_name\") | .digest"
+          )"
+          test "$asset_digest" = "sha256:$ARCHIVE_SHA256"
+          checksum_assets="$(
+            gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" \
+              --jq '[.assets[] | select(.name == "SHA256SUMS")] | length'
+          )"
+          test "$checksum_assets" = "1"

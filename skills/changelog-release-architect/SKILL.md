@@ -1,6 +1,6 @@
 ---
 name: changelog-release-architect
-description: Create, update, audit, and verify human-facing changelogs and semantic release versions from branch and pull-request evidence while enforcing one version transition per release boundary.
+description: Create, update, audit, verify, and finalize human-facing changelogs and semantic releases from branch, pull-request, integration, and provider evidence while enforcing one version transition per release boundary.
 ---
 
 # Changelog release architect
@@ -26,7 +26,9 @@ Read `STANDARD.md` before mutating release metadata.
 11. Update the changelog idempotently: merge new evidence, remove obsolete claims, deduplicate outcomes, and never create an intermediate release heading.
 12. Verify quantitative, security, compatibility, artifact, performance, and live-system claims against evidence bound to the exact revision or artifact they describe.
 13. Run `tools/check_release_branch.py` plus repository-owned version, changelog, package, build, test, and release gates.
-14. Report the base ref, merge-base SHA, baseline version, target version, SemVer class, version-lock state, canonical owner, mirrors, evidence, and unresolved findings.
+14. After integration, inspect the repository publication mode. When it declares `automatic-after-integration`, bind to the integrated SHA, require the declared hosted gates to be terminal-green, and let the protected release path create or converge the declared tag, provider release, and package artifacts without asking for a second publication confirmation.
+15. Verify provider-side release identity and artifact checksums against the integrated release SHA. Treat a missing, mismatched, or failed automatic publication as an unresolved release finding rather than stopping at “merged”.
+16. Report the base ref, merge-base SHA, baseline version, target version, SemVer class, version-lock state, publication mode, canonical owner, mirrors, integrated SHA, provider release identity, evidence, and unresolved findings.
 
 ## Source priority
 
@@ -56,7 +58,7 @@ For an MCP server, use `mcp-server-architect` to determine MCP public-contract c
 
 ## CI/CD routing
 
-Use `ci-cd-architect` for protected release workflows, exact-artifact promotion, provider trust, and publication. This skill decides the release metadata; CI/CD consumes and enforces that decision rather than incrementing it independently.
+Use `ci-cd-architect` for protected release workflows, exact-artifact promotion, provider trust, and publication. This skill decides the release metadata and publication mode; CI/CD consumes and enforces that decision rather than incrementing it independently. In an `automatic-after-integration` repository, a release-bearing task is not complete merely because its pull request merged: the protected publisher must reach a terminal, identity-verified outcome.
 
 ## Constraints
 
@@ -67,4 +69,6 @@ Use `ci-cd-architect` for protected release workflows, exact-artifact promotion,
 - Never reuse evidence from an older SHA to certify a later head.
 - Never fabricate a release date; use the repository-defined finalization point or `Unreleased`.
 - Never rewrite shared history automatically to repair a multi-bump violation.
-- Never publish, tag, deploy, or create a provider release unless explicitly requested.
+- When the repository contract declares `automatic-after-integration`, do not ask for an additional publication confirmation after the release boundary is integrated and its required exact-SHA gates are green.
+- Publish, tag, package, or deploy only the surfaces explicitly declared by the repository release contract; never invent a deployment target, bypass provider protection, or silently retag a mismatched release.
+- If automatic publication is declared but its authority, exact integrated identity, provider controls, or artifact evidence is unavailable, fail closed as `RELEASE_PUBLICATION_BLOCKED` instead of downgrading the repository to a manual-by-default workflow.
