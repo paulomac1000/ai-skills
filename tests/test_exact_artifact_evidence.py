@@ -124,15 +124,13 @@ def test_representative_large_artifact_fits_reviewed_profile() -> None:
         ),
     )
 
-    assert result["coverage"] == {
-        "state": "exact",
-        "file_count": 2500,
-        "byte_count": 2500 * 8192,
-        "max_depth_observed": 2,
-        "limit_hit": False,
-        "omitted_reason": None,
-        "enumeration_complete": True,
-    }
+    assert result["coverage"]["state"] == "exact"
+    assert result["coverage"]["file_count"] == 2500
+    assert result["coverage"]["byte_count"] > 20 * 1024 * 1024
+    assert result["coverage"]["max_depth_observed"] == 2
+    assert result["coverage"]["limit_hit"] is False
+    assert result["coverage"]["omitted_reason"] is None
+    assert result["coverage"]["enumeration_complete"] is True
     assert result["claims"]["artifact_exact"] == "true"
     assert _schema_errors(result) == []
 
@@ -186,6 +184,23 @@ def test_file_byte_and_depth_limits_never_return_exact() -> None:
         assert result["observed_identity"]["artifact_digest"] is None
         assert result["claims"]["artifact_exact"] == "false"
         assert _schema_errors(result) == []
+
+
+def test_byte_bound_includes_normalized_path_bytes() -> None:
+    module = _load()
+    result = _evidence(
+        module,
+        [module.ArtifactEntry("path", b"")],
+        profile=_profile(
+            module,
+            max_files=10,
+            max_bytes=3,
+            max_depth=8,
+            max_duration_ms=1000,
+        ),
+    )
+    assert result["coverage"]["state"] == "partial"
+    assert result["coverage"]["omitted_reason"] == "byte_limit"
 
 
 def test_time_limit_after_final_hash_cannot_return_exact() -> None:
@@ -285,6 +300,33 @@ def test_fail_closed_digest_accessor_is_reusable_by_lineage_consumers() -> None:
     )
     with pytest.raises(module.ArtifactEvidenceError, match="not exact"):
         module.require_exact_artifact_digest(partial)
+
+    excluded = json.loads(json.dumps(exact))
+    excluded["construction_profile"]["exclusions"] = ["a"]
+    with pytest.raises(module.ArtifactEvidenceError, match="unknown construction_profile fields"):
+        module.require_exact_artifact_digest(excluded)
+
+
+def test_runtime_constructor_inputs_fail_closed_before_emitting_invalid_evidence() -> None:
+    module = _load()
+    with pytest.raises(module.ArtifactEvidenceError, match="requested_kind"):
+        module.construct_artifact_evidence(
+            [module.ArtifactEntry("a", b"a")],
+            subject_ref="artifact:candidate",
+            profile=_profile(module),
+            requested_kind="not-supported",
+            requested_value="x",
+            enumeration_complete=True,
+        )
+    with pytest.raises(module.ArtifactEvidenceError, match="ConstructionProfile"):
+        module.construct_artifact_evidence(
+            [module.ArtifactEntry("a", b"a")],
+            subject_ref="artifact:candidate",
+            profile={},
+            requested_kind="other",
+            requested_value="x",
+            enumeration_complete=True,
+        )
 
 
 def test_profile_digest_detects_material_change_and_manual_tampering() -> None:
