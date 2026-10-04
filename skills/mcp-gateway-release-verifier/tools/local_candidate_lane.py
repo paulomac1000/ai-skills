@@ -138,33 +138,37 @@ def compose_local_lane_receipt(
         scope_module = importlib.util.module_from_spec(scope_spec)
         sys.modules[scope_spec.name] = scope_module
         scope_spec.loader.exec_module(scope_module)
-        contract_findings = scope_module.validate_change_acceptance_contract(scope.acceptance_contract)
-        if contract_findings:
-            failures.extend(f"candidate_scope_contract_rejected:{item}" for item in contract_findings)
-        elif scope.acceptance_contract.get("digest") != scope.acceptance_contract_digest:
-            failures.append("candidate_scope_contract_digest_mismatch")
-        elif (
-            isinstance(scope.scope_ref, str)
-            and scope.scope_ref.strip()
-            and scope.candidate_revision == evidence.candidate_revision
-            and isinstance(scope.acceptance_contract_digest, str)
-            and scope.acceptance_contract_digest.strip()
-        ):
-            obligations = scope.acceptance_contract.get("obligations")
-            assert isinstance(obligations, list)
-            migration_required = any(
-                isinstance(item, dict)
-                and item.get("required") is True
-                and item.get("kind") == "migration"
-                for item in obligations
-            )
-            scope_valid = True
-            receipt["candidate_scope"] = {
-                "scope_ref": scope.scope_ref,
-                "candidate_revision": scope.candidate_revision,
-                "acceptance_contract_digest": scope.acceptance_contract_digest,
-                "migration_required": migration_required,
-            }
+        contract = scope.acceptance_contract
+        if not isinstance(contract, dict):
+            failures.append("candidate_scope_contract_invalid")
+        else:
+            contract_findings = scope_module.validate_change_acceptance_contract(contract)
+            if contract_findings:
+                failures.extend(f"candidate_scope_contract_rejected:{item}" for item in contract_findings)
+            elif contract.get("digest") != scope.acceptance_contract_digest:
+                failures.append("candidate_scope_contract_digest_mismatch")
+            elif (
+                isinstance(scope.scope_ref, str)
+                and scope.scope_ref.strip()
+                and scope.candidate_revision == evidence.candidate_revision
+                and isinstance(scope.acceptance_contract_digest, str)
+                and scope.acceptance_contract_digest.strip()
+            ):
+                obligations = contract.get("obligations")
+                assert isinstance(obligations, list)
+                migration_required = any(
+                    isinstance(item, dict)
+                    and item.get("required") is True
+                    and item.get("kind") == "migration"
+                    for item in obligations
+                )
+                scope_valid = True
+                receipt["candidate_scope"] = {
+                    "scope_ref": scope.scope_ref,
+                    "candidate_revision": scope.candidate_revision,
+                    "acceptance_contract_digest": scope.acceptance_contract_digest,
+                    "migration_required": migration_required,
+                }
 
     migration_payload = evidence.migration_acceptance_payload
     if scope_valid and migration_required:

@@ -376,6 +376,17 @@ def test_candidate_scope_is_mandatory_exact_candidate_bound_and_cannot_be_suppre
     assert missing["verdict"] == "fail"
     assert "candidate_scope_missing_or_untrusted" in missing["failures"]
 
+    forged_raw_scope = module.compose_local_lane_receipt(
+        _evidence(module),
+        trusted_candidate_scope={
+            "scope_ref": "caller:forged",
+            "candidate_revision": "candidate-1",
+            "acceptance_contract": _change_acceptance_contract(migration=False),
+        },
+    )
+    assert forged_raw_scope["verdict"] == "fail"
+    assert "candidate_scope_missing_or_untrusted" in forged_raw_scope["failures"]
+
     stale_scope = _candidate_scope(module, candidate_revision="candidate-2")
     stale = module.compose_local_lane_receipt(
         _evidence(module, candidate_revision="candidate-1"),
