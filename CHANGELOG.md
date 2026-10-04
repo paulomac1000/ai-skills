@@ -1,5 +1,21 @@
 # Changelog
 
+## 3.7.0 - 2026-10-04
+
+### Added
+
+- Added a provider-neutral structured diagnostic-egress contract and reference constructor that emit only trusted typed reason/category/severity data plus policy-allowlisted bounded fields, with a fixed fail-closed fallback for unknown or unsafe classifications.
+- Added adversarial regressions for internal apostrophes and nested/escaped quotes, provider wording drift, embedded source/template fragments, multiline and Unicode/control input, nested and long errors, secret-looking and ordinary values, single-token payloads, and protected stderr/receipt/summary sinks.
+
+### Changed
+
+- Extended MCP server and QA semantic-review guidance to consume one repository-level diagnostic-safety owner, require source/provider payload exclusion from broader-trust sinks, and keep optional raw forensic detail behind an opaque narrower-authority reference.
+
+### Security and correctness
+
+- Diagnostic field values are now admitted by policy-owned value classes rather than syntax alone, preventing source/provider payload that happens to look like a valid identifier token from crossing the diagnostic boundary.
+- Unknown wording, classifier failure, invalid provenance, unapproved values, forged fallback metadata, and free-form diagnostic members fail closed without copying raw source/provider text.
+
 ## 3.6.0 - 2026-10-04
 
 ### Added
