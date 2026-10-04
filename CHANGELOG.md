@@ -12,6 +12,7 @@
 
 - Extended qa-change-verifier's risk planner without breaking risk-only callers so required criteria can add specific proof layers and semantic-review requirements while preserving harness-versus-product failure attribution.
 - Hardened acceptance evidence binding so blank candidate identities fail closed, exact-artifact proofs require current artifact bindings, and semantic-review PASS evidence is tied to the exact validated review-plan digest.
+- Aligned QA helper validation with the published contract schemas for schema-version typing and string bounds, made supplied base identity bidirectional/fail-closed, and validated analogue paths against concrete known repository paths.
 
 ## 3.4.0 - 2026-10-04
 
