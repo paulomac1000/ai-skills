@@ -263,6 +263,81 @@ def test_risk_only_planning_is_backward_compatible_and_criteria_add_specific_pro
     }
 
 
+def test_explicit_proof_classes_augment_obligation_minimums() -> None:
+    module = _load("qa_contract_proof_minimum", TOOL)
+    contract: dict[str, object] = {
+        "schema_version": 1,
+        "change_id": "proof-minimum",
+        "revision": "r1",
+        "obligations": [
+            {
+                "id": "O1",
+                "kind": "functional",
+                "statement": "preserve end-to-end behavior",
+                "required": True,
+            }
+        ],
+        "criteria": [
+            {
+                "id": "C1",
+                "obligation_refs": ["O1"],
+                "expected_outcome": "behavior remains correct",
+                "rejection_condition": "behavior regresses",
+                "required": True,
+                "proof_classes": ["unit"],
+            }
+        ],
+    }
+    contract["digest"] = module.compute_change_contract_digest(contract)
+    assert module.validate_change_acceptance_contract(contract) == ()
+
+    planned = module.plan_verification(
+        module.ChangeRisk(
+            change_surface="docs",
+            blast_radius="local",
+            candidate_revision="candidate-1",
+        ),
+        contract,
+    )
+    assert planned.required_layers == ("static", "unit", "integration")
+    assert planned.criterion_proofs[0].proof_classes == ("unit", "integration")
+
+    unit_only = [
+        module.CriterionEvidence(
+            "C1",
+            "unit",
+            module.EvidenceStatus.PASS,
+            "candidate-1",
+            contract["digest"],
+        )
+    ]
+    assessment = module.evaluate_acceptance(
+        contract,
+        candidate_revision="candidate-1",
+        evidence=unit_only,
+        trusted_known_gap_snapshot=_gap_snapshot(module, contract),
+    )
+    assert assessment.status == module.AcceptanceStatus.INCOMPLETE
+    assert "required criterion C1 lacks current proof: integration" in assessment.findings
+
+    complete = unit_only + [
+        module.CriterionEvidence(
+            "C1",
+            "integration",
+            module.EvidenceStatus.PASS,
+            "candidate-1",
+            contract["digest"],
+        )
+    ]
+    assessment = module.evaluate_acceptance(
+        contract,
+        candidate_revision="candidate-1",
+        evidence=complete,
+        trusted_known_gap_snapshot=_gap_snapshot(module, contract),
+    )
+    assert assessment.status == module.AcceptanceStatus.PASS
+
+
 def test_acceptance_is_incomplete_when_one_required_criterion_is_uncovered_or_stale() -> None:
     module = _load("qa_contract_missing", TOOL)
     contract = _contract(module)
