@@ -132,7 +132,11 @@ def evaluate_migration_acceptance(
                 findings.append(f"input {ref} requires schema_identity")
         elif spec.schema_identity is not None:
             findings.append(f"fresh input {ref} must use schema_identity=None")
-        if raw_kind is MigrationInputKind.CURRENT and current_schema_value and spec.schema_identity != current_schema_value:
+        if (
+            raw_kind is MigrationInputKind.CURRENT
+            and current_schema_value
+            and spec.schema_identity != current_schema_value
+        ):
             findings.append(f"current input {ref} does not match current_schema")
         spec_by_ref[ref] = spec
         if not expected_unsupported:
