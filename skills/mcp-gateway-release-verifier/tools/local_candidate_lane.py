@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import re
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
 OWNER_MARKER = ".mcp-acceptance-owner"
+_DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
+_TRUST_SOURCE = re.compile(r"^[a-z][a-z0-9-]*:sha256:[0-9a-f]{64}$")
 _REQUIRED_PASS_FIELDS = (
     "build_verdict",
     "migration_preflight_verdict",
@@ -19,14 +22,47 @@ _REQUIRED_PASS_FIELDS = (
 )
 
 
-@dataclass(frozen=True)
-class TrustedCandidateScopeEvidence:
-    """Policy/admission-owned candidate scope; implementer evidence cannot mint this authority."""
+@dataclass(frozen=True, slots=True)
+class CandidateScopeIdentity:
+    """Exact candidate and admitted change-contract identity."""
 
-    scope_ref: object
-    candidate_revision: object
-    acceptance_contract_digest: object
+    candidate_revision: str
+    acceptance_contract_digest: str
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.candidate_revision, str) or not self.candidate_revision.strip():
+            raise ValueError("candidate_revision must be a non-empty string")
+        if not _DIGEST.fullmatch(self.acceptance_contract_digest):
+            raise ValueError("acceptance_contract_digest must be a lowercase sha256 digest")
+
+
+@dataclass(frozen=True, slots=True)
+class TrustedCandidateScopeBinding:
+    """Policy/admission-owned provenance reviewed against one exact candidate scope."""
+
+    identity: CandidateScopeIdentity
+    source: str
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.identity, CandidateScopeIdentity):
+            raise TypeError("identity must be CandidateScopeIdentity")
+        if not _TRUST_SOURCE.fullmatch(self.source):
+            raise ValueError("source must be an immutable '<kind>:sha256:<64 lowercase hex>' identity")
+
+
+@dataclass(frozen=True, slots=True)
+class TrustedCandidateScopeEvidence:
+    """Trusted scope values; positive non-migration authority requires an exact binding."""
+
     acceptance_contract: object
+    binding: TrustedCandidateScopeBinding
+    require_current_rerun: bool = False
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.binding, TrustedCandidateScopeBinding):
+            raise TypeError("binding must be TrustedCandidateScopeBinding")
+        if type(self.require_current_rerun) is not bool:
+            raise TypeError("require_current_rerun must be boolean")
 
 
 @dataclass(frozen=True)
@@ -123,50 +159,50 @@ def compose_local_lane_receipt(
         failures.append("candidate_scope_missing_or_untrusted")
     else:
         scope = trusted_candidate_scope
-        if not isinstance(scope.scope_ref, str) or not scope.scope_ref.strip():
-            failures.append("candidate_scope_ref_invalid")
-        if not isinstance(scope.candidate_revision, str) or not scope.candidate_revision.strip():
-            failures.append("candidate_scope_revision_invalid")
-        elif scope.candidate_revision != evidence.candidate_revision:
-            failures.append("candidate_scope_candidate_mismatch")
-        if not isinstance(scope.acceptance_contract_digest, str) or not scope.acceptance_contract_digest.strip():
-            failures.append("candidate_scope_contract_digest_invalid")
-
-        scope_path = Path(__file__).resolve().parents[2] / "qa-change-verifier" / "tools" / "plan_verification.py"
-        scope_spec = importlib.util.spec_from_file_location("local_lane_candidate_scope", scope_path)
-        assert scope_spec is not None and scope_spec.loader is not None
-        scope_module = importlib.util.module_from_spec(scope_spec)
-        sys.modules[scope_spec.name] = scope_module
-        scope_spec.loader.exec_module(scope_module)
-        contract = scope.acceptance_contract
-        if not isinstance(contract, dict):
-            failures.append("candidate_scope_contract_invalid")
+        binding = scope.binding
+        if not isinstance(binding, TrustedCandidateScopeBinding):
+            failures.append("candidate_scope_binding_invalid")
+        elif not isinstance(binding.identity, CandidateScopeIdentity):
+            failures.append("candidate_scope_identity_invalid")
+        elif not _TRUST_SOURCE.fullmatch(binding.source):
+            failures.append("candidate_scope_source_invalid")
         else:
-            contract_findings = scope_module.validate_change_acceptance_contract(contract)
-            if contract_findings:
-                failures.extend(f"candidate_scope_contract_rejected:{item}" for item in contract_findings)
-            elif contract.get("digest") != scope.acceptance_contract_digest:
-                failures.append("candidate_scope_contract_digest_mismatch")
-            elif (
-                isinstance(scope.scope_ref, str)
-                and scope.scope_ref.strip()
-                and scope.candidate_revision == evidence.candidate_revision
-                and isinstance(scope.acceptance_contract_digest, str)
-                and scope.acceptance_contract_digest.strip()
-            ):
-                obligations = contract.get("obligations")
-                assert isinstance(obligations, list)
-                migration_required = any(
-                    isinstance(item, dict) and item.get("required") is True and item.get("kind") == "migration"
-                    for item in obligations
-                )
-                scope_valid = True
-                receipt["candidate_scope"] = {
-                    "scope_ref": scope.scope_ref,
-                    "candidate_revision": scope.candidate_revision,
-                    "acceptance_contract_digest": scope.acceptance_contract_digest,
-                    "migration_required": migration_required,
-                }
+            identity = binding.identity
+            if identity.candidate_revision != evidence.candidate_revision:
+                failures.append("candidate_scope_candidate_mismatch")
+
+            scope_path = Path(__file__).resolve().parents[2] / "qa-change-verifier" / "tools" / "plan_verification.py"
+            scope_spec = importlib.util.spec_from_file_location("local_lane_candidate_scope", scope_path)
+            assert scope_spec is not None and scope_spec.loader is not None
+            scope_module = importlib.util.module_from_spec(scope_spec)
+            sys.modules[scope_spec.name] = scope_module
+            scope_spec.loader.exec_module(scope_module)
+            contract = scope.acceptance_contract
+            if not isinstance(contract, dict):
+                failures.append("candidate_scope_contract_invalid")
+            else:
+                contract_findings = scope_module.validate_change_acceptance_contract(contract)
+                if contract_findings:
+                    failures.extend(f"candidate_scope_contract_rejected:{item}" for item in contract_findings)
+                elif contract.get("digest") != identity.acceptance_contract_digest:
+                    failures.append("candidate_scope_contract_digest_mismatch")
+                elif identity.candidate_revision == evidence.candidate_revision:
+                    obligations = contract.get("obligations")
+                    assert isinstance(obligations, list)
+                    migration_required = any(
+                        isinstance(item, dict)
+                        and item.get("required") is True
+                        and item.get("kind") == "migration"
+                        for item in obligations
+                    )
+                    scope_valid = True
+                    receipt["candidate_scope"] = {
+                        "source": binding.source,
+                        "candidate_revision": identity.candidate_revision,
+                        "acceptance_contract_digest": identity.acceptance_contract_digest,
+                        "migration_required": migration_required,
+                        "require_current_rerun": scope.require_current_rerun,
+                    }
 
     migration_payload = evidence.migration_acceptance_payload
     if scope_valid and migration_required:
@@ -181,7 +217,11 @@ def compose_local_lane_receipt(
             migration_module = importlib.util.module_from_spec(migration_spec)
             sys.modules[migration_spec.name] = migration_module
             migration_spec.loader.exec_module(migration_module)
-            migration_assessment = migration_module.evaluate_migration_acceptance_payload(migration_payload)
+            migration_assessment = migration_module.evaluate_migration_acceptance_payload(
+                migration_payload,
+                require_current_rerun=scope.require_current_rerun,
+                require_interrupted_recovery=True,
+            )
             migration_receipt = migration_assessment.receipt()
             migration_findings = migration_module.validate_migration_acceptance_receipt(migration_receipt)
             if migration_findings:
@@ -195,6 +235,8 @@ def compose_local_lane_receipt(
                     "verdict": "pass",
                     "candidate_revision": migration_receipt["candidate_revision"],
                     "current_schema": migration_receipt["current_schema"],
+                    "production_entrypoint": migration_receipt["production_entrypoint"],
+                    "production_entrypoint_revision": migration_receipt["production_entrypoint_revision"],
                     "exercised_inputs": migration_receipt["exercised_inputs"],
                 }
     elif scope_valid and migration_payload is not None:

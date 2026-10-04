@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 from types import ModuleType
 
+import pytest
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -101,15 +102,26 @@ def _candidate_scope(
     migration: bool = False,
     candidate_revision: str = "candidate-1",
     contract_valid: bool = True,
+    require_current_rerun: bool = False,
 ) -> object:
+    import hashlib
+
     contract = _change_acceptance_contract(migration=migration)
     if not contract_valid:
         contract["digest"] = "sha256:" + "0" * 64
-    return module.TrustedCandidateScopeEvidence(
-        scope_ref="policy:candidate-scope/candidate-1",
+    source_digest = hashlib.sha256(b"candidate-scope-policy-v1").hexdigest()
+    identity = module.CandidateScopeIdentity(
         candidate_revision=candidate_revision,
         acceptance_contract_digest=contract["digest"],
+    )
+    binding = module.TrustedCandidateScopeBinding(
+        identity=identity,
+        source=f"admission:sha256:{source_digest}",
+    )
+    return module.TrustedCandidateScopeEvidence(
         acceptance_contract=contract,
+        binding=binding,
+        require_current_rerun=require_current_rerun,
     )
 
 
@@ -161,6 +173,7 @@ def test_complete_local_candidate_lane_passes() -> None:
     assert isinstance(scope, dict)
     assert scope["candidate_revision"] == "candidate-1"
     assert scope["migration_required"] is False
+    assert scope["source"].startswith("admission:sha256:")
 
 
 def test_port_conflict_fails_closed_before_release_confidence() -> None:
@@ -316,6 +329,8 @@ def test_migration_candidate_requires_green_exact_candidate_migration_payload() 
         "verdict": "pass",
         "candidate_revision": "candidate-1",
         "current_schema": "v2",
+        "production_entrypoint": "app.Migrations.run",
+        "production_entrypoint_revision": "sha256:migrator-v2",
         "exercised_inputs": [
             {"input_ref": "fresh", "kind": "fresh", "schema_identity": None},
             {"input_ref": "v0", "kind": "unsupported", "schema_identity": "v0"},
@@ -379,8 +394,7 @@ def test_candidate_scope_is_mandatory_exact_candidate_bound_and_cannot_be_suppre
     forged_raw_scope = module.compose_local_lane_receipt(
         _evidence(module),
         trusted_candidate_scope={
-            "scope_ref": "caller:forged",
-            "candidate_revision": "candidate-1",
+            "binding": "caller:forged",
             "acceptance_contract": _change_acceptance_contract(migration=False),
         },
     )
@@ -421,3 +435,67 @@ def test_non_migration_scope_rejects_contradictory_migration_payload() -> None:
     receipt = _compose(module, migration_acceptance_payload=_migration_payload())
     assert receipt["verdict"] == "fail"
     assert "migration_acceptance_payload_out_of_scope" in receipt["failures"]
+
+
+def test_candidate_scope_requires_identity_bound_immutable_provenance() -> None:
+    module = _load("wave3_local_lane_scope_provenance", TOOL)
+    contract = _change_acceptance_contract(migration=False)
+    identity = module.CandidateScopeIdentity(
+        candidate_revision="candidate-1",
+        acceptance_contract_digest=contract["digest"],
+    )
+    with pytest.raises(ValueError, match="immutable"):
+        module.TrustedCandidateScopeBinding(identity=identity, source="caller:forged")
+
+    wrong_identity = module.CandidateScopeIdentity(
+        candidate_revision="candidate-1",
+        acceptance_contract_digest="sha256:" + "f" * 64,
+    )
+    import hashlib
+
+    source = "admission:sha256:" + hashlib.sha256(b"scope-policy").hexdigest()
+    wrong_scope = module.TrustedCandidateScopeEvidence(
+        acceptance_contract=contract,
+        binding=module.TrustedCandidateScopeBinding(identity=wrong_identity, source=source),
+    )
+    receipt = module.compose_local_lane_receipt(
+        _evidence(module),
+        trusted_candidate_scope=wrong_scope,
+    )
+    assert receipt["verdict"] == "fail"
+    assert "candidate_scope_contract_digest_mismatch" in receipt["failures"]
+
+
+def test_raw_migration_payload_cannot_disable_recovery_or_set_rerun_policy() -> None:
+    module = _load("wave3_local_lane_raw_policy", TOOL)
+    payload = _migration_payload()
+    payload["cases"] = [case for case in payload["cases"] if case["result"] != "interrupted"]
+    payload["require_interrupted_recovery"] = False
+    payload["require_current_rerun"] = False
+
+    receipt = _compose(
+        module,
+        migration_scope=True,
+        migration_acceptance_payload=payload,
+    )
+    assert receipt["verdict"] == "fail"
+    assert any(
+        "unknown fields: require_current_rerun, require_interrupted_recovery" in item
+        for item in receipt["failures"]
+    )
+    assert any("interrupted mutating supported migration recovery case is required" in item for item in receipt["failures"])
+
+
+def test_current_rerun_policy_comes_from_trusted_candidate_scope() -> None:
+    module = _load("wave3_local_lane_current_rerun_policy", TOOL)
+    payload = _migration_payload()
+    payload["supported_inputs"].append(
+        {"input_ref": "current", "kind": "current", "schema_identity": "v2"}
+    )
+    scope = _candidate_scope(module, migration=True, require_current_rerun=True)
+    receipt = module.compose_local_lane_receipt(
+        _evidence(module, migration_acceptance_payload=payload),
+        trusted_candidate_scope=scope,
+    )
+    assert receipt["verdict"] == "fail"
+    assert any("supported migration input not exercised: current" in item for item in receipt["failures"])

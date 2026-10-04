@@ -292,8 +292,13 @@ def evaluate_migration_acceptance(
     )
 
 
-def evaluate_migration_acceptance_payload(payload: object) -> MigrationAcceptanceAssessment:
-    """Decode raw migration evidence and issue an assessment through the canonical evaluator."""
+def evaluate_migration_acceptance_payload(
+    payload: object,
+    *,
+    require_current_rerun: object = False,
+    require_interrupted_recovery: object = True,
+) -> MigrationAcceptanceAssessment:
+    """Decode raw evidence; policy switches are supplied only through the trusted caller boundary."""
     decode_findings: list[str] = []
     if not isinstance(payload, dict):
         decode_findings.append("migration acceptance payload must be an object")
@@ -310,8 +315,6 @@ def evaluate_migration_acceptance_payload(payload: object) -> MigrationAcceptanc
         "supported_inputs",
         "unsupported_inputs",
         "cases",
-        "require_current_rerun",
-        "require_interrupted_recovery",
     }
     raw_keys = list(raw)
     if not all(isinstance(key, str) for key in raw_keys):
@@ -336,8 +339,8 @@ def evaluate_migration_acceptance_payload(payload: object) -> MigrationAcceptanc
         supported_inputs=supported,
         unsupported_inputs=unsupported,
         cases=cases,
-        require_current_rerun=raw.get("require_current_rerun", False),
-        require_interrupted_recovery=raw.get("require_interrupted_recovery", True),
+        require_current_rerun=require_current_rerun,
+        require_interrupted_recovery=require_interrupted_recovery,
     )
     findings = tuple(sorted(set((*assessment.findings, *decode_findings))))
     return MigrationAcceptanceAssessment(

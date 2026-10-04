@@ -99,7 +99,7 @@ The matrix proves separately:
 
 Historical fixtures or builders are immutable/version-pinned evidence inputs. Changing them changes the compatibility claim and requires review. Dropping support changes the declared matrix explicitly rather than deleting a failing predecessor fixture.
 
-Use `tools/migration_acceptance.py` to compose a bounded receipt that names the exact candidate revision, current schema, production entrypoint revision, and each exercised input's stable ref, kind, and declared schema identity. The helper evaluates evidence; it does not execute a product migrator or turn caller-authored labels into proof. Product tests remain responsible for executable pre-state assertions, migration invocation, data checks, and recovery observations.
+Use `tools/migration_acceptance.py` to compose a bounded receipt that names the exact candidate revision, current schema, production entrypoint revision, and each exercised input's stable ref, kind, and declared schema identity. Raw migration evidence describes observations only: it MUST NOT choose whether current-schema rerun or interrupted-recovery proof is required. Those policy switches arrive through a trusted caller/policy boundary; malformed or caller-authored policy fields in the raw payload are rejected. The helper evaluates evidence; it does not execute a product migrator or turn caller-authored labels into proof. Product tests remain responsible for executable pre-state assertions, migration invocation, data checks, and recovery observations.
 
 ## Failure attribution
 

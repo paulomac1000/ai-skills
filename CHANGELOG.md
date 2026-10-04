@@ -16,6 +16,7 @@
 
 - Legacy-upgrade evidence now fails closed when the pre-state is already current, required legacy/current-absence characteristics are unproven, the wrong production migrator is exercised, representative data invariants are absent, or a known/unknown unsupported state is normalized into apparent success.
 - Recovery evidence from an unsupported input or current-schema no-op path can no longer satisfy the recovery obligation for a mutating supported migration, and interrupted legacy cases must still prove their exact legacy pre-state.
+- Migration policy switches are now separated from raw evidence: the MCP lane requires identity-bound policy/admission provenance for candidate scope, always requires interrupted-recovery proof for migrations, sources current-rerun applicability from that trusted scope, and preserves the exact production migrator entrypoint/revision in its bounded receipt.
 
 ## 3.8.0 - 2026-10-04
 
