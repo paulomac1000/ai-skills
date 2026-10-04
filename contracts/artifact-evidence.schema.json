@@ -1,0 +1,221 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/paulomac1000/ai-skills/blob/main/contracts/artifact-evidence.schema.json",
+  "title": "Exact artifact evidence construction",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "subject_ref",
+    "construction_profile",
+    "coverage",
+    "requested_identity",
+    "observed_identity",
+    "claims"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "subject_ref": {"type": "string", "minLength": 1, "maxLength": 2048},
+    "construction_profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "revision",
+        "policy_ref",
+        "profile_digest",
+        "canonical_encoding",
+        "path_normalization",
+        "metadata_mode",
+        "bounds"
+      ],
+      "properties": {
+        "revision": {"type": "string", "minLength": 1, "maxLength": 256},
+        "policy_ref": {"type": "string", "minLength": 1, "maxLength": 2048},
+        "profile_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "canonical_encoding": {"const": "length-prefixed-file-tree-v1"},
+        "path_normalization": {"const": "relative-posix-nfc-v1"},
+        "metadata_mode": {"const": "regular-file-content-only-v1"},
+        "bounds": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["max_files", "max_bytes", "max_depth", "max_duration_ms"],
+          "properties": {
+            "max_files": {"type": "integer", "minimum": 1},
+            "max_bytes": {"type": "integer", "minimum": 1},
+            "max_depth": {"type": "integer", "minimum": 1},
+            "max_duration_ms": {"type": "integer", "minimum": 1}
+          }
+        }
+      }
+    },
+    "coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "state",
+        "file_count",
+        "byte_count",
+        "max_depth_observed",
+        "limit_hit",
+        "omitted_reason",
+        "enumeration_complete"
+      ],
+      "properties": {
+        "state": {"enum": ["exact", "partial", "unknown"]},
+        "file_count": {"type": "integer", "minimum": 0},
+        "byte_count": {"type": "integer", "minimum": 0},
+        "max_depth_observed": {"type": "integer", "minimum": 0},
+        "limit_hit": {"type": "boolean"},
+        "omitted_reason": {
+          "type": ["string", "null"],
+          "enum": [
+            null,
+            "file_limit",
+            "byte_limit",
+            "depth_limit",
+            "time_limit",
+            "enumeration_incomplete",
+            "unsupported_file_type",
+            "path_normalization_error",
+            "io_error"
+          ]
+        },
+        "enumeration_complete": {"type": "boolean"}
+      }
+    },
+    "requested_identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "value", "preserved_from_admission"],
+      "properties": {
+        "kind": {
+          "enum": [
+            "version",
+            "package_spec",
+            "source_revision",
+            "artifact_digest",
+            "other"
+          ]
+        },
+        "value": {"type": "string", "minLength": 1, "maxLength": 2048},
+        "preserved_from_admission": {"const": true}
+      }
+    },
+    "observed_identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "artifact_digest",
+        "package_version",
+        "source_revision",
+        "observation_refs"
+      ],
+      "properties": {
+        "artifact_digest": {
+          "type": ["string", "null"],
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "package_version": {"type": ["string", "null"], "maxLength": 256},
+        "source_revision": {"type": ["string", "null"], "maxLength": 256},
+        "observation_refs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1, "maxLength": 2048}
+        }
+      }
+    },
+    "claims": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "artifact_exact",
+        "requested_identity_matched",
+        "source_compatibility_established",
+        "runtime_compatibility_established"
+      ],
+      "properties": {
+        "artifact_exact": {"enum": ["true", "false", "unknown"]},
+        "requested_identity_matched": {"enum": ["true", "false", "unknown"]},
+        "source_compatibility_established": {"const": "unknown"},
+        "runtime_compatibility_established": {"const": "unknown"}
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "coverage": {
+            "properties": {"state": {"const": "exact"}},
+            "required": ["state"]
+          }
+        },
+        "required": ["coverage"]
+      },
+      "then": {
+        "properties": {
+          "coverage": {
+            "properties": {
+              "limit_hit": {"const": false},
+              "omitted_reason": {"const": null},
+              "enumeration_complete": {"const": true}
+            }
+          },
+          "observed_identity": {
+            "properties": {
+              "artifact_digest": {
+                "type": "string",
+                "pattern": "^sha256:[0-9a-f]{64}$"
+              }
+            }
+          },
+          "claims": {
+            "properties": {"artifact_exact": {"const": "true"}}
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "coverage": {
+            "properties": {"state": {"enum": ["partial", "unknown"]}},
+            "required": ["state"]
+          }
+        },
+        "required": ["coverage"]
+      },
+      "then": {
+        "properties": {
+          "observed_identity": {
+            "properties": {"artifact_digest": {"const": null}}
+          },
+          "claims": {
+            "properties": {
+              "artifact_exact": {"enum": ["false", "unknown"]}
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "coverage": {
+            "properties": {"limit_hit": {"const": true}},
+            "required": ["limit_hit"]
+          }
+        },
+        "required": ["coverage"]
+      },
+      "then": {
+        "properties": {
+          "coverage": {"properties": {"state": {"const": "partial"}}},
+          "observed_identity": {
+            "properties": {"artifact_digest": {"const": null}}
+          }
+        }
+      }
+    }
+  ]
+}

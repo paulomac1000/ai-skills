@@ -54,6 +54,33 @@ Verdict-affecting tools come from repository-declared locks, manifests, tool-ver
 
 Use `tools/check_verification_bootstrap.py`. It validates dependency-source provenance; ecosystem-specific bootstrap/install commands remain repository-owned and must consume those declared sources.
 
+## Exact artifact evidence
+
+Use `contracts/artifact-evidence.schema.json` and `contracts/artifact_evidence.py` when a verification or release decision depends on an exact structured artifact identity.
+
+The v1 file-tree encoding starts with the fixed domain `ai-skills/artifact-tree/v1\\0`, then the file count as an unsigned 8-byte big-endian integer. Each sorted regular-file entry is encoded as the byte `F`, followed by an 8-byte length and normalized UTF-8 path bytes, then an 8-byte length and the file content bytes. Length-prefix framing keeps arbitrary delimiter/control bytes in content unambiguous. Ordering is by NFC-normalized relative POSIX path bytes.
+
+The v1 metadata mode is `regular-file-content-only-v1`. It does not claim executable-bit, ownership, timestamp, xattr, device, directory-entry, or symlink identity. A collector encountering a symlink or another unsupported file type returns `unknown`; a policy for which additional metadata is load-bearing must use another explicit construction revision rather than silently treating v1 as sufficient.
+
+Coverage is separate from digest algorithm:
+
+```text
+complete trusted enumeration + all profile bounds respected
+  -> coverage=exact + artifact digest
+file/byte/depth/time bound hit
+  -> coverage=partial + no artifact digest
+known incomplete enumeration
+  -> coverage=partial + no artifact digest
+unsupported subject/file semantics
+  -> coverage=unknown + no artifact digest
+```
+
+Bounds belong to the construction profile and are included in its digest. `max_bytes` counts normalized UTF-8 path bytes plus regular-file content bytes; fixed framing overhead is separately bounded by `max_files`. Qualification must demonstrate that representative supported artifacts fit the selected profile; increasing a bound changes profile identity but does not weaken subject coverage. V1 exposes no exclusion input. The policy-owned collector defines the artifact root and proves enumeration completeness; repository/model/candidate content cannot self-remove files and still claim exact coverage.
+
+Requested identity is immutable admission evidence. Observed identity records what was actually found. A fallback observation may establish an exact artifact digest while `requested_identity_matched` remains false or unknown. The artifact constructor never promotes `source_compatibility_established` or `runtime_compatibility_established`; those claims require their owning evidence.
+
+A material construction-profile change makes direct digest evidence non-comparable unless an owning compatibility policy explicitly proves otherwise. Reuse preserves the original profile digest and producer observation rather than relabeling old evidence as freshly constructed.
+
 ## Production-state isolation
 
 Ordinary validation is read-only with respect to production-effective state. Before near-runtime validation, resolve declared writable and protected paths component-wise and prove they do not overlap. Writable paths may be declared before creation; existing protected paths must resolve and must not be symlink aliases. Snapshot/hash protected state where practical, execute validation in unique disposable state, then assert protected state unchanged. A protected tree containing a symlink is rejected rather than followed into ambiguous state.

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import re
+import sys
 from pathlib import Path
 
 import pytest
@@ -15,6 +16,7 @@ def _load(name: str):
     spec = importlib.util.spec_from_file_location(name, TOOLS / f"{name}.py")
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
 
@@ -23,6 +25,7 @@ def _load_contract(name: str):
     spec = importlib.util.spec_from_file_location(name, CONTRACTS / f"{name}.py")
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
 
@@ -33,6 +36,7 @@ parity = _load("check_local_ci_parity")
 isolation = _load("verify_state_isolation")
 bootstrap = _load("check_verification_bootstrap")
 receipt_validator = _load_contract("validate_verification_receipt")
+artifact_evidence = _load_contract("artifact_evidence")
 
 
 def test_manifest_drift_reproduces_34_discovered_23_selected(tmp_path: Path) -> None:
@@ -402,6 +406,91 @@ def _verification_receipt_with_generic_corpus(**corpus_overrides: object) -> dic
 def test_verification_receipt_accepts_consistent_generic_corpus_fields() -> None:
     receipt = _verification_receipt_with_generic_corpus()
     assert receipt_validator.validate_receipt(receipt) == []
+
+
+def test_verification_receipt_binds_candidate_digest_to_exact_artifact_evidence() -> None:
+    exact = artifact_evidence.construct_artifact_evidence(
+        [artifact_evidence.ArtifactEntry("package.bin", b"payload")],
+        subject_ref="artifact:candidate",
+        profile=artifact_evidence.ConstructionProfile(
+            "artifact-tree/v1",
+            "policy:artifact-evidence/v1",
+        ),
+        requested_kind="package_spec",
+        requested_value="package>=1",
+        enumeration_complete=True,
+    )
+    digest = exact["observed_identity"]["artifact_digest"]
+    assert isinstance(digest, str)
+
+    receipt = _verification_receipt_with_generic_corpus()
+    candidate = receipt["candidate"]
+    assert isinstance(candidate, dict)
+    candidate["artifact_digest"] = digest
+    candidate["artifact_evidence"] = exact
+    assert receipt_validator.validate_receipt(receipt) == []
+
+    candidate["artifact_digest"] = "sha256:" + "0" * 64
+    findings = receipt_validator.validate_receipt(receipt)
+    assert (
+        "candidate.artifact_digest must equal the exact artifact evidence digest"
+        in findings
+    )
+
+
+def test_verification_receipt_rejects_semantically_tampered_artifact_profile() -> None:
+    exact = artifact_evidence.construct_artifact_evidence(
+        [artifact_evidence.ArtifactEntry("package.bin", b"payload")],
+        subject_ref="artifact:candidate",
+        profile=artifact_evidence.ConstructionProfile(
+            "artifact-tree/v1",
+            "policy:artifact-evidence/v1",
+        ),
+        requested_kind="package_spec",
+        requested_value="package>=1",
+        enumeration_complete=True,
+    )
+    digest = exact["observed_identity"]["artifact_digest"]
+    assert isinstance(digest, str)
+    exact["construction_profile"]["revision"] = "tampered/v2"
+
+    receipt = _verification_receipt_with_generic_corpus()
+    candidate = receipt["candidate"]
+    assert isinstance(candidate, dict)
+    candidate["artifact_digest"] = digest
+    candidate["artifact_evidence"] = exact
+
+    findings = receipt_validator.validate_receipt(receipt)
+    assert any(
+        "candidate.artifact_evidence: construction_profile.profile_digest"
+        in finding
+        for finding in findings
+    )
+
+
+def test_verification_receipt_rejects_digest_with_non_exact_artifact_evidence() -> None:
+    partial = artifact_evidence.construct_artifact_evidence(
+        [artifact_evidence.ArtifactEntry("package.bin", b"payload")],
+        subject_ref="artifact:candidate",
+        profile=artifact_evidence.ConstructionProfile(
+            "artifact-tree/v1",
+            "policy:artifact-evidence/v1",
+        ),
+        requested_kind="package_spec",
+        requested_value="package>=1",
+        enumeration_complete=False,
+    )
+    receipt = _verification_receipt_with_generic_corpus()
+    candidate = receipt["candidate"]
+    assert isinstance(candidate, dict)
+    candidate["artifact_digest"] = "sha256:" + "1" * 64
+    candidate["artifact_evidence"] = partial
+
+    findings = receipt_validator.validate_receipt(receipt)
+    assert (
+        "candidate.artifact_digest cannot be paired with non-exact artifact evidence"
+        in findings
+    )
 
 
 def test_verification_receipt_rejects_missing_required_subject_on_pass() -> None:

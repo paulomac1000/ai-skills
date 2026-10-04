@@ -43,6 +43,7 @@ skills:
       purpose: {excluded: true, rationale: Informational scope heading, not an independently assessable invariant.}
       pipeline-layers: {rule_id: cicd.layers.separated, primary: true}
       universal-workflow-controls: {rule_id: cicd.workflow.least-privilege, primary: true}
+      exact-artifact-evidence-construction: {rule_id: cicd.artifact.evidence, primary: true}
       workflow-policy-profiles: {rule_id: cicd.workflow.profiled, primary: true}
       execution-policy-and-hosted-runner-budget: {rule_id: cicd.execution.on-demand, primary: true}
       python-quality: {rule_id: cicd.quality.language, primary: true}

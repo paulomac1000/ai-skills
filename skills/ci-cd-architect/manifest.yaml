@@ -1,6 +1,6 @@
 schema_version: 1
 name: ci-cd-architect
-version: 3.5.0
+version: 3.6.0
 maturity: stable
 skill_format: ai-skills/v1
 normative_entrypoint: STANDARD.md
@@ -53,6 +53,8 @@ dependencies:
     - PyYAML>=6.0.3,<7
   shared_resources:
   - contracts/verification-receipt.schema.json
+  - contracts/artifact-evidence.schema.json
+  - contracts/artifact_evidence.py
   - contracts/runtime-identity.schema.json
   - contracts/validate_verification_receipt.py
 deprecation:
