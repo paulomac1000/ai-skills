@@ -455,5 +455,9 @@ def _validate_pre_state(
     elif spec.kind is MigrationInputKind.UNSUPPORTED:
         if not _non_empty_string_sequence(case.absent_current_characteristic_refs):
             findings.append(f"migration input {spec.input_ref} lacks proof current characteristics were absent")
-    if current_schema and case.observed_pre_schema == current_schema:
+    if (
+        spec.kind in {MigrationInputKind.LEGACY, MigrationInputKind.UNSUPPORTED}
+        and current_schema
+        and case.observed_pre_schema == current_schema
+    ):
         findings.append(f"migration input {spec.input_ref} was already current before migration")
