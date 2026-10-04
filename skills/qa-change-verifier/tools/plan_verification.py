@@ -217,10 +217,17 @@ class KnownGap:
     affected_criterion_refs: tuple[str, ...]
     load_bearing: bool | None
     disposition: str = "unresolved"
-    waiver_authorized: bool = False
-    waiver_ref: str | None = None
     candidate_revision: str | None = None
     contract_digest: str | None = None
+
+
+@dataclass(frozen=True)
+class PolicyWaiverAuthorization:
+    waiver_ref: str
+    gap_id: str
+    criterion_refs: tuple[str, ...]
+    candidate_revision: str
+    contract_digest: str
 
 
 @dataclass(frozen=True)
@@ -483,6 +490,17 @@ def validate_semantic_review_plan(
     for field in ("plan_id", "revision", "candidate_revision"):
         if not isinstance(plan.get(field), str) or not str(plan[field]).strip():
             findings.append(f"{field} must be a non-empty string")
+
+    for field in ("base_revision", "policy_revision"):
+        value = plan.get(field)
+        if value is not None and not isinstance(value, str):
+            findings.append(f"{field} must be a string or null")
+    acceptance_digest = plan.get("acceptance_contract_digest")
+    if acceptance_digest is not None and (
+        not isinstance(acceptance_digest, str) or not _DIGEST.fullmatch(acceptance_digest)
+    ):
+        findings.append("acceptance_contract_digest must be null or sha256:<64 lowercase hex>")
+
     digest = plan.get("digest")
     if not isinstance(digest, str) or not _DIGEST.fullmatch(digest):
         findings.append("digest must be sha256:<64 lowercase hex>")
@@ -490,7 +508,8 @@ def validate_semantic_review_plan(
         findings.append("digest does not match semantic review plan content")
     if current_candidate_revision is not None and plan.get("candidate_revision") != current_candidate_revision:
         findings.append("semantic review plan is stale for the current candidate")
-    if current_base_revision is not None and plan.get("base_revision") not in {None, current_base_revision}:
+    base_revision = plan.get("base_revision")
+    if current_base_revision is not None and base_revision is not None and base_revision != current_base_revision:
         findings.append("semantic review plan is stale for the current base")
 
     known: set[str] = set()
@@ -506,72 +525,145 @@ def validate_semantic_review_plan(
                 if item.required and "semantic_review" in item.proof_classes:
                     required_review.add(item.criterion_id)
 
-    covered: set[str] = set()
+    focus_covered: set[str] = set()
     for collection_name in ("flows", "focus_areas", "invariant_matrices"):
-        collection = plan.get(collection_name, [])
+        if collection_name not in plan:
+            findings.append(f"{collection_name} is required")
+            continue
+        collection = plan.get(collection_name)
         if not isinstance(collection, list):
             findings.append(f"{collection_name} must be an array")
             continue
+
         seen: set[str] = set()
         for item in collection:
             if not isinstance(item, Mapping):
                 findings.append(f"{collection_name} entries must be objects")
                 continue
+
+            item_valid = True
             extra = sorted(set(item) - _REVIEW_FIELDS[collection_name])
             if extra:
                 findings.append(f"unknown {collection_name} fields: " + ", ".join(extra))
+                item_valid = False
+
             identifier = item.get("id")
             if not isinstance(identifier, str) or not identifier.strip():
                 findings.append(f"{collection_name} id must be a non-empty string")
                 continue
             if identifier in seen:
                 findings.append(f"duplicate {collection_name} id: {identifier}")
+                item_valid = False
             seen.add(identifier)
-            refs = _strings(item.get("criterion_refs")) or []
+
+            refs = _strings(item.get("criterion_refs"))
             if not refs:
                 findings.append(f"{collection_name} {identifier} must reference at least one criterion")
-            covered.update(refs)
-            for ref in refs:
-                if known and ref not in known:
+                refs = []
+                item_valid = False
+            elif len(set(refs)) != len(refs):
+                findings.append(f"{collection_name} {identifier} criterion_refs must be unique")
+                item_valid = False
+
+            unknown_refs = sorted(ref for ref in refs if known and ref not in known)
+            if unknown_refs:
+                for ref in unknown_refs:
                     findings.append(f"{collection_name} {identifier} references unknown criterion: {ref}")
+                item_valid = False
+
             if collection_name == "flows":
                 entry = item.get("entry_point")
                 terminal = item.get("terminal_outcome")
-                invalid_flow = (
+                if (
                     not isinstance(entry, str)
                     or not entry.strip()
                     or not isinstance(terminal, str)
                     or not terminal.strip()
-                )
-                if invalid_flow:
+                ):
                     findings.append(f"flow {identifier} must identify an entry point and terminal outcome")
+                    item_valid = False
+
             elif collection_name == "focus_areas":
-                risks = _strings(item.get("risk_reasons")) or []
+                risks = _strings(item.get("risk_reasons"))
                 if not risks:
                     findings.append(f"focus area {identifier} must identify at least one risk reason")
-                unknown = sorted(set(risks) - REVIEW_RISK_REASONS)
-                if unknown:
-                    findings.append(f"focus area {identifier} has unknown risk reasons: {', '.join(unknown)}")
+                    risks = []
+                    item_valid = False
+                elif len(set(risks)) != len(risks):
+                    findings.append(f"focus area {identifier} risk_reasons must be unique")
+                    item_valid = False
+                unknown_risks = sorted(set(risks) - REVIEW_RISK_REASONS)
+                if unknown_risks:
+                    findings.append(
+                        f"focus area {identifier} has unknown risk reasons: {', '.join(unknown_risks)}"
+                    )
+                    item_valid = False
+
                 path_refs = _strings(item.get("path_refs"))
-                if not (path_refs and _strings(item.get("invariants"))):
+                invariants = _strings(item.get("invariants"))
+                if not path_refs or not invariants:
                     findings.append(f"focus area {identifier} must identify concrete paths and invariants")
-                elif known_path_refs is not None:
-                    unresolved = sorted(set(path_refs) - known_path_refs)
-                    if unresolved:
-                        findings.append(f"focus area {identifier} references unresolved paths: {', '.join(unresolved)}")
+                    item_valid = False
+                else:
+                    if len(set(path_refs)) != len(path_refs):
+                        findings.append(f"focus area {identifier} path_refs must be unique")
+                        item_valid = False
+                    if len(set(invariants)) != len(invariants):
+                        findings.append(f"focus area {identifier} invariants must be unique")
+                        item_valid = False
+                    if known_path_refs is not None:
+                        unresolved = sorted(set(path_refs) - known_path_refs)
+                        if unresolved:
+                            findings.append(
+                                f"focus area {identifier} references unresolved paths: {', '.join(unresolved)}"
+                            )
+                            item_valid = False
+
+                if "analogue_refs" in item:
+                    analogue_refs = _strings(item.get("analogue_refs"))
+                    if analogue_refs is None:
+                        findings.append(f"focus area {identifier} analogue_refs must be an array of strings")
+                        item_valid = False
+                    elif len(set(analogue_refs)) != len(analogue_refs):
+                        findings.append(f"focus area {identifier} analogue_refs must be unique")
+                        item_valid = False
+
+                if item_valid:
+                    focus_covered.update(refs)
+
             elif collection_name == "invariant_matrices":
-                dimensions = _strings(item.get("dimensions")) or []
-                unknown = sorted(set(dimensions) - INVARIANT_DIMENSIONS)
-                if unknown:
-                    findings.append(f"invariant matrix {identifier} has unknown dimensions: {', '.join(unknown)}")
+                dimensions = _strings(item.get("dimensions"))
+                if not dimensions:
+                    findings.append(f"invariant matrix {identifier} must identify at least one dimension")
+                    dimensions = []
+                    item_valid = False
+                unknown_dimensions = sorted(set(dimensions) - INVARIANT_DIMENSIONS)
+                if unknown_dimensions:
+                    findings.append(
+                        f"invariant matrix {identifier} has unknown dimensions: {', '.join(unknown_dimensions)}"
+                    )
+                    item_valid = False
                 if len(set(dimensions)) != len(dimensions):
                     findings.append(f"invariant matrix {identifier} dimensions must be unique")
+                    item_valid = False
+
                 invariant_ref = item.get("invariant_ref")
                 if not isinstance(invariant_ref, str) or not invariant_ref.strip():
                     findings.append(f"invariant matrix {identifier} must identify an invariant")
-    missing = sorted(required_review - covered)
+                    item_valid = False
+
+                if "analogue_refs" in item:
+                    analogue_refs = _strings(item.get("analogue_refs"))
+                    if analogue_refs is None:
+                        findings.append(f"invariant matrix {identifier} analogue_refs must be an array of strings")
+                        item_valid = False
+                    elif len(set(analogue_refs)) != len(analogue_refs):
+                        findings.append(f"invariant matrix {identifier} analogue_refs must be unique")
+                        item_valid = False
+
+    missing = sorted(required_review - focus_covered)
     if missing:
-        findings.append("required semantic-review criteria lack plan coverage: " + ", ".join(missing))
+        findings.append("required semantic-review criteria lack valid focus-area coverage: " + ", ".join(missing))
     return tuple(sorted(set(findings)))
 
 
@@ -581,6 +673,7 @@ def evaluate_acceptance(
     candidate_revision: str,
     evidence: Sequence[CriterionEvidence],
     known_gaps: Sequence[KnownGap] = (),
+    trusted_policy_waivers: Sequence[PolicyWaiverAuthorization] = (),
 ) -> AcceptanceAssessment:
     findings = list(validate_change_acceptance_contract(contract))
     if findings:
@@ -593,6 +686,28 @@ def evaluate_acceptance(
     blocked: set[str] = set()
     hard_fail = False
 
+    trusted_waiver_scope: dict[str, set[str]] = {}
+    for authorization in trusted_policy_waivers:
+        valid_identity = (
+            isinstance(authorization.waiver_ref, str)
+            and bool(authorization.waiver_ref.strip())
+            and isinstance(authorization.gap_id, str)
+            and bool(authorization.gap_id.strip())
+        )
+        if (
+            not valid_identity
+            or authorization.candidate_revision != candidate_revision
+            or authorization.contract_digest != digest
+        ):
+            continue
+        scope = {
+            ref
+            for ref in authorization.criterion_refs
+            if isinstance(ref, str) and ref in criteria and criteria[ref].get("required") is True
+        }
+        if scope:
+            trusted_waiver_scope.setdefault(authorization.gap_id, set()).update(scope)
+
     for gap in known_gaps:
         affected = {
             ref for ref in gap.affected_criterion_refs if ref in criteria and criteria[ref].get("required") is True
@@ -600,13 +715,15 @@ def evaluate_acceptance(
         if not affected:
             continue
         if gap.disposition == "waived_by_policy":
-            waiver_ref_valid = isinstance(gap.waiver_ref, str) and bool(gap.waiver_ref.strip())
-            authorized_waiver = gap.waiver_authorized is True and waiver_ref_valid
-            if authorized_waiver:
-                waived.update(affected)
-            else:
-                findings.append(f"known gap {gap.gap_id} claims policy waiver without trusted authorization/reference")
-                blocked.update(affected)
+            authorized = affected & trusted_waiver_scope.get(gap.gap_id, set())
+            waived.update(authorized)
+            unauthorized = affected - authorized
+            if unauthorized:
+                findings.append(
+                    f"known gap {gap.gap_id} lacks matching trusted policy authorization for: "
+                    + ", ".join(sorted(unauthorized))
+                )
+                blocked.update(unauthorized)
         elif gap.disposition == "not_applicable":
             findings.append(f"known gap {gap.gap_id} cannot self-declare required criteria not applicable")
             blocked.update(affected)
@@ -633,7 +750,9 @@ def evaluate_acceptance(
             findings.append(f"required criterion {criterion_id} has current FAIL evidence")
             hard_fail = True
             continue
+
         passed: set[str] = set()
+        provider_fixture_seen = False
         for item in current:
             if item.status is not EvidenceStatus.PASS or item.proof_class not in required:
                 continue
@@ -649,16 +768,18 @@ def evaluate_acceptance(
             if criterion.get("proof_of_exercise_required") is True and not valid_discriminant:
                 findings.append(f"criterion {criterion_id} lacks required proof-of-exercise discriminant")
                 continue
-            provider_faithful = criterion.get("fixture_fidelity") == "provider_faithful"
-            valid_fixture = item.fixture_source in {FixtureSource.CAPTURED_PROVIDER, FixtureSource.OFFICIAL_CONTRACT}
-            if provider_faithful and not valid_fixture:
-                findings.append(f"criterion {criterion_id} lacks provider-faithful fixture evidence")
-                continue
+
             passed.add(item.proof_class)
+            if item.fixture_source in {FixtureSource.CAPTURED_PROVIDER, FixtureSource.OFFICIAL_CONTRACT}:
+                provider_fixture_seen = True
+
+        if criterion.get("fixture_fidelity") == "provider_faithful" and not provider_fixture_seen:
+            findings.append(f"criterion {criterion_id} lacks provider-faithful fixture evidence")
+
         missing = sorted(required - passed)
         if missing:
             findings.append(f"required criterion {criterion_id} lacks current proof: {', '.join(missing)}")
-        else:
+        elif criterion.get("fixture_fidelity") != "provider_faithful" or provider_fixture_seen:
             satisfied.add(criterion_id)
 
     satisfied -= blocked
