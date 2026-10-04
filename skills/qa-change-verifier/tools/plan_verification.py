@@ -61,6 +61,7 @@ REVIEW_RISK_REASONS = frozenset(
 INVARIANT_DIMENSIONS = frozenset(
     {
         "present_valid",
+        "invalid",
         "missing",
         "explicit_null",
         "empty_container",
@@ -68,6 +69,8 @@ INVARIANT_DIMENSIONS = frozenset(
         "malformed_value",
         "unknown",
         "stale",
+        "concurrent",
+        "recovery",
         "conflicting_identity",
         "conflicting_generation",
         "conflicting_digest",
