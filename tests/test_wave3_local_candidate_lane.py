@@ -146,32 +146,88 @@ def test_local_lane_tool_is_manifested_and_in_all_quality_inventories() -> None:
         assert _covered(targets, path)
 
 
-def _migration_receipt(*, candidate_revision: str = "candidate-1", verdict: str = "pass") -> dict[str, object]:
-    failures = [] if verdict == "pass" else ["legacy-prestate-not-proven"]
+def _migration_payload(*, candidate_revision: str = "candidate-1", valid: bool = True) -> dict[str, object]:
+    entrypoint = "app.Migrations.run"
+    entrypoint_revision = "sha256:migrator-v2"
+    legacy_refs = ["schema:legacy-column"] if valid else []
     return {
         "schema_version": 1,
-        "verdict": verdict,
         "candidate_revision": candidate_revision,
         "current_schema": "v2",
-        "production_entrypoint": "app.Migrations.run",
-        "production_entrypoint_revision": "sha256:migrator-v2",
-        "exercised_inputs": [
+        "production_entrypoint": entrypoint,
+        "production_entrypoint_revision": entrypoint_revision,
+        "supported_inputs": [
             {"input_ref": "fresh", "kind": "fresh", "schema_identity": None},
             {"input_ref": "v1", "kind": "legacy", "schema_identity": "v1"},
+        ],
+        "unsupported_inputs": [
             {"input_ref": "v0", "kind": "unsupported", "schema_identity": "v0"},
         ],
-        "failures": failures,
+        "cases": [
+            {
+                "input_ref": "fresh",
+                "fixture_identity": "fixture:fresh:sha256:abc",
+                "observed_pre_schema": None,
+                "legacy_characteristic_refs": [],
+                "absent_current_characteristic_refs": [],
+                "exercised_entrypoint": entrypoint,
+                "exercised_entrypoint_revision": entrypoint_revision,
+                "result": "pass",
+                "observed_post_schema": "v2",
+                "data_invariant_refs": [],
+                "recovery_evidence_refs": [],
+            },
+            {
+                "input_ref": "v1",
+                "fixture_identity": "fixture:v1:sha256:def",
+                "observed_pre_schema": "v1",
+                "legacy_characteristic_refs": legacy_refs,
+                "absent_current_characteristic_refs": ["schema:no-current-column"],
+                "exercised_entrypoint": entrypoint,
+                "exercised_entrypoint_revision": entrypoint_revision,
+                "result": "pass",
+                "observed_post_schema": "v2",
+                "data_invariant_refs": ["data:representative-row"],
+                "recovery_evidence_refs": [],
+            },
+            {
+                "input_ref": "v0",
+                "fixture_identity": "fixture:v0:sha256:ghi",
+                "observed_pre_schema": "v0",
+                "legacy_characteristic_refs": [],
+                "absent_current_characteristic_refs": ["schema:no-current-column"],
+                "exercised_entrypoint": entrypoint,
+                "exercised_entrypoint_revision": entrypoint_revision,
+                "result": "reject",
+                "observed_post_schema": "v0",
+                "data_invariant_refs": [],
+                "recovery_evidence_refs": [],
+            },
+            {
+                "input_ref": "v1",
+                "fixture_identity": "fixture:v1:sha256:def",
+                "observed_pre_schema": "v1",
+                "legacy_characteristic_refs": legacy_refs,
+                "absent_current_characteristic_refs": ["schema:no-current-column"],
+                "exercised_entrypoint": entrypoint,
+                "exercised_entrypoint_revision": entrypoint_revision,
+                "result": "interrupted",
+                "observed_post_schema": "v1",
+                "data_invariant_refs": [],
+                "recovery_evidence_refs": ["recovery:transaction-rolled-back"],
+            },
+        ],
     }
 
 
-def test_non_migration_candidate_remains_backward_compatible_without_migration_receipt() -> None:
+def test_non_migration_candidate_remains_backward_compatible_without_migration_payload() -> None:
     module = _load("wave3_local_lane_non_migration", TOOL)
     receipt = module.compose_local_lane_receipt(_evidence(module))
     assert receipt["verdict"] == "pass"
     assert "migration_acceptance" not in receipt
 
 
-def test_migration_candidate_requires_green_exact_candidate_migration_receipt() -> None:
+def test_migration_candidate_requires_green_exact_candidate_migration_payload() -> None:
     module = _load("wave3_local_lane_migration", TOOL)
     missing = module.compose_local_lane_receipt(
         _evidence(
@@ -181,14 +237,14 @@ def test_migration_candidate_requires_green_exact_candidate_migration_receipt() 
         )
     )
     assert missing["verdict"] == "fail"
-    assert "migration_acceptance_receipt_missing" in missing["failures"]
+    assert "migration_acceptance_payload_missing" in missing["failures"]
 
     valid = module.compose_local_lane_receipt(
         _evidence(
             module,
             candidate_revision="candidate-1",
             migration_acceptance_required=True,
-            migration_acceptance_receipt=_migration_receipt(),
+            migration_acceptance_payload=_migration_payload(),
         )
     )
     assert valid["verdict"] == "pass"
@@ -204,14 +260,14 @@ def test_migration_candidate_requires_green_exact_candidate_migration_receipt() 
     }
 
 
-def test_migration_candidate_rejects_stale_or_non_green_migration_receipt() -> None:
+def test_migration_candidate_rejects_stale_or_non_green_migration_payload() -> None:
     module = _load("wave3_local_lane_migration_stale", TOOL)
     stale = module.compose_local_lane_receipt(
         _evidence(
             module,
             candidate_revision="candidate-2",
             migration_acceptance_required=True,
-            migration_acceptance_receipt=_migration_receipt(candidate_revision="candidate-1"),
+            migration_acceptance_payload=_migration_payload(candidate_revision="candidate-1"),
         )
     )
     assert stale["verdict"] == "fail"
@@ -222,8 +278,32 @@ def test_migration_candidate_rejects_stale_or_non_green_migration_receipt() -> N
             module,
             candidate_revision="candidate-1",
             migration_acceptance_required=True,
-            migration_acceptance_receipt=_migration_receipt(verdict="fail"),
+            migration_acceptance_payload=_migration_payload(valid=False),
         )
     )
     assert failed["verdict"] == "fail"
-    assert "migration_acceptance_receipt_non_green" in failed["failures"]
+    assert any(item.startswith("migration_acceptance_failed:") for item in failed["failures"])
+
+
+def test_caller_authored_receipt_shape_cannot_bypass_canonical_migration_evaluator() -> None:
+    module = _load("wave3_local_lane_forged_receipt", TOOL)
+    forged_receipt = {
+        "schema_version": 1,
+        "verdict": "pass",
+        "candidate_revision": "candidate-1",
+        "current_schema": "v2",
+        "production_entrypoint": "app.Migrations.run",
+        "production_entrypoint_revision": "sha256:migrator-v2",
+        "exercised_inputs": [],
+        "failures": [],
+    }
+    receipt = module.compose_local_lane_receipt(
+        _evidence(
+            module,
+            candidate_revision="candidate-1",
+            migration_acceptance_required=True,
+            migration_acceptance_payload=forged_receipt,
+        )
+    )
+    assert receipt["verdict"] == "fail"
+    assert any(item.startswith("migration_acceptance_failed:") for item in receipt["failures"])

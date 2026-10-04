@@ -38,7 +38,7 @@ class LocalCandidateEvidence:
     probe_client_receipt: dict[str, object] | None = None
     candidate_revision: str = ""
     migration_acceptance_required: object = False
-    migration_acceptance_receipt: dict[str, object] | None = None
+    migration_acceptance_payload: object = None
 
 
 def compose_local_lane_receipt(evidence: LocalCandidateEvidence) -> dict[str, object]:
@@ -107,9 +107,9 @@ def compose_local_lane_receipt(evidence: LocalCandidateEvidence) -> dict[str, ob
     elif evidence.migration_acceptance_required:
         if not isinstance(evidence.candidate_revision, str) or not evidence.candidate_revision.strip():
             failures.append("candidate_revision_missing_for_migration")
-        migration_receipt = evidence.migration_acceptance_receipt
-        if migration_receipt is None:
-            failures.append("migration_acceptance_receipt_missing")
+        migration_payload = evidence.migration_acceptance_payload
+        if migration_payload is None:
+            failures.append("migration_acceptance_payload_missing")
         else:
             migration_path = (
                 Path(__file__).resolve().parents[2] / "qa-change-verifier" / "tools" / "migration_acceptance.py"
@@ -119,13 +119,15 @@ def compose_local_lane_receipt(evidence: LocalCandidateEvidence) -> dict[str, ob
             migration_module = importlib.util.module_from_spec(migration_spec)
             sys.modules[migration_spec.name] = migration_module
             migration_spec.loader.exec_module(migration_module)
+            migration_assessment = migration_module.evaluate_migration_acceptance_payload(migration_payload)
+            migration_receipt = migration_assessment.receipt()
             migration_findings = migration_module.validate_migration_acceptance_receipt(migration_receipt)
             if migration_findings:
-                failures.extend(f"migration_acceptance_receipt_rejected:{item}" for item in migration_findings)
+                failures.extend(f"migration_acceptance_internal_receipt_invalid:{item}" for item in migration_findings)
             elif migration_receipt.get("candidate_revision") != evidence.candidate_revision:
                 failures.append("migration_acceptance_receipt_candidate_mismatch")
-            elif migration_receipt.get("verdict") != "pass":
-                failures.append("migration_acceptance_receipt_non_green")
+            elif migration_assessment.status != "pass":
+                failures.extend(f"migration_acceptance_failed:{item}" for item in migration_assessment.findings)
             else:
                 receipt["migration_acceptance"] = {
                     "verdict": "pass",

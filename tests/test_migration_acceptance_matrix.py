@@ -538,3 +538,39 @@ def test_fresh_install_does_not_require_preexisting_data_survival_evidence() -> 
         ),
     )
     assert _evaluate(module, cases).status == "pass"
+
+
+def test_unhashable_recovery_input_ref_returns_findings_instead_of_raising() -> None:
+    module = _load("migration_acceptance_unhashable_recovery", TOOL)
+    supported, unsupported = _specs(module)
+    malformed_case = module.MigrationCaseEvidence(
+        input_ref=["v1"],
+        fixture_identity="fixture:bad",
+        observed_pre_schema="v1",
+        legacy_characteristic_refs=("schema:legacy-column",),
+        absent_current_characteristic_refs=("schema:no-current-column",),
+        exercised_entrypoint=ENTRY,
+        exercised_entrypoint_revision=ENTRY_REV,
+        result=module.MigrationCaseResult.INTERRUPTED,
+        observed_post_schema="v1",
+        data_invariant_refs=(),
+        recovery_evidence_refs=("recovery:claimed",),
+    )
+    cases = (
+        _case(module, "fresh", None, legacy_refs=(), absent_refs=(), data_refs=()),
+        _case(module, "v1", "v1"),
+        _case(module, "v0", "v0", module.MigrationCaseResult.REJECT, "v0", data_refs=()),
+        malformed_case,
+    )
+    assessment = module.evaluate_migration_acceptance(
+        candidate_revision=CANDIDATE,
+        current_schema=CURRENT,
+        production_entrypoint=ENTRY,
+        production_entrypoint_revision=ENTRY_REV,
+        supported_inputs=supported,
+        unsupported_inputs=unsupported,
+        cases=cases,
+    )
+    assert assessment.status == "fail"
+    assert "migration case input_ref must be a non-empty string" in assessment.findings
+    assert "interrupted mutating supported migration recovery case is required" in assessment.findings

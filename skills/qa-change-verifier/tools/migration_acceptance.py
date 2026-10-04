@@ -266,8 +266,9 @@ def evaluate_migration_acceptance(
         }
         recovery_cases = [
             case
-            for case in evidence_cases
-            if case.result is MigrationCaseResult.INTERRUPTED and case.input_ref in recovery_input_refs
+            for ref in recovery_input_refs
+            for case in case_by_ref.get(ref, [])
+            if case.result is MigrationCaseResult.INTERRUPTED
         ]
         for case in recovery_cases:
             recovery_spec = spec_by_ref.get(case.input_ref)
@@ -289,6 +290,208 @@ def evaluate_migration_acceptance(
         production_entrypoint=entrypoint_value,
         production_entrypoint_revision=entrypoint_revision_value,
     )
+
+
+def evaluate_migration_acceptance_payload(payload: object) -> MigrationAcceptanceAssessment:
+    """Decode raw migration evidence and issue an assessment through the canonical evaluator."""
+    decode_findings: list[str] = []
+    if not isinstance(payload, dict):
+        decode_findings.append("migration acceptance payload must be an object")
+        raw: dict[object, object] = {}
+    else:
+        raw = payload
+
+    allowed = {
+        "schema_version",
+        "candidate_revision",
+        "current_schema",
+        "production_entrypoint",
+        "production_entrypoint_revision",
+        "supported_inputs",
+        "unsupported_inputs",
+        "cases",
+        "require_current_rerun",
+        "require_interrupted_recovery",
+    }
+    raw_keys = list(raw)
+    if not all(isinstance(key, str) for key in raw_keys):
+        decode_findings.append("migration acceptance payload field names must be strings")
+    extra = sorted(key for key in raw_keys if isinstance(key, str) and key not in allowed)
+    if extra:
+        decode_findings.append("migration acceptance payload has unknown fields: " + ", ".join(extra))
+
+    version = raw.get("schema_version")
+    if isinstance(version, bool) or version != 1:
+        decode_findings.append("migration acceptance payload schema_version must be integer 1")
+
+    supported = _decode_input_payloads(raw.get("supported_inputs"), "supported_inputs", decode_findings)
+    unsupported = _decode_input_payloads(raw.get("unsupported_inputs"), "unsupported_inputs", decode_findings)
+    cases = _decode_case_payloads(raw.get("cases"), decode_findings)
+
+    assessment = evaluate_migration_acceptance(
+        candidate_revision=raw.get("candidate_revision"),
+        current_schema=raw.get("current_schema"),
+        production_entrypoint=raw.get("production_entrypoint"),
+        production_entrypoint_revision=raw.get("production_entrypoint_revision"),
+        supported_inputs=supported,
+        unsupported_inputs=unsupported,
+        cases=cases,
+        require_current_rerun=raw.get("require_current_rerun", False),
+        require_interrupted_recovery=raw.get("require_interrupted_recovery", True),
+    )
+    findings = tuple(sorted(set((*assessment.findings, *decode_findings))))
+    return MigrationAcceptanceAssessment(
+        status="pass" if not findings else "fail",
+        findings=findings,
+        exercised_inputs=assessment.exercised_inputs,
+        candidate_revision=assessment.candidate_revision,
+        current_schema=assessment.current_schema,
+        production_entrypoint=assessment.production_entrypoint,
+        production_entrypoint_revision=assessment.production_entrypoint_revision,
+    )
+
+
+def _decode_input_payloads(
+    value: object,
+    field: str,
+    findings: list[str],
+) -> tuple[MigrationInputSpec, ...]:
+    """Decode primitive input declarations without trusting caller-authored dataclass instances."""
+    if not isinstance(value, list):
+        findings.append(f"migration acceptance payload {field} must be an array")
+        return ()
+    result: list[MigrationInputSpec] = []
+    allowed = {"input_ref", "kind", "schema_identity"}
+    for index, item in enumerate(value):
+        label = f"migration acceptance payload {field}[{index}]"
+        if not isinstance(item, dict):
+            findings.append(f"{label} must be an object")
+            continue
+        extra = sorted(key for key in item if isinstance(key, str) and key not in allowed)
+        if extra or any(not isinstance(key, str) for key in item):
+            findings.append(f"{label} has invalid fields")
+            continue
+        input_ref = item.get("input_ref")
+        raw_kind = item.get("kind")
+        schema_identity = item.get("schema_identity")
+        if not isinstance(input_ref, str) or not input_ref.strip():
+            findings.append(f"{label} input_ref must be a non-empty string")
+            continue
+        if not isinstance(raw_kind, str):
+            findings.append(f"{label} kind must be a string")
+            continue
+        try:
+            kind = MigrationInputKind(raw_kind)
+        except ValueError:
+            findings.append(f"{label} kind is invalid")
+            continue
+        if schema_identity is not None and not isinstance(schema_identity, str):
+            findings.append(f"{label} schema_identity must be string or null")
+            continue
+        result.append(MigrationInputSpec(input_ref=input_ref, kind=kind, schema_identity=schema_identity))
+    return tuple(result)
+
+
+def _decode_case_payloads(
+    value: object,
+    findings: list[str],
+) -> tuple[MigrationCaseEvidence, ...]:
+    """Decode primitive migration case evidence before canonical evaluation."""
+    if not isinstance(value, list):
+        findings.append("migration acceptance payload cases must be an array")
+        return ()
+    result: list[MigrationCaseEvidence] = []
+    required = {
+        "input_ref",
+        "fixture_identity",
+        "observed_pre_schema",
+        "legacy_characteristic_refs",
+        "absent_current_characteristic_refs",
+        "exercised_entrypoint",
+        "exercised_entrypoint_revision",
+        "result",
+        "observed_post_schema",
+        "data_invariant_refs",
+    }
+    allowed = required | {"recovery_evidence_refs"}
+    for index, item in enumerate(value):
+        label = f"migration acceptance payload cases[{index}]"
+        if not isinstance(item, dict):
+            findings.append(f"{label} must be an object")
+            continue
+        keys = {key for key in item if isinstance(key, str)}
+        if any(not isinstance(key, str) for key in item) or keys - allowed or not required.issubset(keys):
+            findings.append(f"{label} has invalid or missing fields")
+            continue
+        input_ref = item.get("input_ref")
+        fixture_identity = item.get("fixture_identity")
+        entrypoint = item.get("exercised_entrypoint")
+        entrypoint_revision = item.get("exercised_entrypoint_revision")
+        if not isinstance(input_ref, str) or not input_ref.strip():
+            findings.append(f"{label} input_ref must be a non-empty string")
+            continue
+        if not isinstance(fixture_identity, str):
+            findings.append(f"{label} fixture_identity must be a string")
+            continue
+        if not isinstance(entrypoint, str):
+            findings.append(f"{label} exercised_entrypoint must be a string")
+            continue
+        if not isinstance(entrypoint_revision, str):
+            findings.append(f"{label} exercised_entrypoint_revision must be a string")
+            continue
+        raw_result = item.get("result")
+        if not isinstance(raw_result, str):
+            findings.append(f"{label} result must be a string")
+            continue
+        try:
+            case_result = MigrationCaseResult(raw_result)
+        except ValueError:
+            findings.append(f"{label} result is invalid")
+            continue
+        pre_schema = item.get("observed_pre_schema")
+        post_schema = item.get("observed_post_schema")
+        if pre_schema is not None and not isinstance(pre_schema, str):
+            findings.append(f"{label} observed_pre_schema must be string or null")
+            continue
+        if post_schema is not None and not isinstance(post_schema, str):
+            findings.append(f"{label} observed_post_schema must be string or null")
+            continue
+        legacy_refs = _decode_string_list(item.get("legacy_characteristic_refs"), f"{label} legacy refs", findings)
+        absent_refs = _decode_string_list(
+            item.get("absent_current_characteristic_refs"),
+            f"{label} absent-current refs",
+            findings,
+        )
+        data_refs = _decode_string_list(item.get("data_invariant_refs"), f"{label} data refs", findings)
+        recovery_refs = _decode_string_list(
+            item.get("recovery_evidence_refs", []),
+            f"{label} recovery refs",
+            findings,
+        )
+        result.append(
+            MigrationCaseEvidence(
+                input_ref=input_ref,
+                fixture_identity=fixture_identity,
+                observed_pre_schema=pre_schema,
+                legacy_characteristic_refs=legacy_refs,
+                absent_current_characteristic_refs=absent_refs,
+                exercised_entrypoint=entrypoint,
+                exercised_entrypoint_revision=entrypoint_revision,
+                result=case_result,
+                observed_post_schema=post_schema,
+                data_invariant_refs=data_refs,
+                recovery_evidence_refs=recovery_refs,
+            )
+        )
+    return tuple(result)
+
+
+def _decode_string_list(value: object, field: str, findings: list[str]) -> tuple[str, ...]:
+    """Decode a primitive string array while keeping malformed evidence fail-closed."""
+    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+        findings.append(f"{field} must be a string array")
+        return ()
+    return tuple(value)
 
 
 def validate_migration_acceptance_receipt(receipt: object) -> tuple[str, ...]:
