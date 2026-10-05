@@ -67,6 +67,20 @@ For each affected consumer, choose one result:
 
 Use an explicit `NEEDS_DOWNSTREAM_REVIEW` marker only while the review is outstanding. Do not leave it as permanent metadata.
 
+## Decision implementation completion
+
+Treat decision acceptance and implementation completion as separate lifecycle facts. An accepted/current decision remains authoritative while its required implementation consequences are being delivered unless the decision itself is superseded, deprecated, archived, or otherwise changed by its owner.
+
+Before describing a decision as implemented:
+
+1. enumerate every material consequence the decision declared or linked, including required implementation, migration/compatibility, rollout, rollback, cleanup, verification, and downstream review work;
+2. classify each required consequence as satisfied, explicitly not applicable with reason, or unresolved; do not infer completion from document `status`;
+3. require current evidence/reference for satisfied verification consequences and the authoritative implementation reference for consequences whose completion depends on code/configuration/artifacts;
+4. keep any pending, blocked, unknown, missing-evidence, or outstanding downstream-review consequence non-complete;
+5. feed changed consumers through the existing change-impact protocol instead of inventing a second dependency graph.
+
+A repository may project these facts from its canonical work/change system. AFDS does not require a universal implementation-status field or duplicate volatile CI/review state in frontmatter.
+
 ## Review triggers
 
 Review a document when its implementation, specification, security boundary, supported runtime, public contract, or operational evidence changes. A fixed calendar review may be added for regulated or high-risk material, but a handwritten `last_verified` date is not proof of review.
