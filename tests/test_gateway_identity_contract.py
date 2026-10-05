@@ -120,6 +120,28 @@ def test_collision_handling_is_order_health_case_and_truncation_independent(
         gateway.build_gateway_catalog(registrations, components)
 
 
+def test_canonical_id_length_bound_is_component_kind_aware() -> None:
+    gateway = _load("gateway_identity_length_bound", TOOL)
+    source = _source(gateway, "source")
+
+    for kind in gateway.GatewayComponentKind:
+        canonical_id = gateway.canonical_gateway_id(
+            source,
+            kind,
+            "x" * 300,
+            max_length=64,
+        )
+        assert len(canonical_id) <= 64
+
+    with pytest.raises(ValueError, match="resource-template"):
+        gateway.canonical_gateway_id(
+            source,
+            gateway.GatewayComponentKind.RESOURCE_TEMPLATE,
+            "template",
+            max_length=40,
+        )
+
+
 def test_resource_uri_overlap_stale_readd_and_namespace_escape_fail_closed() -> None:
     gateway = _load("gateway_identity_resources", TOOL)
     source_a = _source(gateway, "a")

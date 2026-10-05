@@ -143,8 +143,6 @@ def canonical_gateway_id(
     """Derive a deterministic bounded identity from exact source, kind, and upstream identity."""
     if not upstream_identity.strip():
         raise ValueError("upstream identity must be non-empty")
-    if max_length < 40:
-        raise ValueError("max_length must leave room for kind, slug, and collision-resistant suffix")
     material = json.dumps(
         [list(source.namespace), kind.value, upstream_identity],
         ensure_ascii=False,
@@ -152,6 +150,11 @@ def canonical_gateway_id(
     ).encode("utf-8")
     digest = hashlib.sha256(material).hexdigest()[:20]
     prefix = f"gw-{kind.value}-"
+    minimum_length = len(prefix) + len(digest) + 2
+    if max_length < minimum_length:
+        raise ValueError(
+            f"max_length must be >= {minimum_length} for component kind {kind.value}"
+        )
     available = max_length - len(prefix) - len(digest) - 1
     slug = _normalized_label(upstream_identity)[:available].strip("-") or "component"
     return f"{prefix}{slug}-{digest}"
