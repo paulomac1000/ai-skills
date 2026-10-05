@@ -60,7 +60,14 @@ def test_recovery_disposition_is_separate_from_failure_classification() -> None:
     assert checks.recovery_disposition_is_admissible("rate_limited", "retry", outer_budget_preserved=False) is False
     assert checks.recovery_disposition_is_admissible("rate_limited", "wait") is True
     assert checks.recovery_disposition_is_admissible("rate_limited", "invented") is False
-    assert checks.recovery_disposition_is_admissible("upstream_timeout", "reconcile", side_effect_ambiguous=True) is True
+    assert (
+        checks.recovery_disposition_is_admissible(
+            "upstream_timeout",
+            "reconcile",
+            side_effect_ambiguous=True,
+        )
+        is True
+    )
     assert checks.recovery_disposition_is_admissible("upstream_timeout", "retry", side_effect_ambiguous=True) is False
     assert checks.recovery_disposition_is_admissible("unknown", "retry") is False
     assert checks.recovery_disposition_is_admissible("unknown", "fail_closed") is True
