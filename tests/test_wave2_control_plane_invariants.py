@@ -56,6 +56,140 @@ def test_retarget_preserves_canonical_identity_and_audits_transition() -> None:
     assert moved.transition_history[-1].startswith("retarget:board-a/item-3->board-b/item-8:")
 
 
+def test_provider_scoped_external_identity_separates_github_local_numbers_and_markers() -> None:
+    control = _load("wave2_control_plane_external_identity", TOOL)
+    repo_a = control.ProviderScopedExternalIdentity(
+        "github", "issue", "42", ("installation-7", "owner", "repo-a")
+    )
+    repo_b = control.ProviderScopedExternalIdentity(
+        "github", "issue", "42", ("installation-7", "owner", "repo-b")
+    )
+    assert repo_a.binding_key != repo_b.binding_key
+
+    try:
+        control.ProviderScopedExternalIdentity("github", "issue", "42")
+    except ValueError as exc:
+        assert "complete provider namespace" in str(exc)
+    else:
+        raise AssertionError("bare provider-local issue number must fail closed")
+
+    binding_a = control.ExternalBinding("entity-a", repo_a, recovery_locator="managed:entity-7")
+    binding_b = control.ExternalBinding("entity-b", repo_b, recovery_locator="managed:entity-7")
+    assert not control.binding_matches_external(binding_a, repo_b)
+    assert binding_a.canonical_id != binding_b.canonical_id
+
+
+def test_event_ingress_deduplicates_and_reconciles_authoritative_state() -> None:
+    control = _load("wave2_control_plane_event_ingress", TOOL)
+    identity = control.ProviderScopedExternalIdentity(
+        "github", "issue", "42", ("installation-7", "owner", "repo-a")
+    )
+    first = control.EventIngressReceipt(
+        "github", "delivery-1", "issues", identity, "2026-10-05T17:00:00Z", ("installation-7",)
+    )
+    recorded, is_new = control.admit_event_receipt(None, first)
+    assert is_new
+
+    retry = control.EventIngressReceipt(
+        "github", "delivery-1", "issues", identity, "2026-10-05T17:01:00Z", ("installation-7",)
+    )
+    same, is_new = control.admit_event_receipt(recorded, retry)
+    assert same is recorded
+    assert not is_new
+
+    latest = control.begin_event_reconciliation(recorded)
+    applied = control.settle_event_reconciliation(
+        latest,
+        canonical_id="entity-a",
+        authoritative_state_revision="etag-9",
+        policy_authorized=True,
+        expected_resource_generation="gen-4",
+        current_resource_generation="gen-4",
+        semantic_change=True,
+    )
+    assert applied.state.value == "APPLIED"
+
+    older = control.EventIngressReceipt(
+        "github", "delivery-0", "issues", identity, "2026-10-05T16:00:00Z", ("installation-7",)
+    )
+    older = control.begin_event_reconciliation(older)
+    no_change = control.settle_event_reconciliation(
+        older,
+        canonical_id="entity-a",
+        authoritative_state_revision="etag-9",
+        policy_authorized=True,
+        expected_resource_generation="gen-5",
+        current_resource_generation="gen-5",
+        semantic_change=False,
+    )
+    assert no_change.state.value == "NO_CHANGE"
+    assert no_change.authoritative_state_revision == "etag-9"
+
+
+def test_event_ingress_fence_authority_and_restart_fail_closed() -> None:
+    control = _load("wave2_control_plane_event_fence", TOOL)
+    identity = control.ProviderScopedExternalIdentity(
+        "github", "issue", "42", ("installation-7", "owner", "repo-a")
+    )
+    received = control.EventIngressReceipt(
+        "github", "delivery-2", "issues", identity, "2026-10-05T17:02:00Z", ("installation-7",)
+    )
+    queued = control.begin_event_reconciliation(received)
+
+    stale = control.settle_event_reconciliation(
+        queued,
+        canonical_id="entity-a",
+        authoritative_state_revision="etag-10",
+        policy_authorized=True,
+        expected_resource_generation="gen-5",
+        current_resource_generation="gen-6",
+        semantic_change=True,
+    )
+    assert stale.state.value == "RECONCILE_REQUIRED"
+
+    try:
+        control.settle_event_reconciliation(
+            queued,
+            canonical_id="entity-a",
+            authoritative_state_revision="etag-10",
+            policy_authorized=False,
+            expected_resource_generation="gen-6",
+            current_resource_generation="gen-6",
+            semantic_change=True,
+        )
+    except ValueError as exc:
+        assert "does not grant canonical transition authority" in str(exc)
+    else:
+        raise AssertionError("event delivery must not self-authorize")
+
+    reloaded = control.EventIngressReceipt(
+        received.provider,
+        received.delivery_id,
+        received.event_kind,
+        received.external_identity,
+        received.received_at,
+        received.source_scope,
+        state=control.EventIngressState.RECONCILE_REQUIRED,
+    )
+    assert control.begin_event_reconciliation(reloaded) is reloaded
+
+
+def test_external_rebind_preserves_canonical_identity() -> None:
+    control = _load("wave2_control_plane_external_rebind", TOOL)
+    before = control.ProviderScopedExternalIdentity(
+        "github", "issue", "42", ("installation-7", "owner", "repo-a")
+    )
+    after = control.ProviderScopedExternalIdentity(
+        "github", "issue", "42", ("installation-7", "owner", "repo-b")
+    )
+    binding = control.ExternalBinding("entity-a", before, recovery_locator="managed:entity-a")
+    moved = control.rebind_external_resource(binding, after, reason="repository transfer")
+
+    assert moved.canonical_id == binding.canonical_id
+    assert moved.external_identity == after
+    assert moved.transition_history[-1].startswith("rebind:")
+
+
 def test_standard_covers_complete_canonical_projection_pattern_bundle() -> None:
     text = STANDARD.read_text(encoding="utf-8")
     for phrase in (
@@ -66,6 +200,9 @@ def test_standard_covers_complete_canonical_projection_pattern_bundle() -> None:
         "preserves canonical entity identity/history",
         "completed externally or by an operator",
         "bounded actionable brief/status",
+        "complete provider namespace",
+        "External events are authenticated reconciliation triggers",
+        "owner/repository/issues/42",
     ):
         assert phrase in text
 

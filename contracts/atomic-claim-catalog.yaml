@@ -1,5 +1,5 @@
 schema_version: 1
-catalog_version: 1.3.0
+catalog_version: 1.4.0
 controls:
   - id: cicd.mcp.protocol-conformance
     parent_rule_id: cicd.quality.language
@@ -31,6 +31,20 @@ controls:
     waivable: false
     required_evidence: [unit]
     test_selectors: [tests/test_atomic_claim_contract.py::test_runtime_and_protocol_claims_are_separate]
+  - id: mcp.control-plane.external-binding-ingress
+    parent_rule_id: mcp.architecture.boundaries
+    skill: mcp-server-architect
+    source: skills/mcp-server-architect/STANDARD.md#canonical-control-plane-and-projections
+    description: External bindings include the complete provider namespace and authenticated external events use provider/source-scoped durable dedup receipts that trigger current-state reconciliation instead of direct ordered transitions.
+    applies_when: {maturity_at_least: L2, profiles_any: [external-upstream, multi-backend, gateway]}
+    severity: blocking
+    waivable: false
+    required_evidence: [unit, integration]
+    test_selectors:
+      - tests/test_wave2_control_plane_invariants.py::test_provider_scoped_external_identity_separates_github_local_numbers_and_markers
+      - tests/test_wave2_control_plane_invariants.py::test_event_ingress_deduplicates_and_reconciles_authoritative_state
+      - tests/test_wave2_control_plane_invariants.py::test_event_ingress_fence_authority_and_restart_fail_closed
+      - tests/test_wave2_control_plane_invariants.py::test_external_rebind_preserves_canonical_identity
   - id: mcp.protocol.current-revision
     parent_rule_id: mcp.sdk.compatibility-isolation
     skill: mcp-server-architect

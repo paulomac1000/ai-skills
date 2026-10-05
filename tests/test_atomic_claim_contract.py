@@ -33,6 +33,15 @@ def test_cicd_mcp_claims_are_independent() -> None:
     assert protocol["id"] != artifact["id"]
 
 
+def test_external_binding_and_event_ingress_claim_is_explicit() -> None:
+    controls = _controls()
+    control = controls["mcp.control-plane.external-binding-ingress"]
+    assert control["parent_rule_id"] == "mcp.architecture.boundaries"
+    assert control["applies_when"]["profiles_any"] == ["external-upstream", "multi-backend", "gateway"]
+    assert control["required_evidence"] == ["unit", "integration"]
+    assert len(control["test_selectors"]) == 4
+
+
 def test_runtime_and_protocol_claims_are_separate() -> None:
     controls = _controls()
     assert controls["mcp.runtime.isolation"]["parent_rule_id"] == "mcp.architecture.boundaries"

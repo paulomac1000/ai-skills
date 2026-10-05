@@ -43,4 +43,7 @@ owners: [repository-maintainers]
 | server metadata self-asserted trusted policy | trusted values travel outside discovered metadata | typed consumer-owned policy object | same; do not use a boolean to upgrade fields from the untrusted map |
 | old standard URL was removed | stable documentation entry points are compatibility contracts | deprecation stub links to canonical docs | same language-neutral repository rule |
 
+| provider-local resource number collided across repositories | external binding identity includes the complete provider namespace | typed immutable provider/scope/namespace/resource tuple plus separate recovery locator | typed immutable provider/scope/namespace/resource value object plus separate recovery locator |
+| duplicate or out-of-order webhook attempted a direct canonical transition | external events persist provider/source-scoped delivery receipts and trigger current-state reconciliation instead of ordered authority | durable inbox/dedup key, per-resource lock/fence, authoritative re-read | durable inbox/dedup key, keyed lock/fence, authoritative re-read |
+
 The map transfers the invariant, not the mechanism. Platform-specific code is correct only when runtime enforcement and tests prove equivalent behavior under that platform's lifecycle, transport, concurrency, authorization, and artifact model.
