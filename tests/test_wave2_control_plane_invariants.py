@@ -140,6 +140,16 @@ def test_event_ingress_deduplicates_and_reconciles_authoritative_state() -> None
     )
     assert applied.state.value == "APPLIED"
 
+    terminal_retry, is_new = control.admit_event_receipt(applied, retry)
+    assert terminal_retry is applied
+    assert not is_new
+    try:
+        control.begin_event_reconciliation(terminal_retry)
+    except ValueError as exc:
+        assert "terminal event receipt" in str(exc)
+    else:
+        raise AssertionError("duplicate terminal delivery must not reapply a semantic effect")
+
     older = control.EventIngressReceipt(
         "github", "delivery-0", "issues", identity, "2026-10-05T16:00:00Z", ("installation-7",)
     )
