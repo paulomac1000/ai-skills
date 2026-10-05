@@ -870,6 +870,16 @@ profiles:
     - repository-junit.xml
     execution_id: repository
   - kind: rule
+    subject: steward.context.provenance
+    selectors:
+    - '*test_persistent_context_provenance::test_persistence_never_upgrades_authority_or_untrusted_payload'
+    - '*test_persistent_context_provenance::test_generation_and_policy_identity_invalidate_persistent_context'
+    - '*test_persistent_context_provenance::test_advisory_reuse_requires_scope_and_currentness'
+    - '*test_persistent_context_provenance::test_missing_requested_scope_cannot_widen_scoped_context'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
     subject: steward.lineage.fenced
     selectors:
     - '*test_mcp_steward_architect*'
