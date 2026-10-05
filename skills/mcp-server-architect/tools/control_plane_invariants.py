@@ -230,6 +230,7 @@ def retarget_projection(entity: CanonicalEntity, new_projection_target: str, *, 
         transition_history=(*entity.transition_history, transition),
     )
 
+
 class ProjectionFieldOwnership(StrEnum):
     """Authority class for one semantic projection field or namespace."""
 
@@ -388,8 +389,8 @@ class ProjectionAuditEvidence:
     new_value_digest: str | None = None
 
     def __post_init__(self) -> None:
-        for value in (self.actor, self.field, self.policy_revision, self.reconciliation_outcome):
-            if not value.strip():
+        for required_value in (self.actor, self.field, self.policy_revision, self.reconciliation_outcome):
+            if not required_value.strip():
                 raise ValueError("audit evidence identity fields must be non-empty")
         for label, value, limit in (
             ("provider confidence", self.provider_confidence, 64),
@@ -437,7 +438,11 @@ def admit_external_automation(
     if rule.ownership in {ProjectionFieldOwnership.CANONICAL_OWNED, ProjectionFieldOwnership.UNKNOWN}:
         return False
     grant = capability.grant_for(field)
-    if grant is None or action not in grant.actions or rule.side_effect_class not in capability.allowed_side_effect_classes:
+    if (
+        grant is None
+        or action not in grant.actions
+        or rule.side_effect_class not in capability.allowed_side_effect_classes
+    ):
         return False
     if rule.ownership is ProjectionFieldOwnership.SHARED_MANAGED_REGIONS:
         return region is not None and region in grant.allowed_regions and region not in rule.managed_regions
@@ -466,4 +471,3 @@ def reconcile_shared_regions(
 def canonical_scheduler_may_claim(external_work_state: ExternalWorkState) -> bool:
     """Block a second canonical worker until externally started work is terminally reconciled."""
     return external_work_state in {ExternalWorkState.NONE, ExternalWorkState.TERMINAL_RECONCILED}
-
