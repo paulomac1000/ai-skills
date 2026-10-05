@@ -29,7 +29,6 @@ This standard defines how technical documentation is selected, structured, verif
 8. **Failure behavior is documented where relevant.** A procedure or system document states safe stop, rollback, degradation, or recovery behavior.
 9. **Change impact is visible.** Contract and decision changes identify affected consumers and downstream documents.
 10. **Human readability is mandatory.** Metadata supports retrieval and validation but does not replace clear prose.
-11. **Decision authority is not implementation completion.** An accepted/current decision may still have unresolved implementation, migration, rollout, cleanup, or verification consequences; document lifecycle status must not collapse those facts.
 
 ## Document types
 
@@ -39,22 +38,22 @@ This standard defines how technical documentation is selected, structured, verif
 | `reference` | What facts or rules must be looked up? | Scope, definitions, constraints, examples, non-goals |
 | `system` | How does a system behave and fail? | Responsibility, boundaries, interfaces, state, failure modes, observability |
 | `guide` | How can a reader learn or adopt something? | Audience, outcome, walkthrough, trade-offs, pitfalls |
-| `decision` | Why was one option selected? | Context, decision, alternatives, consequences, review trigger; implementation consequences when material |
-| `contract` | What must producers and consumers exchange? | Inputs, outputs, errors, compatibility, security, examples; observable acceptance mapping when it is the behavioral source of truth |
+| `decision` | Why was one option selected? | Context, decision, alternatives, consequences, review trigger |
+| `contract` | What must producers and consumers exchange? | Inputs, outputs, errors, compatibility, security, examples |
 
 Choose one primary type. Split documents when readers, ownership, lifecycle, or verification differ.
 
 ## Executable behavior and acceptance contracts
 
-A `contract` may specialize as the durable behavioral/acceptance source for a non-trivial software change without becoming a new AFDS document type. It distinguishes obligations/requirements, observable and falsifiable acceptance criteria, assumptions, examples, and evidence; covers applicable normal and negative/failure behavior plus public/compatibility effects; and maps criteria to the owning verification mechanism.
+A `contract` may be the durable behavior/acceptance source for a non-trivial change without becoming a new AFDS type. It separates obligations, falsifiable criteria, assumptions, examples, and evidence; covers applicable normal/failure behavior and compatibility effects; and maps criteria to the owning proof mechanism.
 
-Stable obligation/criterion identities from another canonical contract are referenced rather than copied. Mutable PASS/FAIL results, provider state, reviews, and receipts remain evidence records outside durable frontmatter. A canonical machine-readable public schema overrides explanatory prose for the exact wire/data contract. `qa-change-verifier` continues to own verification planning and exact evidence.
+Reuse stable obligation/criterion identities from their canonical owner. Executed results, reviews, and receipts stay in evidence systems, not durable frontmatter. A canonical machine-readable public schema overrides explanatory prose for its exact contract. `qa-change-verifier` owns verification planning and exact evidence.
 
 ## Decision authority and implementation completion
 
-For a `decision`, **decision accepted is not the same fact as decision implemented**. `status: active` establishes current decision authority; it does not prove that implementation, migration, rollout, cleanup, downstream review, or required verification has completed.
+For a `decision`, **decision accepted is not the same fact as decision implemented**. `status: active` establishes current decision authority only.
 
-When those consequences are material, the decision records or links them and their completion semantics. An implementation-complete claim requires every declared mandatory consequence to be satisfied with its required current evidence/reference or explicitly not applicable with reason; pending, blocked, unknown, unverified, or unreviewed mandatory consequences keep implementation incomplete. Do not add a second global AFDS status enum, hand-maintained score, or volatile result field for this distinction. Route downstream consequences through the existing lifecycle/change-impact protocol.
+Record or link material implementation, migration, rollout, rollback, cleanup, verification, and downstream-review consequences. Implementation is complete only when every declared mandatory consequence is satisfied with its required current evidence/reference or explicitly not applicable with reason; pending, blocked, unknown, unverified, or unreviewed mandatory consequences remain incomplete. Use the existing lifecycle/change-impact protocol; do not add another global AFDS status, score, or volatile result field.
 
 ## Required metadata
 
