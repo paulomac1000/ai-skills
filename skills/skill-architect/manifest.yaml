@@ -63,6 +63,7 @@ executable_resources:
     exit_code_mapping:
       '0': no-error-findings
       '1': error-findings
+      '2': invalid-arguments
     timeout: policy
     cancellation: supported
     safe_stop: supported
@@ -113,6 +114,7 @@ executable_resources:
     exit_code_mapping:
       '0': valid
       '1': findings
+      '2': invalid-arguments
     timeout: policy
     cancellation: supported
     safe_stop: supported

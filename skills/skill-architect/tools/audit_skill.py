@@ -144,6 +144,7 @@ def _resolved_inside(root: Path, target: Path) -> bool:
 
 
 def _executable_resource_schema_path() -> Path:
+    """Return the portable schema used to validate declared executable resources."""
     return Path(__file__).resolve().parents[1] / "schemas/executable-resource.schema.json"
 
 
@@ -152,9 +153,10 @@ def _executable_resource_findings(
     manifest_path: Path,
     skill_dir: Path,
 ) -> list[Finding]:
-    declarations = manifest.get("executable_resources")
-    if declarations is None:
+    """Validate optional executable-resource declarations without treating null as omission."""
+    if "executable_resources" not in manifest:
         return []
+    declarations = manifest["executable_resources"]
     if not isinstance(declarations, list):
         return [
             _finding(
