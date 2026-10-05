@@ -90,12 +90,41 @@ def test_event_ingress_deduplicates_and_reconciles_authoritative_state() -> None
     recorded, is_new = control.admit_event_receipt(None, first)
     assert is_new
 
+    other_source = control.EventIngressReceipt(
+        "github", "delivery-1", "issues", identity, "2026-10-05T17:00:30Z", ("installation-8",)
+    )
+    assert other_source.dedup_key != first.dedup_key
+
+    try:
+        control.EventIngressReceipt(
+            "github", "delivery-without-scope", "issues", identity, "2026-10-05T17:00:45Z"
+        )
+    except ValueError as exc:
+        assert "requires source scope" in str(exc)
+    else:
+        raise AssertionError("bare delivery ID must not self-declare global uniqueness")
+
     retry = control.EventIngressReceipt(
         "github", "delivery-1", "issues", identity, "2026-10-05T17:01:00Z", ("installation-7",)
     )
     same, is_new = control.admit_event_receipt(recorded, retry)
     assert same is recorded
     assert not is_new
+
+    changed_subject = control.EventIngressReceipt(
+        "github",
+        "delivery-1",
+        "issue_comment",
+        identity,
+        "2026-10-05T17:01:30Z",
+        ("installation-7",),
+    )
+    try:
+        control.admit_event_receipt(recorded, changed_subject)
+    except ValueError as exc:
+        assert "changed event subject" in str(exc)
+    else:
+        raise AssertionError("one delivery identity cannot be rebound to another semantic subject")
 
     latest = control.begin_event_reconciliation(recorded)
     applied = control.settle_event_reconciliation(

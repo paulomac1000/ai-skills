@@ -52,20 +52,18 @@ class ProviderScopedExternalIdentity:
     resource_kind: str
     resource_id: str
     provider_namespace: tuple[str, ...] = ()
-    provider_global_id: bool = False
 
     def __post_init__(self) -> None:
         if not self.provider.strip() or not self.resource_kind.strip() or not self.resource_id.strip():
             raise ValueError("external identity fields must be non-empty")
         if any(not component.strip() for component in self.provider_namespace):
             raise ValueError("provider namespace components must be non-empty")
-        if not self.provider_global_id and not self.provider_namespace:
-            raise ValueError("namespace-local external identity requires complete provider namespace")
+        if not self.provider_namespace:
+            raise ValueError("external identity requires complete provider namespace")
 
     @property
     def binding_key(self) -> tuple[str, ...]:
-        scope = ("@global",) if self.provider_global_id else self.provider_namespace
-        return (self.provider, *scope, self.resource_kind, self.resource_id)
+        return (self.provider, *self.provider_namespace, self.resource_kind, self.resource_id)
 
 
 @dataclass(frozen=True)
@@ -94,7 +92,6 @@ class EventIngressReceipt:
     external_identity: ProviderScopedExternalIdentity
     received_at: str
     source_scope: tuple[str, ...] = ()
-    provider_global_delivery_id: bool = False
     state: EventIngressState = EventIngressState.RECEIVED
     canonical_id: str | None = None
     authoritative_state_revision: str | None = None
@@ -107,13 +104,12 @@ class EventIngressReceipt:
             raise ValueError("event provider must match external resource provider")
         if any(not component.strip() for component in self.source_scope):
             raise ValueError("event source scope components must be non-empty")
-        if not self.provider_global_delivery_id and not self.source_scope:
+        if not self.source_scope:
             raise ValueError("provider-scoped delivery identity requires source scope")
 
     @property
     def dedup_key(self) -> tuple[str, ...]:
-        scope = ("@global",) if self.provider_global_delivery_id else self.source_scope
-        return (self.provider, *scope, self.delivery_id)
+        return (self.provider, *self.source_scope, self.delivery_id)
 
     @property
     def delivery_subject(self) -> tuple[object, ...]:
@@ -155,7 +151,10 @@ def settle_event_reconciliation(
     current_resource_generation: str,
     semantic_change: bool,
 ) -> EventIngressReceipt:
-    """Settle only after current-state observation, canonical policy, and a per-resource generation fence."""
+    """Settle after trusted current-state observation, canonical policy, and a per-resource generation fence.
+
+    policy_authorized is an input from canonical server policy, never from the event payload.
+    """
     if receipt.state is not EventIngressState.RECONCILE_REQUIRED:
         raise ValueError("event settlement requires RECONCILE_REQUIRED")
     if not canonical_id.strip() or not authoritative_state_revision.strip():

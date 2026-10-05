@@ -71,7 +71,7 @@ externalIdentity:
 recoveryLocator: managed:entity-7
 ```
 
-The exact tuple is provider-specific. A display number, slug, name, comment marker, or recovery token is only a locator/evidence unless the provider contract proves stronger identity semantics. Provider-global opaque IDs MAY omit namespace components only when their documented uniqueness scope covers the server's complete binding domain. Persistence uniqueness constraints MUST use the same effective tuple as the binding contract; adapters MUST NOT collapse identities from different tenants, repositories, boards, accounts, or equivalent namespaces merely because their local component matches.
+The exact tuple is provider-specific. A display number, slug, name, comment marker, or recovery token is only a locator/evidence unless the provider contract proves stronger identity semantics. Binding manifests and persistence schemas MUST represent canonical identity, provider-scoped external identity, and recovery locator/marker as separate fields. Even a provider-global opaque ID carries an explicit provider-global scope component supplied by a trusted adapter whose upstream contract proves that scope; an event or model-controlled payload cannot self-declare global uniqueness. Persistence uniqueness constraints MUST use the same effective tuple as the binding contract; adapters MUST NOT collapse identities from different tenants, repositories, boards, accounts, or equivalent namespaces merely because their local component matches.
 
 Rename, transfer, and move operations preserve the canonical entity identity/history and explicitly rebind the external identity. A copied/replayed recovery marker cannot adopt an existing canonical entity, grant mutation authority, or substitute for the provider-scoped identity.
 
@@ -88,7 +88,7 @@ eventKind: issues
 externalResourceIdentity: ...
 ```
 
-The dedup key is provider plus the provider-documented source scope plus delivery ID; a bare delivery ID is global only when the upstream contract proves that scope. Duplicate delivery reuses the durable receipt and cannot reapply a semantic effect. Crash/restart after receipt persistence resumes the same receipt rather than redispatching a new operation.
+Authenticate and validate the provider/source envelope before constructing the trusted receipt; `sourceScope` comes from that verified envelope or provider configuration, never from untrusted event content. The dedup key is provider plus the provider-documented source scope plus delivery ID. Even a provider-global delivery ID uses an explicit trusted provider-global source-scope component rather than a caller-controlled boolean exemption. Duplicate delivery reuses the durable receipt and cannot reapply a semantic effect. Crash/restart after receipt persistence resumes the same receipt rather than redispatching a new operation.
 
 Event timestamps and arrival order are evidence, not universal fencing primitives. Before a canonical transition, the control plane resolves the exact current binding, observes authoritative current external/canonical state as required, re-evaluates authorization/policy, and applies a per-resource serialization/fence or equivalent concurrency control. A stale generation, ambiguous delete/move/transfer, unknown binding, or conflicting dedup subject remains reconcile-required and fails closed. Webhook payload content never bypasses canonical authorization or state-machine legality.
 
