@@ -1,5 +1,18 @@
 # Changelog
 
+## 3.16.0 - 2026-10-06
+
+### Added
+
+- Added a provider-neutral persistent-context provenance contract for checkpoints, handoffs, memories, instructions, episodes, summaries, and workspace notes reused across autonomous sessions.
+- Added trust classes, explicit project/principal/work scope, dependency-bound currentness, bounded permitted-influence semantics, deterministic fresh-session assembly, and an executable poisoning/currentness reference helper.
+
+### Security and correctness
+
+- Persistence cannot grant authority/capabilities, change policy, waive verification, or promote advisory/untrusted prose into required evidence merely because it survived across sessions.
+- Subject/runtime/environment/policy generation drift makes dependent context stale or unknown; cross-project/cross-principal reuse requires explicit scope compatibility and lower-trust content cannot override current higher-trust facts.
+- Conformance requires bounded provenance/refs rather than private chain-of-thought or raw transcripts, and native product stores remain decentralized behind opaque storage/content references.
+
 ## 3.15.0 - 2026-10-05
 
 ### Added
