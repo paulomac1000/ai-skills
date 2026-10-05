@@ -57,6 +57,10 @@ def test_behavior_contract_fixture_keeps_statement_kinds_and_proof_mapping_disti
         "scope",
         "obligations",
         "acceptance criteria",
+        "normal flow",
+        "negative and failure flows",
+        "public effects and compatibility",
+        "decision references",
         "assumptions",
         "examples",
         "verification mapping",
@@ -73,6 +77,9 @@ def test_decision_completion_requires_every_mandatory_consequence_and_verificati
     complete = (FIXTURES / "decision-complete.md").read_text(encoding="utf-8")
     assert "status: active" in incomplete
     assert _completion_findings(incomplete) == ["verification: required consequence is pending"]
+    kinds = {row["kind"] for row in _implementation_rows(incomplete)}
+    assert {"implementation", "migration", "rollout", "rollback", "cleanup", "verification"} <= kinds
+    assert "## Affected obligations and consumers" in incomplete
     assert _completion_findings(complete) == []
 
 
