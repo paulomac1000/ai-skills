@@ -43,6 +43,18 @@ This standard defines how technical documentation is selected, structured, verif
 
 Choose one primary type. Split documents when readers, ownership, lifecycle, or verification differ.
 
+## Executable behavior and acceptance contracts
+
+A `contract` may be the durable behavior/acceptance source for a non-trivial change without becoming a new AFDS type. It separates obligations, falsifiable criteria, assumptions, examples, and evidence; covers applicable normal/failure behavior and compatibility effects; and maps criteria to the owning proof mechanism.
+
+Reuse stable obligation/criterion identities from their canonical owner. Executed results, reviews, and receipts stay in evidence systems, not durable frontmatter. A canonical machine-readable public schema overrides explanatory prose for its exact contract. `qa-change-verifier` owns verification planning and exact evidence.
+
+## Decision authority and implementation completion
+
+For a `decision`, **decision accepted is not the same fact as decision implemented**. `status: active` establishes current decision authority only.
+
+Record or link material implementation, migration, rollout, rollback, cleanup, verification, and downstream-review consequences. Implementation is complete only when every declared mandatory consequence is satisfied with its required current evidence/reference or explicitly not applicable with reason; pending, blocked, unknown, unverified, or unreviewed mandatory consequences remain incomplete. Use the existing lifecycle/change-impact protocol; do not add another global AFDS status, score, or volatile result field.
+
 ## Required metadata
 
 Every newly authored governed document uses the current AFDS document schema identified by `afds_schema_version: 2`:

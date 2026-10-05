@@ -33,6 +33,22 @@ profiles:
     - repository-junit.xml
     execution_id: repository
   - kind: rule
+    subject: afds.behavior.acceptance-traceable
+    selectors:
+    - '*test_afds_change_contracts*'
+    - '*test_afds*'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: afds.decision.implementation-traceable
+    selectors:
+    - '*test_afds_change_contracts*'
+    - '*test_afds*'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
     subject: afds.ownership.lifecycle
     selectors:
     - '*test_afds*'

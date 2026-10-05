@@ -1,5 +1,5 @@
 schema_version: 1
-catalog_version: 3.10.0
+catalog_version: 3.11.0
 skills:
   afds-doc-writer:
     rules:
@@ -15,6 +15,12 @@ skills:
     - id: afds.evidence.uncertainty
       source: STANDARD.md#evidence-and-uncertainty
       description: Claims identify evidence, confidence, and unresolved uncertainty.
+    - id: afds.behavior.acceptance-traceable
+      source: STANDARD.md#executable-behavior-and-acceptance-contracts
+      description: Behavioral contracts separate obligations, observable criteria, assumptions, examples, and proof references while deferring exact wire/data authority to canonical machine schemas.
+    - id: afds.decision.implementation-traceable
+      source: STANDARD.md#decision-authority-and-implementation-completion
+      description: Accepted decision authority remains distinct from implementation completion; mandatory consequences and required proof must resolve before completion is claimed.
     - id: afds.ownership.lifecycle
       source: STANDARD.md#canonical-ownership-and-lifecycle
       description: Each rule has one canonical owner and an explicit lifecycle.

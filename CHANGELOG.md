@@ -1,5 +1,15 @@
 # Changelog
 
+## 3.11.0 - 2026-10-05
+
+### Added
+
+- Added AFDS executable behavior/acceptance contracts as a specialization of the existing `contract` type, with stable obligation/criterion references, observable acceptance criteria, failure-path coverage, compatibility effects, and verification mapping that keeps mutable results in their owning evidence systems.
+
+### Changed
+
+- Distinguished accepted decision authority from implementation completion and made material implementation, migration, rollout, rollback, cleanup, verification, and downstream-review consequences explicit before a decision may be represented as fully implemented.
+
 ## 3.10.0 - 2026-10-05
 
 ### Added
