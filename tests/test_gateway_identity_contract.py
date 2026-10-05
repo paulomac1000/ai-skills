@@ -247,13 +247,15 @@ def test_gateway_contract_is_routed_required_and_quality_gated() -> None:
     reference = REFERENCE.read_text(encoding="utf-8")
     manifest = yaml.safe_load(MANIFEST.read_text(encoding="utf-8"))
 
+    normalized_standard = " ".join(standard.split())
+    normalized_reference = " ".join(reference.split())
     assert "references/gateway-aggregation.md" in standard
-    assert "normalization/truncation never selects a winner" in standard
-    assert "stale or ambiguous mapping fails closed" in standard
+    assert "one bounded deterministic source-qualified identity" in normalized_standard
+    assert "stale mapping" in normalized_standard and "fail closed" in normalized_standard
     assert "tools/gateway_identity.py" in manifest["required"]
     assert "references/gateway-aggregation.md" in manifest["required"]
-    assert "implicit prompt merging is forbidden" in reference
-    assert "Ambient host tokens" in reference
+    assert "implicit prompt merging is forbidden" in normalized_reference
+    assert "Ambient host tokens" in normalized_reference
 
     inventories = _load("gateway_identity_quality_targets", QUALITY_TARGETS)
     path = "skills/mcp-server-architect/tools/gateway_identity.py"

@@ -12,90 +12,58 @@ verification: Exercise duplicate names and URIs, case/truncation collisions, sta
 
 Use this reference when one MCP surface aggregates tools, prompts, resources,
 resource templates, or extension-owned references from multiple upstream
-servers. The gateway owns its exported identity namespace; upstream names and
-URIs remain provenance and routing inputs rather than global authority.
-
-Delimiter, digest algorithm, and rewritten URI syntax are implementation-owned;
-only determinism, boundedness, exact routability, provenance, and collision
-handling are normative.
+servers. The gateway owns its exported namespace; upstream source/name/URI
+remain provenance and routing inputs. Delimiter, digest algorithm, and rewritten
+URI syntax are implementation-owned; determinism, boundedness, exact routing,
+provenance, and collision handling are normative.
 
 ## Canonical identity and surfaces
 
-For every exported component, derive one bounded deterministic gateway identity
-from the stable upstream source identity, component kind, and exact upstream
-identity. Keep the raw source namespace, manifest revision, registration
-generation, and original name/URI/template alongside the mapping.
+Derive one gateway identity from stable upstream source identity, component kind,
+and exact upstream identity. Keep source namespace, manifest revision,
+registration generation, and original name/URI/template with the mapping.
+List/search/detail and invoke/task/subscription use that same identity.
 
-The same canonical identity is returned by list/search/detail and accepted by
-invoke, task, subscription, completion, and extension paths for that component.
-Display normalization is not identity. Case folding, punctuation cleanup,
-truncation, registration order, source health, or discovery order MUST NOT merge
-components or choose a winner.
+Normalization is display-only. Case folding, punctuation cleanup, truncation,
+registration/discovery order, or source health cannot merge components or pick a
+winner. An unrepresentable or duplicate canonical identity is a controlled
+collision, never first-wins or silent dropping.
 
-If two distinct components would produce the same canonical gateway identity,
-fail with a controlled collision/conflict. Never silently drop one, use
-first-wins, or redirect to a healthy same-named source.
+## Resources, prompts, and schemas
 
-## Resources and templates
+Upstream resource URI spaces are source-local. Re-export with a gateway-owned
+reference that validates to exactly one current source and original URI/template;
+rewriting is routing projection, not semantic identity or transferred authority.
+Reads, completions, notifications, subscriptions, and extension metadata use the
+same mapping.
 
-Upstream resource URI spaces are source-local. Two sources may legitimately use
-the same URI. Re-export through a gateway-owned reference that resolves to
-exactly one current source and the original URI/template. Validate the gateway
-reference before routing; it cannot escape or select another source namespace.
+Same-named upstream prompts remain separate. Composite prompts are explicit
+gateway-owned components with source-qualified inputs; implicit prompt merging is
+forbidden. Preserve valid upstream schema shapes unless a reviewed adapter owns
+a documented transformation; do not coerce arrays, scalars, unions, or boolean
+schemas to objects.
 
-A rewritten URI/reference is a routing projection only. It does not change the
-upstream semantic identity, transfer authorization, or make the upstream URI
-globally unique. Reads, completions, notifications, subscriptions, and
-extension metadata use the same mapping.
+## Authority and stale mappings
 
-## Prompts and schemas
-
-Same-named prompts from separate sources remain separate components. A prompt
-that combines upstream prompts is an explicit gateway-owned component with its
-own identity and explicit source-qualified upstream references; implicit prompt
-merging is forbidden.
-
-Preserve the upstream public schema unless a reviewed adapter owns a documented
-transformation. Do not coerce valid array, scalar, union, boolean-schema, or
-other protocol-valid shapes into object-only output merely to fit a gateway
-implementation.
-
-## Authority, stale mappings, and source health
-
-Before invocation/read, resolve the canonical identity to exactly one current
-source registration and original component, then apply current policy and
-authorization using the preserved manifest/source provenance. Source removal,
-manifest replacement, or registration-generation change makes old mappings
-stale until explicitly refreshed. An unhealthy or removed source cannot cause
-fallback to another source with the same normalized name.
-
-Stable source re-registration may retain the same deterministic canonical
-component identity, but the old generation is not current authority. Refresh
-the mapping against the new registration before use.
+Resolve a canonical identity to one current registration and component before
+I/O, then apply current policy using preserved provenance. Source removal,
+manifest replacement, or registration-generation change makes the old mapping
+stale. Unhealthy or removed sources never fall back to a same-named source.
+Re-registration may preserve the canonical identity only after explicit refresh
+against the new generation.
 
 ## Stdio and subprocess sources
 
-Gateway-owned child processes start from an explicit minimized environment.
-Only allowlisted host variables and source-specific configured values are
-forwarded. Ambient host tokens, cloud credentials, or unrelated source secrets
-are not inherited by default and source-specific credentials do not become
-ambient credentials for every child.
-
-Protocol stdout remains reserved for MCP traffic. Diagnostics go to stderr and
-follow the existing diagnostic-egress/sanitization policy before they become
-operator- or model-visible.
+Child processes start from an explicit minimized environment. Ambient host tokens,
+cloud credentials, and unrelated source secrets are absent unless explicitly
+allowed; source-specific credentials do not become ambient credentials for other
+children. Protocol stdout remains MCP-only; stderr diagnostics use the existing
+safe diagnostic-egress policy.
 
 ## Verification matrix
 
-At minimum exercise:
-
-- equal and normalization-equivalent tool names from independent sources;
-- length/truncation and case collisions in both source and component identity;
-- reversed registration/discovery order and degraded source health;
-- forced canonical-ID collision with a controlled conflict outcome;
-- source removal and re-add with a changed registration/manifest generation;
-- overlapping resource URIs/templates and tampered gateway references;
-- same-named prompts plus explicit composite-prompt construction;
-- arbitrary valid output-schema shapes without object coercion;
-- subprocess environment minimization with host secrets and per-source credentials;
-- provenance continuity across list/search/detail/invoke/task/resource resolution.
+Exercise equal/normalized names; case and truncation collisions; reversed order
+and degraded health; forced collision; source removal/re-add; overlapping
+resource URIs and tampered references; same-named/composite prompts; non-object
+schema shapes; minimized child environments; and provenance continuity across
+discovery, invocation, task, and resource resolution.
