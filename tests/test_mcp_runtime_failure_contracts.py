@@ -85,6 +85,14 @@ def test_exception_diagnostics_preserve_trusted_cause_without_public_leakage() -
     }
     assert checks.exception_boundary_is_safe(public, trusted) is True
     assert checks.exception_boundary_is_safe({**public, "stack": "traceback..."}, trusted) is False
+    assert checks.exception_boundary_is_safe({**public, "details": {"cause": "ValueError: boom"}}, trusted) is False
+    assert checks.exception_boundary_is_safe({**public, "details": [{"stack_trace": "traceback..."}]}, trusted) is False
+
+    cycle: list[object] = []
+    cyclic_public = {**public, "details": cycle}
+    cycle.append(cyclic_public)
+    assert checks.exception_boundary_is_safe(cyclic_public, trusted) is True
+
     assert checks.exception_boundary_is_safe(public, {**trusted, "operation_id": "op-2"}) is False
     assert checks.exception_boundary_is_safe(
         public,

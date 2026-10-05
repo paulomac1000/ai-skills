@@ -211,8 +211,24 @@ def exception_boundary_is_safe(
     ):
         return False
     forbidden_public_fields = {"stack", "stack_trace", "cause", "exception", "exception_object"}
-    if forbidden_public_fields.intersection(public_failure):
-        return False
+    pending: list[object] = [public_failure]
+    seen: set[int] = set()
+    while pending:
+        value = pending.pop()
+        if isinstance(value, Mapping):
+            identity = id(value)
+            if identity in seen:
+                continue
+            seen.add(identity)
+            if forbidden_public_fields.intersection(value):
+                return False
+            pending.extend(value.values())
+        elif isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
+            identity = id(value)
+            if identity in seen:
+                continue
+            seen.add(identity)
+            pending.extend(value)
     return _truthy_text(trusted_diagnostic.get("cause")) and _truthy_text(trusted_diagnostic.get("stack"))
 
 
