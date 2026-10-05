@@ -5,6 +5,8 @@ skills:
       purpose: {excluded: true, rationale: Informational scope heading, not an independently assessable invariant.}
       core-invariants: {rule_id: afds.metadata.required}
       document-types: {rule_id: afds.metadata.required}
+      executable-behavior-and-acceptance-contracts: {rule_id: afds.behavior.acceptance-traceable, primary: true}
+      decision-authority-and-implementation-completion: {rule_id: afds.decision.implementation-traceable, primary: true}
       required-metadata: {rule_id: afds.metadata.required, primary: true}
       governance-profiles: {rule_id: afds.governance.profiled, primary: true}
       structure-and-links: {rule_id: afds.structure.links, primary: true}
