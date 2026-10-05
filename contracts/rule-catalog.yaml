@@ -1,5 +1,5 @@
 schema_version: 1
-catalog_version: 3.15.0
+catalog_version: 3.16.0
 skills:
   afds-doc-writer:
     rules:
@@ -410,6 +410,9 @@ skills:
     - id: steward.checkpoint.current
       source: STANDARD.md#semantic-checkpoints-and-dependency-scoped-reuse
       description: Canonical checkpoints bind generation and exact semantic dependencies so restart can derive the earliest safe resume point and minimum recomputation set.
+    - id: steward.context.provenance
+      source: STANDARD.md#persistent-context-provenance
+      description: Persistent context carries trusted provenance, scope, dependency currentness, trust class, and bounded influence so cross-session reuse cannot promote prose into authority or evidence.
     - id: steward.mutation.admitted
       source: STANDARD.md#mutation-admission-and-candidate-identity
       description: Every authority-bearing effect revalidates current authority, lineage, exact subject/candidate, capability provenance, ambiguity, and budget and durably reserves stateful operations before dispatch.

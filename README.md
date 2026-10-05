@@ -2,7 +2,7 @@
 
 A production-oriented collection of reusable standards, implementation playbooks, executable policy helpers, and tested templates for AI-assisted software engineering.
 
-The current repository release is `3.15.0`. All bundled skills are published with `maturity: stable` and are intended for production adoption. Each skill declares its compatibility, dependencies, evidence lanes, and required entry points in `manifest.yaml`.
+The current repository release is `3.16.0`. All bundled skills are published with `maturity: stable` and are intended for production adoption. Each skill declares its compatibility, dependencies, evidence lanes, and required entry points in `manifest.yaml`.
 
 ## Included skills
 
@@ -15,7 +15,7 @@ The current repository release is `3.15.0`. All bundled skills are published wit
 | `mcp-gateway-release-verifier` | Compose exact-artifact MCP identity, schema, transport, lifecycle, health, integrity, and cleanup evidence into a bounded release verdict. | Release-verdict composer and local candidate acceptance lane |
 | `mcp-server-architect` | Design secure, observable, and agent-friendly MCP servers. | Language-neutral core, projection field ownership, source-qualified gateway aggregation, Python/FastMCP and .NET profiles, testing, security, operations, examples |
 | `mcp-server-consumer` | Select and invoke MCP capabilities safely and efficiently. | Deterministic decision engine and workflow, retry, pagination, and trust playbooks |
-| `mcp-steward-architect` | Design durable MCP control planes that own bounded workflows, survive ambiguous external work, and publish provenance-bound handoffs. | Steward/job/lineage/receipt/completion/handoff and upstream-capability contracts, reconciliation and authority playbooks, validator, Python/.NET generator overlay, failure regressions |
+| `mcp-steward-architect` | Design durable MCP control planes that own bounded workflows, survive ambiguous external work, and publish provenance-bound handoffs. | Steward/job/lineage/receipt/completion/handoff, persistent-context provenance and upstream-capability contracts, reconciliation/authority playbooks, validator, Python/.NET generator overlay, failure regressions |
 | `qa-change-verifier` | Plan risk-based proof, exact migration acceptance, immutable change acceptance, and candidate-specific semantic review scope. | Risk/criterion planner, migration-matrix evaluator, acceptance and semantic-review contracts, exact evidence, known-gap and failure attribution |
 | `readme-architect` | Create and audit evidence-backed, user-facing repository READMEs without duplicating volatile project truth. | Evidence source map, structure profiles, visual guidance, templates, collector, auditor |
 | `skill-architect` | Create, refactor, route, evaluate, and evolve reusable Agent Skills without turning the runtime package into a prompt dump. | Admission/routing and progressive-disclosure playbooks, executable-resource contract/schema, templates, package auditor, eval-corpus validator |
