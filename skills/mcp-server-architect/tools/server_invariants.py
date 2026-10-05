@@ -151,6 +151,8 @@ def evaluate_runtime_api_invariants(design: Mapping[str, object]) -> dict[str, b
             and exception_diagnostics.get("public_sanitized") is True
             and exception_diagnostics.get("durable_exception_object") is False
             and exception_diagnostics.get("public_operation_correlated") is True
+            and exception_diagnostics.get("raw_forensic_boundary") is True
+            and exception_diagnostics.get("ordinary_telemetry_uses_opaque_ref") is True
             and exception_diagnostics.get("diagnostic_failure_policy_explicit") is True
         ),
     }
@@ -200,6 +202,13 @@ def exception_boundary_is_safe(
     if not _truthy_text(operation_id) or trusted_diagnostic.get("operation_id") != operation_id:
         return False
     if not _truthy_text(public_failure.get("failure_class")):
+        return False
+    raw_detail_ref = trusted_diagnostic.get("raw_detail_ref")
+    if (
+        trusted_diagnostic.get("forensic_boundary") is not True
+        or not _truthy_text(raw_detail_ref)
+        or public_failure.get("diagnostic_ref") != raw_detail_ref
+    ):
         return False
     forbidden_public_fields = {"stack", "stack_trace", "cause", "exception", "exception_object"}
     if forbidden_public_fields.intersection(public_failure):

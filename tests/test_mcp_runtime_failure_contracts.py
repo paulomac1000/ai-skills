@@ -75,12 +75,30 @@ def test_recovery_disposition_is_separate_from_failure_classification() -> None:
 
 def test_exception_diagnostics_preserve_trusted_cause_without_public_leakage() -> None:
     checks = _load()
-    public = {"failure_class": "internal", "operation_id": "op-1"}
-    trusted = {"operation_id": "op-1", "cause": "ValueError: boom", "stack": "traceback..."}
+    public = {"failure_class": "internal", "operation_id": "op-1", "diagnostic_ref": "forensic:1"}
+    trusted = {
+        "operation_id": "op-1",
+        "cause": "ValueError: boom",
+        "stack": "traceback...",
+        "forensic_boundary": True,
+        "raw_detail_ref": "forensic:1",
+    }
     assert checks.exception_boundary_is_safe(public, trusted) is True
     assert checks.exception_boundary_is_safe({**public, "stack": "traceback..."}, trusted) is False
     assert checks.exception_boundary_is_safe(public, {**trusted, "operation_id": "op-2"}) is False
-    assert checks.exception_boundary_is_safe(public, {"operation_id": "op-1", "cause": "ValueError: boom"}) is False
+    assert checks.exception_boundary_is_safe(
+        public,
+        {
+            "operation_id": "op-1",
+            "cause": "ValueError: boom",
+            "forensic_boundary": True,
+            "raw_detail_ref": "forensic:1",
+        },
+    ) is False
+    assert checks.exception_boundary_is_safe(
+        public,
+        {**trusted, "forensic_boundary": False},
+    ) is False
 
 
 def test_static_runtime_contracts_cover_failure_identity_and_exception_boundaries() -> None:
@@ -120,6 +138,8 @@ def test_static_runtime_contracts_cover_failure_identity_and_exception_boundarie
             "public_sanitized": True,
             "durable_exception_object": False,
             "public_operation_correlated": True,
+            "raw_forensic_boundary": True,
+            "ordinary_telemetry_uses_opaque_ref": True,
             "diagnostic_failure_policy_explicit": True,
         },
     }
