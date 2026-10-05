@@ -9,6 +9,8 @@ owners: [repository-maintainers]
 
 # Documentation type playbooks
 
+Use this playbook to write or repair technical documentation after evidence, ownership, and verification are known; load only the matching type section.
+
 ## Workflow
 
 Include the objective, prerequisites, authorization boundary, ordered actions, expected observations, validation, failure branches, rollback or safe stop, and escalation. Commands are copyable and identify their working directory and required environment. Do not hide irreversible steps inside a general sequence.
