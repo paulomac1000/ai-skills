@@ -4,9 +4,10 @@ import hashlib
 import json
 import re
 import unicodedata
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, replace
 from enum import StrEnum
-from typing import Any, Iterable, Mapping
+from typing import Any
 from urllib.parse import urlsplit
 
 _CANONICAL_ID = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
@@ -152,9 +153,7 @@ def canonical_gateway_id(
     prefix = f"gw-{kind.value}-"
     minimum_length = len(prefix) + len(digest) + 2
     if max_length < minimum_length:
-        raise ValueError(
-            f"max_length must be >= {minimum_length} for component kind {kind.value}"
-        )
+        raise ValueError(f"max_length must be >= {minimum_length} for component kind {kind.value}")
     available = max_length - len(prefix) - len(digest) - 1
     slug = _normalized_label(upstream_identity)[:available].strip("-") or "component"
     return f"{prefix}{slug}-{digest}"
@@ -202,12 +201,8 @@ class GatewayCatalog:
             previous = mapping_ids.get(mapping.canonical_id)
             if previous is not None:
                 if previous != mapping:
-                    raise GatewayCollisionError(
-                        f"canonical gateway identity collision: {mapping.canonical_id}"
-                    )
-                raise GatewayCollisionError(
-                    f"duplicate upstream component registration: {mapping.canonical_id}"
-                )
+                    raise GatewayCollisionError(f"canonical gateway identity collision: {mapping.canonical_id}")
+                raise GatewayCollisionError(f"duplicate upstream component registration: {mapping.canonical_id}")
             mapping_ids[mapping.canonical_id] = mapping
 
     def _source_index(self) -> dict[tuple[str, ...], SourceRegistration]:
@@ -255,9 +250,7 @@ class GatewayCatalog:
         needle = query.casefold()
         matches = []
         for mapping in self.list_components(kind):
-            haystack = " ".join(
-                (mapping.canonical_id, mapping.original_identity, *mapping.source.namespace)
-            ).casefold()
+            haystack = " ".join((mapping.canonical_id, mapping.original_identity, *mapping.source.namespace)).casefold()
             if needle in haystack:
                 matches.append(mapping)
         return tuple(matches)
