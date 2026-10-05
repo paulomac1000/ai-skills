@@ -105,6 +105,7 @@ skills:
       producer-reachability-and-liveness-closure: {rule_id: steward.closure.reachable, primary: true}
       lineage-generations-attempts-and-leases: {rule_id: steward.lineage.fenced, primary: true}
       semantic-checkpoints-and-dependency-scoped-reuse: {rule_id: steward.checkpoint.current, primary: true}
+      persistent-context-provenance: {rule_id: steward.context.provenance, primary: true}
       mutation-admission-and-candidate-identity: {rule_id: steward.mutation.admitted, primary: true}
       external-operations-and-reconciliation: {rule_id: steward.delivery.reconciled, primary: true}
       cancellation-and-external-wait-isolation: {rule_id: steward.cancellation.reconciled, primary: true}

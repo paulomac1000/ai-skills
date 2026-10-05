@@ -246,3 +246,12 @@ def test_contract_maps_native_stores_without_private_transcript_requirement() ->
     assert "without centralizing all content" in reference
     assert "not private chain-of-thought or raw" in reference
     assert "AgentMemory" in reference
+
+def test_persistent_context_atomic_claim_is_explicit() -> None:
+    catalog = yaml.safe_load((ROOT / "contracts/atomic-claim-catalog.yaml").read_text(encoding="utf-8"))
+    controls = {item["id"]: item for item in catalog["controls"]}
+    control = controls["steward.context.poisoning-boundary"]
+    assert control["parent_rule_id"] == "steward.context.provenance"
+    assert control["required_evidence"] == ["unit", "security"]
+    assert len(control["test_selectors"]) == 4
+
