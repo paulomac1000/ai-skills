@@ -152,14 +152,31 @@ weaken normative semantics.
 ## Tools and executable policy
 
 A bundled tool exists to make a repeatable or fragile operation more
-deterministic, not merely to move prose into code. Declare its runtime and
-dependencies, confine file access, bound input and output, and fail with
-actionable typed or stable outcomes.
+deterministic, not merely to move prose into code. When a stable skill instructs
+an agent or host to invoke a bundled resource, declare that supported boundary
+in manifest.yaml under `executable_resources` using
+schemas/executable-resource.schema.json. Existing pre-contract skills migrate
+incrementally: add this declaration when a supported executable boundary is
+created or materially changed. Skills with no supported executable boundary may
+omit it; the mere presence of a file under `tools/` never makes it an agent CLI.
 
-Execute and test tools that a stable skill instructs consumers to use. Static
-presence does not prove behavior. Network access, destructive mutation,
-credential use, or expensive external work must be explicit in the tool
-contract and have a safe stop path.
+Classify each declared resource as `library_helper`, `agent_cli`,
+`host_adapter`, or `service`. An `agent_cli` has one canonical invocation
+route. A `library_helper` is reached through an owning executable/API rather
+than source archaeology or command guessing. When an agent/control plane
+branches, gates, retries, or reports from a resource result, expose a stable
+structured outcome; human-only or internal helpers need not manufacture JSON.
+Process exit semantics map to, but do not replace, the domain outcome.
+
+Declare side-effect class, replay/reconciliation behavior, network and
+credential needs, timeout/cancellation semantics, bounded diagnostics, and an
+explicit safe-stop disposition (`supported`, `unsupported`, `host_managed`, or
+`reconcile_before_retry`) appropriate to the resource. Ambiguous external mutation requires
+reconciliation before retry rather than replay from a transport failure.
+Execute and test every supported invocation. Declaration is not runtime
+readiness: the consuming host still proves that the exact dependency/entrypoint
+is installed and invokable, and validation evidence remains bound to its
+admitted execution environment.
 
 Do not require dependencies that the skill does not actually use. A prose-only
 skill may legitimately declare no executable tool dependency.

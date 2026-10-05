@@ -8,6 +8,8 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+from jsonschema import Draft202012Validator
+from jsonschema.exceptions import SchemaError
 
 NAME = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 SEMVER = re.compile(
@@ -139,6 +141,170 @@ def _resolved_inside(root: Path, target: Path) -> bool:
     except ValueError:
         return False
     return True
+
+
+def _executable_resource_schema_path() -> Path:
+    """Return the portable schema used to validate declared executable resources."""
+    return Path(__file__).resolve().parents[1] / "schemas/executable-resource.schema.json"
+
+
+def _executable_resource_findings(
+    manifest: dict[str, Any],
+    manifest_path: Path,
+    skill_dir: Path,
+) -> list[Finding]:
+    """Validate optional executable-resource declarations without treating null as omission."""
+    if "executable_resources" not in manifest:
+        return []
+    declarations = manifest["executable_resources"]
+    if not isinstance(declarations, list):
+        return [
+            _finding(
+                "error",
+                "skill.executable-resource.contract",
+                manifest_path,
+                "executable_resources must be a list when declared",
+            )
+        ]
+
+    schema_path = _executable_resource_schema_path()
+    try:
+        schema = json.loads(schema_path.read_text(encoding="utf-8"))
+        Draft202012Validator.check_schema(schema)
+    except (OSError, UnicodeError, json.JSONDecodeError, SchemaError) as exc:
+        return [
+            _finding(
+                "error",
+                "skill.executable-resource.schema-unavailable",
+                schema_path,
+                f"executable resource schema could not be loaded: {exc}",
+            )
+        ]
+
+    validator = Draft202012Validator(schema)
+    findings: list[Finding] = []
+    seen_ids: set[str] = set()
+    seen_resources: set[str] = set()
+    allowed_modes = {
+        "library_helper": {"library_api"},
+        "agent_cli": {"python_script", "python_module", "executable"},
+        "host_adapter": {
+            "python_script",
+            "python_module",
+            "executable",
+            "library_api",
+            "service",
+            "other",
+        },
+        "service": {"service"},
+    }
+
+    for index, declaration in enumerate(declarations):
+        errors = sorted(
+            validator.iter_errors(declaration),
+            key=lambda item: tuple(str(part) for part in item.absolute_path),
+        )
+        for error in errors:
+            location = ".".join(str(part) for part in error.absolute_path) or "<root>"
+            findings.append(
+                _finding(
+                    "error",
+                    "skill.executable-resource.schema",
+                    manifest_path,
+                    f"executable_resources[{index}].{location}: {error.message}",
+                )
+            )
+        if errors or not isinstance(declaration, dict):
+            continue
+
+        identifier = declaration["id"]
+        resource_name = declaration["resource"]
+        kind = declaration["kind"]
+        invocation = declaration["canonical_invocation"]
+        mode = invocation["mode"]
+        entrypoint = invocation["entrypoint"]
+
+        if identifier in seen_ids:
+            findings.append(
+                _finding(
+                    "error",
+                    "skill.executable-resource.duplicate-id",
+                    manifest_path,
+                    f"duplicate executable resource id: {identifier}",
+                )
+            )
+        seen_ids.add(identifier)
+
+        if resource_name in seen_resources:
+            findings.append(
+                _finding(
+                    "error",
+                    "skill.executable-resource.duplicate-resource",
+                    manifest_path,
+                    f"resource has multiple executable contracts: {resource_name}",
+                )
+            )
+        seen_resources.add(resource_name)
+
+        if not _confined(resource_name):
+            findings.append(
+                _finding(
+                    "error",
+                    "skill.executable-resource.unconfined",
+                    manifest_path,
+                    f"executable resource must be a confined package path: {resource_name}",
+                )
+            )
+        else:
+            resource = skill_dir / resource_name
+            if not _resolved_inside(skill_dir, resource):
+                findings.append(
+                    _finding(
+                        "error",
+                        "skill.executable-resource.unconfined",
+                        resource,
+                        "executable resource resolves outside the skill directory",
+                    )
+                )
+            elif resource.is_symlink():
+                findings.append(
+                    _finding(
+                        "error",
+                        "skill.executable-resource.symlink",
+                        resource,
+                        "executable resource must not be a symlink",
+                    )
+                )
+            elif not resource.is_file():
+                findings.append(
+                    _finding(
+                        "error",
+                        "skill.executable-resource.missing",
+                        resource,
+                        "declared executable resource does not exist",
+                    )
+                )
+
+        if mode not in allowed_modes[kind]:
+            findings.append(
+                _finding(
+                    "error",
+                    "skill.executable-resource.invocation-kind",
+                    manifest_path,
+                    f"{kind} cannot use canonical invocation mode {mode}",
+                )
+            )
+        if mode in {"python_script", "executable"} and entrypoint != resource_name:
+            findings.append(
+                _finding(
+                    "error",
+                    "skill.executable-resource.entrypoint-mismatch",
+                    manifest_path,
+                    f"{mode} entrypoint must equal the declared resource path",
+                )
+            )
+
+    return findings
 
 
 def _strict_manifest_findings(
@@ -413,6 +579,8 @@ def audit_skill(
         manifest: dict[str, Any] = {}
     else:
         manifest = loaded_manifest
+
+    findings.extend(_executable_resource_findings(manifest, manifest_path, skill_dir))
 
     if strict:
         findings.extend(_strict_manifest_findings(manifest, manifest_path))

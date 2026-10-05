@@ -1,5 +1,5 @@
 schema_version: 1
-catalog_version: 3.12.0
+catalog_version: 3.13.0
 skills:
   afds-doc-writer:
     rules:
@@ -541,7 +541,7 @@ skills:
       description: Published skills keep a portable three-file core and only justified runtime resources while development evidence remains repository-scoped.
     - id: skill.tools.verified
       source: STANDARD.md#tools-and-executable-policy
-      description: Bundled tools are justified, bounded, dependency-declared, executable, and tested rather than acting as hidden policy owners.
+      description: Bundled executable resources declare invocation class, canonical entrypoint, outcome/process semantics, effects and replay behavior, bounded diagnostics, dependencies, and tests; a tools directory never creates an implicit public CLI.
     - id: skill.trust.bounded
       source: STANDARD.md#trust-and-supply-chain
       description: The complete skill package and mutable external inputs are reviewed under explicit authority and privileged-capability boundaries.

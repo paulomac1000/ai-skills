@@ -1,0 +1,202 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://paulomac1000.github.io/ai-skills/schemas/executable-resource.schema.json",
+  "title": "AI Skills Executable Resource Contract",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "resource",
+    "kind",
+    "canonical_invocation",
+    "outcome_contract",
+    "process_semantics",
+    "effects",
+    "diagnostics"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+    },
+    "resource": {
+      "type": "string",
+      "minLength": 1
+    },
+    "kind": {
+      "enum": [
+        "library_helper",
+        "agent_cli",
+        "host_adapter",
+        "service"
+      ]
+    },
+    "canonical_invocation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mode",
+        "entrypoint"
+      ],
+      "properties": {
+        "mode": {
+          "enum": [
+            "python_script",
+            "python_module",
+            "executable",
+            "library_api",
+            "service",
+            "other"
+          ]
+        },
+        "entrypoint": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "input_contract_ref": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "minLength": 1
+    },
+    "outcome_contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mode",
+        "schema_ref"
+      ],
+      "properties": {
+        "mode": {
+          "enum": [
+            "structured",
+            "human_only",
+            "internal"
+          ]
+        },
+        "schema_ref": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        }
+      }
+    },
+    "process_semantics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "exit_code_mapping",
+        "timeout",
+        "cancellation",
+        "safe_stop"
+      ],
+      "properties": {
+        "exit_code_mapping": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "minProperties": 1,
+              "additionalProperties": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          ]
+        },
+        "timeout": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "cancellation": {
+          "enum": [
+            "supported",
+            "unsupported",
+            "not_applicable"
+          ]
+        },
+        "safe_stop": {
+          "enum": [
+            "supported",
+            "unsupported",
+            "host_managed",
+            "reconcile_before_retry"
+          ]
+        }
+      }
+    },
+    "effects": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "class",
+        "replay_safety",
+        "network",
+        "credential_class"
+      ],
+      "properties": {
+        "class": {
+          "enum": [
+            "read_only",
+            "local_mutation",
+            "external_mutation",
+            "mixed"
+          ]
+        },
+        "replay_safety": {
+          "enum": [
+            "idempotent",
+            "reconcile_before_retry",
+            "non_replayable",
+            "unknown"
+          ]
+        },
+        "network": {
+          "enum": [
+            "none",
+            "scoped",
+            "required",
+            "unknown"
+          ]
+        },
+        "credential_class": {
+          "enum": [
+            "none",
+            "scoped_runtime",
+            "other"
+          ]
+        }
+      }
+    },
+    "diagnostics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "bounded",
+        "safe_egress_profile_ref"
+      ],
+      "properties": {
+        "bounded": {
+          "const": true
+        },
+        "safe_egress_profile_ref": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        }
+      }
+    }
+  }
+}
