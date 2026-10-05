@@ -1034,6 +1034,7 @@ def test_strict_audit_rejects_scaffold_placeholder_manifest(tmp_path: Path) -> N
     findings = audit_module.audit_skill(target, tmp_path, strict=True)
     assert "skill.manifest.contract" in {finding.code for finding in findings}
 
+
 def _executable_resource_manifest(entries: str) -> str:
     """Build a valid test manifest containing caller-supplied executable resources."""
     return _valid_manifest_text("[core, tools]").replace(
@@ -1213,6 +1214,7 @@ def test_skill_architect_executable_resource_contract_is_self_hosted() -> None:
     assert "mere presence of a file under" in standard
     assert "Process exit semantics map to, but do not replace, the domain outcome." in standard
 
+
 def test_executable_resource_contract_accepts_reconcile_before_retry_mutation(tmp_path: Path) -> None:
     """Accept explicit reconciliation semantics for ambiguous external mutation."""
     module = load_module(
@@ -1253,6 +1255,7 @@ def test_executable_resource_contract_preserves_incremental_migration() -> None:
     assert "Existing pre-contract skills migrate" in standard
     assert "created or materially changed" in standard
 
+
 def test_executable_resource_contract_requires_explicit_safe_stop(tmp_path: Path) -> None:
     """Reject declarations that omit their safe-stop disposition."""
     module = load_module(
@@ -1292,6 +1295,7 @@ def test_reconcile_before_retry_mutation_declares_safe_stop_reconciliation() -> 
     assert "safe_stop" in schema
     assert "explicit safe-stop disposition" in standard
     assert "safe_stop: unsupported" in manifest
+
 
 def test_executable_resource_contract_rejects_explicit_null(tmp_path: Path) -> None:
     """Treat an explicitly declared null resource collection as malformed, not omitted."""
