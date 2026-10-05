@@ -95,7 +95,7 @@ def test_normative_standard_separates_decision_authority_from_completion_without
     assert "satisfied with its required current evidence/reference" in standard
     assert "explicitly not applicable with reason" in standard
     assert "pending, blocked, unknown, unverified, or unreviewed" in standard
-    assert "Do not add a second global AFDS status enum" in standard
+    assert "do not add another global AFDS status" in standard
     assert "implementation_status" not in standard
 
 
