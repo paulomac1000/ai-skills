@@ -57,6 +57,7 @@ def test_retarget_preserves_canonical_identity_and_audits_transition() -> None:
 
 
 def test_provider_scoped_external_identity_separates_github_local_numbers_and_markers() -> None:
+    """GitHub owner/repo-a/issues/42 and owner/repo-b/issues/42 remain distinct bindings."""
     control = _load("wave2_control_plane_external_identity", TOOL)
     repo_a = control.ProviderScopedExternalIdentity(
         "github", "issue", "42", ("installation-7", "owner", "repo-a")
@@ -80,6 +81,7 @@ def test_provider_scoped_external_identity_separates_github_local_numbers_and_ma
 
 
 def test_event_ingress_deduplicates_and_reconciles_authoritative_state() -> None:
+    """Duplicate and older deliveries reconcile against current authoritative state."""
     control = _load("wave2_control_plane_event_ingress", TOOL)
     identity = control.ProviderScopedExternalIdentity(
         "github", "issue", "42", ("installation-7", "owner", "repo-a")
@@ -156,6 +158,7 @@ def test_event_ingress_deduplicates_and_reconciles_authoritative_state() -> None
 
 
 def test_event_ingress_fence_authority_and_restart_fail_closed() -> None:
+    """Concurrent/stale workers stay fenced and persisted reconcile state resumes after restart."""
     control = _load("wave2_control_plane_event_fence", TOOL)
     identity = control.ProviderScopedExternalIdentity(
         "github", "issue", "42", ("installation-7", "owner", "repo-a")
@@ -204,6 +207,7 @@ def test_event_ingress_fence_authority_and_restart_fail_closed() -> None:
 
 
 def test_external_rebind_preserves_canonical_identity() -> None:
+    """Namespace moves update the external binding without creating a new canonical entity."""
     control = _load("wave2_control_plane_external_rebind", TOOL)
     before = control.ProviderScopedExternalIdentity(
         "github", "issue", "42", ("installation-7", "owner", "repo-a")
@@ -229,9 +233,9 @@ def test_standard_covers_complete_canonical_projection_pattern_bundle() -> None:
         "preserves canonical entity identity/history",
         "completed externally or by an operator",
         "bounded actionable brief/status",
-        "complete provider namespace",
-        "External events are authenticated reconciliation triggers",
-        "owner/repository/issues/42",
+        "complete provider-scoped external identity",
+        "duplicate, out-of-order, or concurrent events never authorize transitions",
+        "Rename/transfer/move MUST rebind without changing canonical identity",
     ):
         assert phrase in text
 

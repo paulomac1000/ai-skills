@@ -46,7 +46,7 @@ class CanonicalEntity:
 
 @dataclass(frozen=True)
 class ProviderScopedExternalIdentity:
-    """External identity whose uniqueness scope is explicit instead of inferred from a local locator."""
+    """Provider-scoped identity; e.g. GitHub repo-a/issues/42 differs from repo-b/issues/42."""
 
     provider: str
     resource_kind: str

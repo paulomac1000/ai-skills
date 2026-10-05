@@ -57,42 +57,7 @@ Every L2+ design has positive/negative evidence for twelve invariants: **Runtime
 
 Use one canonical store/authority unless multi-master is explicit; provider objects are projections/evidence. Ingress records both observation context and affected canonical owner. Projection writes use a durable idempotent outbox and reconcile ambiguity. Raw provider adapters refuse mutation of managed resources. Retargeting preserves canonical entity identity/history. Work completed externally or by an operator uses evidence-backed completion. Human/agent projections expose a bounded actionable brief/status and reference full evidence.
 
-#### Provider-scoped external binding identity
-
-Canonical entity identity, provider-scoped external identity, and recovery locator/marker are separate concerns. A bound external resource carries the complete provider namespace needed to make its identifier unique in the real upstream contract. An equivalent binding is:
-
-```yaml
-canonicalId: entity-7
-externalIdentity:
-  provider: github
-  providerNamespace: [installation-7, owner, repository]
-  resourceKind: issue
-  resourceId: "42"
-recoveryLocator: managed:entity-7
-```
-
-The exact tuple is provider-specific. A display number, slug, name, comment marker, or recovery token is only a locator/evidence unless the provider contract proves stronger identity semantics. Binding manifests and persistence schemas MUST represent canonical identity, provider-scoped external identity, and recovery locator/marker as separate fields. Even a provider-global opaque ID carries an explicit provider-global scope component supplied by a trusted adapter whose upstream contract proves that scope; an event or model-controlled payload cannot self-declare global uniqueness. Persistence uniqueness constraints MUST use the same effective tuple as the binding contract; adapters MUST NOT collapse identities from different tenants, repositories, boards, accounts, or equivalent namespaces merely because their local component matches.
-
-Rename, transfer, and move operations preserve the canonical entity identity/history and explicitly rebind the external identity. A copied/replayed recovery marker cannot adopt an existing canonical entity, grant mutation authority, or substitute for the provider-scoped identity.
-
-#### Replay- and order-safe event ingress
-
-External events are authenticated reconciliation triggers, not ordered transition authority. Trusted ingress persists a durable receipt before state-changing handling, with identity equivalent to:
-
-```yaml
-provider: github
-sourceScope: [installation-7]
-deliveryId: delivery-123
-receivedAt: 2026-10-05T17:00:00Z
-eventKind: issues
-externalResourceIdentity: ...
-```
-
-Authenticate and validate the provider/source envelope before constructing the trusted receipt; `sourceScope` comes from that verified envelope or provider configuration, never from untrusted event content. The dedup key is provider plus the provider-documented source scope plus delivery ID. Even a provider-global delivery ID uses an explicit trusted provider-global source-scope component rather than a caller-controlled boolean exemption. Duplicate delivery reuses the durable receipt and cannot reapply a semantic effect. Crash/restart after receipt persistence resumes the same receipt rather than redispatching a new operation.
-
-Event timestamps and arrival order are evidence, not universal fencing primitives. Before a canonical transition, the control plane resolves the exact current binding, observes authoritative current external/canonical state as required, re-evaluates authorization/policy, and applies a per-resource serialization/fence or equivalent concurrency control. A stale generation, ambiguous delete/move/transfer, unknown binding, or conflicting dedup subject remains reconcile-required and fails closed. Webhook payload content never bypasses canonical authorization or state-machine legality.
-
-Applicable state-changing ingress MUST cover adversarial namespace-collision, duplicate-delivery, out-of-order, concurrent-delivery, binding move/rename, marker-collision, and restart-after-receipt scenarios. A GitHub-style `owner/repository/issues/42` collision is a reference example of the invariant, not the universal external wire model.
+External bindings MUST separate canonical identity, complete provider-scoped external identity, and recovery locators; local IDs/markers are not authority. Ingress MUST authenticate source, durably deduplicate `(provider, source scope, delivery ID)`, survive restart, and reconcile current state/policy under per-resource fencing; duplicate, out-of-order, or concurrent events never authorize transitions. Rename/transfer/move MUST rebind without changing canonical identity.
 
 ### Provider schema compatibility
 
