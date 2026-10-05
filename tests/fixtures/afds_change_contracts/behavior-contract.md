@@ -26,6 +26,22 @@ This fixture owns observable behavior for one bounded change and excludes implem
 - `CRIT-1`: given a compatible prior input, the observable result remains accepted.
 - `CRIT-2`: given the declared invalid edge case, the operation returns the documented rejection.
 
+## Normal flow
+
+A compatible prior input produces the accepted observable result described by `CRIT-1`.
+
+## Negative and failure flows
+
+The declared invalid edge case produces the documented rejection described by `CRIT-2`; it does not silently fall back to a different behavior.
+
+## Public effects and compatibility
+
+The change preserves the prior compatible input contract and introduces no new wire fields in this fixture.
+
+## Decision references
+
+The behavioral contract may reference an accepted architecture decision, but that decision does not count as execution evidence.
+
 ## Assumptions
 
 - The referenced machine schema remains the canonical wire-format owner.
