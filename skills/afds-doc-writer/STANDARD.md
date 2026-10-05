@@ -46,30 +46,15 @@ Choose one primary type. Split documents when readers, ownership, lifecycle, or 
 
 ## Executable behavior and acceptance contracts
 
-A `contract` document may specialize as the durable behavioral/acceptance source of truth for a non-trivial software change without becoming a new AFDS document type. When that specialization applies, the contract records the smallest complete set of applicable behavior dimensions: scope and non-scope, stable obligation references when the repository has them, observable acceptance criteria, normal flows, negative/edge/failure flows, public effects and compatibility constraints, decision references, and verification mapping.
+A `contract` may specialize as the durable behavioral/acceptance source for a non-trivial software change without becoming a new AFDS document type. It distinguishes obligations/requirements, observable and falsifiable acceptance criteria, assumptions, examples, and evidence; covers applicable normal and negative/failure behavior plus public/compatibility effects; and maps criteria to the owning verification mechanism.
 
-The following rules are normative:
-
-- obligations or requirements state what is required; acceptance criteria state observable/falsifiable outcomes; assumptions, examples, and evidence remain distinct statement kinds;
-- criteria describe externally distinguishable acceptance outcomes rather than implementation guesses, unless the implementation mechanism itself is part of the public contract;
-- stable obligation/criterion identifiers from another canonical contract may be referenced by ID/digest, but AFDS does not copy or fork that machine contract;
-- verification mapping names the owning proof mechanism, criterion/evidence reference, or verification plan; mutable PASS/FAIL results, provider run state, review receipts, and timestamps remain evidence records rather than durable frontmatter;
-- an `active` behavioral contract states current authority for the documented behavior, not proof that an implementation currently satisfies it;
-- when a public wire/data/schema contract is machine-readable and canonical, prose explains or links to it but cannot override it.
-
-`qa-change-verifier` remains the owner of risk-directed verification planning and exact evidence. Review/evidence receipts remain their owning systems' records and are referenced rather than copied into AFDS documents.
+Stable obligation/criterion identities from another canonical contract are referenced rather than copied. Mutable PASS/FAIL results, provider state, reviews, and receipts remain evidence records outside durable frontmatter. A canonical machine-readable public schema overrides explanatory prose for the exact wire/data contract. `qa-change-verifier` continues to own verification planning and exact evidence.
 
 ## Decision authority and implementation completion
 
-For a `decision` document, **decision accepted is not the same fact as decision implemented**. `status: active` means the document is a current authoritative decision record; it does not assert that every implementation consequence has completed.
+For a `decision`, **decision accepted is not the same fact as decision implemented**. `status: active` establishes current decision authority; it does not prove that implementation, migration, rollout, cleanup, downstream review, or required verification has completed.
 
-When a decision materially affects implementation, the document records or links the applicable consequences needed to make its implementation state auditable: affected obligations/criteria, affected consumers and surfaces, ordered implementation consequences, migration/compatibility, rollout, rollback, cleanup/removal of superseded paths, required verification, downstream review, and completion semantics. Omit genuinely inapplicable dimensions rather than filling them with boilerplate, but do not hide a material consequence behind generic prose.
-
-A decision may claim implementation completion only when every **declared mandatory** consequence is resolved: satisfied consequences have current evidence or an authoritative implementation reference, and non-applicable consequences carry a reason. Any required consequence that is pending, blocked, unknown, missing required verification evidence, or still awaiting downstream review keeps the implementation claim incomplete. Acceptance authority remains intact while those consequences are unfinished unless the decision itself is superseded or otherwise changes lifecycle state.
-
-Do not add a second global AFDS status enum, hand-maintained completion score, or `last_verified`-style field to represent this distinction. Repositories may use their own machine-readable work/change contract as the consequence source; AFDS records durable semantics and references, while executed verification, CI, review, and receipt state stays in the evidence system that owns it.
-
-Implementation consequences flow through the existing AFDS lifecycle/change-impact protocol. A decision that changes a consumer or public/operational promise must enumerate that downstream review result rather than creating a parallel dependency graph.
+When those consequences are material, the decision records or links them and their completion semantics. An implementation-complete claim requires every declared mandatory consequence to be satisfied with its required current evidence/reference or explicitly not applicable with reason; pending, blocked, unknown, unverified, or unreviewed mandatory consequences keep implementation incomplete. Do not add a second global AFDS status enum, hand-maintained score, or volatile result field for this distinction. Route downstream consequences through the existing lifecycle/change-impact protocol.
 
 ## Required metadata
 
