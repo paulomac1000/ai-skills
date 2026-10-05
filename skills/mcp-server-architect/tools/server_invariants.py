@@ -28,11 +28,24 @@ _REQUIRED_RUNTIME_IDENTITY = {
 }
 _REQUIRED_HEALTH_DIMENSIONS = {"process", "transport", "auth", "read", "write", "provider"}
 _REQUIRED_IDENTITY_ROLES = {"operation", "idempotency", "correlation", "causation", "trace"}
-_UNRESOLVED_IDEMPOTENCY_STATES = {"in_flight", "indeterminate", "unknown_outcome", "reconcile_required"}
+_UNRESOLVED_IDEMPOTENCY_STATES = {
+    "in_flight",
+    "indeterminate",
+    "unknown_outcome",
+    "reconcile_required",
+}
 _TERMINAL_IDEMPOTENCY_STATES = {"completed", "failed_terminal", "cancelled_terminal"}
 _DETERMINISTIC_FAILURES = {"invalid_input", "invariant_failure", "policy_failure"}
 _TRANSIENT_FAILURES = {"rate_limited", "transient_infrastructure"}
-_ALLOWED_RECOVERY_DISPOSITIONS = {"retry", "wait", "reconcile", "remediate", "block", "fail_closed", "manual_resolution"}
+_ALLOWED_RECOVERY_DISPOSITIONS = {
+    "retry",
+    "wait",
+    "reconcile",
+    "remediate",
+    "block",
+    "fail_closed",
+    "manual_resolution",
+}
 
 
 def _mapping(value: object) -> Mapping[str, object]:
@@ -114,7 +127,7 @@ def evaluate_runtime_api_invariants(design: Mapping[str, object]) -> dict[str, b
         ),
         "stream_terminality": (
             terminality.get("exactly_one_authoritative_terminal") is True
-            and terminality.get("eof_without_terminal") == "incomplete_or_unknown"
+            and terminality.get("eof_without_terminal") == "incomplete_unknown"
             and terminality.get("disconnect_is_terminal") is False
             and terminality.get("post_terminal_progress_rejected") is True
             and terminality.get("conflicting_terminal_rejected") is True
@@ -149,8 +162,8 @@ def invariant_violations(design: Mapping[str, object]) -> tuple[str, ...]:
     return tuple(name for name in INVARIANTS if not results[name])
 
 
-def classify_progress_sequence(events: Sequence[Mapping[str, object]]) -> str:
-    """Classify a progress stream without treating EOF/disconnect as domain success."""
+def classify_progress_sequence(events: Sequence[object]) -> str:
+    """Classify one observed progress stream without treating transport end as domain success."""
     terminal: tuple[str, str] | None = None
     for event in events:
         if not isinstance(event, Mapping):
@@ -172,10 +185,26 @@ def classify_progress_sequence(events: Sequence[Mapping[str, object]]) -> str:
             if event.get("replay") is True and current == terminal:
                 continue
             return "conflicting_terminal"
-        if kind in {"eof", "disconnect"}:
-            continue
+        if kind in {"eof", "disconnect", "wait_cancelled"}:
+            return "complete" if terminal is not None else "incomplete_unknown"
         return "malformed"
     return "complete" if terminal is not None else "incomplete_unknown"
+
+
+def exception_boundary_is_safe(
+    public_failure: Mapping[str, object],
+    trusted_diagnostic: Mapping[str, object],
+) -> bool:
+    """Require trusted exception detail without leaking it into the public failure."""
+    operation_id = public_failure.get("operation_id")
+    if not _truthy_text(operation_id) or trusted_diagnostic.get("operation_id") != operation_id:
+        return False
+    if not _truthy_text(public_failure.get("failure_class")):
+        return False
+    forbidden_public_fields = {"stack", "stack_trace", "cause", "exception", "exception_object"}
+    if forbidden_public_fields.intersection(public_failure):
+        return False
+    return _truthy_text(trusted_diagnostic.get("cause")) and _truthy_text(trusted_diagnostic.get("stack"))
 
 
 def idempotency_state_after_cleanup(state: str, *, cleanup: str = "generic_ttl") -> str:

@@ -1,4 +1,4 @@
 {
-  "positive": {"stream_terminality": {"exactly_one_authoritative_terminal": true, "eof_without_terminal": "incomplete_or_unknown", "disconnect_is_terminal": false, "post_terminal_progress_rejected": true, "conflicting_terminal_rejected": true, "wait_cancellation_cancels_work": false}},
+  "positive": {"stream_terminality": {"exactly_one_authoritative_terminal": true, "eof_without_terminal": "incomplete_unknown", "disconnect_is_terminal": false, "post_terminal_progress_rejected": true, "conflicting_terminal_rejected": true, "wait_cancellation_cancels_work": false}},
   "negative": {"stream_terminality": {"exactly_one_authoritative_terminal": true, "eof_without_terminal": "success", "disconnect_is_terminal": false, "post_terminal_progress_rejected": true, "conflicting_terminal_rejected": true, "wait_cancellation_cancels_work": false}}
 }

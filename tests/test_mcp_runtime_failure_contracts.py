@@ -25,6 +25,7 @@ def test_progress_requires_exactly_one_authoritative_terminal() -> None:
     checks = _load()
     assert checks.classify_progress_sequence([{"kind": "progress"}, {"kind": "eof"}]) == "incomplete_unknown"
     assert checks.classify_progress_sequence([{"kind": "progress"}, {"kind": "disconnect"}]) == "incomplete_unknown"
+    assert checks.classify_progress_sequence([{"kind": "wait_cancelled"}]) == "incomplete_unknown"
     assert checks.classify_progress_sequence(
         [{"kind": "progress"}, {"kind": "terminal", "terminal_id": "t1", "outcome": "completed"}]
     ) == "complete"
@@ -39,6 +40,7 @@ def test_duplicate_conflicting_and_post_terminal_events_fail_closed() -> None:
     ) == "conflicting_terminal"
     assert checks.classify_progress_sequence([terminal, {**terminal, "replay": True}]) == "complete"
     assert checks.classify_progress_sequence([{"kind": "progress"}, "bad-event"]) == "malformed"
+    assert checks.classify_progress_sequence([{"kind": "eof"}, terminal]) == "incomplete_unknown"
 
 
 def test_indeterminate_idempotency_cleanup_never_manufactures_replay_permission() -> None:
@@ -64,6 +66,16 @@ def test_recovery_disposition_is_separate_from_failure_classification() -> None:
     assert checks.recovery_disposition_is_admissible("unknown", "fail_closed") is True
 
 
+def test_exception_diagnostics_preserve_trusted_cause_without_public_leakage() -> None:
+    checks = _load()
+    public = {"failure_class": "internal", "operation_id": "op-1"}
+    trusted = {"operation_id": "op-1", "cause": "ValueError: boom", "stack": "traceback..."}
+    assert checks.exception_boundary_is_safe(public, trusted) is True
+    assert checks.exception_boundary_is_safe({**public, "stack": "traceback..."}, trusted) is False
+    assert checks.exception_boundary_is_safe(public, {**trusted, "operation_id": "op-2"}) is False
+    assert checks.exception_boundary_is_safe(public, {"operation_id": "op-1", "cause": "ValueError: boom"}) is False
+
+
 def test_static_runtime_contracts_cover_failure_identity_and_exception_boundaries() -> None:
     checks = _load()
     design = {
@@ -76,7 +88,7 @@ def test_static_runtime_contracts_cover_failure_identity_and_exception_boundarie
         },
         "stream_terminality": {
             "exactly_one_authoritative_terminal": True,
-            "eof_without_terminal": "incomplete_or_unknown",
+            "eof_without_terminal": "incomplete_unknown",
             "disconnect_is_terminal": False,
             "post_terminal_progress_rejected": True,
             "conflicting_terminal_rejected": True,
