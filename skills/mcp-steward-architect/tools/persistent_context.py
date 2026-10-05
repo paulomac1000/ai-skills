@@ -171,10 +171,7 @@ class PersistentContextArtifact:
         names = [item.name for item in self.dependencies]
         if len(set(names)) != len(names):
             raise ValueError("dependency names must be unique")
-        if (
-            self.trust_class is not PersistentTrustClass.UNTRUSTED
-            and self.provenance.envelope_attestation_ref is None
-        ):
+        if self.trust_class is not PersistentTrustClass.UNTRUSTED and self.provenance.envelope_attestation_ref is None:
             raise ValueError("non-untrusted context requires trusted envelope attestation")
         if self.permissions.may_satisfy_evidence and self.trust_class not in {
             PersistentTrustClass.AUTHORITATIVE,
@@ -247,8 +244,7 @@ def evidence_candidate(
     """Return eligibility only; actual proof authority remains external policy."""
     return (
         artifact.permissions.may_satisfy_evidence
-        and artifact.trust_class
-        in {PersistentTrustClass.AUTHORITATIVE, PersistentTrustClass.OBSERVED}
+        and artifact.trust_class in {PersistentTrustClass.AUTHORITATIVE, PersistentTrustClass.OBSERVED}
         and effective_currentness(artifact, current_dependencies) is ContextCurrentness.CURRENT
     )
 
@@ -287,8 +283,7 @@ def assemble_context(
                 may_influence_planning=item.permissions.may_influence_planning,
                 may_satisfy_evidence=evidence_candidate(item, current_dependencies),
                 data_only=(
-                    item.trust_class is PersistentTrustClass.UNTRUSTED
-                    or not item.permissions.may_influence_planning
+                    item.trust_class is PersistentTrustClass.UNTRUSTED or not item.permissions.may_influence_planning
                 ),
             )
             for item in selected
