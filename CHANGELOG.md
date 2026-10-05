@@ -1,5 +1,22 @@
 # Changelog
 
+## 3.10.0 - 2026-10-05
+
+### Added
+
+- Added five provider-neutral MCP runtime adoption rules for stable expected-failure contracts, exactly-one async terminality, replay-blocking unresolved idempotency, semantic operation/idempotency/correlation/causation/trace identity separation, and trusted unexpected-exception diagnostics.
+- Added executable runtime invariant helpers and adversarial regressions for EOF/disconnect/wait cancellation without terminal state, conflicting or replayed terminal outcomes, stale post-terminal progress, unresolved idempotency cleanup, conservative recovery disposition, malformed progress events, and public-versus-trusted exception diagnostics.
+
+### Changed
+
+- Extended `mcp-server-architect` from seven to twelve production runtime/API invariants and made failure classification distinct from policy-selected recovery disposition.
+- Clarified that internal Result/exception/envelope representations do not define the MCP wire contract, and that durable operation handles obey the same terminality rules as long-lived progress streams.
+
+### Security and correctness
+
+- Generic TTL/maintenance cleanup can no longer convert `in_flight`, `indeterminate`, `unknown_outcome`, or `reconcile_required` side effects into replay permission; unknown failures do not default to retry and ambiguous stateful effects require reconciliation or a more conservative governed disposition.
+- Unexpected exception cause and stack remain available only at the trusted operator-diagnostic boundary, correlated to the public operation, while public/durable failure records stay sanitized and exception-object free.
+
 ## 3.9.0 - 2026-10-05
 
 ### Added
