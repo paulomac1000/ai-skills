@@ -1,4 +1,4 @@
-"""Wave 2 executable regressions for the seven MCP server runtime/API invariants."""
+"""Wave 2 executable regressions for the MCP server runtime/API invariants."""
 
 from __future__ import annotations
 
@@ -48,6 +48,11 @@ def _inventory_covers(targets: tuple[str, ...], relative_path: str) -> bool:
         "durable_async_progress",
         "bounded_results",
         "scoped_health",
+        "failure_contract",
+        "stream_terminality",
+        "unresolved_idempotency",
+        "identity_separation",
+        "exception_diagnostics",
     ],
 )
 def test_each_invariant_has_positive_and_negative_executable_fixture(invariant: str) -> None:

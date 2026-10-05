@@ -1,0 +1,4 @@
+{
+  "positive": {"exception_diagnostics": {"trusted_original_cause": true, "trusted_stack": true, "public_sanitized": true, "durable_exception_object": false, "public_operation_correlated": true, "raw_forensic_boundary": true, "ordinary_telemetry_uses_opaque_ref": true, "diagnostic_failure_policy_explicit": true}},
+  "negative": {"exception_diagnostics": {"trusted_original_cause": true, "trusted_stack": true, "public_sanitized": true, "durable_exception_object": false, "public_operation_correlated": true, "raw_forensic_boundary": false, "ordinary_telemetry_uses_opaque_ref": true, "diagnostic_failure_policy_explicit": true}}
+}

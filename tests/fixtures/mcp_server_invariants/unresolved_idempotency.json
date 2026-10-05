@@ -1,0 +1,4 @@
+{
+  "positive": {"idempotency_state": {"indeterminate_replay_blocking": true, "generic_cleanup_can_clear_unresolved": false, "expiry_becomes_not_seen": false, "completed_vs_unresolved_cleanup_separate": true, "durability_promised": true, "restart_preserves_identity": true}},
+  "negative": {"idempotency_state": {"indeterminate_replay_blocking": true, "generic_cleanup_can_clear_unresolved": true, "expiry_becomes_not_seen": false, "completed_vs_unresolved_cleanup_separate": true, "durability_promised": true, "restart_preserves_identity": true}}
+}

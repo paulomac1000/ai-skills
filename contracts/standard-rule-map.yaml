@@ -66,7 +66,7 @@ skills:
       side-effects-retries-and-workflows: {rule_id: mcp.retry.fail-closed, primary: true}
       transport-and-lifecycle: {rule_ids: [mcp.transport.supported, mcp.transport.remote-hardening], primary: true}
       deadlines-cancellation-retries-and-concurrency: {rule_id: mcp.deadline.concurrency, primary: true}
-      data-errors-and-responses: {rule_id: mcp.response.structured, primary: true}
+      data-errors-and-responses: {rule_ids: [mcp.response.structured, mcp.failure.contract, mcp.async.terminality, mcp.idempotency.unresolved-blocking, mcp.identity.operation-separation, mcp.diagnostics.exception-preservation], primary: true}
       authentication-and-authorization: {rule_ids: [mcp.authorization.server-side, mcp.authorization.resource-isolation, mcp.abuse.controls], primary: true}
       runtime-boundaries-artifacts-and-browser-automation: {rule_ids: [mcp.filesystem.containment, mcp.artifact.ownership, mcp.task.supervision, mcp.browser.profile-isolation], primary: true}
       multi-backend-and-embedded-hosting: {rule_ids: [mcp.backends.identity, mcp.embedded.host-ownership], primary: true}
