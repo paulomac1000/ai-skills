@@ -32,6 +32,7 @@ required:
   - references/evidence-authority-and-completion.md
   - references/credentials-and-failover.md
   - references/observability-and-diagnostics.md
+  - references/persistent-context-provenance.md
   - references/testing-strategy.md
   - templates/steward-profile.yaml.template
   - templates/steward-state-machine.yaml.template
@@ -41,6 +42,7 @@ required:
   - templates/proof-recipe.yaml.template
   - templates/steward-acceptance.yaml.template
   - tools/validate_steward.py
+  - tools/persistent_context.py
   - tools/generate_steward.py
 categories: [core, references, templates, tools]
 applicability:

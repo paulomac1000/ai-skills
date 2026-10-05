@@ -98,6 +98,12 @@ reasonCodes: [...]
 
 `earliestSafeStage` is the first legal stage whose required checkpoint is non-current; if every required checkpoint is current, no recomputation is required. Restart with the same durable state and semantic dependencies MUST derive the same result without replaying prior model conversation/transcript. A losing retry/CAS path reloads the canonical winning checkpoint before deriving successors. Similarity, reviewer prose, or a model assertion is not compatibility proof.
 
+## Persistent context provenance
+
+Persistent artifacts that can influence a later session MUST carry a bounded trusted provenance envelope with trust class, explicit scope, currentness, load-bearing dependency identities, and permitted influence. Persistence never upgrades authority: model/repository/user prose cannot grant capabilities, policy exemptions, merge/deploy/lifecycle authority, or satisfy a stronger evidence gate merely because it survived. Derived load-bearing summaries retain evidence refs; unknown provenance/currentness is not current truth.
+
+Fresh-session assembly MUST prefer current higher-authority facts over stale/lower-trust context, invalidate declared dependencies when subject/runtime/environment/policy generations change, and fail conservative on incompatible cross-project/cross-user scope. Useful advisory lessons MAY influence planning only when applicability/currentness are proven; they remain non-authoritative. Storage stays product-owned and conformance requires bounded refs/summaries, not private chain-of-thought or raw transcripts. See `references/persistent-context-provenance.md`.
+
 ## Mutation admission and candidate identity
 
 Each authority-bearing effect MUST have a declared mutation policy binding authority source, lease requirement, exact subject dimensions, exact candidate requirement, capability contract, durable operation requirement, budget reserve, ambiguity disposition, and typed failure outcomes.
