@@ -65,6 +65,7 @@ executable_resources:
       '1': error-findings
     timeout: policy
     cancellation: supported
+    safe_stop: supported
   effects:
     class: read_only
     replay_safety: idempotent
@@ -89,6 +90,7 @@ executable_resources:
       '2': invalid-input-or-io-failure
     timeout: policy
     cancellation: unsupported
+    safe_stop: unsupported
   effects:
     class: local_mutation
     replay_safety: non_replayable
@@ -113,6 +115,7 @@ executable_resources:
       '1': findings
     timeout: policy
     cancellation: supported
+    safe_stop: supported
   effects:
     class: read_only
     replay_safety: idempotent

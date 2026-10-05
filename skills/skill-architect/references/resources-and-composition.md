@@ -57,8 +57,8 @@ legacy helper.
 
 The declaration records the bundled resource, invocation mode/entrypoint, input
 reference when one exists, structured/human/internal outcome mode, process exit
-mapping, timeout/cancellation behavior, effects, replay safety, network and
-credential class, and bounded diagnostics. For `python_script`, the declared
+mapping, timeout/cancellation behavior, explicit safe-stop disposition, effects,
+replay safety, network and credential class, and bounded diagnostics. For `python_script`, the declared
 Python runtime plus the resource entrypoint is the canonical invocation.
 
 Structured outcomes are required only when machine logic depends on the result.
@@ -67,9 +67,10 @@ A human-text helper can remain `human_only`; an internal library can remain
 PASS, NO_ACTION, INVALID_INPUT, ENVIRONMENT_NOT_READY, or
 RECONCILE_REQUIRED into one opaque success/failure bit.
 
-For mutating resources, classify replay explicitly. If delivery can be
-ambiguous after timeout or disconnect, use `reconcile_before_retry` and retain
-the operation identity needed for reconciliation. Keep normal diagnostics
+For mutating resources, classify replay and stopping explicitly. If delivery can
+be ambiguous after timeout, cancellation, disconnect, or forced stop, use
+`reconcile_before_retry` for both replay safety and safe-stop disposition and
+retain the operation identity needed for reconciliation. Keep normal diagnostics
 bounded; large provider output and raw logs remain behind governed references
 or artifacts.
 

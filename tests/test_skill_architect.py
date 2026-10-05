@@ -1067,6 +1067,7 @@ def test_executable_resource_contract_accepts_cli_and_library_helper(tmp_path: P
         "    exit_code_mapping: {'0': PASS, '1': FAILED}\n"
         "    timeout: policy\n"
         "    cancellation: supported\n"
+        "    safe_stop: supported\n"
         "  effects: {class: read_only, replay_safety: idempotent, network: none, credential_class: none}\n"
         "  diagnostics: {bounded: true, safe_egress_profile_ref: null}\n"
         "- id: library\n"
@@ -1075,7 +1076,7 @@ def test_executable_resource_contract_accepts_cli_and_library_helper(tmp_path: P
         "  canonical_invocation: {mode: library_api, entrypoint: library:run}\n"
         "  input_contract_ref: null\n"
         "  outcome_contract: {mode: internal, schema_ref: null}\n"
-        "  process_semantics: {exit_code_mapping: null, timeout: null, cancellation: not_applicable}\n"
+        "  process_semantics: {exit_code_mapping: null, timeout: null, cancellation: not_applicable, safe_stop: host_managed}\n"
         "  effects: {class: read_only, replay_safety: idempotent, network: none, credential_class: none}\n"
         "  diagnostics: {bounded: true, safe_egress_profile_ref: null}\n"
     )
@@ -1117,7 +1118,7 @@ def test_executable_resource_contract_rejects_library_helper_cli_confusion(tmp_p
         "  kind: library_helper\n"
         "  canonical_invocation: {mode: python_script, entrypoint: tools/library.py}\n"
         "  outcome_contract: {mode: internal, schema_ref: null}\n"
-        "  process_semantics: {exit_code_mapping: null, timeout: null, cancellation: not_applicable}\n"
+        "  process_semantics: {exit_code_mapping: null, timeout: null, cancellation: not_applicable, safe_stop: host_managed}\n"
         "  effects: {class: read_only, replay_safety: idempotent, network: none, credential_class: none}\n"
         "  diagnostics: {bounded: true, safe_egress_profile_ref: null}\n"
     )
@@ -1148,6 +1149,7 @@ def test_executable_resource_contract_rejects_unbounded_diagnostics(tmp_path: Pa
         "    exit_code_mapping: {'0': PASS}\n"
         "    timeout: policy\n"
         "    cancellation: supported\n"
+        "    safe_stop: supported\n"
         "  effects: {class: read_only, replay_safety: idempotent, network: none, credential_class: none}\n"
         "  diagnostics: {bounded: false, safe_egress_profile_ref: null}\n"
     )
@@ -1178,6 +1180,7 @@ def test_executable_resource_contract_rejects_unconfined_resource(tmp_path: Path
         "    exit_code_mapping: {'0': PASS}\n"
         "    timeout: policy\n"
         "    cancellation: supported\n"
+        "    safe_stop: supported\n"
         "  effects: {class: read_only, replay_safety: idempotent, network: none, credential_class: none}\n"
         "  diagnostics: {bounded: true, safe_egress_profile_ref: null}\n"
     )
@@ -1220,6 +1223,7 @@ def test_executable_resource_contract_accepts_reconcile_before_retry_mutation(tm
         "    exit_code_mapping: {'0': ACCEPTED, '3': RECONCILE_REQUIRED}\n"
         "    timeout: policy\n"
         "    cancellation: unsupported\n"
+        "    safe_stop: reconcile_before_retry\n"
         "  effects: {class: external_mutation, replay_safety: reconcile_before_retry, network: scoped, credential_class: scoped_runtime}\n"
         "  diagnostics: {bounded: true, safe_egress_profile_ref: null}\n"
     )
@@ -1238,4 +1242,42 @@ def test_executable_resource_contract_preserves_incremental_migration() -> None:
     standard = (SKILL / "STANDARD.md").read_text(encoding="utf-8")
     assert "Existing pre-contract skills migrate" in standard
     assert "created or materially changed" in standard
+
+def test_executable_resource_contract_requires_explicit_safe_stop(tmp_path: Path) -> None:
+    module = load_module(
+        "skill_architect_executable_resource_safe_stop",
+        SKILL / "tools/audit_skill.py",
+    )
+    target = tmp_path / "skills/example-skill"
+    _write_minimal_skill(target)
+    _write_tool_fixture(target, "check.py")
+    entries = (
+        "- id: check\n"
+        "  resource: tools/check.py\n"
+        "  kind: agent_cli\n"
+        "  canonical_invocation: {mode: python_script, entrypoint: tools/check.py}\n"
+        "  outcome_contract: {mode: structured, schema_ref: null}\n"
+        "  process_semantics:\n"
+        "    exit_code_mapping: {'0': PASS}\n"
+        "    timeout: policy\n"
+        "    cancellation: supported\n"
+        "  effects: {class: read_only, replay_safety: idempotent, network: none, credential_class: none}\n"
+        "  diagnostics: {bounded: true, safe_egress_profile_ref: null}\n"
+    )
+    (target / "manifest.yaml").write_text(
+        _executable_resource_manifest(entries),
+        encoding="utf-8",
+    )
+
+    findings = module.audit_skill(target, tmp_path, strict=True)
+    assert "skill.executable-resource.schema" in {finding.code for finding in findings}
+
+
+def test_reconcile_before_retry_mutation_declares_safe_stop_reconciliation() -> None:
+    manifest = (SKILL / "manifest.yaml").read_text(encoding="utf-8")
+    schema = (SKILL / "schemas/executable-resource.schema.json").read_text(encoding="utf-8")
+    standard = (SKILL / "STANDARD.md").read_text(encoding="utf-8")
+    assert "safe_stop" in schema
+    assert "explicit safe-stop disposition" in standard
+    assert "safe_stop: unsupported" in manifest
 

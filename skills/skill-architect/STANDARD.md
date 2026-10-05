@@ -169,8 +169,9 @@ structured outcome; human-only or internal helpers need not manufacture JSON.
 Process exit semantics map to, but do not replace, the domain outcome.
 
 Declare side-effect class, replay/reconciliation behavior, network and
-credential needs, timeout/cancellation semantics, bounded diagnostics, and a
-safe stop appropriate to the resource. Ambiguous external mutation requires
+credential needs, timeout/cancellation semantics, bounded diagnostics, and an
+explicit safe-stop disposition (`supported`, `unsupported`, `host_managed`, or
+`reconcile_before_retry`) appropriate to the resource. Ambiguous external mutation requires
 reconciliation before retry rather than replay from a transport failure.
 Execute and test every supported invocation. Declaration is not runtime
 readiness: the consuming host still proves that the exact dependency/entrypoint
