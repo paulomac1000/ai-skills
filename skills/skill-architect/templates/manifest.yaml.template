@@ -12,6 +12,7 @@ compatibility:
 dependencies:
   skills: []
   tools: []
+executable_resources: []
 deprecation:
   policy: semantic-versioning
   minimum_notice: one-minor-release

@@ -48,6 +48,79 @@ dependencies:
     python:
     - PyYAML>=6.0.3,<7
     - jsonschema>=4.26,<5
+executable_resources:
+- id: audit-skill
+  resource: tools/audit_skill.py
+  kind: agent_cli
+  canonical_invocation:
+    mode: python_script
+    entrypoint: tools/audit_skill.py
+  input_contract_ref: null
+  outcome_contract:
+    mode: structured
+    schema_ref: null
+  process_semantics:
+    exit_code_mapping:
+      '0': no-error-findings
+      '1': error-findings
+    timeout: policy
+    cancellation: supported
+  effects:
+    class: read_only
+    replay_safety: idempotent
+    network: none
+    credential_class: none
+  diagnostics:
+    bounded: true
+    safe_egress_profile_ref: null
+- id: scaffold-skill
+  resource: tools/scaffold_skill.py
+  kind: agent_cli
+  canonical_invocation:
+    mode: python_script
+    entrypoint: tools/scaffold_skill.py
+  input_contract_ref: null
+  outcome_contract:
+    mode: human_only
+    schema_ref: null
+  process_semantics:
+    exit_code_mapping:
+      '0': created
+      '2': invalid-input-or-io-failure
+    timeout: policy
+    cancellation: unsupported
+  effects:
+    class: local_mutation
+    replay_safety: non_replayable
+    network: none
+    credential_class: none
+  diagnostics:
+    bounded: true
+    safe_egress_profile_ref: null
+- id: validate-skill-evals
+  resource: tools/validate_skill_evals.py
+  kind: agent_cli
+  canonical_invocation:
+    mode: python_script
+    entrypoint: tools/validate_skill_evals.py
+  input_contract_ref: null
+  outcome_contract:
+    mode: structured
+    schema_ref: null
+  process_semantics:
+    exit_code_mapping:
+      '0': valid
+      '1': findings
+    timeout: policy
+    cancellation: supported
+  effects:
+    class: read_only
+    replay_safety: idempotent
+    network: none
+    credential_class: none
+  diagnostics:
+    bounded: true
+    safe_egress_profile_ref: null
 deprecation:
   policy: semantic-versioning
   minimum_notice: one-minor-release
@@ -65,6 +138,7 @@ required:
 - templates/STANDARD.md.template
 - templates/manifest.yaml.template
 - schemas/skill-eval.schema.json
+- schemas/executable-resource.schema.json
 - tools/audit_skill.py
 - tools/scaffold_skill.py
 - tools/validate_skill_evals.py

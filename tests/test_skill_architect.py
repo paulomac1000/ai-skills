@@ -1034,3 +1034,171 @@ def test_strict_audit_rejects_scaffold_placeholder_manifest(tmp_path: Path) -> N
     findings = audit_module.audit_skill(target, tmp_path, strict=True)
     assert "skill.manifest.contract" in {finding.code for finding in findings}
 
+def _executable_resource_manifest(entries: str) -> str:
+    return _valid_manifest_text("[core, tools]").replace(
+        "deprecation:\n",
+        f"executable_resources:\n{entries}deprecation:\n",
+    )
+
+
+def _write_tool_fixture(target: Path, name: str) -> None:
+    tools = target / "tools"
+    tools.mkdir(exist_ok=True)
+    (tools / name).write_text("pass\n", encoding="utf-8")
+
+
+def test_executable_resource_contract_accepts_cli_and_library_helper(tmp_path: Path) -> None:
+    module = load_module(
+        "skill_architect_executable_resource_valid",
+        SKILL / "tools/audit_skill.py",
+    )
+    target = tmp_path / "skills/example-skill"
+    _write_minimal_skill(target)
+    _write_tool_fixture(target, "check.py")
+    _write_tool_fixture(target, "library.py")
+    entries = (
+        "- id: check\n"
+        "  resource: tools/check.py\n"
+        "  kind: agent_cli\n"
+        "  canonical_invocation: {mode: python_script, entrypoint: tools/check.py}\n"
+        "  input_contract_ref: null\n"
+        "  outcome_contract: {mode: structured, schema_ref: null}\n"
+        "  process_semantics:\n"
+        "    exit_code_mapping: {'0': PASS, '1': FAILED}\n"
+        "    timeout: policy\n"
+        "    cancellation: supported\n"
+        "  effects: {class: read_only, replay_safety: idempotent, network: none, credential_class: none}\n"
+        "  diagnostics: {bounded: true, safe_egress_profile_ref: null}\n"
+        "- id: library\n"
+        "  resource: tools/library.py\n"
+        "  kind: library_helper\n"
+        "  canonical_invocation: {mode: library_api, entrypoint: library:run}\n"
+        "  input_contract_ref: null\n"
+        "  outcome_contract: {mode: internal, schema_ref: null}\n"
+        "  process_semantics: {exit_code_mapping: null, timeout: null, cancellation: not_applicable}\n"
+        "  effects: {class: read_only, replay_safety: idempotent, network: none, credential_class: none}\n"
+        "  diagnostics: {bounded: true, safe_egress_profile_ref: null}\n"
+    )
+    (target / "manifest.yaml").write_text(
+        _executable_resource_manifest(entries),
+        encoding="utf-8",
+    )
+
+    assert module.audit_skill(target, tmp_path, strict=True) == []
+
+
+def test_tools_directory_does_not_imply_agent_cli(tmp_path: Path) -> None:
+    module = load_module(
+        "skill_architect_tools_not_implicit_cli",
+        SKILL / "tools/audit_skill.py",
+    )
+    target = tmp_path / "skills/example-skill"
+    _write_minimal_skill(target)
+    _write_tool_fixture(target, "internal.py")
+    (target / "manifest.yaml").write_text(
+        _valid_manifest_text("[core, tools]"),
+        encoding="utf-8",
+    )
+
+    assert module.audit_skill(target, tmp_path, strict=True) == []
+
+
+def test_executable_resource_contract_rejects_library_helper_cli_confusion(tmp_path: Path) -> None:
+    module = load_module(
+        "skill_architect_executable_resource_kind",
+        SKILL / "tools/audit_skill.py",
+    )
+    target = tmp_path / "skills/example-skill"
+    _write_minimal_skill(target)
+    _write_tool_fixture(target, "library.py")
+    entries = (
+        "- id: library\n"
+        "  resource: tools/library.py\n"
+        "  kind: library_helper\n"
+        "  canonical_invocation: {mode: python_script, entrypoint: tools/library.py}\n"
+        "  outcome_contract: {mode: internal, schema_ref: null}\n"
+        "  process_semantics: {exit_code_mapping: null, timeout: null, cancellation: not_applicable}\n"
+        "  effects: {class: read_only, replay_safety: idempotent, network: none, credential_class: none}\n"
+        "  diagnostics: {bounded: true, safe_egress_profile_ref: null}\n"
+    )
+    (target / "manifest.yaml").write_text(
+        _executable_resource_manifest(entries),
+        encoding="utf-8",
+    )
+
+    findings = module.audit_skill(target, tmp_path, strict=True)
+    assert "skill.executable-resource.invocation-kind" in {finding.code for finding in findings}
+
+
+def test_executable_resource_contract_rejects_unbounded_diagnostics(tmp_path: Path) -> None:
+    module = load_module(
+        "skill_architect_executable_resource_bounded",
+        SKILL / "tools/audit_skill.py",
+    )
+    target = tmp_path / "skills/example-skill"
+    _write_minimal_skill(target)
+    _write_tool_fixture(target, "check.py")
+    entries = (
+        "- id: check\n"
+        "  resource: tools/check.py\n"
+        "  kind: agent_cli\n"
+        "  canonical_invocation: {mode: python_script, entrypoint: tools/check.py}\n"
+        "  outcome_contract: {mode: structured, schema_ref: null}\n"
+        "  process_semantics:\n"
+        "    exit_code_mapping: {'0': PASS}\n"
+        "    timeout: policy\n"
+        "    cancellation: supported\n"
+        "  effects: {class: read_only, replay_safety: idempotent, network: none, credential_class: none}\n"
+        "  diagnostics: {bounded: false, safe_egress_profile_ref: null}\n"
+    )
+    (target / "manifest.yaml").write_text(
+        _executable_resource_manifest(entries),
+        encoding="utf-8",
+    )
+
+    findings = module.audit_skill(target, tmp_path, strict=True)
+    assert "skill.executable-resource.schema" in {finding.code for finding in findings}
+
+
+def test_executable_resource_contract_rejects_unconfined_resource(tmp_path: Path) -> None:
+    module = load_module(
+        "skill_architect_executable_resource_unconfined",
+        SKILL / "tools/audit_skill.py",
+    )
+    target = tmp_path / "skills/example-skill"
+    _write_minimal_skill(target)
+    _write_tool_fixture(target, "keep.py")
+    entries = (
+        "- id: escape\n"
+        "  resource: ../escape.py\n"
+        "  kind: agent_cli\n"
+        "  canonical_invocation: {mode: python_script, entrypoint: ../escape.py}\n"
+        "  outcome_contract: {mode: structured, schema_ref: null}\n"
+        "  process_semantics:\n"
+        "    exit_code_mapping: {'0': PASS}\n"
+        "    timeout: policy\n"
+        "    cancellation: supported\n"
+        "  effects: {class: read_only, replay_safety: idempotent, network: none, credential_class: none}\n"
+        "  diagnostics: {bounded: true, safe_egress_profile_ref: null}\n"
+    )
+    (target / "manifest.yaml").write_text(
+        _executable_resource_manifest(entries),
+        encoding="utf-8",
+    )
+
+    findings = module.audit_skill(target, tmp_path, strict=True)
+    assert "skill.executable-resource.unconfined" in {finding.code for finding in findings}
+
+
+def test_skill_architect_executable_resource_contract_is_self_hosted() -> None:
+    manifest = (SKILL / "manifest.yaml").read_text(encoding="utf-8")
+    template = (SKILL / "templates/manifest.yaml.template").read_text(encoding="utf-8")
+    standard = (SKILL / "STANDARD.md").read_text(encoding="utf-8")
+    assert "executable_resources:" in manifest
+    assert "executable_resources: []" in template
+    assert "schemas/executable-resource.schema.json" in manifest
+    for resource_id in ("audit-skill", "scaffold-skill", "validate-skill-evals"):
+        assert f"id: {resource_id}" in manifest
+    assert "mere presence of a file under" in standard
+    assert "Process exit semantics map to, but do not replace, the domain outcome." in standard
+
