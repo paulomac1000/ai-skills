@@ -29,9 +29,15 @@ Name the reader, prerequisites, target outcome, conceptual model, walkthrough, t
 
 Record context, decision drivers, selected option, rejected alternatives, consequences, risks, implementation impact, and review triggers. Do not rewrite history to make the selected option appear inevitable.
 
+When the decision materially drives implementation, extend that same `decision` document with a bounded implementation contract: name affected obligations/criteria and consumers, order material implementation consequences, and cover migration/compatibility, rollout, rollback, superseded-path cleanup, required verification, downstream review, and completion semantics where applicable. Do not add empty sections for irrelevant dimensions.
+
+Keep authority and realization separate. A decision can be accepted/current while implementation is partial. A claim that implementation is complete requires every declared mandatory consequence to be resolved and every required verification consequence to point to current evidence; pending, blocked, unknown, or unreviewed required consequences keep the claim incomplete. Use the lifecycle/change-impact protocol for downstream consequences instead of maintaining a second dependency graph.
+
 ## Contract
 
 Specify producer and consumer responsibilities, input and output schemas, validation, idempotency, ordering, timeouts, cancellation, retries, errors, compatibility, security, examples, and conformance tests. Ambiguous prose does not override a machine-readable schema or executable contract test.
+
+When the contract is also the durable behavioral/acceptance source for a non-trivial change, distinguish requirements/obligations, observable acceptance criteria, assumptions, examples, and evidence. Cover normal and negative/failure behavior, public/compatibility effects, decision links, and verification mapping where applicable. Reuse stable obligation/criterion references from the canonical owning contract rather than copying its machine schema, and point verification to the owning proof mechanism instead of embedding mutable execution results in the document.
 
 ## Cross-type rules
 
