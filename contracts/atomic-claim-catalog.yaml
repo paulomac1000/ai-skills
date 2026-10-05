@@ -1,5 +1,5 @@
 schema_version: 1
-catalog_version: 1.4.0
+catalog_version: 1.5.0
 controls:
   - id: cicd.mcp.protocol-conformance
     parent_rule_id: cicd.quality.language
@@ -45,6 +45,20 @@ controls:
       - tests/test_wave2_control_plane_invariants.py::test_event_ingress_deduplicates_and_reconciles_authoritative_state
       - tests/test_wave2_control_plane_invariants.py::test_event_ingress_fence_authority_and_restart_fail_closed
       - tests/test_wave2_control_plane_invariants.py::test_external_rebind_preserves_canonical_identity
+  - id: mcp.gateway.source-qualified-identity
+    parent_rule_id: mcp.backends.identity
+    skill: mcp-server-architect
+    source: skills/mcp-server-architect/STANDARD.md#multi-backend-and-embedded-hosting
+    description: Gateway re-export uses deterministic source-qualified canonical identities across discovery, invocation, task, and resource surfaces, preserves exact provenance/schema, and fails closed on collisions, stale mappings, or namespace confusion.
+    applies_when: {maturity_at_least: L2, profiles_any: [multi-backend, gateway]}
+    severity: blocking
+    waivable: false
+    required_evidence: [unit, integration, security]
+    test_selectors:
+      - tests/test_gateway_identity_contract.py::test_same_normalized_tool_name_is_source_qualified_across_surfaces
+      - tests/test_gateway_identity_contract.py::test_collision_handling_is_order_health_case_and_truncation_independent
+      - tests/test_gateway_identity_contract.py::test_resource_uri_overlap_stale_readd_and_namespace_escape_fail_closed
+      - tests/test_gateway_identity_contract.py::test_stdio_child_environment_is_minimized_and_source_credentials_do_not_leak
   - id: mcp.protocol.current-revision
     parent_rule_id: mcp.sdk.compatibility-isolation
     skill: mcp-server-architect
