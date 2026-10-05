@@ -1,6 +1,6 @@
 schema_version: 1
 name: mcp-server-architect
-version: 3.13.0
+version: 3.14.0
 maturity: stable
 skill_format: ai-skills/v1
 normative_entrypoint: STANDARD.md
@@ -135,6 +135,7 @@ required:
 - references/upstream-contract-discovery.md
 - references/consumer-driven-validation.md
 - references/container-provenance-dataflow.md
+- references/gateway-aggregation.md
 - templates/migration-assessment.yaml.template
 - templates/upstream-contract.yaml.template
 - templates/live-backend-test-policy.yaml.template
@@ -150,6 +151,7 @@ required:
 - tools/action_outcome.py
 - tools/server_invariants.py
 - tools/control_plane_invariants.py
+- tools/gateway_identity.py
 - tools/provider_schema_compat.py
 - tools/semantic_facade.py
 - tools/generate_python_server.py

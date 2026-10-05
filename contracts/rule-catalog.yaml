@@ -1,5 +1,5 @@
 schema_version: 1
-catalog_version: 3.13.0
+catalog_version: 3.14.0
 skills:
   afds-doc-writer:
     rules:
@@ -287,7 +287,7 @@ skills:
       required_evidence: [unit, security, artifact]
     - id: mcp.backends.identity
       source: STANDARD.md#multi-backend-and-embedded-hosting
-      description: Multi-backend systems preserve configured target identity, namespace, and source provenance.
+      description: Multi-backend and gateway systems preserve configured source identity and provenance through deterministic source-qualified canonical identities; collisions, stale mappings, and same-name fallback fail closed.
       applies_when: {maturity_at_least: L2, profiles_any: [multi-backend, gateway]}
       severity: blocking
       waivable: false

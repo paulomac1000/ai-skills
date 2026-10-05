@@ -42,6 +42,15 @@ def test_external_binding_and_event_ingress_claim_is_explicit() -> None:
     assert len(control["test_selectors"]) == 4
 
 
+def test_gateway_source_qualified_identity_claim_is_explicit() -> None:
+    controls = _controls()
+    control = controls["mcp.gateway.source-qualified-identity"]
+    assert control["parent_rule_id"] == "mcp.backends.identity"
+    assert control["applies_when"]["profiles_any"] == ["multi-backend", "gateway"]
+    assert control["required_evidence"] == ["unit", "integration", "security"]
+    assert len(control["test_selectors"]) == 4
+
+
 def test_runtime_and_protocol_claims_are_separate() -> None:
     controls = _controls()
     assert controls["mcp.runtime.isolation"]["parent_rule_id"] == "mcp.architecture.boundaries"

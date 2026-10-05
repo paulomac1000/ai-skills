@@ -172,7 +172,7 @@ Persistent browser profiles are credential stores. Account isolation, directory 
 
 ## Multi-backend and embedded hosting
 
-Multi-backend servers preserve configured target identity and namespace. A failed default does not become the first healthy backend. Gateways preserve source-server and manifest provenance so equal tool names cannot collide or transfer authority.
+Gateways MUST use one bounded deterministic source-qualified identity and preserve provenance. Collision, stale mapping, fallback, schema coercion, prompt merging, target substitution, or ambient credentials fail closed. See references/gateway-aggregation.md.
 
 An embedded MCP server does not own the host process, global event loop, global logging, dependency container, or unrelated listeners. It receives host services explicitly, participates in host lifecycle, avoids route and port collisions, closes only owned resources, and never exits the process from a request path.
 
