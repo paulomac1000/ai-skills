@@ -155,9 +155,10 @@ A bundled tool exists to make a repeatable or fragile operation more
 deterministic, not merely to move prose into code. When a stable skill instructs
 an agent or host to invoke a bundled resource, declare that supported boundary
 in manifest.yaml under `executable_resources` using
-schemas/executable-resource.schema.json. The declaration is optional for skills
-with no supported executable boundary; the mere presence of a file under
-`tools/` never makes it an agent CLI.
+schemas/executable-resource.schema.json. Existing pre-contract skills migrate
+incrementally: add this declaration when a supported executable boundary is
+created or materially changed. Skills with no supported executable boundary may
+omit it; the mere presence of a file under `tools/` never makes it an agent CLI.
 
 Classify each declared resource as `library_helper`, `agent_cli`,
 `host_adapter`, or `service`. An `agent_cli` has one canonical invocation

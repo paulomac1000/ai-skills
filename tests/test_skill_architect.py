@@ -1202,3 +1202,40 @@ def test_skill_architect_executable_resource_contract_is_self_hosted() -> None:
     assert "mere presence of a file under" in standard
     assert "Process exit semantics map to, but do not replace, the domain outcome." in standard
 
+def test_executable_resource_contract_accepts_reconcile_before_retry_mutation(tmp_path: Path) -> None:
+    module = load_module(
+        "skill_architect_executable_resource_reconcile",
+        SKILL / "tools/audit_skill.py",
+    )
+    target = tmp_path / "skills/example-skill"
+    _write_minimal_skill(target)
+    _write_tool_fixture(target, "publish.py")
+    entries = (
+        "- id: publish\n"
+        "  resource: tools/publish.py\n"
+        "  kind: agent_cli\n"
+        "  canonical_invocation: {mode: python_script, entrypoint: tools/publish.py}\n"
+        "  outcome_contract: {mode: structured, schema_ref: null}\n"
+        "  process_semantics:\n"
+        "    exit_code_mapping: {'0': ACCEPTED, '3': RECONCILE_REQUIRED}\n"
+        "    timeout: policy\n"
+        "    cancellation: unsupported\n"
+        "  effects: {class: external_mutation, replay_safety: reconcile_before_retry, network: scoped, credential_class: scoped_runtime}\n"
+        "  diagnostics: {bounded: true, safe_egress_profile_ref: null}\n"
+    )
+    (target / "manifest.yaml").write_text(
+        _executable_resource_manifest(entries),
+        encoding="utf-8",
+    )
+
+    assert module.audit_skill(target, tmp_path, strict=True) == []
+    standard = (SKILL / "STANDARD.md").read_text(encoding="utf-8")
+    assert "Ambiguous external mutation requires" in standard
+    assert "reconciliation before retry" in standard
+
+
+def test_executable_resource_contract_preserves_incremental_migration() -> None:
+    standard = (SKILL / "STANDARD.md").read_text(encoding="utf-8")
+    assert "Existing pre-contract skills migrate" in standard
+    assert "created or materially changed" in standard
+

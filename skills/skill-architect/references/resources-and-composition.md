@@ -44,6 +44,9 @@ Use the optional manifest `executable_resources` declaration when a bundled
 resource has a supported invocation boundary. Keep internal files undeclared
 until a consumer needs that stable contract; this preserves incremental
 migration and prevents `tools/` from becoming an accidental public API.
+Existing packages add declarations when the supported executable boundary is
+next created or materially changed rather than manufacturing CLIs for every
+legacy helper.
 
 | Kind | Supported boundary |
 | --- | --- |
