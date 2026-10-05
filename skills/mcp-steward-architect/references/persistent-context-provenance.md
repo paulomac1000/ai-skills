@@ -44,8 +44,10 @@ Assemble by current trusted truth rather than by file existence:
 Scope and dependency identity are checked before influence. A changed subject,
 runtime, validation environment, policy, execution generation, or another
 declared dependency makes the dependent artifact STALE; a missing load-bearing
-identity is UNKNOWN, never implicitly current. Cross-project/cross-user reuse
-requires explicit compatible scope policy.
+identity is UNKNOWN, never implicitly current. A less-specific request cannot
+widen a narrower artifact scope. Deliberately broader trusted artifacts may flow
+into a narrower compatible request; cross-project/cross-user reuse still
+requires explicit trusted scope policy.
 
 A current higher-trust fact wins over a conflicting lower-trust artifact.
 Otherwise use an explicit disposition such as IGNORE_LOWER_TRUST, REVALIDATE, or

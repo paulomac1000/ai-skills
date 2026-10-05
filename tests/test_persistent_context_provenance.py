@@ -286,3 +286,40 @@ def test_persistent_context_atomic_claim_is_explicit() -> None:
     assert control["required_evidence"] == ["unit", "security"]
     assert len(control["test_selectors"]) == 4
 
+def test_missing_requested_scope_cannot_widen_scoped_context() -> None:
+    context = _load("persistent_context_scope_widening")
+    artifact = _lesson(context)
+    current = {"environment": "env:7", "policy": "policy:3"}
+
+    unscoped = context.PersistentContextScope()
+    assembly = context.assemble_context(
+        [artifact],
+        requested_scope=unscoped,
+        current_dependencies=current,
+    )
+
+    assert assembly.selected == ()
+    assert assembly.scope_mismatch_refs == ("ctx:lesson:project:a",)
+
+
+def test_explicitly_broader_trusted_scope_can_flow_into_narrower_request() -> None:
+    context = _load("persistent_context_broad_scope")
+    broad = context.PersistentContextArtifact(
+        artifact_ref="ctx:project-policy",
+        artifact_kind=context.PersistentContextKind.INSTRUCTION,
+        content_ref="policy:planning-guidance",
+        provenance=context.PersistentContextProvenance(
+            source_system_ref="policy-store",
+            created_at="2026-10-06T00:00:06Z",
+            creation_policy_revision="persist:v1",
+            envelope_attestation_ref="attestation:project-policy",
+        ),
+        trust_class=context.PersistentTrustClass.ADVISORY,
+        scope=context.PersistentContextScope(project_ref="project:a"),
+        dependencies=(),
+        currentness=context.ContextCurrentness.CURRENT,
+        permissions=context.PersistentContextPermissions(True, False),
+    )
+
+    assert context.scope_compatible(broad.scope, _scope(context))
+

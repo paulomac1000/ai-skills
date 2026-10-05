@@ -222,7 +222,7 @@ def scope_compatible(
     artifact_scope: PersistentContextScope,
     requested_scope: PersistentContextScope,
 ) -> bool:
-    """Require explicit equality for every requested scope dimension."""
+    """Prevent a less-specific request from widening an artifact's declared scope."""
     for name in (
         "project_ref",
         "principal_ref",
@@ -231,8 +231,11 @@ def scope_compatible(
         "subject_ref",
         "subject_generation",
     ):
-        requested = getattr(requested_scope, name)
-        if requested is not None and getattr(artifact_scope, name) != requested:
+        artifact_value = getattr(artifact_scope, name)
+        requested_value = getattr(requested_scope, name)
+        if artifact_value is None:
+            continue
+        if requested_value is None or artifact_value != requested_value:
             return False
     return True
 
