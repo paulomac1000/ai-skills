@@ -1,5 +1,17 @@
 # Changelog
 
+## 3.15.0 - 2026-10-05
+
+### Added
+
+- Added a provider-neutral projection field ownership contract for writable external projections, distinguishing canonical-owned, external-advisory, shared-managed-region, external-execution, and unknown field semantics.
+- Added least-privilege external automation grants scoped by field/action (and external region for shared fields), explicit executor/environment identity for work-starting metadata, bounded provider-confidence/rationale audit evidence, drift taxonomy, and scheduler fencing against duplicate canonical work.
+
+### Security and correctness
+
+- Provider confidence, rationale, suggestion state, or coarse auto-approval thresholds are evidence only and cannot grant canonical authority or side-effect admission.
+- Shared-field reprojection updates only declared canonical-managed regions while preserving admitted external enrichment; unknown fields and externally started work fail conservative until classified/reconciled.
+
 ## 3.14.0 - 2026-10-05
 
 ### Added
