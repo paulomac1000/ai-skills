@@ -188,7 +188,9 @@ def _handoff(validator: ModuleType, job: dict[str, Any]) -> dict[str, Any]:
 
 def test_manifest_is_v3_and_composes_base_standards() -> None:
     manifest = yaml.safe_load((SKILL / "manifest.yaml").read_text(encoding="utf-8"))
-    assert manifest["version"] == "3.9.0"
+    catalog = yaml.safe_load((ROOT / "contracts/rule-catalog.yaml").read_text(encoding="utf-8"))
+    assert manifest["version"].startswith("3.")
+    assert manifest["version"] == catalog["catalog_version"]
     assert manifest["dependencies"]["skills"] == ["mcp-server-architect", "mcp-server-consumer"]
     for required in manifest["required"]:
         assert (SKILL / required).is_file(), required

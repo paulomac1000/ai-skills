@@ -310,6 +310,46 @@ profiles:
     - repository-junit.xml
     execution_id: repository
   - kind: rule
+    subject: mcp.failure.contract
+    selectors:
+    - '*test_mcp_runtime_failure_contracts*'
+    - '*test_wave2_server_invariants*'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: mcp.async.terminality
+    selectors:
+    - '*test_mcp_runtime_failure_contracts*'
+    - '*test_wave2_server_invariants*'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: mcp.idempotency.unresolved-blocking
+    selectors:
+    - '*test_mcp_runtime_failure_contracts*'
+    - '*test_wave2_server_invariants*'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: mcp.identity.operation-separation
+    selectors:
+    - '*test_mcp_runtime_failure_contracts*'
+    - '*test_wave2_server_invariants*'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: mcp.diagnostics.exception-preservation
+    selectors:
+    - '*test_mcp_runtime_failure_contracts*'
+    - '*test_wave2_server_invariants*'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
     subject: mcp.authorization.server-side
     selectors:
     - '*test_mcp_*'
