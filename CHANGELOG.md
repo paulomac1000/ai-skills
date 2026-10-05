@@ -1,5 +1,16 @@
 # Changelog
 
+## 3.12.0 - 2026-10-05
+
+### Added
+
+- Added provider-scoped external binding identity for MCP control planes so canonical identity, complete provider namespace, external resource identity, and recovery locators remain distinct and collision-safe.
+- Added durable provider/source-scoped event-ingress receipts and reference invariants for duplicate, out-of-order, concurrent, moved-binding, marker-collision, and restart-after-receipt reconciliation.
+
+### Security and correctness
+
+- External event arrival, timestamps, local resource numbers, and recovery markers cannot grant canonical transition authority or global uniqueness; trusted adapters/policy must supply scope, current-state evidence, and per-resource fencing before mutation.
+
 ## 3.11.0 - 2026-10-05
 
 ### Added
