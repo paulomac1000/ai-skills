@@ -38,11 +38,12 @@ def test_duplicate_conflicting_and_post_terminal_events_fail_closed() -> None:
         [terminal, {"kind": "terminal", "terminal_id": "t2", "outcome": "failed"}]
     ) == "conflicting_terminal"
     assert checks.classify_progress_sequence([terminal, {**terminal, "replay": True}]) == "complete"
+    assert checks.classify_progress_sequence([{"kind": "progress"}, "bad-event"]) == "malformed"
 
 
 def test_indeterminate_idempotency_cleanup_never_manufactures_replay_permission() -> None:
     checks = _load()
-    for state in ("in_flight", "indeterminate", "reconcile_required"):
+    for state in ("in_flight", "indeterminate", "unknown_outcome", "reconcile_required"):
         after = checks.idempotency_state_after_cleanup(state)
         assert after == "reconcile_required"
         assert checks.replay_is_safe(after) is False
@@ -56,6 +57,7 @@ def test_recovery_disposition_is_separate_from_failure_classification() -> None:
     assert checks.recovery_disposition_is_admissible("rate_limited", "retry", outer_budget_preserved=True) is True
     assert checks.recovery_disposition_is_admissible("rate_limited", "retry", outer_budget_preserved=False) is False
     assert checks.recovery_disposition_is_admissible("rate_limited", "wait") is True
+    assert checks.recovery_disposition_is_admissible("rate_limited", "invented") is False
     assert checks.recovery_disposition_is_admissible("upstream_timeout", "reconcile", side_effect_ambiguous=True) is True
     assert checks.recovery_disposition_is_admissible("upstream_timeout", "retry", side_effect_ambiguous=True) is False
     assert checks.recovery_disposition_is_admissible("unknown", "retry") is False

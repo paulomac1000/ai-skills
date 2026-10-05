@@ -28,10 +28,11 @@ _REQUIRED_RUNTIME_IDENTITY = {
 }
 _REQUIRED_HEALTH_DIMENSIONS = {"process", "transport", "auth", "read", "write", "provider"}
 _REQUIRED_IDENTITY_ROLES = {"operation", "idempotency", "correlation", "causation", "trace"}
-_UNRESOLVED_IDEMPOTENCY_STATES = {"in_flight", "indeterminate", "reconcile_required"}
+_UNRESOLVED_IDEMPOTENCY_STATES = {"in_flight", "indeterminate", "unknown_outcome", "reconcile_required"}
 _TERMINAL_IDEMPOTENCY_STATES = {"completed", "failed_terminal", "cancelled_terminal"}
 _DETERMINISTIC_FAILURES = {"invalid_input", "invariant_failure", "policy_failure"}
 _TRANSIENT_FAILURES = {"rate_limited", "transient_infrastructure"}
+_ALLOWED_RECOVERY_DISPOSITIONS = {"retry", "wait", "reconcile", "remediate", "block", "fail_closed", "manual_resolution"}
 
 
 def _mapping(value: object) -> Mapping[str, object]:
@@ -152,6 +153,8 @@ def classify_progress_sequence(events: Sequence[Mapping[str, object]]) -> str:
     """Classify a progress stream without treating EOF/disconnect as domain success."""
     terminal: tuple[str, str] | None = None
     for event in events:
+        if not isinstance(event, Mapping):
+            return "malformed"
         kind = event.get("kind")
         if kind == "progress":
             if terminal is not None:
@@ -202,7 +205,7 @@ def recovery_disposition_is_admissible(
     policy_bound: bool = True,
 ) -> bool:
     """Check conservative recovery constraints without making one universal retry policy."""
-    if not policy_bound:
+    if not policy_bound or disposition not in _ALLOWED_RECOVERY_DISPOSITIONS:
         return False
     if side_effect_ambiguous:
         return disposition in {"reconcile", "manual_resolution", "fail_closed"}
