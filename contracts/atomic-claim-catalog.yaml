@@ -1,5 +1,5 @@
 schema_version: 1
-catalog_version: 1.5.0
+catalog_version: 1.6.0
 controls:
   - id: cicd.mcp.protocol-conformance
     parent_rule_id: cicd.quality.language
@@ -45,6 +45,20 @@ controls:
       - tests/test_wave2_control_plane_invariants.py::test_event_ingress_deduplicates_and_reconciles_authoritative_state
       - tests/test_wave2_control_plane_invariants.py::test_event_ingress_fence_authority_and_restart_fail_closed
       - tests/test_wave2_control_plane_invariants.py::test_external_rebind_preserves_canonical_identity
+  - id: mcp.control-plane.projection-field-ownership
+    parent_rule_id: mcp.architecture.boundaries
+    skill: mcp-server-architect
+    source: skills/mcp-server-architect/references/projection-field-ownership.md#ownership-classes
+    description: Writable projections classify semantic fields/namespaces by authority, admit external automation through exact field/action capabilities, treat confidence as evidence only, preserve shared regions, and fence externally started work from duplicate canonical execution.
+    applies_when: {maturity_at_least: L2, profiles_any: [external-upstream, multi-backend, gateway]}
+    severity: blocking
+    waivable: false
+    required_evidence: [unit, integration, security]
+    test_selectors:
+      - tests/test_projection_field_ownership.py::test_advisory_metadata_and_fake_priority_do_not_gain_authority
+      - tests/test_projection_field_ownership.py::test_confidence_is_bounded_evidence_not_automation_authority
+      - tests/test_projection_field_ownership.py::test_agent_assignment_is_external_execution_and_blocks_parallel_claim
+      - tests/test_projection_field_ownership.py::test_shared_regions_preserve_external_enrichment_and_unknown_fields_fail_conservative
   - id: mcp.gateway.source-qualified-identity
     parent_rule_id: mcp.backends.identity
     skill: mcp-server-architect
