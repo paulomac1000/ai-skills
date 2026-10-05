@@ -35,8 +35,10 @@ canonical fields by itself.
 
 Automation authority is granted by trusted local policy as exact
 `field -> action set` capabilities plus admitted side-effect classes. Do not
-derive an implicit fields×actions cross-product. Prefer provider field/tool
-allowlists where available; prompt-only instructions do not widen authority.
+derive an implicit fields×actions cross-product. Shared fields additionally
+scope automation to named external regions; a whole-field grant cannot overwrite
+a canonical-managed region. Prefer provider field/tool allowlists where
+available; prompt-only instructions do not widen authority.
 
 A triage capability may allow advisory labels, human-facing assignment metadata,
 or suggestions while denying canonical lifecycle/priority, close/resolve,

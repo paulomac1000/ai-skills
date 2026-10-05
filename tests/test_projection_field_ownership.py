@@ -169,6 +169,18 @@ def test_shared_regions_preserve_external_enrichment_and_unknown_fields_fail_con
     assert control.classify_projection_change(policy, "description", managed_region_touched=True) is control.ProjectionDriftKind.SHARED_REGION_CONFLICT
     assert control.classify_projection_change(policy, "provider_new_field") is control.ProjectionDriftKind.UNKNOWN_FIELD_POLICY
 
+    shared_editor = control.ExternalAutomationCapability(
+        "shared-editor",
+        (control.ExternalAutomationGrant("description", ("annotate",), ("human_notes",)),),
+    )
+    assert control.admit_external_automation(
+        policy, shared_editor, field="description", action="annotate", region="human_notes"
+    )
+    assert not control.admit_external_automation(
+        policy, shared_editor, field="description", action="annotate", region="managed_status"
+    )
+    assert not control.admit_external_automation(policy, shared_editor, field="description", action="annotate")
+
     triage = control.ExternalAutomationCapability(
         "triage", (control.ExternalAutomationGrant("advisory_labels", ("set",)),)
     )

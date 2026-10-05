@@ -319,12 +319,17 @@ class ExternalAutomationGrant:
 
     field: str
     actions: tuple[str, ...]
+    allowed_regions: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if not self.field.strip() or not self.actions:
             raise ValueError("automation grant field and actions must be non-empty")
         if len(set(self.actions)) != len(self.actions) or any(not action.strip() for action in self.actions):
             raise ValueError("automation grant actions must be unique and non-empty")
+        if len(set(self.allowed_regions)) != len(self.allowed_regions) or any(
+            not region.strip() for region in self.allowed_regions
+        ):
+            raise ValueError("automation grant regions must be unique and non-empty")
 
 
 @dataclass(frozen=True)
@@ -361,12 +366,12 @@ class ExternalAutomationCapability:
         if "starts_work" in self.allowed_side_effect_classes and self.execution_boundary is None:
             raise ValueError("work-starting automation capability requires execution boundary identity")
 
-    def actions_for(self, field: str) -> tuple[str, ...]:
-        """Return exactly the actions granted for one field; never infer a fields×actions cross-product."""
+    def grant_for(self, field: str) -> ExternalAutomationGrant | None:
+        """Return the exact field grant; never infer a fields×actions cross-product."""
         for grant in self.grants:
             if grant.field == field:
-                return grant.actions
-        return ()
+                return grant
+        return None
 
 
 @dataclass(frozen=True)
@@ -425,12 +430,18 @@ def admit_external_automation(
     *,
     field: str,
     action: str,
+    region: str | None = None,
 ) -> bool:
-    """Admit trusted field/action capability; provider confidence is intentionally not an input."""
+    """Admit trusted field/action/region capability; provider confidence is intentionally not an input."""
     rule = policy.rule_for(field)
     if rule.ownership in {ProjectionFieldOwnership.CANONICAL_OWNED, ProjectionFieldOwnership.UNKNOWN}:
         return False
-    return action in capability.actions_for(field) and rule.side_effect_class in capability.allowed_side_effect_classes
+    grant = capability.grant_for(field)
+    if grant is None or action not in grant.actions or rule.side_effect_class not in capability.allowed_side_effect_classes:
+        return False
+    if rule.ownership is ProjectionFieldOwnership.SHARED_MANAGED_REGIONS:
+        return region is not None and region in grant.allowed_regions and region not in rule.managed_regions
+    return region is None
 
 
 def reconcile_shared_regions(
