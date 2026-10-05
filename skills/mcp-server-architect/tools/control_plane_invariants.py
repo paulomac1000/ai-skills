@@ -98,7 +98,8 @@ class EventIngressReceipt:
     resource_generation: str | None = None
 
     def __post_init__(self) -> None:
-        if not self.provider.strip() or not self.delivery_id.strip() or not self.event_kind.strip() or not self.received_at.strip():
+        identity_fields = (self.provider, self.delivery_id, self.event_kind, self.received_at)
+        if any(not value.strip() for value in identity_fields):
             raise ValueError("event receipt identity fields must be non-empty")
         if self.provider != self.external_identity.provider:
             raise ValueError("event provider must match external resource provider")
