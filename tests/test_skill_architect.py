@@ -1035,20 +1035,23 @@ def test_strict_audit_rejects_scaffold_placeholder_manifest(tmp_path: Path) -> N
     assert "skill.manifest.contract" in {finding.code for finding in findings}
 
 def _executable_resource_manifest(entries: str) -> str:
-    """Build a valid test manifest containing caller-supplied executable resources."""\n    return _valid_manifest_text("[core, tools]").replace(
+    """Build a valid test manifest containing caller-supplied executable resources."""
+    return _valid_manifest_text("[core, tools]").replace(
         "deprecation:\n",
         f"executable_resources:\n{entries}deprecation:\n",
     )
 
 
 def _write_tool_fixture(target: Path, name: str) -> None:
-    """Create one in-package tool fixture for executable-resource validation."""\n    tools = target / "tools"
+    """Create one in-package tool fixture for executable-resource validation."""
+    tools = target / "tools"
     tools.mkdir(exist_ok=True)
     (tools / name).write_text("pass\n", encoding="utf-8")
 
 
 def test_executable_resource_contract_accepts_cli_and_library_helper(tmp_path: Path) -> None:
-    """Accept explicit CLI and library-helper invocation contracts."""\n    module = load_module(
+    """Accept explicit CLI and library-helper invocation contracts."""
+    module = load_module(
         "skill_architect_executable_resource_valid",
         SKILL / "tools/audit_skill.py",
     )
@@ -1089,7 +1092,8 @@ def test_executable_resource_contract_accepts_cli_and_library_helper(tmp_path: P
 
 
 def test_tools_directory_does_not_imply_agent_cli(tmp_path: Path) -> None:
-    """Keep undeclared legacy tool files outside the public executable boundary."""\n    module = load_module(
+    """Keep undeclared legacy tool files outside the public executable boundary."""
+    module = load_module(
         "skill_architect_tools_not_implicit_cli",
         SKILL / "tools/audit_skill.py",
     )
@@ -1105,7 +1109,8 @@ def test_tools_directory_does_not_imply_agent_cli(tmp_path: Path) -> None:
 
 
 def test_executable_resource_contract_rejects_library_helper_cli_confusion(tmp_path: Path) -> None:
-    """Reject a library helper falsely advertised as an agent CLI."""\n    module = load_module(
+    """Reject a library helper falsely advertised as an agent CLI."""
+    module = load_module(
         "skill_architect_executable_resource_kind",
         SKILL / "tools/audit_skill.py",
     )
@@ -1132,7 +1137,8 @@ def test_executable_resource_contract_rejects_library_helper_cli_confusion(tmp_p
 
 
 def test_executable_resource_contract_rejects_unbounded_diagnostics(tmp_path: Path) -> None:
-    """Require bounded diagnostics on declared executable resources."""\n    module = load_module(
+    """Require bounded diagnostics on declared executable resources."""
+    module = load_module(
         "skill_architect_executable_resource_bounded",
         SKILL / "tools/audit_skill.py",
     )
@@ -1163,7 +1169,8 @@ def test_executable_resource_contract_rejects_unbounded_diagnostics(tmp_path: Pa
 
 
 def test_executable_resource_contract_rejects_unconfined_resource(tmp_path: Path) -> None:
-    """Reject executable resource paths that escape the skill package."""\n    module = load_module(
+    """Reject executable resource paths that escape the skill package."""
+    module = load_module(
         "skill_architect_executable_resource_unconfined",
         SKILL / "tools/audit_skill.py",
     )
@@ -1194,7 +1201,8 @@ def test_executable_resource_contract_rejects_unconfined_resource(tmp_path: Path
 
 
 def test_skill_architect_executable_resource_contract_is_self_hosted() -> None:
-    """Require skill-architect to declare and ship its own supported CLI contracts."""\n    manifest = (SKILL / "manifest.yaml").read_text(encoding="utf-8")
+    """Require skill-architect to declare and ship its own supported CLI contracts."""
+    manifest = (SKILL / "manifest.yaml").read_text(encoding="utf-8")
     template = (SKILL / "templates/manifest.yaml.template").read_text(encoding="utf-8")
     standard = (SKILL / "STANDARD.md").read_text(encoding="utf-8")
     assert "executable_resources:" in manifest
@@ -1206,7 +1214,8 @@ def test_skill_architect_executable_resource_contract_is_self_hosted() -> None:
     assert "Process exit semantics map to, but do not replace, the domain outcome." in standard
 
 def test_executable_resource_contract_accepts_reconcile_before_retry_mutation(tmp_path: Path) -> None:
-    """Accept explicit reconciliation semantics for ambiguous external mutation."""\n    module = load_module(
+    """Accept explicit reconciliation semantics for ambiguous external mutation."""
+    module = load_module(
         "skill_architect_executable_resource_reconcile",
         SKILL / "tools/audit_skill.py",
     )
@@ -1239,12 +1248,14 @@ def test_executable_resource_contract_accepts_reconcile_before_retry_mutation(tm
 
 
 def test_executable_resource_contract_preserves_incremental_migration() -> None:
-    """Keep adoption incremental for pre-contract skills."""\n    standard = (SKILL / "STANDARD.md").read_text(encoding="utf-8")
+    """Keep adoption incremental for pre-contract skills."""
+    standard = (SKILL / "STANDARD.md").read_text(encoding="utf-8")
     assert "Existing pre-contract skills migrate" in standard
     assert "created or materially changed" in standard
 
 def test_executable_resource_contract_requires_explicit_safe_stop(tmp_path: Path) -> None:
-    """Reject declarations that omit their safe-stop disposition."""\n    module = load_module(
+    """Reject declarations that omit their safe-stop disposition."""
+    module = load_module(
         "skill_architect_executable_resource_safe_stop",
         SKILL / "tools/audit_skill.py",
     )
@@ -1274,7 +1285,8 @@ def test_executable_resource_contract_requires_explicit_safe_stop(tmp_path: Path
 
 
 def test_reconcile_before_retry_mutation_declares_safe_stop_reconciliation() -> None:
-    """Keep safe-stop and replay reconciliation semantics visible in the contract."""\n    manifest = (SKILL / "manifest.yaml").read_text(encoding="utf-8")
+    """Keep safe-stop and replay reconciliation semantics visible in the contract."""
+    manifest = (SKILL / "manifest.yaml").read_text(encoding="utf-8")
     schema = (SKILL / "schemas/executable-resource.schema.json").read_text(encoding="utf-8")
     standard = (SKILL / "STANDARD.md").read_text(encoding="utf-8")
     assert "safe_stop" in schema
