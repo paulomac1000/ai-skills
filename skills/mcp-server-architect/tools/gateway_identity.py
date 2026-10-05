@@ -279,8 +279,8 @@ class GatewayCatalog:
         )
 
     def task_subject(self, canonical_id: str) -> str:
-        """Bind durable task identity to the same canonical component used for invocation."""
-        return self.resolve(canonical_id).canonical_id
+        """Keep durable task identity stable even while the exact upstream is degraded."""
+        return self.resolve(canonical_id, require_healthy=False).canonical_id
 
     def with_registrations(self, registrations: Iterable[SourceRegistration]) -> GatewayCatalog:
         """Replace current sources without silently rebinding existing mappings."""

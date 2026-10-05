@@ -70,6 +70,7 @@ def test_same_normalized_tool_name_is_source_qualified_across_surfaces() -> None
     assert route.upstream_identity == "Deploy Service"
     assert route.manifest_revision == "manifest-a"
 
+    assert catalog.task_subject(mapping_b.canonical_id) == mapping_b.canonical_id
     with pytest.raises(gateway.GatewaySourceUnavailableError):
         catalog.invocation_route(mapping_b.canonical_id)
 
