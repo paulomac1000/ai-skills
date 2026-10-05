@@ -45,6 +45,9 @@ def _completion_findings(text: str) -> list[str]:
         if resolution not in {"satisfied", "not_applicable"}:
             findings.append(f'{row["kind"]}: required consequence is {resolution}')
             continue
+        if resolution == "not_applicable" and row["evidence"] in {"", "-"}:
+            findings.append(f'{row["kind"]}: not_applicable consequence is missing reason')
+            continue
         if row["kind"].casefold() == "verification" and resolution == "satisfied" and row["evidence"] in {"", "-"}:
             findings.append("verification: satisfied consequence is missing evidence")
     return findings
@@ -75,8 +78,10 @@ def test_behavior_contract_fixture_keeps_statement_kinds_and_proof_mapping_disti
 def test_decision_completion_requires_every_mandatory_consequence_and_verification_evidence() -> None:
     incomplete = (FIXTURES / "decision-incomplete.md").read_text(encoding="utf-8")
     complete = (FIXTURES / "decision-complete.md").read_text(encoding="utf-8")
+    missing_reason = (FIXTURES / "decision-not-applicable-without-reason.md").read_text(encoding="utf-8")
     assert "status: active" in incomplete
     assert _completion_findings(incomplete) == ["verification: required consequence is pending"]
+    assert _completion_findings(missing_reason) == ["rollback: not_applicable consequence is missing reason"]
     kinds = {row["kind"] for row in _implementation_rows(incomplete)}
     assert {"implementation", "migration", "rollout", "rollback", "cleanup", "verification"} <= kinds
     assert "## Affected obligations and consumers" in incomplete
@@ -86,8 +91,10 @@ def test_decision_completion_requires_every_mandatory_consequence_and_verificati
 def test_normative_standard_separates_decision_authority_from_completion_without_new_status_enum() -> None:
     standard = (ROOT / "skills/afds-doc-writer/STANDARD.md").read_text(encoding="utf-8")
     assert "decision accepted is not the same fact as decision implemented" in standard
-    assert "`status: active` means the document is a current authoritative decision record" in standard
-    assert "pending, blocked, unknown, missing required verification evidence" in standard
+    assert "`status: active` establishes current decision authority only" in standard
+    assert "satisfied with its required current evidence/reference" in standard
+    assert "explicitly not applicable with reason" in standard
+    assert "pending, blocked, unknown, unverified, or unreviewed" in standard
     assert "Do not add a second global AFDS status enum" in standard
     assert "implementation_status" not in standard
 
