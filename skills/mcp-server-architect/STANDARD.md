@@ -57,7 +57,7 @@ Every L2+ design has positive/negative evidence for twelve invariants: **Runtime
 
 Use one canonical store/authority unless multi-master is explicit; provider objects are projections/evidence. Ingress records both observation context and affected canonical owner. Projection writes use a durable idempotent outbox and reconcile ambiguity. Raw provider adapters refuse mutation of managed resources. Retargeting preserves canonical entity identity/history. Work completed externally or by an operator uses evidence-backed completion. Human/agent projections expose a bounded actionable brief/status and reference full evidence.
 
-External bindings MUST separate canonical identity, complete provider-scoped external identity, and recovery locators; local IDs/markers are not authority. Ingress MUST authenticate source, durably deduplicate `(provider, source scope, delivery ID)`, survive restart, and reconcile current state/policy under per-resource fencing; duplicate, out-of-order, or concurrent events never authorize transitions. Rename/transfer/move MUST rebind without changing canonical identity.
+Durable binding schemas/manifests MUST separate canonical identity, complete provider-scoped external identity, and recovery locators; local IDs/markers are not authority. Ingress MUST authenticate source, durably deduplicate `(provider, source scope, delivery ID)`, survive restart, and reconcile current state/policy under per-resource fencing; duplicate, out-of-order, or concurrent events never authorize transitions. Rename/transfer/move MUST rebind without changing canonical identity.
 
 ### Provider schema compatibility
 
