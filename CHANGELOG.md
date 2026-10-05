@@ -1,5 +1,17 @@
 # Changelog
 
+## 3.14.0 - 2026-10-05
+
+### Added
+
+- Added a provider-neutral source-qualified MCP gateway identity and re-export contract for tools, prompts, resources, resource templates, and extension-owned references, with deterministic bounded gateway identities and exact upstream source/manifest provenance.
+- Added collision-safe gateway identity helpers and adversarial fixtures for equal/normalized names, case and truncation collisions, overlapping resource URIs, source removal/re-registration, explicit prompt composition, arbitrary JSON-schema shapes, and minimized stdio child environments.
+
+### Security and correctness
+
+- Gateway resolution now fails closed on stale, ambiguous, colliding, or unhealthy exact-source mappings instead of using registration order, first-wins, silent dropping, or same-name fallback.
+- Gateway-owned subprocess fixtures explicitly minimize inherited host environment so ambient tokens and unrelated source credentials are not propagated by default.
+
 ## 3.13.0 - 2026-10-05
 
 ### Added
