@@ -68,3 +68,10 @@ def test_migration_entrypoint_is_small_and_specialist_references_remain_routable
     ):
         assert routed in manifest
     assert "load other references only when" in skill
+
+
+def test_persistent_schema_migration_routes_to_exact_legacy_acceptance_contract() -> None:
+    standard = text("STANDARD.md")
+    assert "migration-acceptance contract owned by `qa-change-verifier`" in standard
+    assert "genuinely legacy before the current bootstrap can run" in standard
+    assert "exact production migration coordinator/revision" in standard

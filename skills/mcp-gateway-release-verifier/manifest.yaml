@@ -1,6 +1,6 @@
 schema_version: 1
 name: mcp-gateway-release-verifier
-version: 3.8.0
+version: 3.9.0
 maturity: stable
 skill_format: ai-skills/v1
 normative_entrypoint: STANDARD.md
@@ -44,6 +44,7 @@ dependencies:
   skills:
   - mcp-server-architect
   - ci-cd-architect
+  - qa-change-verifier
   tools:
   - python
 deprecation:

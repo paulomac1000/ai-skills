@@ -509,6 +509,15 @@ profiles:
     - repository-junit.xml
     execution_id: repository
   - kind: rule
+    subject: qa.migration.acceptance
+    selectors:
+    - '*test_migration_acceptance_matrix*'
+    - '*test_wave3_local_candidate_lane*'
+    - '*test_mcp_migration_standard*'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
     subject: qa.gaps.authorized
     selectors:
     - '*test_qa_acceptance_review_contracts*'

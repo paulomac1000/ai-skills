@@ -9,6 +9,6 @@ Use this skill when a candidate MCP gateway or server needs release acceptance a
 
 Read `STANDARD.md`, then collect phase evidence from the owning contracts instead of reimplementing them. Use `tools/compose_release_verdict.py` to build the bounded receipt.
 
-The verifier composes candidate identity (#49), exact-candidate schema acceptance (#60), real-transport dogfood (#66), execution integrity (#67), bootstrap, isolation, and cleanup evidence. A missing or failed required phase is never release confidence.
+The verifier composes candidate identity (#49), exact-candidate schema acceptance (#60), real-transport dogfood (#66), execution integrity (#67), bootstrap, isolation, and cleanup evidence. Local candidate acceptance also consumes identity-bound, exact-candidate trusted admission scope so migration and rerun requirements cannot be suppressed by caller input. A missing or failed required phase or missing trusted scope is never release confidence.
 
 Feature-specific checks may be appended as bounded extension phases; they do not replace the baseline phases.

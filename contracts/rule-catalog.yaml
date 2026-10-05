@@ -1,5 +1,5 @@
 schema_version: 1
-catalog_version: 3.8.0
+catalog_version: 3.9.0
 skills:
   afds-doc-writer:
     rules:
@@ -425,6 +425,9 @@ skills:
     - id: qa.acceptance.evidence
       source: STANDARD.md#criterion-completeness-and-exact-evidence
       description: Required criteria need current non-vacuous exact-candidate proof with complete semantic coverage and applicable fixture fidelity.
+    - id: qa.migration.acceptance
+      source: STANDARD.md#migration-acceptance
+      description: Migration compatibility binds exact legacy pre-state and the production migrator to a complete supported-input matrix so current-bootstrap and wrong-entrypoint false positives cannot pass.
     - id: qa.gaps.authorized
       source: STANDARD.md#known-gaps-and-waiver-authority
       description: Known gaps remain non-green until current evidence resolves them or trusted policy explicitly authorizes a scoped waiver.
