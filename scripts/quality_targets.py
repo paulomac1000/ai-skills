@@ -37,6 +37,7 @@ QUALITY_PATHS = (
     "skills/mcp-server-architect/tools/skill_schema_contract.py",
     "skills/mcp-server-architect/tools/server_invariants.py",
     "skills/mcp-server-architect/tools/control_plane_invariants.py",
+    "skills/mcp-server-architect/tools/gateway_identity.py",
     "skills/mcp-server-architect/tools/provider_schema_compat.py",
     "skills/mcp-server-architect/tools/semantic_facade.py",
     "scripts/check_release_version.py",
@@ -112,6 +113,7 @@ TYPE_PATHS = (
     "skills/mcp-server-architect/tools/skill_schema_contract.py",
     "skills/mcp-server-architect/tools/server_invariants.py",
     "skills/mcp-server-architect/tools/control_plane_invariants.py",
+    "skills/mcp-server-architect/tools/gateway_identity.py",
     "skills/mcp-server-architect/tools/provider_schema_compat.py",
     "skills/mcp-server-architect/tools/semantic_facade.py",
 )
@@ -147,6 +149,7 @@ POLICY_COVERAGE_PATHS = (
     "skills/mcp-server-architect/tools/skill_schema_contract.py",
     "skills/mcp-server-architect/tools/server_invariants.py",
     "skills/mcp-server-architect/tools/control_plane_invariants.py",
+    "skills/mcp-server-architect/tools/gateway_identity.py",
     "skills/mcp-server-architect/tools/provider_schema_compat.py",
     "skills/mcp-server-architect/tools/semantic_facade.py",
 )
