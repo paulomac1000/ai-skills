@@ -1,4 +1,4 @@
-"""Deterministic checks for the seven production MCP runtime/API invariants."""
+"""Deterministic checks for production MCP runtime/API invariants."""
 
 from __future__ import annotations
 
@@ -12,6 +12,11 @@ INVARIANTS = (
     "durable_async_progress",
     "bounded_results",
     "scoped_health",
+    "failure_contract",
+    "stream_terminality",
+    "unresolved_idempotency",
+    "identity_separation",
+    "exception_diagnostics",
 )
 
 _REQUIRED_RUNTIME_IDENTITY = {
@@ -22,6 +27,11 @@ _REQUIRED_RUNTIME_IDENTITY = {
     "instance_generation",
 }
 _REQUIRED_HEALTH_DIMENSIONS = {"process", "transport", "auth", "read", "write", "provider"}
+_REQUIRED_IDENTITY_ROLES = {"operation", "idempotency", "correlation", "causation", "trace"}
+_UNRESOLVED_IDEMPOTENCY_STATES = {"in_flight", "indeterminate", "reconcile_required"}
+_TERMINAL_IDEMPOTENCY_STATES = {"completed", "failed_terminal", "cancelled_terminal"}
+_DETERMINISTIC_FAILURES = {"invalid_input", "invariant_failure", "policy_failure"}
+_TRANSIENT_FAILURES = {"rate_limited", "transient_infrastructure"}
 
 
 def _mapping(value: object) -> Mapping[str, object]:
@@ -30,6 +40,12 @@ def _mapping(value: object) -> Mapping[str, object]:
 
 def _truthy_text(value: object) -> bool:
     return isinstance(value, str) and bool(value.strip())
+
+
+def _string_set(value: object) -> set[str]:
+    if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
+        return set()
+    return {item for item in value if isinstance(item, str) and item}
 
 
 def evaluate_runtime_api_invariants(design: Mapping[str, object]) -> dict[str, bool]:
@@ -41,16 +57,17 @@ def evaluate_runtime_api_invariants(design: Mapping[str, object]) -> dict[str, b
     async_work = _mapping(design.get("async_progress"))
     results = _mapping(design.get("results"))
     health = _mapping(design.get("health"))
+    failure = _mapping(design.get("failure_contract"))
+    terminality = _mapping(design.get("stream_terminality"))
+    idempotency = _mapping(design.get("idempotency_state"))
+    identities = _mapping(design.get("operation_identities"))
+    exception_diagnostics = _mapping(design.get("exception_diagnostics"))
 
-    dimensions = health.get("dimensions")
-    dimension_set = (
-        {item for item in dimensions if isinstance(item, str)}
-        if isinstance(dimensions, Sequence) and not isinstance(dimensions, (str, bytes))
-        else set()
-    )
-
+    dimension_set = _string_set(health.get("dimensions"))
+    identity_roles = _string_set(identities.get("roles"))
     governed = ownership.get("governed") is True
     may_outlive = async_work.get("may_outlive_request") is True
+    durability_promised = idempotency.get("durability_promised") is True
 
     return {
         "runtime_identity": all(_truthy_text(runtime.get(key)) for key in _REQUIRED_RUNTIME_IDENTITY),
@@ -87,6 +104,41 @@ def evaluate_runtime_api_invariants(design: Mapping[str, object]) -> dict[str, b
             and health.get("generation_bound") is True
             and health.get("single_green_boolean") is False
         ),
+        "failure_contract": (
+            failure.get("stable_machine_failure") is True
+            and failure.get("internal_wire_separated") is True
+            and failure.get("protocol_native_mapping") is True
+            and failure.get("classification_separate_from_recovery") is True
+            and failure.get("unknown_defaults_to_retry") is False
+        ),
+        "stream_terminality": (
+            terminality.get("exactly_one_authoritative_terminal") is True
+            and terminality.get("eof_without_terminal") == "incomplete_or_unknown"
+            and terminality.get("disconnect_is_terminal") is False
+            and terminality.get("post_terminal_progress_rejected") is True
+            and terminality.get("conflicting_terminal_rejected") is True
+            and terminality.get("wait_cancellation_cancels_work") is False
+        ),
+        "unresolved_idempotency": (
+            idempotency.get("indeterminate_replay_blocking") is True
+            and idempotency.get("generic_cleanup_can_clear_unresolved") is False
+            and idempotency.get("expiry_becomes_not_seen") is False
+            and idempotency.get("completed_vs_unresolved_cleanup_separate") is True
+            and (not durability_promised or idempotency.get("restart_preserves_identity") is True)
+        ),
+        "identity_separation": (
+            _REQUIRED_IDENTITY_ROLES.issubset(identity_roles)
+            and identities.get("single_identifier_for_all") is False
+            and identities.get("explicit_mapping_when_equal") is True
+        ),
+        "exception_diagnostics": (
+            exception_diagnostics.get("trusted_original_cause") is True
+            and exception_diagnostics.get("trusted_stack") is True
+            and exception_diagnostics.get("public_sanitized") is True
+            and exception_diagnostics.get("durable_exception_object") is False
+            and exception_diagnostics.get("public_operation_correlated") is True
+            and exception_diagnostics.get("diagnostic_failure_policy_explicit") is True
+        ),
     }
 
 
@@ -94,3 +146,72 @@ def invariant_violations(design: Mapping[str, object]) -> tuple[str, ...]:
     """Return failed invariant names in canonical order."""
     results = evaluate_runtime_api_invariants(design)
     return tuple(name for name in INVARIANTS if not results[name])
+
+
+def classify_progress_sequence(events: Sequence[Mapping[str, object]]) -> str:
+    """Classify a progress stream without treating EOF/disconnect as domain success."""
+    terminal: tuple[str, str] | None = None
+    for event in events:
+        kind = event.get("kind")
+        if kind == "progress":
+            if terminal is not None:
+                return "invalid_post_terminal_progress"
+            continue
+        if kind == "terminal":
+            outcome = event.get("outcome")
+            terminal_id = event.get("terminal_id")
+            if not _truthy_text(outcome) or not _truthy_text(terminal_id):
+                return "malformed"
+            current = (str(terminal_id), str(outcome))
+            if terminal is None:
+                terminal = current
+                continue
+            if event.get("replay") is True and current == terminal:
+                continue
+            return "conflicting_terminal"
+        if kind in {"eof", "disconnect"}:
+            continue
+        return "malformed"
+    return "complete" if terminal is not None else "incomplete_unknown"
+
+
+def idempotency_state_after_cleanup(state: str, *, cleanup: str = "generic_ttl") -> str:
+    """Apply maintenance cleanup without converting unresolved effects into replay permission."""
+    if cleanup != "generic_ttl":
+        raise ValueError("unsupported cleanup policy")
+    if state in _UNRESOLVED_IDEMPOTENCY_STATES:
+        return "reconcile_required"
+    if state in _TERMINAL_IDEMPOTENCY_STATES:
+        return "expired_terminal_record"
+    if state == "proven_not_applied":
+        return "proven_not_applied"
+    raise ValueError("unknown idempotency state")
+
+
+def replay_is_safe(state: str) -> bool:
+    """Return whether current authoritative state proves a new execution is replay-safe."""
+    return state == "proven_not_applied"
+
+
+def recovery_disposition_is_admissible(
+    failure_class: str,
+    disposition: str,
+    *,
+    side_effect_ambiguous: bool = False,
+    outer_budget_preserved: bool = True,
+    policy_bound: bool = True,
+) -> bool:
+    """Check conservative recovery constraints without making one universal retry policy."""
+    if not policy_bound:
+        return False
+    if side_effect_ambiguous:
+        return disposition in {"reconcile", "manual_resolution", "fail_closed"}
+    if failure_class == "unknown":
+        return disposition in {"block", "manual_resolution", "fail_closed"}
+    if failure_class in _DETERMINISTIC_FAILURES:
+        return disposition in {"remediate", "block", "fail_closed", "manual_resolution"}
+    if failure_class in _TRANSIENT_FAILURES:
+        if disposition == "retry":
+            return outer_budget_preserved
+        return disposition in {"wait", "block", "fail_closed", "manual_resolution"}
+    return disposition != "retry"

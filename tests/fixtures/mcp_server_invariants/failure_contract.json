@@ -1,0 +1,4 @@
+{
+  "positive": {"failure_contract": {"stable_machine_failure": true, "internal_wire_separated": true, "protocol_native_mapping": true, "classification_separate_from_recovery": true, "unknown_defaults_to_retry": false}},
+  "negative": {"failure_contract": {"stable_machine_failure": true, "internal_wire_separated": false, "protocol_native_mapping": true, "classification_separate_from_recovery": true, "unknown_defaults_to_retry": false}}
+}

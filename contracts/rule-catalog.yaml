@@ -209,6 +209,41 @@ skills:
       severity: blocking
       waivable: false
       required_evidence: [unit, official-client]
+    - id: mcp.failure.contract
+      source: STANDARD.md#data-errors-and-responses
+      description: Expected caller-handled failures use stable machine identities while internal result/exception representation remains distinct from protocol-native MCP wire semantics and recovery policy.
+      applies_when: {maturity_at_least: L1}
+      severity: blocking
+      waivable: false
+      required_evidence: [unit, official-client]
+    - id: mcp.async.terminality
+      source: STANDARD.md#data-errors-and-responses
+      description: Progress and durable-operation histories have exactly one authoritative terminal outcome; EOF, disconnect, wait cancellation, conflicting terminals, and post-terminal progress fail closed.
+      applies_when: {maturity_at_least: L2, capabilities_any: [background-task, workflow]}
+      severity: blocking
+      waivable: false
+      required_evidence: [unit, integration]
+    - id: mcp.idempotency.unresolved-blocking
+      source: STANDARD.md#data-errors-and-responses
+      description: In-flight, indeterminate, unknown, or reconcile-required side effects remain replay-blocking across generic cleanup, retention expiry, and restart until governed resolution proves replay safe.
+      applies_when: {maturity_at_least: L1, capabilities_any: [write, destructive, workflow, background-task]}
+      severity: blocking
+      waivable: false
+      required_evidence: [unit, integration]
+    - id: mcp.identity.operation-separation
+      source: STANDARD.md#data-errors-and-responses
+      description: Operation, idempotency, correlation, causation, and trace identities remain semantically distinct and any intentional equality is an explicit reviewed mapping.
+      applies_when: {maturity_at_least: L2}
+      severity: blocking
+      waivable: false
+      required_evidence: [unit, integration]
+    - id: mcp.diagnostics.exception-preservation
+      source: STANDARD.md#data-errors-and-responses
+      description: Unexpected exceptions preserve original cause and stack in trusted correlated telemetry while public and durable failure records stay sanitized and exception-object free.
+      applies_when: {maturity_at_least: L2}
+      severity: blocking
+      waivable: false
+      required_evidence: [unit, integration, security]
     - id: mcp.authorization.server-side
       source: STANDARD.md#authentication-and-authorization
       description: Authorization and approval are server-side and cannot be asserted by model input.

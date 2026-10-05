@@ -30,6 +30,8 @@ A daemon thread, untracked `asyncio.create_task`, or transport connection is not
 
 The supported state machine distinguishes at least `accepted`, `running`, `verifying`, `succeeded`, `failed`, `cancelled`, `unknown_outcome`, and `expired`. Restart, OTA, network changes, browser generation, exports, and other expected-disconnect operations enter `verifying` rather than becoming generic retryable timeouts. Postcondition verification decides the terminal state.
 
+A logical progress stream or durable-task history has exactly one authoritative terminal outcome. EOF, disconnect, timeout of a wait, or consumer cancellation of a status stream does not manufacture terminal success/failure for the underlying work. Duplicate/conflicting terminals and post-terminal progress fail closed unless the protocol explicitly identifies an exact replay of the same immutable terminal record. Ordering/sequence identity is preserved where delivery may reorder or replay observations.
+
 The registry bounds active tasks, queued tasks, per-principal tasks, retained completed tasks, and result size. Shutdown stops admission, cancels or persists owned work according to the contract, waits within a bounded grace period, and reports unfinished durable work. Fire-and-forget work is prohibited.
 
 ## HTTP and session resource bounds

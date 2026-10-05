@@ -1,0 +1,4 @@
+{
+  "positive": {"operation_identities": {"roles": ["operation", "idempotency", "correlation", "causation", "trace"], "single_identifier_for_all": false, "explicit_mapping_when_equal": true}},
+  "negative": {"operation_identities": {"roles": ["operation", "idempotency", "correlation", "causation", "trace"], "single_identifier_for_all": true, "explicit_mapping_when_equal": true}}
+}
