@@ -325,3 +325,19 @@ def test_atomic_report_rejects_test_case_outside_control_selector(tmp_path: Path
     path.write_text(yaml.safe_dump(report), encoding="utf-8")
     findings = validate_report(path, repository_root=ROOT)
     assert any("not an approved selector" in finding for finding in findings)
+
+def test_projection_field_ownership_claim_is_explicit() -> None:
+    controls = _controls()
+    control = controls["mcp.control-plane.projection-field-ownership"]
+    assert control["parent_rule_id"] == "mcp.architecture.boundaries"
+    assert control["applies_when"]["profiles_any"] == ["external-upstream", "multi-backend", "gateway"]
+    assert control["required_evidence"] == ["unit", "integration", "security"]
+    assert len(control["test_selectors"]) == 4
+
+    reference = (ROOT / "skills/mcp-server-architect/references/projection-field-ownership.md").read_text(
+        encoding="utf-8"
+    )
+    assert "confidence/rationale != authorization" in reference
+    assert "fields×actions cross-product" in reference
+    assert "project-steward-mcp#123" in reference
+
