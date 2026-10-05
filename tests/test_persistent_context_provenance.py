@@ -26,9 +26,14 @@ def _load(name: str) -> ModuleType:
     return module
 
 
-def _scope(module: ModuleType, project: str = "project:a"):
+def _scope(
+    module: ModuleType,
+    project: str = "project:a",
+    principal: str = "principal:user-a",
+):
     return module.PersistentContextScope(
         project_ref=project,
+        principal_ref=principal,
         subject_ref="work:7",
         subject_generation="g7",
     )
@@ -62,7 +67,11 @@ def _observed(module: ModuleType):
     )
 
 
-def _lesson(module: ModuleType, project: str = "project:a"):
+def _lesson(
+    module: ModuleType,
+    project: str = "project:a",
+    principal: str = "principal:user-a",
+):
     return module.PersistentContextArtifact(
         artifact_ref=f"ctx:lesson:{project}",
         artifact_kind=module.PersistentContextKind.EPISODE,
@@ -74,7 +83,7 @@ def _lesson(module: ModuleType, project: str = "project:a"):
             envelope_attestation_ref="attestation:lesson-1",
         ),
         trust_class=module.PersistentTrustClass.ADVISORY,
-        scope=_scope(module, project),
+        scope=_scope(module, project, principal),
         dependencies=_dependencies(module),
         currentness=module.ContextCurrentness.CURRENT,
         permissions=module.PersistentContextPermissions(True, False),
@@ -96,7 +105,9 @@ def test_persistence_never_upgrades_authority_or_untrusted_payload() -> None:
     )
     assert malicious.trust_class is context.PersistentTrustClass.UNTRUSTED
     assert not malicious.permissions.may_grant_authority
+    assert not malicious.permissions.may_grant_capabilities
     assert not malicious.permissions.may_change_policy
+    assert not malicious.permissions.may_waive_verification
     assert not malicious.permissions.may_satisfy_evidence
     assert not context.evidence_candidate(
         malicious,
@@ -108,6 +119,18 @@ def test_persistence_never_upgrades_authority_or_untrusted_payload() -> None:
             may_influence_planning=False,
             may_satisfy_evidence=False,
             may_grant_authority=True,
+        )
+    with pytest.raises(ValueError, match="cannot grant authority"):
+        context.PersistentContextPermissions(
+            may_influence_planning=False,
+            may_satisfy_evidence=False,
+            may_grant_capabilities=True,
+        )
+    with pytest.raises(ValueError, match="cannot grant authority"):
+        context.PersistentContextPermissions(
+            may_influence_planning=False,
+            may_satisfy_evidence=False,
+            may_waive_verification=True,
         )
 
 
@@ -178,9 +201,14 @@ def test_advisory_reuse_requires_scope_and_currentness() -> None:
     current = {"environment": "env:7", "policy": "policy:3"}
     compatible = _lesson(context)
     foreign = _lesson(context, "project:b")
+    foreign_principal = _lesson(
+        context,
+        "project:a",
+        "principal:user-b",
+    )
 
     assembly = context.assemble_context(
-        [foreign, compatible],
+        [foreign, foreign_principal, compatible],
         requested_scope=_scope(context),
         current_dependencies=current,
     )
@@ -188,7 +216,10 @@ def test_advisory_reuse_requires_scope_and_currentness() -> None:
         "ctx:lesson:project:a"
     ]
     assert assembly.selected[0].may_influence_planning
-    assert assembly.scope_mismatch_refs == ("ctx:lesson:project:b",)
+    assert assembly.scope_mismatch_refs == (
+        "ctx:lesson:project:a",
+        "ctx:lesson:project:b",
+    )
 
     stale = context.assemble_context(
         [compatible],

@@ -86,6 +86,7 @@ class PersistentContextScope:
     """Scope boundary for later-session reuse."""
 
     project_ref: str | None = None
+    principal_ref: str | None = None
     work_ref: str | None = None
     campaign_ref: str | None = None
     subject_ref: str | None = None
@@ -94,6 +95,7 @@ class PersistentContextScope:
     def __post_init__(self) -> None:
         for name, value in (
             ("project_ref", self.project_ref),
+            ("principal_ref", self.principal_ref),
             ("work_ref", self.work_ref),
             ("campaign_ref", self.campaign_ref),
             ("subject_ref", self.subject_ref),
@@ -129,11 +131,20 @@ class PersistentContextPermissions:
     may_influence_planning: bool
     may_satisfy_evidence: bool
     may_grant_authority: bool = False
+    may_grant_capabilities: bool = False
     may_change_policy: bool = False
+    may_waive_verification: bool = False
 
     def __post_init__(self) -> None:
-        if self.may_grant_authority or self.may_change_policy:
-            raise ValueError("persistent context cannot grant authority or change policy")
+        if (
+            self.may_grant_authority
+            or self.may_grant_capabilities
+            or self.may_change_policy
+            or self.may_waive_verification
+        ):
+            raise ValueError(
+                "persistent context cannot grant authority/capabilities, change policy, or waive verification"
+            )
 
 
 @dataclass(frozen=True)
@@ -214,6 +225,7 @@ def scope_compatible(
     """Require explicit equality for every requested scope dimension."""
     for name in (
         "project_ref",
+        "principal_ref",
         "work_ref",
         "campaign_ref",
         "subject_ref",

@@ -20,10 +20,10 @@ contract without centralizing all content.
 
 Persistent content carries a bounded trusted envelope with artifact kind/ref,
 source system/principal, creation policy revision/time, evidence refs, trust
-class, scope, load-bearing dependency identities, currentness, storage/content
-refs, and permitted influence. The content body cannot assign or widen its own
-trust, scope, evidence authority, capability, policy, merge/deploy authority, or
-lifecycle authority.
+class, project/principal/work scope, load-bearing dependency identities,
+currentness, storage/content refs, and permitted influence. The content body cannot assign or widen its own
+trust, scope, evidence authority, capabilities, policy, verification waivers,
+merge/deploy authority, or lifecycle authority.
 
 Persistence never upgrades authority. ADVISORY, DERIVED, and UNTRUSTED context
 cannot satisfy a required authoritative evidence gate merely because it
