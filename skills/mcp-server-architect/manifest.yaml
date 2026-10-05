@@ -135,6 +135,7 @@ required:
 - references/upstream-contract-discovery.md
 - references/consumer-driven-validation.md
 - references/container-provenance-dataflow.md
+- references/projection-field-ownership.md
 - references/gateway-aggregation.md
 - templates/migration-assessment.yaml.template
 - templates/upstream-contract.yaml.template

@@ -59,6 +59,8 @@ Use one canonical store/authority unless multi-master is explicit; provider obje
 
 Durable binding schemas/manifests MUST separate canonical identity, complete provider-scoped external identity, and recovery locators; local IDs/markers are not authority. Ingress MUST authenticate source, durably deduplicate `(provider, source scope, delivery ID)`, survive restart, and reconcile current state/policy under per-resource fencing; duplicate, out-of-order, or concurrent events never authorize transitions. Rename/transfer/move MUST rebind without changing canonical identity.
 
+Writable projections MUST apply a revisioned field/namespace ownership policy distinguishing canonical, advisory, shared-managed, external-execution, and unknown semantics; provider confidence/rationale is evidence, never authorization. Automation is least-privilege by field/action, work-starting metadata carries an explicit execution boundary and blocks duplicate canonical scheduling until reconciled, and shared-field reprojection preserves admitted external regions. See `references/projection-field-ownership.md`.
+
 ### Provider schema compatibility
 
 Validate recursively against a versioned profile with provider, contract revision, schema restrictions, and source evidence. Cover nested nullable objects/arrays, unions, `anyOf`/`oneOf`, `$ref`, defaults, `additionalProperties`, `properties`/`required`, and `items`; unknown rules fail closed. Bind release evidence to exact artifact/source, official client/protocol, serialized public contract, and provider-profile revision.
