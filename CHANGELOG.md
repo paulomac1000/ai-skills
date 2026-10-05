@@ -1,5 +1,21 @@
 # Changelog
 
+## 3.13.0 - 2026-10-05
+
+### Added
+
+- Added a provider-neutral executable-resource contract to `skill-architect` so bundled `library_helper`, `agent_cli`, `host_adapter`, and `service` resources can declare one canonical invocation boundary, structured/human/internal outcome semantics, process-exit mapping, side effects, replay behavior, network/credential needs, timeout/cancellation, and bounded diagnostics.
+- Added an executable-resource JSON Schema, manifest auditing, self-hosted declarations for the three bundled `skill-architect` CLIs, and regressions for CLI-vs-library confusion, unbounded diagnostics, unconfined resources, and reconciliation-before-retry mutation.
+
+### Changed
+
+- New skill manifests scaffold an empty optional `executable_resources` declaration while pre-contract skills migrate incrementally only when a supported executable boundary is created or materially changed; a file under `tools/` is not implicitly a public CLI.
+- Kept runtime installation/invokability and validation-environment proof outside the portable skill declaration so host readiness and evidence provenance remain owned by their existing contracts.
+
+### Security and correctness
+
+- Stateful external mutation resources must declare replay/reconciliation semantics and bounded safe diagnostics; transport failure does not become implicit replay authority.
+
 ## 3.12.0 - 2026-10-05
 
 ### Added

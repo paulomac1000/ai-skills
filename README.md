@@ -2,7 +2,7 @@
 
 A production-oriented collection of reusable standards, implementation playbooks, executable policy helpers, and tested templates for AI-assisted software engineering.
 
-The current repository release is `3.12.0`. All bundled skills are published with `maturity: stable` and are intended for production adoption. Each skill declares its compatibility, dependencies, evidence lanes, and required entry points in `manifest.yaml`.
+The current repository release is `3.13.0`. All bundled skills are published with `maturity: stable` and are intended for production adoption. Each skill declares its compatibility, dependencies, evidence lanes, and required entry points in `manifest.yaml`.
 
 ## Included skills
 
@@ -18,7 +18,7 @@ The current repository release is `3.12.0`. All bundled skills are published wit
 | `mcp-steward-architect` | Design durable MCP control planes that own bounded workflows, survive ambiguous external work, and publish provenance-bound handoffs. | Steward/job/lineage/receipt/completion/handoff and upstream-capability contracts, reconciliation and authority playbooks, validator, Python/.NET generator overlay, failure regressions |
 | `qa-change-verifier` | Plan risk-based proof, exact migration acceptance, immutable change acceptance, and candidate-specific semantic review scope. | Risk/criterion planner, migration-matrix evaluator, acceptance and semantic-review contracts, exact evidence, known-gap and failure attribution |
 | `readme-architect` | Create and audit evidence-backed, user-facing repository READMEs without duplicating volatile project truth. | Evidence source map, structure profiles, visual guidance, templates, collector, auditor |
-| `skill-architect` | Create, refactor, route, evaluate, and evolve reusable Agent Skills without turning the runtime package into a prompt dump. | Admission and routing playbooks, progressive-disclosure rules, templates, package auditor, eval-corpus validator |
+| `skill-architect` | Create, refactor, route, evaluate, and evolve reusable Agent Skills without turning the runtime package into a prompt dump. | Admission/routing and progressive-disclosure playbooks, executable-resource contract/schema, templates, package auditor, eval-corpus validator |
 
 Local pre-commit and pre-push design belongs to `ci-cd-architect`; it is not a separate architectural domain. `skill-architect` owns reusable skill admission, package structure, routing, progressive disclosure, behavioral evaluation, portability, and lifecycle. `mcp-steward-architect` owns the reusable service/runtime architecture of durable Steward control planes. Mutable user-intent/session state, agent-session rotation, delegation lifecycle, and model-routing workflow state remain outside this repository and are owned by `opencode-stack-guides` under OSG #140.
 
