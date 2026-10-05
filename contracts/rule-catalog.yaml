@@ -239,7 +239,7 @@ skills:
       required_evidence: [unit, integration]
     - id: mcp.diagnostics.exception-preservation
       source: STANDARD.md#data-errors-and-responses
-      description: Unexpected exceptions preserve original cause and stack in trusted correlated telemetry while public and durable failure records stay sanitized and exception-object free.
+      description: Unexpected exceptions preserve original cause and stack behind an authorized forensic boundary while public, durable, and ordinary telemetry remain sanitized and reference raw detail opaquely.
       applies_when: {maturity_at_least: L2}
       severity: blocking
       waivable: false
