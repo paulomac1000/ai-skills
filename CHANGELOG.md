@@ -1,5 +1,18 @@
 # Changelog
 
+## 3.17.0 - 2026-10-06
+
+### Added
+
+- Added a provider-neutral IntegrationLease contract for autonomous repository integration, binding exact principal, repository/change, candidate head/tree, target/base, merge strategy, evidence-set/policy identity, execution generation, expiry, and provider controls.
+- Added a deterministic integration authority helper and adversarial regressions for stale candidate/base/evidence, child-worker authority, one-shot reservation, ambiguous dispatch reconciliation, and squash candidate-to-integrated lineage.
+
+### Security and correctness
+
+- Generic repository write/push credentials no longer satisfy integration authority: only a current exact lease may admit the mutation.
+- Durable operation reservation consumes the one-shot lease before provider dispatch; timeout/lost acknowledgement reconciles the same operation and cannot reactivate or blindly replay authority.
+- Squash/rebase/merge evidence preserves candidate and integrated revision as distinct identities and carries bounded lease/operation/evidence/policy lineage without repository credentials.
+
 ## 3.16.0 - 2026-10-06
 
 ### Added

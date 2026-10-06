@@ -1,6 +1,6 @@
 schema_version: 1
 name: mcp-steward-architect
-version: 3.16.0
+version: 3.17.0
 maturity: stable
 skill_format: ai-skills/v1
 normative_entrypoint: STANDARD.md
@@ -33,6 +33,7 @@ required:
   - references/credentials-and-failover.md
   - references/observability-and-diagnostics.md
   - references/persistent-context-provenance.md
+  - references/integration-lease.md
   - references/testing-strategy.md
   - templates/steward-profile.yaml.template
   - templates/steward-state-machine.yaml.template
@@ -43,6 +44,7 @@ required:
   - templates/steward-acceptance.yaml.template
   - tools/validate_steward.py
   - tools/persistent_context.py
+  - tools/integration_lease.py
   - tools/generate_steward.py
 categories: [core, references, templates, tools]
 applicability:

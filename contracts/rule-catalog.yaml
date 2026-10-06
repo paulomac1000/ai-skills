@@ -1,5 +1,5 @@
 schema_version: 1
-catalog_version: 3.16.0
+catalog_version: 3.17.0
 skills:
   afds-doc-writer:
     rules:
@@ -416,6 +416,9 @@ skills:
     - id: steward.mutation.admitted
       source: STANDARD.md#mutation-admission-and-candidate-identity
       description: Every authority-bearing effect revalidates current authority, lineage, exact subject/candidate, capability provenance, ambiguity, and budget and durably reserves stateful operations before dispatch.
+    - id: steward.integration.authorized
+      source: STANDARD.md#integration-authority-and-lease
+      description: Autonomous repository integration requires exact one-shot authority bound to principal, candidate, target/base, strategy, evidence/policy and generation, with durable pre-dispatch reservation and reconciliation before replay.
     - id: steward.delivery.reconciled
       source: STANDARD.md#external-operations-and-reconciliation
       description: Stateful dispatch is durably identified before execution and ambiguous delivery requires reconciliation before replay.
