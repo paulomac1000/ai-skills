@@ -282,7 +282,6 @@ class IntegrationResult:
     lineage_proof_ref: str
 
 
-
 def _evidence_current(lease: IntegrationLease, evidence: IntegrationEvidenceSnapshot) -> bool:
     """Return whether the exact policy-required evidence snapshot is current."""
     if evidence.evidence_set_digest != lease.required_evidence_set_digest:
@@ -480,6 +479,7 @@ def admit_and_reserve_integration(
     )
     return admission, consumed_lease, operation
 
+
 def note_dispatch(
     operation: IntegrationOperation,
     observation: DispatchObservation,
@@ -505,9 +505,7 @@ def reconcile_integration(
         IntegrationOperationState.DISPATCHED,
         IntegrationOperationState.RECONCILIATION_REQUIRED,
     }:
-        raise ValueError(
-            "operation may be reconciled only after dispatch and before a terminal outcome"
-        )
+        raise ValueError("operation may be reconciled only after dispatch and before a terminal outcome")
     if observation.target_ref != operation.target_ref:
         return (
             replace(operation, state=IntegrationOperationState.RECONCILIATION_REQUIRED),
