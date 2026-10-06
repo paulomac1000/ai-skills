@@ -105,6 +105,9 @@ skills:
     - id: cicd.workflow.least-privilege
       source: STANDARD.md#universal-workflow-controls
       description: Workflows are bounded, least-privileged, pinned, and concurrency-safe.
+    - id: cicd.dependencies.lock-refresh-separated
+      source: STANDARD.md#dependency-lock-verification-and-refresh
+      description: Candidate CI verifies committed immutable lock identity without fresh mutable-upstream resolution; deliberate refresh is separately governed, cache-isolated, source-identified, and reviewable.
     - id: cicd.artifact.evidence
       source: STANDARD.md#exact-artifact-evidence-construction
       description: Exact artifact identity uses collision-safe profile-bound construction, complete bounded coverage, and separate requested-versus-observed identity claims.

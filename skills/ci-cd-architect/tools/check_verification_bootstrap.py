@@ -18,6 +18,11 @@ MAX_SOURCE_BYTES = 64 * 1024 * 1024
 READ_CHUNK_BYTES = 64 * 1024
 PATH_SOURCE_TYPES = {"lockfile", "manifest", "tool-version-file", "bootstrap-script"}
 SOURCE_TYPES = PATH_SOURCE_TYPES | {"immutable-image"}
+DEPENDENCY_OPERATIONS = {"dependency_bootstrap", "candidate_verification", "dependency_refresh"}
+CACHE_POLICIES = {"verified", "disabled", "isolated"}
+UPSTREAM_RESOLUTION = {"forbidden", "mutable", "immutable"}
+LOCK_MUTATION = {"forbidden", "reviewable"}
+REPRODUCIBILITY_CLAIMS = {"observational", "exact"}
 
 
 def _metadata_changed(before: os.stat_result, after: os.stat_result) -> bool:
@@ -102,6 +107,81 @@ def _source(root: Path, item: dict[str, Any]) -> dict[str, str]:
     }
 
 
+def _validate_lock_operation(
+    policy: dict[str, Any],
+    dependencies: list[dict[str, Any]],
+    cache: Any,
+    failures: list[str],
+) -> tuple[str, dict[str, Any] | None]:
+    operation = policy.get("operation", "dependency_bootstrap")
+    if operation not in DEPENDENCY_OPERATIONS:
+        failures.append("dependency-operation-invalid")
+        return str(operation), None
+    if operation == "dependency_bootstrap":
+        return operation, None
+
+    contract = policy.get("lock_contract")
+    if not isinstance(contract, dict):
+        failures.append("lock-contract-missing")
+        return operation, None
+
+    lock_sources = sum(1 for item in dependencies if item.get("source_type") == "lockfile")
+    if lock_sources == 0:
+        failures.append("lock-source-missing")
+
+    upstream = contract.get("upstream_resolution")
+    mutation = contract.get("lock_mutation")
+    reviewable_diff = contract.get("reviewable_diff")
+    summary: dict[str, Any] = {
+        "upstream_resolution": upstream,
+        "lock_mutation": mutation,
+        "reviewable_diff": reviewable_diff,
+    }
+
+    if upstream not in UPSTREAM_RESOLUTION:
+        failures.append("upstream-resolution-invalid")
+    if mutation not in LOCK_MUTATION:
+        failures.append("lock-mutation-invalid")
+
+    if operation == "candidate_verification":
+        if upstream != "forbidden":
+            failures.append("candidate-verification-must-not-reresolve-upstream")
+        if mutation != "forbidden":
+            failures.append("candidate-verification-lock-mutation-forbidden")
+        if reviewable_diff is not False:
+            failures.append("candidate-verification-reviewable-diff-must-be-false")
+        return operation, summary
+
+    if upstream not in {"mutable", "immutable"}:
+        failures.append("refresh-upstream-resolution-required")
+    identity = contract.get("upstream_identity")
+    if not isinstance(identity, str) or not identity.strip():
+        failures.append("refresh-upstream-identity-missing")
+    resolver_dependency_id = contract.get("resolver_dependency_id")
+    declared_ids = {item.get("id") for item in dependencies}
+    if not isinstance(resolver_dependency_id, str) or resolver_dependency_id not in declared_ids:
+        failures.append("refresh-resolver-dependency-missing")
+    runtime_ref = contract.get("runtime_ref")
+    if not isinstance(runtime_ref, str) or not runtime_ref.strip():
+        failures.append("refresh-runtime-ref-missing")
+    if mutation != "reviewable":
+        failures.append("refresh-lock-mutation-must-be-reviewable")
+    if reviewable_diff is not True:
+        failures.append("refresh-reviewable-diff-required")
+    if cache not in {"disabled", "isolated"}:
+        failures.append("refresh-cache-must-be-disabled-or-isolated")
+    reproducibility = contract.get("reproducibility_claim")
+    if reproducibility not in REPRODUCIBILITY_CLAIMS:
+        failures.append("refresh-reproducibility-claim-invalid")
+    elif reproducibility == "exact" and upstream != "immutable":
+        failures.append("mutable-upstream-cannot-claim-exact-reproducibility")
+    summary["reproducibility_claim"] = reproducibility
+    summary["upstream_identity_present"] = isinstance(identity, str) and bool(identity.strip())
+    summary["resolver_dependency_id"] = resolver_dependency_id
+    summary["runtime_ref_present"] = isinstance(runtime_ref, str) and bool(runtime_ref.strip())
+    return operation, summary
+
+
 def evaluate(root: Path, policy: dict[str, Any]) -> dict[str, Any]:
     root = root.resolve()
     revision = policy.get("policy_revision")
@@ -143,16 +223,20 @@ def evaluate(root: Path, policy: dict[str, Any]) -> dict[str, Any]:
     if network not in {"required", "offline-capable", "none"}:
         failures.append("network-assumption-missing")
     cache = policy.get("cache")
-    if cache not in {"verified", "disabled"}:
+    if cache not in CACHE_POLICIES:
         failures.append("cache-policy-missing-or-unverified")
+
+    operation, lock_contract = _validate_lock_operation(policy, dependencies, cache, failures)
 
     return {
         "schema_version": 1,
         "policy_revision": revision,
+        "operation": operation,
         "declared_dependencies_only": not failures,
         "resolved_dependencies": resolved,
         "network": network,
         "cache": cache,
+        "lock_contract": lock_contract,
         "failures": sorted(set(failures)),
         "verdict": "pass" if not failures else "fail",
     }

@@ -54,6 +54,46 @@ Verdict-affecting tools come from repository-declared locks, manifests, tool-ver
 
 Use `tools/check_verification_bootstrap.py`. It validates dependency-source provenance; ecosystem-specific bootstrap/install commands remain repository-owned and must consume those declared sources.
 
+### Dependency lock operations
+
+For lock-owning repositories, set `operation: candidate_verification` or `operation: dependency_refresh` so evidence cannot silently switch between verifying committed state and resolving new state.
+
+Candidate verification requires a declared lock source plus:
+
+```yaml
+operation: candidate_verification
+cache: verified
+lock_contract:
+  upstream_resolution: forbidden
+  lock_mutation: forbidden
+  reviewable_diff: false
+```
+
+`upstream_resolution: forbidden` means the candidate gate does not ask an upstream resolver to choose a new dependency graph. It may still retrieve the exact pinned artifacts from a registry when the lock's integrity mechanism verifies them. Ecosystem profiles additionally prove the committed lock is complete and usable; for Python hash locks use `pip install --require-hashes` followed by `pip check`.
+
+Dependency refresh requires a distinct contract:
+
+```yaml
+operation: dependency_refresh
+cache: isolated
+lock_contract:
+  upstream_resolution: mutable
+  upstream_identity: pypi:public/simple
+  resolver_dependency_id: pip-tools
+  runtime_ref: python:3.12
+  lock_mutation: reviewable
+  reviewable_diff: true
+  reproducibility_claim: observational
+```
+
+The resolver itself is one of the declared dependencies, so its exact version/source digest remains in the bootstrap evidence. `runtime_ref` identifies the generation environment strongly enough for the repository's policy. Refresh cache is `disabled` or `isolated`; an ambient verified developer cache is not a refresh input. The generated locks are proposed changes, never silently committed or used to retroactively fail an otherwise valid earlier candidate.
+
+A mutable source supports only `reproducibility_claim: observational`. `exact` is accepted only with `upstream_resolution: immutable` and an explicit safe `upstream_identity` for the snapshot/mirror/wheelhouse or equivalent source. Do not place credentials in that identity. Two exact refreshes are comparable only when resolver dependency identity, runtime identity, upstream immutable identity, source inputs, and generation policy are unchanged.
+
+A repository may run vulnerability/advisory freshness separately from both operations. Such a finding can require a dependency update without pretending that mutable current-index resolution was part of the original candidate's reproducibility proof.
+
+Use `tools/check_verification_bootstrap.py` to validate these declarations. The tool intentionally extends the existing bootstrap contract rather than creating a second dependency-verification authority.
+
 ## Exact artifact evidence
 
 Use `contracts/artifact-evidence.schema.json` and `contracts/artifact_evidence.py` when a verification or release decision depends on an exact structured artifact identity.

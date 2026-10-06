@@ -243,6 +243,123 @@ def test_bootstrap_rejects_ambient_dependency_and_accepts_declared_lock(tmp_path
     assert bootstrap.evaluate(tmp_path, ambient)["verdict"] == "fail"
 
 
+def _lock_policy(tmp_path: Path) -> dict[str, object]:
+    lock = tmp_path / "requirements-ci.lock"
+    lock.write_text("pytest==9.0.2 --hash=sha256:" + "a" * 64 + "\n", encoding="utf-8")
+    return {
+        "schema_version": 1,
+        "policy_revision": "lock-contract-1",
+        "network": "required",
+        "cache": "verified",
+        "dependencies": [
+            {
+                "id": "pytest",
+                "source_type": "lockfile",
+                "source": "requirements-ci.lock",
+                "resolved_version": "9.0.2",
+                "expected_version": "9.0.2",
+                "resolution": "declared",
+            }
+        ],
+    }
+
+
+def test_candidate_verification_requires_committed_lock_without_upstream_reresolution(tmp_path: Path) -> None:
+    policy = _lock_policy(tmp_path)
+    policy.update(
+        {
+            "operation": "candidate_verification",
+            "lock_contract": {
+                "upstream_resolution": "forbidden",
+                "lock_mutation": "forbidden",
+                "reviewable_diff": False,
+            },
+        }
+    )
+    result = bootstrap.evaluate(tmp_path, policy)
+    assert result["verdict"] == "pass"
+    assert result["operation"] == "candidate_verification"
+
+    rereresolved = {
+        **policy,
+        "lock_contract": {**policy["lock_contract"], "upstream_resolution": "mutable"},
+    }
+    result = bootstrap.evaluate(tmp_path, rereresolved)
+    assert result["verdict"] == "fail"
+    assert "candidate-verification-must-not-reresolve-upstream" in result["failures"]
+
+
+def test_candidate_verification_cannot_rewrite_lock_as_part_of_acceptance(tmp_path: Path) -> None:
+    policy = _lock_policy(tmp_path)
+    policy.update(
+        {
+            "operation": "candidate_verification",
+            "lock_contract": {
+                "upstream_resolution": "forbidden",
+                "lock_mutation": "reviewable",
+                "reviewable_diff": True,
+            },
+        }
+    )
+    result = bootstrap.evaluate(tmp_path, policy)
+    assert result["verdict"] == "fail"
+    assert "candidate-verification-lock-mutation-forbidden" in result["failures"]
+
+
+def test_mutable_refresh_is_reviewable_observation_not_exact_reproducibility(tmp_path: Path) -> None:
+    policy = _lock_policy(tmp_path)
+    policy["cache"] = "isolated"
+    policy["operation"] = "dependency_refresh"
+    policy["lock_contract"] = {
+        "upstream_resolution": "mutable",
+        "upstream_identity": "pypi:public/simple",
+        "resolver_dependency_id": "pytest",
+        "runtime_ref": "python:3.12",
+        "lock_mutation": "reviewable",
+        "reviewable_diff": True,
+        "reproducibility_claim": "observational",
+    }
+    assert bootstrap.evaluate(tmp_path, policy)["verdict"] == "pass"
+
+    exact = {
+        **policy,
+        "lock_contract": {**policy["lock_contract"], "reproducibility_claim": "exact"},
+    }
+    result = bootstrap.evaluate(tmp_path, exact)
+    assert result["verdict"] == "fail"
+    assert "mutable-upstream-cannot-claim-exact-reproducibility" in result["failures"]
+
+
+def test_refresh_requires_isolated_or_disabled_cache_and_pinned_resolver_identity(tmp_path: Path) -> None:
+    policy = _lock_policy(tmp_path)
+    policy.update(
+        {
+            "operation": "dependency_refresh",
+            "cache": "verified",
+            "lock_contract": {
+                "upstream_resolution": "immutable",
+                "upstream_identity": "snapshot:sha256:" + "b" * 64,
+                "resolver_dependency_id": "pytest",
+                "runtime_ref": "python:3.12@sha256:" + "c" * 64,
+                "lock_mutation": "reviewable",
+                "reviewable_diff": True,
+                "reproducibility_claim": "exact",
+            },
+        }
+    )
+    result = bootstrap.evaluate(tmp_path, policy)
+    assert result["verdict"] == "fail"
+    assert "refresh-cache-must-be-disabled-or-isolated" in result["failures"]
+
+    policy["cache"] = "isolated"
+    assert bootstrap.evaluate(tmp_path, policy)["verdict"] == "pass"
+
+    stale_cache = tmp_path / ".cache" / "pip"
+    stale_cache.mkdir(parents=True)
+    (stale_cache / "stale.whl").write_bytes(b"not part of the declared refresh identity")
+    assert bootstrap.evaluate(tmp_path, policy)["verdict"] == "pass"
+
+
 def test_bootstrap_rejects_mutable_image_reference(tmp_path: Path) -> None:
     policy = {
         "schema_version": 1,
