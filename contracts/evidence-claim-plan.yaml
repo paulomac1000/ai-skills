@@ -291,6 +291,13 @@ profiles:
     - repository-junit.xml
     execution_id: repository
   - kind: rule
+    subject: mcp.discovery.generation-bound
+    selectors:
+    - '*test_mcp_catalog_discovery_lifecycle*'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
     subject: mcp.manifest.complete
     selectors:
     - '*test_mcp_*'

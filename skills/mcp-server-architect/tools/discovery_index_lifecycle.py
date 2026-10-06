@@ -7,7 +7,7 @@ import hashlib
 import json
 from collections.abc import Iterable
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 
 
 class CatalogLifecycleError(RuntimeError):
@@ -99,12 +99,12 @@ class IndexIdentity:
     search_config_revision: str
 
 
-class BuildTrigger(str, Enum):
+class BuildTrigger(StrEnum):
     LAZY_FIRST_USE = "lazy_first_use"
     EAGER_WARMUP = "eager_warmup"
 
 
-class BuildState(str, Enum):
+class BuildState(StrEnum):
     BUILDING = "building"
     FAILED = "failed"
     CANCELLED = "cancelled"
@@ -258,8 +258,10 @@ class DiscoveryIndexLifecycle:
         if attempt.identity != self.current_identity:
             raise BuildSupersededError("older build cannot publish for a superseded catalog/config generation")
 
-        requested = tuple(component_ids) if component_ids is not None else tuple(
-            component.canonical_id for component in self._catalog.components if component.active
+        requested = (
+            tuple(component_ids)
+            if component_ids is not None
+            else tuple(component.canonical_id for component in self._catalog.components if component.active)
         )
         if len(requested) != len(set(requested)):
             raise ValueError("published component identities must be unique")
@@ -323,10 +325,7 @@ class DiscoveryIndexLifecycle:
         component = self._catalog.component(hit.canonical_id)
         if component is None:
             raise StaleDiscoveryResultError("discovered component no longer exists")
-        if (
-            component.source_identity != hit.source_identity
-            or component.manifest_revision != hit.manifest_revision
-        ):
+        if component.source_identity != hit.source_identity or component.manifest_revision != hit.manifest_revision:
             raise StaleDiscoveryResultError("discovered component provenance changed")
         if not component.active:
             raise ComponentUnavailableError("current component is inactive")
