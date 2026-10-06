@@ -525,6 +525,20 @@ def snapshot_after_reservation(
     )
 
 
+def reservation_may_dispatch(
+    snapshot: MutationDomainSnapshot,
+    reservation: DeploymentMutationReservation,
+) -> bool:
+    """Return whether this reservation is still the current non-ambiguous domain owner."""
+    return (
+        not snapshot.unresolved_external_effect
+        and snapshot.active_operation_ref == reservation.operation_ref
+        and snapshot.active_lease_id == reservation.lease_id
+        and snapshot.target.mutation_domain == reservation.mutation_domain
+        and snapshot.target.fence_token_or_generation == reservation.fence_token_or_generation
+    )
+
+
 def mark_delivery_unknown(snapshot: MutationDomainSnapshot, *, operation_ref: str) -> MutationDomainSnapshot:
     """Keep the mutation owner pressure-bearing until authoritative reconciliation."""
     if snapshot.active_operation_ref != operation_ref:

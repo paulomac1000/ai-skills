@@ -42,7 +42,7 @@ Do not solve provenance by stripping known reminder prefixes after source text h
 
 `deployment-lease.schema.json` keeps schema version 1 exact one-use authority and adds schema version 2 target fencing: `target.mutation_domain`, authority-owned `expected_current`, and provider-CAS or durable broker/generation `fence` identity.
 
-`deployment_lease.py` revalidates authority and target state immediately before mutation. `TARGET_PRECONDITION_MATCH` is preflight evidence only; dispatch requires atomic one-shot lease consumption plus domain reservation. Changed, stale, unknown, compatible-advance, or active-conflict states do not dispatch. Same-domain deploy/rollback work serializes; an unknown external effect keeps ownership until authoritative reconciliation, and an applied mutation advances the fence.
+`deployment_lease.py` revalidates authority and target state immediately before mutation. `TARGET_PRECONDITION_MATCH` is preflight evidence only; dispatch requires atomic one-shot lease consumption plus domain reservation and a final current-owner check. Changed, stale, unknown, compatible-advance, active-conflict, handed-over, or unresolved states do not dispatch. Same-domain deploy/rollback work serializes; an unknown external effect keeps ownership until authoritative reconciliation, and an applied mutation advances the fence.
 
 Repository/model/candidate input cannot mint or refresh these authority fields. Runtime identity evidence may inform expected target state but never grants deployment authority; credentials remain behind the trusted executor/broker boundary.
 

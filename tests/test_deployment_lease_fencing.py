@@ -28,6 +28,7 @@ from deployment_lease import (  # noqa: E402
     fencing_audit_projection,
     mark_delivery_unknown,
     reconcile_mutation,
+    reservation_may_dispatch,
     snapshot_after_reservation,
 )
 
@@ -383,3 +384,38 @@ def test_audit_projection_includes_resulting_target_without_secrets() -> None:
     assert "principal" not in projection
     assert "session" not in projection
     assert "credential" not in repr(projection).lower()
+
+
+def test_stale_holder_cannot_dispatch_after_same_target_handover() -> None:
+    initial = MutationDomainSnapshot(_target_state())
+    first = _lease(lease_id="lease:holder-a")
+    first_store = _ConsumingStore(initial)
+    first_admission, first_reservation = admit_and_reserve_fenced_mutation(
+        _record(first),
+        operation_ref="op:holder-a",
+        reserve_if_current=first_store.reserve,
+        **_args(first, initial),
+    )
+    assert first_admission.operation_may_dispatch and first_reservation is not None
+    assert reservation_may_dispatch(first_store.snapshot, first_reservation)
+
+    cleared = reconcile_mutation(
+        first_store.snapshot,
+        operation_ref="op:holder-a",
+        effect_applied=False,
+        observed_target=initial.target,
+    )
+    second = _lease(lease_id="lease:holder-b")
+    second_store = _ConsumingStore(cleared)
+    second_admission, second_reservation = admit_and_reserve_fenced_mutation(
+        _record(second),
+        operation_ref="op:holder-b",
+        reserve_if_current=second_store.reserve,
+        **_args(second, cleared),
+    )
+    assert second_admission.operation_may_dispatch and second_reservation is not None
+    assert not reservation_may_dispatch(second_store.snapshot, first_reservation)
+    assert reservation_may_dispatch(second_store.snapshot, second_reservation)
+
+    pending = mark_delivery_unknown(second_store.snapshot, operation_ref="op:holder-b")
+    assert not reservation_may_dispatch(pending, second_reservation)
