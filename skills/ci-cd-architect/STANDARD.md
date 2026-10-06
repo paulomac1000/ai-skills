@@ -47,7 +47,7 @@ The canonical machine-readable semantics for validation-corpus completeness, exe
 
 ## Dependency lock verification and refresh
 
-Repositories with exact committed locks MUST separate candidate verification from dependency refresh. Candidate verification consumes the admitted committed lock and MUST NOT re-resolve against mutable upstream state or rewrite it. Refresh is separately governed: resolver and runtime/toolchain identities are declared dependencies, source mutability/identity is recorded, cache is isolated or disabled, and lock changes remain reviewable. Mutable refresh is observational; exact refresh reproducibility requires immutable source identity. Security/vulnerability freshness stays independent. See `references/verification-integrity.md#dependency-lock-operations`.
+Committed-lock candidate verification MUST NOT re-resolve mutable upstream or rewrite the lock. Refresh is separate, cache-isolated, reviewable, and binds declared resolver/runtime dependencies plus source identity; exact refresh additionally requires digest-bound immutable source identity. Vulnerability freshness remains independent. See `references/verification-integrity.md#dependency-lock-operations`.
 
 ## Exact artifact evidence construction
 

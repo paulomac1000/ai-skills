@@ -266,6 +266,7 @@ def _lock_policy(tmp_path: Path) -> dict[str, object]:
             },
             {
                 "id": "pip-tools",
+                "dependency_role": "resolver",
                 "source_type": "lockfile",
                 "source": "resolver.lock",
                 "resolved_version": "7.5.1",
@@ -274,6 +275,7 @@ def _lock_policy(tmp_path: Path) -> dict[str, object]:
             },
             {
                 "id": "python-runtime",
+                "dependency_role": "runtime",
                 "source_type": "tool-version-file",
                 "source": ".python-version",
                 "resolved_version": "3.12.15",
@@ -282,6 +284,20 @@ def _lock_policy(tmp_path: Path) -> dict[str, object]:
             },
         ],
     }
+
+
+def test_isolated_cache_is_refresh_only(tmp_path: Path) -> None:
+    policy = _lock_policy(tmp_path)
+    policy["cache"] = "isolated"
+    assert bootstrap.evaluate(tmp_path, policy)["verdict"] == "fail"
+
+    policy["operation"] = "candidate_verification"
+    policy["lock_contract"] = {
+        "upstream_resolution": "forbidden",
+        "lock_mutation": "forbidden",
+        "reviewable_diff": False,
+    }
+    assert bootstrap.evaluate(tmp_path, policy)["verdict"] == "fail"
 
 
 def test_candidate_verification_requires_committed_lock_without_upstream_reresolution(tmp_path: Path) -> None:
@@ -339,7 +355,10 @@ def test_mutable_refresh_is_reviewable_observation_not_exact_reproducibility(tmp
         "reviewable_diff": True,
         "reproducibility_claim": "observational",
     }
-    assert bootstrap.evaluate(tmp_path, policy)["verdict"] == "pass"
+    result = bootstrap.evaluate(tmp_path, policy)
+    assert result["verdict"] == "pass"
+    assert result["lock_contract"]["upstream_identity_digest"].startswith("sha256:")
+    assert result["lock_contract"]["immutable_source_digest"] is None
 
     exact = {
         **policy,
@@ -372,7 +391,31 @@ def test_refresh_requires_isolated_or_disabled_cache_and_pinned_resolver_identit
     assert "refresh-cache-must-be-disabled-or-isolated" in result["failures"]
 
     policy["cache"] = "isolated"
-    assert bootstrap.evaluate(tmp_path, policy)["verdict"] == "pass"
+    result = bootstrap.evaluate(tmp_path, policy)
+    assert result["verdict"] == "pass"
+    assert result["lock_contract"]["immutable_source_digest"] == "sha256:" + "b" * 64
+
+    bogus_immutable = {
+        **policy,
+        "lock_contract": {
+            **policy["lock_contract"],
+            "upstream_identity": "pypi:public/simple",
+        },
+    }
+    result = bootstrap.evaluate(tmp_path, bogus_immutable)
+    assert result["verdict"] == "fail"
+    assert "immutable-upstream-identity-must-be-digest-bound" in result["failures"]
+
+    wrong_resolver_role = {
+        **policy,
+        "lock_contract": {
+            **policy["lock_contract"],
+            "resolver_dependency_id": "python-dependencies",
+        },
+    }
+    result = bootstrap.evaluate(tmp_path, wrong_resolver_role)
+    assert result["verdict"] == "fail"
+    assert "refresh-resolver-dependency-role-invalid" in result["failures"]
 
     missing_runtime = {
         **policy,

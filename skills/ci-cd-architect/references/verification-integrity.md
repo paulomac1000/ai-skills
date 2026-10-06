@@ -56,11 +56,13 @@ Use `tools/check_verification_bootstrap.py`. It validates dependency-source prov
 
 ### Dependency lock operations
 
-For repositories with exact locks, `operation: candidate_verification` requires a declared lock source, `upstream_resolution: forbidden`, `lock_mutation: forbidden`, and `reviewable_diff: false`. The ecosystem gate validates that committed lock (for Python, `pip install --require-hashes` plus `pip check`) without invoking a resolver to choose a new graph.
+For repositories with exact locks, `operation: candidate_verification` requires a declared lock source, `upstream_resolution: forbidden`, `lock_mutation: forbidden`, `reviewable_diff: false`, and cache `verified` or `disabled`. The ecosystem gate validates that committed lock (for Python, `pip install --require-hashes` plus `pip check`) without resolving a new graph.
 
-`operation: dependency_refresh` is separate. Its `lock_contract` declares `upstream_resolution: mutable|immutable`, a safe `upstream_identity`, `resolver_dependency_id`, `runtime_dependency_id`, `lock_mutation: reviewable`, `reviewable_diff: true`, and `reproducibility_claim: observational|exact`; refresh cache is `disabled` or `isolated`. Resolver and runtime IDs MUST name entries in `dependencies`, so their version/source digests are part of evidence. Mutable upstream permits only `observational`; `exact` additionally requires immutable upstream identity. Do not place credentials in source identities.
+`operation: dependency_refresh` is separate. Its `lock_contract` declares `upstream_resolution: mutable|immutable`, a safe `upstream_identity`, `resolver_dependency_id`, `runtime_dependency_id`, `lock_mutation: reviewable`, `reviewable_diff: true`, and `reproducibility_claim: observational|exact`; refresh cache is `disabled` or `isolated`. Resolver/runtime IDs point to declared dependencies carrying `dependency_role: resolver|runtime`, so their versions and source digests remain in evidence.
 
-Lock refresh proposes a diff; it never retroactively proves the previous committed candidate unreproducible. Vulnerability/advisory freshness is an independent gate. Use `tools/check_verification_bootstrap.py`; it extends the existing bootstrap authority rather than defining another one.
+An immutable `upstream_identity` is digest-bound (it ends in `sha256:<64 lowercase hex>`); a public-index label alone is not immutable identity. Refresh receipts retain a safe digest of the source identity, its immutable content digest when applicable, and the resolver/runtime dependency references. Mutable upstream permits only `observational`; `exact` requires the digest-bound immutable identity. Do not place credentials in source identities.
+
+Lock refresh proposes a diff; it never retroactively proves the previous committed candidate unreproducible. Vulnerability/advisory freshness is independent. Use `tools/check_verification_bootstrap.py`; it extends the existing bootstrap authority rather than defining another one.
 
 ## Exact artifact evidence
 

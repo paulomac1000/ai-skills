@@ -25,6 +25,28 @@ LOCK_MUTATION = {"forbidden", "reviewable"}
 REPRODUCIBILITY_CLAIMS = {"observational", "exact"}
 
 
+def _digest_bound_identity(value: Any) -> str | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    marker = "sha256:"
+    marker_index = value.rfind(marker)
+    if marker_index <= 0:
+        return None
+    digest = value[marker_index:]
+    hexadecimal = digest.removeprefix(marker)
+    if len(hexadecimal) != 64 or any(character not in "0123456789abcdef" for character in hexadecimal):
+        return None
+    if marker_index + len(digest) != len(value):
+        return None
+    return digest
+
+
+def _safe_identity_digest(value: Any) -> str | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    return "sha256:" + hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
 def _metadata_changed(before: os.stat_result, after: os.stat_result) -> bool:
     return (
         not os.path.samestat(before, after)
@@ -118,6 +140,8 @@ def _validate_lock_operation(
         failures.append("dependency-operation-invalid")
         return str(operation), None
     if operation == "dependency_bootstrap":
+        if cache not in {"verified", "disabled"}:
+            failures.append("dependency-bootstrap-cache-must-be-verified-or-disabled")
         return operation, None
 
     contract = policy.get("lock_contract")
@@ -144,6 +168,8 @@ def _validate_lock_operation(
         failures.append("lock-mutation-invalid")
 
     if operation == "candidate_verification":
+        if cache not in {"verified", "disabled"}:
+            failures.append("candidate-verification-cache-must-be-verified-or-disabled")
         if upstream != "forbidden":
             failures.append("candidate-verification-must-not-reresolve-upstream")
         if mutation != "forbidden":
@@ -157,13 +183,24 @@ def _validate_lock_operation(
     identity = contract.get("upstream_identity")
     if not isinstance(identity, str) or not identity.strip():
         failures.append("refresh-upstream-identity-missing")
+    immutable_source_digest = _digest_bound_identity(identity) if upstream == "immutable" else None
+    if upstream == "immutable" and immutable_source_digest is None:
+        failures.append("immutable-upstream-identity-must-be-digest-bound")
+
+    declared_by_id = {item.get("id"): item for item in dependencies}
     resolver_dependency_id = contract.get("resolver_dependency_id")
-    declared_ids = {item.get("id") for item in dependencies}
-    if not isinstance(resolver_dependency_id, str) or resolver_dependency_id not in declared_ids:
+    resolver = declared_by_id.get(resolver_dependency_id)
+    if not isinstance(resolver_dependency_id, str) or not isinstance(resolver, dict):
         failures.append("refresh-resolver-dependency-missing")
+    elif resolver.get("dependency_role") != "resolver":
+        failures.append("refresh-resolver-dependency-role-invalid")
+
     runtime_dependency_id = contract.get("runtime_dependency_id")
-    if not isinstance(runtime_dependency_id, str) or runtime_dependency_id not in declared_ids:
+    runtime = declared_by_id.get(runtime_dependency_id)
+    if not isinstance(runtime_dependency_id, str) or not isinstance(runtime, dict):
         failures.append("refresh-runtime-dependency-missing")
+    elif runtime.get("dependency_role") != "runtime":
+        failures.append("refresh-runtime-dependency-role-invalid")
     if mutation != "reviewable":
         failures.append("refresh-lock-mutation-must-be-reviewable")
     if reviewable_diff is not True:
@@ -176,7 +213,8 @@ def _validate_lock_operation(
     elif reproducibility == "exact" and upstream != "immutable":
         failures.append("mutable-upstream-cannot-claim-exact-reproducibility")
     summary["reproducibility_claim"] = reproducibility
-    summary["upstream_identity_present"] = isinstance(identity, str) and bool(identity.strip())
+    summary["upstream_identity_digest"] = _safe_identity_digest(identity)
+    summary["immutable_source_digest"] = immutable_source_digest
     summary["resolver_dependency_id"] = resolver_dependency_id
     summary["runtime_dependency_id"] = runtime_dependency_id
     return operation, summary
