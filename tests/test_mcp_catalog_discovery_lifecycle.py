@@ -96,6 +96,27 @@ def test_semantic_catalog_change_requires_new_generation_and_stale_hit_cannot_re
         manager.resolve_for_invocation(stale)
 
 
+def test_superseded_generation_cannot_be_reused_to_reactivate_old_build() -> None:
+    lifecycle = _load("catalog_generation_reuse")
+    manager = lifecycle.DiscoveryIndexLifecycle(
+        _catalog(lifecycle, "g1"),
+        search_config_revision="s1",
+    )
+    old = manager.request_build(
+        requester_id="old-owner",
+        attempt_id="attempt-old",
+        trigger=lifecycle.BuildTrigger.LAZY_FIRST_USE,
+    )
+    manager.replace_catalog(
+        _catalog(lifecycle, "g2", source="source-b", manifest="m2")
+    )
+
+    with pytest.raises(lifecycle.CatalogGenerationError, match="reused"):
+        manager.replace_catalog(_catalog(lifecycle, "g1"))
+    with pytest.raises(lifecycle.BuildSupersededError):
+        manager.publish(old)
+
+
 def test_remove_then_add_or_rebind_requires_fresh_discovery() -> None:
     lifecycle = _load("catalog_add_remove_rebind")
     manager = lifecycle.DiscoveryIndexLifecycle(
@@ -150,6 +171,7 @@ def test_single_flight_join_waiter_cancel_and_owner_cancel_are_separate() -> Non
     )
     assert waiter.joined is True
     assert waiter.attempt_id == owner.attempt_id
+    assert waiter.trigger is lifecycle.BuildTrigger.EAGER_WARMUP
     assert manager.cancel_waiter(waiter) is lifecycle.BuildState.BUILDING
     with pytest.raises(lifecycle.BuildOwnershipError):
         manager.publish(waiter)
@@ -244,16 +266,25 @@ def test_federated_discovery_requires_explicit_allowlist_and_pre_network_authori
     assert lifecycle.external_discovery_network_allowed(
         policy,
         source_identity="source-a",
+        principal_authenticated=True,
         capability_authorized=True,
     )
     assert not lifecycle.external_discovery_network_allowed(
         policy,
         source_identity="source-a",
+        principal_authenticated=False,
+        capability_authorized=True,
+    )
+    assert not lifecycle.external_discovery_network_allowed(
+        policy,
+        source_identity="source-a",
+        principal_authenticated=True,
         capability_authorized=False,
     )
     assert not lifecycle.external_discovery_network_allowed(
         policy,
         source_identity="source-b",
+        principal_authenticated=True,
         capability_authorized=True,
     )
 

@@ -126,6 +126,7 @@ class _BuildAttempt:
     identity: IndexIdentity
     attempt_id: str
     owner_id: str
+    trigger: BuildTrigger
     state: BuildState = BuildState.BUILDING
 
 
@@ -181,6 +182,7 @@ class DiscoveryIndexLifecycle:
         self._attempts: dict[str, _BuildAttempt] = {}
         self._active_attempt_by_identity: dict[IndexIdentity, str] = {}
         self._seen_attempt_ids: set[str] = set()
+        self._seen_catalog_generations: set[str] = {catalog.generation}
         self._index: DerivedDiscoveryIndex | None = None
 
     @property
@@ -197,8 +199,14 @@ class DiscoveryIndexLifecycle:
 
     def replace_catalog(self, catalog: CatalogSnapshot) -> None:
         semantic_change = catalog.semantic_digest != self._catalog.semantic_digest
-        if semantic_change and catalog.generation == self._catalog.generation:
-            raise CatalogGenerationError("semantic catalog mutation requires a distinct generation")
+        if catalog.generation == self._catalog.generation:
+            if semantic_change:
+                raise CatalogGenerationError("semantic catalog mutation requires a distinct generation")
+            self._catalog = catalog
+            return
+        if catalog.generation in self._seen_catalog_generations:
+            raise CatalogGenerationError("catalog generation cannot be reused after supersession")
+        self._seen_catalog_generations.add(catalog.generation)
         self._catalog = catalog
 
     def set_search_config_revision(self, revision: str) -> None:
@@ -228,11 +236,11 @@ class DiscoveryIndexLifecycle:
                     active.owner_id,
                     requester_id,
                     True,
-                    trigger,
+                    active.trigger,
                 )
         if attempt_id in self._seen_attempt_ids:
             raise ValueError("retry requires a new attempt_id")
-        attempt = _BuildAttempt(identity, attempt_id, requester_id)
+        attempt = _BuildAttempt(identity, attempt_id, requester_id, trigger)
         self._attempts[attempt_id] = attempt
         self._active_attempt_by_identity[identity] = attempt_id
         self._seen_attempt_ids.add(attempt_id)
@@ -392,10 +400,11 @@ def external_discovery_network_allowed(
     policy: ExternalDiscoveryPolicy,
     *,
     source_identity: str,
+    principal_authenticated: bool,
     capability_authorized: bool,
 ) -> bool:
     """Return whether network-backed federated discovery may begin."""
 
-    if not capability_authorized or not policy.enabled:
+    if not principal_authenticated or not capability_authorized or not policy.enabled:
         return False
     return source_identity in policy.allowlisted_sources

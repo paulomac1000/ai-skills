@@ -14,7 +14,7 @@ Use this profile when an MCP gateway can change its supported/active catalog at 
 
 ## Generation and projection identity
 
-Create a distinct catalog generation for every semantic mutation: source add/remove/reconfiguration, public component contract change, active-profile or routing-policy change, contract-changing capability refresh, or operator catalog replacement. Transient health may remain a separate live dimension when it does not change the supported contract.
+Create a distinct catalog generation for every semantic mutation: source add/remove/reconfiguration, public component contract change, active-profile or routing-policy change, contract-changing capability refresh, or operator catalog replacement. A superseded generation identifier is never reused; restoring an older semantic catalog still receives a fresh generation. Transient health may remain a separate live dimension when it does not change the supported contract.
 
 Every derived index and result carries the catalog generation plus every search/configuration revision that can change its meaning. Query, result, embedding, normalization, and ranking caches include those identities in their key or are invalidated atomically when one changes. A derived index never becomes a second registry or a source of invocation authority.
 
