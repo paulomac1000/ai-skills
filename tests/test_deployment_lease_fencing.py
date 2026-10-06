@@ -130,6 +130,12 @@ def test_v1_schema_remains_valid_while_v2_requires_fencing_fields() -> None:
     v1.pop("fence")
     validator.validate(v1)
     validator.validate(_lease())
+    ambiguous_v1 = _lease()
+    ambiguous_v1["schema_version"] = 1
+    ambiguous_v1.pop("expected_current")
+    ambiguous_v1.pop("fence")
+    with pytest.raises(ValidationError):
+        validator.validate(ambiguous_v1)
     missing_fence = _lease()
     missing_fence.pop("fence")
     with pytest.raises(ValidationError):
@@ -140,6 +146,12 @@ def test_concurrent_leases_same_domain_have_one_dispatch_winner() -> None:
     initial = MutationDomainSnapshot(_target_state())
     first = _lease(lease_id="lease:A", artifact="sha256:" + "a" * 64)
     second = _lease(lease_id="lease:B", artifact="sha256:" + "d" * 64)
+    first_preflight = admit_fenced_lease(_record(first), **_args(first, initial))
+    second_preflight = admit_fenced_lease(_record(second), **_args(second, initial))
+    assert first_preflight.disposition is DeploymentAdmissionDisposition.TARGET_PRECONDITION_MATCH
+    assert second_preflight.disposition is DeploymentAdmissionDisposition.TARGET_PRECONDITION_MATCH
+    assert not first_preflight.operation_may_dispatch
+    assert not second_preflight.operation_may_dispatch
     store = _Store(initial)
     admitted, reservation = admit_and_reserve_fenced_mutation(
         _record(first), operation_ref="op:A", reserve_if_current=store.reserve, **_args(first, initial)
@@ -190,12 +202,16 @@ def test_independent_domains_and_provider_cas_precondition() -> None:
     target["mutation_domain"] = "service/worker:production:active"
     value["target"] = target
     snapshot = MutationDomainSnapshot(_target_state(domain="service/worker:production:active"))
-    assert admit_fenced_lease(_record(value), **_args(value, snapshot)).operation_may_dispatch
+    worker_preflight = admit_fenced_lease(_record(value), **_args(value, snapshot))
+    assert worker_preflight.disposition is DeploymentAdmissionDisposition.TARGET_PRECONDITION_MATCH
+    assert not worker_preflight.operation_may_dispatch
     provider = _lease(lease_id="lease:provider")
     provider["fence"] = {"mode": "provider_cas", "token_or_generation": "fence:7"}
     admitted = admit_fenced_lease(_record(provider), **_args(provider, MutationDomainSnapshot(_target_state())))
     assert admitted.fence_mode is FenceMode.PROVIDER_CAS
     assert admitted.provider_precondition_token == "fence:7"
+    assert admitted.disposition is DeploymentAdmissionDisposition.TARGET_PRECONDITION_MATCH
+    assert not admitted.operation_may_dispatch
 
 
 def test_changed_unknown_and_compatible_target_states_never_dispatch() -> None:

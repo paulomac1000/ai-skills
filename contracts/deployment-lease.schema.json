@@ -232,6 +232,15 @@
               ]
             }
           ]
+        },
+        "properties": {
+          "target": {
+            "not": {
+              "required": [
+                "mutation_domain"
+              ]
+            }
+          }
         }
       }
     }

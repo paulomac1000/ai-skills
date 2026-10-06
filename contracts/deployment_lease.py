@@ -417,8 +417,8 @@ def admit_fenced_lease(
         disposition,
         base.lease_id,
         mutation_domain,
-        disposition is DeploymentAdmissionDisposition.TARGET_PRECONDITION_MATCH,
-        reason,
+        False,
+        reason + "; atomic reservation is still required before dispatch",
         fence_mode,
         fence_token,
         domain_snapshot.target,
@@ -496,7 +496,17 @@ def admit_and_reserve_fenced_mutation(
             ),
             None,
         )
-    return admission, reservation
+    dispatch_admission = FencedLeaseAdmission(
+        admission.disposition,
+        admission.lease_id,
+        admission.mutation_domain,
+        True,
+        "target precondition is current and the mutation domain is atomically reserved",
+        admission.fence_mode,
+        admission.provider_precondition_token,
+        admission.observed_target,
+    )
+    return dispatch_admission, reservation
 
 
 def snapshot_after_reservation(
