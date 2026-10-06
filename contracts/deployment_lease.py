@@ -273,6 +273,17 @@ def _fenced_shape(lease: Mapping[str, Any]) -> tuple[str, FenceMode, str, Mappin
     expected = lease.get("expected_current")
     if not isinstance(expected, Mapping):
         raise DeploymentLeaseError("deployment lease expected_current is required")
+    dimensions = (
+        "deployment_generation",
+        "runtime_instance_generation",
+        "artifact_digest",
+        "config_revision",
+        "provider_revision_or_etag",
+    )
+    if not any(isinstance(expected.get(field), str) and str(expected[field]).strip() for field in dimensions):
+        raise DeploymentLeaseError(
+            "deployment lease expected_current must bind at least one non-empty target identity dimension"
+        )
     return mutation_domain, fence_mode, token, expected
 
 

@@ -419,3 +419,36 @@ def test_stale_holder_cannot_dispatch_after_same_target_handover() -> None:
 
     pending = mark_delivery_unknown(second_store.snapshot, operation_ref="op:holder-b")
     assert not reservation_may_dispatch(pending, second_reservation)
+
+
+def test_v2_expected_current_requires_at_least_one_non_null_identity_dimension() -> None:
+    schema = json.loads((CONTRACTS / "deployment-lease.schema.json").read_text(encoding="utf-8"))
+    validator = Draft202012Validator(schema)
+
+    empty = _lease(lease_id="lease:empty-expected")
+    empty["expected_current"] = {}
+    with pytest.raises(ValidationError):
+        validator.validate(empty)
+
+    all_null = _lease(lease_id="lease:null-expected")
+    all_null["expected_current"] = {
+        "deployment_generation": None,
+        "runtime_instance_generation": None,
+        "artifact_digest": None,
+        "config_revision": None,
+        "provider_revision_or_etag": None,
+    }
+    with pytest.raises(ValidationError):
+        validator.validate(all_null)
+
+    blank = _lease(lease_id="lease:blank-expected")
+    blank["expected_current"] = {"deployment_generation": ""}
+    with pytest.raises(ValidationError):
+        validator.validate(blank)
+
+    helper_result = admit_fenced_lease(
+        _record(empty),
+        **_args(empty, MutationDomainSnapshot(_target_state())),
+    )
+    assert helper_result.disposition is DeploymentAdmissionDisposition.LOST_AUTHORITY
+    assert not helper_result.operation_may_dispatch

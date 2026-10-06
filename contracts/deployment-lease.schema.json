@@ -165,7 +165,64 @@
           ],
           "maxLength": 512
         }
-      }
+      },
+      "anyOf": [
+        {
+          "required": [
+            "deployment_generation"
+          ],
+          "properties": {
+            "deployment_generation": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        {
+          "required": [
+            "runtime_instance_generation"
+          ],
+          "properties": {
+            "runtime_instance_generation": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        {
+          "required": [
+            "artifact_digest"
+          ],
+          "properties": {
+            "artifact_digest": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-fA-F]{64}$"
+            }
+          }
+        },
+        {
+          "required": [
+            "config_revision"
+          ],
+          "properties": {
+            "config_revision": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        {
+          "required": [
+            "provider_revision_or_etag"
+          ],
+          "properties": {
+            "provider_revision_or_etag": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      ]
     },
     "fence": {
       "type": "object",
