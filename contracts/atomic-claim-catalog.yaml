@@ -1,5 +1,5 @@
 schema_version: 1
-catalog_version: 1.8.0
+catalog_version: 1.9.0
 controls:
   - id: cicd.mcp.protocol-conformance
     parent_rule_id: cicd.quality.language
@@ -21,6 +21,21 @@ controls:
     waivable: false
     required_evidence: [artifact, official-client]
     test_selectors: [tests/test_atomic_claim_contract.py::test_cicd_mcp_claims_are_independent]
+  - id: cicd.publication.exact-authority
+    parent_rule_id: cicd.publication.exact-lease
+    skill: ci-cd-architect
+    source: skills/ci-cd-architect/references/artifact-publication-lease.md#exact-authority-envelope
+    description: Artifact publication requires current exact one-shot authority for the already-proven artifact and bounded destination scope; reservation consumes the lease and ambiguous provider outcomes reconcile authoritative destination state before any new authority.
+    applies_when: {maturity_at_least: L2, capabilities_any: [artifact-publication]}
+    severity: blocking
+    waivable: false
+    required_evidence: [unit, integration, security]
+    test_selectors:
+      - tests/test_artifact_publication_lease.py::test_producer_or_generic_credentials_do_not_mint_publication_authority
+      - tests/test_artifact_publication_lease.py::test_exact_artifact_and_destination_scope_cannot_be_widened_or_rebuilt
+      - tests/test_artifact_publication_lease.py::test_same_artifact_converges_without_dispatch_but_different_artifact_conflicts
+      - tests/test_artifact_publication_lease.py::test_ambiguous_or_conflict_dispatch_requires_authoritative_readback
+      - tests/test_artifact_publication_lease.py::test_mutable_channel_movement_records_before_and_after_exact_artifact_identity
   - id: mcp.runtime.isolation
     parent_rule_id: mcp.architecture.boundaries
     skill: mcp-server-architect
