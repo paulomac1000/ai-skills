@@ -1,5 +1,5 @@
 schema_version: 1
-catalog_version: 3.19.0
+catalog_version: 3.20.0
 skills:
   afds-doc-writer:
     rules:
@@ -126,6 +126,9 @@ skills:
     - id: cicd.publication.exact-lease
       source: STANDARD.md#artifact-publication-authority
       description: Autonomous artifact publication requires one-shot exact authority bound to the already-proven artifact and exact destination/version/channel scope, with authoritative destination read-back and reconciliation before any replay.
+    - id: cicd.deployment.fenced-lease
+      source: STANDARD.md#deployment-mutation-authority-and-fencing
+      description: Deployment mutations require exact authority plus target-generation fencing, atomic same-domain serialization, and authoritative reconciliation before conflicting handover or replay.
     - id: cicd.local.bounded
       source: STANDARD.md#local-quality-gates
       description: Local hooks are bounded and consistent with hosted CI.

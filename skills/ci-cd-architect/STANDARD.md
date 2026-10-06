@@ -170,7 +170,11 @@ The publisher verifies that every promoted production tag resolves to the expect
 
 `docker push --all-tags` is forbidden. An authority-bearing publisher MUST NOT check out, build/package, load/import, or execute candidate content. The auditor rejects supported shell/action/container variants (including continuations and Compose) and fails closed on opaque reusable-workflow delegation; registry-native exact-digest promotion/inspection remains allowed. A short SHA is not durable source identity.
 
-A deployment authority, where required, is bound to an exact principal/session, target/environment/resource, candidate digest/revision, action, normalized arguments/policy revision, and validity window. Repository source or generic write credentials cannot mint or widen that authority. Timeout after dispatch is reconciled against target RuntimeIdentity before any retry; rollback is separately authorized unless the governing lease explicitly includes it. The common lease and audit semantics live in `contracts/deployment-lease.schema.json` and `contracts/audit-event.schema.json`.
+## Deployment mutation authority and fencing
+
+Where policy requires a DeploymentLease, bind exact principal/session, target/resource, artifact/source, action/arguments, policy and validity window. Schema version 2 also binds the conflicting mutation domain, authority-owned expected-current target state and fence. Immediately before dispatch, re-read authority and target state: a matching preflight is still non-dispatching until the one-shot lease is atomically consumed and that domain reserved.
+
+Same-domain mutations serialize through provider CAS or a durable broker/generation fence. Immediately before dispatch, a brokered holder re-checks that its operation/lease still owns the current domain fence; handover invalidates stale holders. An unknown dispatch outcome retains the domain owner and blocks conflicting work or replay until authoritative reconciliation; an applied mutation advances the fence, and rollback conflicts with forward deployment in that domain. Runtime evidence may inform expected state but never grants deployment authority. See `contracts/deployment-lease.schema.json`, `contracts/deployment_lease.py`, and `contracts/audit-event.schema.json`.
 
 ## Artifact publication authority
 
