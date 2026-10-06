@@ -480,3 +480,46 @@ def test_helper_rejects_partially_blank_expected_current_fail_closed() -> None:
     )
     assert admission.disposition is DeploymentAdmissionDisposition.LOST_AUTHORITY
     assert not admission.operation_may_dispatch
+
+
+def test_v2_meaningful_fence_and_mutation_domain_fail_closed() -> None:
+    schema = json.loads((CONTRACTS / "deployment-lease.schema.json").read_text(encoding="utf-8"))
+    validator = Draft202012Validator(schema)
+
+    whitespace_domain = _lease(lease_id="lease:whitespace-domain")
+    whitespace_target = dict(whitespace_domain["target"])
+    whitespace_target["mutation_domain"] = "   "
+    whitespace_domain["target"] = whitespace_target
+    with pytest.raises(ValidationError):
+        validator.validate(whitespace_domain)
+    domain_admission = admit_fenced_lease(
+        _record(whitespace_domain),
+        **_args(whitespace_domain, MutationDomainSnapshot(_target_state())),
+    )
+    assert domain_admission.disposition is DeploymentAdmissionDisposition.LOST_AUTHORITY
+    assert not domain_admission.operation_may_dispatch
+
+    whitespace_fence = _lease(lease_id="lease:whitespace-fence")
+    whitespace_fence["fence"] = {
+        "mode": "broker_single_writer",
+        "token_or_generation": " \t ",
+    }
+    with pytest.raises(ValidationError):
+        validator.validate(whitespace_fence)
+    fence_admission = admit_fenced_lease(
+        _record(whitespace_fence),
+        **_args(whitespace_fence, MutationDomainSnapshot(_target_state())),
+    )
+    assert fence_admission.disposition is DeploymentAdmissionDisposition.LOST_AUTHORITY
+    assert not fence_admission.operation_may_dispatch
+
+    whitespace_expected = _lease(lease_id="lease:whitespace-expected")
+    whitespace_expected["expected_current"] = {"deployment_generation": "   "}
+    with pytest.raises(ValidationError):
+        validator.validate(whitespace_expected)
+    expected_admission = admit_fenced_lease(
+        _record(whitespace_expected),
+        **_args(whitespace_expected, MutationDomainSnapshot(_target_state())),
+    )
+    assert expected_admission.disposition is DeploymentAdmissionDisposition.LOST_AUTHORITY
+    assert not expected_admission.operation_may_dispatch

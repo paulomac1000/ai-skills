@@ -270,6 +270,8 @@ def _fenced_shape(lease: Mapping[str, Any]) -> tuple[str, FenceMode, str, Deploy
     if not isinstance(target, Mapping):
         raise DeploymentLeaseError("deployment lease target is missing")
     mutation_domain = _target_dimension(target, "mutation_domain", label="deployment lease")
+    if not mutation_domain.strip():
+        raise DeploymentLeaseError("deployment lease target.mutation_domain is required")
     fence = lease.get("fence")
     if not isinstance(fence, Mapping):
         raise DeploymentLeaseError("deployment lease fence is required")
@@ -278,7 +280,7 @@ def _fenced_shape(lease: Mapping[str, Any]) -> tuple[str, FenceMode, str, Deploy
     except ValueError as error:
         raise DeploymentLeaseError("deployment lease fence.mode is invalid") from error
     token = fence.get("token_or_generation")
-    if not isinstance(token, str) or not token:
+    if not isinstance(token, str) or not token.strip():
         raise DeploymentLeaseError("deployment lease fence.token_or_generation is required")
     expected = lease.get("expected_current")
     if not isinstance(expected, Mapping):

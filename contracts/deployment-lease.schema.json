@@ -68,7 +68,8 @@
         "mutation_domain": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 2048
+          "maxLength": 2048,
+          "pattern": ".*\\S.*"
         }
       }
     },
@@ -136,7 +137,8 @@
             "null"
           ],
           "maxLength": 256,
-          "minLength": 1
+          "minLength": 1,
+          "pattern": ".*\\S.*"
         },
         "runtime_instance_generation": {
           "type": [
@@ -144,7 +146,8 @@
             "null"
           ],
           "maxLength": 256,
-          "minLength": 1
+          "minLength": 1,
+          "pattern": ".*\\S.*"
         },
         "artifact_digest": {
           "type": [
@@ -159,7 +162,8 @@
             "null"
           ],
           "maxLength": 512,
-          "minLength": 1
+          "minLength": 1,
+          "pattern": ".*\\S.*"
         },
         "provider_revision_or_etag": {
           "type": [
@@ -167,7 +171,8 @@
             "null"
           ],
           "maxLength": 512,
-          "minLength": 1
+          "minLength": 1,
+          "pattern": ".*\\S.*"
         }
       },
       "anyOf": [
@@ -246,7 +251,8 @@
         "token_or_generation": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 512
+          "maxLength": 512,
+          "pattern": ".*\\S.*"
         }
       }
     }
