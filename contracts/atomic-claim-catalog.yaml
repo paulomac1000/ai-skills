@@ -1,5 +1,5 @@
 schema_version: 1
-catalog_version: 1.9.0
+catalog_version: 1.10.0
 controls:
   - id: cicd.mcp.protocol-conformance
     parent_rule_id: cicd.quality.language
@@ -36,6 +36,20 @@ controls:
       - tests/test_artifact_publication_lease.py::test_same_artifact_converges_without_dispatch_but_different_artifact_conflicts
       - tests/test_artifact_publication_lease.py::test_ambiguous_or_conflict_dispatch_requires_authoritative_readback
       - tests/test_artifact_publication_lease.py::test_mutable_channel_movement_records_before_and_after_exact_artifact_identity
+  - id: cicd.deployment.target-fence
+    parent_rule_id: cicd.deployment.fenced-lease
+    skill: ci-cd-architect
+    source: skills/ci-cd-architect/STANDARD.md#deployment-mutation-authority-and-fencing
+    description: A target-fenced deployment revalidates authority plus exact expected target state, atomically reserves one mutation domain, advances the fence after mutation, and keeps ambiguous external effects blocking conflicting handover.
+    applies_when: {maturity_at_least: L2, capabilities_any: [deployment]}
+    severity: blocking
+    waivable: false
+    required_evidence: [unit, integration, security]
+    test_selectors:
+      - tests/test_deployment_lease_fencing.py::test_concurrent_leases_same_domain_have_one_dispatch_winner
+      - tests/test_deployment_lease_fencing.py::test_restart_unknown_delivery_and_rollback_race_stay_blocked
+      - tests/test_deployment_lease_fencing.py::test_success_advances_fence_and_old_lease_is_stale
+      - tests/test_deployment_lease_fencing.py::test_candidate_cannot_refresh_authority_and_runtime_evidence_never_mints_it
   - id: mcp.runtime.isolation
     parent_rule_id: mcp.architecture.boundaries
     skill: mcp-server-architect

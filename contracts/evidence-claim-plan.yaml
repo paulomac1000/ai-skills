@@ -233,6 +233,14 @@ profiles:
     - repository-junit.xml
     execution_id: repository
   - kind: rule
+    subject: cicd.deployment.fenced-lease
+    selectors:
+    - '*test_deployment_lease_fencing*'
+    - '*test_agentic_action_contracts*'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
     subject: cicd.local.bounded
     selectors:
     - '*test_ci_scripts*'
