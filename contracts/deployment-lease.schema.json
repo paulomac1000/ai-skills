@@ -135,14 +135,16 @@
             "string",
             "null"
           ],
-          "maxLength": 256
+          "maxLength": 256,
+          "minLength": 1
         },
         "runtime_instance_generation": {
           "type": [
             "string",
             "null"
           ],
-          "maxLength": 256
+          "maxLength": 256,
+          "minLength": 1
         },
         "artifact_digest": {
           "type": [
@@ -156,14 +158,16 @@
             "string",
             "null"
           ],
-          "maxLength": 512
+          "maxLength": 512,
+          "minLength": 1
         },
         "provider_revision_or_etag": {
           "type": [
             "string",
             "null"
           ],
-          "maxLength": 512
+          "maxLength": 512,
+          "minLength": 1
         }
       },
       "anyOf": [

@@ -177,6 +177,15 @@ class DeploymentTargetState:
     def __post_init__(self) -> None:
         _require_text(self.mutation_domain, "mutation_domain")
         _require_text(self.fence_token_or_generation, "fence_token_or_generation")
+        for value, name in (
+            (self.deployment_generation, "deployment_generation"),
+            (self.runtime_instance_generation, "runtime_instance_generation"),
+            (self.artifact_digest, "artifact_digest"),
+            (self.config_revision, "config_revision"),
+            (self.provider_revision_or_etag, "provider_revision_or_etag"),
+        ):
+            if value is not None:
+                _require_text(value, name)
 
 
 @dataclass(frozen=True)
@@ -225,6 +234,7 @@ class FencedLeaseAdmission:
     fence_mode: FenceMode | None = None
     provider_precondition_token: str | None = None
     observed_target: DeploymentTargetState | None = None
+    expected_target: DeploymentTargetState | None = None
 
 
 @dataclass(frozen=True)
@@ -253,7 +263,7 @@ class DeploymentMutationReservation:
 ReservationWriter = Callable[[MutationDomainSnapshot, DeploymentMutationReservation], bool]
 
 
-def _fenced_shape(lease: Mapping[str, Any]) -> tuple[str, FenceMode, str, Mapping[str, Any]]:
+def _fenced_shape(lease: Mapping[str, Any]) -> tuple[str, FenceMode, str, DeploymentTargetState]:
     if lease.get("schema_version") != 2:
         raise DeploymentLeaseError("target-fenced admission requires deployment lease schema_version 2")
     target = lease.get("target")
@@ -280,15 +290,29 @@ def _fenced_shape(lease: Mapping[str, Any]) -> tuple[str, FenceMode, str, Mappin
         "config_revision",
         "provider_revision_or_etag",
     )
-    if not any(isinstance(expected.get(field), str) and str(expected[field]).strip() for field in dimensions):
+    non_null = [expected.get(field) for field in dimensions if expected.get(field) is not None]
+    if not non_null:
         raise DeploymentLeaseError(
-            "deployment lease expected_current must bind at least one non-empty target identity dimension"
+            "deployment lease expected_current is invalid: at least one target identity dimension is required"
         )
-    return mutation_domain, fence_mode, token, expected
+    if any(not isinstance(value, str) or not value.strip() for value in non_null):
+        raise DeploymentLeaseError(
+            "deployment lease expected_current is invalid: bound target identity dimensions must be non-empty strings"
+        )
+    expected_target = DeploymentTargetState(
+        mutation_domain=mutation_domain,
+        fence_token_or_generation=token,
+        deployment_generation=expected.get("deployment_generation"),
+        runtime_instance_generation=expected.get("runtime_instance_generation"),
+        artifact_digest=expected.get("artifact_digest"),
+        config_revision=expected.get("config_revision"),
+        provider_revision_or_etag=expected.get("provider_revision_or_etag"),
+    )
+    return mutation_domain, fence_mode, token, expected_target
 
 
 def _classify_target_precondition(
-    expected: Mapping[str, Any],
+    expected: DeploymentTargetState,
     current: DeploymentTargetState,
     *,
     compatible_advancement_proof_ref: str | None,
@@ -301,7 +325,7 @@ def _classify_target_precondition(
         "provider_revision_or_etag",
     )
     for field in dimensions:
-        expected_value = expected.get(field)
+        expected_value = getattr(expected, field)
         if expected_value is None:
             continue
         current_value = getattr(current, field)
@@ -369,12 +393,11 @@ def admit_fenced_lease(
         mutation_domain, fence_mode, fence_token, expected = _fenced_shape(lease)
     except DeploymentLeaseError as error:
         text_value = str(error)
-        disposition = (
-            DeploymentAdmissionDisposition.LEASE_EXPIRED
-            if "expired" in text_value
-            else DeploymentAdmissionDisposition.LEASE_NOT_ACTIVE
-        )
-        if "does not match" in text_value or "required" in text_value or "invalid" in text_value:
+        if "expired" in text_value:
+            disposition = DeploymentAdmissionDisposition.LEASE_EXPIRED
+        elif "already consumed" in text_value or "not active" in text_value:
+            disposition = DeploymentAdmissionDisposition.LEASE_NOT_ACTIVE
+        else:
             disposition = DeploymentAdmissionDisposition.LOST_AUTHORITY
         return FencedLeaseAdmission(disposition, lease_id, None, False, text_value)
 
@@ -396,6 +419,7 @@ def admit_fenced_lease(
             False,
             "authoritative snapshot belongs to a different mutation domain",
             fence_mode,
+            expected_target=expected,
         )
     if domain_snapshot.active_operation_ref is not None:
         return FencedLeaseAdmission(
@@ -407,6 +431,7 @@ def admit_fenced_lease(
             fence_mode,
             fence_token,
             domain_snapshot.target,
+            expected,
         )
     if domain_snapshot.target.fence_token_or_generation != fence_token:
         return FencedLeaseAdmission(
@@ -418,6 +443,7 @@ def admit_fenced_lease(
             fence_mode,
             fence_token,
             domain_snapshot.target,
+            expected,
         )
     disposition, reason = _classify_target_precondition(
         expected,
@@ -433,6 +459,7 @@ def admit_fenced_lease(
         fence_mode,
         fence_token,
         domain_snapshot.target,
+        expected,
     )
 
 
@@ -504,6 +531,7 @@ def admit_and_reserve_fenced_mutation(
                 admission.fence_mode,
                 admission.provider_precondition_token,
                 admission.observed_target,
+                admission.expected_target,
             ),
             None,
         )
@@ -516,6 +544,7 @@ def admit_and_reserve_fenced_mutation(
         admission.fence_mode,
         admission.provider_precondition_token,
         admission.observed_target,
+        admission.expected_target,
     )
     return dispatch_admission, reservation
 
@@ -594,12 +623,22 @@ def fencing_audit_projection(
 ) -> dict[str, object]:
     """Return bounded admission and resulting-target deployment-fencing evidence."""
     observed = admission.observed_target
+    expected = admission.expected_target
     return {
         "leaseId": admission.lease_id,
         "mutationDomain": admission.mutation_domain,
         "disposition": admission.disposition.value,
         "fenceMode": admission.fence_mode.value if admission.fence_mode is not None else None,
         "expectedFenceTokenOrGeneration": admission.provider_precondition_token,
+        "expectedDeploymentGeneration": expected.deployment_generation if expected is not None else None,
+        "expectedRuntimeInstanceGeneration": (
+            expected.runtime_instance_generation if expected is not None else None
+        ),
+        "expectedArtifactDigest": expected.artifact_digest if expected is not None else None,
+        "expectedConfigRevision": expected.config_revision if expected is not None else None,
+        "expectedProviderRevisionOrEtag": (
+            expected.provider_revision_or_etag if expected is not None else None
+        ),
         "observedFenceTokenOrGeneration": observed.fence_token_or_generation if observed is not None else None,
         "observedDeploymentGeneration": observed.deployment_generation if observed is not None else None,
         "observedRuntimeInstanceGeneration": observed.runtime_instance_generation if observed is not None else None,

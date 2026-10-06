@@ -379,6 +379,12 @@ def test_audit_projection_includes_resulting_target_without_secrets() -> None:
     assert reservation is not None
     resulting = _target_state(fence="fence:8")
     projection = fencing_audit_projection(admission, reservation, resulting)
+    assert projection["expectedFenceTokenOrGeneration"] == "fence:7"
+    assert projection["expectedDeploymentGeneration"] == "deploy:7"
+    assert projection["expectedRuntimeInstanceGeneration"] == "runtime:7"
+    assert projection["expectedArtifactDigest"] == "sha256:" + "0" * 64
+    assert projection["expectedConfigRevision"] == "config:7"
+    assert projection["expectedProviderRevisionOrEtag"] == "etag:7"
     assert projection["resultingFenceTokenOrGeneration"] == "fence:8"
     assert projection["resultingArtifactDigest"] == "sha256:" + "a" * 64
     assert "principal" not in projection
@@ -446,9 +452,31 @@ def test_v2_expected_current_requires_at_least_one_non_null_identity_dimension()
     with pytest.raises(ValidationError):
         validator.validate(blank)
 
+    partially_blank = _lease(lease_id="lease:partially-blank-expected")
+    partially_blank["expected_current"] = {
+        "deployment_generation": "deploy:7",
+        "config_revision": "",
+    }
+    with pytest.raises(ValidationError):
+        validator.validate(partially_blank)
+
     helper_result = admit_fenced_lease(
         _record(empty),
         **_args(empty, MutationDomainSnapshot(_target_state())),
     )
     assert helper_result.disposition is DeploymentAdmissionDisposition.LOST_AUTHORITY
     assert not helper_result.operation_may_dispatch
+
+
+def test_helper_rejects_partially_blank_expected_current_fail_closed() -> None:
+    value = _lease(lease_id="lease:helper-partially-blank")
+    value["expected_current"] = {
+        "deployment_generation": "deploy:7",
+        "config_revision": "",
+    }
+    admission = admit_fenced_lease(
+        _record(value),
+        **_args(value, MutationDomainSnapshot(_target_state())),
+    )
+    assert admission.disposition is DeploymentAdmissionDisposition.LOST_AUTHORITY
+    assert not admission.operation_may_dispatch
