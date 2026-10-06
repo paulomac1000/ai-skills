@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
@@ -67,10 +68,19 @@ def _require_utc(value: datetime, name: str) -> None:
         raise ValueError(f"{name} must be timezone-aware UTC")
 
 
+_DIGEST_ALGORITHM = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]*$")
+
+
 def _validate_digest(value: str, name: str) -> None:
     _require(value, name)
-    if ":" not in value:
-        raise ValueError(f"{name} must include an algorithm prefix")
+    algorithm, separator, encoded = value.partition(":")
+    if (
+        not separator
+        or not _DIGEST_ALGORITHM.fullmatch(algorithm)
+        or not encoded
+        or any(char.isspace() for char in encoded)
+    ):
+        raise ValueError(f"{name} must be an algorithm-prefixed non-empty digest")
 
 
 @dataclass(frozen=True)
@@ -320,7 +330,17 @@ def _requested_channels_current(
     if not complete:
         return False
     observed = _channel_map(values)
-    return set(observed) == set(destination.tags_or_channels)
+    return set(destination.tags_or_channels) <= set(observed)
+
+
+def _project_requested_channels(
+    destination: PublicationDestination,
+    values: tuple[tuple[str, str | None], ...],
+) -> tuple[tuple[str, str | None], ...]:
+    if not destination.tags_or_channels:
+        return ()
+    observed = _channel_map(values)
+    return tuple((channel, observed.get(channel)) for channel in destination.tags_or_channels)
 
 
 def _channels_point_to(
@@ -399,10 +419,7 @@ def admit_publication(
             False,
             "publication policy revision changed",
         )
-    if (
-        evidence.evidence_set_digest != lease.required_evidence_set_digest
-        or not evidence.artifact_current
-    ):
+    if evidence.evidence_set_digest != lease.required_evidence_set_digest or not evidence.artifact_current:
         return PublicationAdmission(
             PublicationAdmissionDisposition.EVIDENCE_STALE,
             lease.lease_id,
@@ -533,7 +550,10 @@ def admit_and_reserve_publication(
         evidence_set_digest=lease.required_evidence_set_digest,
         evidence_refs=evidence.evidence_refs,
         execution_generation=lease.execution_generation,
-        channel_before_digests=destination_state.channel_digests,
+        channel_before_digests=_project_requested_channels(
+            lease.destination,
+            destination_state.channel_digests,
+        ),
         initial_disposition=admission.disposition,
     )
     consumed = replace(
@@ -576,8 +596,7 @@ def reconcile_publication(
     }
     if (
         operation.state is PublicationOperationState.RESERVED
-        and operation.initial_disposition
-        is PublicationAdmissionDisposition.ALREADY_PRESENT_SAME_ARTIFACT
+        and operation.initial_disposition is PublicationAdmissionDisposition.ALREADY_PRESENT_SAME_ARTIFACT
     ):
         allowed.add(PublicationOperationState.RESERVED)
     if operation.state not in allowed:
@@ -602,8 +621,7 @@ def reconcile_publication(
 
     outcome = (
         PublicationOutcome.RECONCILED_ALREADY_PRESENT
-        if operation.initial_disposition
-        is PublicationAdmissionDisposition.ALREADY_PRESENT_SAME_ARTIFACT
+        if operation.initial_disposition is PublicationAdmissionDisposition.ALREADY_PRESENT_SAME_ARTIFACT
         else PublicationOutcome.PUBLISHED
     )
     receipt = ArtifactPublicationReceipt(
@@ -619,7 +637,10 @@ def reconcile_publication(
         observed_at=observed_at,
         evidence_refs=operation.evidence_refs,
         channel_before_digests=operation.channel_before_digests,
-        channel_after_digests=observation.channel_digests,
+        channel_after_digests=_project_requested_channels(
+            operation.destination,
+            observation.channel_digests,
+        ),
     )
     return replace(operation, state=PublicationOperationState.PUBLISHED), receipt
 

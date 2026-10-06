@@ -74,7 +74,7 @@ A successful or same-artifact-reconciled operation emits a bounded `artifact_pub
 - exact destination identity and provider immutable identity when available;
 - explicit tags/channels plus before/after digest state;
 - durable operation and lease references;
-- publication-policy revision;
+- publication-policy revision and exact evidence-set digest;
 - outcome, observation time, and bounded evidence references.
 
 This is the publication-authority projection point for the broader execution-evidence owner; it does not redefine global receipt correlation or evidence freshness.

@@ -79,6 +79,13 @@ def verify(record):
     return record.source_ref.startswith("authority://") and bool(record.attestation_ref)
 
 
+@pytest.mark.parametrize("value", [":", "sha256:", "sha 256:abc", "sha256: abc"])
+def test_malformed_digest_identity_fails_closed(value):
+    m = load()
+    with pytest.raises(ValueError, match="algorithm-prefixed non-empty digest"):
+        m.PublicationArtifact("artifact://bad", value)
+
+
 def test_producer_or_generic_credentials_do_not_mint_publication_authority():
     m = load()
     now, _, _, _, authority, evidence, state = fixture(m)
@@ -171,7 +178,10 @@ def test_same_artifact_converges_without_dispatch_but_different_artifact_conflic
         state,
         existing_artifact_digest=artifact.artifact_digest,
         existing_provider_artifact_id="pkg-id-123",
-        channel_digests=(("stable", artifact.artifact_digest),),
+        channel_digests=(
+            ("stable", artifact.artifact_digest),
+            ("beta", "sha256:" + "9" * 64),
+        ),
         provider_allows_publication=False,
     )
     blocked_same = dataclasses.replace(same_state, same_artifact_reconciliation_allowed=False)
@@ -198,6 +208,7 @@ def test_same_artifact_converges_without_dispatch_but_different_artifact_conflic
     assert admission.may_complete_without_dispatch
     assert consumed.state is m.PublicationLeaseState.USED
     assert operation is not None
+    assert operation.channel_before_digests == (("stable", artifact.artifact_digest),)
     with pytest.raises(ValueError):
         m.note_dispatch(operation, m.DispatchObservation.ACKNOWLEDGED, publisher_artifact=artifact)
 
@@ -213,6 +224,7 @@ def test_same_artifact_converges_without_dispatch_but_different_artifact_conflic
     assert settled.state is m.PublicationOperationState.PUBLISHED
     assert receipt is not None
     assert receipt.outcome is m.PublicationOutcome.RECONCILED_ALREADY_PRESENT
+    assert receipt.channel_after_digests == (("stable", artifact.artifact_digest),)
 
     different = dataclasses.replace(
         state,
@@ -317,7 +329,7 @@ def test_mutable_channel_movement_records_before_and_after_exact_artifact_identi
         state,
         existing_artifact_digest=artifact.artifact_digest,
         existing_provider_artifact_id="image@sha256:a",
-        channel_digests=(("stable", old),),
+        channel_digests=(("stable", old), ("beta", "sha256:" + "8" * 64)),
     )
     admission, _, operation = m.admit_and_reserve_publication(
         authority,
@@ -336,10 +348,14 @@ def test_mutable_channel_movement_records_before_and_after_exact_artifact_identi
         True,
         artifact.artifact_digest,
         "image@sha256:a",
-        (("stable", artifact.artifact_digest),),
+        (
+            ("stable", artifact.artifact_digest),
+            ("beta", "sha256:" + "8" * 64),
+        ),
         True,
     )
-    settled, receipt = m.reconcile_publication(operation, observation, observed_at=now)    assert settled.state is m.PublicationOperationState.PUBLISHED
+    settled, receipt = m.reconcile_publication(operation, observation, observed_at=now)
+    assert settled.state is m.PublicationOperationState.PUBLISHED
     assert receipt is not None
     assert receipt.channel_before_digests == (("stable", old),)
     assert receipt.channel_after_digests == (("stable", artifact.artifact_digest),)
