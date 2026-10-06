@@ -631,14 +631,10 @@ def fencing_audit_projection(
         "fenceMode": admission.fence_mode.value if admission.fence_mode is not None else None,
         "expectedFenceTokenOrGeneration": admission.provider_precondition_token,
         "expectedDeploymentGeneration": expected.deployment_generation if expected is not None else None,
-        "expectedRuntimeInstanceGeneration": (
-            expected.runtime_instance_generation if expected is not None else None
-        ),
+        "expectedRuntimeInstanceGeneration": (expected.runtime_instance_generation if expected is not None else None),
         "expectedArtifactDigest": expected.artifact_digest if expected is not None else None,
         "expectedConfigRevision": expected.config_revision if expected is not None else None,
-        "expectedProviderRevisionOrEtag": (
-            expected.provider_revision_or_etag if expected is not None else None
-        ),
+        "expectedProviderRevisionOrEtag": (expected.provider_revision_or_etag if expected is not None else None),
         "observedFenceTokenOrGeneration": observed.fence_token_or_generation if observed is not None else None,
         "observedDeploymentGeneration": observed.deployment_generation if observed is not None else None,
         "observedRuntimeInstanceGeneration": observed.runtime_instance_generation if observed is not None else None,
