@@ -226,6 +226,13 @@ profiles:
     - repository-junit.xml
     execution_id: repository
   - kind: rule
+    subject: cicd.publication.exact-lease
+    selectors:
+    - '*test_artifact_publication_lease*'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
     subject: cicd.local.bounded
     selectors:
     - '*test_ci_scripts*'

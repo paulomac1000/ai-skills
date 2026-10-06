@@ -1,6 +1,6 @@
 schema_version: 1
 name: ci-cd-architect
-version: 3.17.0
+version: 3.18.0
 maturity: stable
 skill_format: ai-skills/v1
 normative_entrypoint: STANDARD.md
@@ -64,6 +64,7 @@ required:
 - SKILL.md
 - STANDARD.md
 - references/protected-release-workflows.md
+- references/artifact-publication-lease.md
 - references/trusted-auditor-bootstrap.md
 - references/trusted-executable-sources.md
 - references/provider-trust-bootstrap.md
@@ -89,6 +90,7 @@ required:
 - tools/check_verification_bootstrap.py
 - tools/verify_state_isolation.py
 - tools/review_state_transitions.py
+- tools/artifact_publication_lease.py
 categories:
 - core
 - references

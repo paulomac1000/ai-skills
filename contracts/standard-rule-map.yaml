@@ -54,6 +54,7 @@ skills:
       mcp-specific-assurance: {rule_id: cicd.quality.language}
       documentation-and-security: {rule_id: cicd.security.documentation, primary: true}
       release-identity-and-artifact-promotion: {rule_id: cicd.release.identity, primary: true}
+      artifact-publication-authority: {rule_id: cicd.publication.exact-lease, primary: true}
       local-quality-gates: {rule_id: cicd.local.bounded, primary: true}
       verification: {rule_id: cicd.verification.recorded, primary: true}
   mcp-server-architect:

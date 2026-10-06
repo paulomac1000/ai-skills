@@ -1,6 +1,6 @@
 schema_version: 1
 name: agents-md-architect
-version: 3.17.0
+version: 3.18.0
 maturity: stable
 skill_format: ai-skills/v1
 normative_entrypoint: STANDARD.md

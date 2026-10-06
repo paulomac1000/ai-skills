@@ -1,5 +1,18 @@
 # Changelog
 
+## 3.18.0 - 2026-10-06
+
+### Added
+
+- Added a provider-neutral ArtifactPublicationLease contract that binds one-shot publication authority to an exact already-proven artifact, provider/namespace/package/version/channel scope, policy/evidence identity, execution generation, and expiry.
+- Added a deterministic publication authority helper and adversarial regressions for artifact substitution, scope widening, immutable conflicts, same-artifact convergence, mutable-channel movement, ambiguous provider outcomes, terminal artifact acceptance, and provider-neutral package/OCI/release-asset publication.
+
+### Security and correctness
+
+- Build/test, repository-write, deployment, or generic registry credentials no longer constitute autonomous publication authority; the trusted publisher requires current exact lease authority and destination state.
+- The privileged publisher consumes the prepared artifact identity without checkout/rebuild/repack/load/execute authority, and timeout/conflict acknowledgements reconcile authoritative destination state before any later dispatch can receive fresh authority.
+- Publication receipts preserve exact artifact/destination/lease/policy lineage while projected deployment references carry no permission to rebuild or republish the artifact.
+
 ## 3.17.0 - 2026-10-06
 
 ### Added
