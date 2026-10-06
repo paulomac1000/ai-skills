@@ -96,6 +96,42 @@ def test_semantic_catalog_change_requires_new_generation_and_stale_hit_cannot_re
         manager.resolve_for_invocation(stale)
 
 
+def test_remove_then_add_or_rebind_requires_fresh_discovery() -> None:
+    lifecycle = _load("catalog_add_remove_rebind")
+    manager = lifecycle.DiscoveryIndexLifecycle(
+        _catalog(lifecycle, "g1"),
+        search_config_revision="s1",
+    )
+    owner = manager.request_build(
+        requester_id="owner",
+        attempt_id="attempt-1",
+        trigger=lifecycle.BuildTrigger.LAZY_FIRST_USE,
+    )
+    manager.publish(owner)
+    old_hit = manager.search("deploy")[0]
+
+    manager.replace_catalog(lifecycle.CatalogSnapshot("g2", "policy-1", ()))
+    with pytest.raises(lifecycle.StaleDiscoveryResultError):
+        manager.resolve_for_invocation(old_hit)
+
+    manager.replace_catalog(
+        _catalog(lifecycle, "g3", source="source-b", manifest="m2")
+    )
+    with pytest.raises(lifecycle.StaleDiscoveryResultError):
+        manager.resolve_for_invocation(old_hit)
+
+    rebuilt = manager.request_build(
+        requester_id="owner",
+        attempt_id="attempt-2",
+        trigger=lifecycle.BuildTrigger.LAZY_FIRST_USE,
+    )
+    manager.publish(rebuilt)
+    fresh_hit = manager.search("deploy")[0]
+    assert fresh_hit.catalog_generation == "g3"
+    assert fresh_hit.source_identity == "source-b"
+    assert manager.resolve_for_invocation(fresh_hit).manifest_revision == "m2"
+
+
 def test_single_flight_join_waiter_cancel_and_owner_cancel_are_separate() -> None:
     lifecycle = _load("catalog_single_flight")
     manager = lifecycle.DiscoveryIndexLifecycle(
@@ -196,6 +232,10 @@ def test_search_config_and_strategy_identity_bound_cache_and_health() -> None:
     assert first_key != second_key
     with pytest.raises(lifecycle.StaleDiscoveryIndexError):
         manager.search("deploy")
+
+    manager.replace_catalog(_catalog(lifecycle, "g2"))
+    third_key = manager.cache_key("deploy", strategy_revision="rank-v1")
+    assert second_key != third_key
 
 
 def test_federated_discovery_requires_explicit_allowlist_and_pre_network_authority() -> None:
