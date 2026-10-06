@@ -257,3 +257,113 @@ def test_no_effect_and_audit_projection_are_bounded() -> None:
     assert projection["mutationDomain"] == "service/api:production:active"
     assert "principal" not in projection and "session" not in projection
     assert "credential" not in repr(projection).lower()
+
+
+class _ConsumingStore:
+    def __init__(self, snapshot: MutationDomainSnapshot) -> None:
+        self.snapshot = snapshot
+        self.consumed_lease_ids: set[str] = set()
+
+    def reserve(self, expected: MutationDomainSnapshot, reservation: DeploymentMutationReservation) -> bool:
+        if reservation.lease_id in self.consumed_lease_ids:
+            return False
+        if self.snapshot != expected or self.snapshot.active_operation_ref is not None:
+            return False
+        self.consumed_lease_ids.add(reservation.lease_id)
+        self.snapshot = snapshot_after_reservation(self.snapshot, reservation)
+        return True
+
+
+def test_consumed_v2_lease_cannot_replay_after_no_effect_reconciliation() -> None:
+    initial = MutationDomainSnapshot(_target_state())
+    value = _lease(lease_id="lease:one-shot")
+    store = _ConsumingStore(initial)
+    admission, reservation = admit_and_reserve_fenced_mutation(
+        _record(value),
+        operation_ref="op:one-shot",
+        reserve_if_current=store.reserve,
+        **_args(value, initial),
+    )
+    assert admission.operation_may_dispatch and reservation is not None
+
+    cleared = reconcile_mutation(
+        store.snapshot,
+        operation_ref="op:one-shot",
+        effect_applied=False,
+        observed_target=initial.target,
+    )
+    replay = admit_fenced_lease(
+        _record(value),
+        consumed_lease_ids=store.consumed_lease_ids,
+        **_args(value, cleared),
+    )
+    assert replay.disposition is DeploymentAdmissionDisposition.LEASE_NOT_ACTIVE
+    assert not replay.operation_may_dispatch
+
+
+def test_provider_cas_rejects_stale_provider_revision_before_dispatch() -> None:
+    value = _lease(lease_id="lease:provider-cas")
+    value["fence"] = {"mode": "provider_cas", "token_or_generation": "fence:7"}
+    current = _target_state()
+    drifted = DeploymentTargetState(
+        mutation_domain=current.mutation_domain,
+        fence_token_or_generation=current.fence_token_or_generation,
+        deployment_generation=current.deployment_generation,
+        runtime_instance_generation=current.runtime_instance_generation,
+        artifact_digest=current.artifact_digest,
+        config_revision=current.config_revision,
+        provider_revision_or_etag="etag:8",
+    )
+    admission = admit_fenced_lease(_record(value), **_args(value, MutationDomainSnapshot(drifted)))
+    assert admission.fence_mode is FenceMode.PROVIDER_CAS
+    assert admission.disposition is DeploymentAdmissionDisposition.TARGET_CHANGED
+    assert not admission.operation_may_dispatch
+
+
+def test_independent_mutation_domains_can_reserve_concurrently() -> None:
+    api = _lease(lease_id="lease:api")
+    api_store = _ConsumingStore(MutationDomainSnapshot(_target_state()))
+    api_admission, api_reservation = admit_and_reserve_fenced_mutation(
+        _record(api),
+        operation_ref="op:api",
+        reserve_if_current=api_store.reserve,
+        **_args(api, api_store.snapshot),
+    )
+
+    worker = _lease(lease_id="lease:worker")
+    target = dict(worker["target"])
+    target["resource"] = "service/worker"
+    target["mutation_domain"] = "service/worker:production:active"
+    worker["target"] = target
+    worker_store = _ConsumingStore(
+        MutationDomainSnapshot(_target_state(domain="service/worker:production:active"))
+    )
+    worker_admission, worker_reservation = admit_and_reserve_fenced_mutation(
+        _record(worker),
+        operation_ref="op:worker",
+        reserve_if_current=worker_store.reserve,
+        **_args(worker, worker_store.snapshot),
+    )
+
+    assert api_admission.operation_may_dispatch and api_reservation is not None
+    assert worker_admission.operation_may_dispatch and worker_reservation is not None
+
+
+def test_audit_projection_includes_resulting_target_without_secrets() -> None:
+    initial = MutationDomainSnapshot(_target_state())
+    value = _lease(lease_id="lease:audit")
+    store = _ConsumingStore(initial)
+    admission, reservation = admit_and_reserve_fenced_mutation(
+        _record(value),
+        operation_ref="op:audit",
+        reserve_if_current=store.reserve,
+        **_args(value, initial),
+    )
+    assert reservation is not None
+    resulting = _target_state(fence="fence:8")
+    projection = fencing_audit_projection(admission, reservation, resulting)
+    assert projection["resultingFenceTokenOrGeneration"] == "fence:8"
+    assert projection["resultingArtifactDigest"] == "sha256:" + "a" * 64
+    assert "principal" not in projection
+    assert "session" not in projection
+    assert "credential" not in repr(projection).lower()

@@ -323,6 +323,7 @@ def admit_fenced_lease(
     domain_snapshot: MutationDomainSnapshot,
     source_revision: str | None = None,
     session: str | None = None,
+    consumed_lease_ids: Collection[str] = (),
     compatible_advancement_proof_ref: str | None = None,
 ) -> FencedLeaseAdmission:
     """Re-read authority and exact target state before a v2 mutation may be reserved."""
@@ -352,6 +353,7 @@ def admit_fenced_lease(
             policy_revision=policy_revision,
             source_revision=source_revision,
             now=now,
+            consumed_lease_ids=consumed_lease_ids,
         )
         mutation_domain, fence_mode, fence_token, expected = _fenced_shape(lease)
     except DeploymentLeaseError as error:
@@ -439,9 +441,10 @@ def admit_and_reserve_fenced_mutation(
     reserve_if_current: ReservationWriter,
     source_revision: str | None = None,
     session: str | None = None,
+    consumed_lease_ids: Collection[str] = (),
     compatible_advancement_proof_ref: str | None = None,
 ) -> tuple[FencedLeaseAdmission, DeploymentMutationReservation | None]:
-    """Atomically reserve the mutation domain; only the successful reserver may dispatch."""
+    """Atomically consume the lease and reserve its mutation domain before dispatch."""
     _require_text(operation_ref, "operation_ref")
     admission = admit_fenced_lease(
         authority_record,
@@ -456,6 +459,7 @@ def admit_and_reserve_fenced_mutation(
         domain_snapshot=domain_snapshot,
         source_revision=source_revision,
         session=session,
+        consumed_lease_ids=consumed_lease_ids,
         compatible_advancement_proof_ref=compatible_advancement_proof_ref,
     )
     if not admission.operation_may_dispatch:
@@ -551,8 +555,9 @@ def reconcile_mutation(
 def fencing_audit_projection(
     admission: FencedLeaseAdmission,
     reservation: DeploymentMutationReservation | None,
+    resulting_target: DeploymentTargetState | None = None,
 ) -> dict[str, object]:
-    """Return a bounded secret-free projection of deployment-fencing evidence."""
+    """Return bounded admission and resulting-target deployment-fencing evidence."""
     observed = admission.observed_target
     return {
         "leaseId": admission.lease_id,
@@ -568,4 +573,18 @@ def fencing_audit_projection(
         "observedProviderRevisionOrEtag": observed.provider_revision_or_etag if observed is not None else None,
         "operationRef": reservation.operation_ref if reservation is not None else None,
         "action": reservation.action if reservation is not None else None,
+        "resultingFenceTokenOrGeneration": (
+            resulting_target.fence_token_or_generation if resulting_target is not None else None
+        ),
+        "resultingDeploymentGeneration": (
+            resulting_target.deployment_generation if resulting_target is not None else None
+        ),
+        "resultingRuntimeInstanceGeneration": (
+            resulting_target.runtime_instance_generation if resulting_target is not None else None
+        ),
+        "resultingArtifactDigest": resulting_target.artifact_digest if resulting_target is not None else None,
+        "resultingConfigRevision": resulting_target.config_revision if resulting_target is not None else None,
+        "resultingProviderRevisionOrEtag": (
+            resulting_target.provider_revision_or_etag if resulting_target is not None else None
+        ),
     }
