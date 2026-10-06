@@ -10,7 +10,7 @@ verification: Exercise exact principal/candidate/base/evidence admission, one-sh
 
 # Integration lease
 
-Use this profile when a Steward or other autonomous control plane may integrate a reviewed/verified candidate into a governed repository target. Generic repository write/push access is not integration authority. Candidate code, PR/change content, model output, workers, and provider display state cannot mint, widen, refresh, or delegate this authority.
+Use this profile when a Steward or other autonomous control plane may integrate a reviewed/verified candidate into a governed repository target. Generic repository write/push access is not integration authority. Candidate code, PR/change content, model output, workers, and provider display state cannot mint, widen, refresh, or delegate this authority. Mutation admission resolves or verifies the lease through an authority-controlled store/issuer adapter; its trust anchor is host-owned and never supplied by candidate/model/worker input.
 
 ## Exact authority envelope
 
@@ -56,7 +56,7 @@ This prevents all of the following from authorizing a second dispatch:
 - a stale worker/attempt;
 - an already `used`, `revoked`, or `expired` lease.
 
-A new dispatch after a conclusively non-integrated operation requires fresh policy-owned authority/re-admission. Replay safety is never inferred from a transport error.
+A new dispatch after a conclusively non-integrated operation requires fresh policy-owned authority/re-admission. Reconciliation is legal only after dispatch and before a terminal operation state, and `integrated=false` is conclusive only when the observation binds the exact reserved candidate and target-before identity. Missing candidate identity remains reconciliation-required. Replay safety is never inferred from a transport error.
 
 ## Ambiguous integration reconciliation
 
