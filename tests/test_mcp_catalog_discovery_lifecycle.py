@@ -219,7 +219,7 @@ def test_federated_discovery_requires_explicit_allowlist_and_pre_network_authori
 
 
 def test_contract_is_routed_mapped_required_and_quality_gated() -> None:
-    standard = " ".join(STANDARD.read_text(encoding="utf-8").split())
+    standard = " ".join(STANDARD.read_text(encoding="utf-8").split()).casefold()
     skill = " ".join(SKILL.read_text(encoding="utf-8").split())
     reference = " ".join(REFERENCE.read_text(encoding="utf-8").split())
     manifest = yaml.safe_load(MANIFEST.read_text(encoding="utf-8"))
