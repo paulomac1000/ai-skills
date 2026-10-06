@@ -47,15 +47,7 @@ The canonical machine-readable semantics for validation-corpus completeness, exe
 
 ## Dependency lock verification and refresh
 
-When a repository commits exact dependency locks, **candidate verification** and **dependency refresh** are different operations and MUST NOT be collapsed into one verdict-bearing step.
-
-Candidate verification consumes the exact committed lock selected for the admitted runtime/platform tuple. It verifies the lock through the ecosystem integrity mechanism and consistency check, binds evidence to the committed lock/input/toolchain identity, and MUST NOT re-resolve the dependency graph against current mutable upstream state or rewrite the lock. A newer matching package appearing in a public registry after candidate creation is therefore not by itself evidence that the unchanged committed candidate is invalid.
-
-Dependency refresh is a separately governed maintenance operation. It pins or otherwise declares the resolver and runtime/toolchain identity, declares whether the resolution source is mutable or immutable, uses a disabled or isolated resolver cache, and emits a reviewable lock diff. A refresh against mutable public upstream state is an observation of that upstream state at refresh time and MUST NOT be relabeled exact reproducibility evidence for the earlier committed lock. Exact fresh-resolution reproducibility additionally requires an immutable snapshot, mirror, wheelhouse, image, or equivalent dependency-source identity.
-
-Security/vulnerability freshness remains independently enforceable. A scheduled advisory or vulnerability gate may require action even when committed-lock candidate verification is deterministic. Once a refreshed lock is committed, it is a candidate change and invalidates evidence whose exact subject includes the prior lock/candidate identity.
-
-For Python exact-hash locks, the candidate profile installs the selected committed lock with `python -m pip install --require-hashes -r <lock>`, runs `python -m pip check`, and does not run `pip-compile` or another resolver as an acceptance precondition. The refresh profile runs the pinned resolver in its declared runtime with isolated/disabled cache, writes proposed lock outputs, and exposes the diff for review. See `references/verification-integrity.md#dependency-lock-operations`.
+Repositories with exact committed locks MUST separate candidate verification from dependency refresh. Candidate verification consumes the admitted committed lock and MUST NOT re-resolve against mutable upstream state or rewrite it. Refresh is separately governed: resolver and runtime/toolchain identities are declared dependencies, source mutability/identity is recorded, cache is isolated or disabled, and lock changes remain reviewable. Mutable refresh is observational; exact refresh reproducibility requires immutable source identity. Security/vulnerability freshness stays independent. See `references/verification-integrity.md#dependency-lock-operations`.
 
 ## Exact artifact evidence construction
 

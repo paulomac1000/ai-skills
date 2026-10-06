@@ -6,7 +6,7 @@
 
 - Added an explicit CI dependency-lock contract that separates exact committed-lock candidate verification from deliberate mutable-upstream dependency refresh.
 - Extended the canonical verification-bootstrap validator with typed candidate-verification and dependency-refresh operations, resolver/runtime/source provenance, refresh cache isolation, reviewable lock-diff semantics, and exact-versus-observational reproducibility claims.
-- Added Python exact-hash guidance and regressions derived from the completed `mikrus-mcp#30` lock/refresh split.
+- Added Python exact-hash guidance and regressions derived from a completed real-consumer lock/refresh split.
 
 ### Security and correctness
 

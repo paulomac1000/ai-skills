@@ -161,9 +161,9 @@ def _validate_lock_operation(
     declared_ids = {item.get("id") for item in dependencies}
     if not isinstance(resolver_dependency_id, str) or resolver_dependency_id not in declared_ids:
         failures.append("refresh-resolver-dependency-missing")
-    runtime_ref = contract.get("runtime_ref")
-    if not isinstance(runtime_ref, str) or not runtime_ref.strip():
-        failures.append("refresh-runtime-ref-missing")
+    runtime_dependency_id = contract.get("runtime_dependency_id")
+    if not isinstance(runtime_dependency_id, str) or runtime_dependency_id not in declared_ids:
+        failures.append("refresh-runtime-dependency-missing")
     if mutation != "reviewable":
         failures.append("refresh-lock-mutation-must-be-reviewable")
     if reviewable_diff is not True:
@@ -178,7 +178,7 @@ def _validate_lock_operation(
     summary["reproducibility_claim"] = reproducibility
     summary["upstream_identity_present"] = isinstance(identity, str) and bool(identity.strip())
     summary["resolver_dependency_id"] = resolver_dependency_id
-    summary["runtime_ref_present"] = isinstance(runtime_ref, str) and bool(runtime_ref.strip())
+    summary["runtime_dependency_id"] = runtime_dependency_id
     return operation, summary
 
 

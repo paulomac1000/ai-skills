@@ -246,6 +246,10 @@ def test_bootstrap_rejects_ambient_dependency_and_accepts_declared_lock(tmp_path
 def _lock_policy(tmp_path: Path) -> dict[str, object]:
     lock = tmp_path / "requirements-ci.lock"
     lock.write_text("pytest==9.0.2 --hash=sha256:" + "a" * 64 + "\n", encoding="utf-8")
+    resolver_lock = tmp_path / "resolver.lock"
+    resolver_lock.write_text("pip-tools==7.5.1 --hash=sha256:" + "d" * 64 + "\n", encoding="utf-8")
+    runtime = tmp_path / ".python-version"
+    runtime.write_text("3.12.15\n", encoding="utf-8")
     return {
         "schema_version": 1,
         "policy_revision": "lock-contract-1",
@@ -253,13 +257,29 @@ def _lock_policy(tmp_path: Path) -> dict[str, object]:
         "cache": "verified",
         "dependencies": [
             {
-                "id": "pytest",
+                "id": "python-dependencies",
                 "source_type": "lockfile",
                 "source": "requirements-ci.lock",
-                "resolved_version": "9.0.2",
-                "expected_version": "9.0.2",
+                "resolved_version": "lock-v1",
+                "expected_version": "lock-v1",
                 "resolution": "declared",
-            }
+            },
+            {
+                "id": "pip-tools",
+                "source_type": "lockfile",
+                "source": "resolver.lock",
+                "resolved_version": "7.5.1",
+                "expected_version": "7.5.1",
+                "resolution": "declared",
+            },
+            {
+                "id": "python-runtime",
+                "source_type": "tool-version-file",
+                "source": ".python-version",
+                "resolved_version": "3.12.15",
+                "expected_version": "3.12.15",
+                "resolution": "declared",
+            },
         ],
     }
 
@@ -313,8 +333,8 @@ def test_mutable_refresh_is_reviewable_observation_not_exact_reproducibility(tmp
     policy["lock_contract"] = {
         "upstream_resolution": "mutable",
         "upstream_identity": "pypi:public/simple",
-        "resolver_dependency_id": "pytest",
-        "runtime_ref": "python:3.12",
+        "resolver_dependency_id": "pip-tools",
+        "runtime_dependency_id": "python-runtime",
         "lock_mutation": "reviewable",
         "reviewable_diff": True,
         "reproducibility_claim": "observational",
@@ -339,8 +359,8 @@ def test_refresh_requires_isolated_or_disabled_cache_and_pinned_resolver_identit
             "lock_contract": {
                 "upstream_resolution": "immutable",
                 "upstream_identity": "snapshot:sha256:" + "b" * 64,
-                "resolver_dependency_id": "pytest",
-                "runtime_ref": "python:3.12@sha256:" + "c" * 64,
+                "resolver_dependency_id": "pip-tools",
+                "runtime_dependency_id": "python-runtime",
                 "lock_mutation": "reviewable",
                 "reviewable_diff": True,
                 "reproducibility_claim": "exact",
@@ -353,6 +373,14 @@ def test_refresh_requires_isolated_or_disabled_cache_and_pinned_resolver_identit
 
     policy["cache"] = "isolated"
     assert bootstrap.evaluate(tmp_path, policy)["verdict"] == "pass"
+
+    missing_runtime = {
+        **policy,
+        "lock_contract": {**policy["lock_contract"], "runtime_dependency_id": "missing-runtime"},
+    }
+    result = bootstrap.evaluate(tmp_path, missing_runtime)
+    assert result["verdict"] == "fail"
+    assert "refresh-runtime-dependency-missing" in result["failures"]
 
     stale_cache = tmp_path / ".cache" / "pip"
     stale_cache.mkdir(parents=True)
