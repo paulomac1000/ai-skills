@@ -56,6 +56,8 @@ dependencies:
   - contracts/artifact-evidence.schema.json
   - contracts/artifact_evidence.py
   - contracts/runtime-identity.schema.json
+  - contracts/deployment-lease.schema.json
+  - contracts/deployment_lease.py
   - contracts/validate_verification_receipt.py
 deprecation:
   policy: semantic-versioning
