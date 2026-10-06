@@ -190,6 +190,7 @@ class PublicationDestinationState:
     channel_digests: tuple[tuple[str, str | None], ...]
     channels_observed_complete: bool
     provider_allows_publication: bool | None
+    same_artifact_reconciliation_allowed: bool | None
     current_policy_revision: str
     execution_generation: str
 
@@ -278,6 +279,7 @@ class ArtifactPublicationReceipt:
     publication_operation_ref: str
     lease_ref: str
     policy_revision: str
+    evidence_set_digest: str
     outcome: PublicationOutcome
     observed_at: datetime
     evidence_refs: tuple[str, ...]
@@ -291,6 +293,7 @@ class ArtifactPublicationReceipt:
         _require(self.publication_operation_ref, "publication_operation_ref")
         _require(self.lease_ref, "lease_ref")
         _require(self.policy_revision, "policy_revision")
+        _require(self.evidence_set_digest, "evidence_set_digest")
         _require_utc(self.observed_at, "observed_at")
 
 
@@ -462,6 +465,14 @@ def admit_publication(
         destination_state.channel_digests,
         lease.artifact.artifact_digest,
     ):
+        if destination_state.same_artifact_reconciliation_allowed is not True:
+            return PublicationAdmission(
+                PublicationAdmissionDisposition.PROVIDER_BLOCKED,
+                lease.lease_id,
+                False,
+                False,
+                "same-artifact convergence is not explicitly admitted by provider/policy",
+            )
         return PublicationAdmission(
             PublicationAdmissionDisposition.ALREADY_PRESENT_SAME_ARTIFACT,
             lease.lease_id,
@@ -536,12 +547,16 @@ def admit_and_reserve_publication(
 def note_dispatch(
     operation: ArtifactPublicationOperation,
     observation: DispatchObservation,
+    *,
+    publisher_artifact: PublicationArtifact,
 ) -> ArtifactPublicationOperation:
-    """Record one publication dispatch; non-success transport outcomes still require read-back."""
+    """Bind the privileged dispatch to the exact already-proven artifact actually opened by the publisher."""
     if operation.state is not PublicationOperationState.RESERVED:
         raise ValueError("publication operation may be dispatched only once from RESERVED")
     if operation.initial_disposition is not PublicationAdmissionDisposition.AVAILABLE:
         raise ValueError("already-satisfied publication must reconcile without provider dispatch")
+    if publisher_artifact != operation.artifact:
+        raise ValueError("publisher artifact identity differs from the reserved exact artifact")
     if observation is DispatchObservation.ACKNOWLEDGED:
         return replace(operation, state=PublicationOperationState.DISPATCHED)
     return replace(operation, state=PublicationOperationState.RECONCILIATION_REQUIRED)
@@ -599,6 +614,7 @@ def reconcile_publication(
         publication_operation_ref=operation.operation_ref,
         lease_ref=operation.lease_ref,
         policy_revision=operation.policy_revision,
+        evidence_set_digest=operation.evidence_set_digest,
         outcome=outcome,
         observed_at=observed_at,
         evidence_refs=operation.evidence_refs,

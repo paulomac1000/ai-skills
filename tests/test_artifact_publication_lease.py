@@ -68,6 +68,7 @@ def fixture(module, *, tags=("stable",), version="1.2.3", digest="sha256:" + "a"
         tuple((channel, None) for channel in destination.tags_or_channels),
         True,
         True,
+        True,
         lease.policy_revision,
         lease.execution_generation,
     )
@@ -144,6 +145,24 @@ def test_exact_artifact_and_destination_scope_cannot_be_widened_or_rebuilt():
     )
     assert admission.disposition is m.PublicationAdmissionDisposition.SCOPE_MISMATCH
 
+    admission, _, operation = m.admit_and_reserve_publication(
+        authority,
+        verify_authority_record=verify,
+        acting_principal_ref="publisher/operator",
+        now=now,
+        evidence=evidence,
+        destination_state=state,
+        operation_ref="publication-op-rebuilt",
+    )
+    assert admission.operation_may_dispatch and operation is not None
+    rebuilt_artifact = dataclasses.replace(operation.artifact, artifact_digest="sha256:" + "b" * 64)
+    with pytest.raises(ValueError, match="publisher artifact identity"):
+        m.note_dispatch(
+            operation,
+            m.DispatchObservation.ACKNOWLEDGED,
+            publisher_artifact=rebuilt_artifact,
+        )
+
 
 def test_same_artifact_converges_without_dispatch_but_different_artifact_conflicts():
     m = load()
@@ -155,6 +174,17 @@ def test_same_artifact_converges_without_dispatch_but_different_artifact_conflic
         channel_digests=(("stable", artifact.artifact_digest),),
         provider_allows_publication=False,
     )
+    blocked_same = dataclasses.replace(same_state, same_artifact_reconciliation_allowed=False)
+    blocked = m.admit_publication(
+        authority,
+        verify_authority_record=verify,
+        acting_principal_ref="publisher/operator",
+        now=now,
+        evidence=evidence,
+        destination_state=blocked_same,
+    )
+    assert blocked.disposition is m.PublicationAdmissionDisposition.PROVIDER_BLOCKED
+    assert not blocked.may_complete_without_dispatch
     admission, consumed, operation = m.admit_and_reserve_publication(
         authority,
         verify_authority_record=verify,
@@ -169,7 +199,7 @@ def test_same_artifact_converges_without_dispatch_but_different_artifact_conflic
     assert consumed.state is m.PublicationLeaseState.USED
     assert operation is not None
     with pytest.raises(ValueError):
-        m.note_dispatch(operation, m.DispatchObservation.ACKNOWLEDGED)
+        m.note_dispatch(operation, m.DispatchObservation.ACKNOWLEDGED, publisher_artifact=artifact)
 
     observation = m.PublicationDestinationObservation(
         same_state.destination,
@@ -221,10 +251,10 @@ def test_ambiguous_or_conflict_dispatch_requires_authoritative_readback(dispatch
     assert consumed.state is m.PublicationLeaseState.USED
     assert operation is not None
 
-    operation = m.note_dispatch(operation, m.DispatchObservation[dispatch_observation])
+    operation = m.note_dispatch(operation, m.DispatchObservation[dispatch_observation], publisher_artifact=artifact)
     assert operation.state is m.PublicationOperationState.RECONCILIATION_REQUIRED
     with pytest.raises(ValueError):
-        m.note_dispatch(operation, m.DispatchObservation.ACKNOWLEDGED)
+        m.note_dispatch(operation, m.DispatchObservation.ACKNOWLEDGED, publisher_artifact=artifact)
 
     observed = m.PublicationDestinationObservation(
         state.destination,
@@ -242,7 +272,7 @@ def test_ambiguous_or_conflict_dispatch_requires_authoritative_readback(dispatch
 
 def test_absent_after_ambiguous_dispatch_is_terminal_for_consumed_lease_not_blind_retry():
     m = load()
-    now, _, _, _, authority, evidence, state = fixture(m)
+    now, artifact, _, _, authority, evidence, state = fixture(m)
     _, consumed, operation = m.admit_and_reserve_publication(
         authority,
         verify_authority_record=verify,
@@ -253,7 +283,7 @@ def test_absent_after_ambiguous_dispatch_is_terminal_for_consumed_lease_not_blin
         operation_ref="publication-op-3",
     )
     assert operation is not None
-    operation = m.note_dispatch(operation, m.DispatchObservation.DELIVERY_UNKNOWN)
+    operation = m.note_dispatch(operation, m.DispatchObservation.DELIVERY_UNKNOWN, publisher_artifact=artifact)
     observed = m.PublicationDestinationObservation(
         state.destination,
         True,
@@ -300,7 +330,7 @@ def test_mutable_channel_movement_records_before_and_after_exact_artifact_identi
     )
     assert admission.disposition is m.PublicationAdmissionDisposition.AVAILABLE
     assert operation is not None
-    operation = m.note_dispatch(operation, m.DispatchObservation.ACKNOWLEDGED)
+    operation = m.note_dispatch(operation, m.DispatchObservation.ACKNOWLEDGED, publisher_artifact=artifact)
     observation = m.PublicationDestinationObservation(
         destination,
         True,
@@ -309,8 +339,7 @@ def test_mutable_channel_movement_records_before_and_after_exact_artifact_identi
         (("stable", artifact.artifact_digest),),
         True,
     )
-    settled, receipt = m.reconcile_publication(operation, observation, observed_at=now)
-    assert settled.state is m.PublicationOperationState.PUBLISHED
+    settled, receipt = m.reconcile_publication(operation, observation, observed_at=now)    assert settled.state is m.PublicationOperationState.PUBLISHED
     assert receipt is not None
     assert receipt.channel_before_digests == (("stable", old),)
     assert receipt.channel_after_digests == (("stable", artifact.artifact_digest),)
@@ -330,7 +359,7 @@ def test_receipt_composes_with_artifact_accepted_and_deployment_without_authorit
         operation_ref="publication-op-5",
     )
     assert admission.operation_may_dispatch and operation is not None
-    operation = m.note_dispatch(operation, m.DispatchObservation.ACKNOWLEDGED)
+    operation = m.note_dispatch(operation, m.DispatchObservation.ACKNOWLEDGED, publisher_artifact=artifact)
     observation = m.PublicationDestinationObservation(
         destination,
         True,
@@ -342,6 +371,7 @@ def test_receipt_composes_with_artifact_accepted_and_deployment_without_authorit
     _, receipt = m.reconcile_publication(operation, observation, observed_at=now)
     assert receipt is not None
     assert receipt.receipt_kind == "artifact_publication"
+    assert receipt.evidence_set_digest == evidence.evidence_set_digest
     assert m.satisfies_artifact_accepted(
         receipt,
         artifact_digest=artifact.artifact_digest,
@@ -355,7 +385,8 @@ def test_receipt_composes_with_artifact_accepted_and_deployment_without_authorit
 
 
 @pytest.mark.parametrize(
-    ("provider", "namespace", "package", "version", "action"),    [
+    ("provider", "namespace", "package", "version", "action"),
+    [
         ("pypi", "org", "lib", "1.2.3", "PUBLISH_PACKAGE"),
         ("oci", "registry.example/org", "service", None, "PROMOTE_DIGEST"),
         ("github-release", "owner/repo", "asset.tar.gz", "v1.2.3", "PUBLISH_RELEASE_ASSET"),

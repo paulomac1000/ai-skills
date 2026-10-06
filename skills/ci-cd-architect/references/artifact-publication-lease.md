@@ -37,9 +37,9 @@ provider/registry + namespace/package + version + tags/channels
 authoritative destination state + provider publication controls
 ```
 
-Only an exact `AVAILABLE` result may dispatch a mutation. `ALREADY_PRESENT_SAME_ARTIFACT` may complete without another write after authoritative read-back and one-shot reservation. `ALREADY_PRESENT_DIFFERENT_ARTIFACT` is a hard conflict. Unknown destination state, stale policy/evidence, lost authority, artifact mismatch, destination-scope widening, or unavailable provider controls fail closed.
+Only an exact `AVAILABLE` result may dispatch a mutation. `ALREADY_PRESENT_SAME_ARTIFACT` may complete without another write only when current provider/policy explicitly admits same-artifact convergence, after authoritative read-back and one-shot reservation. `ALREADY_PRESENT_DIFFERENT_ARTIFACT` is a hard conflict. Unknown destination state, stale policy/evidence, lost authority, artifact mismatch, destination-scope widening, or unavailable provider controls fail closed.
 
-The publisher consumes the prepared artifact identity. It does not check out, rebuild, repack, load/import, or execute candidate source under publication authority. Existing protected-release auditing remains the canonical mechanical owner of that publisher boundary; the lease adds exact autonomous authority rather than replacing those controls.
+Immediately before dispatch the publisher binds the artifact it actually opened/read to the reserved `PublicationArtifact`; a different ref or digest is rejected before provider mutation. The publisher consumes the prepared artifact identity. It does not check out, rebuild, repack, load/import, or execute candidate source under publication authority. Existing protected-release auditing remains the canonical mechanical owner of that publisher boundary; the lease adds exact autonomous authority rather than replacing those controls.
 
 ## Version and channel reservation
 
