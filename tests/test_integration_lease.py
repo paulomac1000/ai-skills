@@ -335,7 +335,8 @@ def test_used_revoked_expired_or_stale_evidence_cannot_dispatch() -> None:
         assert not _admit(integration, inactive, evidence, repository, issued).operation_may_dispatch
 
     late = integration.admit_integration(
-        lease,
+        _authority_record(integration, lease),
+        verify_authority_record=_verifier(lease),
         acting_principal_ref="control:release",
         now=lease.expires_at,
         repository=repository,
