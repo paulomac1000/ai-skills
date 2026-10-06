@@ -65,6 +65,7 @@ skills:
       core-architecture: {rule_ids: [mcp.architecture.boundaries, mcp.sdk.compatibility-isolation], primary: true}
       configuration-and-identity: {rule_ids: [mcp.configuration.lifecycle, mcp.identity.target-binding], primary: true}
       public-component-contracts: {rule_ids: [mcp.components.public-contract, mcp.discovery.progressive], primary: true}
+      mutable-catalog-discovery-lifecycle: {rule_id: mcp.discovery.generation-bound, primary: true}
       multi-axis-safety-classification: {rule_id: mcp.manifest.complete, primary: true}
       side-effects-retries-and-workflows: {rule_id: mcp.retry.fail-closed, primary: true}
       transport-and-lifecycle: {rule_ids: [mcp.transport.supported, mcp.transport.remote-hardening], primary: true}

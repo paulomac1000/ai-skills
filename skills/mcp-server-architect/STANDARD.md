@@ -87,6 +87,18 @@ List and search tools return identifiers accepted by detail or mutation tools. L
 
 Use server-level instructions for cross-tool ordering, stable ID flow, async polling, profile limitations, and reconciliation. Instructions improve agent behavior but never replace runtime validation or authorization.
 
+## Mutable catalog discovery lifecycle
+
+A mutable gateway catalog has one canonical generation. Every semantic mutation of source membership or configuration, public component contract, active profile/policy, contract-changing capability refresh, or operator catalog replacement advances that generation. Generation identities are single-use across the lifecycle: after one is superseded, even a return to identical catalog bytes requires a fresh generation. Derived discovery state is a projection, never canonical authority: indexes, embeddings, normalized descriptors, category maps, query/result caches, and search output bind the catalog generation plus every search/configuration revision that can change their meaning.
+
+For one generation/configuration identity, concurrent rebuild requests converge on one logical bounded build. Waiter cancellation does not cancel an independently owned build; owner cancellation propagates to cancellable work; failed, cancelled, or partial builds never publish as current. Publication is atomic and attempt/generation fenced, so an older build cannot overwrite a newer generation. Retry after failure uses a new attempt identity. Lazy first-use and eager warmup use the same canonical builder; a production profile may require fail-fast warmup without making eager indexing universal.
+
+Search results expose stable canonical component identity, source/manifest provenance, generation, configuration revision, and freshness sufficient to detect staleness. Ranking/confidence remains advisory. Before invocation, re-resolve the selected component against the current catalog generation, manifest/source binding, active profile/policy, target binding, and authorization. A stale result that was removed or rebound returns stale/conflict/re-discovery rather than silently retargeting.
+
+Graph, vector, lexical, keyword, category, normalization, translation, and hybrid strategies remain optional. Cache identity includes every semantic dimension that affects results. Federated/external discovery is explicit and allowlisted, and authentication/capability authorization precedes network-backed source resolution. Health distinguishes catalog currentness, current-index readiness or stale/degraded discovery, source health, and invocation readiness; index readiness never grants execution authority.
+
+See `references/catalog-discovery-lifecycle.md`; `tools/discovery_index_lifecycle.py` provides a deterministic reference state model for generation, single-flight build, publication fencing, cache identity, health, and invocation re-resolution.
+
 ## Multi-axis safety classification
 
 A single risk label is insufficient. Every capability independently declares:

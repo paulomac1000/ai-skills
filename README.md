@@ -2,7 +2,7 @@
 
 A production-oriented collection of reusable standards, implementation playbooks, executable policy helpers, and tested templates for AI-assisted software engineering.
 
-The current repository release is `3.18.0`. All bundled skills are published with `maturity: stable` and are intended for production adoption. Each skill declares its compatibility, dependencies, evidence lanes, and required entry points in `manifest.yaml`.
+The current repository release is `3.19.0`. All bundled skills are published with `maturity: stable` and are intended for production adoption. Each skill declares its compatibility, dependencies, evidence lanes, and required entry points in `manifest.yaml`.
 
 ## Included skills
 
@@ -13,7 +13,7 @@ The current repository release is `3.18.0`. All bundled skills are published wit
 | `changelog-release-architect` | Curate human-facing changelogs, choose one evidence-based repository SemVer transition, and finalize declared automatic releases after integration. | Release-boundary/publication standard and history-aware validator |
 | `ci-cd-architect` | Design secure and reproducible local and hosted quality gates. | Python, .NET, MCP, documentation, security, packaging, dependency and container workflows, plus exact ArtifactPublicationLease authority |
 | `mcp-gateway-release-verifier` | Compose exact-artifact MCP identity, schema, transport, lifecycle, health, integrity, and cleanup evidence into a bounded release verdict. | Release-verdict composer and local candidate acceptance lane |
-| `mcp-server-architect` | Design secure, observable, and agent-friendly MCP servers. | Language-neutral core, projection field ownership, source-qualified gateway aggregation, Python/FastMCP and .NET profiles, testing, security, operations, examples |
+| `mcp-server-architect` | Design secure, observable, and agent-friendly MCP servers. | Language-neutral core, projection field ownership, source-qualified gateway aggregation, generation-bound catalog discovery, Python/FastMCP and .NET profiles, testing, security, operations, examples |
 | `mcp-server-consumer` | Select and invoke MCP capabilities safely and efficiently. | Deterministic decision engine and workflow, retry, pagination, and trust playbooks |
 | `mcp-steward-architect` | Design durable MCP control planes that own bounded workflows, survive ambiguous external work, and publish provenance-bound handoffs. | Steward/job/lineage/receipt/completion/handoff, IntegrationLease and persistent-context provenance, upstream-capability contracts, reconciliation/authority playbooks, validator, Python/.NET generator overlay, failure regressions |
 | `qa-change-verifier` | Plan risk-based proof, exact migration acceptance, immutable change acceptance, and candidate-specific semantic review scope. | Risk/criterion planner, migration-matrix evaluator, acceptance and semantic-review contracts, exact evidence, known-gap and failure attribution |

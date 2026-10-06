@@ -1,5 +1,17 @@
 # Changelog
 
+## 3.19.0 - 2026-10-06
+
+### Added
+
+- Added a generation-bound mutable MCP catalog/discovery lifecycle for gateways, binding derived indexes, search caches, and discovery results to exact catalog plus search-configuration identity.
+- Added a deterministic reference model and regressions for single-flight rebuilds, waiter/owner cancellation, failed or partial publication, stale caches, old-generation overwrite prevention, lazy/eager builder parity, and current invocation re-resolution.
+
+### Security and correctness
+
+- Discovery ranking, confidence, and stale search output remain advisory and cannot authorize invocation; selected components are re-resolved against the current catalog/source/manifest/policy identity before execution.
+- Federated discovery is explicitly allowlisted and remains behind authentication/capability authorization before network-backed source resolution; health distinguishes catalog currentness, index readiness, and invocation readiness.
+
 ## 3.18.0 - 2026-10-06
 
 ### Added
