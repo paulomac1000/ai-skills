@@ -982,6 +982,17 @@ profiles:
     - repository-junit.xml
     execution_id: repository
   - kind: rule
+    subject: steward.integration.authorized
+    selectors:
+    - '*test_integration_lease::test_push_writer_or_child_actor_cannot_mint_integration_authority'
+    - '*test_integration_lease::test_candidate_base_tree_policy_and_evidence_drift_fail_closed'
+    - '*test_integration_lease::test_timeout_requires_reconciliation_and_consumed_lease_cannot_replay'
+    - '*test_integration_lease::test_squash_reconciliation_preserves_candidate_to_integrated_lineage'
+    - '*test_integration_lease::test_reconciliation_rejects_reserved_terminal_and_unbound_negative_observations'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
     subject: steward.acceptance.layered
     selectors:
     - '*test_mcp_steward_architect::test_production_acceptance_cannot_skip_independent_live_or_exact_full_path'
