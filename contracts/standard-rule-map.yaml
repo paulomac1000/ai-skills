@@ -107,6 +107,7 @@ skills:
       semantic-checkpoints-and-dependency-scoped-reuse: {rule_id: steward.checkpoint.current, primary: true}
       persistent-context-provenance: {rule_id: steward.context.provenance, primary: true}
       mutation-admission-and-candidate-identity: {rule_id: steward.mutation.admitted, primary: true}
+      integration-authority-and-lease: {rule_id: steward.integration.authorized, primary: true}
       external-operations-and-reconciliation: {rule_id: steward.delivery.reconciled, primary: true}
       cancellation-and-external-wait-isolation: {rule_id: steward.cancellation.reconciled, primary: true}
       evidence-identity-and-authority: {rule_id: steward.evidence.provenance, primary: true}

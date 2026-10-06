@@ -114,6 +114,12 @@ Where verification/approval applies to a mutable artifact or proposed change, `C
 
 The mutation gate MUST re-read mutable authority/identity facts immediately before the effect. Admission from stale cached facts MUST fail closed.
 
+## Integration authority and lease
+
+When a Steward may integrate a candidate into a governed repository target, generic write/push capability is insufficient. Integration requires an authority-owned lease bound to exact principal, repository/change, candidate head/tree, target/base policy, merge strategy, evidence-set/policy identity, execution generation, and expiry. Immediately before reservation the Mutation Admission Gate MUST re-read those facts plus current provider controls; stale candidate/base/evidence/policy or lost authority fails closed.
+
+The durable integration operation MUST be reserved before dispatch and reservation consumes the one-shot lease. Timeout or lost acknowledgement enters reconciliation on that same operation and MUST NOT reactivate/replay the lease. Successful reconciliation proves exact candidate-to-integrated revision lineage for the selected strategy; squash/rebase/merge consumers MUST NOT assume candidate SHA equals integrated SHA. See `references/integration-lease.md`.
+
 ## External operations and reconciliation
 
 Before a stateful external operation whose effect can outlive the call, the Steward MUST durably record an operation identity/start intent bound to job/generation/attempt, exact capability contract and target, canonical request digest, non-secret credential slot, and admitted mutation decision.

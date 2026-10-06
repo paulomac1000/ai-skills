@@ -1,5 +1,5 @@
 schema_version: 1
-catalog_version: 1.7.0
+catalog_version: 1.8.0
 controls:
   - id: cicd.mcp.protocol-conformance
     parent_rule_id: cicd.quality.language
@@ -253,6 +253,21 @@ controls:
     waivable: false
     required_evidence: [artifact, review]
     test_selectors: [tests/test_atomic_claim_contract.py::test_multiarch_identity_is_an_immutable_graph]
+  - id: steward.integration.exact-lease
+    parent_rule_id: steward.integration.authorized
+    skill: mcp-steward-architect
+    source: skills/mcp-steward-architect/references/integration-lease.md#exact-authority-envelope
+    description: Repository integration is authorized only by an exact one-shot lease; mutation admission revalidates candidate/base/evidence/policy/provider facts, durable reservation consumes the lease, and ambiguous delivery reconciles the same operation before any new authority.
+    applies_when: {maturity_at_least: L2, capabilities_any: [repository-integration]}
+    severity: blocking
+    waivable: false
+    required_evidence: [unit, integration, security]
+    test_selectors:
+      - tests/test_integration_lease.py::test_push_writer_or_child_actor_cannot_mint_integration_authority
+      - tests/test_integration_lease.py::test_candidate_base_tree_policy_and_evidence_drift_fail_closed
+      - tests/test_integration_lease.py::test_timeout_requires_reconciliation_and_consumed_lease_cannot_replay
+      - tests/test_integration_lease.py::test_squash_reconciliation_preserves_candidate_to_integrated_lineage
+      - tests/test_integration_lease.py::test_used_revoked_expired_or_stale_evidence_cannot_dispatch
   - id: steward.delivery.ambiguous-reconcile
     parent_rule_id: steward.delivery.reconciled
     skill: mcp-steward-architect
