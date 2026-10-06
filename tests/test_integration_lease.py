@@ -81,16 +81,25 @@ def _admit(module: ModuleType, lease, evidence, repository, issued, *, actor="co
     )
 
 
+def _reserve(module: ModuleType, lease, evidence, repository, issued, *, operation_ref="op:1"):
+    return module.admit_and_reserve_integration(
+        lease,
+        acting_principal_ref="control:release",
+        now=issued + timedelta(minutes=5),
+        repository=repository,
+        evidence=evidence,
+        operation_ref=operation_ref,
+    )
+
+
 def test_squash_reconciliation_preserves_candidate_to_integrated_lineage() -> None:
     integration = _load("integration_lease_squash")
     lease, evidence, repository, issued = _fixture(integration)
-    admission = _admit(integration, lease, evidence, repository, issued)
-    used, operation = integration.reserve_integration_operation(
-        lease,
-        admission,
-        repository,
-        operation_ref="op:1",
+    admission, used, operation = _reserve(
+        integration, lease, evidence, repository, issued
     )
+    assert admission.operation_may_dispatch
+    assert operation is not None
     assert used.state is integration.IntegrationLeaseState.USED
     assert used.consumed_by_operation_ref == "op:1"
 
@@ -172,6 +181,18 @@ def test_candidate_base_tree_policy_and_evidence_drift_fail_closed() -> None:
         issued,
     ).disposition is integration.IntegrationAdmissionDisposition.BASE_TOPOLOGY_CHANGED
 
+    admission, unchanged, operation = integration.admit_and_reserve_integration(
+        lease,
+        acting_principal_ref="control:release",
+        now=issued + timedelta(minutes=5),
+        repository=replace(repository, current_head_sha="C2"),
+        evidence=evidence,
+        operation_ref="op:stale",
+    )
+    assert admission.disposition is integration.IntegrationAdmissionDisposition.STALE_CANDIDATE
+    assert unchanged.state is integration.IntegrationLeaseState.ACTIVE
+    assert operation is None
+
     compatible = replace(lease, base_policy=integration.BasePolicy.COMPATIBLE_ADVANCE)
     assert _admit(
         integration,
@@ -206,13 +227,11 @@ def test_candidate_base_tree_policy_and_evidence_drift_fail_closed() -> None:
 def test_timeout_requires_reconciliation_and_consumed_lease_cannot_replay() -> None:
     integration = _load("integration_lease_timeout")
     lease, evidence, repository, issued = _fixture(integration)
-    admission = _admit(integration, lease, evidence, repository, issued)
-    used, operation = integration.reserve_integration_operation(
-        lease,
-        admission,
-        repository,
-        operation_ref="op:1",
+    admission, used, operation = _reserve(
+        integration, lease, evidence, repository, issued
     )
+    assert admission.operation_may_dispatch
+    assert operation is not None
     assert not _admit(integration, used, evidence, repository, issued).operation_may_dispatch
 
     operation = integration.note_dispatch(
@@ -277,12 +296,11 @@ def test_used_revoked_expired_or_stale_evidence_cannot_dispatch() -> None:
 def test_reconciliation_requires_exact_candidate_and_strategy_lineage_proof() -> None:
     integration = _load("integration_lease_observation")
     lease, evidence, repository, issued = _fixture(integration)
-    used, operation = integration.reserve_integration_operation(
-        lease,
-        _admit(integration, lease, evidence, repository, issued),
-        repository,
-        operation_ref="op:1",
+    admission, used, operation = _reserve(
+        integration, lease, evidence, repository, issued
     )
+    assert admission.operation_may_dispatch
+    assert operation is not None
     assert used.consumed_by_operation_ref == "op:1"
     operation = integration.note_dispatch(
         operation,

@@ -230,6 +230,18 @@ class IntegrationObservation:
     integrated: bool | None
     integrated_sha: str | None
 
+    def __post_init__(self) -> None:
+        _require(self.target_ref, "target_ref")
+        _require(self.target_before_sha, "target_before_sha")
+        for value, name in (
+            (self.change_ref, "change_ref"),
+            (self.observed_candidate_sha, "observed_candidate_sha"),
+            (self.target_after_sha, "target_after_sha"),
+            (self.integrated_sha, "integrated_sha"),
+        ):
+            if value is not None:
+                _require(value, name)
+
 
 @dataclass(frozen=True)
 class IntegrationResult:
@@ -389,21 +401,26 @@ def admit_integration(
     )
 
 
-def reserve_integration_operation(
+def admit_and_reserve_integration(
     lease: IntegrationLease,
-    admission: IntegrationAdmission,
-    repository: IntegrationRepositoryState,
     *,
+    acting_principal_ref: str,
+    now: datetime,
+    repository: IntegrationRepositoryState,
+    evidence: IntegrationEvidenceSnapshot,
     operation_ref: str,
-) -> tuple[IntegrationLease, IntegrationOperation]:
-    """Consume one-shot authority and reserve durable operation identity before dispatch."""
+) -> tuple[IntegrationAdmission, IntegrationLease, IntegrationOperation | None]:
+    """Atomically derive mutation admission and consume one-shot authority for one operation."""
     _require(operation_ref, "operation_ref")
-    if lease.state is not IntegrationLeaseState.ACTIVE:
-        raise ValueError("integration operation requires an active lease")
-    if admission.lease_id != lease.lease_id or not admission.operation_may_dispatch:
-        raise ValueError("integration operation requires current admitted lease")
-    if admission.disposition is not IntegrationAdmissionDisposition.INTEGRATION_ADMITTED:
-        raise ValueError("integration operation requires INTEGRATION_ADMITTED")
+    admission = admit_integration(
+        lease,
+        acting_principal_ref=acting_principal_ref,
+        now=now,
+        repository=repository,
+        evidence=evidence,
+    )
+    if not admission.operation_may_dispatch:
+        return admission, lease, None
     operation = IntegrationOperation(
         operation_ref=operation_ref,
         lease_id=lease.lease_id,
@@ -425,8 +442,7 @@ def reserve_integration_operation(
         state=IntegrationLeaseState.USED,
         consumed_by_operation_ref=operation_ref,
     )
-    return consumed_lease, operation
-
+    return admission, consumed_lease, operation
 
 def note_dispatch(
     operation: IntegrationOperation,
@@ -486,7 +502,7 @@ def reconcile_integration(
             replace(operation, state=IntegrationOperationState.RECONCILIATION_REQUIRED),
             None,
         )
-    if not lineage_proof_ref:
+    if lineage_proof_ref is None or not lineage_proof_ref.strip():
         return (
             replace(operation, state=IntegrationOperationState.RECONCILIATION_REQUIRED),
             None,

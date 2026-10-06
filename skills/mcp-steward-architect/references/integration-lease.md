@@ -39,7 +39,7 @@ required review/verification evidence identity/currentness
 provider integration controls
 ```
 
-Only `INTEGRATION_ADMITTED` may progress to operation reservation. Candidate drift yields `STALE_CANDIDATE`; incompatible/unknown target movement yields `BASE_TOPOLOGY_CHANGED`; stale/missing evidence yields `EVIDENCE_STALE`; authority/generation/policy loss yields `LOST_AUTHORITY`; provider protection/controls yield `PROVIDER_BLOCKED`.
+Only `INTEGRATION_ADMITTED` may progress to operation reservation. The canonical executable helper derives admission and durable reservation from the same fresh fact set in one `admit_and_reserve_integration` boundary so a caller cannot reuse an older admission after repository state changes. Candidate drift yields `STALE_CANDIDATE`; incompatible/unknown target movement yields `BASE_TOPOLOGY_CHANGED`; stale/missing evidence yields `EVIDENCE_STALE`; authority/generation/policy loss yields `LOST_AUTHORITY`; provider protection/controls yield `PROVIDER_BLOCKED`.
 
 A compatible base advance is not implicit permission to merge. It may be classified `BASE_ADVANCED_COMPATIBLE`, but remains non-dispatching until the owning base/delivery policy performs its required revalidation, queue transition, or re-admission. Planning/execution-base topology remains owned by its canonical contract rather than this lease.
 
