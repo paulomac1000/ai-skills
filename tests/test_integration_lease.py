@@ -71,9 +71,39 @@ def _fixture(module: ModuleType):
     return lease, evidence, repository, issued
 
 
-def _admit(module: ModuleType, lease, evidence, repository, issued, *, actor="control:release"):
+def _authority_record(module: ModuleType, lease):
+    return module.IntegrationLeaseAuthorityRecord(
+        source_ref="authority-store:primary",
+        attestation_ref="attestation:lease:1",
+        lease=lease,
+    )
+
+
+def _verifier(authoritative_lease):
+    def verify(record) -> bool:
+        return (
+            record.source_ref == "authority-store:primary"
+            and record.attestation_ref == "attestation:lease:1"
+            and record.lease == authoritative_lease
+        )
+
+    return verify
+
+
+def _admit(
+    module: ModuleType,
+    lease,
+    evidence,
+    repository,
+    issued,
+    *,
+    actor="control:release",
+    authoritative_lease=None,
+):
+    trusted_lease = lease if authoritative_lease is None else authoritative_lease
     return module.admit_integration(
-        lease,
+        _authority_record(module, lease),
+        verify_authority_record=_verifier(trusted_lease),
         acting_principal_ref=actor,
         now=issued + timedelta(minutes=5),
         repository=repository,
@@ -81,9 +111,20 @@ def _admit(module: ModuleType, lease, evidence, repository, issued, *, actor="co
     )
 
 
-def _reserve(module: ModuleType, lease, evidence, repository, issued, *, operation_ref="op:1"):
+def _reserve(
+    module: ModuleType,
+    lease,
+    evidence,
+    repository,
+    issued,
+    *,
+    operation_ref="op:1",
+    authoritative_lease=None,
+):
+    trusted_lease = lease if authoritative_lease is None else authoritative_lease
     return module.admit_and_reserve_integration(
-        lease,
+        _authority_record(module, lease),
+        verify_authority_record=_verifier(trusted_lease),
         acting_principal_ref="control:release",
         now=issued + timedelta(minutes=5),
         repository=repository,
@@ -147,6 +188,23 @@ def test_push_writer_or_child_actor_cannot_mint_integration_authority() -> None:
     assert admission.disposition is integration.IntegrationAdmissionDisposition.LOST_AUTHORITY
     assert not admission.operation_may_dispatch
 
+    worker_lease = replace(
+        lease,
+        lease_id="lease:worker-minted",
+        authority_principal_ref="worker:child-with-push-token",
+    )
+    self_minted = _admit(
+        integration,
+        worker_lease,
+        evidence,
+        repository,
+        issued,
+        actor="worker:child-with-push-token",
+        authoritative_lease=lease,
+    )
+    assert self_minted.disposition is integration.IntegrationAdmissionDisposition.LOST_AUTHORITY
+    assert not self_minted.operation_may_dispatch
+
 
 def test_candidate_base_tree_policy_and_evidence_drift_fail_closed() -> None:
     integration = _load("integration_lease_drift")
@@ -182,7 +240,8 @@ def test_candidate_base_tree_policy_and_evidence_drift_fail_closed() -> None:
     ).disposition is integration.IntegrationAdmissionDisposition.BASE_TOPOLOGY_CHANGED
 
     admission, unchanged, operation = integration.admit_and_reserve_integration(
-        lease,
+        _authority_record(integration, lease),
+        verify_authority_record=_verifier(lease),
         acting_principal_ref="control:release",
         now=issued + timedelta(minutes=5),
         repository=replace(repository, current_head_sha="C2"),
@@ -332,3 +391,44 @@ def test_reference_is_provider_neutral_and_credential_free() -> None:
     assert "must not be retroactively represented as lease-authorized" in reference
     assert "GitHub pull requests" in reference
     assert "cannot supply authority principal" in reference
+
+def test_reconciliation_rejects_reserved_terminal_and_unbound_negative_observations() -> None:
+    integration = _load("integration_lease_reconcile_state")
+    lease, evidence, repository, issued = _fixture(integration)
+    _, _, reserved = _reserve(integration, lease, evidence, repository, issued)
+    assert reserved is not None
+
+    negative = integration.IntegrationObservation(
+        change_ref="change:10",
+        observed_candidate_sha="C1",
+        target_ref="refs/heads/main",
+        target_before_sha="B1",
+        target_after_sha="B1",
+        integrated=False,
+        integrated_sha=None,
+    )
+    with pytest.raises(ValueError):
+        integration.reconcile_integration(reserved, negative, lineage_proof_ref=None)
+
+    ambiguous = integration.note_dispatch(
+        reserved,
+        integration.DispatchObservation.DELIVERY_UNKNOWN,
+    )
+    unresolved, result = integration.reconcile_integration(
+        ambiguous,
+        replace(negative, observed_candidate_sha=None),
+        lineage_proof_ref=None,
+    )
+    assert unresolved.state is integration.IntegrationOperationState.RECONCILIATION_REQUIRED
+    assert result is None
+
+    not_integrated, result = integration.reconcile_integration(
+        ambiguous,
+        negative,
+        lineage_proof_ref=None,
+    )
+    assert not_integrated.state is integration.IntegrationOperationState.NOT_INTEGRATED
+    assert result is None
+    with pytest.raises(ValueError):
+        integration.reconcile_integration(not_integrated, negative, lineage_proof_ref=None)
+
