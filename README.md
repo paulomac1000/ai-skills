@@ -2,7 +2,7 @@
 
 A production-oriented collection of reusable standards, implementation playbooks, executable policy helpers, and tested templates for AI-assisted software engineering.
 
-The current repository release is `3.20.0`. All bundled skills are published with `maturity: stable` and are intended for production adoption. Each skill declares its compatibility, dependencies, evidence lanes, and required entry points in `manifest.yaml`.
+The current repository release is `3.21.0`. All bundled skills are published with `maturity: stable` and are intended for production adoption. Each skill declares its compatibility, dependencies, evidence lanes, and required entry points in `manifest.yaml`.
 
 ## Included skills
 
@@ -11,7 +11,7 @@ The current repository release is `3.20.0`. All bundled skills are published wit
 | `afds-doc-writer` | Create, validate, and maintain evidence-based technical documentation. | Validator, lifecycle and impact playbooks, governed-document template |
 | `agents-md-architect` | Create, audit, split, and validate concise repository instruction systems for coding agents. | Root and nested templates, profile and routing playbooks, drift guidance, executable validator |
 | `changelog-release-architect` | Curate human-facing changelogs, choose one evidence-based repository SemVer transition, and finalize declared automatic releases after integration. | Release-boundary/publication standard and history-aware validator |
-| `ci-cd-architect` | Design secure and reproducible local and hosted quality gates. | Python, .NET, MCP, documentation, security, packaging, dependency and container workflows, plus exact ArtifactPublicationLease authority |
+| `ci-cd-architect` | Design secure and reproducible local and hosted quality gates. | Python, .NET, MCP, documentation, security, packaging, dependency-lock verification/refresh, container workflows, plus exact ArtifactPublicationLease authority |
 | `mcp-gateway-release-verifier` | Compose exact-artifact MCP identity, schema, transport, lifecycle, health, integrity, and cleanup evidence into a bounded release verdict. | Release-verdict composer and local candidate acceptance lane |
 | `mcp-server-architect` | Design secure, observable, and agent-friendly MCP servers. | Language-neutral core, projection field ownership, source-qualified gateway aggregation, generation-bound catalog discovery, Python/FastMCP and .NET profiles, testing, security, operations, examples |
 | `mcp-server-consumer` | Select and invoke MCP capabilities safely and efficiently. | Deterministic decision engine and workflow, retry, pagination, and trust playbooks |
