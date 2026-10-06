@@ -176,6 +176,13 @@ skills:
       severity: blocking
       waivable: true
       required_evidence: [unit, official-client]
+    - id: mcp.discovery.generation-bound
+      source: STANDARD.md#mutable-catalog-discovery-lifecycle
+      description: Mutable gateway discovery state is generation-bound, single-flight and publication-fenced, while invocation re-resolves current canonical authority.
+      applies_when: {maturity_at_least: L2, profiles_any: [large-catalog, gateway]}
+      severity: blocking
+      waivable: false
+      required_evidence: [unit, integration]
     - id: mcp.manifest.complete
       source: STANDARD.md#multi-axis-safety-classification
       description: Every capability has a complete application-owned manifest and conservative defaults.

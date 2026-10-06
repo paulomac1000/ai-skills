@@ -24,7 +24,7 @@ Use this skill for new MCP servers, transport migrations, SDK upgrades, security
 11. Assign ownership for process, tenant, target, session, request, client, cache, lock, executor, artifact, browser profile, and background-task lifecycles.
 12. Define deadlines, cancellation, idempotency, retry, concurrency, disconnect, reconciliation, and partial-failure semantics.
 13. Add authentication, resource-scoped authorization, confused-deputy controls, safe path/command validation, secret boundaries, and quotas.
-14. Design bounded discovery, server instructions, pagination, stable identifiers, provenance, and empty-success behavior.
+14. Design bounded discovery, server instructions, pagination, stable identifiers, provenance, and empty-success behavior. For mutable gateway catalogs, load `references/catalog-discovery-lifecycle.md` and bind derived indexes/caches/search results to exact catalog plus search-config generations; invocation must re-resolve current canonical authority.
 15. Add transport parity, correlation, traces, metrics, audit events, and separate response/log sanitization.
 16. Test domain, manifest, policy, registration, lifecycle, filesystem, artifacts, tasks, browser state, transports, races, and real-client behavior independently.
 17. Build and smoke the exact deployment artifact; generation or source inspection alone is never acceptance evidence.
