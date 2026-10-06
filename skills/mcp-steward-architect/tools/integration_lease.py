@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, replace
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
 
@@ -56,12 +57,14 @@ class DispatchObservation(StrEnum):
 
 
 def _require(value: str, name: str) -> None:
+    """Require a non-empty identity field."""
     if not value or not value.strip():
         raise ValueError(f"{name} must be non-empty")
 
 
 def _require_utc(value: datetime, name: str) -> None:
-    if value.tzinfo is None or value.utcoffset() != timezone.utc.utcoffset(value):
+    """Require an explicit UTC timestamp."""
+    if value.tzinfo is None or value.utcoffset() != UTC.utcoffset(value):
         raise ValueError(f"{name} must be timezone-aware UTC")
 
 
@@ -118,6 +121,22 @@ class IntegrationLease:
             _require(self.consumed_by_operation_ref, "consumed_by_operation_ref")
         elif self.consumed_by_operation_ref is not None:
             raise ValueError("only a used lease may bind consumed_by_operation_ref")
+
+
+@dataclass(frozen=True)
+class IntegrationLeaseAuthorityRecord:
+    """Lease loaded from an authority-controlled store or issuer adapter."""
+
+    source_ref: str
+    attestation_ref: str
+    lease: IntegrationLease
+
+    def __post_init__(self) -> None:
+        _require(self.source_ref, "source_ref")
+        _require(self.attestation_ref, "attestation_ref")
+
+
+IntegrationAuthorityVerifier = Callable[[IntegrationLeaseAuthorityRecord], bool]
 
 
 @dataclass(frozen=True)
@@ -265,6 +284,7 @@ class IntegrationResult:
 
 
 def _evidence_current(lease: IntegrationLease, evidence: IntegrationEvidenceSnapshot) -> bool:
+    """Return whether the exact policy-required evidence snapshot is current."""
     if evidence.evidence_set_digest != lease.required_evidence_set_digest:
         return False
     if lease.review_policy_revision is not None:
@@ -285,16 +305,29 @@ def _evidence_current(lease: IntegrationLease, evidence: IntegrationEvidenceSnap
 
 
 def admit_integration(
-    lease: IntegrationLease,
+    authority_record: IntegrationLeaseAuthorityRecord,
     *,
+    verify_authority_record: IntegrationAuthorityVerifier,
     acting_principal_ref: str,
     now: datetime,
     repository: IntegrationRepositoryState,
     evidence: IntegrationEvidenceSnapshot,
 ) -> IntegrationAdmission:
-    """Re-read exact authority/candidate/base/evidence facts immediately before integration."""
+    """Re-read trusted lease authority plus exact mutable integration facts."""
+    lease = authority_record.lease
     _require(acting_principal_ref, "acting_principal_ref")
     _require_utc(now, "now")
+    try:
+        authority_current = verify_authority_record(authority_record)
+    except Exception:
+        authority_current = False
+    if authority_current is not True:
+        return IntegrationAdmission(
+            IntegrationAdmissionDisposition.LOST_AUTHORITY,
+            lease.lease_id,
+            False,
+            "lease is not current in the trusted authority source",
+        )
     if lease.state is not IntegrationLeaseState.ACTIVE:
         return IntegrationAdmission(
             IntegrationAdmissionDisposition.LEASE_NOT_ACTIVE,
@@ -402,18 +435,21 @@ def admit_integration(
 
 
 def admit_and_reserve_integration(
-    lease: IntegrationLease,
+    authority_record: IntegrationLeaseAuthorityRecord,
     *,
+    verify_authority_record: IntegrationAuthorityVerifier,
     acting_principal_ref: str,
     now: datetime,
     repository: IntegrationRepositoryState,
     evidence: IntegrationEvidenceSnapshot,
     operation_ref: str,
 ) -> tuple[IntegrationAdmission, IntegrationLease, IntegrationOperation | None]:
-    """Atomically derive mutation admission and consume one-shot authority for one operation."""
+    """Atomically admit trusted authority and consume one-shot integration authority."""
+    lease = authority_record.lease
     _require(operation_ref, "operation_ref")
     admission = admit_integration(
-        lease,
+        authority_record,
+        verify_authority_record=verify_authority_record,
         acting_principal_ref=acting_principal_ref,
         now=now,
         repository=repository,
@@ -465,6 +501,13 @@ def reconcile_integration(
     lineage_proof_ref: str | None,
 ) -> tuple[IntegrationOperation, IntegrationResult | None]:
     """Reconcile authoritative provider/ref state before any replay after ambiguous delivery."""
+    if operation.state not in {
+        IntegrationOperationState.DISPATCHED,
+        IntegrationOperationState.RECONCILIATION_REQUIRED,
+    }:
+        raise ValueError(
+            "operation may be reconciled only after dispatch and before a terminal outcome"
+        )
     if observation.target_ref != operation.target_ref:
         return (
             replace(operation, state=IntegrationOperationState.RECONCILIATION_REQUIRED),
@@ -486,6 +529,14 @@ def reconcile_integration(
             None,
         )
     if observation.integrated is False:
+        if (
+            observation.observed_candidate_sha != operation.candidate_sha
+            or observation.target_before_sha != operation.target_before_sha
+        ):
+            return (
+                replace(operation, state=IntegrationOperationState.RECONCILIATION_REQUIRED),
+                None,
+            )
         return replace(operation, state=IntegrationOperationState.NOT_INTEGRATED), None
     if observation.observed_candidate_sha != operation.candidate_sha:
         return (
