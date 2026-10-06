@@ -1,5 +1,18 @@
 # Changelog
 
+## 3.20.0 - 2026-10-06
+
+### Added
+
+- Added DeploymentLease v2 target-generation fencing for concurrent autonomous deployment, binding an exact mutation domain, authority-issued expected-current target identity, and provider-CAS or durable broker/generation fence.
+- Added a provider-neutral reference admission/reservation helper and regressions for same-domain races, independent-domain concurrency, provider revision drift, crash/restart ownership, rollback conflict, one-shot consumption, authoritative reconciliation, and bounded resulting-target audit evidence.
+
+### Security and correctness
+
+- Conflicting deploy, rollback, restart, promotion, or migration operations cannot race from independent stale snapshots in one mutation domain; only exact current authority plus target/fence preconditions may reach dispatch.
+- Reservation consumes the one-shot lease before dispatch and survives restart; delivery-unknown state remains pressure-bearing until authoritative reconciliation, while successful mutation advances the fence so stale holders fail closed.
+- Runtime identity or acceptance evidence may inform later deployment preconditions but cannot mint, widen, or refresh deployment authority.
+
 ## 3.19.0 - 2026-10-06
 
 ### Added
