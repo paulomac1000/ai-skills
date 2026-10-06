@@ -1,6 +1,6 @@
 schema_version: 1
 name: skill-architect
-version: 3.18.0
+version: 3.19.0
 maturity: stable
 skill_format: ai-skills/v1
 normative_entrypoint: STANDARD.md
