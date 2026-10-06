@@ -4,30 +4,236 @@
   "title": "Deployment lease",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "lease_id", "principal", "target", "artifact_digest", "action", "normalized_args_digest", "policy_revision", "issued_at", "expires_at", "state"],
+  "required": [
+    "schema_version",
+    "lease_id",
+    "principal",
+    "target",
+    "artifact_digest",
+    "action",
+    "normalized_args_digest",
+    "policy_revision",
+    "issued_at",
+    "expires_at",
+    "state"
+  ],
   "properties": {
-    "schema_version": {"const": 1},
-    "lease_id": {"type": "string", "minLength": 1, "maxLength": 256},
-    "principal": {"type": "string", "minLength": 1, "maxLength": 256},
-    "session": {"type": ["string", "null"], "maxLength": 256},
+    "schema_version": {
+      "enum": [
+        1,
+        2
+      ]
+    },
+    "lease_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "principal": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "session": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "maxLength": 256
+    },
     "target": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["project", "environment", "resource"],
+      "required": [
+        "project",
+        "environment",
+        "resource"
+      ],
       "properties": {
-        "project": {"type": "string", "minLength": 1, "maxLength": 512},
-        "environment": {"type": "string", "minLength": 1, "maxLength": 256},
-        "resource": {"type": "string", "minLength": 1, "maxLength": 2048}
+        "project": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "environment": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "resource": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "mutation_domain": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        }
       }
     },
-    "artifact_digest": {"type": "string", "pattern": "^sha256:[0-9a-fA-F]{64}$"},
-    "source_revision": {"type": ["string", "null"], "pattern": "^[0-9a-fA-F]{40}$"},
-    "action": {"enum": ["deploy", "rollback", "restart", "promote", "migrate"]},
-    "normalized_args_digest": {"type": "string", "pattern": "^hmac-sha256:[0-9a-fA-F]{64}$"},
-    "policy_revision": {"type": "string", "minLength": 1, "maxLength": 256},
-    "issued_at": {"type": "string", "format": "date-time"},
-    "expires_at": {"type": "string", "format": "date-time"},
-    "state": {"enum": ["active", "used", "revoked", "expired"]},
-    "evidence_refs": {"type": "array", "items": {"type": "string", "minLength": 1, "maxLength": 2048}, "uniqueItems": true}
-  }
+    "artifact_digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-fA-F]{64}$"
+    },
+    "source_revision": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[0-9a-fA-F]{40}$"
+    },
+    "action": {
+      "enum": [
+        "deploy",
+        "rollback",
+        "restart",
+        "promote",
+        "migrate"
+      ]
+    },
+    "normalized_args_digest": {
+      "type": "string",
+      "pattern": "^hmac-sha256:[0-9a-fA-F]{64}$"
+    },
+    "policy_revision": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "issued_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "expires_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "state": {
+      "enum": [
+        "active",
+        "used",
+        "revoked",
+        "expired"
+      ]
+    },
+    "evidence_refs": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 2048
+      },
+      "uniqueItems": true
+    },
+    "expected_current": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "deployment_generation": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 256
+        },
+        "runtime_instance_generation": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 256
+        },
+        "artifact_digest": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^sha256:[0-9a-fA-F]{64}$"
+        },
+        "config_revision": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 512
+        },
+        "provider_revision_or_etag": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 512
+        }
+      }
+    },
+    "fence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mode",
+        "token_or_generation"
+      ],
+      "properties": {
+        "mode": {
+          "enum": [
+            "provider_cas",
+            "broker_single_writer",
+            "lease_generation"
+          ]
+        },
+        "token_or_generation": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "schema_version": {
+            "const": 2
+          }
+        },
+        "required": [
+          "schema_version"
+        ]
+      },
+      "then": {
+        "required": [
+          "expected_current",
+          "fence"
+        ],
+        "properties": {
+          "target": {
+            "required": [
+              "project",
+              "environment",
+              "resource",
+              "mutation_domain"
+            ]
+          }
+        }
+      },
+      "else": {
+        "not": {
+          "anyOf": [
+            {
+              "required": [
+                "expected_current"
+              ]
+            },
+            {
+              "required": [
+                "fence"
+              ]
+            }
+          ]
+        }
+      }
+    }
+  ]
 }
