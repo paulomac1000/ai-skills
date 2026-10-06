@@ -40,13 +40,11 @@ Do not solve provenance by stripping known reminder prefixes after source text h
 
 ## Deployment leases
 
-`deployment-lease.schema.json` keeps schema v1 for exact one-use authority and adds schema v2 for target-generation fencing. A v2 lease additionally binds the smallest conflicting `target.mutation_domain`, an authority-issued `expected_current` target snapshot, and a `fence` using provider CAS, a durable broker single-writer, or an authority-owned lease generation.
+`deployment-lease.schema.json` keeps schema version 1 exact one-use authority and adds schema version 2 target fencing: `target.mutation_domain`, authority-owned `expected_current`, and provider-CAS or durable broker/generation `fence` identity.
 
-`deployment_lease.py` keeps the v1 exact-dimension admission helper and adds a v2 fenced path. Immediately before reservation it re-reads the trusted authority record, verifies principal/session, target, artifact, action, normalized arguments, policy and source revision, then compares the authoritative target state and fence. `TARGET_PRECONDITION_MATCH` is preflight evidence only and remains non-dispatching until atomic domain reservation succeeds. `TARGET_ADVANCED_COMPATIBLE`, `TARGET_CHANGED`, `STALE_LEASE`, `CONFLICTING_MUTATION_ACTIVE`, and `TARGET_STATE_UNKNOWN` never dispatch from the old lease.
+`deployment_lease.py` revalidates authority and target state immediately before mutation. `TARGET_PRECONDITION_MATCH` is preflight evidence only; dispatch requires atomic one-shot lease consumption plus domain reservation. Changed, stale, unknown, compatible-advance, or active-conflict states do not dispatch. Same-domain deploy/rollback work serializes; an unknown external effect keeps ownership until authoritative reconciliation, and an applied mutation advances the fence.
 
-Conflicting mutations in one domain are serialized at the authoritative admission boundary. Provider-CAS mode carries the exact provider precondition token that the provider mutation must enforce atomically; broker/generation modes require a durable compare-and-swap reservation before dispatch. The authority/broker reservation atomically consumes the one-shot lease and records the domain owner; a crash or restart must reload both facts rather than reactivate the lease. A stale holder cannot mutate after a newer fence generation exists, and rollback races with forward deployment in the same domain unless the deployment owner defines a narrower proven-safe domain.
-
-Repository content, model output, candidate code, or an untrusted client cannot mint, rewrite, extend, or reactivate `expected_current` or the fence. RuntimeAcceptanceReceipt-style identity may inform the authority's target snapshot but is evidence, never deployment authority. Timeout or connection loss after dispatch leaves the domain pressure-bearing until authoritative reconciliation proves applied or no-effect state; an unresolved effect blocks conflicting handover and blind retry. Credentials stay behind the trusted executor/broker boundary.
+Repository/model/candidate input cannot mint or refresh these authority fields. Runtime identity evidence may inform expected target state but never grants deployment authority; credentials remain behind the trusted executor/broker boundary.
 
 ## Durable audit events
 

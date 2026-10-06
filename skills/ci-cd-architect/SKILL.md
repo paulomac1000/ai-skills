@@ -21,11 +21,11 @@ Repository SemVer selection, changelog curation, and the one-version-per-release
 8. Pin every third-party action to a full commit SHA and maintain version comments separately from trust.
 9. Give each job least privilege, a timeout, explicit concurrency behavior, and bounded artifact retention.
 10. Separate validation from privileged publication. Validation does not write production-effective state unless it is explicitly a deployment/migration transaction with separate authority.
-11. For concurrent autonomous deployment, use DeploymentLease v2 target-generation fencing: re-read authority and target state, reserve the exact mutation domain atomically, and reconcile ambiguous effects before conflicting handover or retry.
+11. For concurrent deployment, use DeploymentLease schema version 2 fencing: re-read authority/target, atomically reserve the mutation domain, and reconcile ambiguity before handover or retry.
 12. Build and smoke-test without publication authority; the protected publisher only promotes the same immutable artifact or digest.
 13. For autonomous publication, require an authority-owned exact ArtifactPublicationLease and read `references/artifact-publication-lease.md`; build/test, repository-write, deployment, or generic registry credentials are not publication authority.
 14. Verify acceptance and release identity from the exact executed revision, not from unrelated trigger context or a workflow that never received a runner.
-14. Render and parse templates, run the repository quality gate, inspect final workflow permissions and triggers, and prove both fast and full execution paths where on-demand CI is used.
+15. Render and parse templates, run the repository quality gate, inspect final workflow permissions and triggers, and prove both fast and full execution paths where on-demand CI is used.
 
 Read `STANDARD.md`, then choose profiles using `references/template-selection.md`. Use `references/on-demand-ci.md` when agentic commit volume or provider quotas make automatic PR CI wasteful. Use `references/local-quality-gates.md`, `references/verification-integrity.md`, `references/artifact-publication-lease.md`, `action-sha-maintenance.md`, and `failure-patterns.md` for implementation details.
 

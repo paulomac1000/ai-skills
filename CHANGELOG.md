@@ -4,7 +4,7 @@
 
 ### Added
 
-- Added DeploymentLease v2 target-generation fencing for concurrent autonomous deployment, binding an exact mutation domain, authority-issued expected-current target identity, and provider-CAS or durable broker/generation fence.
+- Added DeploymentLease schema version 2 target-generation fencing for concurrent autonomous deployment, binding an exact mutation domain, authority-issued expected-current target identity, and provider-CAS or durable broker/generation fence.
 - Added a provider-neutral reference admission/reservation helper and regressions for same-domain races, independent-domain concurrency, provider revision drift, crash/restart ownership, rollback conflict, one-shot consumption, authoritative reconciliation, and bounded resulting-target audit evidence.
 
 ### Security and correctness
