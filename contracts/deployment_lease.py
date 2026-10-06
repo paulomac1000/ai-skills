@@ -462,7 +462,7 @@ def admit_and_reserve_fenced_mutation(
         consumed_lease_ids=consumed_lease_ids,
         compatible_advancement_proof_ref=compatible_advancement_proof_ref,
     )
-    if not admission.operation_may_dispatch:
+    if admission.disposition is not DeploymentAdmissionDisposition.TARGET_PRECONDITION_MATCH:
         return admission, None
     assert admission.mutation_domain is not None
     assert admission.fence_mode is not None
