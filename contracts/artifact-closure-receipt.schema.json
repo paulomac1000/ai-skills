@@ -33,15 +33,31 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["deliverable_id", "artifact_digest", "presence", "identity_ref", "smoke_status", "evidence_ref"],
+        "required": ["deliverable_id", "artifact_digest", "presence", "identity_ref", "smoke_profile_ref", "smoke_status", "evidence_ref"],
         "properties": {
           "deliverable_id": {"type": "string", "minLength": 1, "maxLength": 256},
           "artifact_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
           "presence": {"enum": ["PRESENT", "MISSING", "UNKNOWN"]},
           "identity_ref": {"type": ["string", "null"], "minLength": 1, "maxLength": 2048},
+          "smoke_profile_ref": {"type": ["string", "null"], "minLength": 1, "maxLength": 2048},
           "smoke_status": {"enum": ["PASS", "FAIL", "UNKNOWN", "NOT_REQUIRED"]},
           "evidence_ref": {"type": ["string", "null"], "minLength": 1, "maxLength": 2048}
-        }
+        },
+        "allOf": [
+          {
+            "if": {"properties": {"smoke_status": {"enum": ["PASS", "FAIL"]}}, "required": ["smoke_status"]},
+            "then": {"properties": {"smoke_profile_ref": {"type": "string", "minLength": 1}}}
+          },
+          {
+            "if": {"properties": {"evidence_ref": {"type": "null"}}, "required": ["evidence_ref"]},
+            "then": {
+              "properties": {
+                "presence": {"const": "UNKNOWN"},
+                "smoke_status": {"const": "UNKNOWN"}
+              }
+            }
+          }
+        ]
       }
     },
     "unexpected_components": {
@@ -82,10 +98,12 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["deliverable_id", "smoke_status"],
+        "required": ["deliverable_id", "smoke_status", "expected_smoke_profile_ref", "observed_smoke_profile_ref"],
         "properties": {
           "deliverable_id": {"type": "string", "minLength": 1, "maxLength": 256},
-          "smoke_status": {"enum": ["FAIL", "UNKNOWN", "NOT_REQUIRED"]}
+          "smoke_status": {"enum": ["PASS", "FAIL", "UNKNOWN", "NOT_REQUIRED"]},
+          "expected_smoke_profile_ref": {"type": "string", "minLength": 1, "maxLength": 2048},
+          "observed_smoke_profile_ref": {"type": ["string", "null"], "minLength": 1, "maxLength": 2048}
         }
       }
     },

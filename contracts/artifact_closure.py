@@ -35,11 +35,21 @@ _RECEIPT_ROOT_FIELDS = frozenset(
 )
 _RECEIPT_MANIFEST_FIELDS = frozenset({"manifest_id", "revision", "digest", "policy_ref"})
 _OBSERVED_FIELDS = frozenset(
-    {"deliverable_id", "artifact_digest", "presence", "identity_ref", "smoke_status", "evidence_ref"}
+    {
+        "deliverable_id",
+        "artifact_digest",
+        "presence",
+        "identity_ref",
+        "smoke_profile_ref",
+        "smoke_status",
+        "evidence_ref",
+    }
 )
 _UNEXPECTED_FIELDS = frozenset({"component_ref", "artifact_digest", "criticality", "disposition", "evidence_ref"})
 _IDENTITY_MISMATCH_FIELDS = frozenset({"deliverable_id", "expected_identity_ref", "observed_identity_ref"})
-_SMOKE_FAILURE_FIELDS = frozenset({"deliverable_id", "smoke_status"})
+_SMOKE_FAILURE_FIELDS = frozenset(
+    {"deliverable_id", "smoke_status", "expected_smoke_profile_ref", "observed_smoke_profile_ref"}
+)
 
 
 class DeliverableKind(StrEnum):
@@ -183,13 +193,23 @@ def _receipt_shape_is_valid(receipt: object) -> bool:
         identity_ref = item.get("identity_ref")
         if identity_ref is not None and not _is_bounded_text(identity_ref):
             return False
-        if item.get("smoke_status") not in {status.value for status in SmokeStatus}:
+        smoke_profile_ref = item.get("smoke_profile_ref")
+        if smoke_profile_ref is not None and not _is_bounded_text(smoke_profile_ref):
+            return False
+        smoke_status = item.get("smoke_status")
+        if smoke_status not in {status.value for status in SmokeStatus}:
+            return False
+        if smoke_status in {SmokeStatus.PASS.value, SmokeStatus.FAIL.value} and smoke_profile_ref is None:
             return False
         evidence_ref = item.get("evidence_ref")
         if evidence_ref is not None and not _is_bounded_text(evidence_ref):
             return False
+        if evidence_ref is None and (
+            item.get("presence") != Presence.UNKNOWN.value or smoke_status != SmokeStatus.UNKNOWN.value
+        ):
+            return False
         if item.get("presence") != Presence.PRESENT.value:
-            if identity_ref is not None or item.get("smoke_status") in {SmokeStatus.PASS.value, SmokeStatus.FAIL.value}:
+            if identity_ref is not None or smoke_status in {SmokeStatus.PASS.value, SmokeStatus.FAIL.value}:
                 return False
     if len(observed_ids) != len(set(observed_ids)):
         return False
@@ -261,11 +281,12 @@ def _receipt_shape_is_valid(receipt: object) -> bool:
             return False
         assert isinstance(deliverable_id, str)
         smoke_ids.append(deliverable_id)
-        if item.get("smoke_status") not in {
-            SmokeStatus.FAIL.value,
-            SmokeStatus.UNKNOWN.value,
-            SmokeStatus.NOT_REQUIRED.value,
-        }:
+        if item.get("smoke_status") not in {status.value for status in SmokeStatus}:
+            return False
+        if not _is_bounded_text(item.get("expected_smoke_profile_ref")):
+            return False
+        observed_smoke_profile_ref = item.get("observed_smoke_profile_ref")
+        if observed_smoke_profile_ref is not None and not _is_bounded_text(observed_smoke_profile_ref):
             return False
     return len(smoke_ids) == len(set(smoke_ids))
 
@@ -323,6 +344,7 @@ class DeliverableObservation:
     artifact_digest: str
     presence: Presence
     identity_ref: str | None
+    smoke_profile_ref: str | None
     smoke_status: SmokeStatus
     evidence_ref: str
 
@@ -335,6 +357,10 @@ class DeliverableObservation:
             raise ValueError("smoke_status must be a SmokeStatus")
         if self.identity_ref is not None:
             _require_text(self.identity_ref, "identity_ref")
+        if self.smoke_profile_ref is not None:
+            _require_text(self.smoke_profile_ref, "smoke_profile_ref")
+        if self.smoke_status in {SmokeStatus.PASS, SmokeStatus.FAIL} and self.smoke_profile_ref is None:
+            raise ValueError("executed smoke result requires smoke_profile_ref")
         _require_text(self.evidence_ref, "evidence_ref")
         if self.presence is not Presence.PRESENT and self.identity_ref is not None:
             raise ValueError("non-present deliverable cannot claim an observed identity")
@@ -437,7 +463,7 @@ def evaluate_artifact_closure(
     missing_required: list[str] = []
     unknown_required: list[str] = []
     identity_mismatches: list[dict[str, str | None]] = []
-    smoke_failures: list[dict[str, str]] = []
+    smoke_failures: list[dict[str, str | None]] = []
 
     for deliverable_id in sorted(requirements):
         requirement = requirements[deliverable_id]
@@ -445,11 +471,13 @@ def evaluate_artifact_closure(
         if current_observation is None:
             presence = Presence.UNKNOWN
             identity_ref = None
+            smoke_profile_ref = None
             smoke_status = SmokeStatus.UNKNOWN
             evidence_ref = None
         else:
             presence = current_observation.presence
             identity_ref = current_observation.identity_ref
+            smoke_profile_ref = current_observation.smoke_profile_ref
             smoke_status = current_observation.smoke_status
             evidence_ref = current_observation.evidence_ref
 
@@ -459,6 +487,7 @@ def evaluate_artifact_closure(
                 "artifact_digest": artifact_digest,
                 "presence": presence.value,
                 "identity_ref": identity_ref,
+                "smoke_profile_ref": smoke_profile_ref,
                 "smoke_status": smoke_status.value,
                 "evidence_ref": evidence_ref,
             }
@@ -480,8 +509,17 @@ def evaluate_artifact_closure(
                     "observed_identity_ref": identity_ref,
                 }
             )
-        if requirement.smoke_required and smoke_status is not SmokeStatus.PASS:
-            smoke_failures.append({"deliverable_id": deliverable_id, "smoke_status": smoke_status.value})
+        if requirement.smoke_required and (
+            smoke_status is not SmokeStatus.PASS or smoke_profile_ref != requirement.smoke_profile_ref
+        ):
+            smoke_failures.append(
+                {
+                    "deliverable_id": deliverable_id,
+                    "smoke_status": smoke_status.value,
+                    "expected_smoke_profile_ref": requirement.smoke_profile_ref,
+                    "observed_smoke_profile_ref": smoke_profile_ref,
+                }
+            )
 
     normalized_unexpected = [
         {
@@ -573,7 +611,7 @@ def verify_artifact_closure_receipt_semantics(
     missing_required: list[str] = []
     unknown_required: list[str] = []
     identity_mismatches: list[dict[str, str | None]] = []
-    smoke_failures: list[dict[str, str]] = []
+    smoke_failures: list[dict[str, str | None]] = []
     for deliverable_id in sorted(requirements):
         requirement = requirements[deliverable_id]
         observation = observed_map[deliverable_id]
@@ -587,6 +625,7 @@ def verify_artifact_closure_receipt_semantics(
             unknown_required.append(deliverable_id)
             continue
         identity_ref = observation["identity_ref"]
+        smoke_profile_ref = observation["smoke_profile_ref"]
         smoke_status = observation["smoke_status"]
         if requirement.expected_identity_ref is not None and identity_ref != requirement.expected_identity_ref:
             identity_mismatches.append(
@@ -596,8 +635,17 @@ def verify_artifact_closure_receipt_semantics(
                     "observed_identity_ref": identity_ref,
                 }
             )
-        if requirement.smoke_required and smoke_status != SmokeStatus.PASS.value:
-            smoke_failures.append({"deliverable_id": deliverable_id, "smoke_status": smoke_status})
+        if requirement.smoke_required and (
+            smoke_status != SmokeStatus.PASS.value or smoke_profile_ref != requirement.smoke_profile_ref
+        ):
+            smoke_failures.append(
+                {
+                    "deliverable_id": deliverable_id,
+                    "smoke_status": smoke_status,
+                    "expected_smoke_profile_ref": requirement.smoke_profile_ref,
+                    "observed_smoke_profile_ref": smoke_profile_ref,
+                }
+            )
 
     blocking_unexpected = [
         item["component_ref"]

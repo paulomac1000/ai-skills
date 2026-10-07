@@ -70,13 +70,21 @@ class ArtifactClosureTests(unittest.TestCase):
         *,
         presence: Presence = Presence.PRESENT,
         identity_ref: str | None = None,
+        smoke_profile_ref: str | None = None,
         smoke_status: SmokeStatus = SmokeStatus.PASS,
     ) -> DeliverableObservation:
+        if smoke_profile_ref is None and smoke_status in {SmokeStatus.PASS, SmokeStatus.FAIL}:
+            smoke_profile_ref = {
+                "host": "smoke:host-version",
+                "stewardctl": "smoke:stewardctl-help",
+                "worker": "smoke:worker-start",
+            }.get(deliverable_id, f"smoke:{deliverable_id}")
         return DeliverableObservation(
             deliverable_id=deliverable_id,
             artifact_digest=DIGEST_1,
             presence=presence,
             identity_ref=identity_ref,
+            smoke_profile_ref=smoke_profile_ref,
             smoke_status=smoke_status,
             evidence_ref=f"evidence:{deliverable_id}",
         )
@@ -136,6 +144,27 @@ class ArtifactClosureTests(unittest.TestCase):
                 )
                 self.assertEqual("INCOMPLETE", receipt["verdict"])
                 self.assertEqual(status.value, receipt["smoke_failures"][0]["smoke_status"])
+                self.assertEqual("smoke:stewardctl-help", receipt["smoke_failures"][0]["expected_smoke_profile_ref"])
+
+    def test_wrong_smoke_profile_blocks_closure(self) -> None:
+        receipt = self.evaluate(
+            self.observation("host", identity_ref="entrypoint:ProjectSteward.Host"),
+            self.observation(
+                "stewardctl",
+                identity_ref="entrypoint:stewardctl",
+                smoke_profile_ref="smoke:obsolete-stewardctl-check",
+            ),
+        )
+        self.assertEqual("INCOMPLETE", receipt["verdict"])
+        self.assertEqual(
+            {
+                "deliverable_id": "stewardctl",
+                "smoke_status": "PASS",
+                "expected_smoke_profile_ref": "smoke:stewardctl-help",
+                "observed_smoke_profile_ref": "smoke:obsolete-stewardctl-check",
+            },
+            receipt["smoke_failures"][0],
+        )
 
     def test_optional_absent_deliverable_does_not_block(self) -> None:
         receipt = self.evaluate(
@@ -180,6 +209,57 @@ class ArtifactClosureTests(unittest.TestCase):
         payload.pop("receipt_digest")
         receipt["receipt_digest"] = MODULE._sha256_document(payload)
         self.assertFalse(verify_artifact_closure_receipt_integrity(receipt))
+        self.assertEqual(
+            ClosureCurrentness.UNKNOWN,
+            classify_artifact_closure_currentness(
+                receipt,
+                current_source_revision="integrated-sha-090",
+                current_artifact_digest=DIGEST_1,
+                current_artifact_evidence_ref="artifact-evidence:project-steward-090",
+                current_manifest=manifest,
+            ),
+        )
+
+    def test_recomputed_digest_cannot_admit_present_observation_without_evidence(self) -> None:
+        manifest = self.manifest()
+        receipt = self.evaluate(
+            self.observation("host", identity_ref="entrypoint:ProjectSteward.Host"),
+            self.observation("stewardctl", identity_ref="entrypoint:stewardctl"),
+            manifest=manifest,
+        )
+        target = next(item for item in receipt["observed"] if item["deliverable_id"] == "stewardctl")
+        target["evidence_ref"] = None
+        payload = dict(receipt)
+        payload.pop("receipt_digest")
+        receipt["receipt_digest"] = MODULE._sha256_document(payload)
+
+        self.assertFalse(verify_artifact_closure_receipt_integrity(receipt))
+        self.assertEqual(
+            ClosureCurrentness.UNKNOWN,
+            classify_artifact_closure_currentness(
+                receipt,
+                current_source_revision="integrated-sha-090",
+                current_artifact_digest=DIGEST_1,
+                current_artifact_evidence_ref="artifact-evidence:project-steward-090",
+                current_manifest=manifest,
+            ),
+        )
+
+    def test_recomputed_digest_cannot_admit_pass_from_wrong_smoke_profile(self) -> None:
+        manifest = self.manifest()
+        receipt = self.evaluate(
+            self.observation("host", identity_ref="entrypoint:ProjectSteward.Host"),
+            self.observation("stewardctl", identity_ref="entrypoint:stewardctl"),
+            manifest=manifest,
+        )
+        target = next(item for item in receipt["observed"] if item["deliverable_id"] == "stewardctl")
+        target["smoke_profile_ref"] = "smoke:obsolete-stewardctl-check"
+        payload = dict(receipt)
+        payload.pop("receipt_digest")
+        receipt["receipt_digest"] = MODULE._sha256_document(payload)
+
+        self.assertTrue(verify_artifact_closure_receipt_integrity(receipt))
+        self.assertFalse(verify_artifact_closure_receipt_semantics(receipt, manifest))
         self.assertEqual(
             ClosureCurrentness.UNKNOWN,
             classify_artifact_closure_currentness(
@@ -353,6 +433,7 @@ class ArtifactClosureTests(unittest.TestCase):
             artifact_digest=DIGEST_2,
             presence=Presence.PRESENT,
             identity_ref="entrypoint:ProjectSteward.Host",
+            smoke_profile_ref="smoke:host-version",
             smoke_status=SmokeStatus.PASS,
             evidence_ref="evidence:wrong-artifact",
         )
@@ -395,13 +476,26 @@ class ArtifactClosureTests(unittest.TestCase):
         )
         self.assertEqual("INCOMPLETE", receipt["verdict"])
         self.assertEqual(["migrator"], receipt["missing_required"])
-        self.assertEqual([{"deliverable_id": "worker", "smoke_status": "FAIL"}], receipt["smoke_failures"])
+        self.assertEqual(
+            [
+                {
+                    "deliverable_id": "worker",
+                    "smoke_status": "FAIL",
+                    "expected_smoke_profile_ref": "smoke:worker-start",
+                    "observed_smoke_profile_ref": "smoke:worker-start",
+                }
+            ],
+            receipt["smoke_failures"],
+        )
 
     def test_contract_schemas_are_valid_json_and_match_reference_document_shape(self) -> None:
         manifest_schema = json.loads((ROOT / "contracts" / "release-deliverable-manifest.schema.json").read_text())
         receipt_schema = json.loads((ROOT / "contracts" / "artifact-closure-receipt.schema.json").read_text())
         self.assertEqual(1, manifest_schema["properties"]["schema_version"]["const"])
         self.assertEqual("artifact_closure", receipt_schema["properties"]["receipt_kind"]["const"])
+        observed_schema = receipt_schema["properties"]["observed"]["items"]
+        self.assertIn("smoke_profile_ref", observed_schema["required"])
+        self.assertIn("allOf", observed_schema)
         self.assertEqual(1, manifest_document(self.manifest())["schema_version"])
 
 
