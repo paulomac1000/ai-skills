@@ -176,7 +176,7 @@ The publisher verifies that every promoted production tag resolves to the expect
 
 ## Release deliverable closure
 
-When policy declares release deliverables, source/tests/docs are insufficient: the manifest schema and closure receipt/helper bind required presence, packaged identity, and required smoke to one exact source revision, artifact digest/evidence identity, and manifest identity. Missing/unknown presence, identity mismatch, non-`PASS` smoke, or unresolved critical unexpected content blocks closure. V1 is bounded and secret-free, not an SBOM; drift is `STALE`, malformed evidence is `UNKNOWN`. Required closure must be `COMPLETE` before governed promotion and grants no publication, deployment, or runtime-acceptance authority.
+Policy-owned requirements use `contracts/release-deliverable-manifest.schema.json`; source files, component checks, or docs cannot establish packaged presence. `contracts/artifact-closure-receipt.schema.json` binds source/payload/proof/manifest identity and observations. Required presence/identity/usability probe must pass; missing/indeterminate/mismatch/non-`PASS` or unresolved critical content blocks. V1 is bounded, credential-free, not an SBOM. Identity drift is `STALE`; malformed receipts are indeterminate. `COMPLETE` is required before governed promotion; closure grants neither publication/deployment authority nor post-deployment runtime acceptance.
 
 ## Deployment mutation authority and fencing
 
