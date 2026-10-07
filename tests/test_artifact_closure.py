@@ -167,6 +167,29 @@ class ArtifactClosureTests(unittest.TestCase):
             ),
         )
 
+    def test_recomputed_digest_cannot_make_malformed_receipt_current(self) -> None:
+        manifest = self.manifest()
+        receipt = self.evaluate(
+            self.observation("host", identity_ref="entrypoint:ProjectSteward.Host"),
+            self.observation("stewardctl", identity_ref="entrypoint:stewardctl"),
+            manifest=manifest,
+        )
+        receipt["observed"] = "malformed"
+        payload = dict(receipt)
+        payload.pop("receipt_digest")
+        receipt["receipt_digest"] = MODULE._sha256_document(payload)
+        self.assertFalse(verify_artifact_closure_receipt_integrity(receipt))
+        self.assertEqual(
+            ClosureCurrentness.UNKNOWN,
+            classify_artifact_closure_currentness(
+                receipt,
+                current_source_revision="integrated-sha-090",
+                current_artifact_digest=DIGEST_1,
+                current_artifact_evidence_ref="artifact-evidence:project-steward-090",
+                current_manifest=manifest,
+            ),
+        )
+
     def test_rebuild_or_manifest_change_makes_old_receipt_stale(self) -> None:
         manifest = self.manifest()
         receipt = self.evaluate(

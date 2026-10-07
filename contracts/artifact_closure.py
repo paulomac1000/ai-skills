@@ -13,6 +13,37 @@ from typing import Any
 _SHA256_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 _MAX_DELIVERABLES = 256
 _MAX_UNEXPECTED_COMPONENTS = 256
+_RECEIPT_ROOT_FIELDS = frozenset(
+    {
+        "schema_version",
+        "receipt_kind",
+        "source_revision",
+        "artifact_ref",
+        "artifact_digest",
+        "artifact_evidence_ref",
+        "manifest",
+        "observed",
+        "unexpected_components",
+        "missing_required",
+        "unknown_required",
+        "identity_mismatches",
+        "smoke_failures",
+        "blocking_unexpected",
+        "verdict",
+        "receipt_digest",
+    }
+)
+_RECEIPT_MANIFEST_FIELDS = frozenset({"manifest_id", "revision", "digest", "policy_ref"})
+_OBSERVED_FIELDS = frozenset(
+    {"deliverable_id", "artifact_digest", "presence", "identity_ref", "smoke_status", "evidence_ref"}
+)
+_UNEXPECTED_FIELDS = frozenset(
+    {"component_ref", "artifact_digest", "criticality", "disposition", "evidence_ref"}
+)
+_IDENTITY_MISMATCH_FIELDS = frozenset(
+    {"deliverable_id", "expected_identity_ref", "observed_identity_ref"}
+)
+_SMOKE_FAILURE_FIELDS = frozenset({"deliverable_id", "smoke_status"})
 
 
 class DeliverableKind(StrEnum):
@@ -81,6 +112,166 @@ def _sha256_document(document: dict[str, Any]) -> str:
         ensure_ascii=False,
     ).encode("utf-8")
     return "sha256:" + hashlib.sha256(payload).hexdigest()
+
+
+def _is_bounded_text(value: object, *, limit: int = 2048) -> bool:
+    return isinstance(value, str) and bool(value.strip()) and len(value) <= limit
+
+
+def _is_sha256(value: object) -> bool:
+    return isinstance(value, str) and _SHA256_RE.fullmatch(value) is not None
+
+
+def _has_exact_fields(value: object, fields: frozenset[str]) -> bool:
+    return isinstance(value, dict) and set(value) == fields
+
+
+def _bounded_unique_text_list(value: object, *, maximum: int, limit: int) -> bool:
+    if not isinstance(value, list) or len(value) > maximum:
+        return False
+    if not all(_is_bounded_text(item, limit=limit) for item in value):
+        return False
+    return len(value) == len(set(value))
+
+
+def _receipt_shape_is_valid(receipt: object) -> bool:
+    if not _has_exact_fields(receipt, _RECEIPT_ROOT_FIELDS):
+        return False
+    assert isinstance(receipt, dict)
+    if receipt.get("schema_version") != 1 or receipt.get("receipt_kind") != "artifact_closure":
+        return False
+    if not _is_bounded_text(receipt.get("source_revision"), limit=256):
+        return False
+    if not _is_bounded_text(receipt.get("artifact_ref")):
+        return False
+    artifact_digest = receipt.get("artifact_digest")
+    if not _is_sha256(artifact_digest):
+        return False
+    if not _is_bounded_text(receipt.get("artifact_evidence_ref")):
+        return False
+    if not _is_sha256(receipt.get("receipt_digest")):
+        return False
+    if receipt.get("verdict") not in {ClosureVerdict.COMPLETE.value, ClosureVerdict.INCOMPLETE.value}:
+        return False
+
+    manifest = receipt.get("manifest")
+    if not _has_exact_fields(manifest, _RECEIPT_MANIFEST_FIELDS):
+        return False
+    assert isinstance(manifest, dict)
+    if not _is_bounded_text(manifest.get("manifest_id"), limit=256):
+        return False
+    if not _is_bounded_text(manifest.get("revision"), limit=256):
+        return False
+    if not _is_sha256(manifest.get("digest")):
+        return False
+    if not _is_bounded_text(manifest.get("policy_ref")):
+        return False
+
+    observed = receipt.get("observed")
+    if not isinstance(observed, list) or len(observed) > _MAX_DELIVERABLES:
+        return False
+    observed_ids: list[str] = []
+    for item in observed:
+        if not _has_exact_fields(item, _OBSERVED_FIELDS):
+            return False
+        assert isinstance(item, dict)
+        deliverable_id = item.get("deliverable_id")
+        if not _is_bounded_text(deliverable_id, limit=256):
+            return False
+        assert isinstance(deliverable_id, str)
+        observed_ids.append(deliverable_id)
+        if item.get("artifact_digest") != artifact_digest:
+            return False
+        if item.get("presence") not in {state.value for state in Presence}:
+            return False
+        identity_ref = item.get("identity_ref")
+        if identity_ref is not None and not _is_bounded_text(identity_ref):
+            return False
+        if item.get("smoke_status") not in {status.value for status in SmokeStatus}:
+            return False
+        evidence_ref = item.get("evidence_ref")
+        if evidence_ref is not None and not _is_bounded_text(evidence_ref):
+            return False
+        if item.get("presence") != Presence.PRESENT.value:
+            if identity_ref is not None or item.get("smoke_status") in {SmokeStatus.PASS.value, SmokeStatus.FAIL.value}:
+                return False
+    if len(observed_ids) != len(set(observed_ids)):
+        return False
+
+    unexpected = receipt.get("unexpected_components")
+    if not isinstance(unexpected, list) or len(unexpected) > _MAX_UNEXPECTED_COMPONENTS:
+        return False
+    component_refs: list[str] = []
+    for item in unexpected:
+        if not _has_exact_fields(item, _UNEXPECTED_FIELDS):
+            return False
+        assert isinstance(item, dict)
+        component_ref = item.get("component_ref")
+        if not _is_bounded_text(component_ref):
+            return False
+        assert isinstance(component_ref, str)
+        component_refs.append(component_ref)
+        if item.get("artifact_digest") != artifact_digest:
+            return False
+        if item.get("criticality") not in {value.value for value in UnexpectedCriticality}:
+            return False
+        if item.get("disposition") not in {value.value for value in UnexpectedDisposition}:
+            return False
+        if not _is_bounded_text(item.get("evidence_ref")):
+            return False
+    if len(component_refs) != len(set(component_refs)):
+        return False
+
+    if not _bounded_unique_text_list(receipt.get("missing_required"), maximum=_MAX_DELIVERABLES, limit=256):
+        return False
+    if not _bounded_unique_text_list(receipt.get("unknown_required"), maximum=_MAX_DELIVERABLES, limit=256):
+        return False
+    if not _bounded_unique_text_list(
+        receipt.get("blocking_unexpected"), maximum=_MAX_UNEXPECTED_COMPONENTS, limit=2048
+    ):
+        return False
+
+    identity_mismatches = receipt.get("identity_mismatches")
+    if not isinstance(identity_mismatches, list) or len(identity_mismatches) > _MAX_DELIVERABLES:
+        return False
+    mismatch_ids: list[str] = []
+    for item in identity_mismatches:
+        if not _has_exact_fields(item, _IDENTITY_MISMATCH_FIELDS):
+            return False
+        assert isinstance(item, dict)
+        deliverable_id = item.get("deliverable_id")
+        if not _is_bounded_text(deliverable_id, limit=256):
+            return False
+        assert isinstance(deliverable_id, str)
+        mismatch_ids.append(deliverable_id)
+        if not _is_bounded_text(item.get("expected_identity_ref")):
+            return False
+        observed_identity_ref = item.get("observed_identity_ref")
+        if observed_identity_ref is not None and not _is_bounded_text(observed_identity_ref):
+            return False
+    if len(mismatch_ids) != len(set(mismatch_ids)):
+        return False
+
+    smoke_failures = receipt.get("smoke_failures")
+    if not isinstance(smoke_failures, list) or len(smoke_failures) > _MAX_DELIVERABLES:
+        return False
+    smoke_ids: list[str] = []
+    for item in smoke_failures:
+        if not _has_exact_fields(item, _SMOKE_FAILURE_FIELDS):
+            return False
+        assert isinstance(item, dict)
+        deliverable_id = item.get("deliverable_id")
+        if not _is_bounded_text(deliverable_id, limit=256):
+            return False
+        assert isinstance(deliverable_id, str)
+        smoke_ids.append(deliverable_id)
+        if item.get("smoke_status") not in {
+            SmokeStatus.FAIL.value,
+            SmokeStatus.UNKNOWN.value,
+            SmokeStatus.NOT_REQUIRED.value,
+        }:
+            return False
+    return len(smoke_ids) == len(set(smoke_ids))
 
 
 @dataclass(frozen=True)
@@ -348,12 +539,10 @@ def evaluate_artifact_closure(
 
 
 def verify_artifact_closure_receipt_integrity(receipt: dict[str, Any]) -> bool:
-    """Verify the self-contained canonical receipt digest before trusting its fields."""
-    if not isinstance(receipt, dict):
+    """Verify bounded receipt shape and canonical digest before trusting any receipt fields."""
+    if not _receipt_shape_is_valid(receipt):
         return False
-    supplied = receipt.get("receipt_digest")
-    if not isinstance(supplied, str) or _SHA256_RE.fullmatch(supplied) is None:
-        return False
+    supplied = receipt["receipt_digest"]
     payload = dict(receipt)
     payload.pop("receipt_digest", None)
     return _sha256_document(payload) == supplied
