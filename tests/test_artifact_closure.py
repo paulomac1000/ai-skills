@@ -73,6 +73,7 @@ class ArtifactClosureTests(unittest.TestCase):
     ) -> DeliverableObservation:
         return DeliverableObservation(
             deliverable_id=deliverable_id,
+            artifact_digest=DIGEST_1,
             presence=presence,
             identity_ref=identity_ref,
             smoke_status=smoke_status,
@@ -243,6 +244,7 @@ class ArtifactClosureTests(unittest.TestCase):
     def test_unexpected_critical_component_requires_policy_disposition(self) -> None:
         unexpected = UnexpectedComponentObservation(
             component_ref="entrypoint:debug-admin",
+            artifact_digest=DIGEST_1,
             criticality=UnexpectedCriticality.CRITICAL,
             disposition=UnexpectedDisposition.UNRESOLVED,
             evidence_ref="evidence:package-inventory",
@@ -287,6 +289,57 @@ class ArtifactClosureTests(unittest.TestCase):
             self.evaluate(self.observation("not-declared", identity_ref="x"))
         with self.assertRaisesRegex(ValueError, "non-present"):
             self.observation("host", presence=Presence.MISSING, identity_ref="entrypoint:host")
+
+
+    def test_observations_from_another_artifact_cannot_satisfy_closure(self) -> None:
+        wrong = DeliverableObservation(
+            deliverable_id="host",
+            artifact_digest=DIGEST_2,
+            presence=Presence.PRESENT,
+            identity_ref="entrypoint:ProjectSteward.Host",
+            smoke_status=SmokeStatus.PASS,
+            evidence_ref="evidence:wrong-artifact",
+        )
+        with self.assertRaisesRegex(ValueError, "same exact artifact digest"):
+            self.evaluate(wrong)
+
+    def test_manifest_and_receipt_surfaces_are_bounded(self) -> None:
+        with self.assertRaisesRegex(ValueError, "at most 256"):
+            ReleaseDeliverableManifest(
+                manifest_id="too-large",
+                revision="1",
+                policy_ref="policy:bounded",
+                deliverables=tuple(
+                    DeliverableRequirement(f"asset-{index}", DeliverableKind.ASSET)
+                    for index in range(257)
+                ),
+            )
+
+    def test_generic_migration_and_worker_failure_paths_are_artifact_level(self) -> None:
+        manifest = ReleaseDeliverableManifest(
+            manifest_id="generic-release",
+            revision="1",
+            policy_ref="policy:generic",
+            deliverables=(
+                DeliverableRequirement("migrator", DeliverableKind.MIGRATION_TOOL),
+                DeliverableRequirement(
+                    "worker",
+                    DeliverableKind.WORKER,
+                    smoke_profile_ref="smoke:worker-start",
+                    smoke_required=True,
+                ),
+            ),
+        )
+        receipt = self.evaluate(
+            self.observation(
+                "migrator", presence=Presence.MISSING, identity_ref=None, smoke_status=SmokeStatus.NOT_REQUIRED
+            ),
+            self.observation("worker", smoke_status=SmokeStatus.FAIL),
+            manifest=manifest,
+        )
+        self.assertEqual("INCOMPLETE", receipt["verdict"])
+        self.assertEqual(["migrator"], receipt["missing_required"])
+        self.assertEqual([{"deliverable_id": "worker", "smoke_status": "FAIL"}], receipt["smoke_failures"])
 
     def test_contract_schemas_are_valid_json_and_match_reference_document_shape(self) -> None:
         manifest_schema = json.loads((ROOT / "contracts" / "release-deliverable-manifest.schema.json").read_text())

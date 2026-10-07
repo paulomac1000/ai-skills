@@ -11,6 +11,8 @@ from enum import StrEnum
 from typing import Any
 
 _SHA256_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
+_MAX_DELIVERABLES = 256
+_MAX_UNEXPECTED_COMPONENTS = 256
 
 
 class DeliverableKind(StrEnum):
@@ -119,6 +121,8 @@ class ReleaseDeliverableManifest:
             raise ValueError("deliverables must be a tuple")
         if not self.deliverables:
             raise ValueError("deliverables must contain at least one requirement")
+        if len(self.deliverables) > _MAX_DELIVERABLES:
+            raise ValueError(f"deliverables must contain at most {_MAX_DELIVERABLES} requirements")
         if not all(isinstance(item, DeliverableRequirement) for item in self.deliverables):
             raise ValueError("deliverables must contain DeliverableRequirement values")
         ids = [item.deliverable_id for item in self.deliverables]
@@ -129,6 +133,7 @@ class ReleaseDeliverableManifest:
 @dataclass(frozen=True)
 class DeliverableObservation:
     deliverable_id: str
+    artifact_digest: str
     presence: Presence
     identity_ref: str | None
     smoke_status: SmokeStatus
@@ -136,6 +141,7 @@ class DeliverableObservation:
 
     def __post_init__(self) -> None:
         _require_text(self.deliverable_id, "deliverable_id", limit=256)
+        _require_sha256(self.artifact_digest, "artifact_digest")
         if not isinstance(self.presence, Presence):
             raise ValueError("presence must be a Presence")
         if not isinstance(self.smoke_status, SmokeStatus):
@@ -152,12 +158,14 @@ class DeliverableObservation:
 @dataclass(frozen=True)
 class UnexpectedComponentObservation:
     component_ref: str
+    artifact_digest: str
     criticality: UnexpectedCriticality
     disposition: UnexpectedDisposition
     evidence_ref: str
 
     def __post_init__(self) -> None:
         _require_text(self.component_ref, "component_ref")
+        _require_sha256(self.artifact_digest, "artifact_digest")
         _require_text(self.evidence_ref, "evidence_ref")
         if not isinstance(self.criticality, UnexpectedCriticality):
             raise ValueError("criticality must be an UnexpectedCriticality")
@@ -212,10 +220,18 @@ def evaluate_artifact_closure(
         isinstance(item, DeliverableObservation) for item in observations
     ):
         raise ValueError("observations must be a tuple of DeliverableObservation values")
+    if len(observations) > _MAX_DELIVERABLES:
+        raise ValueError(f"observations must contain at most {_MAX_DELIVERABLES} values")
     if not isinstance(unexpected_components, tuple) or not all(
         isinstance(item, UnexpectedComponentObservation) for item in unexpected_components
     ):
         raise ValueError("unexpected_components must be a tuple of UnexpectedComponentObservation values")
+    if len(unexpected_components) > _MAX_UNEXPECTED_COMPONENTS:
+        raise ValueError(f"unexpected_components must contain at most {_MAX_UNEXPECTED_COMPONENTS} values")
+    if any(item.artifact_digest != artifact_digest for item in observations):
+        raise ValueError("deliverable observations must bind the same exact artifact digest")
+    if any(item.artifact_digest != artifact_digest for item in unexpected_components):
+        raise ValueError("unexpected component observations must bind the same exact artifact digest")
 
     requirements = {item.deliverable_id: item for item in manifest.deliverables}
     observation_map: dict[str, DeliverableObservation] = {}
@@ -253,6 +269,7 @@ def evaluate_artifact_closure(
         normalized_observations.append(
             {
                 "deliverable_id": deliverable_id,
+                "artifact_digest": artifact_digest,
                 "presence": presence.value,
                 "identity_ref": identity_ref,
                 "smoke_status": smoke_status.value,
@@ -282,6 +299,7 @@ def evaluate_artifact_closure(
     normalized_unexpected = [
         {
             "component_ref": item.component_ref,
+            "artifact_digest": item.artifact_digest,
             "criticality": item.criticality.value,
             "disposition": item.disposition.value,
             "evidence_ref": item.evidence_ref,
