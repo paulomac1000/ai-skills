@@ -32,6 +32,11 @@ def _digest_bound_identity(value: Any) -> str | None:
     marker_index = value.rfind(marker)
     if marker_index <= 0:
         return None
+    prefix = value[:marker_index]
+    if prefix[-1] not in {"@", ":"}:
+        return None
+    if "?" in prefix or "#" in prefix or any(character.isspace() for character in prefix):
+        return None
     digest = value[marker_index:]
     hexadecimal = digest.removeprefix(marker)
     if len(hexadecimal) != 64 or any(character not in "0123456789abcdef" for character in hexadecimal):
