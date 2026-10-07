@@ -176,11 +176,7 @@ The publisher verifies that every promoted production tag resolves to the expect
 
 ## Release deliverable closure
 
-Source presence, tests, or documentation do not prove inclusion in an immutable release artifact. Trusted release policy owns `contracts/release-deliverable-manifest.schema.json`; candidate contents cannot create, remove, or weaken requirements. V1 admits at most 256 stable deliverables. `contracts/artifact-closure-receipt.schema.json` and `contracts/artifact_closure.py` bind the exact source revision, artifact ref/digest, exact-artifact evidence reference, semantic manifest digest, and every concrete observation to that artifact digest.
-
-A required deliverable is green only when it is `PRESENT`, its declared packaged identity matches when required, and required smoke is `PASS`; missing/unknown presence, identity mismatch, or non-passing smoke makes closure `INCOMPLETE`. Optional absence is allowed. The bounded unexpected-component list is not an SBOM: forbidden items and unresolved critical/unknown items block, while receipts carry only bounded non-secret references rather than credentials, raw arguments, environments, inventories, or logs.
-
-Artifact/source/evidence/manifest drift makes prior closure `STALE`; malformed or digest-tampered receipts are `UNKNOWN`. Policy requiring closure rejects `INCOMPLETE`, `STALE`, or `UNKNOWN` before promotion. Closure grants no publication/deployment authority and cannot substitute for post-deployment runtime acceptance.
+When policy declares release deliverables, source/tests/docs are insufficient: the manifest schema and closure receipt/helper bind required presence, packaged identity, and required smoke to one exact source revision, artifact digest/evidence identity, and manifest identity. Missing/unknown presence, identity mismatch, non-`PASS` smoke, or unresolved critical unexpected content blocks closure. V1 is bounded and secret-free, not an SBOM; drift is `STALE`, malformed evidence is `UNKNOWN`. Required closure must be `COMPLETE` before governed promotion and grants no publication, deployment, or runtime-acceptance authority.
 
 ## Deployment mutation authority and fencing
 
