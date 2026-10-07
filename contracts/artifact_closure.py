@@ -365,9 +365,7 @@ class ReleaseDeliverableManifest:
             raise ValueError(
                 f"unexpected_component_dispositions must contain at most {_MAX_UNEXPECTED_COMPONENTS} values"
             )
-        if not all(
-            isinstance(item, UnexpectedComponentPolicy) for item in self.unexpected_component_dispositions
-        ):
+        if not all(isinstance(item, UnexpectedComponentPolicy) for item in self.unexpected_component_dispositions):
             raise ValueError("unexpected_component_dispositions must contain UnexpectedComponentPolicy values")
         component_refs = [item.component_ref for item in self.unexpected_component_dispositions]
         if len(component_refs) != len(set(component_refs)):
@@ -601,16 +599,12 @@ def evaluate_artifact_closure(
                 }
             )
 
-    trusted_dispositions = {
-        item.component_ref: item.disposition for item in manifest.unexpected_component_dispositions
-    }
+    trusted_dispositions = {item.component_ref: item.disposition for item in manifest.unexpected_component_dispositions}
     normalized_unexpected = [
         {
             "component_ref": item.component_ref,
             "criticality": item.criticality.value,
-            "disposition": trusted_dispositions.get(
-                item.component_ref, UnexpectedDisposition.UNRESOLVED
-            ).value,
+            "disposition": trusted_dispositions.get(item.component_ref, UnexpectedDisposition.UNRESOLVED).value,
             "evidence_ref": item.evidence_ref,
             "evidence_digest": item.evidence_digest,
         }
@@ -662,9 +656,7 @@ def verify_artifact_closure_receipt_integrity(receipt: dict[str, Any]) -> bool:
     if not _receipt_shape_is_valid(receipt):
         return False
     if (
-        _artifact_evidence_digest(
-            receipt["artifact_digest"], receipt["observed"], receipt["unexpected_components"]
-        )
+        _artifact_evidence_digest(receipt["artifact_digest"], receipt["observed"], receipt["unexpected_components"])
         != receipt["artifact_evidence_digest"]
     ):
         return False
@@ -745,9 +737,7 @@ def verify_artifact_closure_receipt_semantics(
     }
     blocking_unexpected: list[str] = []
     for item in sorted(receipt["unexpected_components"], key=lambda value: value["component_ref"]):
-        expected_disposition = trusted_dispositions.get(
-            item["component_ref"], UnexpectedDisposition.UNRESOLVED.value
-        )
+        expected_disposition = trusted_dispositions.get(item["component_ref"], UnexpectedDisposition.UNRESOLVED.value)
         if item["disposition"] != expected_disposition:
             return False
         if expected_disposition != UnexpectedDisposition.ALLOWED.value:
