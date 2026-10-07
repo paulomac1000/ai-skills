@@ -544,6 +544,94 @@ def verify_artifact_closure_receipt_integrity(receipt: dict[str, Any]) -> bool:
     return _sha256_document(payload) == supplied
 
 
+def verify_artifact_closure_receipt_semantics(
+    receipt: dict[str, Any],
+    manifest: ReleaseDeliverableManifest,
+) -> bool:
+    """Verify derived closure fields against the trusted manifest that owns requirements."""
+    if not verify_artifact_closure_receipt_integrity(receipt):
+        return False
+    if not isinstance(manifest, ReleaseDeliverableManifest):
+        return False
+
+    receipt_manifest = receipt["manifest"]
+    expected_manifest_digest = manifest_digest(manifest)
+    if (
+        receipt_manifest["manifest_id"] != manifest.manifest_id
+        or receipt_manifest["revision"] != manifest.revision
+        or receipt_manifest["policy_ref"] != manifest.policy_ref
+        or receipt_manifest["digest"] != expected_manifest_digest
+    ):
+        return False
+
+    requirements = {item.deliverable_id: item for item in manifest.deliverables}
+    observed = receipt["observed"]
+    observed_map = {item["deliverable_id"]: item for item in observed}
+    if set(observed_map) != set(requirements) or len(observed_map) != len(observed):
+        return False
+
+    missing_required: list[str] = []
+    unknown_required: list[str] = []
+    identity_mismatches: list[dict[str, str | None]] = []
+    smoke_failures: list[dict[str, str]] = []
+    for deliverable_id in sorted(requirements):
+        requirement = requirements[deliverable_id]
+        observation = observed_map[deliverable_id]
+        if not requirement.required:
+            continue
+        presence = observation["presence"]
+        if presence == Presence.MISSING.value:
+            missing_required.append(deliverable_id)
+            continue
+        if presence == Presence.UNKNOWN.value:
+            unknown_required.append(deliverable_id)
+            continue
+        identity_ref = observation["identity_ref"]
+        smoke_status = observation["smoke_status"]
+        if requirement.expected_identity_ref is not None and identity_ref != requirement.expected_identity_ref:
+            identity_mismatches.append(
+                {
+                    "deliverable_id": deliverable_id,
+                    "expected_identity_ref": requirement.expected_identity_ref,
+                    "observed_identity_ref": identity_ref,
+                }
+            )
+        if requirement.smoke_required and smoke_status != SmokeStatus.PASS.value:
+            smoke_failures.append({"deliverable_id": deliverable_id, "smoke_status": smoke_status})
+
+    blocking_unexpected = [
+        item["component_ref"]
+        for item in sorted(receipt["unexpected_components"], key=lambda value: value["component_ref"])
+        if item["disposition"] == UnexpectedDisposition.FORBIDDEN.value
+        or (
+            item["disposition"] == UnexpectedDisposition.UNRESOLVED.value
+            and item["criticality"] in {
+                UnexpectedCriticality.CRITICAL.value,
+                UnexpectedCriticality.UNKNOWN.value,
+            }
+        )
+    ]
+    verdict = (
+        ClosureVerdict.COMPLETE.value
+        if not (
+            missing_required
+            or unknown_required
+            or identity_mismatches
+            or smoke_failures
+            or blocking_unexpected
+        )
+        else ClosureVerdict.INCOMPLETE.value
+    )
+    return (
+        receipt["missing_required"] == missing_required
+        and receipt["unknown_required"] == unknown_required
+        and receipt["identity_mismatches"] == identity_mismatches
+        and receipt["smoke_failures"] == smoke_failures
+        and receipt["blocking_unexpected"] == blocking_unexpected
+        and receipt["verdict"] == verdict
+    )
+
+
 def classify_artifact_closure_currentness(
     receipt: dict[str, Any],
     *,
@@ -585,4 +673,6 @@ def classify_artifact_closure_currentness(
         or receipt_manifest_digest != current_manifest_digest
     ):
         return ClosureCurrentness.STALE
+    if not verify_artifact_closure_receipt_semantics(receipt, current_manifest):
+        return ClosureCurrentness.UNKNOWN
     return ClosureCurrentness.CURRENT

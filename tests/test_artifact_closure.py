@@ -29,6 +29,7 @@ evaluate_artifact_closure = MODULE.evaluate_artifact_closure
 manifest_digest = MODULE.manifest_digest
 manifest_document = MODULE.manifest_document
 verify_artifact_closure_receipt_integrity = MODULE.verify_artifact_closure_receipt_integrity
+verify_artifact_closure_receipt_semantics = MODULE.verify_artifact_closure_receipt_semantics
 
 DIGEST_1 = "sha256:" + "1" * 64
 DIGEST_2 = "sha256:" + "2" * 64
@@ -179,6 +180,38 @@ class ArtifactClosureTests(unittest.TestCase):
         payload.pop("receipt_digest")
         receipt["receipt_digest"] = MODULE._sha256_document(payload)
         self.assertFalse(verify_artifact_closure_receipt_integrity(receipt))
+        self.assertEqual(
+            ClosureCurrentness.UNKNOWN,
+            classify_artifact_closure_currentness(
+                receipt,
+                current_source_revision="integrated-sha-090",
+                current_artifact_digest=DIGEST_1,
+                current_artifact_evidence_ref="artifact-evidence:project-steward-090",
+                current_manifest=manifest,
+            ),
+        )
+
+    def test_recomputed_digest_cannot_forge_complete_from_incomplete_receipt(self) -> None:
+        manifest = self.manifest()
+        receipt = self.evaluate(
+            self.observation("host", identity_ref="entrypoint:ProjectSteward.Host"),
+            self.observation(
+                "stewardctl",
+                presence=Presence.MISSING,
+                identity_ref=None,
+                smoke_status=SmokeStatus.UNKNOWN,
+            ),
+            manifest=manifest,
+        )
+        self.assertEqual("INCOMPLETE", receipt["verdict"])
+        receipt["missing_required"] = []
+        receipt["verdict"] = "COMPLETE"
+        payload = dict(receipt)
+        payload.pop("receipt_digest")
+        receipt["receipt_digest"] = MODULE._sha256_document(payload)
+
+        self.assertTrue(verify_artifact_closure_receipt_integrity(receipt))
+        self.assertFalse(verify_artifact_closure_receipt_semantics(receipt, manifest))
         self.assertEqual(
             ClosureCurrentness.UNKNOWN,
             classify_artifact_closure_currentness(
