@@ -37,12 +37,8 @@ _RECEIPT_MANIFEST_FIELDS = frozenset({"manifest_id", "revision", "digest", "poli
 _OBSERVED_FIELDS = frozenset(
     {"deliverable_id", "artifact_digest", "presence", "identity_ref", "smoke_status", "evidence_ref"}
 )
-_UNEXPECTED_FIELDS = frozenset(
-    {"component_ref", "artifact_digest", "criticality", "disposition", "evidence_ref"}
-)
-_IDENTITY_MISMATCH_FIELDS = frozenset(
-    {"deliverable_id", "expected_identity_ref", "observed_identity_ref"}
-)
+_UNEXPECTED_FIELDS = frozenset({"component_ref", "artifact_digest", "criticality", "disposition", "evidence_ref"})
+_IDENTITY_MISMATCH_FIELDS = frozenset({"deliverable_id", "expected_identity_ref", "observed_identity_ref"})
 _SMOKE_FAILURE_FIELDS = frozenset({"deliverable_id", "smoke_status"})
 
 
@@ -445,17 +441,17 @@ def evaluate_artifact_closure(
 
     for deliverable_id in sorted(requirements):
         requirement = requirements[deliverable_id]
-        observation = observation_map.get(deliverable_id)
-        if observation is None:
+        current_observation = observation_map.get(deliverable_id)
+        if current_observation is None:
             presence = Presence.UNKNOWN
             identity_ref = None
             smoke_status = SmokeStatus.UNKNOWN
             evidence_ref = None
         else:
-            presence = observation.presence
-            identity_ref = observation.identity_ref
-            smoke_status = observation.smoke_status
-            evidence_ref = observation.evidence_ref
+            presence = current_observation.presence
+            identity_ref = current_observation.identity_ref
+            smoke_status = current_observation.smoke_status
+            evidence_ref = current_observation.evidence_ref
 
         normalized_observations.append(
             {

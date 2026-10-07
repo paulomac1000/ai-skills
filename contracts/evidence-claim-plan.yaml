@@ -233,6 +233,13 @@ profiles:
     - repository-junit.xml
     execution_id: repository
   - kind: rule
+    subject: cicd.release.deliverable-closure
+    selectors:
+    - '*test_artifact_closure*'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
     subject: cicd.publication.exact-lease
     selectors:
     - '*test_artifact_publication_lease*'
