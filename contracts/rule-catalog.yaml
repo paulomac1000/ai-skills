@@ -127,7 +127,7 @@ skills:
       source: STANDARD.md#release-identity-and-artifact-promotion
       description: Release identity is validated and a closed smoke-tested artifact is promoted without candidate checkout, rebuild, load, or execution in the authority-bearing publisher.
     - id: cicd.release.deliverable-closure
-      source: STANDARD.md#release-deliverable-closure
+      source: STANDARD.md#release-identity-and-artifact-promotion
       description: Policy-declared required deliverables are proven present, identity-correct, and smoke-usable in the exact immutable artifact before governed publication or deployment.
     - id: cicd.publication.exact-lease
       source: STANDARD.md#artifact-publication-authority

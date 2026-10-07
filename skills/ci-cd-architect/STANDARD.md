@@ -170,13 +170,9 @@ A protected container release uses two trust stages:
 1. a read-only validation job resolves the selected existing tag or full SHA, proves it is reachable from the trusted default branch, captures the full source SHA, builds once without production authority, smoke-tests that exact build, pushes it only to an isolated quarantine registry, resolves its immutable registry digest, and smoke-tests the exact quarantined digest;
 2. a protected publish job does not check out or execute candidate source and does not load or rebuild the candidate image. It authenticates only to the bounded source registry and production registry, then promotes the already-tested exact digest registry-to-registry under the allowed immutable and release tags.
 
-The publisher verifies that every promoted production tag resolves to the expected digest before attestation. A selected tag resolves to the captured SHA. Manual dispatch never treats the dispatch branch's unrelated context as release identity when a separate release ref was selected. Arbitrary branch preview builds remain unprivileged.
+Before promotion, policy closure binds source, payload hash, proof, manifest, required presence and identity, and a use probe; absent, unclear, wrong, or broken items block. Publisher checks tag/hash and tag/source-id binding; dispatch cannot use other state, and branch previews stay unprivileged. Bounded receipts omit secrets and data.
 
 `docker push --all-tags` is forbidden. An authority-bearing publisher MUST NOT check out, build/package, load/import, or execute candidate content. The auditor rejects supported shell/action/container variants (including continuations and Compose) and fails closed on opaque reusable-workflow delegation; registry-native exact-digest promotion/inspection remains allowed. A short SHA is not durable source identity.
-
-## Release deliverable closure
-
-Policy-owned requirements use `contracts/release-deliverable-manifest.schema.json`; source files, component checks, or docs cannot establish packaged presence. `contracts/artifact-closure-receipt.schema.json` binds source/payload/proof/manifest identity and observations. Required presence/identity/usability probe must pass; missing/indeterminate/mismatch/non-`PASS` or unresolved critical content blocks. V1 is bounded, credential-free, not an SBOM. Identity drift is `STALE`; malformed receipts are indeterminate. `COMPLETE` is required before governed promotion; closure grants neither publication/deployment authority nor post-deployment runtime acceptance.
 
 ## Deployment mutation authority and fencing
 
