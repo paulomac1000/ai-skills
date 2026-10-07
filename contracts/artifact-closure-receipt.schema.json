@@ -189,6 +189,34 @@
                 }
               }
             }
+          },
+          {
+            "if": {
+              "properties": {
+                "presence": {
+                  "enum": [
+                    "MISSING",
+                    "UNKNOWN"
+                  ]
+                }
+              },
+              "required": [
+                "presence"
+              ]
+            },
+            "then": {
+              "properties": {
+                "identity_ref": {
+                  "type": "null"
+                },
+                "smoke_status": {
+                  "enum": [
+                    "UNKNOWN",
+                    "NOT_REQUIRED"
+                  ]
+                }
+              }
+            }
           }
         ]
       }

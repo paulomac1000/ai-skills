@@ -507,13 +507,14 @@ def evaluate_artifact_closure(
             }
         )
 
-        if not requirement.required:
-            continue
-        if presence is Presence.MISSING:
-            missing_required.append(deliverable_id)
-            continue
-        if presence is Presence.UNKNOWN:
-            unknown_required.append(deliverable_id)
+        if requirement.required:
+            if presence is Presence.MISSING:
+                missing_required.append(deliverable_id)
+                continue
+            if presence is Presence.UNKNOWN:
+                unknown_required.append(deliverable_id)
+                continue
+        elif presence is not Presence.PRESENT:
             continue
         if requirement.expected_identity_ref is not None and identity_ref != requirement.expected_identity_ref:
             identity_mismatches.append(
@@ -630,14 +631,15 @@ def verify_artifact_closure_receipt_semantics(
     for deliverable_id in sorted(requirements):
         requirement = requirements[deliverable_id]
         observation = observed_map[deliverable_id]
-        if not requirement.required:
-            continue
         presence = observation["presence"]
-        if presence == Presence.MISSING.value:
-            missing_required.append(deliverable_id)
-            continue
-        if presence == Presence.UNKNOWN.value:
-            unknown_required.append(deliverable_id)
+        if requirement.required:
+            if presence == Presence.MISSING.value:
+                missing_required.append(deliverable_id)
+                continue
+            if presence == Presence.UNKNOWN.value:
+                unknown_required.append(deliverable_id)
+                continue
+        elif presence != Presence.PRESENT.value:
             continue
         identity_ref = observation["identity_ref"]
         smoke_profile_ref = observation["smoke_profile_ref"]

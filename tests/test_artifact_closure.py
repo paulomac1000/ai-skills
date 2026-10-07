@@ -173,6 +173,36 @@ class ArtifactClosureTests(unittest.TestCase):
             receipt["smoke_failures"][0],
         )
 
+    def test_present_optional_deliverable_honors_declared_checks(self) -> None:
+        manifest = ReleaseDeliverableManifest(
+            manifest_id="optional-checks",
+            revision="1",
+            policy_ref="policy:optional-checks",
+            deliverables=(
+                DeliverableRequirement(
+                    "optional-tool",
+                    DeliverableKind.OPERATOR_ENTRYPOINT,
+                    required=False,
+                    expected_identity_ref="entrypoint:optional-tool",
+                    smoke_profile_ref="smoke:optional-tool",
+                    smoke_required=True,
+                ),
+            ),
+        )
+        receipt = self.evaluate(
+            self.observation(
+                "optional-tool",
+                identity_ref="entrypoint:wrong-tool",
+                smoke_profile_ref="smoke:optional-tool",
+                smoke_status=SmokeStatus.FAIL,
+            ),
+            manifest=manifest,
+        )
+        self.assertEqual("INCOMPLETE", receipt["verdict"])
+        self.assertEqual("optional-tool", receipt["identity_mismatches"][0]["deliverable_id"])
+        self.assertEqual("optional-tool", receipt["smoke_failures"][0]["deliverable_id"])
+        self.assertTrue(verify_artifact_closure_receipt_semantics(receipt, manifest))
+
     def test_optional_absent_deliverable_does_not_block(self) -> None:
         receipt = self.evaluate(
             self.observation("host", identity_ref="entrypoint:ProjectSteward.Host"),
@@ -579,6 +609,18 @@ class ArtifactClosureTests(unittest.TestCase):
         self.assertIsInstance(manifest_doc["deliverables"], dict)
         self.assertEqual({"host", "stewardctl", "dev-helper"}, set(manifest_doc["deliverables"]))
         Draft202012Validator(manifest_schema).validate(manifest_doc)
+        receipt = self.evaluate(
+            self.observation("host", identity_ref="entrypoint:ProjectSteward.Host"),
+            self.observation("stewardctl", identity_ref="entrypoint:stewardctl"),
+        )
+        schema_only_invalid = json.loads(json.dumps(receipt))
+        invalid_observation = next(
+            item for item in schema_only_invalid["observed"] if item["deliverable_id"] == "stewardctl"
+        )
+        invalid_observation["presence"] = "MISSING"
+        invalid_observation["identity_ref"] = "entrypoint:stewardctl"
+        invalid_observation["smoke_status"] = "PASS"
+        self.assertFalse(Draft202012Validator(receipt_schema).is_valid(schema_only_invalid))
         duplicate_prone_array_document = dict(manifest_doc)
         duplicate_prone_array_document["deliverables"] = [{"id": "dup"}, {"id": "dup"}]
         self.assertFalse(Draft202012Validator(manifest_schema).is_valid(duplicate_prone_array_document))
