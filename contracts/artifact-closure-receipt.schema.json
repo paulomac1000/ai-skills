@@ -87,22 +87,18 @@
         "additionalProperties": false,
         "required": [
           "deliverable_id",
-          "artifact_digest",
           "presence",
           "identity_ref",
           "smoke_profile_ref",
           "smoke_status",
-          "evidence_ref"
+          "evidence_ref",
+          "evidence_digest"
         ],
         "properties": {
           "deliverable_id": {
             "type": "string",
             "minLength": 1,
             "maxLength": 256
-          },
-          "artifact_digest": {
-            "type": "string",
-            "pattern": "^sha256:[0-9a-f]{64}$"
           },
           "presence": {
             "enum": [
@@ -142,6 +138,13 @@
             ],
             "minLength": 1,
             "maxLength": 2048
+          },
+          "evidence_digest": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^sha256:[0-9a-f]{64}$"
           }
         },
         "allOf": [
@@ -217,6 +220,45 @@
                 }
               }
             }
+          },
+          {
+            "if": {
+              "properties": {
+                "evidence_ref": {
+                  "type": "null"
+                }
+              },
+              "required": [
+                "evidence_ref"
+              ]
+            },
+            "then": {
+              "properties": {
+                "evidence_digest": {
+                  "type": "null"
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "evidence_ref": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "evidence_ref"
+              ]
+            },
+            "then": {
+              "properties": {
+                "evidence_digest": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$"
+                }
+              }
+            }
           }
         ]
       }
@@ -229,20 +271,16 @@
         "additionalProperties": false,
         "required": [
           "component_ref",
-          "artifact_digest",
           "criticality",
           "disposition",
-          "evidence_ref"
+          "evidence_ref",
+          "evidence_digest"
         ],
         "properties": {
           "component_ref": {
             "type": "string",
             "minLength": 1,
             "maxLength": 2048
-          },
-          "artifact_digest": {
-            "type": "string",
-            "pattern": "^sha256:[0-9a-f]{64}$"
           },
           "criticality": {
             "enum": [
@@ -262,6 +300,10 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 2048
+          },
+          "evidence_digest": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
           }
         }
       }

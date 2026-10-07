@@ -39,15 +39,15 @@ _RECEIPT_MANIFEST_FIELDS = frozenset({"manifest_id", "revision", "digest", "poli
 _OBSERVED_FIELDS = frozenset(
     {
         "deliverable_id",
-        "artifact_digest",
         "presence",
         "identity_ref",
         "smoke_profile_ref",
         "smoke_status",
         "evidence_ref",
+        "evidence_digest",
     }
 )
-_UNEXPECTED_FIELDS = frozenset({"component_ref", "artifact_digest", "criticality", "disposition", "evidence_ref"})
+_UNEXPECTED_FIELDS = frozenset({"component_ref", "criticality", "disposition", "evidence_ref", "evidence_digest"})
 _IDENTITY_MISMATCH_FIELDS = frozenset({"deliverable_id", "expected_identity_ref", "observed_identity_ref"})
 _SMOKE_FAILURE_FIELDS = frozenset(
     {"deliverable_id", "smoke_status", "expected_smoke_profile_ref", "observed_smoke_profile_ref"}
@@ -199,8 +199,6 @@ def _receipt_shape_is_valid(receipt: object) -> bool:
             return False
         assert isinstance(deliverable_id, str)
         observed_ids.append(deliverable_id)
-        if item.get("artifact_digest") != artifact_digest:
-            return False
         if item.get("presence") not in {state.value for state in Presence}:
             return False
         identity_ref = item.get("identity_ref")
@@ -215,11 +213,13 @@ def _receipt_shape_is_valid(receipt: object) -> bool:
         if smoke_status in {SmokeStatus.PASS.value, SmokeStatus.FAIL.value} and smoke_profile_ref is None:
             return False
         evidence_ref = item.get("evidence_ref")
-        if evidence_ref is not None and not _is_bounded_text(evidence_ref):
-            return False
-        if evidence_ref is None and (
-            item.get("presence") != Presence.UNKNOWN.value or smoke_status != SmokeStatus.UNKNOWN.value
-        ):
+        evidence_digest = item.get("evidence_digest")
+        if evidence_ref is None:
+            if evidence_digest is not None:
+                return False
+            if item.get("presence") != Presence.UNKNOWN.value or smoke_status != SmokeStatus.UNKNOWN.value:
+                return False
+        elif not _is_bounded_text(evidence_ref) or not _is_sha256(evidence_digest):
             return False
         if item.get("presence") != Presence.PRESENT.value:
             if identity_ref is not None or smoke_status in {SmokeStatus.PASS.value, SmokeStatus.FAIL.value}:
@@ -240,13 +240,11 @@ def _receipt_shape_is_valid(receipt: object) -> bool:
             return False
         assert isinstance(component_ref, str)
         component_refs.append(component_ref)
-        if item.get("artifact_digest") != artifact_digest:
-            return False
         if item.get("criticality") not in {value.value for value in UnexpectedCriticality}:
             return False
         if item.get("disposition") not in {value.value for value in UnexpectedDisposition}:
             return False
-        if not _is_bounded_text(item.get("evidence_ref")):
+        if not _is_bounded_text(item.get("evidence_ref")) or not _is_sha256(item.get("evidence_digest")):
             return False
     if len(component_refs) != len(set(component_refs)):
         return False
@@ -328,11 +326,23 @@ class DeliverableRequirement:
 
 
 @dataclass(frozen=True)
+class UnexpectedComponentPolicy:
+    component_ref: str
+    disposition: UnexpectedDisposition
+
+    def __post_init__(self) -> None:
+        _require_text(self.component_ref, "component_ref")
+        if self.disposition not in {UnexpectedDisposition.ALLOWED, UnexpectedDisposition.FORBIDDEN}:
+            raise ValueError("unexpected component policy disposition must be allowed or forbidden")
+
+
+@dataclass(frozen=True)
 class ReleaseDeliverableManifest:
     manifest_id: str
     revision: str
     policy_ref: str
     deliverables: tuple[DeliverableRequirement, ...]
+    unexpected_component_dispositions: tuple[UnexpectedComponentPolicy, ...] = ()
 
     def __post_init__(self) -> None:
         _require_text(self.manifest_id, "manifest_id", limit=256)
@@ -349,6 +359,19 @@ class ReleaseDeliverableManifest:
         ids = [item.deliverable_id for item in self.deliverables]
         if len(ids) != len(set(ids)):
             raise ValueError("deliverable ids must be unique")
+        if not isinstance(self.unexpected_component_dispositions, tuple):
+            raise ValueError("unexpected_component_dispositions must be a tuple")
+        if len(self.unexpected_component_dispositions) > _MAX_UNEXPECTED_COMPONENTS:
+            raise ValueError(
+                f"unexpected_component_dispositions must contain at most {_MAX_UNEXPECTED_COMPONENTS} values"
+            )
+        if not all(
+            isinstance(item, UnexpectedComponentPolicy) for item in self.unexpected_component_dispositions
+        ):
+            raise ValueError("unexpected_component_dispositions must contain UnexpectedComponentPolicy values")
+        component_refs = [item.component_ref for item in self.unexpected_component_dispositions]
+        if len(component_refs) != len(set(component_refs)):
+            raise ValueError("unexpected component policy refs must be unique")
 
 
 @dataclass(frozen=True)
@@ -360,6 +383,7 @@ class DeliverableObservation:
     smoke_profile_ref: str | None
     smoke_status: SmokeStatus
     evidence_ref: str
+    evidence_digest: str
 
     def __post_init__(self) -> None:
         _require_text(self.deliverable_id, "deliverable_id", limit=256)
@@ -375,6 +399,7 @@ class DeliverableObservation:
         if self.smoke_status in {SmokeStatus.PASS, SmokeStatus.FAIL} and self.smoke_profile_ref is None:
             raise ValueError("executed smoke result requires smoke_profile_ref")
         _require_text(self.evidence_ref, "evidence_ref")
+        _require_sha256(self.evidence_digest, "evidence_digest")
         if self.presence is not Presence.PRESENT and self.identity_ref is not None:
             raise ValueError("non-present deliverable cannot claim an observed identity")
         if self.presence is not Presence.PRESENT and self.smoke_status in {SmokeStatus.PASS, SmokeStatus.FAIL}:
@@ -386,17 +411,16 @@ class UnexpectedComponentObservation:
     component_ref: str
     artifact_digest: str
     criticality: UnexpectedCriticality
-    disposition: UnexpectedDisposition
     evidence_ref: str
+    evidence_digest: str
 
     def __post_init__(self) -> None:
         _require_text(self.component_ref, "component_ref")
         _require_sha256(self.artifact_digest, "artifact_digest")
         _require_text(self.evidence_ref, "evidence_ref")
+        _require_sha256(self.evidence_digest, "evidence_digest")
         if not isinstance(self.criticality, UnexpectedCriticality):
             raise ValueError("criticality must be an UnexpectedCriticality")
-        if not isinstance(self.disposition, UnexpectedDisposition):
-            raise ValueError("disposition must be an UnexpectedDisposition")
 
 
 def manifest_document(manifest: ReleaseDeliverableManifest) -> dict[str, Any]:
@@ -417,11 +441,52 @@ def manifest_document(manifest: ReleaseDeliverableManifest) -> dict[str, Any]:
             }
             for item in sorted(manifest.deliverables, key=lambda value: value.deliverable_id)
         },
+        "unexpected_component_dispositions": {
+            item.component_ref: item.disposition.value
+            for item in sorted(
+                manifest.unexpected_component_dispositions,
+                key=lambda value: value.component_ref,
+            )
+        },
     }
 
 
 def manifest_digest(manifest: ReleaseDeliverableManifest) -> str:
     return _sha256_document(manifest_document(manifest))
+
+
+def _artifact_evidence_digest(
+    artifact_digest: str,
+    observed: list[dict[str, Any]],
+    unexpected_components: list[dict[str, Any]],
+) -> str:
+    return _sha256_document(
+        {
+            "schema_version": 1,
+            "artifact_digest": artifact_digest,
+            "observed": [
+                {
+                    "deliverable_id": item["deliverable_id"],
+                    "presence": item["presence"],
+                    "identity_ref": item["identity_ref"],
+                    "smoke_profile_ref": item["smoke_profile_ref"],
+                    "smoke_status": item["smoke_status"],
+                    "evidence_ref": item["evidence_ref"],
+                    "evidence_digest": item["evidence_digest"],
+                }
+                for item in sorted(observed, key=lambda value: value["deliverable_id"])
+            ],
+            "unexpected_components": [
+                {
+                    "component_ref": item["component_ref"],
+                    "criticality": item["criticality"],
+                    "evidence_ref": item["evidence_ref"],
+                    "evidence_digest": item["evidence_digest"],
+                }
+                for item in sorted(unexpected_components, key=lambda value: value["component_ref"])
+            ],
+        }
+    )
 
 
 def evaluate_artifact_closure(
@@ -432,7 +497,6 @@ def evaluate_artifact_closure(
     artifact_ref: str,
     artifact_digest: str,
     artifact_evidence_ref: str,
-    artifact_evidence_digest: str,
     unexpected_components: tuple[UnexpectedComponentObservation, ...] = (),
 ) -> dict[str, Any]:
     """Evaluate exact-artifact deliverable closure without inferring requirements from contents."""
@@ -440,7 +504,6 @@ def evaluate_artifact_closure(
     _require_text(artifact_ref, "artifact_ref")
     _require_sha256(artifact_digest, "artifact_digest")
     _require_text(artifact_evidence_ref, "artifact_evidence_ref")
-    _require_sha256(artifact_evidence_digest, "artifact_evidence_digest")
     if not isinstance(manifest, ReleaseDeliverableManifest):
         raise ValueError("manifest must be a ReleaseDeliverableManifest")
     if not isinstance(observations, tuple) or not all(
@@ -488,22 +551,24 @@ def evaluate_artifact_closure(
             smoke_profile_ref = None
             smoke_status = SmokeStatus.UNKNOWN
             evidence_ref = None
+            evidence_digest = None
         else:
             presence = current_observation.presence
             identity_ref = current_observation.identity_ref
             smoke_profile_ref = current_observation.smoke_profile_ref
             smoke_status = current_observation.smoke_status
             evidence_ref = current_observation.evidence_ref
+            evidence_digest = current_observation.evidence_digest
 
         normalized_observations.append(
             {
                 "deliverable_id": deliverable_id,
-                "artifact_digest": artifact_digest,
                 "presence": presence.value,
                 "identity_ref": identity_ref,
                 "smoke_profile_ref": smoke_profile_ref,
                 "smoke_status": smoke_status.value,
                 "evidence_ref": evidence_ref,
+                "evidence_digest": evidence_digest,
             }
         )
 
@@ -536,25 +601,29 @@ def evaluate_artifact_closure(
                 }
             )
 
+    trusted_dispositions = {
+        item.component_ref: item.disposition for item in manifest.unexpected_component_dispositions
+    }
     normalized_unexpected = [
         {
             "component_ref": item.component_ref,
-            "artifact_digest": item.artifact_digest,
             "criticality": item.criticality.value,
-            "disposition": item.disposition.value,
+            "disposition": trusted_dispositions.get(
+                item.component_ref, UnexpectedDisposition.UNRESOLVED
+            ).value,
             "evidence_ref": item.evidence_ref,
+            "evidence_digest": item.evidence_digest,
         }
         for item in sorted(unexpected_components, key=lambda value: value.component_ref)
     ]
     blocking_unexpected = [
-        item.component_ref
-        for item in sorted(unexpected_components, key=lambda value: value.component_ref)
-        if item.disposition is UnexpectedDisposition.FORBIDDEN
-        or (
-            item.disposition is UnexpectedDisposition.UNRESOLVED
-            and item.criticality in {UnexpectedCriticality.CRITICAL, UnexpectedCriticality.UNKNOWN}
-        )
+        item["component_ref"]
+        for item in normalized_unexpected
+        if item["disposition"] != UnexpectedDisposition.ALLOWED.value
     ]
+    artifact_evidence_digest = _artifact_evidence_digest(
+        artifact_digest, normalized_observations, normalized_unexpected
+    )
 
     verdict = (
         ClosureVerdict.COMPLETE
@@ -591,6 +660,13 @@ def evaluate_artifact_closure(
 def verify_artifact_closure_receipt_integrity(receipt: dict[str, Any]) -> bool:
     """Verify bounded receipt shape and canonical digest before trusting any receipt fields."""
     if not _receipt_shape_is_valid(receipt):
+        return False
+    if (
+        _artifact_evidence_digest(
+            receipt["artifact_digest"], receipt["observed"], receipt["unexpected_components"]
+        )
+        != receipt["artifact_evidence_digest"]
+    ):
         return False
     supplied = receipt["receipt_digest"]
     payload = dict(receipt)
@@ -664,19 +740,18 @@ def verify_artifact_closure_receipt_semantics(
                 }
             )
 
-    blocking_unexpected = [
-        item["component_ref"]
-        for item in sorted(receipt["unexpected_components"], key=lambda value: value["component_ref"])
-        if item["disposition"] == UnexpectedDisposition.FORBIDDEN.value
-        or (
-            item["disposition"] == UnexpectedDisposition.UNRESOLVED.value
-            and item["criticality"]
-            in {
-                UnexpectedCriticality.CRITICAL.value,
-                UnexpectedCriticality.UNKNOWN.value,
-            }
+    trusted_dispositions = {
+        item.component_ref: item.disposition.value for item in manifest.unexpected_component_dispositions
+    }
+    blocking_unexpected: list[str] = []
+    for item in sorted(receipt["unexpected_components"], key=lambda value: value["component_ref"]):
+        expected_disposition = trusted_dispositions.get(
+            item["component_ref"], UnexpectedDisposition.UNRESOLVED.value
         )
-    ]
+        if item["disposition"] != expected_disposition:
+            return False
+        if expected_disposition != UnexpectedDisposition.ALLOWED.value:
+            blocking_unexpected.append(item["component_ref"])
     verdict = (
         ClosureVerdict.COMPLETE.value
         if not (missing_required or unknown_required or identity_mismatches or smoke_failures or blocking_unexpected)

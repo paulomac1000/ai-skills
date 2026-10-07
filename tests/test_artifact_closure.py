@@ -24,6 +24,7 @@ Presence = MODULE.Presence
 ReleaseDeliverableManifest = MODULE.ReleaseDeliverableManifest
 SmokeStatus = MODULE.SmokeStatus
 UnexpectedComponentObservation = MODULE.UnexpectedComponentObservation
+UnexpectedComponentPolicy = MODULE.UnexpectedComponentPolicy
 UnexpectedCriticality = MODULE.UnexpectedCriticality
 UnexpectedDisposition = MODULE.UnexpectedDisposition
 classify_artifact_closure_currentness = MODULE.classify_artifact_closure_currentness
@@ -35,7 +36,7 @@ verify_artifact_closure_receipt_semantics = MODULE.verify_artifact_closure_recei
 
 DIGEST_1 = "sha256:" + "1" * 64
 DIGEST_2 = "sha256:" + "2" * 64
-EVIDENCE_DIGEST_1 = "sha256:" + "3" * 64
+CLAIM_EVIDENCE_DIGEST = "sha256:" + "3" * 64
 EVIDENCE_DIGEST_2 = "sha256:" + "4" * 64
 SOURCE_REVISION = "a" * 40
 OTHER_SOURCE_REVISION = "b" * 40
@@ -93,6 +94,7 @@ class ArtifactClosureTests(unittest.TestCase):
             smoke_profile_ref=smoke_profile_ref,
             smoke_status=smoke_status,
             evidence_ref=f"evidence:{deliverable_id}",
+            evidence_digest=CLAIM_EVIDENCE_DIGEST,
         )
 
     def evaluate(self, *observations: DeliverableObservation, manifest=None, unexpected=()):
@@ -103,7 +105,6 @@ class ArtifactClosureTests(unittest.TestCase):
             artifact_ref="oci:project-steward@sha256:111",
             artifact_digest=DIGEST_1,
             artifact_evidence_ref="artifact-evidence:project-steward-090",
-            artifact_evidence_digest=EVIDENCE_DIGEST_1,
             unexpected_components=tuple(unexpected),
         )
 
@@ -230,7 +231,7 @@ class ArtifactClosureTests(unittest.TestCase):
                 current_source_revision=SOURCE_REVISION,
                 current_artifact_digest=DIGEST_1,
                 current_artifact_evidence_ref="artifact-evidence:project-steward-090",
-                current_artifact_evidence_digest=EVIDENCE_DIGEST_1,
+                current_artifact_evidence_digest=receipt["artifact_evidence_digest"],
                 current_manifest=manifest,
             ),
         )
@@ -254,7 +255,7 @@ class ArtifactClosureTests(unittest.TestCase):
                 current_source_revision=SOURCE_REVISION,
                 current_artifact_digest=DIGEST_1,
                 current_artifact_evidence_ref="artifact-evidence:project-steward-090",
-                current_artifact_evidence_digest=EVIDENCE_DIGEST_1,
+                current_artifact_evidence_digest=receipt["artifact_evidence_digest"],
                 current_manifest=manifest,
             ),
         )
@@ -268,6 +269,7 @@ class ArtifactClosureTests(unittest.TestCase):
         )
         target = next(item for item in receipt["observed"] if item["deliverable_id"] == "stewardctl")
         target["evidence_ref"] = None
+        target["evidence_digest"] = None
         payload = dict(receipt)
         payload.pop("receipt_digest")
         receipt["receipt_digest"] = MODULE._sha256_document(payload)
@@ -280,7 +282,7 @@ class ArtifactClosureTests(unittest.TestCase):
                 current_source_revision=SOURCE_REVISION,
                 current_artifact_digest=DIGEST_1,
                 current_artifact_evidence_ref="artifact-evidence:project-steward-090",
-                current_artifact_evidence_digest=EVIDENCE_DIGEST_1,
+                current_artifact_evidence_digest=receipt["artifact_evidence_digest"],
                 current_manifest=manifest,
             ),
         )
@@ -293,7 +295,11 @@ class ArtifactClosureTests(unittest.TestCase):
             manifest=manifest,
         )
         target = next(item for item in receipt["observed"] if item["deliverable_id"] == "stewardctl")
+        trusted_evidence_digest = receipt["artifact_evidence_digest"]
         target["smoke_profile_ref"] = "smoke:obsolete-stewardctl-check"
+        receipt["artifact_evidence_digest"] = MODULE._artifact_evidence_digest(
+            receipt["artifact_digest"], receipt["observed"], receipt["unexpected_components"]
+        )
         payload = dict(receipt)
         payload.pop("receipt_digest")
         receipt["receipt_digest"] = MODULE._sha256_document(payload)
@@ -307,7 +313,39 @@ class ArtifactClosureTests(unittest.TestCase):
                 current_source_revision=SOURCE_REVISION,
                 current_artifact_digest=DIGEST_1,
                 current_artifact_evidence_ref="artifact-evidence:project-steward-090",
-                current_artifact_evidence_digest=EVIDENCE_DIGEST_1,
+                current_artifact_evidence_digest=trusted_evidence_digest,
+                current_manifest=manifest,
+            ),
+        )
+
+    def test_per_deliverable_evidence_change_cannot_remain_current(self) -> None:
+        manifest = self.manifest()
+        receipt = self.evaluate(
+            self.observation("host", identity_ref="entrypoint:ProjectSteward.Host"),
+            self.observation("stewardctl", identity_ref="entrypoint:stewardctl"),
+            manifest=manifest,
+        )
+        trusted_evidence_digest = receipt["artifact_evidence_digest"]
+        target = next(item for item in receipt["observed"] if item["deliverable_id"] == "stewardctl")
+        target["evidence_digest"] = EVIDENCE_DIGEST_2
+        receipt["artifact_evidence_digest"] = MODULE._artifact_evidence_digest(
+            receipt["artifact_digest"], receipt["observed"], receipt["unexpected_components"]
+        )
+        payload = dict(receipt)
+        payload.pop("receipt_digest")
+        receipt["receipt_digest"] = MODULE._sha256_document(payload)
+
+        self.assertNotEqual(trusted_evidence_digest, receipt["artifact_evidence_digest"])
+        self.assertTrue(verify_artifact_closure_receipt_integrity(receipt))
+        self.assertTrue(verify_artifact_closure_receipt_semantics(receipt, manifest))
+        self.assertEqual(
+            ClosureCurrentness.STALE,
+            classify_artifact_closure_currentness(
+                receipt,
+                current_source_revision=SOURCE_REVISION,
+                current_artifact_digest=DIGEST_1,
+                current_artifact_evidence_ref="artifact-evidence:project-steward-090",
+                current_artifact_evidence_digest=trusted_evidence_digest,
                 current_manifest=manifest,
             ),
         )
@@ -340,7 +378,7 @@ class ArtifactClosureTests(unittest.TestCase):
                 current_source_revision=SOURCE_REVISION,
                 current_artifact_digest=DIGEST_1,
                 current_artifact_evidence_ref="artifact-evidence:project-steward-090",
-                current_artifact_evidence_digest=EVIDENCE_DIGEST_1,
+                current_artifact_evidence_digest=receipt["artifact_evidence_digest"],
                 current_manifest=manifest,
             ),
         )
@@ -354,7 +392,6 @@ class ArtifactClosureTests(unittest.TestCase):
                 artifact_ref="oci:project-steward@sha256:111",
                 artifact_digest=DIGEST_1,
                 artifact_evidence_ref="artifact-evidence:project-steward-090",
-                artifact_evidence_digest=EVIDENCE_DIGEST_1,
             )
 
     def test_forged_semantics_remain_unknown_even_when_bindings_are_stale(self) -> None:
@@ -401,7 +438,7 @@ class ArtifactClosureTests(unittest.TestCase):
                 current_source_revision=SOURCE_REVISION,
                 current_artifact_digest=DIGEST_1,
                 current_artifact_evidence_ref="artifact-evidence:project-steward-090",
-                current_artifact_evidence_digest=EVIDENCE_DIGEST_1,
+                current_artifact_evidence_digest=receipt["artifact_evidence_digest"],
                 current_manifest=manifest,
             ),
         )
@@ -412,7 +449,7 @@ class ArtifactClosureTests(unittest.TestCase):
                 current_source_revision=SOURCE_REVISION,
                 current_artifact_digest=DIGEST_2,
                 current_artifact_evidence_ref="artifact-evidence:project-steward-090",
-                current_artifact_evidence_digest=EVIDENCE_DIGEST_1,
+                current_artifact_evidence_digest=receipt["artifact_evidence_digest"],
                 current_manifest=manifest,
             ),
         )
@@ -423,7 +460,7 @@ class ArtifactClosureTests(unittest.TestCase):
                 current_source_revision=OTHER_SOURCE_REVISION,
                 current_artifact_digest=DIGEST_1,
                 current_artifact_evidence_ref="artifact-evidence:project-steward-090",
-                current_artifact_evidence_digest=EVIDENCE_DIGEST_1,
+                current_artifact_evidence_digest=receipt["artifact_evidence_digest"],
                 current_manifest=manifest,
             ),
         )
@@ -434,7 +471,7 @@ class ArtifactClosureTests(unittest.TestCase):
                 current_source_revision=SOURCE_REVISION,
                 current_artifact_digest=DIGEST_1,
                 current_artifact_evidence_ref="artifact-evidence:new-profile",
-                current_artifact_evidence_digest=EVIDENCE_DIGEST_1,
+                current_artifact_evidence_digest=receipt["artifact_evidence_digest"],
                 current_manifest=manifest,
             ),
         )
@@ -456,7 +493,7 @@ class ArtifactClosureTests(unittest.TestCase):
                 current_source_revision=None,
                 current_artifact_digest=DIGEST_1,
                 current_artifact_evidence_ref="artifact-evidence:project-steward-090",
-                current_artifact_evidence_digest=EVIDENCE_DIGEST_1,
+                current_artifact_evidence_digest=receipt["artifact_evidence_digest"],
                 current_manifest=manifest,
             ),
         )
@@ -473,7 +510,7 @@ class ArtifactClosureTests(unittest.TestCase):
                 current_source_revision=SOURCE_REVISION,
                 current_artifact_digest=DIGEST_1,
                 current_artifact_evidence_ref="artifact-evidence:project-steward-090",
-                current_artifact_evidence_digest=EVIDENCE_DIGEST_1,
+                current_artifact_evidence_digest=receipt["artifact_evidence_digest"],
                 current_manifest=changed_manifest,
                 receipt_manifest=manifest,
             ),
@@ -484,8 +521,8 @@ class ArtifactClosureTests(unittest.TestCase):
             component_ref="entrypoint:debug-admin",
             artifact_digest=DIGEST_1,
             criticality=UnexpectedCriticality.CRITICAL,
-            disposition=UnexpectedDisposition.UNRESOLVED,
             evidence_ref="evidence:package-inventory",
+            evidence_digest=CLAIM_EVIDENCE_DIGEST,
         )
         receipt = self.evaluate(
             self.observation("host", identity_ref="entrypoint:ProjectSteward.Host"),
@@ -494,6 +531,35 @@ class ArtifactClosureTests(unittest.TestCase):
         )
         self.assertEqual("INCOMPLETE", receipt["verdict"])
         self.assertEqual(["entrypoint:debug-admin"], receipt["blocking_unexpected"])
+
+        forged = json.loads(json.dumps(receipt))
+        forged["unexpected_components"][0]["disposition"] = "allowed"
+        forged["blocking_unexpected"] = []
+        forged["verdict"] = "COMPLETE"
+        payload = dict(forged)
+        payload.pop("receipt_digest")
+        forged["receipt_digest"] = MODULE._sha256_document(payload)
+        self.assertTrue(verify_artifact_closure_receipt_integrity(forged))
+        self.assertFalse(verify_artifact_closure_receipt_semantics(forged, self.manifest()))
+
+        base_manifest = self.manifest()
+        allowed_manifest = ReleaseDeliverableManifest(
+            manifest_id=base_manifest.manifest_id,
+            revision=base_manifest.revision,
+            policy_ref=base_manifest.policy_ref,
+            deliverables=base_manifest.deliverables,
+            unexpected_component_dispositions=(
+                UnexpectedComponentPolicy("entrypoint:debug-admin", UnexpectedDisposition.ALLOWED),
+            ),
+        )
+        allowed_receipt = self.evaluate(
+            self.observation("host", identity_ref="entrypoint:ProjectSteward.Host"),
+            self.observation("stewardctl", identity_ref="entrypoint:stewardctl"),
+            manifest=allowed_manifest,
+            unexpected=(unexpected,),
+        )
+        self.assertEqual("COMPLETE", allowed_receipt["verdict"])
+        self.assertEqual([], allowed_receipt["blocking_unexpected"])
 
     def test_manifest_digest_is_order_independent_but_semantics_sensitive(self) -> None:
         manifest = self.manifest()
@@ -538,6 +604,7 @@ class ArtifactClosureTests(unittest.TestCase):
             smoke_profile_ref="smoke:host-version",
             smoke_status=SmokeStatus.PASS,
             evidence_ref="evidence:wrong-artifact",
+            evidence_digest=CLAIM_EVIDENCE_DIGEST,
         )
         with self.assertRaisesRegex(ValueError, "same exact artifact digest"):
             self.evaluate(wrong)
@@ -603,12 +670,19 @@ class ArtifactClosureTests(unittest.TestCase):
         self.assertIn("artifact_evidence_digest", receipt_schema["required"])
         observed_schema = receipt_schema["properties"]["observed"]["items"]
         self.assertIn("smoke_profile_ref", observed_schema["required"])
+        self.assertIn("evidence_digest", observed_schema["required"])
+        self.assertNotIn("artifact_digest", observed_schema["properties"])
+        self.assertNotIn(
+            "artifact_digest",
+            receipt_schema["properties"]["unexpected_components"]["items"]["properties"],
+        )
         self.assertIn("allOf", observed_schema)
         manifest_doc = manifest_document(self.manifest())
         self.assertEqual(1, manifest_doc["schema_version"])
         self.assertIsInstance(manifest_doc["deliverables"], dict)
         self.assertEqual({"host", "stewardctl", "dev-helper"}, set(manifest_doc["deliverables"]))
         Draft202012Validator(manifest_schema).validate(manifest_doc)
+        self.assertIn("unexpected_component_dispositions", manifest_doc)
         receipt = self.evaluate(
             self.observation("host", identity_ref="entrypoint:ProjectSteward.Host"),
             self.observation("stewardctl", identity_ref="entrypoint:stewardctl"),
@@ -621,6 +695,9 @@ class ArtifactClosureTests(unittest.TestCase):
         invalid_observation["identity_ref"] = "entrypoint:stewardctl"
         invalid_observation["smoke_status"] = "PASS"
         self.assertFalse(Draft202012Validator(receipt_schema).is_valid(schema_only_invalid))
+        schema_only_cross_artifact = json.loads(json.dumps(receipt))
+        schema_only_cross_artifact["observed"][0]["artifact_digest"] = DIGEST_2
+        self.assertFalse(Draft202012Validator(receipt_schema).is_valid(schema_only_cross_artifact))
         duplicate_prone_array_document = dict(manifest_doc)
         duplicate_prone_array_document["deliverables"] = [{"id": "dup"}, {"id": "dup"}]
         self.assertFalse(Draft202012Validator(manifest_schema).is_valid(duplicate_prone_array_document))
