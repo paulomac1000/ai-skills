@@ -11,6 +11,7 @@ from enum import StrEnum
 from typing import Any
 
 _SHA256_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
+_SOURCE_REVISION_RE = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
 _MAX_DELIVERABLES = 256
 _MAX_UNEXPECTED_COMPONENTS = 256
 _RECEIPT_ROOT_FIELDS = frozenset(
@@ -21,6 +22,7 @@ _RECEIPT_ROOT_FIELDS = frozenset(
         "artifact_ref",
         "artifact_digest",
         "artifact_evidence_ref",
+        "artifact_evidence_digest",
         "manifest",
         "observed",
         "unexpected_components",
@@ -110,6 +112,11 @@ def _require_sha256(value: str, name: str) -> None:
         raise ValueError(f"{name} must be a sha256:<64 lowercase hex> digest")
 
 
+def _require_source_revision(value: str, name: str) -> None:
+    if not isinstance(value, str) or _SOURCE_REVISION_RE.fullmatch(value) is None:
+        raise ValueError(f"{name} must be a full immutable 40- or 64-hex commit id")
+
+
 def _sha256_document(document: dict[str, Any]) -> str:
     payload = json.dumps(
         document,
@@ -126,6 +133,10 @@ def _is_bounded_text(value: object, *, limit: int = 2048) -> bool:
 
 def _is_sha256(value: object) -> bool:
     return isinstance(value, str) and _SHA256_RE.fullmatch(value) is not None
+
+
+def _is_source_revision(value: object) -> bool:
+    return isinstance(value, str) and _SOURCE_REVISION_RE.fullmatch(value) is not None
 
 
 def _has_exact_fields(value: object, fields: frozenset[str]) -> bool:
@@ -146,7 +157,7 @@ def _receipt_shape_is_valid(receipt: object) -> bool:
     assert isinstance(receipt, dict)
     if receipt.get("schema_version") != 1 or receipt.get("receipt_kind") != "artifact_closure":
         return False
-    if not _is_bounded_text(receipt.get("source_revision"), limit=256):
+    if not _is_source_revision(receipt.get("source_revision")):
         return False
     if not _is_bounded_text(receipt.get("artifact_ref")):
         return False
@@ -154,6 +165,8 @@ def _receipt_shape_is_valid(receipt: object) -> bool:
     if not _is_sha256(artifact_digest):
         return False
     if not _is_bounded_text(receipt.get("artifact_evidence_ref")):
+        return False
+    if not _is_sha256(receipt.get("artifact_evidence_digest")):
         return False
     if not _is_sha256(receipt.get("receipt_digest")):
         return False
@@ -394,9 +407,8 @@ def manifest_document(manifest: ReleaseDeliverableManifest) -> dict[str, Any]:
         "manifest_id": manifest.manifest_id,
         "revision": manifest.revision,
         "policy_ref": manifest.policy_ref,
-        "deliverables": [
-            {
-                "id": item.deliverable_id,
+        "deliverables": {
+            item.deliverable_id: {
                 "kind": item.kind.value,
                 "required": item.required,
                 "expected_identity_ref": item.expected_identity_ref,
@@ -404,7 +416,7 @@ def manifest_document(manifest: ReleaseDeliverableManifest) -> dict[str, Any]:
                 "smoke_required": item.smoke_required,
             }
             for item in sorted(manifest.deliverables, key=lambda value: value.deliverable_id)
-        ],
+        },
     }
 
 
@@ -420,13 +432,15 @@ def evaluate_artifact_closure(
     artifact_ref: str,
     artifact_digest: str,
     artifact_evidence_ref: str,
+    artifact_evidence_digest: str,
     unexpected_components: tuple[UnexpectedComponentObservation, ...] = (),
 ) -> dict[str, Any]:
     """Evaluate exact-artifact deliverable closure without inferring requirements from contents."""
-    _require_text(source_revision, "source_revision", limit=256)
+    _require_source_revision(source_revision, "source_revision")
     _require_text(artifact_ref, "artifact_ref")
     _require_sha256(artifact_digest, "artifact_digest")
     _require_text(artifact_evidence_ref, "artifact_evidence_ref")
+    _require_sha256(artifact_evidence_digest, "artifact_evidence_digest")
     if not isinstance(manifest, ReleaseDeliverableManifest):
         raise ValueError("manifest must be a ReleaseDeliverableManifest")
     if not isinstance(observations, tuple) or not all(
@@ -554,6 +568,7 @@ def evaluate_artifact_closure(
         "artifact_ref": artifact_ref,
         "artifact_digest": artifact_digest,
         "artifact_evidence_ref": artifact_evidence_ref,
+        "artifact_evidence_digest": artifact_evidence_digest,
         "manifest": {
             "manifest_id": manifest.manifest_id,
             "revision": manifest.revision,
@@ -681,7 +696,9 @@ def classify_artifact_closure_currentness(
     current_source_revision: str | None,
     current_artifact_digest: str | None,
     current_artifact_evidence_ref: str | None,
+    current_artifact_evidence_digest: str | None,
     current_manifest: ReleaseDeliverableManifest | None,
+    receipt_manifest: ReleaseDeliverableManifest | None = None,
 ) -> ClosureCurrentness:
     """Classify whether immutable closure evidence still applies to current artifact/manifest identity."""
     if not verify_artifact_closure_receipt_integrity(receipt):
@@ -690,32 +707,43 @@ def classify_artifact_closure_currentness(
         current_source_revision is None
         or current_artifact_digest is None
         or current_artifact_evidence_ref is None
+        or current_artifact_evidence_digest is None
         or current_manifest is None
     ):
         return ClosureCurrentness.UNKNOWN
     try:
-        _require_text(current_source_revision, "current_source_revision", limit=256)
+        _require_source_revision(current_source_revision, "current_source_revision")
         _require_sha256(current_artifact_digest, "current_artifact_digest")
         _require_text(current_artifact_evidence_ref, "current_artifact_evidence_ref")
+        _require_sha256(current_artifact_evidence_digest, "current_artifact_evidence_digest")
         current_manifest_digest = manifest_digest(current_manifest)
         receipt_source_revision = receipt["source_revision"]
         receipt_artifact_digest = receipt["artifact_digest"]
         receipt_artifact_evidence_ref = receipt["artifact_evidence_ref"]
+        receipt_artifact_evidence_digest = receipt["artifact_evidence_digest"]
         receipt_manifest_digest = receipt["manifest"]["digest"]
-        _require_text(receipt_source_revision, "receipt.source_revision", limit=256)
+        _require_source_revision(receipt_source_revision, "receipt.source_revision")
         _require_sha256(receipt_artifact_digest, "receipt.artifact_digest")
         _require_text(receipt_artifact_evidence_ref, "receipt.artifact_evidence_ref")
+        _require_sha256(receipt_artifact_evidence_digest, "receipt.artifact_evidence_digest")
         _require_sha256(receipt_manifest_digest, "receipt.manifest.digest")
     except (KeyError, TypeError, ValueError):
+        return ClosureCurrentness.UNKNOWN
+
+    trusted_receipt_manifest = receipt_manifest
+    if trusted_receipt_manifest is None and receipt_manifest_digest == current_manifest_digest:
+        trusted_receipt_manifest = current_manifest
+    if trusted_receipt_manifest is None:
+        return ClosureCurrentness.UNKNOWN
+    if not verify_artifact_closure_receipt_semantics(receipt, trusted_receipt_manifest):
         return ClosureCurrentness.UNKNOWN
 
     if (
         receipt_source_revision != current_source_revision
         or receipt_artifact_digest != current_artifact_digest
         or receipt_artifact_evidence_ref != current_artifact_evidence_ref
+        or receipt_artifact_evidence_digest != current_artifact_evidence_digest
         or receipt_manifest_digest != current_manifest_digest
     ):
         return ClosureCurrentness.STALE
-    if not verify_artifact_closure_receipt_semantics(receipt, current_manifest):
-        return ClosureCurrentness.UNKNOWN
     return ClosureCurrentness.CURRENT

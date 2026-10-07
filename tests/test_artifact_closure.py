@@ -6,6 +6,8 @@ import sys
 import unittest
 from pathlib import Path
 
+from jsonschema import Draft202012Validator
+
 ROOT = Path(__file__).resolve().parents[1]
 MODULE_PATH = ROOT / "contracts" / "artifact_closure.py"
 SPEC = importlib.util.spec_from_file_location("artifact_closure", MODULE_PATH)
@@ -33,6 +35,10 @@ verify_artifact_closure_receipt_semantics = MODULE.verify_artifact_closure_recei
 
 DIGEST_1 = "sha256:" + "1" * 64
 DIGEST_2 = "sha256:" + "2" * 64
+EVIDENCE_DIGEST_1 = "sha256:" + "3" * 64
+EVIDENCE_DIGEST_2 = "sha256:" + "4" * 64
+SOURCE_REVISION = "a" * 40
+OTHER_SOURCE_REVISION = "b" * 40
 
 
 class ArtifactClosureTests(unittest.TestCase):
@@ -93,10 +99,11 @@ class ArtifactClosureTests(unittest.TestCase):
         return evaluate_artifact_closure(
             manifest or self.manifest(),
             tuple(observations),
-            source_revision="integrated-sha-090",
+            source_revision=SOURCE_REVISION,
             artifact_ref="oci:project-steward@sha256:111",
             artifact_digest=DIGEST_1,
             artifact_evidence_ref="artifact-evidence:project-steward-090",
+            artifact_evidence_digest=EVIDENCE_DIGEST_1,
             unexpected_components=tuple(unexpected),
         )
 
@@ -190,9 +197,10 @@ class ArtifactClosureTests(unittest.TestCase):
             ClosureCurrentness.UNKNOWN,
             classify_artifact_closure_currentness(
                 receipt,
-                current_source_revision="integrated-sha-090",
+                current_source_revision=SOURCE_REVISION,
                 current_artifact_digest=DIGEST_1,
                 current_artifact_evidence_ref="artifact-evidence:project-steward-090",
+                current_artifact_evidence_digest=EVIDENCE_DIGEST_1,
                 current_manifest=manifest,
             ),
         )
@@ -213,9 +221,10 @@ class ArtifactClosureTests(unittest.TestCase):
             ClosureCurrentness.UNKNOWN,
             classify_artifact_closure_currentness(
                 receipt,
-                current_source_revision="integrated-sha-090",
+                current_source_revision=SOURCE_REVISION,
                 current_artifact_digest=DIGEST_1,
                 current_artifact_evidence_ref="artifact-evidence:project-steward-090",
+                current_artifact_evidence_digest=EVIDENCE_DIGEST_1,
                 current_manifest=manifest,
             ),
         )
@@ -238,9 +247,10 @@ class ArtifactClosureTests(unittest.TestCase):
             ClosureCurrentness.UNKNOWN,
             classify_artifact_closure_currentness(
                 receipt,
-                current_source_revision="integrated-sha-090",
+                current_source_revision=SOURCE_REVISION,
                 current_artifact_digest=DIGEST_1,
                 current_artifact_evidence_ref="artifact-evidence:project-steward-090",
+                current_artifact_evidence_digest=EVIDENCE_DIGEST_1,
                 current_manifest=manifest,
             ),
         )
@@ -264,9 +274,10 @@ class ArtifactClosureTests(unittest.TestCase):
             ClosureCurrentness.UNKNOWN,
             classify_artifact_closure_currentness(
                 receipt,
-                current_source_revision="integrated-sha-090",
+                current_source_revision=SOURCE_REVISION,
                 current_artifact_digest=DIGEST_1,
                 current_artifact_evidence_ref="artifact-evidence:project-steward-090",
+                current_artifact_evidence_digest=EVIDENCE_DIGEST_1,
                 current_manifest=manifest,
             ),
         )
@@ -296,9 +307,52 @@ class ArtifactClosureTests(unittest.TestCase):
             ClosureCurrentness.UNKNOWN,
             classify_artifact_closure_currentness(
                 receipt,
-                current_source_revision="integrated-sha-090",
+                current_source_revision=SOURCE_REVISION,
                 current_artifact_digest=DIGEST_1,
                 current_artifact_evidence_ref="artifact-evidence:project-steward-090",
+                current_artifact_evidence_digest=EVIDENCE_DIGEST_1,
+                current_manifest=manifest,
+            ),
+        )
+
+    def test_mutable_source_revision_is_rejected(self) -> None:
+        with self.assertRaisesRegex(ValueError, "full immutable"):
+            evaluate_artifact_closure(
+                self.manifest(),
+                (),
+                source_revision="main",
+                artifact_ref="oci:project-steward@sha256:111",
+                artifact_digest=DIGEST_1,
+                artifact_evidence_ref="artifact-evidence:project-steward-090",
+                artifact_evidence_digest=EVIDENCE_DIGEST_1,
+            )
+
+    def test_forged_semantics_remain_unknown_even_when_bindings_are_stale(self) -> None:
+        manifest = self.manifest()
+        receipt = self.evaluate(
+            self.observation("host", identity_ref="entrypoint:ProjectSteward.Host"),
+            self.observation(
+                "stewardctl",
+                presence=Presence.MISSING,
+                identity_ref=None,
+                smoke_status=SmokeStatus.UNKNOWN,
+            ),
+            manifest=manifest,
+        )
+        receipt["missing_required"] = []
+        receipt["verdict"] = "COMPLETE"
+        payload = dict(receipt)
+        payload.pop("receipt_digest")
+        receipt["receipt_digest"] = MODULE._sha256_document(payload)
+
+        self.assertEqual(
+            ClosureCurrentness.UNKNOWN,
+            classify_artifact_closure_currentness(
+                receipt,
+                current_source_revision=OTHER_SOURCE_REVISION,
+                current_artifact_digest=DIGEST_2,
+                current_artifact_evidence_ref="artifact-evidence:new-profile",
+                current_artifact_evidence_digest=EVIDENCE_DIGEST_2,
                 current_manifest=manifest,
             ),
         )
@@ -314,9 +368,10 @@ class ArtifactClosureTests(unittest.TestCase):
             ClosureCurrentness.CURRENT,
             classify_artifact_closure_currentness(
                 receipt,
-                current_source_revision="integrated-sha-090",
+                current_source_revision=SOURCE_REVISION,
                 current_artifact_digest=DIGEST_1,
                 current_artifact_evidence_ref="artifact-evidence:project-steward-090",
+                current_artifact_evidence_digest=EVIDENCE_DIGEST_1,
                 current_manifest=manifest,
             ),
         )
@@ -324,9 +379,10 @@ class ArtifactClosureTests(unittest.TestCase):
             ClosureCurrentness.STALE,
             classify_artifact_closure_currentness(
                 receipt,
-                current_source_revision="integrated-sha-090",
+                current_source_revision=SOURCE_REVISION,
                 current_artifact_digest=DIGEST_2,
                 current_artifact_evidence_ref="artifact-evidence:project-steward-090",
+                current_artifact_evidence_digest=EVIDENCE_DIGEST_1,
                 current_manifest=manifest,
             ),
         )
@@ -334,9 +390,10 @@ class ArtifactClosureTests(unittest.TestCase):
             ClosureCurrentness.STALE,
             classify_artifact_closure_currentness(
                 receipt,
-                current_source_revision="different-source-sha",
+                current_source_revision=OTHER_SOURCE_REVISION,
                 current_artifact_digest=DIGEST_1,
                 current_artifact_evidence_ref="artifact-evidence:project-steward-090",
+                current_artifact_evidence_digest=EVIDENCE_DIGEST_1,
                 current_manifest=manifest,
             ),
         )
@@ -344,9 +401,21 @@ class ArtifactClosureTests(unittest.TestCase):
             ClosureCurrentness.STALE,
             classify_artifact_closure_currentness(
                 receipt,
-                current_source_revision="integrated-sha-090",
+                current_source_revision=SOURCE_REVISION,
                 current_artifact_digest=DIGEST_1,
                 current_artifact_evidence_ref="artifact-evidence:new-profile",
+                current_artifact_evidence_digest=EVIDENCE_DIGEST_1,
+                current_manifest=manifest,
+            ),
+        )
+        self.assertEqual(
+            ClosureCurrentness.STALE,
+            classify_artifact_closure_currentness(
+                receipt,
+                current_source_revision=SOURCE_REVISION,
+                current_artifact_digest=DIGEST_1,
+                current_artifact_evidence_ref="artifact-evidence:project-steward-090",
+                current_artifact_evidence_digest=EVIDENCE_DIGEST_2,
                 current_manifest=manifest,
             ),
         )
@@ -357,6 +426,7 @@ class ArtifactClosureTests(unittest.TestCase):
                 current_source_revision=None,
                 current_artifact_digest=DIGEST_1,
                 current_artifact_evidence_ref="artifact-evidence:project-steward-090",
+                current_artifact_evidence_digest=EVIDENCE_DIGEST_1,
                 current_manifest=manifest,
             ),
         )
@@ -370,10 +440,12 @@ class ArtifactClosureTests(unittest.TestCase):
             ClosureCurrentness.STALE,
             classify_artifact_closure_currentness(
                 receipt,
-                current_source_revision="integrated-sha-090",
+                current_source_revision=SOURCE_REVISION,
                 current_artifact_digest=DIGEST_1,
                 current_artifact_evidence_ref="artifact-evidence:project-steward-090",
+                current_artifact_evidence_digest=EVIDENCE_DIGEST_1,
                 current_manifest=changed_manifest,
+                receipt_manifest=manifest,
             ),
         )
 
@@ -492,11 +564,24 @@ class ArtifactClosureTests(unittest.TestCase):
         manifest_schema = json.loads((ROOT / "contracts" / "release-deliverable-manifest.schema.json").read_text())
         receipt_schema = json.loads((ROOT / "contracts" / "artifact-closure-receipt.schema.json").read_text())
         self.assertEqual(1, manifest_schema["properties"]["schema_version"]["const"])
+        self.assertEqual("object", manifest_schema["properties"]["deliverables"]["type"])
         self.assertEqual("artifact_closure", receipt_schema["properties"]["receipt_kind"]["const"])
+        self.assertEqual(
+            "^(?:[0-9a-f]{40}|[0-9a-f]{64})$",
+            receipt_schema["properties"]["source_revision"]["pattern"],
+        )
+        self.assertIn("artifact_evidence_digest", receipt_schema["required"])
         observed_schema = receipt_schema["properties"]["observed"]["items"]
         self.assertIn("smoke_profile_ref", observed_schema["required"])
         self.assertIn("allOf", observed_schema)
-        self.assertEqual(1, manifest_document(self.manifest())["schema_version"])
+        manifest_doc = manifest_document(self.manifest())
+        self.assertEqual(1, manifest_doc["schema_version"])
+        self.assertIsInstance(manifest_doc["deliverables"], dict)
+        self.assertEqual({"host", "stewardctl", "dev-helper"}, set(manifest_doc["deliverables"]))
+        Draft202012Validator(manifest_schema).validate(manifest_doc)
+        duplicate_prone_array_document = dict(manifest_doc)
+        duplicate_prone_array_document["deliverables"] = [{"id": "dup"}, {"id": "dup"}]
+        self.assertFalse(Draft202012Validator(manifest_schema).is_valid(duplicate_prone_array_document))
 
 
 if __name__ == "__main__":

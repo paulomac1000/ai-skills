@@ -5,26 +5,78 @@
   "type": "object",
   "additionalProperties": false,
   "required": [
-    "schema_version", "receipt_kind", "source_revision", "artifact_ref", "artifact_digest",
-    "artifact_evidence_ref", "manifest", "observed", "unexpected_components", "missing_required",
-    "unknown_required", "identity_mismatches", "smoke_failures", "blocking_unexpected", "verdict", "receipt_digest"
+    "schema_version",
+    "receipt_kind",
+    "source_revision",
+    "artifact_ref",
+    "artifact_digest",
+    "artifact_evidence_ref",
+    "artifact_evidence_digest",
+    "manifest",
+    "observed",
+    "unexpected_components",
+    "missing_required",
+    "unknown_required",
+    "identity_mismatches",
+    "smoke_failures",
+    "blocking_unexpected",
+    "verdict",
+    "receipt_digest"
   ],
   "properties": {
-    "schema_version": {"const": 1},
-    "receipt_kind": {"const": "artifact_closure"},
-    "source_revision": {"type": "string", "minLength": 1, "maxLength": 256},
-    "artifact_ref": {"type": "string", "minLength": 1, "maxLength": 2048},
-    "artifact_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
-    "artifact_evidence_ref": {"type": "string", "minLength": 1, "maxLength": 2048},
+    "schema_version": {
+      "const": 1
+    },
+    "receipt_kind": {
+      "const": "artifact_closure"
+    },
+    "source_revision": {
+      "type": "string",
+      "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+    },
+    "artifact_ref": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2048
+    },
+    "artifact_digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "artifact_evidence_ref": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2048
+    },
     "manifest": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["manifest_id", "revision", "digest", "policy_ref"],
+      "required": [
+        "manifest_id",
+        "revision",
+        "digest",
+        "policy_ref"
+      ],
       "properties": {
-        "manifest_id": {"type": "string", "minLength": 1, "maxLength": 256},
-        "revision": {"type": "string", "minLength": 1, "maxLength": 256},
-        "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
-        "policy_ref": {"type": "string", "minLength": 1, "maxLength": 2048}
+        "manifest_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "revision": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "policy_ref": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        }
       }
     },
     "observed": {
@@ -33,27 +85,108 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["deliverable_id", "artifact_digest", "presence", "identity_ref", "smoke_profile_ref", "smoke_status", "evidence_ref"],
+        "required": [
+          "deliverable_id",
+          "artifact_digest",
+          "presence",
+          "identity_ref",
+          "smoke_profile_ref",
+          "smoke_status",
+          "evidence_ref"
+        ],
         "properties": {
-          "deliverable_id": {"type": "string", "minLength": 1, "maxLength": 256},
-          "artifact_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
-          "presence": {"enum": ["PRESENT", "MISSING", "UNKNOWN"]},
-          "identity_ref": {"type": ["string", "null"], "minLength": 1, "maxLength": 2048},
-          "smoke_profile_ref": {"type": ["string", "null"], "minLength": 1, "maxLength": 2048},
-          "smoke_status": {"enum": ["PASS", "FAIL", "UNKNOWN", "NOT_REQUIRED"]},
-          "evidence_ref": {"type": ["string", "null"], "minLength": 1, "maxLength": 2048}
+          "deliverable_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "artifact_digest": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "presence": {
+            "enum": [
+              "PRESENT",
+              "MISSING",
+              "UNKNOWN"
+            ]
+          },
+          "identity_ref": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1,
+            "maxLength": 2048
+          },
+          "smoke_profile_ref": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1,
+            "maxLength": 2048
+          },
+          "smoke_status": {
+            "enum": [
+              "PASS",
+              "FAIL",
+              "UNKNOWN",
+              "NOT_REQUIRED"
+            ]
+          },
+          "evidence_ref": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1,
+            "maxLength": 2048
+          }
         },
         "allOf": [
           {
-            "if": {"properties": {"smoke_status": {"enum": ["PASS", "FAIL"]}}, "required": ["smoke_status"]},
-            "then": {"properties": {"smoke_profile_ref": {"type": "string", "minLength": 1}}}
-          },
-          {
-            "if": {"properties": {"evidence_ref": {"type": "null"}}, "required": ["evidence_ref"]},
+            "if": {
+              "properties": {
+                "smoke_status": {
+                  "enum": [
+                    "PASS",
+                    "FAIL"
+                  ]
+                }
+              },
+              "required": [
+                "smoke_status"
+              ]
+            },
             "then": {
               "properties": {
-                "presence": {"const": "UNKNOWN"},
-                "smoke_status": {"const": "UNKNOWN"}
+                "smoke_profile_ref": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "evidence_ref": {
+                  "type": "null"
+                }
+              },
+              "required": [
+                "evidence_ref"
+              ]
+            },
+            "then": {
+              "properties": {
+                "presence": {
+                  "const": "UNKNOWN"
+                },
+                "smoke_status": {
+                  "const": "UNKNOWN"
+                }
               }
             }
           }
@@ -66,29 +199,95 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["component_ref", "artifact_digest", "criticality", "disposition", "evidence_ref"],
+        "required": [
+          "component_ref",
+          "artifact_digest",
+          "criticality",
+          "disposition",
+          "evidence_ref"
+        ],
         "properties": {
-          "component_ref": {"type": "string", "minLength": 1, "maxLength": 2048},
-          "artifact_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
-          "criticality": {"enum": ["critical", "non_critical", "unknown"]},
-          "disposition": {"enum": ["allowed", "forbidden", "unresolved"]},
-          "evidence_ref": {"type": "string", "minLength": 1, "maxLength": 2048}
+          "component_ref": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048
+          },
+          "artifact_digest": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "criticality": {
+            "enum": [
+              "critical",
+              "non_critical",
+              "unknown"
+            ]
+          },
+          "disposition": {
+            "enum": [
+              "allowed",
+              "forbidden",
+              "unresolved"
+            ]
+          },
+          "evidence_ref": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048
+          }
         }
       }
     },
-    "missing_required": {"type": "array", "maxItems": 256, "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 256}},
-    "unknown_required": {"type": "array", "maxItems": 256, "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 256}},
+    "missing_required": {
+      "type": "array",
+      "maxItems": 256,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 256
+      }
+    },
+    "unknown_required": {
+      "type": "array",
+      "maxItems": 256,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 256
+      }
+    },
     "identity_mismatches": {
       "type": "array",
       "maxItems": 256,
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["deliverable_id", "expected_identity_ref", "observed_identity_ref"],
+        "required": [
+          "deliverable_id",
+          "expected_identity_ref",
+          "observed_identity_ref"
+        ],
         "properties": {
-          "deliverable_id": {"type": "string", "minLength": 1, "maxLength": 256},
-          "expected_identity_ref": {"type": "string", "minLength": 1, "maxLength": 2048},
-          "observed_identity_ref": {"type": ["string", "null"], "minLength": 1, "maxLength": 2048}
+          "deliverable_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "expected_identity_ref": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048
+          },
+          "observed_identity_ref": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1,
+            "maxLength": 2048
+          }
         }
       }
     },
@@ -98,17 +297,65 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["deliverable_id", "smoke_status", "expected_smoke_profile_ref", "observed_smoke_profile_ref"],
+        "required": [
+          "deliverable_id",
+          "smoke_status",
+          "expected_smoke_profile_ref",
+          "observed_smoke_profile_ref"
+        ],
         "properties": {
-          "deliverable_id": {"type": "string", "minLength": 1, "maxLength": 256},
-          "smoke_status": {"enum": ["PASS", "FAIL", "UNKNOWN", "NOT_REQUIRED"]},
-          "expected_smoke_profile_ref": {"type": "string", "minLength": 1, "maxLength": 2048},
-          "observed_smoke_profile_ref": {"type": ["string", "null"], "minLength": 1, "maxLength": 2048}
+          "deliverable_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "smoke_status": {
+            "enum": [
+              "PASS",
+              "FAIL",
+              "UNKNOWN",
+              "NOT_REQUIRED"
+            ]
+          },
+          "expected_smoke_profile_ref": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048
+          },
+          "observed_smoke_profile_ref": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1,
+            "maxLength": 2048
+          }
         }
       }
     },
-    "blocking_unexpected": {"type": "array", "maxItems": 256, "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 2048}},
-    "verdict": {"enum": ["COMPLETE", "INCOMPLETE"]},
-    "receipt_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+    "blocking_unexpected": {
+      "type": "array",
+      "maxItems": 256,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 2048
+      }
+    },
+    "verdict": {
+      "enum": [
+        "COMPLETE",
+        "INCOMPLETE"
+      ]
+    },
+    "receipt_digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "artifact_evidence_digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    }
   }
 }
