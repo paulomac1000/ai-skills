@@ -546,7 +546,7 @@ def verify_artifact_closure_receipt_integrity(receipt: dict[str, Any]) -> bool:
 
 def verify_artifact_closure_receipt_semantics(
     receipt: dict[str, Any],
-    manifest: ReleaseDeliverableManifest,
+    manifest: object,
 ) -> bool:
     """Verify derived closure fields against the trusted manifest that owns requirements."""
     if not verify_artifact_closure_receipt_integrity(receipt):
@@ -605,7 +605,8 @@ def verify_artifact_closure_receipt_semantics(
         if item["disposition"] == UnexpectedDisposition.FORBIDDEN.value
         or (
             item["disposition"] == UnexpectedDisposition.UNRESOLVED.value
-            and item["criticality"] in {
+            and item["criticality"]
+            in {
                 UnexpectedCriticality.CRITICAL.value,
                 UnexpectedCriticality.UNKNOWN.value,
             }
@@ -613,13 +614,7 @@ def verify_artifact_closure_receipt_semantics(
     ]
     verdict = (
         ClosureVerdict.COMPLETE.value
-        if not (
-            missing_required
-            or unknown_required
-            or identity_mismatches
-            or smoke_failures
-            or blocking_unexpected
-        )
+        if not (missing_required or unknown_required or identity_mismatches or smoke_failures or blocking_unexpected)
         else ClosureVerdict.INCOMPLETE.value
     )
     return (
