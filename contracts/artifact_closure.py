@@ -344,34 +344,42 @@ def verify_artifact_closure_receipt_integrity(receipt: dict[str, Any]) -> bool:
 def classify_artifact_closure_currentness(
     receipt: dict[str, Any],
     *,
+    current_source_revision: str | None,
     current_artifact_digest: str | None,
+    current_artifact_evidence_ref: str | None,
     current_manifest: ReleaseDeliverableManifest | None,
-    current_source_revision: str | None = None,
 ) -> ClosureCurrentness:
     """Classify whether immutable closure evidence still applies to current artifact/manifest identity."""
     if not verify_artifact_closure_receipt_integrity(receipt):
         return ClosureCurrentness.UNKNOWN
-    if current_artifact_digest is None or current_manifest is None:
+    if (
+        current_source_revision is None
+        or current_artifact_digest is None
+        or current_artifact_evidence_ref is None
+        or current_manifest is None
+    ):
         return ClosureCurrentness.UNKNOWN
     try:
+        _require_text(current_source_revision, "current_source_revision", limit=256)
         _require_sha256(current_artifact_digest, "current_artifact_digest")
+        _require_text(current_artifact_evidence_ref, "current_artifact_evidence_ref")
         current_manifest_digest = manifest_digest(current_manifest)
-        receipt_artifact_digest = receipt["artifact_digest"]
-        receipt_manifest_digest = receipt["manifest"]["digest"]
         receipt_source_revision = receipt["source_revision"]
-        _require_sha256(receipt_artifact_digest, "receipt.artifact_digest")
-        _require_sha256(receipt_manifest_digest, "receipt.manifest.digest")
+        receipt_artifact_digest = receipt["artifact_digest"]
+        receipt_artifact_evidence_ref = receipt["artifact_evidence_ref"]
+        receipt_manifest_digest = receipt["manifest"]["digest"]
         _require_text(receipt_source_revision, "receipt.source_revision", limit=256)
+        _require_sha256(receipt_artifact_digest, "receipt.artifact_digest")
+        _require_text(receipt_artifact_evidence_ref, "receipt.artifact_evidence_ref")
+        _require_sha256(receipt_manifest_digest, "receipt.manifest.digest")
     except (KeyError, TypeError, ValueError):
         return ClosureCurrentness.UNKNOWN
 
-    if receipt_artifact_digest != current_artifact_digest or receipt_manifest_digest != current_manifest_digest:
+    if (
+        receipt_source_revision != current_source_revision
+        or receipt_artifact_digest != current_artifact_digest
+        or receipt_artifact_evidence_ref != current_artifact_evidence_ref
+        or receipt_manifest_digest != current_manifest_digest
+    ):
         return ClosureCurrentness.STALE
-    if current_source_revision is not None:
-        try:
-            _require_text(current_source_revision, "current_source_revision", limit=256)
-        except ValueError:
-            return ClosureCurrentness.UNKNOWN
-        if receipt_source_revision != current_source_revision:
-            return ClosureCurrentness.STALE
     return ClosureCurrentness.CURRENT

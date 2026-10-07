@@ -184,7 +184,7 @@ Closure binds the exact source revision used to build the artifact, the exact im
 
 `COMPLETE` requires zero missing/unknown required deliverables, zero required identity mismatches, zero required smoke failures, and no policy-blocking unexpected component. Explicitly forbidden unexpected components block closure; unresolved unexpected components whose criticality is critical or unknown also block until policy disposition. This bounded unexpected-component surface is for release admission only and is not a substitute for SBOM or complete package inventory.
 
-A rebuild/new artifact digest, source revision change, or load-bearing manifest change makes prior closure evidence stale. A malformed or digest-tampered receipt is unknown rather than current. Publication or deployment policy that requires artifact closure MUST reject `INCOMPLETE`, `STALE`, or `UNKNOWN` closure evidence before immutable promotion. Artifact closure proves packaged deliverables for one exact artifact; it does not grant publication/deployment authority and cannot manufacture post-deployment runtime acceptance.
+A rebuild/new artifact digest, source revision change, exact-artifact evidence identity change, or load-bearing manifest change makes prior closure evidence stale. A malformed or digest-tampered receipt is unknown rather than current. Publication or deployment policy that requires artifact closure MUST reject `INCOMPLETE`, `STALE`, or `UNKNOWN` closure evidence before immutable promotion. Artifact closure proves packaged deliverables for one exact artifact; it does not grant publication/deployment authority and cannot manufacture post-deployment runtime acceptance.
 
 ## Deployment mutation authority and fencing
 

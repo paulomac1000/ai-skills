@@ -158,7 +158,11 @@ class ArtifactClosureTests(unittest.TestCase):
         self.assertEqual(
             ClosureCurrentness.UNKNOWN,
             classify_artifact_closure_currentness(
-                receipt, current_artifact_digest=DIGEST_1, current_manifest=manifest
+                receipt,
+                current_source_revision="integrated-sha-090",
+                current_artifact_digest=DIGEST_1,
+                current_artifact_evidence_ref="artifact-evidence:project-steward-090",
+                current_manifest=manifest,
             ),
         )
 
@@ -173,16 +177,49 @@ class ArtifactClosureTests(unittest.TestCase):
             ClosureCurrentness.CURRENT,
             classify_artifact_closure_currentness(
                 receipt,
-                current_artifact_digest=DIGEST_1,
-                current_manifest=manifest,
                 current_source_revision="integrated-sha-090",
+                current_artifact_digest=DIGEST_1,
+                current_artifact_evidence_ref="artifact-evidence:project-steward-090",
+                current_manifest=manifest,
             ),
         )
         self.assertEqual(
             ClosureCurrentness.STALE,
             classify_artifact_closure_currentness(
                 receipt,
+                current_source_revision="integrated-sha-090",
                 current_artifact_digest=DIGEST_2,
+                current_artifact_evidence_ref="artifact-evidence:project-steward-090",
+                current_manifest=manifest,
+            ),
+        )
+        self.assertEqual(
+            ClosureCurrentness.STALE,
+            classify_artifact_closure_currentness(
+                receipt,
+                current_source_revision="different-source-sha",
+                current_artifact_digest=DIGEST_1,
+                current_artifact_evidence_ref="artifact-evidence:project-steward-090",
+                current_manifest=manifest,
+            ),
+        )
+        self.assertEqual(
+            ClosureCurrentness.STALE,
+            classify_artifact_closure_currentness(
+                receipt,
+                current_source_revision="integrated-sha-090",
+                current_artifact_digest=DIGEST_1,
+                current_artifact_evidence_ref="artifact-evidence:new-profile",
+                current_manifest=manifest,
+            ),
+        )
+        self.assertEqual(
+            ClosureCurrentness.UNKNOWN,
+            classify_artifact_closure_currentness(
+                receipt,
+                current_source_revision=None,
+                current_artifact_digest=DIGEST_1,
+                current_artifact_evidence_ref="artifact-evidence:project-steward-090",
                 current_manifest=manifest,
             ),
         )
@@ -196,7 +233,9 @@ class ArtifactClosureTests(unittest.TestCase):
             ClosureCurrentness.STALE,
             classify_artifact_closure_currentness(
                 receipt,
+                current_source_revision="integrated-sha-090",
                 current_artifact_digest=DIGEST_1,
+                current_artifact_evidence_ref="artifact-evidence:project-steward-090",
                 current_manifest=changed_manifest,
             ),
         )
