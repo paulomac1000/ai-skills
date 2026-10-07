@@ -19,6 +19,7 @@ The files in this directory make adoption evidence comparable across every skill
 - `change-acceptance.schema.json` defines immutable software-change obligations and falsifiable acceptance criteria without mutable satisfaction state.
 - `semantic-review-plan.schema.json` binds candidate/base-specific semantic-review flows, focus areas, and invariant matrices to stable criteria.
 - `artifact-evidence.schema.json` and `artifact_evidence.py` define collision-safe, bounded exact artifact construction while preserving requested and observed identity separately.
+- `release-deliverable-manifest.schema.json`, `artifact-closure-receipt.schema.json`, and `artifact_closure.py` define policy-owned required release deliverables and exact-artifact presence/identity/smoke closure before publication or deployment.
 - `diagnostic-egress.schema.json` and `diagnostic_egress.py` define bounded protected-sink diagnostics built from trusted typed classification and allowlisted fields, with fail-closed fallback instead of copied source/provider text.
 - `adoption-assessment.schema.json` is the canonical structural contract for assessment documents.
 - `adoption-assessment.yaml.template` is the generic assessment used by AFDS, AGENTS.md, CI/CD, MCP server, and MCP consumer adoptions.

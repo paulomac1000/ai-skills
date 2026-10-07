@@ -55,6 +55,9 @@ dependencies:
   - contracts/verification-receipt.schema.json
   - contracts/artifact-evidence.schema.json
   - contracts/artifact_evidence.py
+  - contracts/release-deliverable-manifest.schema.json
+  - contracts/artifact-closure-receipt.schema.json
+  - contracts/artifact_closure.py
   - contracts/runtime-identity.schema.json
   - contracts/deployment-lease.schema.json
   - contracts/deployment_lease.py

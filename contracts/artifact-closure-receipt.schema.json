@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/paulomac1000/ai-skills/blob/main/contracts/artifact-closure-receipt.schema.json",
+  "title": "Artifact Closure Receipt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "receipt_kind", "source_revision", "artifact_ref", "artifact_digest",
+    "artifact_evidence_ref", "manifest", "observed", "unexpected_components", "missing_required",
+    "unknown_required", "identity_mismatches", "smoke_failures", "blocking_unexpected", "verdict", "receipt_digest"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "receipt_kind": {"const": "artifact_closure"},
+    "source_revision": {"type": "string", "minLength": 1, "maxLength": 256},
+    "artifact_ref": {"type": "string", "minLength": 1, "maxLength": 2048},
+    "artifact_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "artifact_evidence_ref": {"type": "string", "minLength": 1, "maxLength": 2048},
+    "manifest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["manifest_id", "revision", "digest", "policy_ref"],
+      "properties": {
+        "manifest_id": {"type": "string", "minLength": 1, "maxLength": 256},
+        "revision": {"type": "string", "minLength": 1, "maxLength": 256},
+        "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "policy_ref": {"type": "string", "minLength": 1, "maxLength": 2048}
+      }
+    },
+    "observed": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["deliverable_id", "presence", "identity_ref", "smoke_status", "evidence_ref"],
+        "properties": {
+          "deliverable_id": {"type": "string", "minLength": 1, "maxLength": 256},
+          "presence": {"enum": ["PRESENT", "MISSING", "UNKNOWN"]},
+          "identity_ref": {"type": ["string", "null"], "minLength": 1, "maxLength": 2048},
+          "smoke_status": {"enum": ["PASS", "FAIL", "UNKNOWN", "NOT_REQUIRED"]},
+          "evidence_ref": {"type": ["string", "null"], "minLength": 1, "maxLength": 2048}
+        }
+      }
+    },
+    "unexpected_components": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["component_ref", "criticality", "disposition", "evidence_ref"],
+        "properties": {
+          "component_ref": {"type": "string", "minLength": 1, "maxLength": 2048},
+          "criticality": {"enum": ["critical", "non_critical", "unknown"]},
+          "disposition": {"enum": ["allowed", "forbidden", "unresolved"]},
+          "evidence_ref": {"type": "string", "minLength": 1, "maxLength": 2048}
+        }
+      }
+    },
+    "missing_required": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 256}},
+    "unknown_required": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 256}},
+    "identity_mismatches": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["deliverable_id", "expected_identity_ref", "observed_identity_ref"],
+        "properties": {
+          "deliverable_id": {"type": "string", "minLength": 1, "maxLength": 256},
+          "expected_identity_ref": {"type": "string", "minLength": 1, "maxLength": 2048},
+          "observed_identity_ref": {"type": ["string", "null"], "minLength": 1, "maxLength": 2048}
+        }
+      }
+    },
+    "smoke_failures": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["deliverable_id", "smoke_status"],
+        "properties": {
+          "deliverable_id": {"type": "string", "minLength": 1, "maxLength": 256},
+          "smoke_status": {"enum": ["FAIL", "UNKNOWN", "NOT_REQUIRED"]}
+        }
+      }
+    },
+    "blocking_unexpected": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 2048}},
+    "verdict": {"enum": ["COMPLETE", "INCOMPLETE"]},
+    "receipt_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+  }
+}
