@@ -1,5 +1,19 @@
 # Changelog
 
+## 3.21.0 - 2026-10-06
+
+### Added
+
+- Added an explicit CI dependency-lock contract that separates exact committed-lock candidate verification from deliberate mutable-upstream dependency refresh.
+- Extended the canonical verification-bootstrap validator with typed candidate-verification and dependency-refresh operations, resolver/runtime/source provenance, refresh cache isolation, reviewable lock-diff semantics, and exact-versus-observational reproducibility claims.
+- Added Python exact-hash guidance and regressions derived from a completed real-consumer lock/refresh split.
+
+### Security and correctness
+
+- A newer package appearing in a mutable public index no longer constitutes candidate failure when the unchanged committed lock remains the admitted dependency identity and passes its integrity checks.
+- Candidate acceptance cannot silently regenerate or rewrite dependency locks, while mutable-upstream refresh cannot claim exact reproducibility without an immutable dependency-source identity.
+- Resolver cache state is excluded from refresh authority unless the refresh profile explicitly uses an isolated or disabled cache; exact refresh also requires digest-bound immutable source identity, while security/vulnerability freshness remains a separate enforceable gate.
+
 ## 3.20.0 - 2026-10-06
 
 ### Added

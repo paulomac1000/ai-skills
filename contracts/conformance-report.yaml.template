@@ -6,7 +6,7 @@ repository:
   revision: REPLACE_WITH_FULL_IMMUTABLE_COMMIT_SHA
 skill:
   name: mcp-server-architect
-  version: 3.20.0
+  version: 3.21.0
 context:
   target_level: L1
   profiles: []

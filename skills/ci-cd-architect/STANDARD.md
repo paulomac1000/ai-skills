@@ -43,7 +43,11 @@ Define stable delivery invariants for Python, .NET, MCP, documentation, package,
 - Verdict-affecting dependencies come from repository-declared locks, manifests, tool-version files, immutable images, or an explicit deterministic bootstrap. Ambient host packages are not reproducible evidence merely because they happen to satisfy an invocation.
 - Ordinary validation is read-only with respect to production-effective runtime state. Test fixtures, generated env/config, databases, caches, sockets, work directories, identities, and credentials use isolated run-owned state. A validation run that mutates the production-effective state it was meant to observe is invalid evidence even if its assertions pass.
 
-The canonical machine-readable semantics for validation-corpus completeness, execution integrity, dependency bootstrap, local/hosted parity, and protected-state isolation are described in `references/verification-integrity.md` and compose into the repository-level `contracts/verification-receipt.schema.json`. Individual language or MCP profiles consume those semantics rather than inventing private definitions of `PASS`.
+Machine-readable verification-integrity semantics live in `references/verification-integrity.md` and compose into `contracts/verification-receipt.schema.json`; profiles do not redefine `PASS`.
+
+## Dependency lock verification and refresh
+
+Candidate verification consumes the committed lock without upstream re-resolution or mutation. Refresh is separate and reviewable; exact refresh requires digest-bound immutable upstream identity. See `references/verification-integrity.md#dependency-lock-operations`.
 
 ## Exact artifact evidence construction
 

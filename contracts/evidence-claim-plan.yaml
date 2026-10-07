@@ -175,6 +175,13 @@ profiles:
     - repository-junit.xml
     execution_id: repository
   - kind: rule
+    subject: cicd.dependencies.lock-refresh-separated
+    selectors:
+    - '*test_ci_verification_integrity*'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
     subject: cicd.artifact.evidence
     selectors:
     - '*test_exact_artifact_evidence*'

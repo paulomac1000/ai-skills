@@ -18,6 +18,38 @@ MAX_SOURCE_BYTES = 64 * 1024 * 1024
 READ_CHUNK_BYTES = 64 * 1024
 PATH_SOURCE_TYPES = {"lockfile", "manifest", "tool-version-file", "bootstrap-script"}
 SOURCE_TYPES = PATH_SOURCE_TYPES | {"immutable-image"}
+DEPENDENCY_OPERATIONS = {"dependency_bootstrap", "candidate_verification", "dependency_refresh"}
+CACHE_POLICIES = {"verified", "disabled", "isolated"}
+UPSTREAM_RESOLUTION = {"forbidden", "mutable", "immutable"}
+LOCK_MUTATION = {"forbidden", "reviewable"}
+REPRODUCIBILITY_CLAIMS = {"observational", "exact"}
+
+
+def _digest_bound_identity(value: Any) -> str | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    marker = "sha256:"
+    marker_index = value.rfind(marker)
+    if marker_index <= 0:
+        return None
+    prefix = value[:marker_index]
+    if prefix[-1] not in {"@", ":"}:
+        return None
+    if "?" in prefix or "#" in prefix or any(character.isspace() for character in prefix):
+        return None
+    digest = value[marker_index:]
+    hexadecimal = digest.removeprefix(marker)
+    if len(hexadecimal) != 64 or any(character not in "0123456789abcdef" for character in hexadecimal):
+        return None
+    if marker_index + len(digest) != len(value):
+        return None
+    return digest
+
+
+def _safe_identity_digest(value: Any) -> str | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    return "sha256:" + hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
 def _metadata_changed(before: os.stat_result, after: os.stat_result) -> bool:
@@ -102,6 +134,97 @@ def _source(root: Path, item: dict[str, Any]) -> dict[str, str]:
     }
 
 
+def _validate_lock_operation(
+    policy: dict[str, Any],
+    dependencies: list[dict[str, Any]],
+    cache: Any,
+    failures: list[str],
+) -> tuple[str, dict[str, Any] | None]:
+    operation = policy.get("operation", "dependency_bootstrap")
+    if operation not in DEPENDENCY_OPERATIONS:
+        failures.append("dependency-operation-invalid")
+        return str(operation), None
+    if operation == "dependency_bootstrap":
+        if cache not in {"verified", "disabled"}:
+            failures.append("dependency-bootstrap-cache-must-be-verified-or-disabled")
+        return operation, None
+
+    contract = policy.get("lock_contract")
+    if not isinstance(contract, dict):
+        failures.append("lock-contract-missing")
+        return operation, None
+
+    lock_sources = sum(1 for item in dependencies if item.get("source_type") == "lockfile")
+    if lock_sources == 0:
+        failures.append("lock-source-missing")
+
+    upstream = contract.get("upstream_resolution")
+    mutation = contract.get("lock_mutation")
+    reviewable_diff = contract.get("reviewable_diff")
+    summary: dict[str, Any] = {
+        "upstream_resolution": upstream,
+        "lock_mutation": mutation,
+        "reviewable_diff": reviewable_diff,
+    }
+
+    if upstream not in UPSTREAM_RESOLUTION:
+        failures.append("upstream-resolution-invalid")
+    if mutation not in LOCK_MUTATION:
+        failures.append("lock-mutation-invalid")
+
+    if operation == "candidate_verification":
+        if cache not in {"verified", "disabled"}:
+            failures.append("candidate-verification-cache-must-be-verified-or-disabled")
+        if upstream != "forbidden":
+            failures.append("candidate-verification-must-not-reresolve-upstream")
+        if mutation != "forbidden":
+            failures.append("candidate-verification-lock-mutation-forbidden")
+        if reviewable_diff is not False:
+            failures.append("candidate-verification-reviewable-diff-must-be-false")
+        return operation, summary
+
+    if upstream not in {"mutable", "immutable"}:
+        failures.append("refresh-upstream-resolution-required")
+    identity = contract.get("upstream_identity")
+    if not isinstance(identity, str) or not identity.strip():
+        failures.append("refresh-upstream-identity-missing")
+    immutable_source_digest = _digest_bound_identity(identity) if upstream == "immutable" else None
+    if upstream == "immutable" and immutable_source_digest is None:
+        failures.append("immutable-upstream-identity-must-be-digest-bound")
+
+    declared_by_id = {item.get("id"): item for item in dependencies}
+    resolver_dependency_id = contract.get("resolver_dependency_id")
+    resolver = declared_by_id.get(resolver_dependency_id)
+    if not isinstance(resolver_dependency_id, str) or not isinstance(resolver, dict):
+        failures.append("refresh-resolver-dependency-missing")
+    elif resolver.get("dependency_role") != "resolver":
+        failures.append("refresh-resolver-dependency-role-invalid")
+
+    runtime_dependency_id = contract.get("runtime_dependency_id")
+    runtime = declared_by_id.get(runtime_dependency_id)
+    if not isinstance(runtime_dependency_id, str) or not isinstance(runtime, dict):
+        failures.append("refresh-runtime-dependency-missing")
+    elif runtime.get("dependency_role") != "runtime":
+        failures.append("refresh-runtime-dependency-role-invalid")
+    if mutation != "reviewable":
+        failures.append("refresh-lock-mutation-must-be-reviewable")
+    if reviewable_diff is not True:
+        failures.append("refresh-reviewable-diff-required")
+    if cache not in {"disabled", "isolated"}:
+        failures.append("refresh-cache-must-be-disabled-or-isolated")
+    reproducibility = contract.get("reproducibility_claim")
+    if reproducibility not in REPRODUCIBILITY_CLAIMS:
+        failures.append("refresh-reproducibility-claim-invalid")
+    elif reproducibility == "exact" and upstream != "immutable":
+        failures.append("mutable-upstream-cannot-claim-exact-reproducibility")
+    summary["reproducibility_claim"] = reproducibility
+    summary["upstream_identity_digest"] = _safe_identity_digest(identity)
+    summary["immutable_source_digest"] = immutable_source_digest
+    summary["resolver_dependency_id"] = resolver_dependency_id
+    summary["runtime_dependency_id"] = runtime_dependency_id
+    return operation, summary
+
+
 def evaluate(root: Path, policy: dict[str, Any]) -> dict[str, Any]:
     root = root.resolve()
     revision = policy.get("policy_revision")
@@ -143,16 +266,20 @@ def evaluate(root: Path, policy: dict[str, Any]) -> dict[str, Any]:
     if network not in {"required", "offline-capable", "none"}:
         failures.append("network-assumption-missing")
     cache = policy.get("cache")
-    if cache not in {"verified", "disabled"}:
+    if cache not in CACHE_POLICIES:
         failures.append("cache-policy-missing-or-unverified")
+
+    operation, lock_contract = _validate_lock_operation(policy, dependencies, cache, failures)
 
     return {
         "schema_version": 1,
         "policy_revision": revision,
+        "operation": operation,
         "declared_dependencies_only": not failures,
         "resolved_dependencies": resolved,
         "network": network,
         "cache": cache,
+        "lock_contract": lock_contract,
         "failures": sorted(set(failures)),
         "verdict": "pass" if not failures else "fail",
     }

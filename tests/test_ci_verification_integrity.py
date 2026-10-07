@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import difflib
 import importlib.util
 import re
 import sys
@@ -241,6 +242,287 @@ def test_bootstrap_rejects_ambient_dependency_and_accepts_declared_lock(tmp_path
     assert bootstrap.evaluate(tmp_path, base)["verdict"] == "pass"
     ambient = {**base, "dependencies": [{**base["dependencies"][0], "resolution": "ambient"}]}
     assert bootstrap.evaluate(tmp_path, ambient)["verdict"] == "fail"
+
+
+def _lock_policy(tmp_path: Path) -> dict[str, object]:
+    lock = tmp_path / "requirements-ci.lock"
+    lock.write_text("pytest==9.0.2 --hash=sha256:" + "a" * 64 + "\n", encoding="utf-8")
+    resolver_lock = tmp_path / "resolver.lock"
+    resolver_lock.write_text("pip-tools==7.5.1 --hash=sha256:" + "d" * 64 + "\n", encoding="utf-8")
+    runtime = tmp_path / ".python-version"
+    runtime.write_text("3.12.15\n", encoding="utf-8")
+    return {
+        "schema_version": 1,
+        "policy_revision": "lock-contract-1",
+        "network": "required",
+        "cache": "verified",
+        "dependencies": [
+            {
+                "id": "python-dependencies",
+                "source_type": "lockfile",
+                "source": "requirements-ci.lock",
+                "resolved_version": "lock-v1",
+                "expected_version": "lock-v1",
+                "resolution": "declared",
+            },
+            {
+                "id": "pip-tools",
+                "dependency_role": "resolver",
+                "source_type": "lockfile",
+                "source": "resolver.lock",
+                "resolved_version": "7.5.1",
+                "expected_version": "7.5.1",
+                "resolution": "declared",
+            },
+            {
+                "id": "python-runtime",
+                "dependency_role": "runtime",
+                "source_type": "tool-version-file",
+                "source": ".python-version",
+                "resolved_version": "3.12.15",
+                "expected_version": "3.12.15",
+                "resolution": "declared",
+            },
+        ],
+    }
+
+
+def test_isolated_cache_is_refresh_only(tmp_path: Path) -> None:
+    policy = _lock_policy(tmp_path)
+    policy["cache"] = "isolated"
+    assert bootstrap.evaluate(tmp_path, policy)["verdict"] == "fail"
+
+    policy["operation"] = "candidate_verification"
+    policy["lock_contract"] = {
+        "upstream_resolution": "forbidden",
+        "lock_mutation": "forbidden",
+        "reviewable_diff": False,
+    }
+    assert bootstrap.evaluate(tmp_path, policy)["verdict"] == "fail"
+
+
+def test_candidate_verification_requires_committed_lock_without_upstream_reresolution(tmp_path: Path) -> None:
+    policy = _lock_policy(tmp_path)
+    policy.update(
+        {
+            "operation": "candidate_verification",
+            "lock_contract": {
+                "upstream_resolution": "forbidden",
+                "lock_mutation": "forbidden",
+                "reviewable_diff": False,
+            },
+        }
+    )
+    result = bootstrap.evaluate(tmp_path, policy)
+    assert result["verdict"] == "pass"
+    assert result["operation"] == "candidate_verification"
+
+    rereresolved = {
+        **policy,
+        "lock_contract": {**policy["lock_contract"], "upstream_resolution": "mutable"},
+    }
+    result = bootstrap.evaluate(tmp_path, rereresolved)
+    assert result["verdict"] == "fail"
+    assert "candidate-verification-must-not-reresolve-upstream" in result["failures"]
+
+
+def test_candidate_verification_cannot_rewrite_lock_as_part_of_acceptance(tmp_path: Path) -> None:
+    policy = _lock_policy(tmp_path)
+    policy.update(
+        {
+            "operation": "candidate_verification",
+            "lock_contract": {
+                "upstream_resolution": "forbidden",
+                "lock_mutation": "reviewable",
+                "reviewable_diff": True,
+            },
+        }
+    )
+    result = bootstrap.evaluate(tmp_path, policy)
+    assert result["verdict"] == "fail"
+    assert "candidate-verification-lock-mutation-forbidden" in result["failures"]
+
+
+def test_mutable_refresh_is_reviewable_observation_not_exact_reproducibility(tmp_path: Path) -> None:
+    policy = _lock_policy(tmp_path)
+    policy["cache"] = "isolated"
+    policy["operation"] = "dependency_refresh"
+    policy["lock_contract"] = {
+        "upstream_resolution": "mutable",
+        "upstream_identity": "pypi:public/simple",
+        "resolver_dependency_id": "pip-tools",
+        "runtime_dependency_id": "python-runtime",
+        "lock_mutation": "reviewable",
+        "reviewable_diff": True,
+        "reproducibility_claim": "observational",
+    }
+    result = bootstrap.evaluate(tmp_path, policy)
+    assert result["verdict"] == "pass"
+    assert result["lock_contract"]["upstream_identity_digest"].startswith("sha256:")
+    assert result["lock_contract"]["immutable_source_digest"] is None
+
+    exact = {
+        **policy,
+        "lock_contract": {**policy["lock_contract"], "reproducibility_claim": "exact"},
+    }
+    result = bootstrap.evaluate(tmp_path, exact)
+    assert result["verdict"] == "fail"
+    assert "mutable-upstream-cannot-claim-exact-reproducibility" in result["failures"]
+
+
+def test_newer_upstream_does_not_invalidate_committed_candidate_and_refresh_is_reviewable(
+    tmp_path: Path,
+) -> None:
+    candidate = _lock_policy(tmp_path)
+    candidate.update(
+        {
+            "operation": "candidate_verification",
+            "lock_contract": {
+                "upstream_resolution": "forbidden",
+                "lock_mutation": "forbidden",
+                "reviewable_diff": False,
+            },
+        }
+    )
+    admitted_before = bootstrap.evaluate(tmp_path, candidate)
+    assert admitted_before["verdict"] == "pass"
+
+    upstream_snapshot = tmp_path / "mutable-upstream.txt"
+    upstream_snapshot.write_text("pytest==9.1.0\n", encoding="utf-8")
+    admitted_after = bootstrap.evaluate(tmp_path, candidate)
+    assert admitted_after == admitted_before
+
+    committed_lock = (tmp_path / "requirements-ci.lock").read_text(encoding="utf-8")
+    refreshed_lock = "pytest==9.1.0 --hash=sha256:" + "e" * 64 + "\n"
+    diff = "".join(
+        difflib.unified_diff(
+            committed_lock.splitlines(keepends=True),
+            refreshed_lock.splitlines(keepends=True),
+            fromfile="requirements-ci.lock",
+            tofile="requirements-ci.lock.refresh-proposal",
+        )
+    )
+    assert "--- requirements-ci.lock" in diff
+    assert "+++ requirements-ci.lock.refresh-proposal" in diff
+    assert "-pytest==9.0.2" in diff
+    assert "+pytest==9.1.0" in diff
+
+    refresh = _lock_policy(tmp_path)
+    refresh.update(
+        {
+            "operation": "dependency_refresh",
+            "cache": "isolated",
+            "lock_contract": {
+                "upstream_resolution": "mutable",
+                "upstream_identity": "pypi:public/simple",
+                "resolver_dependency_id": "pip-tools",
+                "runtime_dependency_id": "python-runtime",
+                "lock_mutation": "reviewable",
+                "reviewable_diff": True,
+                "reproducibility_claim": "observational",
+            },
+        }
+    )
+    refresh_result = bootstrap.evaluate(tmp_path, refresh)
+    assert refresh_result["verdict"] == "pass"
+    assert refresh_result["lock_contract"]["reviewable_diff"] is True
+
+
+def test_refresh_requires_isolated_or_disabled_cache_and_pinned_resolver_identity(tmp_path: Path) -> None:
+    policy = _lock_policy(tmp_path)
+    policy.update(
+        {
+            "operation": "dependency_refresh",
+            "cache": "verified",
+            "lock_contract": {
+                "upstream_resolution": "immutable",
+                "upstream_identity": "snapshot:sha256:" + "b" * 64,
+                "resolver_dependency_id": "pip-tools",
+                "runtime_dependency_id": "python-runtime",
+                "lock_mutation": "reviewable",
+                "reviewable_diff": True,
+                "reproducibility_claim": "exact",
+            },
+        }
+    )
+    result = bootstrap.evaluate(tmp_path, policy)
+    assert result["verdict"] == "fail"
+    assert "refresh-cache-must-be-disabled-or-isolated" in result["failures"]
+
+    policy["cache"] = "isolated"
+    result = bootstrap.evaluate(tmp_path, policy)
+    assert result["verdict"] == "pass"
+    assert result["lock_contract"]["immutable_source_digest"] == "sha256:" + "b" * 64
+    baseline_refresh = result
+
+    bogus_immutable = {
+        **policy,
+        "lock_contract": {
+            **policy["lock_contract"],
+            "upstream_identity": "pypi:public/simple",
+        },
+    }
+    result = bootstrap.evaluate(tmp_path, bogus_immutable)
+    assert result["verdict"] == "fail"
+    assert "immutable-upstream-identity-must-be-digest-bound" in result["failures"]
+
+    wrong_resolver_role = {
+        **policy,
+        "lock_contract": {
+            **policy["lock_contract"],
+            "resolver_dependency_id": "python-dependencies",
+        },
+    }
+    result = bootstrap.evaluate(tmp_path, wrong_resolver_role)
+    assert result["verdict"] == "fail"
+    assert "refresh-resolver-dependency-role-invalid" in result["failures"]
+
+    missing_runtime = {
+        **policy,
+        "lock_contract": {**policy["lock_contract"], "runtime_dependency_id": "missing-runtime"},
+    }
+    result = bootstrap.evaluate(tmp_path, missing_runtime)
+    assert result["verdict"] == "fail"
+    assert "refresh-runtime-dependency-missing" in result["failures"]
+
+    stale_cache = tmp_path / ".cache" / "pip"
+    stale_cache.mkdir(parents=True)
+    (stale_cache / "stale.whl").write_bytes(b"not part of the declared refresh identity")
+    assert bootstrap.evaluate(tmp_path, policy) == baseline_refresh
+
+
+def test_digest_bound_identity_rejects_query_fragment_and_whitespace_prefixes(tmp_path: Path) -> None:
+    policy = _lock_policy(tmp_path)
+    policy.update(
+        {
+            "operation": "dependency_refresh",
+            "cache": "isolated",
+            "lock_contract": {
+                "upstream_resolution": "immutable",
+                "upstream_identity": "snapshot:sha256:" + "f" * 64,
+                "resolver_dependency_id": "pip-tools",
+                "runtime_dependency_id": "python-runtime",
+                "lock_mutation": "reviewable",
+                "reviewable_diff": True,
+                "reproducibility_claim": "exact",
+            },
+        }
+    )
+    assert bootstrap.evaluate(tmp_path, policy)["verdict"] == "pass"
+
+    for invalid_identity in (
+        "https://pypi.org/simple?view=sha256:" + "f" * 64,
+        "https://pypi.org/simple#sha256:" + "f" * 64,
+        "mutable source:sha256:" + "f" * 64,
+        "snapshot-sha256:" + "f" * 64,
+    ):
+        rejected = {
+            **policy,
+            "lock_contract": {**policy["lock_contract"], "upstream_identity": invalid_identity},
+        }
+        result = bootstrap.evaluate(tmp_path, rejected)
+        assert result["verdict"] == "fail"
+        assert "immutable-upstream-identity-must-be-digest-bound" in result["failures"]
 
 
 def test_bootstrap_rejects_mutable_image_reference(tmp_path: Path) -> None:
