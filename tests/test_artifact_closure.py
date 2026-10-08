@@ -562,7 +562,7 @@ class ArtifactClosureTests(unittest.TestCase):
         self.assertEqual(["entrypoint:debug-admin"], receipt["blocking_unexpected"])
 
         forged = json.loads(json.dumps(receipt))
-        forged["unexpected_components"][0]["disposition"] = "allowed"
+        forged["unexpected_components"]["entrypoint:debug-admin"]["disposition"] = "allowed"
         forged["blocking_unexpected"] = []
         forged["verdict"] = "COMPLETE"
         payload = dict(forged)
@@ -766,9 +766,10 @@ class ArtifactClosureTests(unittest.TestCase):
         self.assertNotIn("artifact_digest", observed_schema["properties"])
         self.assertNotIn(
             "artifact_digest",
-            receipt_schema["properties"]["unexpected_components"]["items"]["properties"],
+            receipt_schema["properties"]["unexpected_components"]["additionalProperties"]["properties"],
         )
         self.assertIn("allOf", observed_schema)
+        self.assertEqual("object", receipt_schema["properties"]["unexpected_components"]["type"])
         manifest_doc = manifest_document(self.manifest())
         self.assertEqual(1, manifest_doc["schema_version"])
         self.assertIsInstance(manifest_doc["deliverables"], dict)
@@ -794,6 +795,22 @@ class ArtifactClosureTests(unittest.TestCase):
             receipt["observed"]["host"],
         ]
         self.assertFalse(Draft202012Validator(receipt_schema).is_valid(duplicate_prone_observations))
+        duplicate_prone_unexpected = json.loads(json.dumps(receipt))
+        duplicate_prone_unexpected["unexpected_components"] = [
+            {
+                "criticality": "critical",
+                "disposition": "unresolved",
+                "evidence_ref": "evidence:package-inventory",
+                "evidence_digest": CLAIM_EVIDENCE_DIGEST,
+            },
+            {
+                "criticality": "non_critical",
+                "disposition": "allowed",
+                "evidence_ref": "evidence:other-inventory",
+                "evidence_digest": EVIDENCE_DIGEST_2,
+            },
+        ]
+        self.assertFalse(Draft202012Validator(receipt_schema).is_valid(duplicate_prone_unexpected))
         duplicate_prone_array_document = dict(manifest_doc)
         duplicate_prone_array_document["deliverables"] = [{"id": "dup"}, {"id": "dup"}]
         self.assertFalse(Draft202012Validator(manifest_schema).is_valid(duplicate_prone_array_document))

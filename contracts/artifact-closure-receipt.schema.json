@@ -281,24 +281,23 @@
       }
     },
     "unexpected_components": {
-      "type": "array",
-      "maxItems": 256,
-      "items": {
+      "type": "object",
+      "maxProperties": 256,
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 2048
+      },
+      "additionalProperties": {
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "component_ref",
           "criticality",
           "disposition",
           "evidence_ref",
           "evidence_digest"
         ],
         "properties": {
-          "component_ref": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 2048
-          },
           "criticality": {
             "enum": [
               "critical",

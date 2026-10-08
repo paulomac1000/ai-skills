@@ -47,7 +47,7 @@ _OBSERVED_FIELDS = frozenset(
         "evidence_digest",
     }
 )
-_UNEXPECTED_FIELDS = frozenset({"component_ref", "criticality", "disposition", "evidence_ref", "evidence_digest"})
+_UNEXPECTED_FIELDS = frozenset({"criticality", "disposition", "evidence_ref", "evidence_digest"})
 _IDENTITY_MISMATCH_FIELDS = frozenset({"deliverable_id", "expected_identity_ref", "observed_identity_ref"})
 _SMOKE_FAILURE_FIELDS = frozenset(
     {"deliverable_id", "smoke_status", "expected_smoke_profile_ref", "observed_smoke_profile_ref"}
@@ -237,26 +237,20 @@ def _receipt_shape_is_valid(receipt: object) -> bool:
                 return False
 
     unexpected = receipt.get("unexpected_components")
-    if not isinstance(unexpected, list) or len(unexpected) > _MAX_UNEXPECTED_COMPONENTS:
+    if not isinstance(unexpected, dict) or len(unexpected) > _MAX_UNEXPECTED_COMPONENTS:
         return False
-    component_refs: list[str] = []
-    for item in unexpected:
+    for component_ref, item in unexpected.items():
+        if not _is_bounded_text(component_ref):
+            return False
         if not _has_exact_fields(item, _UNEXPECTED_FIELDS):
             return False
         assert isinstance(item, dict)
-        component_ref = item.get("component_ref")
-        if not _is_bounded_text(component_ref):
-            return False
-        assert isinstance(component_ref, str)
-        component_refs.append(component_ref)
         if item.get("criticality") not in {value.value for value in UnexpectedCriticality}:
             return False
         if item.get("disposition") not in {value.value for value in UnexpectedDisposition}:
             return False
         if not _is_bounded_text(item.get("evidence_ref")) or not _is_sha256(item.get("evidence_digest")):
             return False
-    if len(component_refs) != len(set(component_refs)):
-        return False
 
     if not _bounded_unique_text_list(receipt.get("missing_required"), maximum=_MAX_DELIVERABLES, limit=256):
         return False
@@ -474,7 +468,7 @@ def manifest_digest(manifest: ReleaseDeliverableManifest) -> str:
 def _artifact_evidence_digest(
     artifact_digest: str,
     observed: dict[str, dict[str, Any]],
-    unexpected_components: list[dict[str, Any]],
+    unexpected_components: dict[str, dict[str, Any]],
 ) -> str:
     return _sha256_document(
         {
@@ -492,15 +486,14 @@ def _artifact_evidence_digest(
                 }
                 for deliverable_id, item in sorted(observed.items())
             },
-            "unexpected_components": [
-                {
-                    "component_ref": item["component_ref"],
+            "unexpected_components": {
+                component_ref: {
                     "criticality": item["criticality"],
                     "evidence_ref": item["evidence_ref"],
                     "evidence_digest": item["evidence_digest"],
                 }
-                for item in sorted(unexpected_components, key=lambda value: value["component_ref"])
-            ],
+                for component_ref, item in sorted(unexpected_components.items())
+            },
         }
     )
 
@@ -620,19 +613,18 @@ def evaluate_artifact_closure(
             )
 
     trusted_dispositions = {item.component_ref: item.disposition for item in manifest.unexpected_component_dispositions}
-    normalized_unexpected = [
-        {
-            "component_ref": item.component_ref,
+    normalized_unexpected = {
+        item.component_ref: {
             "criticality": item.criticality.value,
             "disposition": trusted_dispositions.get(item.component_ref, UnexpectedDisposition.UNRESOLVED).value,
             "evidence_ref": item.evidence_ref,
             "evidence_digest": item.evidence_digest,
         }
         for item in sorted(unexpected_components, key=lambda value: value.component_ref)
-    ]
+    }
     blocking_unexpected = [
-        item["component_ref"]
-        for item in normalized_unexpected
+        component_ref
+        for component_ref, item in normalized_unexpected.items()
         if item["disposition"] != UnexpectedDisposition.ALLOWED.value
     ]
     artifact_evidence_digest = _artifact_evidence_digest(
@@ -759,12 +751,12 @@ def verify_artifact_closure_receipt_semantics(
         item.component_ref: item.disposition.value for item in manifest.unexpected_component_dispositions
     }
     blocking_unexpected: list[str] = []
-    for item in sorted(receipt["unexpected_components"], key=lambda value: value["component_ref"]):
-        expected_disposition = trusted_dispositions.get(item["component_ref"], UnexpectedDisposition.UNRESOLVED.value)
+    for component_ref, item in sorted(receipt["unexpected_components"].items()):
+        expected_disposition = trusted_dispositions.get(component_ref, UnexpectedDisposition.UNRESOLVED.value)
         if item["disposition"] != expected_disposition:
             return False
         if expected_disposition != UnexpectedDisposition.ALLOWED.value:
-            blocking_unexpected.append(item["component_ref"])
+            blocking_unexpected.append(component_ref)
     verdict = (
         ClosureVerdict.COMPLETE.value
         if not (missing_required or unknown_required or identity_mismatches or smoke_failures or blocking_unexpected)
