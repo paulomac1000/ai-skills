@@ -233,7 +233,12 @@ def _receipt_shape_is_valid(receipt: object) -> bool:
         elif not _is_bounded_text(evidence_ref) or not _is_sha256(evidence_digest):
             return False
         if item.get("presence") != Presence.PRESENT.value:
-            if identity_ref is not None or smoke_status in {SmokeStatus.PASS.value, SmokeStatus.FAIL.value}:
+            if (
+                identity_ref is not None
+                or smoke_profile_ref is not None
+                or smoke_profile_digest is not None
+                or smoke_status in {SmokeStatus.PASS.value, SmokeStatus.FAIL.value}
+            ):
                 return False
 
     unexpected = receipt.get("unexpected_components")
@@ -411,6 +416,10 @@ class DeliverableObservation:
         _require_sha256(self.evidence_digest, "evidence_digest")
         if self.presence is not Presence.PRESENT and self.identity_ref is not None:
             raise ValueError("non-present deliverable cannot claim an observed identity")
+        if self.presence is not Presence.PRESENT and (
+            self.smoke_profile_ref is not None or self.smoke_profile_digest is not None
+        ):
+            raise ValueError("non-present deliverable cannot claim a smoke profile")
         if self.presence is not Presence.PRESENT and self.smoke_status in {SmokeStatus.PASS, SmokeStatus.FAIL}:
             raise ValueError("non-present deliverable cannot claim an executed smoke result")
 

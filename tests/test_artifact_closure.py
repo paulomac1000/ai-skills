@@ -681,6 +681,18 @@ class ArtifactClosureTests(unittest.TestCase):
             self.evaluate(self.observation("not-declared", identity_ref="x"))
         with self.assertRaisesRegex(ValueError, "non-present"):
             self.observation("host", presence=Presence.MISSING, identity_ref="entrypoint:host")
+        with self.assertRaisesRegex(ValueError, "smoke profile"):
+            DeliverableObservation(
+                deliverable_id="host",
+                artifact_digest=DIGEST_1,
+                presence=Presence.MISSING,
+                identity_ref=None,
+                smoke_profile_ref="smoke:host-version",
+                smoke_profile_digest=SMOKE_PROFILE_DIGEST_HOST,
+                smoke_status=SmokeStatus.NOT_REQUIRED,
+                evidence_ref="evidence:host",
+                evidence_digest=CLAIM_EVIDENCE_DIGEST,
+            )
 
 
     def test_observations_from_another_artifact_cannot_satisfy_closure(self) -> None:
