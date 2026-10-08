@@ -80,26 +80,26 @@
       }
     },
     "observed": {
-      "type": "array",
-      "maxItems": 256,
-      "items": {
+      "type": "object",
+      "maxProperties": 256,
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 256
+      },
+      "additionalProperties": {
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "deliverable_id",
           "presence",
           "identity_ref",
           "smoke_profile_ref",
+          "smoke_profile_digest",
           "smoke_status",
           "evidence_ref",
           "evidence_digest"
         ],
         "properties": {
-          "deliverable_id": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 256
-          },
           "presence": {
             "enum": [
               "PRESENT",
@@ -145,6 +145,13 @@
               "null"
             ],
             "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "smoke_profile_digest": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^sha256:[0-9a-f]{64}$"
           }
         },
         "allOf": [
@@ -167,6 +174,10 @@
                 "smoke_profile_ref": {
                   "type": "string",
                   "minLength": 1
+                },
+                "smoke_profile_digest": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$"
                 }
               }
             }
@@ -217,6 +228,12 @@
                     "UNKNOWN",
                     "NOT_REQUIRED"
                   ]
+                },
+                "smoke_profile_ref": {
+                  "type": "null"
+                },
+                "smoke_profile_digest": {
+                  "type": "null"
                 }
               }
             }

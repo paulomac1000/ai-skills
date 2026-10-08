@@ -38,10 +38,10 @@ _RECEIPT_ROOT_FIELDS = frozenset(
 _RECEIPT_MANIFEST_FIELDS = frozenset({"manifest_id", "revision", "digest", "policy_ref"})
 _OBSERVED_FIELDS = frozenset(
     {
-        "deliverable_id",
         "presence",
         "identity_ref",
         "smoke_profile_ref",
+        "smoke_profile_digest",
         "smoke_status",
         "evidence_ref",
         "evidence_digest",
@@ -105,6 +105,10 @@ def _require_text(value: str, name: str, *, limit: int = 2048) -> None:
         raise ValueError(f"{name} must be a non-empty string")
     if len(value) > limit:
         raise ValueError(f"{name} must be at most {limit} characters")
+    try:
+        value.encode("utf-8")
+    except UnicodeEncodeError as exc:
+        raise ValueError(f"{name} must contain only Unicode scalar values") from exc
 
 
 def _require_sha256(value: str, name: str) -> None:
@@ -128,7 +132,13 @@ def _sha256_document(document: dict[str, Any]) -> str:
 
 
 def _is_bounded_text(value: object, *, limit: int = 2048) -> bool:
-    return isinstance(value, str) and bool(value.strip()) and len(value) <= limit
+    if not isinstance(value, str) or not value.strip() or len(value) > limit:
+        return False
+    try:
+        value.encode("utf-8")
+    except UnicodeEncodeError:
+        return False
+    return True
 
 
 def _is_sha256(value: object) -> bool:
@@ -187,18 +197,14 @@ def _receipt_shape_is_valid(receipt: object) -> bool:
         return False
 
     observed = receipt.get("observed")
-    if not isinstance(observed, list) or len(observed) > _MAX_DELIVERABLES:
+    if not isinstance(observed, dict) or len(observed) > _MAX_DELIVERABLES:
         return False
-    observed_ids: list[str] = []
-    for item in observed:
+    for deliverable_id, item in observed.items():
+        if not _is_bounded_text(deliverable_id, limit=256):
+            return False
         if not _has_exact_fields(item, _OBSERVED_FIELDS):
             return False
         assert isinstance(item, dict)
-        deliverable_id = item.get("deliverable_id")
-        if not _is_bounded_text(deliverable_id, limit=256):
-            return False
-        assert isinstance(deliverable_id, str)
-        observed_ids.append(deliverable_id)
         if item.get("presence") not in {state.value for state in Presence}:
             return False
         identity_ref = item.get("identity_ref")
@@ -207,10 +213,15 @@ def _receipt_shape_is_valid(receipt: object) -> bool:
         smoke_profile_ref = item.get("smoke_profile_ref")
         if smoke_profile_ref is not None and not _is_bounded_text(smoke_profile_ref):
             return False
+        smoke_profile_digest = item.get("smoke_profile_digest")
+        if smoke_profile_digest is not None and not _is_sha256(smoke_profile_digest):
+            return False
         smoke_status = item.get("smoke_status")
         if smoke_status not in {status.value for status in SmokeStatus}:
             return False
-        if smoke_status in {SmokeStatus.PASS.value, SmokeStatus.FAIL.value} and smoke_profile_ref is None:
+        if smoke_status in {SmokeStatus.PASS.value, SmokeStatus.FAIL.value} and (
+            smoke_profile_ref is None or smoke_profile_digest is None
+        ):
             return False
         evidence_ref = item.get("evidence_ref")
         evidence_digest = item.get("evidence_digest")
@@ -224,8 +235,6 @@ def _receipt_shape_is_valid(receipt: object) -> bool:
         if item.get("presence") != Presence.PRESENT.value:
             if identity_ref is not None or smoke_status in {SmokeStatus.PASS.value, SmokeStatus.FAIL.value}:
                 return False
-    if len(observed_ids) != len(set(observed_ids)):
-        return False
 
     unexpected = receipt.get("unexpected_components")
     if not isinstance(unexpected, list) or len(unexpected) > _MAX_UNEXPECTED_COMPONENTS:
@@ -309,6 +318,7 @@ class DeliverableRequirement:
     required: bool = True
     expected_identity_ref: str | None = None
     smoke_profile_ref: str | None = None
+    smoke_profile_digest: str | None = None
     smoke_required: bool = False
 
     def __post_init__(self) -> None:
@@ -321,8 +331,10 @@ class DeliverableRequirement:
             _require_text(self.expected_identity_ref, "expected_identity_ref")
         if self.smoke_profile_ref is not None:
             _require_text(self.smoke_profile_ref, "smoke_profile_ref")
-        if self.smoke_required and self.smoke_profile_ref is None:
-            raise ValueError("smoke_required deliverable requires smoke_profile_ref")
+        if self.smoke_profile_digest is not None:
+            _require_sha256(self.smoke_profile_digest, "smoke_profile_digest")
+        if self.smoke_required and (self.smoke_profile_ref is None or self.smoke_profile_digest is None):
+            raise ValueError("smoke_required deliverable requires immutable smoke profile ref and digest")
 
 
 @dataclass(frozen=True)
@@ -379,6 +391,7 @@ class DeliverableObservation:
     presence: Presence
     identity_ref: str | None
     smoke_profile_ref: str | None
+    smoke_profile_digest: str | None
     smoke_status: SmokeStatus
     evidence_ref: str
     evidence_digest: str
@@ -394,8 +407,12 @@ class DeliverableObservation:
             _require_text(self.identity_ref, "identity_ref")
         if self.smoke_profile_ref is not None:
             _require_text(self.smoke_profile_ref, "smoke_profile_ref")
-        if self.smoke_status in {SmokeStatus.PASS, SmokeStatus.FAIL} and self.smoke_profile_ref is None:
-            raise ValueError("executed smoke result requires smoke_profile_ref")
+        if self.smoke_profile_digest is not None:
+            _require_sha256(self.smoke_profile_digest, "smoke_profile_digest")
+        if self.smoke_status in {SmokeStatus.PASS, SmokeStatus.FAIL} and (
+            self.smoke_profile_ref is None or self.smoke_profile_digest is None
+        ):
+            raise ValueError("executed smoke result requires immutable smoke profile ref and digest")
         _require_text(self.evidence_ref, "evidence_ref")
         _require_sha256(self.evidence_digest, "evidence_digest")
         if self.presence is not Presence.PRESENT and self.identity_ref is not None:
@@ -435,6 +452,7 @@ def manifest_document(manifest: ReleaseDeliverableManifest) -> dict[str, Any]:
                 "required": item.required,
                 "expected_identity_ref": item.expected_identity_ref,
                 "smoke_profile_ref": item.smoke_profile_ref,
+                "smoke_profile_digest": item.smoke_profile_digest,
                 "smoke_required": item.smoke_required,
             }
             for item in sorted(manifest.deliverables, key=lambda value: value.deliverable_id)
@@ -455,25 +473,25 @@ def manifest_digest(manifest: ReleaseDeliverableManifest) -> str:
 
 def _artifact_evidence_digest(
     artifact_digest: str,
-    observed: list[dict[str, Any]],
+    observed: dict[str, dict[str, Any]],
     unexpected_components: list[dict[str, Any]],
 ) -> str:
     return _sha256_document(
         {
             "schema_version": 1,
             "artifact_digest": artifact_digest,
-            "observed": [
-                {
-                    "deliverable_id": item["deliverable_id"],
+            "observed": {
+                deliverable_id: {
                     "presence": item["presence"],
                     "identity_ref": item["identity_ref"],
                     "smoke_profile_ref": item["smoke_profile_ref"],
+                    "smoke_profile_digest": item["smoke_profile_digest"],
                     "smoke_status": item["smoke_status"],
                     "evidence_ref": item["evidence_ref"],
                     "evidence_digest": item["evidence_digest"],
                 }
-                for item in sorted(observed, key=lambda value: value["deliverable_id"])
-            ],
+                for deliverable_id, item in sorted(observed.items())
+            },
             "unexpected_components": [
                 {
                     "component_ref": item["component_ref"],
@@ -534,7 +552,7 @@ def evaluate_artifact_closure(
     if len(component_refs) != len(set(component_refs)):
         raise ValueError("unexpected component refs must be unique")
 
-    normalized_observations: list[dict[str, Any]] = []
+    normalized_observations: dict[str, dict[str, Any]] = {}
     missing_required: list[str] = []
     unknown_required: list[str] = []
     identity_mismatches: list[dict[str, str | None]] = []
@@ -547,6 +565,7 @@ def evaluate_artifact_closure(
             presence = Presence.UNKNOWN
             identity_ref = None
             smoke_profile_ref = None
+            smoke_profile_digest = None
             smoke_status = SmokeStatus.UNKNOWN
             evidence_ref = None
             evidence_digest = None
@@ -554,21 +573,20 @@ def evaluate_artifact_closure(
             presence = current_observation.presence
             identity_ref = current_observation.identity_ref
             smoke_profile_ref = current_observation.smoke_profile_ref
+            smoke_profile_digest = current_observation.smoke_profile_digest
             smoke_status = current_observation.smoke_status
             evidence_ref = current_observation.evidence_ref
             evidence_digest = current_observation.evidence_digest
 
-        normalized_observations.append(
-            {
-                "deliverable_id": deliverable_id,
-                "presence": presence.value,
-                "identity_ref": identity_ref,
-                "smoke_profile_ref": smoke_profile_ref,
-                "smoke_status": smoke_status.value,
-                "evidence_ref": evidence_ref,
-                "evidence_digest": evidence_digest,
-            }
-        )
+        normalized_observations[deliverable_id] = {
+            "presence": presence.value,
+            "identity_ref": identity_ref,
+            "smoke_profile_ref": smoke_profile_ref,
+            "smoke_profile_digest": smoke_profile_digest,
+            "smoke_status": smoke_status.value,
+            "evidence_ref": evidence_ref,
+            "evidence_digest": evidence_digest,
+        }
 
         if requirement.required:
             if presence is Presence.MISSING:
@@ -588,7 +606,9 @@ def evaluate_artifact_closure(
                 }
             )
         if requirement.smoke_required and (
-            smoke_status is not SmokeStatus.PASS or smoke_profile_ref != requirement.smoke_profile_ref
+            smoke_status is not SmokeStatus.PASS
+            or smoke_profile_ref != requirement.smoke_profile_ref
+            or smoke_profile_digest != requirement.smoke_profile_digest
         ):
             smoke_failures.append(
                 {
@@ -688,9 +708,9 @@ def verify_artifact_closure_receipt_semantics(
 
     requirements = {item.deliverable_id: item for item in manifest.deliverables}
     observed = receipt["observed"]
-    observed_map = {item["deliverable_id"]: item for item in observed}
-    if set(observed_map) != set(requirements) or len(observed_map) != len(observed):
+    if not isinstance(observed, dict) or set(observed) != set(requirements):
         return False
+    observed_map = observed
 
     missing_required: list[str] = []
     unknown_required: list[str] = []
@@ -711,6 +731,7 @@ def verify_artifact_closure_receipt_semantics(
             continue
         identity_ref = observation["identity_ref"]
         smoke_profile_ref = observation["smoke_profile_ref"]
+        smoke_profile_digest = observation["smoke_profile_digest"]
         smoke_status = observation["smoke_status"]
         if requirement.expected_identity_ref is not None and identity_ref != requirement.expected_identity_ref:
             identity_mismatches.append(
@@ -721,7 +742,9 @@ def verify_artifact_closure_receipt_semantics(
                 }
             )
         if requirement.smoke_required and (
-            smoke_status != SmokeStatus.PASS.value or smoke_profile_ref != requirement.smoke_profile_ref
+            smoke_status != SmokeStatus.PASS.value
+            or smoke_profile_ref != requirement.smoke_profile_ref
+            or smoke_profile_digest != requirement.smoke_profile_digest
         ):
             smoke_failures.append(
                 {
@@ -761,6 +784,7 @@ def classify_artifact_closure_currentness(
     receipt: dict[str, Any],
     *,
     current_source_revision: str | None,
+    current_artifact_ref: str | None,
     current_artifact_digest: str | None,
     current_artifact_evidence_ref: str | None,
     current_artifact_evidence_digest: str | None,
@@ -772,6 +796,7 @@ def classify_artifact_closure_currentness(
         return ClosureCurrentness.UNKNOWN
     if (
         current_source_revision is None
+        or current_artifact_ref is None
         or current_artifact_digest is None
         or current_artifact_evidence_ref is None
         or current_artifact_evidence_digest is None
@@ -780,16 +805,19 @@ def classify_artifact_closure_currentness(
         return ClosureCurrentness.UNKNOWN
     try:
         _require_source_revision(current_source_revision, "current_source_revision")
+        _require_text(current_artifact_ref, "current_artifact_ref")
         _require_sha256(current_artifact_digest, "current_artifact_digest")
         _require_text(current_artifact_evidence_ref, "current_artifact_evidence_ref")
         _require_sha256(current_artifact_evidence_digest, "current_artifact_evidence_digest")
         current_manifest_digest = manifest_digest(current_manifest)
         receipt_source_revision = receipt["source_revision"]
+        receipt_artifact_ref = receipt["artifact_ref"]
         receipt_artifact_digest = receipt["artifact_digest"]
         receipt_artifact_evidence_ref = receipt["artifact_evidence_ref"]
         receipt_artifact_evidence_digest = receipt["artifact_evidence_digest"]
         receipt_manifest_digest = receipt["manifest"]["digest"]
         _require_source_revision(receipt_source_revision, "receipt.source_revision")
+        _require_text(receipt_artifact_ref, "receipt.artifact_ref")
         _require_sha256(receipt_artifact_digest, "receipt.artifact_digest")
         _require_text(receipt_artifact_evidence_ref, "receipt.artifact_evidence_ref")
         _require_sha256(receipt_artifact_evidence_digest, "receipt.artifact_evidence_digest")
@@ -807,6 +835,7 @@ def classify_artifact_closure_currentness(
 
     if (
         receipt_source_revision != current_source_revision
+        or receipt_artifact_ref != current_artifact_ref
         or receipt_artifact_digest != current_artifact_digest
         or receipt_artifact_evidence_ref != current_artifact_evidence_ref
         or receipt_artifact_evidence_digest != current_artifact_evidence_digest
