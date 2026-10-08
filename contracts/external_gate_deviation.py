@@ -12,13 +12,59 @@ from enum import StrEnum
 from typing import Any, Iterable
 
 _SHA256_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
-_ROOT = frozenset({"schema_version", "receipt_kind", "gate", "observation", "incident", "retry_policy", "substitute", "catchup", "receipt_digest"})
+_ROOT = frozenset(
+    {
+        "schema_version",
+        "receipt_kind",
+        "gate",
+        "observation",
+        "incident",
+        "retry_policy",
+        "substitute",
+        "catchup",
+        "receipt_digest",
+    }
+)
 _GATE = frozenset({"gate_id", "provider", "expected_subject_ref", "policy_revision"})
-_OBS = frozenset({"state", "product_verdict", "repository_steps_executed", "failure_class", "observed_at", "evidence_ref", "evidence_digest"})
-_INC = frozenset({"fingerprint", "scope", "scope_ref", "first_observed_at", "last_observed_at", "fresh_until", "reopen_on"})
+_OBS = frozenset(
+    {
+        "state",
+        "product_verdict",
+        "repository_steps_executed",
+        "failure_class",
+        "observed_at",
+        "evidence_ref",
+        "evidence_digest",
+    }
+)
+_INC = frozenset(
+    {"fingerprint", "scope", "scope_ref", "first_observed_at", "last_observed_at", "fresh_until", "reopen_on"}
+)
 _RETRY = frozenset({"mode", "next_eligible_at"})
-_SUB = frozenset({"allowed", "authority_ref", "profile_ref", "exact_subject_ref", "evidence_ref", "evidence_digest", "verdict", "reproduction"})
-_REPRO = frozenset({"original_workflow_digest", "exact_subject_ref", "source_checkout", "environment_digest", "inherited_workspace_state", "isolation_ref", "command_ref", "report_digest"})
+_SUB = frozenset(
+    {
+        "allowed",
+        "authority_ref",
+        "profile_ref",
+        "exact_subject_ref",
+        "evidence_ref",
+        "evidence_digest",
+        "verdict",
+        "reproduction",
+    }
+)
+_REPRO = frozenset(
+    {
+        "original_workflow_digest",
+        "exact_subject_ref",
+        "source_checkout",
+        "environment_digest",
+        "inherited_workspace_state",
+        "isolation_ref",
+        "command_ref",
+        "report_digest",
+    }
+)
 _CATCHUP = frozenset({"required", "subject_ref", "state", "evidence_ref", "evidence_digest"})
 
 
@@ -169,23 +215,34 @@ def _validate_observation(value: GateObservation) -> None:
     if type(value.repository_steps_executed) not in {bool, type(None)}:
         raise ValueError("repository_steps_executed must be boolean or null")
     if value.state is GateExecutionState.EXECUTED:
-        if value.repository_steps_executed is not True or value.product_verdict not in {GateVerdict.PASS, GateVerdict.FAIL}:
+        if value.repository_steps_executed is not True or value.product_verdict not in {
+            GateVerdict.PASS,
+            GateVerdict.FAIL,
+        }:
             raise ValueError("EXECUTED requires executed repository steps and a real PASS/FAIL")
         if value.failure_class is not FailureClass.NONE:
             raise ValueError("EXECUTED cannot retain an infrastructure failure class")
         return
     if value.product_verdict is not GateVerdict.UNKNOWN or value.failure_class is FailureClass.NONE:
-        raise ValueError("non-executed/unknown external gate cannot carry a product PASS or FAIL and requires a typed failure class")
+        raise ValueError(
+            "non-executed/unknown external gate cannot carry a product PASS or FAIL and requires a typed failure class"
+        )
     if value.state is GateExecutionState.NOT_EXECUTED and value.repository_steps_executed is not False:
         raise ValueError("NOT_EXECUTED requires repository_steps_executed=false")
-    if value.state in {GateExecutionState.OBSERVER_UNAVAILABLE, GateExecutionState.UNKNOWN} and value.repository_steps_executed is not None:
+    if (
+        value.state in {GateExecutionState.OBSERVER_UNAVAILABLE, GateExecutionState.UNKNOWN}
+        and value.repository_steps_executed is not None
+    ):
         raise ValueError("observer-unavailable/unknown requires repository_steps_executed=null")
 
 
 def _validate_incident(value: GateIncident) -> None:
     _digest(value.fingerprint, "incident.fingerprint")
     _text(value.scope_ref, "incident.scope_ref")
-    first, last = _time(value.first_observed_at, "incident.first_observed_at"), _time(value.last_observed_at, "incident.last_observed_at")
+    first, last = (
+        _time(value.first_observed_at, "incident.first_observed_at"),
+        _time(value.last_observed_at, "incident.last_observed_at"),
+    )
     if last < first:
         raise ValueError("incident last observation precedes first")
     if value.fresh_until is not None and _time(value.fresh_until, "incident.fresh_until") < last:
@@ -200,13 +257,29 @@ def _validate_substitute(value: SubstituteEvidence, subject: str) -> None:
     if type(value.allowed) is not bool:
         raise ValueError("substitute.allowed must be boolean")
     if not value.allowed:
-        if any(x is not None for x in (value.authority_ref, value.profile_ref, value.exact_subject_ref, value.evidence_ref, value.evidence_digest, value.reproduction)) or value.verdict is not GateVerdict.UNKNOWN:
+        if (
+            any(
+                x is not None
+                for x in (
+                    value.authority_ref,
+                    value.profile_ref,
+                    value.exact_subject_ref,
+                    value.evidence_ref,
+                    value.evidence_digest,
+                    value.reproduction,
+                )
+            )
+            or value.verdict is not GateVerdict.UNKNOWN
+        ):
             raise ValueError("disallowed substitute cannot carry authority/evidence/verdict")
         return
     _text(value.authority_ref, "substitute.authority_ref")
     _text(value.profile_ref, "substitute.profile_ref")
     if value.verdict is GateVerdict.UNKNOWN:
-        if any(x is not None for x in (value.exact_subject_ref, value.evidence_ref, value.evidence_digest, value.reproduction)):
+        if any(
+            x is not None
+            for x in (value.exact_subject_ref, value.evidence_ref, value.evidence_digest, value.reproduction)
+        ):
             raise ValueError("unused substitute cannot carry result evidence")
         return
     if _text(value.exact_subject_ref, "substitute.exact_subject_ref") != subject:
@@ -219,7 +292,11 @@ def _validate_substitute(value: SubstituteEvidence, subject: str) -> None:
     _digest(r.original_workflow_digest, "reproduction.original_workflow_digest")
     if _text(r.exact_subject_ref, "reproduction.exact_subject_ref") != subject:
         raise ValueError("substitute reproduction must bind the exact gate subject")
-    if r.source_checkout != "clean_detached_or_equivalent" or type(r.inherited_workspace_state) is not bool or r.inherited_workspace_state:
+    if (
+        r.source_checkout != "clean_detached_or_equivalent"
+        or type(r.inherited_workspace_state) is not bool
+        or r.inherited_workspace_state
+    ):
         raise ValueError("substitute reproduction must use clean isolated source state")
     _digest(r.environment_digest, "reproduction.environment_digest")
     _text(r.isolation_ref, "reproduction.isolation_ref")
@@ -231,7 +308,9 @@ def _validate_catchup(value: CatchupObligation) -> None:
     if type(value.required) is not bool:
         raise ValueError("catchup.required must be boolean")
     if not value.required:
-        if value.state is not CatchupState.NOT_REQUIRED or any(x is not None for x in (value.subject_ref, value.evidence_ref, value.evidence_digest)):
+        if value.state is not CatchupState.NOT_REQUIRED or any(
+            x is not None for x in (value.subject_ref, value.evidence_ref, value.evidence_digest)
+        ):
             raise ValueError("non-required catch-up must be empty NOT_REQUIRED")
         return
     if value.state is CatchupState.NOT_REQUIRED:
@@ -246,7 +325,19 @@ def _validate_catchup(value: CatchupObligation) -> None:
         raise ValueError("pending/superseded catch-up cannot carry satisfaction evidence")
 
 
-def build_external_gate_receipt(*, gate_id: str, provider: str, expected_subject_ref: str, policy_revision: str, observation: GateObservation, retry_mode: RetryMode, incident: GateIncident | None = None, next_eligible_at: str | None = None, substitute: SubstituteEvidence | None = None, catchup: CatchupObligation | None = None) -> dict[str, Any]:
+def build_external_gate_receipt(
+    *,
+    gate_id: str,
+    provider: str,
+    expected_subject_ref: str,
+    policy_revision: str,
+    observation: GateObservation,
+    retry_mode: RetryMode,
+    incident: GateIncident | None = None,
+    next_eligible_at: str | None = None,
+    substitute: SubstituteEvidence | None = None,
+    catchup: CatchupObligation | None = None,
+) -> dict[str, Any]:
     """Build a strict receipt without conflating availability, product result, or substitute evidence."""
     _text(gate_id, "gate_id", 256)
     _text(provider, "provider", 128)
@@ -267,13 +358,63 @@ def build_external_gate_receipt(*, gate_id: str, provider: str, expected_subject
     _validate_catchup(catchup)
     r = substitute.reproduction
     document: dict[str, Any] = {
-        "schema_version": 1, "receipt_kind": "external_gate_deviation",
-        "gate": {"gate_id": gate_id, "provider": provider, "expected_subject_ref": expected_subject_ref, "policy_revision": policy_revision},
-        "observation": {"state": observation.state.value, "product_verdict": observation.product_verdict.value, "repository_steps_executed": observation.repository_steps_executed, "failure_class": observation.failure_class.value, "observed_at": observation.observed_at, "evidence_ref": observation.evidence_ref, "evidence_digest": observation.evidence_digest},
-        "incident": None if incident is None else {"fingerprint": incident.fingerprint, "scope": incident.scope.value, "scope_ref": incident.scope_ref, "first_observed_at": incident.first_observed_at, "last_observed_at": incident.last_observed_at, "fresh_until": incident.fresh_until, "reopen_on": list(incident.reopen_on)},
+        "schema_version": 1,
+        "receipt_kind": "external_gate_deviation",
+        "gate": {
+            "gate_id": gate_id,
+            "provider": provider,
+            "expected_subject_ref": expected_subject_ref,
+            "policy_revision": policy_revision,
+        },
+        "observation": {
+            "state": observation.state.value,
+            "product_verdict": observation.product_verdict.value,
+            "repository_steps_executed": observation.repository_steps_executed,
+            "failure_class": observation.failure_class.value,
+            "observed_at": observation.observed_at,
+            "evidence_ref": observation.evidence_ref,
+            "evidence_digest": observation.evidence_digest,
+        },
+        "incident": None
+        if incident is None
+        else {
+            "fingerprint": incident.fingerprint,
+            "scope": incident.scope.value,
+            "scope_ref": incident.scope_ref,
+            "first_observed_at": incident.first_observed_at,
+            "last_observed_at": incident.last_observed_at,
+            "fresh_until": incident.fresh_until,
+            "reopen_on": list(incident.reopen_on),
+        },
         "retry_policy": {"mode": retry_mode.value, "next_eligible_at": next_eligible_at},
-        "substitute": {"allowed": substitute.allowed, "authority_ref": substitute.authority_ref, "profile_ref": substitute.profile_ref, "exact_subject_ref": substitute.exact_subject_ref, "evidence_ref": substitute.evidence_ref, "evidence_digest": substitute.evidence_digest, "verdict": substitute.verdict.value, "reproduction": None if r is None else {"original_workflow_digest": r.original_workflow_digest, "exact_subject_ref": r.exact_subject_ref, "source_checkout": r.source_checkout, "environment_digest": r.environment_digest, "inherited_workspace_state": r.inherited_workspace_state, "isolation_ref": r.isolation_ref, "command_ref": r.command_ref, "report_digest": r.report_digest}},
-        "catchup": {"required": catchup.required, "subject_ref": catchup.subject_ref, "state": catchup.state.value, "evidence_ref": catchup.evidence_ref, "evidence_digest": catchup.evidence_digest},
+        "substitute": {
+            "allowed": substitute.allowed,
+            "authority_ref": substitute.authority_ref,
+            "profile_ref": substitute.profile_ref,
+            "exact_subject_ref": substitute.exact_subject_ref,
+            "evidence_ref": substitute.evidence_ref,
+            "evidence_digest": substitute.evidence_digest,
+            "verdict": substitute.verdict.value,
+            "reproduction": None
+            if r is None
+            else {
+                "original_workflow_digest": r.original_workflow_digest,
+                "exact_subject_ref": r.exact_subject_ref,
+                "source_checkout": r.source_checkout,
+                "environment_digest": r.environment_digest,
+                "inherited_workspace_state": r.inherited_workspace_state,
+                "isolation_ref": r.isolation_ref,
+                "command_ref": r.command_ref,
+                "report_digest": r.report_digest,
+            },
+        },
+        "catchup": {
+            "required": catchup.required,
+            "subject_ref": catchup.subject_ref,
+            "state": catchup.state.value,
+            "evidence_ref": catchup.evidence_ref,
+            "evidence_digest": catchup.evidence_digest,
+        },
     }
     document["receipt_digest"] = _doc_digest(document)
     return document
@@ -291,18 +432,51 @@ def _rebuild(receipt: object) -> dict[str, Any]:
     incident = None
     if root["incident"] is not None:
         i = _exact(root["incident"], _INC, "incident")
-        if not isinstance(i["reopen_on"], list): raise ValueError("incident.reopen_on must be a list")
-        incident = GateIncident(i["fingerprint"], IncidentScope(i["scope"]), i["scope_ref"], i["first_observed_at"], i["last_observed_at"], i["fresh_until"], tuple(i["reopen_on"]))
+        if not isinstance(i["reopen_on"], list):
+            raise ValueError("incident.reopen_on must be a list")
+        incident = GateIncident(
+            i["fingerprint"],
+            IncidentScope(i["scope"]),
+            i["scope_ref"],
+            i["first_observed_at"],
+            i["last_observed_at"],
+            i["fresh_until"],
+            tuple(i["reopen_on"]),
+        )
     reproduction = None
     if s["reproduction"] is not None:
         r = _exact(s["reproduction"], _REPRO, "reproduction")
         reproduction = SubstituteReproduction(**r)
     return build_external_gate_receipt(
-        gate_id=g["gate_id"], provider=g["provider"], expected_subject_ref=g["expected_subject_ref"], policy_revision=g["policy_revision"],
-        observation=GateObservation(GateExecutionState(o["state"]), GateVerdict(o["product_verdict"]), o["repository_steps_executed"], o["observed_at"], o["evidence_ref"], o["evidence_digest"], FailureClass(o["failure_class"])),
-        retry_mode=RetryMode(rp["mode"]), incident=incident, next_eligible_at=rp["next_eligible_at"],
-        substitute=SubstituteEvidence(s["allowed"], s["authority_ref"], s["profile_ref"], s["exact_subject_ref"], s["evidence_ref"], s["evidence_digest"], GateVerdict(s["verdict"]), reproduction),
-        catchup=CatchupObligation(c["required"], c["subject_ref"], CatchupState(c["state"]), c["evidence_ref"], c["evidence_digest"]),
+        gate_id=g["gate_id"],
+        provider=g["provider"],
+        expected_subject_ref=g["expected_subject_ref"],
+        policy_revision=g["policy_revision"],
+        observation=GateObservation(
+            GateExecutionState(o["state"]),
+            GateVerdict(o["product_verdict"]),
+            o["repository_steps_executed"],
+            o["observed_at"],
+            o["evidence_ref"],
+            o["evidence_digest"],
+            FailureClass(o["failure_class"]),
+        ),
+        retry_mode=RetryMode(rp["mode"]),
+        incident=incident,
+        next_eligible_at=rp["next_eligible_at"],
+        substitute=SubstituteEvidence(
+            s["allowed"],
+            s["authority_ref"],
+            s["profile_ref"],
+            s["exact_subject_ref"],
+            s["evidence_ref"],
+            s["evidence_digest"],
+            GateVerdict(s["verdict"]),
+            reproduction,
+        ),
+        catchup=CatchupObligation(
+            c["required"], c["subject_ref"], CatchupState(c["state"]), c["evidence_ref"], c["evidence_digest"]
+        ),
     )
 
 
@@ -317,10 +491,14 @@ def verify_external_gate_receipt_integrity(receipt: object) -> bool:
 def _incident_current(document: dict[str, Any] | None, now: datetime, changed_signals: Iterable[str]) -> bool:
     if document is None or set(changed_signals).intersection(document["reopen_on"]):
         return False
-    return document["fresh_until"] is None or now.astimezone(timezone.utc) <= _time(document["fresh_until"], "incident.fresh_until")
+    return document["fresh_until"] is None or now.astimezone(timezone.utc) <= _time(
+        document["fresh_until"], "incident.fresh_until"
+    )
 
 
-def derive_external_gate_decision(receipt: object, *, now: datetime, changed_signals: Iterable[str] = ()) -> dict[str, str]:
+def derive_external_gate_decision(
+    receipt: object, *, now: datetime, changed_signals: Iterable[str] = ()
+) -> dict[str, str]:
     if not verify_external_gate_receipt_integrity(receipt):
         return {"gate_disposition": "UNKNOWN", "retry_disposition": "NOT_APPLICABLE", "catchup_disposition": "UNKNOWN"}
     assert isinstance(receipt, dict)
@@ -329,14 +507,26 @@ def derive_external_gate_decision(receipt: object, *, now: datetime, changed_sig
         gate = "PASS_ORIGINAL" if o["product_verdict"] == "PASS" else "FAIL_ORIGINAL"
         retry = "NOT_APPLICABLE"
     else:
-        gate = (f"{sub['verdict']}_SUBSTITUTE" if sub["allowed"] and sub["verdict"] in {"PASS", "FAIL"} else ("UNKNOWN" if o["state"] == "UNKNOWN" else "BLOCKED_UNAVAILABLE"))
+        gate = (
+            f"{sub['verdict']}_SUBSTITUTE"
+            if sub["allowed"] and sub["verdict"] in {"PASS", "FAIL"}
+            else ("UNKNOWN" if o["state"] == "UNKNOWN" else "BLOCKED_UNAVAILABLE")
+        )
         mode, next_at = receipt["retry_policy"]["mode"], receipt["retry_policy"]["next_eligible_at"]
-        if mode == "operator_only": retry = "OPERATOR_ONLY"
-        elif mode == "suppress_until_change" and _incident_current(receipt["incident"], now, changed_signals): retry = "SUPPRESSED"
-        elif next_at is not None and now.astimezone(timezone.utc) < _time(next_at, "retry_policy.next_eligible_at"): retry = "WAIT"
-        else: retry = "ELIGIBLE"
+        if mode == "operator_only":
+            retry = "OPERATOR_ONLY"
+        elif mode == "suppress_until_change" and _incident_current(receipt["incident"], now, changed_signals):
+            retry = "SUPPRESSED"
+        elif next_at is not None and now.astimezone(timezone.utc) < _time(next_at, "retry_policy.next_eligible_at"):
+            retry = "WAIT"
+        else:
+            retry = "ELIGIBLE"
     c = receipt["catchup"]
-    return {"gate_disposition": gate, "retry_disposition": retry, "catchup_disposition": c["state"] if c["required"] else "NOT_REQUIRED"}
+    return {
+        "gate_disposition": gate,
+        "retry_disposition": retry,
+        "catchup_disposition": c["state"] if c["required"] else "NOT_REQUIRED",
+    }
 
 
 def satisfy_catchup(
