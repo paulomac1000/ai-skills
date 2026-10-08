@@ -163,7 +163,8 @@ def _receipt_shape_is_valid(receipt: object) -> bool:
     if not _has_exact_fields(receipt, _RECEIPT_ROOT_FIELDS):
         return False
     assert isinstance(receipt, dict)
-    if receipt.get("schema_version") != 1 or receipt.get("receipt_kind") != "artifact_closure":
+    schema_version = receipt.get("schema_version")
+    if type(schema_version) is not int or schema_version != 1 or receipt.get("receipt_kind") != "artifact_closure":
         return False
     if not _is_source_revision(receipt.get("source_revision")):
         return False

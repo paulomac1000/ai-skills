@@ -20,19 +20,19 @@
       "type": "string",
       "minLength": 1,
       "maxLength": 256,
-      "pattern": "\\S"
+      "pattern": "^(?![\\s\\S]*[\\uD800-\\uDFFF])(?=[\\s\\S]*\\S)[\\s\\S]+$"
     },
     "revision": {
       "type": "string",
       "minLength": 1,
       "maxLength": 256,
-      "pattern": "\\S"
+      "pattern": "^(?![\\s\\S]*[\\uD800-\\uDFFF])(?=[\\s\\S]*\\S)[\\s\\S]+$"
     },
     "policy_ref": {
       "type": "string",
       "minLength": 1,
       "maxLength": 2048,
-      "pattern": "\\S"
+      "pattern": "^(?![\\s\\S]*[\\uD800-\\uDFFF])(?=[\\s\\S]*\\S)[\\s\\S]+$"
     },
     "deliverables": {
       "type": "object",
@@ -42,7 +42,7 @@
         "type": "string",
         "minLength": 1,
         "maxLength": 256,
-        "pattern": "\\S"
+        "pattern": "^(?![\\s\\S]*[\\uD800-\\uDFFF])(?=[\\s\\S]*\\S)[\\s\\S]+$"
       },
       "additionalProperties": {
         "type": "object",
@@ -77,7 +77,7 @@
             ],
             "minLength": 1,
             "maxLength": 2048,
-            "pattern": "\\S"
+            "pattern": "^(?![\\s\\S]*[\\uD800-\\uDFFF])(?=[\\s\\S]*\\S)[\\s\\S]+$"
           },
           "smoke_profile_ref": {
             "type": [
@@ -86,7 +86,7 @@
             ],
             "minLength": 1,
             "maxLength": 2048,
-            "pattern": "\\S"
+            "pattern": "^(?![\\s\\S]*[\\uD800-\\uDFFF])(?=[\\s\\S]*\\S)[\\s\\S]+$"
           },
           "smoke_required": {
             "type": "boolean"
@@ -116,7 +116,7 @@
                 "smoke_profile_ref": {
                   "type": "string",
                   "minLength": 1,
-                  "pattern": "\\S"
+                  "pattern": "^(?![\\s\\S]*[\\uD800-\\uDFFF])(?=[\\s\\S]*\\S)[\\s\\S]+$"
                 },
                 "smoke_profile_digest": {
                   "type": "string",
@@ -135,7 +135,7 @@
         "type": "string",
         "minLength": 1,
         "maxLength": 2048,
-        "pattern": "\\S"
+        "pattern": "^(?![\\s\\S]*[\\uD800-\\uDFFF])(?=[\\s\\S]*\\S)[\\s\\S]+$"
       },
       "additionalProperties": {
         "enum": [

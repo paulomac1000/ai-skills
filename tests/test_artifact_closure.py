@@ -606,6 +606,17 @@ class ArtifactClosureTests(unittest.TestCase):
         )
         self.assertNotEqual(manifest_digest(manifest), manifest_digest(changed))
 
+    def test_boolean_schema_version_is_rejected_even_with_recomputed_digest(self) -> None:
+        receipt = self.evaluate(
+            self.observation("host", identity_ref="entrypoint:ProjectSteward.Host"),
+            self.observation("stewardctl", identity_ref="entrypoint:stewardctl"),
+        )
+        receipt["schema_version"] = True
+        payload = dict(receipt)
+        payload.pop("receipt_digest")
+        receipt["receipt_digest"] = MODULE._sha256_document(payload)
+        self.assertFalse(verify_artifact_closure_receipt_integrity(receipt))
+
     def test_lone_surrogate_receipt_fails_closed_without_hash_crash(self) -> None:
         receipt = self.evaluate(
             self.observation("host", identity_ref="entrypoint:ProjectSteward.Host"),
@@ -801,7 +812,10 @@ class ArtifactClosureTests(unittest.TestCase):
                 isinstance(value_type, list) and "string" in value_type
             )
             if string_typed and "minLength" in schema:
-                self.assertEqual("\\S", schema.get("pattern"))
+                self.assertEqual(
+                    r"^(?![\s\S]*[\uD800-\uDFFF])(?=[\s\S]*\S)[\s\S]+$",
+                    schema.get("pattern"),
+                )
             for value in schema.values():
                 assert_non_whitespace_text_contract(value)
 
@@ -811,6 +825,9 @@ class ArtifactClosureTests(unittest.TestCase):
         whitespace_manifest = json.loads(json.dumps(manifest_doc))
         whitespace_manifest["deliverables"]["host"]["expected_identity_ref"] = "   "
         self.assertFalse(Draft202012Validator(manifest_schema).is_valid(whitespace_manifest))
+        surrogate_manifest = json.loads(json.dumps(manifest_doc))
+        surrogate_manifest["deliverables"]["host"]["expected_identity_ref"] = "\ud800"
+        self.assertFalse(Draft202012Validator(manifest_schema).is_valid(surrogate_manifest))
 
         receipt = self.evaluate(
             self.observation("host", identity_ref="entrypoint:ProjectSteward.Host"),
@@ -819,6 +836,9 @@ class ArtifactClosureTests(unittest.TestCase):
         whitespace_receipt = json.loads(json.dumps(receipt))
         whitespace_receipt["artifact_ref"] = "   "
         self.assertFalse(Draft202012Validator(receipt_schema).is_valid(whitespace_receipt))
+        surrogate_receipt = json.loads(json.dumps(receipt))
+        surrogate_receipt["artifact_ref"] = "\ud800"
+        self.assertFalse(Draft202012Validator(receipt_schema).is_valid(surrogate_receipt))
         whitespace_observed_identity = json.loads(json.dumps(receipt))
         whitespace_observed_identity["observed"]["host"]["identity_ref"] = "\t "
         self.assertFalse(Draft202012Validator(receipt_schema).is_valid(whitespace_observed_identity))

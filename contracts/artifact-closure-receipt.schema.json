@@ -38,7 +38,7 @@
       "type": "string",
       "minLength": 1,
       "maxLength": 2048,
-      "pattern": "\\S"
+      "pattern": "^(?![\\s\\S]*[\\uD800-\\uDFFF])(?=[\\s\\S]*\\S)[\\s\\S]+$"
     },
     "artifact_digest": {
       "type": "string",
@@ -48,7 +48,7 @@
       "type": "string",
       "minLength": 1,
       "maxLength": 2048,
-      "pattern": "\\S"
+      "pattern": "^(?![\\s\\S]*[\\uD800-\\uDFFF])(?=[\\s\\S]*\\S)[\\s\\S]+$"
     },
     "manifest": {
       "type": "object",
@@ -64,13 +64,13 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 256,
-          "pattern": "\\S"
+          "pattern": "^(?![\\s\\S]*[\\uD800-\\uDFFF])(?=[\\s\\S]*\\S)[\\s\\S]+$"
         },
         "revision": {
           "type": "string",
           "minLength": 1,
           "maxLength": 256,
-          "pattern": "\\S"
+          "pattern": "^(?![\\s\\S]*[\\uD800-\\uDFFF])(?=[\\s\\S]*\\S)[\\s\\S]+$"
         },
         "digest": {
           "type": "string",
@@ -80,7 +80,7 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 2048,
-          "pattern": "\\S"
+          "pattern": "^(?![\\s\\S]*[\\uD800-\\uDFFF])(?=[\\s\\S]*\\S)[\\s\\S]+$"
         }
       }
     },
@@ -91,7 +91,7 @@
         "type": "string",
         "minLength": 1,
         "maxLength": 256,
-        "pattern": "\\S"
+        "pattern": "^(?![\\s\\S]*[\\uD800-\\uDFFF])(?=[\\s\\S]*\\S)[\\s\\S]+$"
       },
       "additionalProperties": {
         "type": "object",
@@ -120,7 +120,7 @@
             ],
             "minLength": 1,
             "maxLength": 2048,
-            "pattern": "\\S"
+            "pattern": "^(?![\\s\\S]*[\\uD800-\\uDFFF])(?=[\\s\\S]*\\S)[\\s\\S]+$"
           },
           "smoke_profile_ref": {
             "type": [
@@ -129,7 +129,7 @@
             ],
             "minLength": 1,
             "maxLength": 2048,
-            "pattern": "\\S"
+            "pattern": "^(?![\\s\\S]*[\\uD800-\\uDFFF])(?=[\\s\\S]*\\S)[\\s\\S]+$"
           },
           "smoke_status": {
             "enum": [
@@ -146,7 +146,7 @@
             ],
             "minLength": 1,
             "maxLength": 2048,
-            "pattern": "\\S"
+            "pattern": "^(?![\\s\\S]*[\\uD800-\\uDFFF])(?=[\\s\\S]*\\S)[\\s\\S]+$"
           },
           "evidence_digest": {
             "type": [
@@ -183,7 +183,7 @@
                 "smoke_profile_ref": {
                   "type": "string",
                   "minLength": 1,
-                  "pattern": "\\S"
+                  "pattern": "^(?![\\s\\S]*[\\uD800-\\uDFFF])(?=[\\s\\S]*\\S)[\\s\\S]+$"
                 },
                 "smoke_profile_digest": {
                   "type": "string",
@@ -297,7 +297,7 @@
         "type": "string",
         "minLength": 1,
         "maxLength": 2048,
-        "pattern": "\\S"
+        "pattern": "^(?![\\s\\S]*[\\uD800-\\uDFFF])(?=[\\s\\S]*\\S)[\\s\\S]+$"
       },
       "additionalProperties": {
         "type": "object",
@@ -327,7 +327,7 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 2048,
-            "pattern": "\\S"
+            "pattern": "^(?![\\s\\S]*[\\uD800-\\uDFFF])(?=[\\s\\S]*\\S)[\\s\\S]+$"
           },
           "evidence_digest": {
             "type": "string",
@@ -344,7 +344,7 @@
         "type": "string",
         "minLength": 1,
         "maxLength": 256,
-        "pattern": "\\S"
+        "pattern": "^(?![\\s\\S]*[\\uD800-\\uDFFF])(?=[\\s\\S]*\\S)[\\s\\S]+$"
       }
     },
     "unknown_required": {
@@ -355,7 +355,7 @@
         "type": "string",
         "minLength": 1,
         "maxLength": 256,
-        "pattern": "\\S"
+        "pattern": "^(?![\\s\\S]*[\\uD800-\\uDFFF])(?=[\\s\\S]*\\S)[\\s\\S]+$"
       }
     },
     "identity_mismatches": {
@@ -365,7 +365,7 @@
         "type": "string",
         "minLength": 1,
         "maxLength": 256,
-        "pattern": "\\S"
+        "pattern": "^(?![\\s\\S]*[\\uD800-\\uDFFF])(?=[\\s\\S]*\\S)[\\s\\S]+$"
       },
       "additionalProperties": {
         "type": "object",
@@ -379,7 +379,7 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 2048,
-            "pattern": "\\S"
+            "pattern": "^(?![\\s\\S]*[\\uD800-\\uDFFF])(?=[\\s\\S]*\\S)[\\s\\S]+$"
           },
           "observed_identity_ref": {
             "type": [
@@ -388,7 +388,7 @@
             ],
             "minLength": 1,
             "maxLength": 2048,
-            "pattern": "\\S"
+            "pattern": "^(?![\\s\\S]*[\\uD800-\\uDFFF])(?=[\\s\\S]*\\S)[\\s\\S]+$"
           }
         }
       }
@@ -400,7 +400,7 @@
         "type": "string",
         "minLength": 1,
         "maxLength": 256,
-        "pattern": "\\S"
+        "pattern": "^(?![\\s\\S]*[\\uD800-\\uDFFF])(?=[\\s\\S]*\\S)[\\s\\S]+$"
       },
       "additionalProperties": {
         "type": "object",
@@ -423,7 +423,7 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 2048,
-            "pattern": "\\S"
+            "pattern": "^(?![\\s\\S]*[\\uD800-\\uDFFF])(?=[\\s\\S]*\\S)[\\s\\S]+$"
           },
           "observed_smoke_profile_ref": {
             "type": [
@@ -432,7 +432,7 @@
             ],
             "minLength": 1,
             "maxLength": 2048,
-            "pattern": "\\S"
+            "pattern": "^(?![\\s\\S]*[\\uD800-\\uDFFF])(?=[\\s\\S]*\\S)[\\s\\S]+$"
           }
         }
       }
@@ -445,7 +445,7 @@
         "type": "string",
         "minLength": 1,
         "maxLength": 2048,
-        "pattern": "\\S"
+        "pattern": "^(?![\\s\\S]*[\\uD800-\\uDFFF])(?=[\\s\\S]*\\S)[\\s\\S]+$"
       }
     },
     "verdict": {
