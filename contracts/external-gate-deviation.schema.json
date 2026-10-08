@@ -1,0 +1,172 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://paulomac1000.github.io/ai-skills/contracts/external-gate-deviation.schema.json",
+  "title": "ExternalGateDeviationReceipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "receipt_kind", "gate", "observation", "incident", "retry_policy", "substitute", "catchup", "receipt_digest"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "receipt_kind": {"const": "external_gate_deviation"},
+    "gate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["gate_id", "provider", "expected_subject_ref", "policy_revision"],
+      "properties": {
+        "gate_id": {"$ref": "#/$defs/text256"},
+        "provider": {"$ref": "#/$defs/text128"},
+        "expected_subject_ref": {"$ref": "#/$defs/text"},
+        "policy_revision": {"$ref": "#/$defs/text"}
+      }
+    },
+    "observation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state", "product_verdict", "repository_steps_executed", "failure_class", "observed_at", "evidence_ref", "evidence_digest"],
+      "properties": {
+        "state": {"enum": ["EXECUTED", "NOT_EXECUTED", "OBSERVER_UNAVAILABLE", "UNKNOWN"]},
+        "product_verdict": {"enum": ["PASS", "FAIL", "UNKNOWN"]},
+        "repository_steps_executed": {"type": ["boolean", "null"]},
+        "failure_class": {"enum": ["none", "billing", "quota", "runner_unavailable", "provider_outage", "auth", "repository", "unknown"]},
+        "observed_at": {"type": "string", "format": "date-time"},
+        "evidence_ref": {"$ref": "#/$defs/text"},
+        "evidence_digest": {"$ref": "#/$defs/digest"}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"state": {"const": "EXECUTED"}}, "required": ["state"]},
+          "then": {"properties": {"product_verdict": {"enum": ["PASS", "FAIL"]}, "repository_steps_executed": {"const": true}, "failure_class": {"const": "none"}}}
+        },
+        {
+          "if": {"properties": {"state": {"const": "NOT_EXECUTED"}}, "required": ["state"]},
+          "then": {"properties": {"product_verdict": {"const": "UNKNOWN"}, "repository_steps_executed": {"const": false}, "failure_class": {"not": {"const": "none"}}}}
+        },
+        {
+          "if": {"properties": {"state": {"enum": ["OBSERVER_UNAVAILABLE", "UNKNOWN"]}}, "required": ["state"]},
+          "then": {"properties": {"product_verdict": {"const": "UNKNOWN"}, "repository_steps_executed": {"const": null}, "failure_class": {"not": {"const": "none"}}}}
+        }
+      ]
+    },
+    "incident": {
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["fingerprint", "scope", "scope_ref", "first_observed_at", "last_observed_at", "fresh_until", "reopen_on"],
+          "properties": {
+            "fingerprint": {"$ref": "#/$defs/digest"},
+            "scope": {"enum": ["account", "organization", "repository", "workflow", "runner_pool", "unknown"]},
+            "scope_ref": {"$ref": "#/$defs/text"},
+            "first_observed_at": {"type": "string", "format": "date-time"},
+            "last_observed_at": {"type": "string", "format": "date-time"},
+            "fresh_until": {"type": ["string", "null"], "format": "date-time"},
+            "reopen_on": {"type": "array", "minItems": 1, "maxItems": 32, "uniqueItems": true, "items": {"$ref": "#/$defs/text128"}}
+          }
+        }
+      ]
+    },
+    "retry_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "next_eligible_at"],
+      "properties": {
+        "mode": {"enum": ["normal", "suppress_until_change", "bounded_backoff", "operator_only"]},
+        "next_eligible_at": {"type": ["string", "null"], "format": "date-time"}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"mode": {"const": "bounded_backoff"}}, "required": ["mode"]},
+          "then": {"properties": {"next_eligible_at": {"type": "string", "format": "date-time"}}}
+        }
+      ]
+    },
+    "substitute": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["allowed", "authority_ref", "profile_ref", "exact_subject_ref", "evidence_ref", "evidence_digest", "verdict", "reproduction"],
+      "properties": {
+        "allowed": {"type": "boolean"},
+        "authority_ref": {"type": ["string", "null"], "minLength": 1},
+        "profile_ref": {"type": ["string", "null"], "minLength": 1},
+        "exact_subject_ref": {"type": ["string", "null"], "minLength": 1},
+        "evidence_ref": {"type": ["string", "null"], "minLength": 1},
+        "evidence_digest": {"oneOf": [{"$ref": "#/$defs/digest"}, {"type": "null"}]},
+        "verdict": {"enum": ["PASS", "FAIL", "UNKNOWN"]},
+        "reproduction": {
+          "oneOf": [
+            {"type": "null"},
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["original_workflow_digest", "exact_subject_ref", "source_checkout", "environment_digest", "inherited_workspace_state", "isolation_ref", "command_ref", "report_digest"],
+              "properties": {
+                "original_workflow_digest": {"$ref": "#/$defs/digest"},
+                "exact_subject_ref": {"$ref": "#/$defs/text"},
+                "source_checkout": {"const": "clean_detached_or_equivalent"},
+                "environment_digest": {"$ref": "#/$defs/digest"},
+                "inherited_workspace_state": {"const": false},
+                "isolation_ref": {"$ref": "#/$defs/text"},
+                "command_ref": {"$ref": "#/$defs/text"},
+                "report_digest": {"$ref": "#/$defs/digest"}
+              }
+            }
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"allowed": {"const": false}}, "required": ["allowed"]},
+          "then": {"properties": {"authority_ref": {"const": null}, "profile_ref": {"const": null}, "exact_subject_ref": {"const": null}, "evidence_ref": {"const": null}, "evidence_digest": {"const": null}, "verdict": {"const": "UNKNOWN"}, "reproduction": {"const": null}}}
+        },
+        {
+          "if": {"properties": {"allowed": {"const": true}}, "required": ["allowed"]},
+          "then": {"properties": {"authority_ref": {"type": "string", "minLength": 1}, "profile_ref": {"type": "string", "minLength": 1}}}
+        },
+        {
+          "if": {"properties": {"allowed": {"const": true}, "verdict": {"enum": ["PASS", "FAIL"]}}, "required": ["allowed", "verdict"]},
+          "then": {"properties": {"exact_subject_ref": {"type": "string", "minLength": 1}, "evidence_ref": {"type": "string", "minLength": 1}, "evidence_digest": {"$ref": "#/$defs/digest"}, "reproduction": {"type": "object"}}}
+        }
+      ]
+    },
+    "catchup": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["required", "subject_ref", "state", "evidence_ref", "evidence_digest"],
+      "properties": {
+        "required": {"type": "boolean"},
+        "subject_ref": {"type": ["string", "null"], "minLength": 1},
+        "state": {"enum": ["PENDING", "SATISFIED", "SUPERSEDED", "NOT_REQUIRED"]},
+        "evidence_ref": {"type": ["string", "null"], "minLength": 1},
+        "evidence_digest": {"oneOf": [{"$ref": "#/$defs/digest"}, {"type": "null"}]}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"required": {"const": false}}, "required": ["required"]},
+          "then": {"properties": {"subject_ref": {"const": null}, "state": {"const": "NOT_REQUIRED"}, "evidence_ref": {"const": null}, "evidence_digest": {"const": null}}}
+        },
+        {
+          "if": {"properties": {"required": {"const": true}}, "required": ["required"]},
+          "then": {"properties": {"state": {"not": {"const": "NOT_REQUIRED"}}}}
+        },
+        {
+          "if": {"properties": {"state": {"const": "SATISFIED"}}, "required": ["state"]},
+          "then": {"properties": {"subject_ref": {"type": "string", "minLength": 1}, "evidence_ref": {"type": "string", "minLength": 1}, "evidence_digest": {"$ref": "#/$defs/digest"}}}
+        }
+      ]
+    },
+    "receipt_digest": {"$ref": "#/$defs/digest"}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"retry_policy": {"properties": {"mode": {"const": "suppress_until_change"}}}}},
+      "then": {"properties": {"incident": {"type": "object"}}}
+    }
+  ],
+  "$defs": {
+    "text": {"type": "string", "minLength": 1, "maxLength": 2048},
+    "text128": {"type": "string", "minLength": 1, "maxLength": 128},
+    "text256": {"type": "string", "minLength": 1, "maxLength": 256},
+    "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+  }
+}

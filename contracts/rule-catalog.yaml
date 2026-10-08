@@ -117,6 +117,9 @@ skills:
     - id: cicd.execution.on-demand
       source: STANDARD.md#execution-policy-and-hosted-runner-budget
       description: Cost-aware workflows remain manually dispatchable on development refs while preserving exact-SHA full acceptance gates.
+    - id: cicd.external-gate.deviation
+      source: STANDARD.md#external-gate-availability-and-deviation-evidence
+      description: External gate availability remains distinct from product verdict; incidents, retry suppression, substitute authority, exact-subject reproduction, and catch-up evidence are explicit and fail closed.
     - id: cicd.quality.language
       source: STANDARD.md#python-quality
       description: Applicable language quality, typing, test, and coverage gates execute.

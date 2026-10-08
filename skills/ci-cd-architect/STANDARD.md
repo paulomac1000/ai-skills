@@ -131,6 +131,18 @@ python skills/ci-cd-architect/tools/check_ci_execution_policy.py .
 
 The validator defaults automatic push allowlisting to `main` and `master`; repositories with another integration branch pass one or more `--integration-branch` values. See [On-demand CI](references/on-demand-ci.md).
 
+## External gate availability and deviation evidence
+
+A required external gate has two independent dimensions: whether its policy-defined repository work actually executed, and what product verdict that work produced. Consumers MUST represent `EXECUTED`, `NOT_EXECUTED`, `OBSERVER_UNAVAILABLE`, and `UNKNOWN` explicitly. Only `EXECUTED` may carry a real product `PASS` or `FAIL`; zero-runner, zero-step, quota, billing, provider-outage, authentication, or unobservable states do not become product verdicts.
+
+Repeated external failures SHOULD be deduplicated by a stable incident fingerprint plus explicit scope and freshness. A provider/account-wide incident does not become a new incident merely because the candidate SHA changed. Retry suppression or bounded backoff may reuse a current incident until its declared reopen signal or freshness boundary changes, but suppressed retries never satisfy the gate.
+
+A substitute result is admissible only when independently trusted policy/operator authority explicitly allows that path. A used substitute MUST bind the exact current subject and reproduce the intended gate from clean detached or equivalent source state with immutable workflow/profile, environment, isolation, command, report, and evidence identity. Substitute `PASS`/`FAIL` remains distinct from original-provider `PASS`/`FAIL`; candidate input cannot mint substitute authority or rewrite a non-executed provider gate as green.
+
+When policy requires provider catch-up, persist an exact-subject obligation independently from the substitute verdict. An unrelated later green run cannot satisfy it. `SUPERSEDED` preserves lineage but is not equivalent to `SATISFIED`.
+
+The provider-neutral machine contract is `contracts/external-gate-deviation.schema.json` plus `contracts/external_gate_deviation.py`. Provider-specific classifiers map evidence into it rather than redefining authority, incident lifetime, retry, or catch-up semantics. See `references/external-gate-availability.md`.
+
 ## Python quality
 
 A production Python full gate includes, when applicable: dependency installation from the repository source of truth, Ruff lint and format checks, type checking, Bandit or equivalent security checks, unit tests, coverage reports, integration tests, and test artifacts. Missing stubs and exclusions are configured in project files, not hidden in CI command lines. Under on-demand execution, a fast manual job may run a strict subset, but it does not replace the full gate required for acceptance.

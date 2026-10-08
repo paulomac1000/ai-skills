@@ -207,6 +207,13 @@ profiles:
     - repository-junit.xml
     execution_id: repository
   - kind: rule
+    subject: cicd.external-gate.deviation
+    selectors:
+    - '*test_external_gate_deviation*'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
     subject: cicd.quality.language
     selectors:
     - '*test_ci_scripts*'

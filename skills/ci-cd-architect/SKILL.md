@@ -15,6 +15,7 @@ Repository SemVer selection, changelog curation, and the one-version-per-release
 2. Inventory commands, tests, package managers, workflow triggers, trust boundaries, expensive jobs, validation-corpus policy and exact required subjects, plus production-effective state reachable by validation.
 3. Read `references/provider-trust-bootstrap.md` before designing provider-backed acceptance. Treat trusted executable provenance and trusted orchestration authority as two separate requirements.
 4. Read `references/verification-integrity.md` before treating a test command as authoritative. Prove corpus selection, clean execution termination, declared dependency bootstrap, local/hosted parity, and state isolation where applicable.
+5. Read `references/external-gate-availability.md` when a required external gate may be unavailable, not executed, substituted, retried, or caught up later; preserve provider availability separately from the product verdict.
 5. Select the smallest set of trust profiles and execution policies that covers the actual risks without running expensive CI after every agent commit.
 6. Keep local hooks fast and deterministic; use local/pre-push checks for iterative feedback and hosted CI for authoritative gates.
 7. For high-churn or quota-constrained repositories, prefer on-demand development CI: manual branch runs plus automatic full assurance on the governed integration branch.
@@ -50,7 +51,7 @@ When expensive workflows consume material hosted-runner quota during branch iter
 - keep cheap administrative automations and intentional release/scheduled workflows separate rather than disabling everything mechanically;
 - require the complete acceptance gate on the exact final SHA before claiming readiness.
 
-If GitHub creates a failed job with no assigned runner, no executed steps, and no command logs, classify it as infrastructure/provider failure. It is not evidence that the code failed and it is never evidence that the code passed. Use `tools/classify_github_run_evidence.py` when the provider records are ambiguous. Repeatedly rerunning expensive jobs under an exhausted quota is not a repair strategy.
+If GitHub creates a failed job with no assigned runner, no executed steps, and no command logs, classify it as infrastructure/provider failure. It is not evidence that the code failed and it is never evidence that the code passed. Use `tools/classify_github_run_evidence.py` when the provider records are ambiguous. For reusable incident identity, retry suppression, independently authorized clean-room substitutes, and exact-subject provider catch-up, project provider evidence into the provider-neutral external-gate deviation receipt instead of adding product-specific outage logic. Repeatedly rerunning expensive jobs under an exhausted quota is not a repair strategy.
 
 ## Adoption and migration evidence
 
