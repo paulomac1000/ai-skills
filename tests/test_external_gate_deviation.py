@@ -149,11 +149,13 @@ class ExternalGateDeviationTests(unittest.TestCase):
             GateExecutionState.EXECUTED, GateVerdict.PASS, True,
             "2026-10-08T10:00:00Z", "provider-run:green", D3,
         )
-        kwargs = dict(provider="external", gate_id="external/ci", provider_observation=passed)
+        provider = receipt["gate"]["provider"]
+        gate_id = receipt["gate"]["gate_id"]
+        kwargs = dict(provider=provider, gate_id=gate_id, provider_observation=passed)
         with self.assertRaisesRegex(ValueError, "unrelated provider run"):
             satisfy_catchup(receipt, observed_subject_ref="sha:other", **kwargs)
         with self.assertRaisesRegex(ValueError, "original provider gate"):
-            satisfy_catchup(receipt, observed_subject_ref="sha:integrated", provider="other", gate_id="external/ci", provider_observation=passed)
+            satisfy_catchup(receipt, observed_subject_ref="sha:integrated", provider="other", gate_id=gate_id, provider_observation=passed)
         for state, verdict, executed in [
             (GateExecutionState.NOT_EXECUTED, GateVerdict.UNKNOWN, False),
             (GateExecutionState.UNKNOWN, GateVerdict.UNKNOWN, None),
@@ -166,7 +168,7 @@ class ExternalGateDeviationTests(unittest.TestCase):
                     FailureClass.BILLING if state is not GateExecutionState.EXECUTED else FailureClass.NONE,
                 )
                 with self.assertRaisesRegex(ValueError, "requires executed original gate PASS"):
-                    satisfy_catchup(receipt, observed_subject_ref="sha:integrated", provider="external", gate_id="external/ci", provider_observation=blocked)
+                    satisfy_catchup(receipt, observed_subject_ref="sha:integrated", provider=provider, gate_id=gate_id, provider_observation=blocked)
         satisfied = satisfy_catchup(receipt, observed_subject_ref="sha:integrated", **kwargs)
         self.assertEqual("SATISFIED", satisfied["catchup"]["state"])
         self.assertTrue(verify_external_gate_receipt_integrity(satisfied))

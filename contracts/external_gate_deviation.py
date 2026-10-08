@@ -6,10 +6,11 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import StrEnum
-from typing import Any, Iterable
+from typing import Any
 
 _SHA256_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 _ROOT = frozenset(
@@ -194,7 +195,7 @@ def _time(value: object, name: str) -> datetime:
         raise ValueError(f"{name} must be an RFC3339/ISO-8601 timestamp") from exc
     if parsed.tzinfo is None or parsed.utcoffset() is None:
         raise ValueError(f"{name} must include a timezone")
-    return parsed.astimezone(timezone.utc)
+    return parsed.astimezone(UTC)
 
 
 def _doc_digest(document: dict[str, Any]) -> str:
@@ -491,7 +492,7 @@ def verify_external_gate_receipt_integrity(receipt: object) -> bool:
 def _incident_current(document: dict[str, Any] | None, now: datetime, changed_signals: Iterable[str]) -> bool:
     if document is None or set(changed_signals).intersection(document["reopen_on"]):
         return False
-    return document["fresh_until"] is None or now.astimezone(timezone.utc) <= _time(
+    return document["fresh_until"] is None or now.astimezone(UTC) <= _time(
         document["fresh_until"], "incident.fresh_until"
     )
 
@@ -517,7 +518,7 @@ def derive_external_gate_decision(
             retry = "OPERATOR_ONLY"
         elif mode == "suppress_until_change" and _incident_current(receipt["incident"], now, changed_signals):
             retry = "SUPPRESSED"
-        elif next_at is not None and now.astimezone(timezone.utc) < _time(next_at, "retry_policy.next_eligible_at"):
+        elif next_at is not None and now.astimezone(UTC) < _time(next_at, "retry_policy.next_eligible_at"):
             retry = "WAIT"
         else:
             retry = "ELIGIBLE"
