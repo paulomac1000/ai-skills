@@ -143,25 +143,35 @@ class ExternalGateDeviationTests(unittest.TestCase):
                 ),
             )
 
-    def test_catchup_is_exact_subject_bound(self) -> None:
-        receipt = self.receipt(
-            catchup=CatchupObligation(True, "sha:integrated", CatchupState.PENDING)
+    def test_catchup_requires_exact_original_executed_pass(self) -> None:
+        receipt = self.receipt(catchup=CatchupObligation(True, "sha:integrated", CatchupState.PENDING))
+        passed = GateObservation(
+            GateExecutionState.EXECUTED, GateVerdict.PASS, True,
+            "2026-10-08T10:00:00Z", "provider-run:green", D3,
         )
+        kwargs = dict(provider="github-actions", gate_id="github-actions/ci", provider_observation=passed)
         with self.assertRaisesRegex(ValueError, "unrelated provider run"):
-            satisfy_catchup(
-                receipt,
-                observed_subject_ref="sha:other",
-                evidence_ref="provider-run:green",
-                evidence_digest=D3,
-            )
-        satisfied = satisfy_catchup(
-            receipt,
-            observed_subject_ref="sha:integrated",
-            evidence_ref="provider-run:green",
-            evidence_digest=D3,
-        )
+            satisfy_catchup(receipt, observed_subject_ref="sha:other", **kwargs)
+        with self.assertRaisesRegex(ValueError, "original provider gate"):
+            satisfy_catchup(receipt, observed_subject_ref="sha:integrated", provider="other", gate_id="github-actions/ci", provider_observation=passed)
+        for state, verdict, executed in [
+            (GateExecutionState.NOT_EXECUTED, GateVerdict.UNKNOWN, False),
+            (GateExecutionState.UNKNOWN, GateVerdict.UNKNOWN, None),
+            (GateExecutionState.EXECUTED, GateVerdict.FAIL, True),
+        ]:
+            with self.subTest(state=state, verdict=verdict):
+                blocked = GateObservation(
+                    state, verdict, executed, "2026-10-08T10:00:00Z",
+                    "provider-run:blocked", D3,
+                    FailureClass.BILLING if state is not GateExecutionState.EXECUTED else FailureClass.NONE,
+                )
+                with self.assertRaisesRegex(ValueError, "requires executed original gate PASS"):
+                    satisfy_catchup(receipt, observed_subject_ref="sha:integrated", provider="github-actions", gate_id="github-actions/ci", provider_observation=blocked)
+        satisfied = satisfy_catchup(receipt, observed_subject_ref="sha:integrated", **kwargs)
         self.assertEqual("SATISFIED", satisfied["catchup"]["state"])
         self.assertTrue(verify_external_gate_receipt_integrity(satisfied))
+        with self.assertRaisesRegex(ValueError, "not pending"):
+            satisfy_catchup(satisfied, observed_subject_ref="sha:integrated", **kwargs)
 
     def test_three_historical_products_share_one_generic_contract(self) -> None:
         fixtures = (

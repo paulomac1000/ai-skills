@@ -339,21 +339,45 @@ def derive_external_gate_decision(receipt: object, *, now: datetime, changed_sig
     return {"gate_disposition": gate, "retry_disposition": retry, "catchup_disposition": c["state"] if c["required"] else "NOT_REQUIRED"}
 
 
-def satisfy_catchup(receipt: object, *, observed_subject_ref: str, evidence_ref: str, evidence_digest: str) -> dict[str, Any]:
-    if not verify_external_gate_receipt_integrity(receipt): raise ValueError("cannot satisfy catch-up on invalid receipt")
+def satisfy_catchup(
+    receipt: object,
+    *,
+    observed_subject_ref: str,
+    provider: str,
+    gate_id: str,
+    provider_observation: GateObservation,
+) -> dict[str, Any]:
+    """Close catch-up only for exact original gate with executed PASS.
+
+    The consumer must independently authenticate provider evidence and subject.
+    This pure helper validates semantics; it cannot verify provider signatures.
+    """
+    if not verify_external_gate_receipt_integrity(receipt):
+        raise ValueError("cannot satisfy catch-up on invalid receipt")
     assert isinstance(receipt, dict)
     c = receipt["catchup"]
-    if not c["required"] or c["subject_ref"] is None: raise ValueError("catch-up subject is not established")
-    if _text(observed_subject_ref, "observed_subject_ref") != c["subject_ref"]: raise ValueError("unrelated provider run cannot satisfy catch-up")
+    if not c["required"] or c["state"] != "PENDING" or c["subject_ref"] is None:
+        raise ValueError("catch-up is not pending with an exact subject")
+    if _text(observed_subject_ref, "observed_subject_ref") != c["subject_ref"]:
+        raise ValueError("unrelated provider run cannot satisfy catch-up")
+    if provider != receipt["gate"]["provider"] or gate_id != receipt["gate"]["gate_id"]:
+        raise ValueError("catch-up must execute the original provider gate")
+    _validate_observation(provider_observation)
+    if (
+        provider_observation.state is not GateExecutionState.EXECUTED
+        or provider_observation.product_verdict is not GateVerdict.PASS
+    ):
+        raise ValueError("catch-up requires executed original gate PASS")
     updated = json.loads(json.dumps(receipt))
     updated["catchup"] = {
         "required": True,
         "subject_ref": c["subject_ref"],
         "state": "SATISFIED",
-        "evidence_ref": _text(evidence_ref, "evidence_ref"),
-        "evidence_digest": _digest(evidence_digest, "evidence_digest"),
+        "evidence_ref": provider_observation.evidence_ref,
+        "evidence_digest": provider_observation.evidence_digest,
     }
     updated.pop("receipt_digest")
     updated["receipt_digest"] = _doc_digest(updated)
-    if not verify_external_gate_receipt_integrity(updated): raise AssertionError("constructed catch-up receipt is invalid")
+    if not verify_external_gate_receipt_integrity(updated):
+        raise AssertionError("constructed catch-up receipt is invalid")
     return updated
