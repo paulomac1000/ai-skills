@@ -1,5 +1,18 @@
 # Changelog
 
+## 3.23.0 - 2026-10-08
+
+### Added
+
+- Added provider-neutral External Gate Availability / Deviation Receipt semantics separating hosted execution, product verdict, incident-scoped retries, authorized clean-room substitute and exact-subject catch-up.
+- Added JSON Schema, deterministic reference evaluator, CI/CD guidance and adversarial regressions for repeated pre-runner failures.
+
+### Security and correctness
+
+- A zero-step hosted failure remains NOT_EXECUTED even when an exact clean-room substitute passes.
+- Catch-up now requires executed PASS evidence from the original provider/gate for the exact subject, observed strictly after the deviation (historical or simultaneous green runs cannot close the obligation). Provider evidence authentication remains the trusted adapter's responsibility.
+
+
 ## 3.22.0 - 2026-10-08
 
 ### Added

@@ -94,42 +94,13 @@ A protected-release job with write permissions names a protected environment and
 
 ## Execution policy and hosted-runner budget
 
-Trust policy and execution policy are independent dimensions. A repository with high agent commit volume or finite hosted-runner minutes SHOULD use the on-demand execution policy for expensive development workflows rather than weakening their security profile.
+Cost-aware execution is independent of workflow trust permissions. An `on-demand` workflow MUST expose `workflow_dispatch`, MUST NOT auto-run on PRs, feature branches, tags, schedules or workflow chaining, MAY run on literal integration-branch push, and MUST use `concurrency.cancel-in-progress: true`. Mixed-cost workflows SHOULD provide a cheap default manual `validate` and boolean `full` input; integration push still executes the full gate. Each required gate MUST truly execute on the exact accepted SHA; zero-step or quota-blocked runs are not passing evidence.
 
-Declare it separately:
+See `templates/on-demand-ci.yaml.template`, `tools/check_ci_execution_policy.py` (`--integration-branch` when needed), and [On-demand CI](references/on-demand-ci.md) for triggers, guards, manual bootstrap, budgets and migration verification.
 
-```yaml
-# ai-skills-policy-profile: trusted-ci
-# ai-skills-execution-policy: on-demand
-```
+## External gate availability and deviation evidence
 
-An `on-demand` workflow MUST expose `workflow_dispatch`. It MAY also run automatically on literal governed integration branches such as `main` or `master`. It MUST NOT auto-run on pull-request events, feature-branch pushes, tag pushes, schedules, or workflow chaining. When automatic `push` is enabled, it MUST be branch-restricted. It MUST set `concurrency.cancel-in-progress: true` so newer work replaces stale queued or running work.
-
-For a workflow that contains both cheap and expensive checks, the recommended contract is:
-
-- a `validate` job is the default manual path;
-- `workflow_dispatch.inputs.full` is a boolean with `default: false`;
-- expensive jobs run when `inputs.full == true`;
-- the same expensive jobs run automatically on the governed integration-branch push;
-- branch work does not auto-trigger the workflow merely because an agent creates or updates a pull request.
-
-The canonical full-job guard is:
-
-```yaml
-if: github.event_name == 'push' || inputs.full == true
-```
-
-Manual-only workflows are appropriate for isolated expensive concerns such as cross-platform runtime isolation, full Semgrep scans, container builds, generated artifact smoke tests, or end-to-end environments. Cheap administrative automation such as bounded PR labeling MAY remain event-driven. Release/tag workflows and intentionally scheduled assurance remain separately governed and MUST NOT be disabled mechanically merely to reduce development CI usage.
-
-A cost-saving configuration MUST NOT become an evidence bypass. Before a PR or release is accepted, every quality gate required by repository policy MUST have genuinely executed on the exact accepted SHA. A branch change invalidates prior exact-SHA acceptance evidence. If provider quota exhaustion prevents runner assignment, record an infrastructure failure and wait for capacity, purchase capacity, or use a separately governed runner; do not reinterpret the non-executed run as success.
-
-Use `templates/on-demand-ci.yaml.template` as the seed and validate marked workflows with:
-
-```bash
-python skills/ci-cd-architect/tools/check_ci_execution_policy.py .
-```
-
-The validator defaults automatic push allowlisting to `main` and `master`; repositories with another integration branch pass one or more `--integration-branch` values. See [On-demand CI](references/on-demand-ci.md).
+Record actual external-gate repository-step execution separately from product verdict: `NOT_EXECUTED`, `OBSERVER_UNAVAILABLE` and `UNKNOWN` never imply `PASS` or `FAIL`. Incident scope, freshness, and reopen signals may suppress retries across source SHAs, never waive gates. Only independently trusted authority permits an exact-subject clean-room substitute; its result cannot rewrite hosted execution. Required catch-up remains exact-subject and durable. See [External gate availability](references/external-gate-availability.md), `contracts/external_gate_deviation.py`, and `contracts/external-gate-deviation.schema.json` for the full normative policy and adapter boundary.
 
 ## Python quality
 

@@ -50,6 +50,7 @@ skills:
       exact-artifact-evidence-construction: {rule_id: cicd.artifact.evidence, primary: true}
       workflow-policy-profiles: {rule_id: cicd.workflow.profiled, primary: true}
       execution-policy-and-hosted-runner-budget: {rule_id: cicd.execution.on-demand, primary: true}
+      external-gate-availability-and-deviation-evidence: {rule_id: cicd.external-gate.deviation, primary: true}
       python-quality: {rule_id: cicd.quality.language, primary: true}
       net-quality: {rule_id: cicd.quality.language}
       mcp-specific-assurance: {rule_id: cicd.quality.language}

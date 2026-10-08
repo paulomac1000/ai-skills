@@ -45,6 +45,7 @@ QUALITY_PATHS = (
 )
 TYPE_PATHS = (
     "contracts/artifact_closure.py",
+    "contracts/external_gate_deviation.py",
     "contracts/audit_log.py",
     "contracts/diagnostic_egress.py",
     "contracts/semver.py",
