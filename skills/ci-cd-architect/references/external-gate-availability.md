@@ -34,7 +34,7 @@ Substitute `PASS`/`FAIL` remains `PASS_SUBSTITUTE`/`FAIL_SUBSTITUTE`; it never r
 
 ## Catch-up obligation
 
-When policy requires provider catch-up, persist an exact-subject obligation independently from the substitute verdict. Only evidence for the declared subject may satisfy it. An unrelated later green run does not close it. `SUPERSEDED` preserves lineage but is not satisfaction.
+When policy requires provider catch-up, persist an exact-subject obligation independently from the substitute verdict. Only a verified execution of the original provider/gate with a real PASS for the declared subject, observed strictly after the original deviation, may satisfy it. An earlier/replayed or unrelated green run does not close it. `SUPERSEDED` preserves lineage but is not satisfaction.
 
 ## Adapter boundary
 

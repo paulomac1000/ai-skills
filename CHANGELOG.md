@@ -10,7 +10,7 @@
 ### Security and correctness
 
 - A zero-step hosted failure remains NOT_EXECUTED even when an exact clean-room substitute passes.
-- Catch-up now requires executed PASS evidence from the original provider/gate for the exact subject. Provider evidence authentication remains the trusted adapter's responsibility.
+- Catch-up now requires executed PASS evidence from the original provider/gate for the exact subject, observed strictly after the deviation (historical or simultaneous green runs cannot close the obligation). Provider evidence authentication remains the trusted adapter's responsibility.
 
 
 ## 3.22.0 - 2026-10-08

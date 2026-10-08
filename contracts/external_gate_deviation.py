@@ -554,6 +554,10 @@ def satisfy_catchup(
     if provider != receipt["gate"]["provider"] or gate_id != receipt["gate"]["gate_id"]:
         raise ValueError("catch-up must execute the original provider gate")
     _validate_observation(provider_observation)
+    if _time(provider_observation.observed_at, "provider_observation.observed_at") <= _time(
+        receipt["observation"]["observed_at"], "observation.observed_at"
+    ):
+        raise ValueError("catch-up evidence must postdate the deviation observation")
     if (
         provider_observation.state is not GateExecutionState.EXECUTED
         or provider_observation.product_verdict is not GateVerdict.PASS

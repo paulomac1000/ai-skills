@@ -147,7 +147,7 @@ class ExternalGateDeviationTests(unittest.TestCase):
         receipt = self.receipt(catchup=CatchupObligation(True, "sha:integrated", CatchupState.PENDING))
         passed = GateObservation(
             GateExecutionState.EXECUTED, GateVerdict.PASS, True,
-            "2026-10-08T10:00:00Z", "provider-run:green", D3,
+            "2026-10-08T15:00:00Z", "provider-run:green", D3,
         )
         provider = receipt["gate"]["provider"]
         gate_id = receipt["gate"]["gate_id"]
@@ -163,12 +163,40 @@ class ExternalGateDeviationTests(unittest.TestCase):
         ]:
             with self.subTest(state=state, verdict=verdict):
                 blocked = GateObservation(
-                    state, verdict, executed, "2026-10-08T10:00:00Z",
+                    state, verdict, executed, "2026-10-08T15:00:00Z",
                     "provider-run:blocked", D3,
                     FailureClass.BILLING if state is not GateExecutionState.EXECUTED else FailureClass.NONE,
                 )
                 with self.assertRaisesRegex(ValueError, "requires executed original gate PASS"):
                     satisfy_catchup(receipt, observed_subject_ref="sha:integrated", provider=provider, gate_id=gate_id, provider_observation=blocked)
+        # Historical PASS, simultaneous PASS, and offset-equivalent timestamp must not
+        # close an obligation created by the 14:00Z original-gate non-execution.
+        for earlier_or_equal in (
+            "2026-10-08T13:59:59Z",
+            "2026-10-08T14:00:00Z",
+            "2026-10-08T16:00:00+02:00",
+        ):
+            with self.subTest(observed_at=earlier_or_equal):
+                replayed = GateObservation(
+                    GateExecutionState.EXECUTED, GateVerdict.PASS, True,
+                    earlier_or_equal, "provider-run:historical", D4,
+                )
+                with self.assertRaisesRegex(ValueError, "postdate the deviation observation"):
+                    satisfy_catchup(
+                        receipt, observed_subject_ref="sha:integrated",
+                        provider=provider, gate_id=gate_id, provider_observation=replayed,
+                    )
+        just_after = GateObservation(
+            GateExecutionState.EXECUTED, GateVerdict.PASS, True,
+            "2026-10-08T16:00:01+02:00", "provider-run:just-after", D4,
+        )
+        self.assertEqual(
+            "SATISFIED",
+            satisfy_catchup(
+                receipt, observed_subject_ref="sha:integrated",
+                provider=provider, gate_id=gate_id, provider_observation=just_after,
+            )["catchup"]["state"],
+        )
         satisfied = satisfy_catchup(receipt, observed_subject_ref="sha:integrated", **kwargs)
         self.assertEqual("SATISFIED", satisfied["catchup"]["state"])
         self.assertTrue(verify_external_gate_receipt_integrity(satisfied))
