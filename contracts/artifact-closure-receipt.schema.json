@@ -37,7 +37,8 @@
     "artifact_ref": {
       "type": "string",
       "minLength": 1,
-      "maxLength": 2048
+      "maxLength": 2048,
+      "pattern": "\\S"
     },
     "artifact_digest": {
       "type": "string",
@@ -46,7 +47,8 @@
     "artifact_evidence_ref": {
       "type": "string",
       "minLength": 1,
-      "maxLength": 2048
+      "maxLength": 2048,
+      "pattern": "\\S"
     },
     "manifest": {
       "type": "object",
@@ -61,12 +63,14 @@
         "manifest_id": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 256
+          "maxLength": 256,
+          "pattern": "\\S"
         },
         "revision": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 256
+          "maxLength": 256,
+          "pattern": "\\S"
         },
         "digest": {
           "type": "string",
@@ -75,7 +79,8 @@
         "policy_ref": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 2048
+          "maxLength": 2048,
+          "pattern": "\\S"
         }
       }
     },
@@ -85,7 +90,8 @@
       "propertyNames": {
         "type": "string",
         "minLength": 1,
-        "maxLength": 256
+        "maxLength": 256,
+        "pattern": "\\S"
       },
       "additionalProperties": {
         "type": "object",
@@ -113,7 +119,8 @@
               "null"
             ],
             "minLength": 1,
-            "maxLength": 2048
+            "maxLength": 2048,
+            "pattern": "\\S"
           },
           "smoke_profile_ref": {
             "type": [
@@ -121,7 +128,8 @@
               "null"
             ],
             "minLength": 1,
-            "maxLength": 2048
+            "maxLength": 2048,
+            "pattern": "\\S"
           },
           "smoke_status": {
             "enum": [
@@ -137,7 +145,8 @@
               "null"
             ],
             "minLength": 1,
-            "maxLength": 2048
+            "maxLength": 2048,
+            "pattern": "\\S"
           },
           "evidence_digest": {
             "type": [
@@ -173,7 +182,8 @@
               "properties": {
                 "smoke_profile_ref": {
                   "type": "string",
-                  "minLength": 1
+                  "minLength": 1,
+                  "pattern": "\\S"
                 },
                 "smoke_profile_digest": {
                   "type": "string",
@@ -286,7 +296,8 @@
       "propertyNames": {
         "type": "string",
         "minLength": 1,
-        "maxLength": 2048
+        "maxLength": 2048,
+        "pattern": "\\S"
       },
       "additionalProperties": {
         "type": "object",
@@ -315,7 +326,8 @@
           "evidence_ref": {
             "type": "string",
             "minLength": 1,
-            "maxLength": 2048
+            "maxLength": 2048,
+            "pattern": "\\S"
           },
           "evidence_digest": {
             "type": "string",
@@ -331,7 +343,8 @@
       "items": {
         "type": "string",
         "minLength": 1,
-        "maxLength": 256
+        "maxLength": 256,
+        "pattern": "\\S"
       }
     },
     "unknown_required": {
@@ -341,7 +354,8 @@
       "items": {
         "type": "string",
         "minLength": 1,
-        "maxLength": 256
+        "maxLength": 256,
+        "pattern": "\\S"
       }
     },
     "identity_mismatches": {
@@ -350,7 +364,8 @@
       "propertyNames": {
         "type": "string",
         "minLength": 1,
-        "maxLength": 256
+        "maxLength": 256,
+        "pattern": "\\S"
       },
       "additionalProperties": {
         "type": "object",
@@ -363,7 +378,8 @@
           "expected_identity_ref": {
             "type": "string",
             "minLength": 1,
-            "maxLength": 2048
+            "maxLength": 2048,
+            "pattern": "\\S"
           },
           "observed_identity_ref": {
             "type": [
@@ -371,7 +387,8 @@
               "null"
             ],
             "minLength": 1,
-            "maxLength": 2048
+            "maxLength": 2048,
+            "pattern": "\\S"
           }
         }
       }
@@ -382,7 +399,8 @@
       "propertyNames": {
         "type": "string",
         "minLength": 1,
-        "maxLength": 256
+        "maxLength": 256,
+        "pattern": "\\S"
       },
       "additionalProperties": {
         "type": "object",
@@ -404,7 +422,8 @@
           "expected_smoke_profile_ref": {
             "type": "string",
             "minLength": 1,
-            "maxLength": 2048
+            "maxLength": 2048,
+            "pattern": "\\S"
           },
           "observed_smoke_profile_ref": {
             "type": [
@@ -412,7 +431,8 @@
               "null"
             ],
             "minLength": 1,
-            "maxLength": 2048
+            "maxLength": 2048,
+            "pattern": "\\S"
           }
         }
       }
@@ -424,7 +444,8 @@
       "items": {
         "type": "string",
         "minLength": 1,
-        "maxLength": 2048
+        "maxLength": 2048,
+        "pattern": "\\S"
       }
     },
     "verdict": {

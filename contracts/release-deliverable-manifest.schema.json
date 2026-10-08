@@ -19,17 +19,20 @@
     "manifest_id": {
       "type": "string",
       "minLength": 1,
-      "maxLength": 256
+      "maxLength": 256,
+      "pattern": "\\S"
     },
     "revision": {
       "type": "string",
       "minLength": 1,
-      "maxLength": 256
+      "maxLength": 256,
+      "pattern": "\\S"
     },
     "policy_ref": {
       "type": "string",
       "minLength": 1,
-      "maxLength": 2048
+      "maxLength": 2048,
+      "pattern": "\\S"
     },
     "deliverables": {
       "type": "object",
@@ -38,7 +41,8 @@
       "propertyNames": {
         "type": "string",
         "minLength": 1,
-        "maxLength": 256
+        "maxLength": 256,
+        "pattern": "\\S"
       },
       "additionalProperties": {
         "type": "object",
@@ -72,7 +76,8 @@
               "null"
             ],
             "minLength": 1,
-            "maxLength": 2048
+            "maxLength": 2048,
+            "pattern": "\\S"
           },
           "smoke_profile_ref": {
             "type": [
@@ -80,7 +85,8 @@
               "null"
             ],
             "minLength": 1,
-            "maxLength": 2048
+            "maxLength": 2048,
+            "pattern": "\\S"
           },
           "smoke_required": {
             "type": "boolean"
@@ -109,7 +115,8 @@
               "properties": {
                 "smoke_profile_ref": {
                   "type": "string",
-                  "minLength": 1
+                  "minLength": 1,
+                  "pattern": "\\S"
                 },
                 "smoke_profile_digest": {
                   "type": "string",
@@ -127,7 +134,8 @@
       "propertyNames": {
         "type": "string",
         "minLength": 1,
-        "maxLength": 2048
+        "maxLength": 2048,
+        "pattern": "\\S"
       },
       "additionalProperties": {
         "enum": [

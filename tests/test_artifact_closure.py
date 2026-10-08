@@ -788,10 +788,41 @@ class ArtifactClosureTests(unittest.TestCase):
         self.assertEqual({"host", "stewardctl", "dev-helper"}, set(manifest_doc["deliverables"]))
         Draft202012Validator(manifest_schema).validate(manifest_doc)
         self.assertIn("unexpected_component_dispositions", manifest_doc)
+
+        def assert_non_whitespace_text_contract(schema: object) -> None:
+            if isinstance(schema, list):
+                for item in schema:
+                    assert_non_whitespace_text_contract(item)
+                return
+            if not isinstance(schema, dict):
+                return
+            value_type = schema.get("type")
+            string_typed = value_type == "string" or (
+                isinstance(value_type, list) and "string" in value_type
+            )
+            if string_typed and "minLength" in schema:
+                self.assertEqual("\\S", schema.get("pattern"))
+            for value in schema.values():
+                assert_non_whitespace_text_contract(value)
+
+        assert_non_whitespace_text_contract(manifest_schema)
+        assert_non_whitespace_text_contract(receipt_schema)
+
+        whitespace_manifest = json.loads(json.dumps(manifest_doc))
+        whitespace_manifest["deliverables"]["host"]["expected_identity_ref"] = "   "
+        self.assertFalse(Draft202012Validator(manifest_schema).is_valid(whitespace_manifest))
+
         receipt = self.evaluate(
             self.observation("host", identity_ref="entrypoint:ProjectSteward.Host"),
             self.observation("stewardctl", identity_ref="entrypoint:stewardctl"),
         )
+        whitespace_receipt = json.loads(json.dumps(receipt))
+        whitespace_receipt["artifact_ref"] = "   "
+        self.assertFalse(Draft202012Validator(receipt_schema).is_valid(whitespace_receipt))
+        whitespace_observed_identity = json.loads(json.dumps(receipt))
+        whitespace_observed_identity["observed"]["host"]["identity_ref"] = "\t "
+        self.assertFalse(Draft202012Validator(receipt_schema).is_valid(whitespace_observed_identity))
+
         schema_only_invalid = json.loads(json.dumps(receipt))
         invalid_observation = schema_only_invalid["observed"]["stewardctl"]
         invalid_observation["presence"] = "MISSING"
