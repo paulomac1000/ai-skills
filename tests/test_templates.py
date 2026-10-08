@@ -229,6 +229,9 @@ def test_publish_builds_smokes_quarantines_and_promotes_exact_digest() -> None:
     assert "(\n  python scripts/prove-artifact-closure.py\n)" in closure["run"]
     assert 'receipt.get("verdict") == "COMPLETE"' in closure["run"]
     assert "closure observations must cover the manifest exactly" in closure["run"]
+    assert "closure artifact evidence digest mismatch" in closure["run"]
+    assert "closure receipt digest mismatch" in closure["run"]
+    assert "closure missing evidence" in closure["run"]
 
     publish_steps = publish["steps"]
     assert not any(str(step.get("uses", "")).startswith("actions/checkout@") for step in publish_steps)
@@ -256,7 +259,7 @@ def _embedded_artifact_closure_postcheck() -> str:
     return run.split(marker, 1)[1].rsplit("\nPY", 1)[0]
 
 
-def _manifest_digest(document: dict[str, object]) -> str:
+def _closure_document_digest(document: dict[str, object]) -> str:
     payload = json.dumps(
         document,
         sort_keys=True,
@@ -264,6 +267,196 @@ def _manifest_digest(document: dict[str, object]) -> str:
         ensure_ascii=False,
     ).encode("utf-8")
     return "sha256:" + hashlib.sha256(payload).hexdigest()
+
+
+def _manifest_digest(document: dict[str, object]) -> str:
+    return _closure_document_digest(document)
+
+
+def _artifact_evidence_digest(
+    artifact_digest: str,
+    observed: dict[str, dict[str, object]],
+    unexpected: dict[str, dict[str, object]],
+) -> str:
+    return _closure_document_digest(
+        {
+            "schema_version": 1,
+            "artifact_digest": artifact_digest,
+            "observed": {
+                deliverable_id: {
+                    "presence": item["presence"],
+                    "identity_ref": item["identity_ref"],
+                    "smoke_profile_ref": item["smoke_profile_ref"],
+                    "smoke_profile_digest": item["smoke_profile_digest"],
+                    "smoke_status": item["smoke_status"],
+                    "evidence_ref": item["evidence_ref"],
+                    "evidence_digest": item["evidence_digest"],
+                }
+                for deliverable_id, item in sorted(observed.items())
+            },
+            "unexpected_components": {
+                component_ref: {
+                    "criticality": item["criticality"],
+                    "evidence_ref": item["evidence_ref"],
+                    "evidence_digest": item["evidence_digest"],
+                }
+                for component_ref, item in sorted(unexpected.items())
+            },
+        }
+    )
+
+
+def _finalize_closure_receipt(receipt: dict[str, object]) -> dict[str, object]:
+    observed = receipt["observed"]
+    unexpected = receipt["unexpected_components"]
+    assert isinstance(observed, dict) and isinstance(unexpected, dict)
+    receipt["artifact_evidence_digest"] = _artifact_evidence_digest(
+        str(receipt["artifact_digest"]),
+        observed,
+        unexpected,
+    )
+    receipt["receipt_digest"] = _closure_document_digest(receipt)
+    return receipt
+
+
+def _complete_closure_fixture() -> tuple[dict[str, object], dict[str, object], str, str, str]:
+    source_revision = "1" * 40
+    artifact_digest = "sha256:" + "2" * 64
+    artifact_ref = "quarantine.example.invalid/example/service@" + artifact_digest
+    manifest: dict[str, object] = {
+        "schema_version": 1,
+        "manifest_id": "release",
+        "revision": "1",
+        "policy_ref": "policy:release",
+        "deliverables": {
+            "host": {
+                "kind": "runtime_entrypoint",
+                "required": True,
+                "expected_identity_ref": "entrypoint:host",
+                "smoke_profile_ref": None,
+                "smoke_profile_digest": None,
+                "smoke_required": False,
+            },
+            "stewardctl": {
+                "kind": "operator_entrypoint",
+                "required": True,
+                "expected_identity_ref": "entrypoint:stewardctl",
+                "smoke_profile_ref": "smoke:stewardctl-help",
+                "smoke_profile_digest": "sha256:" + "3" * 64,
+                "smoke_required": True,
+            },
+        },
+        "unexpected_component_dispositions": {},
+    }
+    receipt: dict[str, object] = {
+        "schema_version": 1,
+        "receipt_kind": "artifact_closure",
+        "source_revision": source_revision,
+        "artifact_ref": artifact_ref,
+        "artifact_digest": artifact_digest,
+        "artifact_evidence_ref": "artifact-evidence:release",
+        "artifact_evidence_digest": "",
+        "manifest": {
+            "manifest_id": "release",
+            "revision": "1",
+            "policy_ref": "policy:release",
+            "digest": _manifest_digest(manifest),
+        },
+        "observed": {
+            "host": {
+                "presence": "PRESENT",
+                "identity_ref": "entrypoint:host",
+                "smoke_profile_ref": None,
+                "smoke_profile_digest": None,
+                "smoke_status": "NOT_REQUIRED",
+                "evidence_ref": "evidence:host",
+                "evidence_digest": "sha256:" + "4" * 64,
+            },
+            "stewardctl": {
+                "presence": "PRESENT",
+                "identity_ref": "entrypoint:stewardctl",
+                "smoke_profile_ref": "smoke:stewardctl-help",
+                "smoke_profile_digest": "sha256:" + "3" * 64,
+                "smoke_status": "PASS",
+                "evidence_ref": "evidence:stewardctl",
+                "evidence_digest": "sha256:" + "5" * 64,
+            },
+        },
+        "unexpected_components": {},
+        "missing_required": [],
+        "unknown_required": [],
+        "identity_mismatches": {},
+        "smoke_failures": {},
+        "blocking_unexpected": [],
+        "verdict": "COMPLETE",
+    }
+    _finalize_closure_receipt(receipt)
+    return manifest, receipt, source_revision, artifact_digest, artifact_ref
+
+
+def _run_embedded_artifact_closure_postcheck(
+    tmp_path: Path,
+    manifest: dict[str, object],
+    receipt: dict[str, object],
+    source_revision: str,
+    artifact_digest: str,
+    artifact_ref: str,
+) -> subprocess.CompletedProcess[str]:
+    manifest_path = tmp_path / "release-deliverables.json"
+    receipt_path = tmp_path / "artifact-closure-receipt.json"
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
+    environment = os.environ.copy()
+    environment.update(
+        {
+            "SOURCE_REVISION": source_revision,
+            "ARTIFACT_REF": artifact_ref,
+            "ARTIFACT_DIGEST": artifact_digest,
+            "MANIFEST_FILE_SHA256": hashlib.sha256(manifest_path.read_bytes()).hexdigest(),
+            "DELIVERABLE_MANIFEST_PATH": str(manifest_path),
+            "ARTIFACT_CLOSURE_RECEIPT_PATH": str(receipt_path),
+        }
+    )
+    return subprocess.run(
+        [sys.executable, "-c", _embedded_artifact_closure_postcheck()],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        env=environment,
+    )
+
+
+def test_publish_artifact_closure_accepts_integral_complete_receipt(tmp_path: Path) -> None:
+    manifest, receipt, source_revision, artifact_digest, artifact_ref = _complete_closure_fixture()
+    completed = _run_embedded_artifact_closure_postcheck(
+        tmp_path,
+        manifest,
+        receipt,
+        source_revision,
+        artifact_digest,
+        artifact_ref,
+    )
+    assert completed.returncode == 0, completed.stderr
+
+
+def test_publish_artifact_closure_rejects_complete_receipt_without_observation_evidence(tmp_path: Path) -> None:
+    manifest, receipt, source_revision, artifact_digest, artifact_ref = _complete_closure_fixture()
+    observed = receipt["observed"]
+    assert isinstance(observed, dict)
+    stewardctl = observed["stewardctl"]
+    assert isinstance(stewardctl, dict)
+    stewardctl.pop("evidence_digest")
+    completed = _run_embedded_artifact_closure_postcheck(
+        tmp_path,
+        manifest,
+        receipt,
+        source_revision,
+        artifact_digest,
+        artifact_ref,
+    )
+    assert completed.returncode != 0
+    assert "closure observation fields stewardctl" in completed.stderr
 
 
 def test_publish_artifact_closure_rejects_forged_complete_with_missing_required_deliverable(
@@ -303,6 +496,8 @@ def test_publish_artifact_closure_rejects_forged_complete_with_missing_required_
         "source_revision": source_revision,
         "artifact_ref": artifact_ref,
         "artifact_digest": artifact_digest,
+        "artifact_evidence_ref": "artifact-evidence:release",
+        "artifact_evidence_digest": "",
         "manifest": {
             "manifest_id": "release",
             "revision": "1",
@@ -316,6 +511,8 @@ def test_publish_artifact_closure_rejects_forged_complete_with_missing_required_
                 "smoke_profile_ref": None,
                 "smoke_profile_digest": None,
                 "smoke_status": "NOT_REQUIRED",
+                "evidence_ref": "evidence:host",
+                "evidence_digest": "sha256:" + "4" * 64,
             }
         },
         "unexpected_components": {},
@@ -326,28 +523,14 @@ def test_publish_artifact_closure_rejects_forged_complete_with_missing_required_
         "blocking_unexpected": [],
         "verdict": "COMPLETE",
     }
-    manifest_path = tmp_path / "release-deliverables.json"
-    receipt_path = tmp_path / "artifact-closure-receipt.json"
-    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
-    receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
-    environment = os.environ.copy()
-    environment.update(
-        {
-            "SOURCE_REVISION": source_revision,
-            "ARTIFACT_REF": artifact_ref,
-            "ARTIFACT_DIGEST": artifact_digest,
-            "MANIFEST_FILE_SHA256": hashlib.sha256(manifest_path.read_bytes()).hexdigest(),
-            "DELIVERABLE_MANIFEST_PATH": str(manifest_path),
-            "ARTIFACT_CLOSURE_RECEIPT_PATH": str(receipt_path),
-        }
-    )
-    completed = subprocess.run(
-        [sys.executable, "-c", _embedded_artifact_closure_postcheck()],
-        check=False,
-        capture_output=True,
-        text=True,
-        timeout=30,
-        env=environment,
+    _finalize_closure_receipt(receipt)
+    completed = _run_embedded_artifact_closure_postcheck(
+        tmp_path,
+        manifest,
+        receipt,
+        source_revision,
+        artifact_digest,
+        artifact_ref,
     )
     assert completed.returncode != 0
     assert "closure observations must cover the manifest exactly" in completed.stderr
