@@ -1,11 +1,12 @@
 # Changelog
 
-## 3.22.0 - 2026-10-07
+## 3.22.0 - 2026-10-08
 
 ### Added
 
 - Added the provider-neutral Release Deliverable Manifest and Artifact Closure Receipt contracts for proving that policy-required production entrypoints, workers, migration tools, sidecars, or other deliverables are present in the exact immutable release artifact.
 - Added a reference closure evaluator with canonical manifest/receipt digests, exact source/artifact/evidence identity binding, required packaged-identity checks, required smoke status, and bounded unexpected-component disposition.
+- Extended the canonical protected container-release template with a blocking exact-artifact closure step before promotion, including manifest pinning, receipt/artifact-evidence digest verification, exact source/ref/digest binding, and fail-closed required deliverable identity/smoke checks.
 
 ### Security and correctness
 
