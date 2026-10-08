@@ -48,10 +48,8 @@ _OBSERVED_FIELDS = frozenset(
     }
 )
 _UNEXPECTED_FIELDS = frozenset({"criticality", "disposition", "evidence_ref", "evidence_digest"})
-_IDENTITY_MISMATCH_FIELDS = frozenset({"deliverable_id", "expected_identity_ref", "observed_identity_ref"})
-_SMOKE_FAILURE_FIELDS = frozenset(
-    {"deliverable_id", "smoke_status", "expected_smoke_profile_ref", "observed_smoke_profile_ref"}
-)
+_IDENTITY_MISMATCH_FIELDS = frozenset({"expected_identity_ref", "observed_identity_ref"})
+_SMOKE_FAILURE_FIELDS = frozenset({"smoke_status", "expected_smoke_profile_ref", "observed_smoke_profile_ref"})
 
 
 class DeliverableKind(StrEnum):
@@ -267,39 +265,29 @@ def _receipt_shape_is_valid(receipt: object) -> bool:
         return False
 
     identity_mismatches = receipt.get("identity_mismatches")
-    if not isinstance(identity_mismatches, list) or len(identity_mismatches) > _MAX_DELIVERABLES:
+    if not isinstance(identity_mismatches, dict) or len(identity_mismatches) > _MAX_DELIVERABLES:
         return False
-    mismatch_ids: list[str] = []
-    for item in identity_mismatches:
+    for deliverable_id, item in identity_mismatches.items():
+        if not _is_bounded_text(deliverable_id, limit=256):
+            return False
         if not _has_exact_fields(item, _IDENTITY_MISMATCH_FIELDS):
             return False
         assert isinstance(item, dict)
-        deliverable_id = item.get("deliverable_id")
-        if not _is_bounded_text(deliverable_id, limit=256):
-            return False
-        assert isinstance(deliverable_id, str)
-        mismatch_ids.append(deliverable_id)
         if not _is_bounded_text(item.get("expected_identity_ref")):
             return False
         observed_identity_ref = item.get("observed_identity_ref")
         if observed_identity_ref is not None and not _is_bounded_text(observed_identity_ref):
             return False
-    if len(mismatch_ids) != len(set(mismatch_ids)):
-        return False
 
     smoke_failures = receipt.get("smoke_failures")
-    if not isinstance(smoke_failures, list) or len(smoke_failures) > _MAX_DELIVERABLES:
+    if not isinstance(smoke_failures, dict) or len(smoke_failures) > _MAX_DELIVERABLES:
         return False
-    smoke_ids: list[str] = []
-    for item in smoke_failures:
+    for deliverable_id, item in smoke_failures.items():
+        if not _is_bounded_text(deliverable_id, limit=256):
+            return False
         if not _has_exact_fields(item, _SMOKE_FAILURE_FIELDS):
             return False
         assert isinstance(item, dict)
-        deliverable_id = item.get("deliverable_id")
-        if not _is_bounded_text(deliverable_id, limit=256):
-            return False
-        assert isinstance(deliverable_id, str)
-        smoke_ids.append(deliverable_id)
         if item.get("smoke_status") not in {status.value for status in SmokeStatus}:
             return False
         if not _is_bounded_text(item.get("expected_smoke_profile_ref")):
@@ -307,7 +295,6 @@ def _receipt_shape_is_valid(receipt: object) -> bool:
         observed_smoke_profile_ref = item.get("observed_smoke_profile_ref")
         if observed_smoke_profile_ref is not None and not _is_bounded_text(observed_smoke_profile_ref):
             return False
-    return len(smoke_ids) == len(set(smoke_ids))
 
 
 @dataclass(frozen=True)
@@ -343,6 +330,8 @@ class UnexpectedComponentPolicy:
 
     def __post_init__(self) -> None:
         _require_text(self.component_ref, "component_ref")
+        if not isinstance(self.disposition, UnexpectedDisposition):
+            raise ValueError("unexpected component policy disposition must be an UnexpectedDisposition")
         if self.disposition not in {UnexpectedDisposition.ALLOWED, UnexpectedDisposition.FORBIDDEN}:
             raise ValueError("unexpected component policy disposition must be allowed or forbidden")
 
@@ -557,8 +546,8 @@ def evaluate_artifact_closure(
     normalized_observations: dict[str, dict[str, Any]] = {}
     missing_required: list[str] = []
     unknown_required: list[str] = []
-    identity_mismatches: list[dict[str, str | None]] = []
-    smoke_failures: list[dict[str, str | None]] = []
+    identity_mismatches: dict[str, dict[str, str | None]] = {}
+    smoke_failures: dict[str, dict[str, str | None]] = {}
 
     for deliverable_id in sorted(requirements):
         requirement = requirements[deliverable_id]
@@ -600,26 +589,20 @@ def evaluate_artifact_closure(
         elif presence is not Presence.PRESENT:
             continue
         if requirement.expected_identity_ref is not None and identity_ref != requirement.expected_identity_ref:
-            identity_mismatches.append(
-                {
-                    "deliverable_id": deliverable_id,
-                    "expected_identity_ref": requirement.expected_identity_ref,
-                    "observed_identity_ref": identity_ref,
-                }
-            )
+            identity_mismatches[deliverable_id] = {
+                "expected_identity_ref": requirement.expected_identity_ref,
+                "observed_identity_ref": identity_ref,
+            }
         if requirement.smoke_required and (
             smoke_status is not SmokeStatus.PASS
             or smoke_profile_ref != requirement.smoke_profile_ref
             or smoke_profile_digest != requirement.smoke_profile_digest
         ):
-            smoke_failures.append(
-                {
-                    "deliverable_id": deliverable_id,
-                    "smoke_status": smoke_status.value,
-                    "expected_smoke_profile_ref": requirement.smoke_profile_ref,
-                    "observed_smoke_profile_ref": smoke_profile_ref,
-                }
-            )
+            smoke_failures[deliverable_id] = {
+                "smoke_status": smoke_status.value,
+                "expected_smoke_profile_ref": requirement.smoke_profile_ref,
+                "observed_smoke_profile_ref": smoke_profile_ref,
+            }
 
     trusted_dispositions = {item.component_ref: item.disposition for item in manifest.unexpected_component_dispositions}
     normalized_unexpected = {
@@ -715,8 +698,8 @@ def verify_artifact_closure_receipt_semantics(
 
     missing_required: list[str] = []
     unknown_required: list[str] = []
-    identity_mismatches: list[dict[str, str | None]] = []
-    smoke_failures: list[dict[str, str | None]] = []
+    identity_mismatches: dict[str, dict[str, str | None]] = {}
+    smoke_failures: dict[str, dict[str, str | None]] = {}
     for deliverable_id in sorted(requirements):
         requirement = requirements[deliverable_id]
         observation = observed_map[deliverable_id]
@@ -735,26 +718,20 @@ def verify_artifact_closure_receipt_semantics(
         smoke_profile_digest = observation["smoke_profile_digest"]
         smoke_status = observation["smoke_status"]
         if requirement.expected_identity_ref is not None and identity_ref != requirement.expected_identity_ref:
-            identity_mismatches.append(
-                {
-                    "deliverable_id": deliverable_id,
-                    "expected_identity_ref": requirement.expected_identity_ref,
-                    "observed_identity_ref": identity_ref,
-                }
-            )
+            identity_mismatches[deliverable_id] = {
+                "expected_identity_ref": requirement.expected_identity_ref,
+                "observed_identity_ref": identity_ref,
+            }
         if requirement.smoke_required and (
             smoke_status != SmokeStatus.PASS.value
             or smoke_profile_ref != requirement.smoke_profile_ref
             or smoke_profile_digest != requirement.smoke_profile_digest
         ):
-            smoke_failures.append(
-                {
-                    "deliverable_id": deliverable_id,
-                    "smoke_status": smoke_status,
-                    "expected_smoke_profile_ref": requirement.smoke_profile_ref,
-                    "observed_smoke_profile_ref": smoke_profile_ref,
-                }
-            )
+            smoke_failures[deliverable_id] = {
+                "smoke_status": smoke_status,
+                "expected_smoke_profile_ref": requirement.smoke_profile_ref,
+                "observed_smoke_profile_ref": smoke_profile_ref,
+            }
 
     trusted_dispositions = {
         item.component_ref: item.disposition.value for item in manifest.unexpected_component_dispositions

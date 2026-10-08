@@ -345,22 +345,21 @@
       }
     },
     "identity_mismatches": {
-      "type": "array",
-      "maxItems": 256,
-      "items": {
+      "type": "object",
+      "maxProperties": 256,
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 256
+      },
+      "additionalProperties": {
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "deliverable_id",
           "expected_identity_ref",
           "observed_identity_ref"
         ],
         "properties": {
-          "deliverable_id": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 256
-          },
           "expected_identity_ref": {
             "type": "string",
             "minLength": 1,
@@ -378,23 +377,22 @@
       }
     },
     "smoke_failures": {
-      "type": "array",
-      "maxItems": 256,
-      "items": {
+      "type": "object",
+      "maxProperties": 256,
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 256
+      },
+      "additionalProperties": {
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "deliverable_id",
           "smoke_status",
           "expected_smoke_profile_ref",
           "observed_smoke_profile_ref"
         ],
         "properties": {
-          "deliverable_id": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 256
-          },
           "smoke_status": {
             "enum": [
               "PASS",

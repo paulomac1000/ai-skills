@@ -146,8 +146,8 @@ class ArtifactClosureTests(unittest.TestCase):
         self.assertEqual("COMPLETE", receipt["verdict"])
         self.assertEqual([], receipt["missing_required"])
         self.assertEqual([], receipt["unknown_required"])
-        self.assertEqual([], receipt["identity_mismatches"])
-        self.assertEqual([], receipt["smoke_failures"])
+        self.assertEqual({}, receipt["identity_mismatches"])
+        self.assertEqual({}, receipt["smoke_failures"])
 
     def test_wrong_identity_blocks_closure(self) -> None:
         receipt = self.evaluate(
@@ -155,7 +155,7 @@ class ArtifactClosureTests(unittest.TestCase):
             self.observation("stewardctl", identity_ref="entrypoint:other-cli"),
         )
         self.assertEqual("INCOMPLETE", receipt["verdict"])
-        self.assertEqual("stewardctl", receipt["identity_mismatches"][0]["deliverable_id"])
+        self.assertIn("stewardctl", receipt["identity_mismatches"])
 
     def test_required_smoke_unknown_or_failed_blocks_closure(self) -> None:
         for status in (SmokeStatus.UNKNOWN, SmokeStatus.FAIL, SmokeStatus.NOT_REQUIRED):
@@ -165,8 +165,8 @@ class ArtifactClosureTests(unittest.TestCase):
                     self.observation("stewardctl", identity_ref="entrypoint:stewardctl", smoke_status=status),
                 )
                 self.assertEqual("INCOMPLETE", receipt["verdict"])
-                self.assertEqual(status.value, receipt["smoke_failures"][0]["smoke_status"])
-                self.assertEqual("smoke:stewardctl-help", receipt["smoke_failures"][0]["expected_smoke_profile_ref"])
+                self.assertEqual(status.value, receipt["smoke_failures"]["stewardctl"]["smoke_status"])
+                self.assertEqual("smoke:stewardctl-help", receipt["smoke_failures"]["stewardctl"]["expected_smoke_profile_ref"])
 
     def test_wrong_smoke_profile_blocks_closure(self) -> None:
         receipt = self.evaluate(
@@ -180,12 +180,11 @@ class ArtifactClosureTests(unittest.TestCase):
         self.assertEqual("INCOMPLETE", receipt["verdict"])
         self.assertEqual(
             {
-                "deliverable_id": "stewardctl",
                 "smoke_status": "PASS",
                 "expected_smoke_profile_ref": "smoke:stewardctl-help",
                 "observed_smoke_profile_ref": "smoke:obsolete-stewardctl-check",
             },
-            receipt["smoke_failures"][0],
+            receipt["smoke_failures"]["stewardctl"],
         )
 
     def test_present_optional_deliverable_honors_declared_checks(self) -> None:
@@ -215,8 +214,8 @@ class ArtifactClosureTests(unittest.TestCase):
             manifest=manifest,
         )
         self.assertEqual("INCOMPLETE", receipt["verdict"])
-        self.assertEqual("optional-tool", receipt["identity_mismatches"][0]["deliverable_id"])
-        self.assertEqual("optional-tool", receipt["smoke_failures"][0]["deliverable_id"])
+        self.assertIn("optional-tool", receipt["identity_mismatches"])
+        self.assertIn("optional-tool", receipt["smoke_failures"])
         self.assertTrue(verify_artifact_closure_receipt_semantics(receipt, manifest))
 
     def test_optional_absent_deliverable_does_not_block(self) -> None:
@@ -638,7 +637,7 @@ class ArtifactClosureTests(unittest.TestCase):
             ),
         )
         self.assertEqual("INCOMPLETE", receipt["verdict"])
-        self.assertEqual("stewardctl", receipt["smoke_failures"][0]["deliverable_id"])
+        self.assertIn("stewardctl", receipt["smoke_failures"])
 
     def test_artifact_ref_change_cannot_remain_current(self) -> None:
         manifest = self.manifest()
@@ -677,6 +676,8 @@ class ArtifactClosureTests(unittest.TestCase):
                     DeliverableRequirement("dup", DeliverableKind.ASSET),
                 ),
             )
+        with self.assertRaisesRegex(ValueError, "UnexpectedDisposition"):
+            UnexpectedComponentPolicy("entrypoint:debug-admin", "allowed")  # type: ignore[arg-type]
         with self.assertRaisesRegex(ValueError, "undeclared"):
             self.evaluate(self.observation("not-declared", identity_ref="x"))
         with self.assertRaisesRegex(ValueError, "non-present"):
@@ -748,14 +749,13 @@ class ArtifactClosureTests(unittest.TestCase):
         self.assertEqual("INCOMPLETE", receipt["verdict"])
         self.assertEqual(["migrator"], receipt["missing_required"])
         self.assertEqual(
-            [
-                {
-                    "deliverable_id": "worker",
+            {
+                "worker": {
                     "smoke_status": "FAIL",
                     "expected_smoke_profile_ref": "smoke:worker-start",
                     "observed_smoke_profile_ref": "smoke:worker-start",
                 }
-            ],
+            },
             receipt["smoke_failures"],
         )
 
@@ -823,6 +823,28 @@ class ArtifactClosureTests(unittest.TestCase):
             },
         ]
         self.assertFalse(Draft202012Validator(receipt_schema).is_valid(duplicate_prone_unexpected))
+        self.assertEqual("object", receipt_schema["properties"]["identity_mismatches"]["type"])
+        self.assertEqual("object", receipt_schema["properties"]["smoke_failures"]["type"])
+        duplicate_prone_mismatches = json.loads(json.dumps(receipt))
+        duplicate_prone_mismatches["identity_mismatches"] = [
+            {"expected_identity_ref": "a", "observed_identity_ref": "b"},
+            {"expected_identity_ref": "a", "observed_identity_ref": "c"},
+        ]
+        self.assertFalse(Draft202012Validator(receipt_schema).is_valid(duplicate_prone_mismatches))
+        duplicate_prone_smoke = json.loads(json.dumps(receipt))
+        duplicate_prone_smoke["smoke_failures"] = [
+            {
+                "smoke_status": "FAIL",
+                "expected_smoke_profile_ref": "smoke:a",
+                "observed_smoke_profile_ref": "smoke:b",
+            },
+            {
+                "smoke_status": "UNKNOWN",
+                "expected_smoke_profile_ref": "smoke:a",
+                "observed_smoke_profile_ref": None,
+            },
+        ]
+        self.assertFalse(Draft202012Validator(receipt_schema).is_valid(duplicate_prone_smoke))
         duplicate_prone_array_document = dict(manifest_doc)
         duplicate_prone_array_document["deliverables"] = [{"id": "dup"}, {"id": "dup"}]
         self.assertFalse(Draft202012Validator(manifest_schema).is_valid(duplicate_prone_array_document))
