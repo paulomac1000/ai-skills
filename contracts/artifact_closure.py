@@ -295,6 +295,7 @@ def _receipt_shape_is_valid(receipt: object) -> bool:
         observed_smoke_profile_ref = item.get("observed_smoke_profile_ref")
         if observed_smoke_profile_ref is not None and not _is_bounded_text(observed_smoke_profile_ref):
             return False
+    return True
 
 
 @dataclass(frozen=True)
