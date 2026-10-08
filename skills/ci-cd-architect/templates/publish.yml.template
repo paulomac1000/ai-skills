@@ -1,6 +1,7 @@
 # ai-skills-policy-profile: protected-release
 # Build and test in an unprivileged candidate job, quarantine by exact registry digest,
-# then promote that digest in a protected job that never executes candidate source.
+# prove release-deliverable closure on that exact digest, then promote it in a protected
+# job that never executes candidate source.
 name: Publish container
 
 on:
@@ -134,6 +135,147 @@ jobs:
           IMAGE_REF="${QUARANTINE_REF%:*}@$QUARANTINE_DIGEST"
           export IMAGE_REF
           <CONTAINER_SMOKE_COMMAND>
+      - name: Verify exact artifact deliverable closure
+        shell: bash
+        env:
+          SOURCE_REVISION: ${{ steps.revision.outputs.sha }}
+          QUARANTINE_REF: ${{ steps.quarantine.outputs.ref }}
+          ARTIFACT_DIGEST: ${{ steps.quarantine.outputs.digest }}
+          DELIVERABLE_MANIFEST_PATH: <DELIVERABLE_MANIFEST_PATH>
+          ARTIFACT_CLOSURE_RECEIPT_PATH: <ARTIFACT_CLOSURE_RECEIPT_PATH>
+        run: |
+          set -euo pipefail
+          ARTIFACT_REF="${QUARANTINE_REF%:*}@$ARTIFACT_DIGEST"
+          export ARTIFACT_REF
+          MANIFEST_FILE_SHA256="$(python -c 'import hashlib, pathlib, sys; print(hashlib.sha256(pathlib.Path(sys.argv[1]).read_bytes()).hexdigest())' "$DELIVERABLE_MANIFEST_PATH")"
+          export MANIFEST_FILE_SHA256
+          (
+            <ARTIFACT_CLOSURE_COMMAND>
+          )
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          import stat
+          from pathlib import Path
+
+          MAX_DOCUMENT_BYTES = 1024 * 1024
+
+          def fail(message: str) -> None:
+              raise SystemExit(message)
+
+          def require(condition: bool, message: str) -> None:
+              if not condition:
+                  fail(message)
+
+          def load_document(path_text: str, label: str) -> tuple[dict[str, object], bytes]:
+              path = Path(path_text)
+              try:
+                  metadata = path.lstat()
+              except OSError as error:
+                  fail(f"{label} is unreadable: {error}")
+              require(stat.S_ISREG(metadata.st_mode), f"{label} must be a regular non-symlink file")
+              require(0 < metadata.st_size <= MAX_DOCUMENT_BYTES, f"{label} exceeds bounded size")
+              try:
+                  payload = path.read_bytes()
+                  value = json.loads(payload.decode("utf-8"))
+              except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+                  fail(f"{label} is invalid JSON: {error}")
+              require(isinstance(value, dict), f"{label} must be a JSON object")
+              return value, payload
+
+          manifest, manifest_bytes = load_document(
+              os.environ["DELIVERABLE_MANIFEST_PATH"],
+              "deliverable manifest",
+          )
+          receipt, _ = load_document(
+              os.environ["ARTIFACT_CLOSURE_RECEIPT_PATH"],
+              "artifact closure receipt",
+          )
+          require(
+              hashlib.sha256(manifest_bytes).hexdigest() == os.environ["MANIFEST_FILE_SHA256"],
+              "deliverable manifest changed during artifact closure",
+          )
+
+          require(type(manifest.get("schema_version")) is int and manifest["schema_version"] == 1, "manifest schema")
+          deliverables = manifest.get("deliverables")
+          dispositions = manifest.get("unexpected_component_dispositions")
+          require(isinstance(deliverables, dict) and deliverables, "manifest deliverables")
+          require(isinstance(dispositions, dict), "manifest unexpected-component dispositions")
+
+          try:
+              manifest_payload = json.dumps(
+                  manifest,
+                  sort_keys=True,
+                  separators=(",", ":"),
+                  ensure_ascii=False,
+              ).encode("utf-8")
+          except UnicodeEncodeError as error:
+              fail(f"deliverable manifest is not Unicode-scalar text: {error}")
+          manifest_digest = "sha256:" + hashlib.sha256(manifest_payload).hexdigest()
+
+          expected_source = os.environ["SOURCE_REVISION"]
+          expected_ref = os.environ["ARTIFACT_REF"]
+          expected_digest = os.environ["ARTIFACT_DIGEST"]
+          require(type(receipt.get("schema_version")) is int and receipt["schema_version"] == 1, "receipt schema")
+          require(receipt.get("receipt_kind") == "artifact_closure", "receipt kind")
+          require(receipt.get("source_revision") == expected_source, "closure source revision mismatch")
+          require(receipt.get("artifact_ref") == expected_ref, "closure artifact ref mismatch")
+          require(receipt.get("artifact_digest") == expected_digest, "closure artifact digest mismatch")
+
+          receipt_manifest = receipt.get("manifest")
+          require(isinstance(receipt_manifest, dict), "receipt manifest identity")
+          for field in ("manifest_id", "revision", "policy_ref"):
+              require(receipt_manifest.get(field) == manifest.get(field), f"closure manifest {field} mismatch")
+          require(receipt_manifest.get("digest") == manifest_digest, "closure manifest digest mismatch")
+
+          observed = receipt.get("observed")
+          require(isinstance(observed, dict), "closure observations")
+          require(set(observed) == set(deliverables), "closure observations must cover the manifest exactly")
+          for deliverable_id, requirement in deliverables.items():
+              require(isinstance(requirement, dict), f"manifest deliverable {deliverable_id}")
+              observation = observed[deliverable_id]
+              require(isinstance(observation, dict), f"closure observation {deliverable_id}")
+              required = requirement.get("required")
+              smoke_required = requirement.get("smoke_required")
+              require(type(required) is bool and type(smoke_required) is bool, f"manifest flags {deliverable_id}")
+              presence = observation.get("presence")
+              require(presence in {"PRESENT", "MISSING", "UNKNOWN"}, f"closure presence {deliverable_id}")
+              if presence != "PRESENT":
+                  require(not required, f"required deliverable is not present: {deliverable_id}")
+                  continue
+              expected_identity = requirement.get("expected_identity_ref")
+              if expected_identity is not None:
+                  require(
+                      observation.get("identity_ref") == expected_identity,
+                      f"deliverable identity mismatch: {deliverable_id}",
+                  )
+              if smoke_required:
+                  require(observation.get("smoke_status") == "PASS", f"deliverable smoke failed: {deliverable_id}")
+                  require(
+                      observation.get("smoke_profile_ref") == requirement.get("smoke_profile_ref"),
+                      f"deliverable smoke profile mismatch: {deliverable_id}",
+                  )
+                  require(
+                      observation.get("smoke_profile_digest") == requirement.get("smoke_profile_digest"),
+                      f"deliverable smoke profile digest mismatch: {deliverable_id}",
+                  )
+
+          unexpected = receipt.get("unexpected_components")
+          require(isinstance(unexpected, dict), "unexpected component observations")
+          for component_ref in unexpected:
+              require(
+                  dispositions.get(component_ref) == "allowed",
+                  f"unexpected component lacks allowed policy disposition: {component_ref}",
+              )
+
+          require(receipt.get("missing_required") == [], "closure reports missing required deliverables")
+          require(receipt.get("unknown_required") == [], "closure reports unknown required deliverables")
+          require(receipt.get("identity_mismatches") == {}, "closure reports identity mismatches")
+          require(receipt.get("smoke_failures") == {}, "closure reports smoke failures")
+          require(receipt.get("blocking_unexpected") == [], "closure reports blocking unexpected components")
+          require(receipt.get("verdict") == "COMPLETE", "artifact closure is not COMPLETE")
+          PY
 
   publish:
     needs: validate-build
