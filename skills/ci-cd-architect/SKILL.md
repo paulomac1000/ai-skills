@@ -22,11 +22,10 @@ Repository SemVer selection, changelog curation, and the one-version-per-release
 9. Give each job least privilege, a timeout, explicit concurrency behavior, and bounded artifact retention.
 10. Separate validation from privileged publication. Validation does not write production-effective state unless it is explicitly a deployment/migration transaction with separate authority.
 11. For concurrent deployment, use DeploymentLease schema version 2 fencing: re-read authority/target, atomically reserve the mutation domain, and reconcile ambiguity before handover or retry.
-12. Build and smoke-test without publication authority; the protected publisher only promotes the same immutable artifact or digest.
+12. Build and smoke-test without publication authority; require closure first, then promote the same immutable artifact or digest.
 13. For autonomous publication, require an authority-owned exact ArtifactPublicationLease and read `references/artifact-publication-lease.md`; build/test, repository-write, deployment, or generic registry credentials are not publication authority.
 14. Verify acceptance and release identity from the exact executed revision, not from unrelated trigger context or a workflow that never received a runner.
 15. Render and parse templates, run the repository quality gate, inspect final workflow permissions and triggers, and prove both fast and full execution paths where on-demand CI is used.
-
 Read `STANDARD.md`, then choose profiles using `references/template-selection.md`. Use `references/on-demand-ci.md` when agentic commit volume or provider quotas make automatic PR CI wasteful. Use `references/local-quality-gates.md`, `references/verification-integrity.md`, `references/artifact-publication-lease.md`, `action-sha-maintenance.md`, and `failure-patterns.md` for implementation details.
 
 For GitHub Actions trust-policy checks, run `tools/check_github_actions_policy.py` from a trusted immutable checkout and pass the candidate repository root as its argument. For workflows marked `# ai-skills-execution-policy: on-demand`, additionally run `tools/check_ci_execution_policy.py`. Trust policy governs permissions and secrets; execution policy governs when hosted jobs are allowed to start. Neither replaces provider-control verification.

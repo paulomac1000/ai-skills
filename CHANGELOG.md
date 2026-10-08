@@ -1,5 +1,19 @@
 # Changelog
 
+## 3.22.0 - 2026-10-08
+
+### Added
+
+- Added the provider-neutral Release Deliverable Manifest and Artifact Closure Receipt contracts for proving that policy-required production entrypoints, workers, migration tools, sidecars, or other deliverables are present in the exact immutable release artifact.
+- Added a reference closure evaluator with canonical manifest/receipt digests, exact source/artifact/evidence identity binding, required packaged-identity checks, required smoke status, and bounded unexpected-component disposition.
+- Extended the canonical protected container-release template with a blocking exact-artifact closure step before promotion, including manifest pinning, receipt/artifact-evidence digest verification, exact source/ref/digest binding, and fail-closed required deliverable identity/smoke checks.
+
+### Security and correctness
+
+- Source files, green tests, and documentation can no longer substitute for proof that a required deliverable is actually packaged in the artifact being published or deployed.
+- Missing or unknown required deliverables, identity mismatches, non-passing required smoke, unresolved critical unexpected components, receipt tampering, or drift in source revision, artifact digest, exact-artifact evidence, or manifest identity fail closed.
+- Added a Project Steward 0.9 regression fixture proving that a source-present and tested `stewardctl` still fails artifact closure when the final production artifact omits it.
+
 ## 3.21.0 - 2026-10-06
 
 ### Added

@@ -1,0 +1,148 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/paulomac1000/ai-skills/blob/main/contracts/release-deliverable-manifest.schema.json",
+  "title": "Release Deliverable Manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "manifest_id",
+    "revision",
+    "policy_ref",
+    "deliverables",
+    "unexpected_component_dispositions"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "manifest_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "^(?![\\s\\S]*[\\uD800-\\uDFFF])(?=[\\s\\S]*\\S)[\\s\\S]+$"
+    },
+    "revision": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "^(?![\\s\\S]*[\\uD800-\\uDFFF])(?=[\\s\\S]*\\S)[\\s\\S]+$"
+    },
+    "policy_ref": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2048,
+      "pattern": "^(?![\\s\\S]*[\\uD800-\\uDFFF])(?=[\\s\\S]*\\S)[\\s\\S]+$"
+    },
+    "deliverables": {
+      "type": "object",
+      "minProperties": 1,
+      "maxProperties": 256,
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 256,
+        "pattern": "^(?![\\s\\S]*[\\uD800-\\uDFFF])(?=[\\s\\S]*\\S)[\\s\\S]+$"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "required",
+          "expected_identity_ref",
+          "smoke_profile_ref",
+          "smoke_profile_digest",
+          "smoke_required"
+        ],
+        "properties": {
+          "kind": {
+            "enum": [
+              "runtime_entrypoint",
+              "operator_entrypoint",
+              "migration_tool",
+              "worker",
+              "sidecar",
+              "asset",
+              "other"
+            ]
+          },
+          "required": {
+            "type": "boolean"
+          },
+          "expected_identity_ref": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1,
+            "maxLength": 2048,
+            "pattern": "^(?![\\s\\S]*[\\uD800-\\uDFFF])(?=[\\s\\S]*\\S)[\\s\\S]+$"
+          },
+          "smoke_profile_ref": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1,
+            "maxLength": 2048,
+            "pattern": "^(?![\\s\\S]*[\\uD800-\\uDFFF])(?=[\\s\\S]*\\S)[\\s\\S]+$"
+          },
+          "smoke_required": {
+            "type": "boolean"
+          },
+          "smoke_profile_digest": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "smoke_required": {
+                  "const": true
+                }
+              },
+              "required": [
+                "smoke_required"
+              ]
+            },
+            "then": {
+              "properties": {
+                "smoke_profile_ref": {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "^(?![\\s\\S]*[\\uD800-\\uDFFF])(?=[\\s\\S]*\\S)[\\s\\S]+$"
+                },
+                "smoke_profile_digest": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    "unexpected_component_dispositions": {
+      "type": "object",
+      "maxProperties": 256,
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 2048,
+        "pattern": "^(?![\\s\\S]*[\\uD800-\\uDFFF])(?=[\\s\\S]*\\S)[\\s\\S]+$"
+      },
+      "additionalProperties": {
+        "enum": [
+          "allowed",
+          "forbidden"
+        ]
+      }
+    }
+  }
+}

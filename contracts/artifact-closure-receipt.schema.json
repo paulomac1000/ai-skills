@@ -1,0 +1,466 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/paulomac1000/ai-skills/blob/main/contracts/artifact-closure-receipt.schema.json",
+  "title": "Artifact Closure Receipt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "receipt_kind",
+    "source_revision",
+    "artifact_ref",
+    "artifact_digest",
+    "artifact_evidence_ref",
+    "artifact_evidence_digest",
+    "manifest",
+    "observed",
+    "unexpected_components",
+    "missing_required",
+    "unknown_required",
+    "identity_mismatches",
+    "smoke_failures",
+    "blocking_unexpected",
+    "verdict",
+    "receipt_digest"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "receipt_kind": {
+      "const": "artifact_closure"
+    },
+    "source_revision": {
+      "type": "string",
+      "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+    },
+    "artifact_ref": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2048,
+      "pattern": "^(?![\\s\\S]*[\\uD800-\\uDFFF])(?=[\\s\\S]*\\S)[\\s\\S]+$"
+    },
+    "artifact_digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "artifact_evidence_ref": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2048,
+      "pattern": "^(?![\\s\\S]*[\\uD800-\\uDFFF])(?=[\\s\\S]*\\S)[\\s\\S]+$"
+    },
+    "manifest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "manifest_id",
+        "revision",
+        "digest",
+        "policy_ref"
+      ],
+      "properties": {
+        "manifest_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "^(?![\\s\\S]*[\\uD800-\\uDFFF])(?=[\\s\\S]*\\S)[\\s\\S]+$"
+        },
+        "revision": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "^(?![\\s\\S]*[\\uD800-\\uDFFF])(?=[\\s\\S]*\\S)[\\s\\S]+$"
+        },
+        "digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "policy_ref": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048,
+          "pattern": "^(?![\\s\\S]*[\\uD800-\\uDFFF])(?=[\\s\\S]*\\S)[\\s\\S]+$"
+        }
+      }
+    },
+    "observed": {
+      "type": "object",
+      "maxProperties": 256,
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 256,
+        "pattern": "^(?![\\s\\S]*[\\uD800-\\uDFFF])(?=[\\s\\S]*\\S)[\\s\\S]+$"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "presence",
+          "identity_ref",
+          "smoke_profile_ref",
+          "smoke_profile_digest",
+          "smoke_status",
+          "evidence_ref",
+          "evidence_digest"
+        ],
+        "properties": {
+          "presence": {
+            "enum": [
+              "PRESENT",
+              "MISSING",
+              "UNKNOWN"
+            ]
+          },
+          "identity_ref": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1,
+            "maxLength": 2048,
+            "pattern": "^(?![\\s\\S]*[\\uD800-\\uDFFF])(?=[\\s\\S]*\\S)[\\s\\S]+$"
+          },
+          "smoke_profile_ref": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1,
+            "maxLength": 2048,
+            "pattern": "^(?![\\s\\S]*[\\uD800-\\uDFFF])(?=[\\s\\S]*\\S)[\\s\\S]+$"
+          },
+          "smoke_status": {
+            "enum": [
+              "PASS",
+              "FAIL",
+              "UNKNOWN",
+              "NOT_REQUIRED"
+            ]
+          },
+          "evidence_ref": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1,
+            "maxLength": 2048,
+            "pattern": "^(?![\\s\\S]*[\\uD800-\\uDFFF])(?=[\\s\\S]*\\S)[\\s\\S]+$"
+          },
+          "evidence_digest": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "smoke_profile_digest": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "smoke_status": {
+                  "enum": [
+                    "PASS",
+                    "FAIL"
+                  ]
+                }
+              },
+              "required": [
+                "smoke_status"
+              ]
+            },
+            "then": {
+              "properties": {
+                "smoke_profile_ref": {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "^(?![\\s\\S]*[\\uD800-\\uDFFF])(?=[\\s\\S]*\\S)[\\s\\S]+$"
+                },
+                "smoke_profile_digest": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$"
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "evidence_ref": {
+                  "type": "null"
+                }
+              },
+              "required": [
+                "evidence_ref"
+              ]
+            },
+            "then": {
+              "properties": {
+                "presence": {
+                  "const": "UNKNOWN"
+                },
+                "smoke_status": {
+                  "const": "UNKNOWN"
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "presence": {
+                  "enum": [
+                    "MISSING",
+                    "UNKNOWN"
+                  ]
+                }
+              },
+              "required": [
+                "presence"
+              ]
+            },
+            "then": {
+              "properties": {
+                "identity_ref": {
+                  "type": "null"
+                },
+                "smoke_status": {
+                  "enum": [
+                    "UNKNOWN",
+                    "NOT_REQUIRED"
+                  ]
+                },
+                "smoke_profile_ref": {
+                  "type": "null"
+                },
+                "smoke_profile_digest": {
+                  "type": "null"
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "evidence_ref": {
+                  "type": "null"
+                }
+              },
+              "required": [
+                "evidence_ref"
+              ]
+            },
+            "then": {
+              "properties": {
+                "evidence_digest": {
+                  "type": "null"
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "evidence_ref": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "evidence_ref"
+              ]
+            },
+            "then": {
+              "properties": {
+                "evidence_digest": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    "unexpected_components": {
+      "type": "object",
+      "maxProperties": 256,
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 2048,
+        "pattern": "^(?![\\s\\S]*[\\uD800-\\uDFFF])(?=[\\s\\S]*\\S)[\\s\\S]+$"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "criticality",
+          "disposition",
+          "evidence_ref",
+          "evidence_digest"
+        ],
+        "properties": {
+          "criticality": {
+            "enum": [
+              "critical",
+              "non_critical",
+              "unknown"
+            ]
+          },
+          "disposition": {
+            "enum": [
+              "allowed",
+              "forbidden",
+              "unresolved"
+            ]
+          },
+          "evidence_ref": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048,
+            "pattern": "^(?![\\s\\S]*[\\uD800-\\uDFFF])(?=[\\s\\S]*\\S)[\\s\\S]+$"
+          },
+          "evidence_digest": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          }
+        }
+      }
+    },
+    "missing_required": {
+      "type": "array",
+      "maxItems": 256,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 256,
+        "pattern": "^(?![\\s\\S]*[\\uD800-\\uDFFF])(?=[\\s\\S]*\\S)[\\s\\S]+$"
+      }
+    },
+    "unknown_required": {
+      "type": "array",
+      "maxItems": 256,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 256,
+        "pattern": "^(?![\\s\\S]*[\\uD800-\\uDFFF])(?=[\\s\\S]*\\S)[\\s\\S]+$"
+      }
+    },
+    "identity_mismatches": {
+      "type": "object",
+      "maxProperties": 256,
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 256,
+        "pattern": "^(?![\\s\\S]*[\\uD800-\\uDFFF])(?=[\\s\\S]*\\S)[\\s\\S]+$"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "expected_identity_ref",
+          "observed_identity_ref"
+        ],
+        "properties": {
+          "expected_identity_ref": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048,
+            "pattern": "^(?![\\s\\S]*[\\uD800-\\uDFFF])(?=[\\s\\S]*\\S)[\\s\\S]+$"
+          },
+          "observed_identity_ref": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1,
+            "maxLength": 2048,
+            "pattern": "^(?![\\s\\S]*[\\uD800-\\uDFFF])(?=[\\s\\S]*\\S)[\\s\\S]+$"
+          }
+        }
+      }
+    },
+    "smoke_failures": {
+      "type": "object",
+      "maxProperties": 256,
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 256,
+        "pattern": "^(?![\\s\\S]*[\\uD800-\\uDFFF])(?=[\\s\\S]*\\S)[\\s\\S]+$"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "smoke_status",
+          "expected_smoke_profile_ref",
+          "observed_smoke_profile_ref"
+        ],
+        "properties": {
+          "smoke_status": {
+            "enum": [
+              "PASS",
+              "FAIL",
+              "UNKNOWN",
+              "NOT_REQUIRED"
+            ]
+          },
+          "expected_smoke_profile_ref": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048,
+            "pattern": "^(?![\\s\\S]*[\\uD800-\\uDFFF])(?=[\\s\\S]*\\S)[\\s\\S]+$"
+          },
+          "observed_smoke_profile_ref": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1,
+            "maxLength": 2048,
+            "pattern": "^(?![\\s\\S]*[\\uD800-\\uDFFF])(?=[\\s\\S]*\\S)[\\s\\S]+$"
+          }
+        }
+      }
+    },
+    "blocking_unexpected": {
+      "type": "array",
+      "maxItems": 256,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 2048,
+        "pattern": "^(?![\\s\\S]*[\\uD800-\\uDFFF])(?=[\\s\\S]*\\S)[\\s\\S]+$"
+      }
+    },
+    "verdict": {
+      "enum": [
+        "COMPLETE",
+        "INCOMPLETE"
+      ]
+    },
+    "receipt_digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "artifact_evidence_digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    }
+  }
+}

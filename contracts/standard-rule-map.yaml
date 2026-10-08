@@ -54,7 +54,7 @@ skills:
       net-quality: {rule_id: cicd.quality.language}
       mcp-specific-assurance: {rule_id: cicd.quality.language}
       documentation-and-security: {rule_id: cicd.security.documentation, primary: true}
-      release-identity-and-artifact-promotion: {rule_id: cicd.release.identity, primary: true}
+      release-identity-and-artifact-promotion: {rule_ids: [cicd.release.identity, cicd.release.deliverable-closure], primary: true}
       deployment-mutation-authority-and-fencing: {rule_id: cicd.deployment.fenced-lease, primary: true}
       artifact-publication-authority: {rule_id: cicd.publication.exact-lease, primary: true}
       local-quality-gates: {rule_id: cicd.local.bounded, primary: true}
