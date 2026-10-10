@@ -37,6 +37,7 @@ D1 = "sha256:" + "1" * 64
 D2 = "sha256:" + "2" * 64
 D3 = "sha256:" + "3" * 64
 D4 = "sha256:" + "4" * 64
+D5 = "sha256:" + "5" * 64
 NOW = datetime(2026, 10, 8, 14, 30, tzinfo=timezone.utc)
 
 
@@ -285,6 +286,216 @@ class ExternalGateDeviationTests(unittest.TestCase):
         unknown = json.loads(json.dumps(receipt))
         unknown["candidate_can_override"] = True
         self.assertFalse(validator.is_valid(unknown))
+
+
+class CanonicalSchemaParityTests(unittest.TestCase):
+    """ai-skills #166: the canonical owner enforces the same input domain and exact JSON
+    types as the published schema, at construction and integrity boundaries."""
+
+    def base_receipt(self, **kwargs):
+        values = {
+            "gate_id": "external/ci",
+            "provider": "external-provider",
+            "expected_subject_ref": "sha:candidate-a",
+            "policy_revision": "policy:delivery/v7",
+            "observation": GateObservation(
+                state=GateExecutionState.NOT_EXECUTED,
+                product_verdict=GateVerdict.UNKNOWN,
+                repository_steps_executed=False,
+                observed_at="2026-10-08T14:00:00Z",
+                evidence_ref="provider-run:42",
+                evidence_digest=D1,
+                failure_class=FailureClass.QUOTA,
+            ),
+            "retry_mode": RetryMode.SUPPRESS_UNTIL_CHANGE,
+            "incident": GateIncident(
+                fingerprint=D2,
+                scope=IncidentScope.ACCOUNT,
+                scope_ref="provider-account:owner",
+                first_observed_at="2026-10-08T13:00:00Z",
+                last_observed_at="2026-10-08T14:00:00Z",
+                fresh_until="2026-10-08T16:00:00Z",
+            ),
+        }
+        values.update(kwargs)
+        return build_external_gate_receipt(**values)
+
+    def _tampered(self, receipt, mutate):
+        document = json.loads(json.dumps(receipt))
+        mutate(document)
+        document.pop("receipt_digest")
+        document["receipt_digest"] = MODULE._doc_digest(document)
+        return document
+
+    def _schema_validator(self):
+        schema = json.loads(
+            (ROOT / "contracts" / "external-gate-deviation.schema.json").read_text(encoding="utf-8")
+        )
+        return Draft202012Validator(schema)
+
+    def test_reopen_cardinality_is_enforced_at_construction(self) -> None:
+        for count in (33, 40, 200):
+            with self.subTest(count=count):
+                with self.assertRaisesRegex(ValueError, "schema limit of 32"):
+                    self.base_receipt(
+                        incident=GateIncident(
+                            fingerprint=D2,
+                            scope=IncidentScope.ACCOUNT,
+                            scope_ref="provider-account:owner",
+                            first_observed_at="2026-10-08T13:00:00Z",
+                            last_observed_at="2026-10-08T14:00:00Z",
+                            fresh_until=None,
+                            reopen_on=tuple(f"signal_{i}" for i in range(count)),
+                        )
+                    )
+        accepted = self.base_receipt(
+            incident=GateIncident(
+                fingerprint=D2,
+                scope=IncidentScope.ACCOUNT,
+                scope_ref="provider-account:owner",
+                first_observed_at="2026-10-08T13:00:00Z",
+                last_observed_at="2026-10-08T14:00:00Z",
+                fresh_until=None,
+                reopen_on=tuple(f"signal_{i}" for i in range(32)),
+            )
+        )
+        self.assertEqual(32, len(accepted["incident"]["reopen_on"]))
+        self.assertTrue(verify_external_gate_receipt_integrity(accepted))
+
+    def test_empty_and_duplicate_signals_remain_rejected(self) -> None:
+        with self.assertRaisesRegex(ValueError, "non-empty and unique"):
+            self.base_receipt(
+                incident=GateIncident(
+                    fingerprint=D2,
+                    scope=IncidentScope.ACCOUNT,
+                    scope_ref="provider-account:owner",
+                    first_observed_at="2026-10-08T13:00:00Z",
+                    last_observed_at="2026-10-08T14:00:00Z",
+                    fresh_until=None,
+                    reopen_on=(),
+                )
+            )
+        with self.assertRaisesRegex(ValueError, "non-empty and unique"):
+            self.base_receipt(
+                incident=GateIncident(
+                    fingerprint=D2,
+                    scope=IncidentScope.ACCOUNT,
+                    scope_ref="provider-account:owner",
+                    first_observed_at="2026-10-08T13:00:00Z",
+                    last_observed_at="2026-10-08T14:00:00Z",
+                    fresh_until=None,
+                    reopen_on=("provider_generation_change", "provider_generation_change"),
+                )
+            )
+
+    def test_schema_version_requires_the_exact_integer(self) -> None:
+        receipt = self.base_receipt()
+        version = receipt["schema_version"]
+        self.assertIs(type(version), int)
+        self.assertNotIsInstance(version, bool)
+        # The canonical owner rejects every non-integer representation; ``True == 1.0 ==
+        # 1`` under Python equality is exactly the hole being closed.
+        for bad in (True, False, 1.0, "1"):
+            with self.subTest(schema_version=bad):
+                tampered = self._tampered(receipt, lambda d, v=bad: d.__setitem__("schema_version", v))
+                self.assertFalse(verify_external_gate_receipt_integrity(tampered))
+        # Type-distinct representations are also schema-invalid. (JSON Schema compares
+        # ``const: 1`` with numeric equality, so 1.0 is schema-accepted and only the
+        # evaluator rejects it -- recorded behavior, not a parity gap.)
+        for bad in (True, False, "1"):
+            with self.subTest(schema_level=bad):
+                tampered = self._tampered(receipt, lambda d, v=bad: d.__setitem__("schema_version", v))
+                self.assertFalse(self._schema_validator().is_valid(tampered))
+
+    def test_oversized_reopen_signals_survive_integrity_verification(self) -> None:
+        # A digest-consistent tampering cannot resurrect an over-cardinality receipt.
+        receipt = self.base_receipt()
+        tampered = self._tampered(
+            receipt,
+            lambda d: d["incident"].__setitem__(
+                "reopen_on", [*d["incident"]["reopen_on"], *[f"extra_{i}" for i in range(40)]]
+            ),
+        )
+        self.assertEqual(43, len(tampered["incident"]["reopen_on"]))
+        self.assertFalse(verify_external_gate_receipt_integrity(tampered))
+        self.assertFalse(self._schema_validator().is_valid(tampered))
+
+    def test_cross_validation_proves_evaluator_and_schema_agree(self) -> None:
+        validator = self._schema_validator()
+        receipts = [
+            self.base_receipt(),
+            self.base_receipt(
+                expected_subject_ref="sha:candidate-a",
+                substitute=SubstituteEvidence(
+                    allowed=True,
+                    authority_ref="policy:path-b",
+                    profile_ref="substitute:clean-room/v1",
+                    exact_subject_ref="sha:candidate-a",
+                    evidence_ref="report:clean-room",
+                    evidence_digest=D4,
+                    verdict=GateVerdict.PASS,
+                    reproduction=SubstituteReproduction(
+                        original_workflow_digest=D1,
+                        exact_subject_ref="sha:candidate-a",
+                        source_checkout="clean_detached_or_equivalent",
+                        environment_digest=D2,
+                        inherited_workspace_state=False,
+                        isolation_ref="isolation:clean-room",
+                        command_ref="command:full-gate",
+                        report_digest=D3,
+                    ),
+                ),
+                catchup=CatchupObligation(True, "sha:integrated", CatchupState.PENDING),
+            ),
+            self.base_receipt(
+                observation=GateObservation(
+                    state=GateExecutionState.EXECUTED,
+                    product_verdict=GateVerdict.FAIL,
+                    repository_steps_executed=True,
+                    observed_at="2026-10-08T20:00:00Z",
+                    evidence_ref="provider-run:51",
+                    evidence_digest=D5,
+                    failure_class=FailureClass.NONE,
+                ),
+                retry_mode=RetryMode.NORMAL,
+                incident=None,
+            ),
+        ]
+        for index, receipt in enumerate(receipts):
+            with self.subTest(receipt=index):
+                self.assertTrue(verify_external_gate_receipt_integrity(receipt))
+                self.assertTrue(validator.is_valid(receipt), list(validator.iter_errors(receipt)))
+
+    def test_integrated_subject_catchup_semantics_are_preserved(self) -> None:
+        # candidate A's obligation may name the legitimate integrated revision B; an
+        # unrelated or replayed PASS must still fail.
+        receipt = self.base_receipt(catchup=CatchupObligation(True, "sha:integrated", CatchupState.PENDING))
+        passed = GateObservation(
+            state=GateExecutionState.EXECUTED,
+            product_verdict=GateVerdict.PASS,
+            repository_steps_executed=True,
+            observed_at="2026-10-08T18:00:00Z",
+            evidence_ref="provider-run:77",
+            evidence_digest=D5,
+            failure_class=FailureClass.NONE,
+        )
+        satisfied = satisfy_catchup(
+            receipt,
+            observed_subject_ref="sha:integrated",
+            provider="external-provider",
+            gate_id="external/ci",
+            provider_observation=passed,
+        )
+        self.assertEqual("SATISFIED", satisfied["catchup"]["state"])
+        with self.assertRaisesRegex(ValueError, "unrelated provider run"):
+            satisfy_catchup(
+                receipt,
+                observed_subject_ref="sha:untrusted-c",
+                provider="external-provider",
+                gate_id="external/ci",
+                provider_observation=passed,
+            )
+
 
 
 if __name__ == "__main__":

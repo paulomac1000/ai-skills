@@ -1,5 +1,16 @@
 # Changelog
 
+## 3.23.1 - 2026-10-10
+
+### Fixed
+
+- The canonical external-gate deviation evaluator now enforces the declared receipt domain exactly as the published JSON Schema: `schema_version` must be the exact integer `1` at the integrity boundary (a boolean, float, or string that Python compares equal to `1` is rejected), and `incident.reopen_on` is capped at the schema's maximum of 32 signals at construction and verification instead of accepting arbitrary many. Digest-consistent tampering with either field no longer produces an integrity-valid, schema-invalid receipt.
+- Added deterministic evaluator/JSON-Schema cross-validation fixtures covering valid receipts, nested substitute/reproduction structures, integrated-subject catch-up, and boundary mutations.
+
+### Security and correctness
+
+- Integrity verification can no longer be satisfied by a receipt whose `schema_version` was mutated to a non-integer representation, closing a validation gap where schema-invalid documents passed as canonical.
+
 ## 3.23.0 - 2026-10-08
 
 ### Added

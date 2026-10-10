@@ -250,6 +250,9 @@ def _validate_incident(value: GateIncident) -> None:
         raise ValueError("incident freshness precedes last observation")
     if not value.reopen_on or len(value.reopen_on) != len(set(value.reopen_on)):
         raise ValueError("incident reopen signals must be non-empty and unique")
+    if len(value.reopen_on) > 32:
+        # the pinned schema declares maxItems: 32; no silent truncation, no acceptance
+        raise ValueError("incident reopen signals exceed the schema limit of 32")
     for item in value.reopen_on:
         _text(item, "incident.reopen_on", 128)
 
@@ -423,7 +426,11 @@ def build_external_gate_receipt(
 
 def _rebuild(receipt: object) -> dict[str, Any]:
     root = _exact(receipt, _ROOT, "receipt")
-    if root["schema_version"] != 1 or root["receipt_kind"] != "external_gate_deviation":
+    # Exact JSON type: ``1 == 1.0 == True`` in Python, so a plain comparison lets a
+    # boolean or float masquerade as the integer schema version. The pinned schema
+    # declares ``const: 1``; the canonical owner enforces the exact integer type.
+    version = root["schema_version"]
+    if type(version) is not int or version != 1 or root["receipt_kind"] != "external_gate_deviation":
         raise ValueError("unsupported receipt identity")
     g = _exact(root["gate"], _GATE, "gate")
     o = _exact(root["observation"], _OBS, "observation")
