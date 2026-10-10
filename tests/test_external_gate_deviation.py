@@ -4,10 +4,10 @@ import importlib.util
 import json
 import sys
 import unittest
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from jsonschema import Draft202012Validator
+from jsonschema import Draft202012Validator, FormatChecker
 
 ROOT = Path(__file__).resolve().parents[1]
 MODULE_PATH = ROOT / "contracts" / "external_gate_deviation.py"
@@ -494,6 +494,172 @@ class CanonicalSchemaParityTests(unittest.TestCase):
                 provider="external-provider",
                 gate_id="external/ci",
                 provider_observation=passed,
+            )
+
+
+
+class Rfc3339DateTimeParityTests(unittest.TestCase):
+    """#166 follow-up: the canonical evaluator enforces the schema's ``format: date-time``.
+
+    The pinned schema declares RFC3339 ``date-time`` on every receipt timestamp, but the
+    evaluator parsed with ``datetime.fromisoformat``, which also accepts non-RFC3339
+    ISO-8601 forms (week dates, space separators). Such a document was integrity-valid for
+    the canonical owner while a format-aware schema consumer rejects it — the exact
+    parity gap #166 closes. Format-aware schema verification requires the optional
+    ``rfc3339-validator`` package (jsonschema treats ``format`` as an annotation by
+    default); when it is absent the schema-side assertion is skipped and the evaluator
+    side (the normative fix) is asserted unconditionally.
+    """
+
+    WEEK_DATE = "2026-W41-2T13:00:00+00:00"
+    SPACE_DATE = "2026-10-08 14:00:00+00:00"
+
+    def _validator(self):
+        schema = json.loads(
+            (ROOT / "contracts" / "external-gate-deviation.schema.json").read_text(encoding="utf-8")
+        )
+        return Draft202012Validator(schema, format_checker=FormatChecker())
+
+    def _format_checker_active(self) -> bool:
+        return "date-time" in FormatChecker().checkers
+
+    def _base_kwargs(self) -> dict:
+        return {
+            "gate_id": "external/ci",
+            "provider": "external-provider",
+            "expected_subject_ref": "sha:candidate-a",
+            "policy_revision": "policy:delivery/v7",
+            "observation": GateObservation(
+                state=GateExecutionState.NOT_EXECUTED,
+                product_verdict=GateVerdict.UNKNOWN,
+                repository_steps_executed=False,
+                observed_at="2026-10-08T14:00:00Z",
+                evidence_ref="provider-run:42",
+                evidence_digest=D1,
+                failure_class=FailureClass.QUOTA,
+            ),
+            "retry_mode": RetryMode.BOUNDED_BACKOFF,
+            "next_eligible_at": "2026-10-08T15:00:00Z",
+            "incident": GateIncident(
+                fingerprint=D2,
+                scope=IncidentScope.ACCOUNT,
+                scope_ref="provider-account:owner",
+                first_observed_at="2026-10-08T13:00:00Z",
+                last_observed_at="2026-10-08T14:00:00Z",
+                fresh_until="2026-10-08T16:00:00Z",
+            ),
+        }
+
+    def _build(self, **overrides) -> dict:
+        values = self._base_kwargs()
+        values.update(overrides)
+        return build_external_gate_receipt(**values)
+
+    def _tamper(self, receipt: dict, path: tuple[str, ...], value: str) -> dict:
+        document = json.loads(json.dumps(receipt))
+        node = document
+        for key in path[:-1]:
+            node = node[key]
+        node[path[-1]] = value
+        document.pop("receipt_digest")
+        document["receipt_digest"] = MODULE._doc_digest(document)
+        return document
+
+    def test_construction_rejects_non_rfc3339_in_every_time_field(self) -> None:
+        from dataclasses import replace
+
+        base = self._base_kwargs()
+        mutations = {
+            "observation.observed_at": {
+                "observation": replace(base["observation"], observed_at=self.WEEK_DATE)
+            },
+            "incident.first_observed_at": {
+                "incident": replace(base["incident"], first_observed_at=self.WEEK_DATE, last_observed_at=self.WEEK_DATE)
+            },
+            "incident.last_observed_at": {
+                "incident": replace(base["incident"], last_observed_at=self.WEEK_DATE)
+            },
+            "incident.fresh_until": {
+                "incident": replace(base["incident"], fresh_until=self.WEEK_DATE)
+            },
+            "retry_policy.next_eligible_at": {"next_eligible_at": self.WEEK_DATE},
+        }
+        for field, overrides in mutations.items():
+            for malformed in (self.WEEK_DATE, self.SPACE_DATE):
+                with self.subTest(field=field, form=malformed):
+                    adjusted = {}
+                    for key, value in overrides.items():
+                        if hasattr(value, "observed_at"):
+                            adjusted[key] = replace(value, observed_at=malformed)
+                        elif hasattr(value, "first_observed_at"):
+                            adjusted[key] = replace(
+                                value,
+                                first_observed_at=malformed if "first" in field else value.first_observed_at,
+                                last_observed_at=malformed if "last" in field or "first" in field else value.last_observed_at,
+                                fresh_until=malformed if "fresh" in field else value.fresh_until,
+                            )
+                        else:
+                            adjusted[key] = malformed
+                    with self.assertRaisesRegex(ValueError, "RFC3339"):
+                        build_external_gate_receipt(**{**base, **adjusted})
+
+    def test_integrity_verification_rejects_tampered_non_rfc3339_documents(self) -> None:
+        receipt = self._build()
+        validator = self._validator()
+        for path in (
+            ("observation", "observed_at"),
+            ("incident", "first_observed_at"),
+            ("incident", "last_observed_at"),
+            ("incident", "fresh_until"),
+            ("retry_policy", "next_eligible_at"),
+        ):
+            with self.subTest(field=".".join(path)):
+                tampered = self._tamper(receipt, path, self.WEEK_DATE)
+                # the canonical owner refuses the digest-consistent tampered document
+                self.assertFalse(verify_external_gate_receipt_integrity(tampered))
+                # a format-aware schema consumer refuses it too, when the optional
+                # rfc3339-validator package registers the date-time checker
+                if self._format_checker_active():
+                    self.assertFalse(validator.is_valid(tampered))
+
+    def test_valid_rfc3339_forms_stay_accepted_and_schema_valid(self) -> None:
+        from dataclasses import replace
+
+        base = self._base_kwargs()
+        for form in ("2026-10-08T14:00:00Z", "2026-10-08T16:00:00+02:00", "2026-10-08T14:00:00.500Z"):
+            with self.subTest(form=form):
+                receipt = build_external_gate_receipt(
+                    **{
+                        **base,
+                        "observation": replace(base["observation"], observed_at=form),
+                    }
+                )
+                self.assertTrue(verify_external_gate_receipt_integrity(receipt))
+                if self._format_checker_active():
+                    self.assertTrue(self._validator().is_valid(receipt))
+
+    def test_chronology_and_time_semantics_are_preserved(self) -> None:
+        receipt = self._build()
+        # UTC normalization drives decisions: 15:00+01:00 == 14:00Z is before the
+        # next_eligible_at of 15:00Z, so the bounded backoff keeps waiting
+        inside = datetime(2026, 10, 8, 15, 0, tzinfo=timezone(timedelta(hours=1)))
+        self.assertEqual(
+            "WAIT",
+            derive_external_gate_decision(receipt, now=inside)["retry_disposition"],
+        )
+        # a last observation after the first still fails closed
+        from dataclasses import replace
+
+        with self.assertRaisesRegex(ValueError, "precedes"):
+            build_external_gate_receipt(
+                **{
+                    **self._base_kwargs(),
+                    "incident": replace(
+                        self._base_kwargs()["incident"],
+                        first_observed_at="2026-10-08T15:00:00Z",
+                        last_observed_at="2026-10-08T14:00:00Z",
+                    ),
+                }
             )
 
 

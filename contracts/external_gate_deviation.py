@@ -13,6 +13,11 @@ from enum import StrEnum
 from typing import Any
 
 _SHA256_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
+# The pinned schema declares ``format: date-time`` (RFC3339) on every receipt timestamp.
+# ``datetime.fromisoformat`` is more permissive than RFC3339 (week dates, space separators),
+# so the evaluator must reject those forms itself: a document the canonical owner certifies
+# must also satisfy a format-aware schema consumer.
+_RFC3339_RE = re.compile(r"^\d{4}-\d{2}-\d{2}[Tt]\d{2}:\d{2}:\d{2}(\.\d+)?([Zz]|[+-]\d{2}:\d{2})$")
 _ROOT = frozenset(
     {
         "schema_version",
@@ -189,10 +194,13 @@ def _digest(value: object, name: str) -> str:
 
 def _time(value: object, name: str) -> datetime:
     raw = _text(value, name, 128)
+    if not _RFC3339_RE.match(raw):
+        raise ValueError(f"{name} must be an RFC3339 date-time")
+    normalized = raw.replace("z", "Z")
     try:
-        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        parsed = datetime.fromisoformat(normalized.replace("Z", "+00:00"))
     except ValueError as exc:
-        raise ValueError(f"{name} must be an RFC3339/ISO-8601 timestamp") from exc
+        raise ValueError(f"{name} must be an RFC3339 date-time") from exc
     if parsed.tzinfo is None or parsed.utcoffset() is None:
         raise ValueError(f"{name} must include a timezone")
     return parsed.astimezone(UTC)
