@@ -17,7 +17,7 @@ _SHA256_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 # ``datetime.fromisoformat`` is more permissive than RFC3339 (week dates, space separators),
 # so the evaluator must reject those forms itself: a document the canonical owner certifies
 # must also satisfy a format-aware schema consumer.
-_RFC3339_RE = re.compile(r"^\d{4}-\d{2}-\d{2}[Tt]\d{2}:\d{2}:\d{2}(\.\d+)?([Zz]|[+-]\d{2}:\d{2})$")
+_RFC3339_RE = re.compile(r"^\d{4}-\d{2}-\d{2}[Tt]\d{2}:\d{2}:\d{2}(\.\d+)?([Zz]|[+-]([01]\d|2[0-3]):[0-5]\d)$")
 _ROOT = frozenset(
     {
         "schema_version",

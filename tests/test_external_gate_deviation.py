@@ -638,6 +638,39 @@ class Rfc3339DateTimeParityTests(unittest.TestCase):
                 if self._format_checker_active():
                     self.assertTrue(self._validator().is_valid(receipt))
 
+    def test_out_of_range_timezone_offsets_are_rejected(self) -> None:
+        # RFC3339 numeric offsets are hour 00-23 and minute 00-59; datetime.fromisoformat
+        # would silently NORMALIZE "+01:60" to +02:00, certifying a document the
+        # format-aware schema checker rejects.
+        from dataclasses import replace
+
+        base = self._base_kwargs()
+        for malformed in ("2026-10-08T14:00:00+01:60", "2026-10-08T14:00:00+24:00", "2026-10-08T14:00:00-01:99"):
+            with self.subTest(offset=malformed):
+                with self.assertRaisesRegex(ValueError, "RFC3339"):
+                    build_external_gate_receipt(
+                        **{**base, "observation": replace(base["observation"], observed_at=malformed)}
+                    )
+                tampered = self._tamper(self._build(), ("observation", "observed_at"), malformed)
+                self.assertFalse(verify_external_gate_receipt_integrity(tampered))
+                if self._format_checker_active():
+                    self.assertFalse(self._validator().is_valid(tampered))
+        # boundary-valid offsets remain accepted
+        for valid in ("2026-10-08T14:00:00+01:59", "2026-10-08T14:00:00-05:30", "2026-10-08T14:00:00+23:59"):
+            with self.subTest(valid=valid):
+                receipt = build_external_gate_receipt(
+                    **{**base, "observation": replace(base["observation"], observed_at=valid)}
+                )
+                self.assertTrue(verify_external_gate_receipt_integrity(receipt))
+
+    def test_leap_second_is_a_recorded_evaluator_limitation(self) -> None:
+        # RFC3339 permits second=60 (leap second) and the strict format checker accepts it,
+        # but Python datetime cannot represent it: the canonical evaluator rejects such a
+        # document. Recorded as an inherent limitation, not silently accepted.
+        document = self._build()
+        tampered = self._tamper(document, ("observation", "observed_at"), "2016-12-31T23:59:60Z")
+        self.assertFalse(verify_external_gate_receipt_integrity(tampered))
+
     def test_chronology_and_time_semantics_are_preserved(self) -> None:
         receipt = self._build()
         # UTC normalization drives decisions: 15:00+01:00 == 14:00Z is before the
