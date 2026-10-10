@@ -1,6 +1,6 @@
 schema_version: 1
 name: mcp-steward-architect
-version: 3.23.1
+version: 3.23.2
 maturity: stable
 skill_format: ai-skills/v1
 normative_entrypoint: STANDARD.md

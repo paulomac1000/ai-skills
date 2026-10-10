@@ -1,5 +1,15 @@
 # Changelog
 
+## 3.23.2 - 2026-10-10
+
+### Fixed
+
+- The canonical external-gate deviation evaluator now enforces the published schema's `format: date-time` (RFC3339) on every receipt timestamp — `observation.observed_at`, `incident.first_observed_at`, `incident.last_observed_at`, `incident.fresh_until`, and `retry_policy.next_eligible_at`. Non-RFC3339 ISO-8601 forms that `datetime.fromisoformat` accepts (week dates such as `2026-W41-2T13:00:00+00:00`, space separators) are rejected at construction and integrity verification, so a receipt the canonical owner certifies also satisfies a format-aware JSON Schema consumer. Valid RFC3339 forms (`Z`, `±HH:MM` offsets, fractional seconds), timezone requirements, and chronological comparisons are unchanged.
+
+### Security and correctness
+
+- Closes the schema/evaluator parity gap for date-time fields recorded in #166: digest-consistent tampering of any receipt timestamp to a non-RFC3339 form can no longer remain integrity-valid.
+
 ## 3.23.1 - 2026-10-10
 
 ### Fixed
