@@ -154,7 +154,9 @@ def test_test_quality_rejects_escaping_or_missing_sources(path: str) -> None:
         load_targets().select_test_quality_files([path])
 
 
-def test_ruff_violation_in_test_is_excluded_from_production_but_detected_when_selected(monkeypatch, tmp_path: Path) -> None:
+def test_ruff_violation_in_test_is_excluded_from_production_but_detected_when_selected(
+    monkeypatch, tmp_path: Path, capsys
+) -> None:
     if importlib.util.find_spec("ruff") is None:
         pytest.skip("Ruff is not installed in this synthetic environment")
     targets = load_targets()
@@ -162,14 +164,54 @@ def test_ruff_violation_in_test_is_excluded_from_production_but_detected_when_se
     probe = tmp_path / "tests/test_bad_ruff.py"
     probe.write_text("import os\n\ndef test_example():\n    assert True\n", encoding="utf-8")
     monkeypatch.setattr(targets, "__file__", str(tmp_path / "scripts/quality_targets.py"))
-    assert not _inventory_covers("tests/test_bad_ruff.py", targets.QUALITY_PATHS)
-    assert targets.select_test_quality_files(["tests/test_bad_ruff.py"]) == ("tests/test_bad_ruff.py",)
+    assert targets.main(["quality"]) == 0
+    prod_paths = capsys.readouterr().out.split()
+    assert "tests/test_bad_ruff.py" not in prod_paths
+    assert targets.main(["test-quality", "--changed-test", "tests/test_bad_ruff.py"]) == 0
+    selected_paths = capsys.readouterr().out.split()
+    assert selected_paths == ["tests/test_bad_ruff.py"]
     result = subprocess.run(
-        [sys.executable, "-m", "ruff", "check", "--config", str(ROOT / "pyproject.toml"), str(probe)],
+        [sys.executable, "-m", "ruff", "check", "--config", str(ROOT / "pyproject.toml"), str(tmp_path / selected_paths[0])],
         capture_output=True, text=True, check=False, timeout=30,
     )
     assert result.returncode == 1
     assert "F401" in result.stdout
+
+
+
+@pytest.mark.parametrize("kind", ["root", "intermediate", "file"])
+def test_optional_test_quality_rejects_symlinks_in_any_component(kind: str, tmp_path: Path, monkeypatch) -> None:
+    targets = load_targets()
+    checkout = tmp_path / "checkout"
+    (checkout / "scripts").mkdir(parents=True)
+    external = tmp_path / "external"
+    external.mkdir()
+    (external / "test_bad.py").write_text("pass\\n", encoding="utf-8")
+    tests = checkout / "tests"
+    if kind == "root":
+        link = tests
+        target = external
+        selected = "tests/test_bad.py"
+    elif kind == "intermediate":
+        tests.mkdir()
+        link = tests / "nested"
+        target = external
+        selected = "tests/nested/test_bad.py"
+    else:
+        tests.mkdir()
+        link = tests / "test_bad.py"
+        target = external / "test_bad.py"
+        selected = "tests/test_bad.py"
+    try:
+        link.symlink_to(target, target_is_directory=kind != "file")
+    except (NotImplementedError, OSError) as error:
+        pytest.skip(f"Filesystem cannot create symlink: {error}")
+    monkeypatch.setattr(targets, "__file__", str(checkout / "scripts/quality_targets.py"))
+    with pytest.raises(ValueError, match="test-quality"):
+        targets.select_test_quality_files([selected])
+    if kind == "root":
+        with pytest.raises(ValueError, match="test-quality"):
+            targets.select_test_quality_files([])
 
 
 def test_test_quality_provenance_is_diagnostic_not_gate_claim() -> None:

@@ -64,45 +64,18 @@ Prefer an explicit repository script such as `quality:staged` over embedding a l
 
 Use repository-owned Ruff, type-check, validator, and test configuration. Avoid downloading ad hoc versions on each hook invocation. Compile checks are useful but do not replace tests. The pre-push hook calls the same bounded runner used by CI.
 
-## ai-skills Python source-quality scope decision (#170)
+## Python test-source quality decision (#170)
 
-**Evidence baseline:** `main@7d05673bca54b78daebcd6347f313463cbfdc6dd`, release 3.23.2.
-The original *intent* behind excluding test sources cannot be inferred from current workflow text.
-The observed contract is production-only Ruff lint/format and selected-source mypy.
-Maintainer-facing decision for this change: **retain those required scopes** and offer an
-**optional** Ruff test-source profile. A production lint PASS is not an all-Python lint PASS.
+Baseline `main@7d05673bca54b78daebcd6347f313463cbfdc6dd`: the repository's `QUALITY_PATHS` and `TYPE_PATHS` explicitly select production/policy-critical Python, not `tests/` lint. Original exclusion intent is unknown. **Decision:** retain required GitHub Actions and local Ruff/mypy gates and expose an **optional** `test-quality` Ruff profile. A production lint PASS does not claim all-Python lint.
 
-| Gate | Scope | Status | Permissible claim |
-| --- | --- | --- | --- |
-| GitHub Actions `Lint production Python` | `quality` / `QUALITY_PATHS` | required | selected production Python lint passed |
-| GitHub Actions production format | `quality` / `QUALITY_PATHS` | required | selected production Python format passed |
-| GitHub Actions policy-critical mypy | `typing` / `TYPE_PATHS` | required | selected sources typed successfully |
-| Local `scripts/ci.py` Ruff/mypy | same canonical inventories | required | local scoped result; not independent hosted evidence |
-| Optional test Python Ruff | `test-quality` / `TEST_QUALITY_PATHS` (`tests`), optionally selected files | opt-in | explicitly selected test-source lint passed |
-
-Use the repository's locked virtual environment. This is the diagnostic path for changed tests:
+From the **locked** development environment, use:
 
 ```bash
-python scripts/quality_targets.py test-quality --changed-test tests/test_ci_quality_scope.py
 python -m ruff check $(python scripts/quality_targets.py test-quality --changed-test tests/test_ci_quality_scope.py)
 python scripts/quality_targets.py test-quality --changed-test tests/test_ci_quality_scope.py --provenance
 ```
 
-The optional default is the full `tests/` directory and can expose existing Ruff diagnostics.
-`--changed-test` accepts existing regular Python files under `tests/` with deterministic
-ordering, rejects symlinks/traversal and unsafe shell metacharacters, and is never a
-substitute for executing the pytest suite. The `--provenance` JSON declares exact selected
-paths, Ruff distribution version, `pyproject.toml` SHA-256, platform-selected lock name
-and SHA-256, and profile identity. It is diagnostic identity, **not** evidence of passing
-lint or a provider-authenticated test receipt. The pinned tool version remains in
-`requirements-dev.in` and the selected `requirements-dev-*.lock`.
-
-**Migration gate:** before promotion to mandatory CI, inventory test-source Ruff findings
-once with the locked toolchain, classify any conventions requiring justified narrow exceptions,
-repair the coherent set, and obtain a separate policy/owner decision. Do not broaden ignores
-to force green. Ruff UP017 or another violation in `tests/` that falls outside `QUALITY_PATHS`
-is `NOT_IN_GATE_SCOPE`, not `TOOLCHAIN_MISMATCH` or false hosted CI success.
-Environment/target proof ownership remains with #122; verification order/minimum reruns with #131.
+Omit `--changed-test` for all `tests/`; existing diagnostics may remain. `--provenance` records selected targets, Ruff version, config and selected-lock SHA-256 and is **not** a lint PASS receipt. Before requiring the new profile in CI, inventory all test-source diagnostics once, repair coherent batches, and obtain a separate policy-owner decision (no blanket ignores). Test-source Ruff errors absent from `QUALITY_PATHS` are `NOT_IN_GATE_SCOPE`, not a toolchain mismatch. #122 governs environment/receipt identity; #131 governs scheduling.
 
 ## .NET profile
 

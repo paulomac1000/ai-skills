@@ -209,10 +209,15 @@ def render_target(name: str) -> str:
 
 def select_test_quality_files(changed_tests: Sequence[str]) -> tuple[str, ...]:
     """Select existing test Python files without traversal, symlinks, or shell-unsafe paths."""
+    root = Path(__file__).resolve().parents[1]
+    tests_path = root / "tests"
+    if tests_path.is_symlink() or not tests_path.is_dir():
+        raise ValueError("test-quality root must be a real directory")
+    tests_root = tests_path.resolve(strict=True)
+    if not tests_root.is_relative_to(root):
+        raise ValueError("test-quality root escapes repository")
     if not changed_tests:
         return TEST_QUALITY_PATHS
-    root = Path(__file__).resolve().parents[1]
-    tests_root = (root / "tests").resolve(strict=True)
     selected: set[str] = set()
     for name in changed_tests:
         parts = name.split("/")
@@ -227,7 +232,11 @@ def select_test_quality_files(changed_tests: Sequence[str]) -> tuple[str, ...]:
             or any(char.isspace() for char in name)
         ):
             raise ValueError(f"invalid test-quality source: {name!r}")
-        source = root.joinpath(*parts)
+        source = root
+        for part in parts:
+            source = source / part
+            if source.is_symlink():
+                raise ValueError(f"test-quality source contains symlink: {name!r}")
         try:
             resolved = source.resolve(strict=True)
         except (OSError, RuntimeError) as exc:
