@@ -4,7 +4,11 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
 from collections.abc import Sequence
+from importlib.metadata import PackageNotFoundError, version
+from pathlib import Path
 
 QUALITY_PATHS = (
     "contracts",
@@ -185,8 +189,11 @@ SECURITY_BOUNDARY_BRANCH_COVERAGE_FLOORS = (
     ("skills/mcp-server-architect/tools/inspect_existing_project.py", 80),
 )
 
+TEST_QUALITY_PATHS = ("tests",)
+
 TARGETS = {
     "quality": QUALITY_PATHS,
+    "test-quality": TEST_QUALITY_PATHS,
     "typing": TYPE_PATHS,
     "bandit": BANDIT_PATHS,
     "policy-coverage": POLICY_COVERAGE_PATHS,
@@ -199,11 +206,78 @@ def render_target(name: str) -> str:
     return ",".join(values) if name == "policy-coverage" else " ".join(values)
 
 
+
+def select_test_quality_files(changed_tests: Sequence[str]) -> tuple[str, ...]:
+    """Select existing test Python files without traversal, symlinks, or shell-unsafe paths."""
+    if not changed_tests:
+        return TEST_QUALITY_PATHS
+    root = Path(__file__).resolve().parents[1]
+    tests_root = (root / "tests").resolve(strict=True)
+    selected: set[str] = set()
+    for name in changed_tests:
+        parts = name.split("/")
+        if (
+            len(parts) < 2
+            or parts[0] != "tests"
+            or not name.endswith(".py")
+            or "\\" in name
+            or ":" in name
+            or any(not part or part in {".", ".."} for part in parts)
+            or any(char.isspace() for char in name)
+        ):
+            raise ValueError(f"invalid test-quality source: {name!r}")
+        source = root.joinpath(*parts)
+        try:
+            resolved = source.resolve(strict=True)
+        except (OSError, RuntimeError) as exc:
+            raise ValueError(f"missing test-quality source: {name!r}") from exc
+        if not resolved.is_relative_to(tests_root) or not resolved.is_file() or source.is_symlink():
+            raise ValueError(f"test-quality source escapes or is not a regular file: {name!r}")
+        selected.add(name)
+    return tuple(sorted(selected))
+
+
+def profile_provenance(profile: str, selected: Sequence[str]) -> dict[str, object]:
+    """Expose selected targets and locked tool configuration; never a PASS receipt."""
+    from select_lock import selected_lock
+
+    root = Path(__file__).resolve().parents[1]
+    lock = selected_lock()
+    config = root / "pyproject.toml"
+    try:
+        ruff_version = version("ruff")
+    except PackageNotFoundError:
+        ruff_version = "unavailable"
+    return {
+        "profile": profile,
+        "targets": list(selected),
+        "ruffVersion": ruff_version,
+        "configPath": config.name,
+        "configSha256": hashlib.sha256(config.read_bytes()).hexdigest(),
+        "lockPath": lock.name,
+        "lockSha256": hashlib.sha256(lock.read_bytes()).hexdigest(),
+        "evidence": "diagnostic configuration only; no lint PASS implied",
+    }
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("target", choices=tuple(TARGETS))
+    parser.add_argument("--changed-test", action="append", default=[], metavar="PATH")
+    parser.add_argument("--provenance", action="store_true")
     args = parser.parse_args(argv)
-    print(render_target(args.target))
+    if args.changed_test and args.target != "test-quality":
+        parser.error("--changed-test requires test-quality")
+    try:
+        selected = select_test_quality_files(args.changed_test) if args.target == "test-quality" else TARGETS[args.target]
+    except ValueError as exc:
+        parser.error(str(exc))
+    if args.provenance:
+        if args.target not in {"quality", "test-quality"}:
+            parser.error("--provenance requires a Ruff profile")
+        print(json.dumps(profile_provenance(args.target, selected), sort_keys=True))
+    else:
+        print(" ".join(selected) if args.target == "test-quality" else render_target(args.target))
     return 0
 
 
