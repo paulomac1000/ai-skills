@@ -207,7 +207,6 @@ def render_target(name: str) -> str:
     return ",".join(values) if name == "policy-coverage" else " ".join(values)
 
 
-
 def select_test_quality_files(changed_tests: Sequence[str]) -> tuple[str, ...]:
     """Select existing test Python files without traversal, symlinks, or shell-unsafe paths."""
     if not changed_tests:
@@ -271,11 +270,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.changed_test and args.target != "test-quality":
         parser.error("--changed-test requires test-quality")
     try:
-        selected = (
-            select_test_quality_files(args.changed_test)
-            if args.target == "test-quality"
-            else TARGETS[args.target]
-        )
+        if args.target == "test-quality":
+            selected = select_test_quality_files(args.changed_test)
+        else:
+            selected = TARGETS[args.target]
     except ValueError as exc:
         parser.error(str(exc))
     if args.provenance:
