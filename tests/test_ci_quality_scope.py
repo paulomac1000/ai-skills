@@ -176,6 +176,8 @@ def test_ruff_violation_in_test_is_excluded_from_production_but_detected_when_se
     )
     assert result.returncode == 1
     assert "F401" in result.stdout
+    # Exercise the documented no-shell execution route against the same selected violation.
+    assert targets.main(["test-quality", "--changed-test", "tests/test_bad_ruff.py", "--ruff-check"]) == 1
 
 
 
@@ -212,6 +214,60 @@ def test_optional_test_quality_rejects_symlinks_in_any_component(kind: str, tmp_
     if kind == "root":
         with pytest.raises(ValueError, match="test-quality"):
             targets.select_test_quality_files([])
+
+
+
+def test_test_quality_rejected_selection_never_launches_ruff(monkeypatch) -> None:
+    """A failed selection cannot become an empty-argument Ruff invocation."""
+    targets = load_targets()
+    invocations: list[object] = []
+
+    def fake_run(*args, **kwargs):
+        invocations.append((args, kwargs))
+        raise AssertionError("Ruff must not be invoked for invalid targets")
+
+    monkeypatch.setattr(targets.subprocess, "run", fake_run)
+    with pytest.raises(SystemExit) as error:
+        targets.main(["test-quality", "--changed-test", "tests/does-not-exist-170.py", "--ruff-check"])
+    assert error.value.code == 2
+    assert invocations == []
+
+
+def test_test_quality_ruff_direct_invocation_uses_exact_selection_and_propagates_failure(monkeypatch) -> None:
+    """Run only the selected paths and preserve the tool's actual return code."""
+    targets = load_targets()
+    invocations: list[tuple[object, object]] = []
+
+    def fake_run(command, **kwargs):
+        invocations.append((command, kwargs))
+        return subprocess.CompletedProcess(command, 1)
+
+    monkeypatch.setattr(targets.subprocess, "run", fake_run)
+    assert targets.main([
+        "test-quality",
+        "--changed-test", "tests/test_ci_scripts.py",
+        "--changed-test", "tests/test_ci_quality_scope.py",
+        "--ruff-check",
+    ]) == 1
+    assert len(invocations) == 1
+    command, kwargs = invocations[0]
+    assert command == [
+        sys.executable, "-m", "ruff", "check",
+        "tests/test_ci_quality_scope.py", "tests/test_ci_scripts.py",
+    ]
+    assert kwargs == {"cwd": ROOT, "check": False, "timeout": 900}
+
+
+@pytest.mark.parametrize("argv", [
+    ["quality", "--ruff-check"],
+    ["typing", "--ruff-check"],
+    ["test-quality", "--ruff-check", "--provenance"],
+])
+def test_test_quality_run_mode_does_not_widen_other_profiles(argv: list[str]) -> None:
+    targets = load_targets()
+    with pytest.raises(SystemExit) as error:
+        targets.main(argv)
+    assert error.value.code == 2
 
 
 def test_test_quality_provenance_is_diagnostic_not_gate_claim() -> None:

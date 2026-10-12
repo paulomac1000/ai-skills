@@ -8,7 +8,7 @@
 
 ### Changed
 
-- Documented required production-only Ruff/mypy source selection and a separately authorized test-lint promotion path. Existing required local and hosted CI quality gates remain unchanged.
+- Documented required production-only Ruff/mypy source selection and a separately authorized test-lint promotion path. Optional `--ruff-check` runs only validated test targets and propagates selection/tool failures without unguarded shell expansion; required local and hosted CI gates remain unchanged.
 ## 3.23.2 - 2026-10-10
 
 ### Fixed

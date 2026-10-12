@@ -7,6 +7,8 @@ import argparse
 import hashlib
 import json
 import re
+import subprocess
+import sys
 from collections.abc import Sequence
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
@@ -275,7 +277,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("target", choices=tuple(TARGETS))
     parser.add_argument("--changed-test", action="append", default=[], metavar="PATH")
     parser.add_argument("--provenance", action="store_true")
+    parser.add_argument("--ruff-check", action="store_true", help="Run Ruff directly on the validated test targets")
     args = parser.parse_args(argv)
+    if args.ruff_check and (args.target != "test-quality" or args.provenance):
+        parser.error("--ruff-check requires test-quality and cannot be combined with --provenance")
     if args.changed_test and args.target != "test-quality":
         parser.error("--changed-test requires test-quality")
     try:
@@ -285,6 +290,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             selected = TARGETS[args.target]
     except ValueError as exc:
         parser.error(str(exc))
+    if args.ruff_check:
+        return subprocess.run(
+            [sys.executable, "-m", "ruff", "check", *selected],
+            cwd=Path(__file__).resolve().parents[1],
+            check=False,
+            timeout=900,
+        ).returncode
     if args.provenance:
         if args.target not in {"quality", "test-quality"}:
             parser.error("--provenance requires a Ruff profile")

@@ -71,11 +71,11 @@ Baseline `main@7d05673bca54b78daebcd6347f313463cbfdc6dd`: the repository's `QUAL
 From the **locked** development environment, use:
 
 ```bash
-python -m ruff check $(python scripts/quality_targets.py test-quality --changed-test tests/test_ci_quality_scope.py)
+python scripts/quality_targets.py test-quality --changed-test tests/test_ci_quality_scope.py --ruff-check
 python scripts/quality_targets.py test-quality --changed-test tests/test_ci_quality_scope.py --provenance
 ```
 
-Omit `--changed-test` for all `tests/`; existing diagnostics may remain. `--provenance` records selected targets, Ruff version, config and selected-lock SHA-256 and is **not** a lint PASS receipt. Before requiring the new profile in CI, inventory all test-source diagnostics once, repair coherent batches, and obtain a separate policy-owner decision (no blanket ignores). Test-source Ruff errors absent from `QUALITY_PATHS` are `NOT_IN_GATE_SCOPE`, not a toolchain mismatch. #122 governs environment/receipt identity; #131 governs scheduling.
+The `--ruff-check` mode runs Ruff directly with validated arguments and preserves the exit code. If selection is invalid or missing, it fails before starting Ruff; do not use unchecked shell command substitution (which can expand an empty selection into a whole-directory lint). Omit `--changed-test` for all `tests/`; existing diagnostics may remain. `--provenance` records selected targets, Ruff version, config and selected-lock SHA-256 and is **not** a lint PASS receipt. Before requiring the new profile in CI, inventory all test-source diagnostics once, repair coherent batches, and obtain a separate policy-owner decision (no blanket ignores). Test-source Ruff errors absent from `QUALITY_PATHS` are `NOT_IN_GATE_SCOPE`, not a toolchain mismatch. #122 governs environment/receipt identity; #131 governs scheduling.
 
 ## .NET profile
 
