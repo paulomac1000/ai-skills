@@ -1,5 +1,14 @@
 # Changelog
 
+## 3.24.0 - 2026-10-13
+
+### Added
+
+- Added an opt-in Ruff `test-quality` profile for deterministic changed-test source selection with bounded configuration/toolchain/lock provenance.
+
+### Changed
+
+- Documented required production-only Ruff/mypy source selection and a separately authorized test-lint promotion path. Optional `--ruff-check` runs only validated test targets and propagates selection/tool failures without unguarded shell expansion; required local and hosted CI gates remain unchanged.
 ## 3.23.2 - 2026-10-10
 
 ### Fixed

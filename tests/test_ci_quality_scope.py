@@ -4,8 +4,12 @@ from __future__ import annotations
 
 import fnmatch
 import importlib.util
+import json
+import subprocess
 import sys
 import tomllib
+
+import pytest
 from pathlib import Path
 from typing import Any
 
@@ -117,3 +121,172 @@ def test_target_cli_is_deterministic(capsys) -> None:
     targets = load_targets()
     assert targets.main(["quality"]) == 0
     assert capsys.readouterr().out.strip() == " ".join(targets.QUALITY_PATHS)
+
+
+def test_optional_test_quality_is_disjoint_from_required_production_scope() -> None:
+    targets = load_targets()
+    test_path = "tests/test_ci_quality_scope.py"
+    assert targets.TEST_QUALITY_PATHS == ("tests",)
+    assert not _inventory_covers(test_path, targets.QUALITY_PATHS)
+    assert _inventory_covers(test_path, targets.TEST_QUALITY_PATHS)
+    assert "tests" not in targets.TYPE_PATHS
+    assert targets.render_target("test-quality") == "tests"
+
+
+def test_changed_test_quality_files_are_sorted_and_deduplicated() -> None:
+    targets = load_targets()
+    assert targets.select_test_quality_files(["tests/test_ci_scripts.py", "tests/test_ci_quality_scope.py", "tests/test_ci_scripts.py"]) == (
+        "tests/test_ci_quality_scope.py",
+        "tests/test_ci_scripts.py",
+    )
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "../tests/test_ci_scripts.py", "/tmp/test_ci_scripts.py", "tests/../contracts/evidence.py",
+        "tests//test_ci_scripts.py", "tests/./test_ci_scripts.py", "tests\\test_ci_scripts.py",
+        "tests/test_ci_scripts.py;echo", "tests/test_missing_170.py", "contracts/evidence.py",
+    ],
+)
+def test_test_quality_rejects_escaping_or_missing_sources(path: str) -> None:
+    with pytest.raises(ValueError, match="test-quality"):
+        load_targets().select_test_quality_files([path])
+
+
+def test_ruff_violation_in_test_is_excluded_from_production_but_detected_when_selected(
+    monkeypatch, tmp_path: Path, capsys
+) -> None:
+    if importlib.util.find_spec("ruff") is None:
+        pytest.skip("Ruff is not installed in this synthetic environment")
+    targets = load_targets()
+    (tmp_path / "tests").mkdir()
+    probe = tmp_path / "tests/test_bad_ruff.py"
+    probe.write_text("import os\n\ndef test_example():\n    assert True\n", encoding="utf-8")
+    monkeypatch.setattr(targets, "__file__", str(tmp_path / "scripts/quality_targets.py"))
+    assert targets.main(["quality"]) == 0
+    prod_paths = capsys.readouterr().out.split()
+    assert "tests/test_bad_ruff.py" not in prod_paths
+    assert targets.main(["test-quality", "--changed-test", "tests/test_bad_ruff.py"]) == 0
+    selected_paths = capsys.readouterr().out.split()
+    assert selected_paths == ["tests/test_bad_ruff.py"]
+    result = subprocess.run(
+        [sys.executable, "-m", "ruff", "check", "--config", str(ROOT / "pyproject.toml"), str(tmp_path / selected_paths[0])],
+        capture_output=True, text=True, check=False, timeout=30,
+    )
+    assert result.returncode == 1
+    assert "F401" in result.stdout
+    # Exercise the documented no-shell execution route against the same selected violation.
+    assert targets.main(["test-quality", "--changed-test", "tests/test_bad_ruff.py", "--ruff-check"]) == 1
+
+
+
+@pytest.mark.parametrize("kind", ["root", "intermediate", "file"])
+def test_optional_test_quality_rejects_symlinks_in_any_component(kind: str, tmp_path: Path, monkeypatch) -> None:
+    targets = load_targets()
+    checkout = tmp_path / "checkout"
+    (checkout / "scripts").mkdir(parents=True)
+    external = tmp_path / "external"
+    external.mkdir()
+    (external / "test_bad.py").write_text("pass\\n", encoding="utf-8")
+    tests = checkout / "tests"
+    if kind == "root":
+        link = tests
+        target = external
+        selected = "tests/test_bad.py"
+    elif kind == "intermediate":
+        tests.mkdir()
+        link = tests / "nested"
+        target = external
+        selected = "tests/nested/test_bad.py"
+    else:
+        tests.mkdir()
+        link = tests / "test_bad.py"
+        target = external / "test_bad.py"
+        selected = "tests/test_bad.py"
+    try:
+        link.symlink_to(target, target_is_directory=kind != "file")
+    except (NotImplementedError, OSError) as error:
+        pytest.skip(f"Filesystem cannot create symlink: {error}")
+    monkeypatch.setattr(targets, "__file__", str(checkout / "scripts/quality_targets.py"))
+    with pytest.raises(ValueError, match="test-quality"):
+        targets.select_test_quality_files([selected])
+    if kind == "root":
+        with pytest.raises(ValueError, match="test-quality"):
+            targets.select_test_quality_files([])
+
+
+
+def test_test_quality_rejected_selection_never_launches_ruff(monkeypatch) -> None:
+    """A failed selection cannot become an empty-argument Ruff invocation."""
+    targets = load_targets()
+    invocations: list[object] = []
+
+    def fake_run(*args, **kwargs):
+        invocations.append((args, kwargs))
+        raise AssertionError("Ruff must not be invoked for invalid targets")
+
+    monkeypatch.setattr(targets.subprocess, "run", fake_run)
+    with pytest.raises(SystemExit) as error:
+        targets.main(["test-quality", "--changed-test", "tests/does-not-exist-170.py", "--ruff-check"])
+    assert error.value.code == 2
+    assert invocations == []
+
+
+def test_test_quality_ruff_direct_invocation_uses_exact_selection_and_propagates_failure(monkeypatch) -> None:
+    """Run only the selected paths and preserve the tool's actual return code."""
+    targets = load_targets()
+    invocations: list[tuple[object, object]] = []
+
+    def fake_run(command, **kwargs):
+        invocations.append((command, kwargs))
+        return subprocess.CompletedProcess(command, 1)
+
+    monkeypatch.setattr(targets.subprocess, "run", fake_run)
+    assert targets.main([
+        "test-quality",
+        "--changed-test", "tests/test_ci_scripts.py",
+        "--changed-test", "tests/test_ci_quality_scope.py",
+        "--ruff-check",
+    ]) == 1
+    assert len(invocations) == 1
+    command, kwargs = invocations[0]
+    assert command == [
+        sys.executable, "-m", "ruff", "check",
+        "tests/test_ci_quality_scope.py", "tests/test_ci_scripts.py",
+    ]
+    assert kwargs == {"cwd": ROOT, "check": False, "timeout": 900}
+
+
+@pytest.mark.parametrize("argv", [
+    ["quality", "--ruff-check"],
+    ["typing", "--ruff-check"],
+    ["test-quality", "--ruff-check", "--provenance"],
+])
+def test_test_quality_run_mode_does_not_widen_other_profiles(argv: list[str]) -> None:
+    targets = load_targets()
+    with pytest.raises(SystemExit) as error:
+        targets.main(argv)
+    assert error.value.code == 2
+
+
+def test_test_quality_provenance_is_diagnostic_not_gate_claim() -> None:
+    command = [
+        sys.executable, str(TARGETS_PATH), "test-quality", "--changed-test",
+        "tests/test_ci_quality_scope.py", "--provenance",
+    ]
+    result = subprocess.run(command, cwd=ROOT, check=True, text=True, capture_output=True, timeout=30)
+    metadata = json.loads(result.stdout)
+    assert metadata["profile"] == "test-quality"
+    assert metadata["targets"] == ["tests/test_ci_quality_scope.py"]
+    assert metadata["configPath"] == "pyproject.toml"
+    assert len(metadata["configSha256"]) == 64
+    assert metadata["lockPath"].endswith(".lock")
+    assert len(metadata["lockSha256"]) == 64
+    assert isinstance(metadata["ruffVersion"], str)
+    assert "no lint PASS" in metadata["evidence"]
+
+
+def test_test_quality_remains_optional_in_local_and_hosted_ci() -> None:
+    assert "test-quality" not in (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    assert "TEST_QUALITY_PATHS" not in (ROOT / "scripts/ci.py").read_text(encoding="utf-8")

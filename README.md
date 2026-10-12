@@ -2,7 +2,7 @@
 
 A production-oriented collection of reusable standards, implementation playbooks, executable policy helpers, and tested templates for AI-assisted software engineering.
 
-The current repository release is `3.23.2`. All bundled skills are published with `maturity: stable` and are intended for production adoption. Each skill declares its compatibility, dependencies, evidence lanes, and required entry points in `manifest.yaml`.
+The current repository release is `3.24.0`. All bundled skills are published with `maturity: stable` and are intended for production adoption. Each skill declares its compatibility, dependencies, evidence lanes, and required entry points in `manifest.yaml`.
 
 ## Included skills
 
@@ -75,7 +75,7 @@ py -3.12 -m venv .venv
 .venv\Scripts\python.exe scripts/ci.py
 ```
 
-The installer selects the committed platform lock, installs the complete transitive graph with hashes, and runs `pip check`. The validation command compiles sources, runs linting, formatting, typing, security and dependency checks, validates documentation and contracts, executes generator and exact-artifact tests, enforces critical-module branch coverage, and runs the complete non-container suite.
+The installer selects the committed platform lock, installs the complete transitive graph with hashes, and runs `pip check`. The validation command compiles sources, runs linting, formatting, typing, security and dependency checks, validates documentation and contracts, executes generator and exact-artifact tests, enforces critical-module branch coverage, and runs the complete non-container suite. Required Ruff and mypy checks target declared production/policy-critical sources, not `tests/` lint; optional changed-test Ruff diagnostics are documented in [local quality gates](skills/ci-cd-architect/references/local-quality-gates.md).
 
 ## Adoption and evidence
 

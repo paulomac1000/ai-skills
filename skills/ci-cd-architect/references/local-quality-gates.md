@@ -64,6 +64,19 @@ Prefer an explicit repository script such as `quality:staged` over embedding a l
 
 Use repository-owned Ruff, type-check, validator, and test configuration. Avoid downloading ad hoc versions on each hook invocation. Compile checks are useful but do not replace tests. The pre-push hook calls the same bounded runner used by CI.
 
+## Python test-source quality decision (#170)
+
+Baseline `main@7d05673bca54b78daebcd6347f313463cbfdc6dd`: the repository's `QUALITY_PATHS` and `TYPE_PATHS` explicitly select production/policy-critical Python, not `tests/` lint. Original exclusion intent is unknown. **Decision:** retain required GitHub Actions and local Ruff/mypy gates and expose an **optional** `test-quality` Ruff profile. A production lint PASS does not claim all-Python lint.
+
+From the **locked** development environment, use:
+
+```bash
+python scripts/quality_targets.py test-quality --changed-test tests/test_ci_quality_scope.py --ruff-check
+python scripts/quality_targets.py test-quality --changed-test tests/test_ci_quality_scope.py --provenance
+```
+
+The `--ruff-check` mode runs Ruff directly with validated arguments and preserves the exit code. If selection is invalid or missing, it fails before starting Ruff; do not use unchecked shell command substitution (which can expand an empty selection into a whole-directory lint). Omit `--changed-test` for all `tests/`; existing diagnostics may remain. `--provenance` records selected targets, Ruff version, config and selected-lock SHA-256 and is **not** a lint PASS receipt. Before requiring the new profile in CI, inventory all test-source diagnostics once, repair coherent batches, and obtain a separate policy-owner decision (no blanket ignores). Test-source Ruff errors absent from `QUALITY_PATHS` are `NOT_IN_GATE_SCOPE`, not a toolchain mismatch. #122 governs environment/receipt identity; #131 governs scheduling.
+
 ## .NET profile
 
 Use `dotnet format --verify-no-changes` and targeted tests on pre-push. Analyzer configuration belongs in `Directory.Build.props`, editorconfig, or project files. Avoid restoring every solution repeatedly when the hook framework can reuse the local SDK cache.
