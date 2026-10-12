@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 from collections.abc import Sequence
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
@@ -222,6 +223,7 @@ def select_test_quality_files(changed_tests: Sequence[str]) -> tuple[str, ...]:
             or not name.endswith(".py")
             or "\\" in name
             or ":" in name
+            or re.fullmatch(r"[A-Za-z0-9_./-]+", name) is None
             or any(not part or part in {".", ".."} for part in parts)
             or any(char.isspace() for char in name)
         ):
@@ -269,7 +271,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.changed_test and args.target != "test-quality":
         parser.error("--changed-test requires test-quality")
     try:
-        selected = select_test_quality_files(args.changed_test) if args.target == "test-quality" else TARGETS[args.target]
+        selected = (
+            select_test_quality_files(args.changed_test)
+            if args.target == "test-quality"
+            else TARGETS[args.target]
+        )
     except ValueError as exc:
         parser.error(str(exc))
     if args.provenance:
