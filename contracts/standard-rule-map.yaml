@@ -167,6 +167,7 @@ skills:
       trust-and-supply-chain: {rule_id: skill.trust.bounded, primary: true}
       behavioral-evaluation: {rule_id: skill.evaluation.separated, primary: true}
       observation-and-lifecycle: {rule_id: skill.lifecycle.observation-policy, primary: true}
+      semantic-preserving-refactoring: {rule_id: skill.refactor.preservation, primary: true}
       migration-and-deprecation: {rule_id: skill.migration.compatible, primary: true}
       definition-of-done: {rule_id: skill.completion.evidenced, primary: true}
       verification: {rule_id: skill.completion.evidenced}

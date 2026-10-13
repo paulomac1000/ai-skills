@@ -582,6 +582,9 @@ skills:
     - id: skill.lifecycle.observation-policy
       source: STANDARD.md#observation-and-lifecycle
       description: The lifecycle contract requires real routing, resource-loading, tool-use, efficiency, and failure observations to inform maintenance without turning runtime packages into incident archives.
+    - id: skill.refactor.preservation
+      source: STANDARD.md#semantic-preserving-refactoring
+      description: A bounded pinned old-to-new ledger preserves critical behavior and pre-action routes; structural proof is distinct from model equivalence.
     - id: skill.migration.compatible
       source: STANDARD.md#migration-and-deprecation
       description: Migration follows the normative delta, preserves compliant behavior, adds regression evidence, and bounds split or deprecation paths.

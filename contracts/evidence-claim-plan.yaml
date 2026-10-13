@@ -878,6 +878,13 @@ profiles:
     - repository-junit.xml
     execution_id: repository
   - kind: rule
+    subject: skill.refactor.preservation
+    selectors:
+    - '*test_skill_refactor_preservation*'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
     subject: skill.migration.compatible
     selectors:
     - '*test_skill_architect::test_skill_migration_contract_preserves_compliant_behavior'

@@ -67,3 +67,12 @@ Reduce real incidents to the smallest representative fixture before adding them
 to a shared eval corpus. Do not preserve credentials, private repository data,
 personal information, or unnecessary production payloads merely to make an eval
 look realistic.
+
+## Refactor verification identities
+
+Compare old and candidate SKILL.md/standard/manifest/corpus revisions on the same
+representative simple/advanced tasks, negative cases and nearby-skill collisions.
+Keep deterministic checks, model-backed outcomes and independent reviewer evidence
+as separate assertions. A static rule-ledger PASS does not claim that a model
+selected the right owner or obeyed a moved condition. If the runner was not used,
+record `BEHAVIOR_NOT_VERIFIED` and the missing exact-provider evidence explicitly.

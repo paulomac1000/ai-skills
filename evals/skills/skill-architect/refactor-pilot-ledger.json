@@ -1,0 +1,41 @@
+{
+  "candidate_revision": "issue-165-candidate-pending-final-sha",
+  "decisions": [
+    {
+      "id": "existing-skill-route",
+      "disposition": "PRESERVE",
+      "target_path": "SKILL.md",
+      "target_anchor": "For an existing skill refactor",
+      "negative_case": "not_skill_change",
+      "verification": "test_skill_refactor_preservation::test_preload_route_lost",
+      "pre_load_path": "SKILL.md",
+      "pre_load_trigger": "For an existing skill refactor"
+    },
+    {
+      "id": "migration-compatibility",
+      "disposition": "MOVE",
+      "target_path": "references/lifecycle-and-migration.md",
+      "target_anchor": "Keep compliant consumer-specific behavior",
+      "negative_case": "unauthorized_semantic_deletion",
+      "verification": "test_skill_refactor_preservation::test_omitted_authority_rule_fails_even_with_static_package",
+      "pre_load_path": "SKILL.md",
+      "pre_load_trigger": "before removing any rule"
+    },
+    {
+      "id": "observed-maintenance",
+      "disposition": "PRESERVE",
+      "target_path": "references/lifecycle-and-migration.md",
+      "target_anchor": "Inspect representative runs",
+      "negative_case": "unobserved_speedup",
+      "verification": "test_skill_refactor_preservation::test_structural_green_does_not_claim_model_equivalence"
+    },
+    {
+      "id": "deprecation-boundary",
+      "disposition": "PRESERVE",
+      "target_path": "references/lifecycle-and-migration.md",
+      "target_anchor": "notice window, and removal condition",
+      "negative_case": "parallel_current_owner",
+      "verification": "test_skill_refactor_preservation::test_independent_profiles_not_forcibly_merged"
+    }
+  ]
+}

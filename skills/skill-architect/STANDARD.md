@@ -237,6 +237,34 @@ capability-uplift skill may become unnecessary as base models improve; simplify
 or deprecate it when the claimed uplift disappears rather than preserving
 obsolete instructions.
 
+## Semantic-preserving refactoring
+
+Before deleting or moving an existing skill rule, pin the original skill, manifest,
+standard, routing description and evaluation revision. Build a **bounded preservation
+ledger** for load-bearing triggers, permissions, safety stops, exceptions, recovery,
+evidence, negative cases and completion rules. Every item MUST have one disposition:
+PRESERVE, MOVE, DEDUPLICATE, REPLACE_BY_CANONICAL_OWNER or REMOVE_WITH_REASON.
+Critical rules MUST NOT be removed to satisfy a compression target; removal of a
+required behavior needs a separate explicit normative decision and behavioral evidence.
+For retained rules, the ledger MUST bind the old rule to a reachable canonical target,
+pre-load trigger when needed, positive/negative cases, and verification identity.
+A report alone is not authority to change a rule.
+
+A shortened SKILL.md MUST still expose action-critical triggers and safety conditions
+before the first governed action. Conditional routes MUST reach their real targets;
+canonical ownership and precedence MUST survive moves. Equivalent-looking prose is
+not proof of equivalent behavior. Genuine independently triggered profiles SHOULD
+remain separate when merging them adds unnecessary loads; duplicate policy with a
+single semantic owner SHOULD be consolidated. A bad example is corrected against the
+real supported interface, not asserted to work because its wording sounds plausible.
+
+Deterministic path, schema, ledger and package validation is separate from model-backed
+routing/behavioral observation. Without approved exact-version model-backed evidence,
+report `BEHAVIOR_NOT_VERIFIED`, never `BEHAVIOR_EQUIVALENT`. Record safety/correctness,
+routing errors, context-loaded tokens/reads, package size and human reviewability as
+distinct metrics; line counts or token savings NEVER override an invariant failure.
+Read `references/lifecycle-and-migration.md` for the operational procedure and pilot.
+
 ## Migration and deprecation
 
 Before migrating an existing skill, compare the old and target normative

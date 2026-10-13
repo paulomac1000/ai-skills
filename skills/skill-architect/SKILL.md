@@ -26,7 +26,7 @@ Read STANDARD.md before making normative decisions.
 7. For executable or externally sourced content, read references/portability-and-trust.md. When targeting generic Agent Skills hosts, also read references/upstream-agent-skills-compatibility.md; adapters are projections, not policy owners.
 8. Add routing and behavioral cases under evals/skills/<skill>/. Read references/behavioral-evaluation.md; compare against a no-skill baseline when capability uplift is the claim.
 9. Run tools/audit_skill.py <skill-dir> --repository-root . --strict and tools/validate_skill_evals.py evals/skills/<skill>.
-10. For an existing skill, read references/lifecycle-and-migration.md; change only the normative delta, preserve valid consumer behavior, and add regressions for real failures.
+10. For an existing skill refactor, split or migration, read references/lifecycle-and-migration.md **before removing any rule**; preserve activation, authorization, safety, exceptions, evidence, recovery and DoD through a bounded old→new preservation ledger. Structural PASS alone is BEHAVIOR_NOT_VERIFIED.
 11. Run the repository focused checks and full completion gate, then report the exact revision, checks executed, unverified behavioral claims, and residual routing or portability risks.
 
 ## Routing boundaries
