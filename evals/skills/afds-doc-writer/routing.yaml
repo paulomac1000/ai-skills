@@ -1,0 +1,24 @@
+schema_version: 1
+skill: afds-doc-writer
+suite: routing
+cases:
+- id: canonical-architecture-navigation-map
+  kind: positive
+  prompt: Create a compact canonical architecture navigation system document for this repository, mapping stable services to implementation, contracts, tests, operations and decisions. Do not change AGENTS.md.
+  selected_skills: [afds-doc-writer]
+  rejected_skills: [agents-md-architect]
+- id: repair-governed-document
+  kind: positive
+  prompt: Repair a governed system document that has stale canonical ownership links and missing verification metadata.
+  selected_skills: [afds-doc-writer]
+  rejected_skills: []
+- id: agents-only-route-near-miss
+  kind: negative
+  prompt: Update AGENTS.md to add a pre-discovery conditional route to an existing canonical architecture map; do not edit or author the map itself.
+  selected_skills: [agents-md-architect]
+  rejected_skills: [afds-doc-writer]
+- id: architecture-map-vs-agents-instructions
+  kind: collision
+  prompt: Produce an AFDS system architecture map for coding agents to discover the owning service, API contracts and tests before working. AGENTS.md already routes correctly and must not be modified.
+  selected_skills: [afds-doc-writer]
+  rejected_skills: [agents-md-architect]

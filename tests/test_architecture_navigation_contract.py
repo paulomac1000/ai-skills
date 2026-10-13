@@ -155,6 +155,33 @@ def test_navigation_regressions_project_into_all_affected_rule_claims() -> None:
         assert "*test_architecture_navigation_contract*" in claims[rule]["selectors"]
 
 
+def test_navigation_skill_routing_corpora_cover_positive_and_collision_cases() -> None:
+    validator_path = ROOT / "skills/skill-architect/tools/validate_skill_evals.py"
+    spec = importlib.util.spec_from_file_location("afds_navigation_eval_validator", validator_path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+
+    corpus = ROOT / "evals/skills/afds-doc-writer"
+    assert module.validate_path(corpus) == []
+    routing = yaml.safe_load((corpus / "routing.yaml").read_text(encoding="utf-8"))
+    cases = {item["id"]: item for item in routing["cases"]}
+    assert cases["canonical-architecture-navigation-map"]["selected_skills"] == ["afds-doc-writer"]
+    assert "agents-md-architect" in cases["architecture-map-vs-agents-instructions"]["rejected_skills"]
+    assert cases["agents-only-route-near-miss"]["selected_skills"] == ["agents-md-architect"]
+
+    neighbors = yaml.safe_load(
+        (ROOT / "evals/skills/agents-md-architect/routing.yaml").read_text(encoding="utf-8")
+    )
+    assert any(
+        c["kind"] == "negative" and "afds-doc-writer" in c["selected_skills"]
+        for c in neighbors["cases"]
+    )
+    description = (ROOT / "skills/afds-doc-writer/SKILL.md").read_text(encoding="utf-8")
+    assert "bounded architecture navigation maps" in description.split("---", 2)[1]
+
+
 def test_reachable_route_scopes_large_repo_to_five_owners(large_repo: Path) -> None:
     instructions = (large_repo / "AGENTS.md").read_text(encoding="utf-8")
     assert ROUTE in instructions

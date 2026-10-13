@@ -1,11 +1,11 @@
 ---
 name: afds-doc-writer
-description: Create, repair, validate, and maintain evidence-based technical documentation with explicit ownership and verification.
+description: Create, repair, and validate evidence-based technical documentation, including bounded architecture navigation maps linking stable work units to canonical owners.
 ---
 
 # AFDS document writer
 
-Use this skill when documentation must become a durable operational asset rather than a narrative snapshot.
+Use this skill when documentation must become a durable operational asset rather than a narrative snapshot. When asked to create or repair an architecture/navigation map, author it as an optional AFDS `system` specialization through `references/type-playbooks.md`; `agents-md-architect` owns only the conditional route in AGENTS.md, not the map's architectural content.
 
 ## Workflow
 
