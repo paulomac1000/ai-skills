@@ -13,7 +13,7 @@ AmendmentLineage, AmendmentRejected = module.AmendmentLineage, module.AmendmentR
 
 
 def store(tmp_path):
-    return AmendmentLineage(tmp_path / 'lineage.db', lambda principal, lineage, op: principal == 'trusted')
+    return AmendmentLineage(tmp_path / 'lineage.db', lambda principal, lineage, op: ('host-policy' if lineage == 'l1' else 'policy') if principal == 'trusted' else None)
 
 
 def test_correction_supersession_and_retraction_preserve_audit(tmp_path):
@@ -80,3 +80,21 @@ def test_real_profile_schema_requires_authority_when_feature_enabled():
     assert not list(validator.iter_errors(profile))
     profile['amendment']['authority_policy_ref'] = ''
     assert list(validator.iter_errors(profile))
+
+
+def test_authority_reference_is_not_caller_issued(tmp_path):
+    obj = store(tmp_path)
+    with pytest.raises(AmendmentRejected, match='unauthorized'):
+        obj.create(lineage_id='l', record_id='r', payload={}, provenance={}, principal='trusted', authority_ref='forged-policy')
+    obj.create(lineage_id='l', record_id='r', payload={}, provenance={}, principal='trusted', authority_ref='policy')
+    with pytest.raises(AmendmentRejected, match='unauthorized'):
+        obj.amend(lineage_id='l', operation_id='a', record_id='r1', expected_revision=0, operation='correct', reason='fix', principal='trusted', authority_ref='forged-policy', payload={}, provenance={})
+
+
+def test_initial_record_is_one_atomic_transaction(tmp_path):
+    obj = store(tmp_path)
+    obj.db.execute("CREATE TRIGGER inject_failure BEFORE INSERT ON amendments BEGIN SELECT RAISE(ABORT, 'synthetic_failure'); END")
+    with pytest.raises(AmendmentRejected, match='create_persistence_conflict'):
+        obj.create(lineage_id='l', record_id='r', payload={}, provenance={}, principal='trusted', authority_ref='policy')
+    assert obj.db.execute("SELECT COUNT(*) FROM lineage").fetchone()[0] == 0
+    assert obj.db.execute("SELECT COUNT(*) FROM amendments").fetchone()[0] == 0

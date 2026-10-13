@@ -34,7 +34,7 @@ def _digest(value: object) -> str:
 class AmendmentLineage:
     """A single SQLite-backed linear history (one SQLite writer lock per database)."""
 
-    def __init__(self, path: str | Path, authorize: Callable[[str, str, str], bool]):
+    def __init__(self, path: str | Path, authorize: Callable[[str, str, str], str | None]):
         if not callable(authorize):
             raise ValueError("trusted_authority_callback_required")
         self.authorize = authorize
@@ -63,7 +63,9 @@ class AmendmentLineage:
         self.db.close()
 
     def _admit(self, principal: str, lineage_id: str, action: str, authority_ref: str) -> None:
-        if not principal or not authority_ref or not self.authorize(principal, lineage_id, action):
+        if (not isinstance(principal, str) or not principal
+                or not isinstance(authority_ref, str) or not authority_ref
+                or self.authorize(principal, lineage_id, action) != authority_ref):
             raise AmendmentRejected("unauthorized")
 
     def create(self, *, lineage_id: str, record_id: str, payload: Mapping[str, Any],
@@ -73,14 +75,17 @@ class AmendmentLineage:
             raise AmendmentRejected("invalid_initial_record")
         material = _json(dict(payload))
         source = _json(dict(provenance))
-        with self.db:
-            try:
-                self.db.execute("INSERT INTO lineage VALUES (?, 0, ?)", (lineage_id, record_id))
-                self.db.execute("INSERT INTO amendments VALUES (?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                                (lineage_id, "initial:" + record_id, _digest([material, source]), record_id,
-                                 None, "create", principal, authority_ref, "initial_record", material, source))
-            except sqlite3.IntegrityError as exc:
-                raise AmendmentRejected("lineage_already_exists") from exc
+        self.db.execute("BEGIN IMMEDIATE")
+        try:
+            self.db.execute("INSERT INTO lineage VALUES (?, 0, ?)", (lineage_id, record_id))
+            self.db.execute("INSERT INTO amendments VALUES (?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                            (lineage_id, "initial:" + record_id, _digest([material, source]), record_id,
+                             None, "create", principal, authority_ref, "initial_record", material, source))
+            self.db.execute("COMMIT")
+        except sqlite3.DatabaseError as exc:
+            if self.db.in_transaction:
+                self.db.execute("ROLLBACK")
+            raise AmendmentRejected("create_persistence_conflict") from exc
         return self.current(lineage_id)
 
     def current(self, lineage_id: str) -> dict[str, Any]:
@@ -101,7 +106,7 @@ class AmendmentLineage:
               principal: str, authority_ref: str, payload: Mapping[str, Any] | None = None,
               provenance: Mapping[str, Any] | None = None) -> dict[str, Any]:
         self._admit(principal, lineage_id, operation, authority_ref)
-        if operation not in {"correct", "retract", "supersede"} or not operation_id or not record_id or not reason.strip():
+        if operation not in {"correct", "retract", "supersede"} or not operation_id or not record_id or not isinstance(reason, str) or not reason.strip():
             raise AmendmentRejected("invalid_amendment")
         if type(expected_revision) is not int or expected_revision < 0:
             raise AmendmentRejected("invalid_expected_revision")
