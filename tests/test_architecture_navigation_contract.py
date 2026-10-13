@@ -137,6 +137,23 @@ def test_rule_catalog_map_points_to_one_normative_owner() -> None:
     }
 
 
+def test_navigation_regressions_project_into_all_affected_rule_claims() -> None:
+    claim_plan = yaml.safe_load((ROOT / "contracts/evidence-claim-plan.yaml").read_text(encoding="utf-8"))
+    claims = {
+        item["subject"]: item
+        for item in claim_plan["profiles"]["repository-rules"]
+        if item["kind"] == "rule"
+    }
+    for rule in (
+        "afds.system.navigation-bounded",
+        "agents.discovery.evidence",
+        "agents.ownership.boundaries",
+        "agents.context.routed",
+        "agents.context.trigger-safe",
+    ):
+        assert "*test_architecture_navigation_contract*" in claims[rule]["selectors"]
+
+
 def test_reachable_route_scopes_large_repo_to_five_owners(large_repo: Path) -> None:
     instructions = (large_repo / "AGENTS.md").read_text(encoding="utf-8")
     assert ROUTE in instructions
