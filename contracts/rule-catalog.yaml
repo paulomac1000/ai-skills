@@ -450,6 +450,9 @@ skills:
     - id: steward.cancellation.reconciled
       source: STANDARD.md#cancellation-and-external-wait-isolation
       description: Stateful cancellation has its own durable delivery and reconciliation semantics, while reconstructable external waits leave the primary worker lane.
+    - id: steward.external-pressure.bounded
+      source: STANDARD.md#external-execution-pressure-and-backpressure
+      description: Durable active and unresolved external pressure remains bounded after logical fencing; control capacity and restart recovery remain independent.
     - id: steward.evidence.provenance
       source: STANDARD.md#evidence-identity-and-authority
       description: Material evidence binds exact subject identity, producer, provenance, freshness, authority, and proof identity without promoting advisory claims.

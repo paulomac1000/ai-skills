@@ -66,3 +66,26 @@ Include deterministic tests for:
 - response is lost after dispatch and retry is requested with another credential;
 - restart with a recoverable remote handle resumes rather than submits again;
 - repeated status returns the same progress marker and does not advance semantic progress.
+
+## Durable unresolved external execution pressure
+
+Opt into `features.external_pressure_bounded` only for provider operations
+that can stay alive after local cancellation, supersession or a timeout.
+At reservation, count all operations not proven physically stopped against
+global and per-capability capacity. Fence former authority immediately;
+continue counting fenced running/unknown work against detached capacity.
+A provider that ignores cancellation is not evidence of remote termination.
+When detached threshold is reached, deny new expensive dispatch but keep
+deterministic local completion and a separately bounded control lane
+available for reconciliation and cancellation.
+
+Use independent authority, physical and reconciliation state machines.
+A late completion from a non-current generation cannot publish; a
+durably confirmed physical stop with reconciled result releases capacity.
+Persist operation pressure and limits as canonical state; a restart or
+service shutdown does not reset quotas or fabricate remote cancellation.
+Recover existing remote handles when the provider intentionally persists
+jobs across service lifetime. An unknown termination remains unresolved.
+The reference state machine in `tools/external_pressure.py` and the
+fake cancellation-insensitive provider tests illustrate accounting, not
+a new general scheduler, retry policy or circuit breaker.

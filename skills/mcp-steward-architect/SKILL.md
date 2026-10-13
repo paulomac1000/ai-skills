@@ -21,6 +21,7 @@ Before implementation produce a machine-readable Steward Design Pack covering:
 - semantic checkpoints: canonical artifact identity, exact dependency bindings, upstream checkpoint closure, generation fence, earliest safe resume and minimum recomputation;
 - proof catalog: claims, producers, authority/observation grade, binding, coverage, freshness, completion obligations;
 - every stateful external effect, including submit/cancel ambiguity, reconciliation, idempotency, affinity and handle recovery;
+- when external execution can outlive logical authority, optional durable active/detached pressure limits, separate control reserves and generation-fenced late results;
 - mutation state/effect and invariant-enforcement matrices;
 - deadline/budget algebra including reserve-before-start and deterministic finalization reserve;
 - persistence, disclosure, response, audit and provider projections; concurrency lanes; recovery equivalence; acceptance plan.
@@ -48,7 +49,7 @@ Gate results are typed outcomes such as `Admitted`, `LostAuthority`, `StaleCandi
 8. Commit operation identity/start intent and mutation decision before the first byte of stateful dispatch.
 9. Distinguish rejection, pre-dispatch failure, delivered, delivery-unknown, caller cancellation and cancellation-delivery-unknown; reconcile ambiguity before replay.
 10. Treat remote cancellation as its own stateful operation. Local `cancelled` never proves remote stop when the contract requires remote resolution.
-11. Preserve recoverable remote handles and move reconstructable external waits to a bounded maintenance/reconciliation lane rather than occupying the primary worker.
+11. Preserve recoverable remote handles and move reconstructable external waits to a bounded maintenance/reconciliation lane rather than occupying the primary worker. For cancellation-insensitive work, logical fencing never releases physical pressure; admission backpressure and reserved cancellation/reconciliation lanes remain active across restart.
 12. Make retries canonical-first: after dedupe/CAS/no-op, reload canonical persisted identity/output before any downstream decision.
 13. Bind verification/evidence to immutable `CandidateIdentity`; `verify(X)` may authorize only `publish(X)`.
 14. Promote evidence monotonically: incomplete binding/coverage, `unknown`, or `unobserved` cannot become stronger or complete-negative claims.

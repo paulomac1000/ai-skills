@@ -41,3 +41,12 @@ For transition failures, diagnostics should distinguish a real runtime failure f
 Normal logs contain IDs/digests/counts/sanitized summaries rather than secrets or full provider/model payloads. Large/raw diagnostic material belongs in a governed artifact store with explicit classification and retention.
 
 A disclosure denial should log only bounded policy/field classifications and references; never log the blocked private value merely to prove that redaction worked.
+
+## Pressure diagnostics
+
+For applicable external-pressure profiles, doctor returns bounded
+`active`, `detached_unresolved`, per-capability counts, control-lane
+utilization, backpressure state and closed reason codes. Metrics MUST NOT
+include credentials, remote operation handles, request/provider payloads
+or exception dumps. Monitor unknown termination and restart recovery
+separately from logical supersession or cancellation decisions.
