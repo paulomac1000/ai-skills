@@ -45,6 +45,7 @@ required:
   - tools/validate_steward.py
   - tools/persistent_context.py
   - tools/integration_lease.py
+  - tools/amendment_lineage.py
   - tools/generate_steward.py
 categories: [core, references, templates, tools]
 applicability:
@@ -64,6 +65,7 @@ applicability:
     - proof_producers
     - runtime_binding_required
     - exact_candidate_binding
+    - amendable_facts
 adoption:
   template: contracts/adoption-assessment.yaml.template
   validator: contracts/validate_adoption.py
