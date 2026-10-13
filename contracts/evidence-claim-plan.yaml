@@ -83,6 +83,7 @@ profiles:
     subject: agents.scope.precedence
     selectors:
     - '*test_agents_md*'
+    - '*test_architecture_navigation_contract*'
     result_files:
     - repository-junit.xml
     execution_id: repository

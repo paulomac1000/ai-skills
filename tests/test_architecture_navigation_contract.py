@@ -146,6 +146,7 @@ def test_navigation_regressions_project_into_all_affected_rule_claims() -> None:
     }
     for rule in (
         "afds.system.navigation-bounded",
+        "agents.scope.precedence",
         "agents.discovery.evidence",
         "agents.ownership.boundaries",
         "agents.context.routed",
@@ -193,6 +194,9 @@ def test_unrelated_task_does_not_eagerly_load_map(large_repo: Path) -> None:
     assert len(related) == 7
     assert len(related) < len(list(large_repo.rglob("*.py")))
     skill = (ROOT / "skills/agents-md-architect/SKILL.md").read_text(encoding="utf-8")
+    assert skill.index("Read `references/instruction-precedence-and-platforms.md`") < skill.index(
+        "Before running broad repository discovery"
+    )
     assert skill.index("Before running broad repository discovery") < skill.index(
         "Run `tools/discover_repository.py`"
     )
