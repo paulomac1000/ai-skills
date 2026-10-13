@@ -1,5 +1,19 @@
 # Changelog
 
+## 3.26.0 - 2026-10-14
+
+### Added
+
+- A fail-conservative skill refactoring contract with bounded preservation-ledger checks, explicit before-action route validation and synthetic six-class regressions.
+
+### Changed
+
+- The skill-architect migration playbook now separates structural acceptance, model-backed behavior, context cost and independently activated profiles. The pilot preserves existing lifecycle behavior while shortening redundant guidance.
+
+### Known limitations
+
+- Deterministic preservation checking does not establish model-backed behavior equivalence; evidence without an approved model run remains BEHAVIOR_NOT_VERIFIED.
+
 ## 3.25.0 - 2026-10-13
 
 ### Added
