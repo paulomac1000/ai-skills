@@ -196,6 +196,21 @@ def test_stale_owner_and_unreachable_trigger_rejected(large_repo: Path) -> None:
     assert "routing.trigger-unreachable" in {x.code for x in findings}
 
 
+
+def test_navigation_playbook_examples_link_real_canonical_file_owners() -> None:
+    playbook = ROOT / "skills/afds-doc-writer/references/type-playbooks.md"
+    source = playbook.read_text(encoding="utf-8")
+    row = next((line for line in source.splitlines() if line.startswith("| AFDS document validation |")), None)
+    assert row is not None
+    assert "not applicable (no standalone ADR" in row
+    links = re.findall(r"\[[^]]+\]\(([^)]+)\)", row)
+    assert len(links) == 4
+    for href in links:
+        assert not href.startswith("/")
+        owner = (playbook.parent / href).resolve(strict=True)
+        assert owner.is_relative_to(ROOT)
+        assert owner.is_file()
+
 def test_no_mandatory_layout_or_runtime_snapshot() -> None:
     standard = (ROOT / "skills/afds-doc-writer/STANDARD.md").read_text(encoding="utf-8")
     assert "MAY maintain one bounded, canonical architecture navigation map" in standard

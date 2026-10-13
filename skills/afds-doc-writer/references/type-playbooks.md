@@ -25,13 +25,13 @@ Describe responsibility, boundaries, components, data and control flows, state o
 
 ### Architecture navigation map (optional system specialization)
 
-Use a small table of stable, repository-selected units only when repeated wide scans are costly. For example:
+Use a small table of stable, repository-selected units only when repeated wide scans are costly. This real `ai-skills` example links to canonical owner files relative to this playbook:
 
 | Unit | Implementation | Contracts | Tests | Operations | Decisions |
 | --- | --- | --- | --- | --- | --- |
-| Payments | `src/payments/` | `contracts/payments/` | `tests/payments/` | `docs/operations/payments.md` | `docs/decisions/payment-routing.md` |
+| AFDS document validation | [validator](../validate.py) | [frontmatter schema](../../../contracts/afds-frontmatter.schema.json) | [validator tests](../../../tests/test_afds_validator.py) | [lifecycle playbook](lifecycle-and-impact.md) | not applicable (no standalone ADR for this unit) |
 
-These paths illustrate a possible layout, not a requirement. A real map verifies each linked path and names non-obvious dependencies/owners at the assessed revision; omit non-applicable categories with rationale. A flat file inventory, copied contract or live system-state dump lacks navigation ownership value. Keep the map behind a reachable, conditional pre-discovery route so unrelated tasks do not load it.
+The work-unit name and file layout are examples, not prescriptions. A real map verifies each linked file and names non-obvious dependencies/owners at the assessed revision; omit non-applicable categories with rationale. A flat file inventory, copied contract or live system-state dump lacks navigation ownership value. Keep the map behind a reachable, conditional pre-discovery route so unrelated tasks do not load it.
 
 ## Guide
 
