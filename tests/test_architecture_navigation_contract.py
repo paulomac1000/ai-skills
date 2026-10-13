@@ -168,6 +168,12 @@ def test_unrelated_task_does_not_eagerly_load_map(large_repo: Path) -> None:
     assert skill.index("Before running broad repository discovery") < skill.index(
         "Run `tools/discover_repository.py`"
     )
+    assert "only when no route applies or those owners do not answer the task" in skill
+    assert "inspect broader repository evidence only for gaps" in skill
+    reference = (ROOT / "skills/agents-md-architect/references/repository-discovery.md").read_text(
+        encoding="utf-8"
+    )
+    assert "When those owners answer the task, do not run the wider discovery sequence" in reference
 
 
 def test_owner_free_inventory_is_invalid(large_repo: Path) -> None:
