@@ -6,6 +6,7 @@ Durable SQLite rows remain pressure-bearing until physical resolution is proven.
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -16,10 +17,14 @@ class PressureRejected(ValueError):
 
 class ExternalPressure:
     def __init__(self, path: str | Path, *, global_limit: int, detached_limit: int,
-                 per_capability_limit: int, cancellation_reserve: int, reconciliation_reserve: int):
+                 per_capability_limit: int, cancellation_reserve: int, reconciliation_reserve: int,
+                 verify_termination: Callable[[str], bool]):
         limits = (global_limit, detached_limit, per_capability_limit, cancellation_reserve, reconciliation_reserve)
         if any(type(n) is not int or n < 1 for n in limits):
             raise ValueError("positive_integer_limits_required")
+        if not callable(verify_termination):
+            raise ValueError("trusted_provider_termination_verifier_required")
+        self.verify_termination = verify_termination
         self.global_limit, self.detached_limit, self.per_capability_limit = limits[:3]
         self.reserves = {"cancel": cancellation_reserve, "reconcile": reconciliation_reserve}
         self.db = sqlite3.connect(str(path), isolation_level=None, timeout=5)
@@ -139,6 +144,8 @@ class ExternalPressure:
     def observe(self, operation_id: str, physical: str, *, reconciled: bool) -> None:
         if physical not in {"running", "unknown", "stopped"}:
             raise PressureRejected("invalid_physical_observation")
+        if physical == "stopped" and (not reconciled or not self.verify_termination(operation_id)):
+            raise PressureRejected("termination_proof_required")
         self.db.execute("BEGIN IMMEDIATE")
         try:
             row = self.db.execute("SELECT physical, authority FROM pressure_operations WHERE operation_id=?",
@@ -147,8 +154,6 @@ class ExternalPressure:
                 raise PressureRejected("unknown_operation")
             if row[0] == "stopped" and physical != "stopped":
                 raise PressureRejected("cannot_revive_terminated_operation")
-            if physical == "stopped" and not reconciled:
-                raise PressureRejected("termination_proof_required")
             status = "resolved" if physical == "stopped" else ("required" if row[1] == "fenced" else "none")
             self.db.execute("UPDATE pressure_operations SET physical=?, reconciliation=? WHERE operation_id=?",
                             (physical, status, operation_id))

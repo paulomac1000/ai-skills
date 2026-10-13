@@ -12,9 +12,9 @@ spec.loader.exec_module(module)
 ExternalPressure, PressureRejected = module.ExternalPressure, module.PressureRejected
 
 
-def manager(path):
+def manager(path, terminated):
     return ExternalPressure(path, global_limit=4, detached_limit=2, per_capability_limit=4,
-                            cancellation_reserve=1, reconciliation_reserve=1)
+                            cancellation_reserve=1, reconciliation_reserve=1, verify_termination=lambda op: op in terminated)
 
 
 class IgnoresCancel:
@@ -31,7 +31,8 @@ class IgnoresCancel:
 
 def test_detached_pressure_survives_cancel_shutdown_and_restart(tmp_path):
     path = tmp_path / 'state.db'
-    mgr = manager(path)
+    terminated = set()
+    mgr = manager(path, terminated)
     remote = IgnoresCancel()
     for i in range(2):
         name = f'op{i}'
@@ -49,7 +50,7 @@ def test_detached_pressure_survives_cancel_shutdown_and_restart(tmp_path):
     with pytest.raises(PressureRejected, match='saturated'):
         mgr.acquire_control('cancel-2', 'op1', 'cancel')
     mgr.close()
-    mgr = manager(path)
+    mgr = manager(path, terminated)
     assert mgr.doctor()['detached_unresolved'] == 2
     assert mgr.doctor()['control_active'] == {'cancel': 1, 'reconcile': 1}
     mgr.observe('op0', 'unknown', reconciled=False)
@@ -57,6 +58,7 @@ def test_detached_pressure_survives_cancel_shutdown_and_restart(tmp_path):
         mgr.observe('op0', 'stopped', reconciled=False)
     with pytest.raises(PressureRejected, match='backpressure'):
         mgr.dispatch('new', 'provider-a', 2)
+    terminated.add('op0')
     mgr.observe('op0', 'stopped', reconciled=True)
     mgr.release_control('cancel-1')
     mgr.dispatch('new', 'provider-a', 2)
@@ -66,8 +68,9 @@ def test_detached_pressure_survives_cancel_shutdown_and_restart(tmp_path):
 
 
 def test_global_and_capability_limits(tmp_path):
+    terminated = {'a'}
     m = ExternalPressure(tmp_path/'other.db', global_limit=2, detached_limit=2, per_capability_limit=1,
-                         cancellation_reserve=1, reconciliation_reserve=1)
+                         cancellation_reserve=1, reconciliation_reserve=1, verify_termination=lambda op: op in terminated)
     m.dispatch('a', 'x', 1)
     with pytest.raises(PressureRejected):
         m.dispatch('b', 'x', 1)
@@ -78,7 +81,7 @@ def test_global_and_capability_limits(tmp_path):
     m.dispatch('c', 'z', 1)
     with pytest.raises(PressureRejected, match='durable_capacity_policy_mismatch'):
         ExternalPressure(tmp_path/'other.db', global_limit=99, detached_limit=2, per_capability_limit=1,
-                         cancellation_reserve=1, reconciliation_reserve=1)
+                         cancellation_reserve=1, reconciliation_reserve=1, verify_termination=lambda op: op in terminated)
 
 
 def test_real_profile_schema_requires_control_reserve_when_feature_enabled():
@@ -99,3 +102,16 @@ def test_real_profile_schema_requires_control_reserve_when_feature_enabled():
     assert not list(validator.iter_errors(profile))
     profile['external_operations']['external_pressure']['reconciliation_reserve'] = 0
     assert list(validator.iter_errors(profile))
+
+
+def test_caller_boolean_cannot_claim_remote_termination(tmp_path):
+    terminated = set()
+    mgr = manager(tmp_path / 'proof.db', terminated)
+    mgr.dispatch('remote', 'provider-a', 1)
+    mgr.fence('remote', 'domain_cancel')
+    with pytest.raises(PressureRejected, match='termination_proof_required'):
+        mgr.observe('remote', 'stopped', reconciled=True)
+    assert mgr.doctor()['detached_unresolved'] == 1
+    terminated.add('remote')  # trusted provider reports physical stop
+    mgr.observe('remote', 'stopped', reconciled=True)
+    assert mgr.doctor()['active'] == 0
