@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import fnmatch
 import importlib.util
 import re
 import sys
@@ -154,6 +155,14 @@ def test_navigation_regressions_project_into_all_affected_rule_claims() -> None:
         "agents.context.trigger-safe",
     ):
         assert "*test_architecture_navigation_contract*" in claims[rule]["selectors"]
+
+    routing_selector = "*test_architecture_navigation_contract::test_navigation_skill_routing_corpora_cover_positive_and_collision_cases"
+    assert routing_selector in claims["skill.routing.contract"]["selectors"]
+    assert fnmatch.fnmatchcase(
+        "tests.test_architecture_navigation_contract::"
+        "test_navigation_skill_routing_corpora_cover_positive_and_collision_cases",
+        routing_selector,
+    )
 
 
 def test_navigation_skill_routing_corpora_cover_positive_and_collision_cases() -> None:
