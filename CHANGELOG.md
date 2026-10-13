@@ -1,5 +1,20 @@
 # Changelog
 
+## 3.26.0 - 2026-10-14
+
+### Added
+
+- Optional append-only correction, retraction, and supersession lineage for durable Steward evidence with trusted actor authority, linear CAS revisions, idempotent replay and history-preserving effective projections.
+- A deterministic SQLite reference implementation, fault-path regressions, and opt-in Steward Design Pack contract fields.
+
+### Changed
+
+- Dependent evidence and artifacts must re-evaluate after effective lineage identity changes; the historical audit remains intact.
+
+### Known limitations
+
+- Model and production-provider acceptance remain outside deterministic reference-fixture evidence.
+
 ## 3.25.0 - 2026-10-13
 
 ### Added
