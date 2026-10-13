@@ -3,6 +3,7 @@
 This is an admission/accounting state machine, not a scheduler or a provider API.
 Durable SQLite rows remain pressure-bearing until physical resolution is proven.
 """
+
 from __future__ import annotations
 
 import sqlite3
@@ -16,9 +17,17 @@ class PressureRejected(ValueError):
 
 
 class ExternalPressure:
-    def __init__(self, path: str | Path, *, global_limit: int, detached_limit: int,
-                 per_capability_limit: int, cancellation_reserve: int, reconciliation_reserve: int,
-                 verify_termination: Callable[[str], bool]):
+    def __init__(
+        self,
+        path: str | Path,
+        *,
+        global_limit: int,
+        detached_limit: int,
+        per_capability_limit: int,
+        cancellation_reserve: int,
+        reconciliation_reserve: int,
+        verify_termination: Callable[[str], bool],
+    ):
         limits = (global_limit, detached_limit, per_capability_limit, cancellation_reserve, reconciliation_reserve)
         if any(type(n) is not int or n < 1 for n in limits):
             raise ValueError("positive_integer_limits_required")
@@ -45,7 +54,9 @@ class ExternalPressure:
         # A caller cannot restart with higher limits and pretend prior admissions were below policy.
         self.db.execute("BEGIN IMMEDIATE")
         try:
-            self.db.execute("CREATE TABLE IF NOT EXISTS pressure_limits (slot INTEGER PRIMARY KEY CHECK(slot=1), caps TEXT NOT NULL)")
+            self.db.execute(
+                "CREATE TABLE IF NOT EXISTS pressure_limits (slot INTEGER PRIMARY KEY CHECK(slot=1), caps TEXT NOT NULL)"
+            )
             caps = ",".join(str(n) for n in limits)
             row = self.db.execute("SELECT caps FROM pressure_limits WHERE slot=1").fetchone()
             if row is None:
@@ -75,13 +86,17 @@ class ExternalPressure:
             if self.db.execute("SELECT 1 FROM pressure_operations WHERE operation_id=?", (operation_id,)).fetchone():
                 raise PressureRejected("operation_id_conflict")
             active, detached = self._counts()
-            occupied = self.db.execute("""SELECT COUNT(*) FROM pressure_operations
-                WHERE capability=? AND physical!='stopped'""", (capability,)).fetchone()[0]
-            if (active >= self.global_limit or detached >= self.detached_limit
-                    or occupied >= self.per_capability_limit):
+            occupied = self.db.execute(
+                """SELECT COUNT(*) FROM pressure_operations
+                WHERE capability=? AND physical!='stopped'""",
+                (capability,),
+            ).fetchone()[0]
+            if active >= self.global_limit or detached >= self.detached_limit or occupied >= self.per_capability_limit:
                 raise PressureRejected("external_admission_backpressure")
-            self.db.execute("INSERT INTO pressure_operations VALUES (?, ?, ?, 'current', 'running', 'none', 'admitted')",
-                            (operation_id, capability, generation))
+            self.db.execute(
+                "INSERT INTO pressure_operations VALUES (?, ?, ?, 'current', 'running', 'none', 'admitted')",
+                (operation_id, capability, generation),
+            )
             self.db.execute("COMMIT")
         except Exception:
             if self.db.in_transaction:
@@ -89,18 +104,28 @@ class ExternalPressure:
             raise
 
     def fence(self, operation_id: str, reason: str) -> None:
-        if reason not in {"superseded", "application_deadline", "transport_timeout", "domain_cancel", "service_shutdown"}:
+        if reason not in {
+            "superseded",
+            "application_deadline",
+            "transport_timeout",
+            "domain_cancel",
+            "service_shutdown",
+        }:
             raise PressureRejected("invalid_fence_reason")
         # shutdown is not a domain cancellation; physical status remains unchanged.
         self.db.execute("BEGIN IMMEDIATE")
         try:
-            row = self.db.execute("SELECT authority, physical FROM pressure_operations WHERE operation_id=?",
-                                  (operation_id,)).fetchone()
+            row = self.db.execute(
+                "SELECT authority, physical FROM pressure_operations WHERE operation_id=?", (operation_id,)
+            ).fetchone()
             if row is None:
                 raise PressureRejected("unknown_operation")
             if row[1] != "stopped":
-                self.db.execute("""UPDATE pressure_operations SET authority='fenced',
-                    reconciliation='required', reason=? WHERE operation_id=?""", (reason, operation_id))
+                self.db.execute(
+                    """UPDATE pressure_operations SET authority='fenced',
+                    reconciliation='required', reason=? WHERE operation_id=?""",
+                    (reason, operation_id),
+                )
             self.db.execute("COMMIT")
         except Exception:
             if self.db.in_transaction:
@@ -108,8 +133,9 @@ class ExternalPressure:
             raise
 
     def publish_allowed(self, operation_id: str, generation: int) -> bool:
-        row = self.db.execute("SELECT authority, physical, generation FROM pressure_operations WHERE operation_id=?",
-                              (operation_id,)).fetchone()
+        row = self.db.execute(
+            "SELECT authority, physical, generation FROM pressure_operations WHERE operation_id=?", (operation_id,)
+        ).fetchone()
         return bool(row and row[0] == "current" and row[1] == "running" and row[2] == generation)
 
     def acquire_control(self, control_id: str, operation_id: str, lane: str) -> None:
@@ -120,11 +146,14 @@ class ExternalPressure:
             op = self.db.execute("SELECT 1 FROM pressure_operations WHERE operation_id=?", (operation_id,)).fetchone()
             if op is None:
                 raise PressureRejected("unknown_operation")
-            current = self.db.execute("SELECT COUNT(*) FROM pressure_controls WHERE lane=? AND state='active'",
-                                      (lane,)).fetchone()[0]
+            current = self.db.execute(
+                "SELECT COUNT(*) FROM pressure_controls WHERE lane=? AND state='active'", (lane,)
+            ).fetchone()[0]
             if current >= self.reserves[lane]:
                 raise PressureRejected("control_lane_saturated")
-            self.db.execute("INSERT INTO pressure_controls VALUES (?, ?, ?, 'active')", (control_id, operation_id, lane))
+            self.db.execute(
+                "INSERT INTO pressure_controls VALUES (?, ?, ?, 'active')", (control_id, operation_id, lane)
+            )
             self.db.execute("COMMIT")
         except sqlite3.IntegrityError as exc:
             if self.db.in_transaction:
@@ -136,8 +165,9 @@ class ExternalPressure:
             raise
 
     def release_control(self, control_id: str) -> None:
-        changed = self.db.execute("UPDATE pressure_controls SET state='complete' WHERE control_id=? AND state='active'",
-                                  (control_id,)).rowcount
+        changed = self.db.execute(
+            "UPDATE pressure_controls SET state='complete' WHERE control_id=? AND state='active'", (control_id,)
+        ).rowcount
         if changed != 1:
             raise PressureRejected("control_not_active")
 
@@ -148,15 +178,18 @@ class ExternalPressure:
             raise PressureRejected("termination_proof_required")
         self.db.execute("BEGIN IMMEDIATE")
         try:
-            row = self.db.execute("SELECT physical, authority FROM pressure_operations WHERE operation_id=?",
-                                  (operation_id,)).fetchone()
+            row = self.db.execute(
+                "SELECT physical, authority FROM pressure_operations WHERE operation_id=?", (operation_id,)
+            ).fetchone()
             if row is None:
                 raise PressureRejected("unknown_operation")
             if row[0] == "stopped" and physical != "stopped":
                 raise PressureRejected("cannot_revive_terminated_operation")
             status = "resolved" if physical == "stopped" else ("required" if row[1] == "fenced" else "none")
-            self.db.execute("UPDATE pressure_operations SET physical=?, reconciliation=? WHERE operation_id=?",
-                            (physical, status, operation_id))
+            self.db.execute(
+                "UPDATE pressure_operations SET physical=?, reconciliation=? WHERE operation_id=?",
+                (physical, status, operation_id),
+            )
             self.db.execute("COMMIT")
         except Exception:
             if self.db.in_transaction:
@@ -165,8 +198,18 @@ class ExternalPressure:
 
     def doctor(self) -> dict[str, Any]:
         active, detached = self._counts()
-        control = {lane: self.db.execute("""SELECT COUNT(*) FROM pressure_controls
-            WHERE lane=? AND state='active'""", (lane,)).fetchone()[0] for lane in self.reserves}
-        return {"active": active, "detached_unresolved": detached, "control_active": control,
-                "admission_blocked": active >= self.global_limit or detached >= self.detached_limit,
-                "reason_codes": ["external_pressure_unresolved"] if detached else []}
+        control = {
+            lane: self.db.execute(
+                """SELECT COUNT(*) FROM pressure_controls
+            WHERE lane=? AND state='active'""",
+                (lane,),
+            ).fetchone()[0]
+            for lane in self.reserves
+        }
+        return {
+            "active": active,
+            "detached_unresolved": detached,
+            "control_active": control,
+            "admission_blocked": active >= self.global_limit or detached >= self.detached_limit,
+            "reason_codes": ["external_pressure_unresolved"] if detached else [],
+        }
