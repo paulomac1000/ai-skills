@@ -100,7 +100,7 @@ At minimum prove these recovery cases:
 ## Optional append-only evidence amendments
 
 Keep `lineageId`, `expectedRevision`, `operationId`, `recordId`,
-`predecessor`, trusted actor/authority reference, operation kind, reason and
+`predecessor`, host-injected authenticated actor and independently issued authority reference, operation kind, reason and
 immutable provenance in one transaction. A winning CAS appends exactly one entry
 and atomically advances the canonical lineage revision/head. An exact operation
 replay is idempotent; conflicting content and stale revisions fail closed.

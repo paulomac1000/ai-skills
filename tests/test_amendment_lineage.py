@@ -13,7 +13,8 @@ AmendmentLineage, AmendmentRejected = module.AmendmentLineage, module.AmendmentR
 
 
 def store(tmp_path):
-    return AmendmentLineage(tmp_path / 'lineage.db', lambda principal, lineage, op: ('host-policy' if lineage == 'l1' else 'policy') if principal == 'trusted' else None)
+    return AmendmentLineage(tmp_path / 'lineage.db', lambda principal, lineage, op: ('host-policy' if lineage == 'l1' else 'policy') if principal == 'trusted' else None,
+                            lambda: 'trusted')
 
 
 def test_correction_supersession_and_retraction_preserve_audit(tmp_path):
@@ -98,3 +99,12 @@ def test_initial_record_is_one_atomic_transaction(tmp_path):
         obj.create(lineage_id='l', record_id='r', payload={}, provenance={}, principal='trusted', authority_ref='policy')
     assert obj.db.execute("SELECT COUNT(*) FROM lineage").fetchone()[0] == 0
     assert obj.db.execute("SELECT COUNT(*) FROM amendments").fetchone()[0] == 0
+
+
+def test_principal_text_cannot_impersonate_trusted_identity(tmp_path):
+    path = tmp_path / 'identity.db'
+    evaluator = lambda principal, lineage, op: 'policy' if principal == 'trusted' else None
+    unprivileged = AmendmentLineage(path, evaluator, lambda: 'model')
+    with pytest.raises(AmendmentRejected, match='unauthorized'):
+        unprivileged.create(lineage_id='l', record_id='r0', payload={}, provenance={}, principal='trusted', authority_ref='policy')
+    assert unprivileged.db.execute('SELECT COUNT(*) FROM lineage').fetchone()[0] == 0

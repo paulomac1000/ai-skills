@@ -1,6 +1,6 @@
 """Deterministic, append-only reference contract for amendable Steward evidence.
 
-A trusted caller supplies `principal` and an independent authority callback.  Caller
+A trusted host injects authenticated principal and separate grant callbacks. Caller
 payloads may not grant their own amendment authority.  SQLite is the durable CAS
 boundary; downstream consumers bind to `effective_revision`.
 """
@@ -34,10 +34,12 @@ def _digest(value: object) -> str:
 class AmendmentLineage:
     """A single SQLite-backed linear history (one SQLite writer lock per database)."""
 
-    def __init__(self, path: str | Path, authorize: Callable[[str, str, str], str | None]):
-        if not callable(authorize):
-            raise ValueError("trusted_authority_callback_required")
+    def __init__(self, path: str | Path, authorize: Callable[[str, str, str], str | None],
+                 authenticated_principal: Callable[[], str]):
+        if not callable(authorize) or not callable(authenticated_principal):
+            raise ValueError("trusted_authority_and_identity_callbacks_required")
         self.authorize = authorize
+        self.authenticated_principal = authenticated_principal
         self.db = sqlite3.connect(str(path), isolation_level=None, timeout=5)
         self.db.execute("PRAGMA synchronous=FULL")
         self.db.execute("PRAGMA journal_mode=WAL")
@@ -65,6 +67,7 @@ class AmendmentLineage:
     def _admit(self, principal: str, lineage_id: str, action: str, authority_ref: str) -> None:
         if (not isinstance(principal, str) or not principal
                 or not isinstance(authority_ref, str) or not authority_ref
+                or self.authenticated_principal() != principal
                 or self.authorize(principal, lineage_id, action) != authority_ref):
             raise AmendmentRejected("unauthorized")
 
