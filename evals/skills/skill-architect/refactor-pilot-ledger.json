@@ -1,5 +1,5 @@
 {
-  "candidate_revision": "issue-165-candidate-pending-final-sha",
+  "candidate_revision": "3.26.0",
   "decisions": [
     {
       "id": "existing-skill-route",

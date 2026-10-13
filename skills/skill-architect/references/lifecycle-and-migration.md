@@ -15,33 +15,28 @@ deprecation.
 
 ## Semantic preservation before deletion
 
-1. Pin old and candidate revisions of SKILL.md, STANDARD.md, manifest, references,
-   tools and eval corpus. Record representative simple/advanced cases and nearest
-   routing collision. A package audit is not a behavioral baseline.
-2. Extract only load-bearing old rules into a bounded ledger, with stable IDs, class,
-   disposition, old reference, new canonical owner and target anchor, activation
-   route, positive and negative case, verification identity and reason for removal.
-   Keep policy in the canonical STANDARD.md, not in the ledger.
-3. Check every old required rule against its disposition. Never accept a missing
-   authorization, safety stop, exception, rollback, recovery, evidence or DoD
-   clause merely because the files parse or became smaller.
-4. Verify target paths and pre-action triggers in the actual target package.
-   Use existing package auditor and corpus validator, then compare real
-   model-backed routing/behavior only when an approved runner is available.
-   Do not invent unsupported tool invocations for illustrative commands.
-5. Separate correctness/safety, wrong-route rate, actual task-visible context,
-   file reads, tokens, latency and reviewability. If real model evidence is absent,
-   preserve BEHAVIOR_NOT_VERIFIED even when every structural check passes.
-6. Document the before/after contract map, independent versus duplicated
-   profile decisions, exact evidence, residual risks and original/candidate SHA.
+1. Baseline source and candidate revisions of SKILL.md, STANDARD.md, manifest,
+   references and eval corpus, plus simple/advanced cases and routing collisions.
+2. Record only load-bearing original behaviors in a bounded ledger: stable ID,
+   class, disposition, source and destination, activation route, positive and
+   negative scenario, verification identity and removal rationale.
+3. Reconcile each mandatory invariant and its negative path before removal;
+   omitted permissions, safety stops, exceptions, rollback, recovery, proof
+   obligations or completion conditions are blocking.
+4. Check destination paths and pre-action visibility against the candidate.
+   Run the existing skill checker and corpus validator; compare actual
+   model-backed outcomes separately when a trusted runner is available.
+   Discover supported CLI syntax instead of assuming examples are executable.
+5. Keep correctness, routing, active context, context consumption cost, duration
+   and reviewability as independent measurements. Unexecuted model comparison
+   remains BEHAVIOR_NOT_VERIFIED.
+6. Report old-to-new mapping, independent versus duplicate profile rationale,
+   versions, observed checks and residual risks.
 
-The optional read-only `tools/check_refactor_preservation.py` checks a JSON
-baseline/ledger against file reachability and declared required behaviors:
-`python skills/skill-architect/tools/check_refactor_preservation.py
---baseline evals/skills/skill-architect/refactor-pilot-baseline.json
---ledger evals/skills/skill-architect/refactor-pilot-ledger.json
---candidate skills/skill-architect`.
-It is a static diagnostic, not a trusted issuer of behavior equivalence.
+Optional static diagnostic: `tools/check_refactor_preservation.py` accepts
+`--baseline`, `--ledger` and `--candidate`. The synthetic pilot lives in
+`evals/skills/skill-architect/`. Its PASS establishes structural mapping,
+never model equivalence.
 
 ## Migration first principles
 

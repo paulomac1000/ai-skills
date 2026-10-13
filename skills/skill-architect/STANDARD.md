@@ -239,31 +239,27 @@ obsolete instructions.
 
 ## Semantic-preserving refactoring
 
-Before deleting or moving an existing skill rule, pin the original skill, manifest,
-standard, routing description and evaluation revision. Build a **bounded preservation
-ledger** for load-bearing triggers, permissions, safety stops, exceptions, recovery,
-evidence, negative cases and completion rules. Every item MUST have one disposition:
-PRESERVE, MOVE, DEDUPLICATE, REPLACE_BY_CANONICAL_OWNER or REMOVE_WITH_REASON.
-Critical rules MUST NOT be removed to satisfy a compression target; removal of a
-required behavior needs a separate explicit normative decision and behavioral evidence.
-For retained rules, the ledger MUST bind the old rule to a reachable canonical target,
-pre-load trigger when needed, positive/negative cases, and verification identity.
-A report alone is not authority to change a rule.
+Before deleting or moving skill rules, baseline the original skill, manifest,
+standard, routes and evaluation revision. Inventory load-bearing requirements:
+activation, permissions, safety stops, exceptions, precedence, recovery, proof,
+negative cases and completion. Use a bounded preservation ledger with one
+disposition per item: PRESERVE, MOVE, DEDUPLICATE,
+REPLACE_BY_CANONICAL_OWNER or REMOVE_WITH_REASON. Record old and new normative
+sources, route, positive/negative cases and verification identity. Removal of
+a mandatory safeguard requires an explicit normative change, not a size goal.
 
-A shortened SKILL.md MUST still expose action-critical triggers and safety conditions
-before the first governed action. Conditional routes MUST reach their real targets;
-canonical ownership and precedence MUST survive moves. Equivalent-looking prose is
-not proof of equivalent behavior. Genuine independently triggered profiles SHOULD
-remain separate when merging them adds unnecessary loads; duplicate policy with a
-single semantic owner SHOULD be consolidated. A bad example is corrected against the
-real supported interface, not asserted to work because its wording sounds plausible.
+Critical pre-action conditions remain observable in SKILL.md before governed
+effects. Moved conditional references must be reachable. Independent profiles
+remain separate if combining them increases unnecessary loads; duplicated
+policy has one normative source. Examples use supported interfaces, never
+invented command semantics.
 
-Deterministic path, schema, ledger and package validation is separate from model-backed
-routing/behavioral observation. Without approved exact-version model-backed evidence,
-report `BEHAVIOR_NOT_VERIFIED`, never `BEHAVIOR_EQUIVALENT`. Record safety/correctness,
-routing errors, context-loaded tokens/reads, package size and human reviewability as
-distinct metrics; line counts or token savings NEVER override an invariant failure.
-Read `references/lifecycle-and-migration.md` for the operational procedure and pilot.
+Deterministic structure and ledger checks do not establish model behavior.
+Absent approved revision-bound model observations, report
+`BEHAVIOR_NOT_VERIFIED`, not `BEHAVIOR_EQUIVALENT`. Track safety/correctness,
+routing, runtime context consumption and human reviewability independently:
+size savings cannot override an invariant failure. Follow
+`references/lifecycle-and-migration.md` for the procedure and pilot.
 
 ## Migration and deprecation
 

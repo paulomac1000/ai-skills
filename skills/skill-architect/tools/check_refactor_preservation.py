@@ -3,6 +3,7 @@
 This verifies declared invariants and route reachability, NOT stochastic model
 behavior.  A candidate-authored ledger cannot certify semantic equivalence.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -77,15 +78,22 @@ def assess(baseline: dict[str, Any], ledger: dict[str, Any], candidate: Path) ->
                     findings.append("preload_route_unsafe:" + rule_id)
                 else:
                     route_file = (candidate / pre_load).resolve()
-                    if (not route_file.is_relative_to(root) or not route_file.is_file()
-                            or marker not in route_file.read_text(encoding="utf-8")):
+                    if (
+                        not route_file.is_relative_to(root)
+                        or not route_file.is_file()
+                        or marker not in route_file.read_text(encoding="utf-8")
+                    ):
                         findings.append("preload_trigger_unreachable:" + rule_id)
     unknown = sorted(set(by_id) - {x.get("id") for x in baseline_rules if isinstance(x, dict)})
     findings.extend("unreviewed_new_rule:" + item for item in unknown)
     # Separate metrics from gate results. No cost metric can override a safety finding.
-    return {"structural": "FAILED" if findings else "PASS",
-            "behavior": "BEHAVIOR_NOT_VERIFIED", "findings": findings,
-            "baseline_revision": baseline.get("revision"), "candidate_revision": ledger.get("candidate_revision")}
+    return {
+        "structural": "FAILED" if findings else "PASS",
+        "behavior": "BEHAVIOR_NOT_VERIFIED",
+        "findings": findings,
+        "baseline_revision": baseline.get("revision"),
+        "candidate_revision": ledger.get("candidate_revision"),
+    }
 
 
 def main() -> int:
