@@ -1,5 +1,20 @@
 # Changelog
 
+## 3.26.0 - 2026-10-14
+
+### Added
+
+- Optional Steward external execution pressure admission with durable global/per-capability and detached-unresolved limits, reserved cancellation/reconciliation lanes and fail-closed unknown physical termination.
+- Deterministic SQLite pressure fixture and cancellation-insensitive fake-provider regressions, including restart and superseded-generation safety.
+
+### Changed
+
+- Local cancellation and logical generation fencing no longer imply physical external capacity is available; service shutdown preserves remotely durable work.
+
+### Known limitations
+
+- Reference fixture and synthetic tests do not establish live remote-provider conformance.
+
 ## 3.25.0 - 2026-10-13
 
 ### Added
