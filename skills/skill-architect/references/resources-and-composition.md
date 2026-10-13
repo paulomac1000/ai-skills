@@ -90,10 +90,9 @@ Use the authority-restatement test: if changing the canonical owner would force
 a manual edit here, either the duplication is necessary for immediate routing
 or it should be replaced by a link to the owner.
 
-## Deduplication versus independently activated profiles
+## Deduplication versus independent profiles
 
-If two references enforce the same normative decision under the same trigger,
-keep a single canonical owner and reachable routes. If they make different
-conditional decisions on independently triggered tasks, keep them separate;
-merging simply to reduce line/file counts is not a valid refactor. Compare
-observed loads when available; do not infer context improvement from byte count.
+Consolidate truly duplicated policy under one normative source with reachable
+activation paths. Keep independently activated specialized profiles separate
+when consolidation causes unnecessary loads; shorter files are not sufficient
+justification for a behavioral change.
