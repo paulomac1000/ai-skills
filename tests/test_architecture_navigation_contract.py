@@ -145,6 +145,7 @@ def test_navigation_regressions_project_into_all_affected_rule_claims() -> None:
         if item["kind"] == "rule"
     }
     for rule in (
+        "afds.ownership.lifecycle",
         "afds.system.navigation-bounded",
         "agents.scope.precedence",
         "agents.discovery.evidence",
@@ -256,6 +257,40 @@ def test_stale_owner_and_unreachable_trigger_rejected(large_repo: Path) -> None:
     _, findings = auditor.audit(large_repo, "application", "single", "en")
     assert "routing.trigger-unreachable" in {x.code for x in findings}
 
+
+
+def test_moved_navigation_owner_requires_map_refresh_and_route_review(large_repo: Path) -> None:
+    navigation = large_repo / MAP
+    old_owner = large_repo / "src/payments/process.py"
+    new_owner = large_repo / "src/payments/core/process.py"
+    new_owner.parent.mkdir(parents=True, exist_ok=True)
+    old_owner.rename(new_owner)
+
+    # The old map cannot silently pass with a stale implementation owner.
+    with pytest.raises(ValueError, match="invalid owner"):
+        owners_for(large_repo, "Payments")
+
+    original = navigation.read_text(encoding="utf-8")
+    old_link = "[processor](src/payments/process.py)"
+    new_link = "[processor](src/payments/core/process.py)"
+    assert old_link in original
+    navigation.write_text(original.replace(old_link, new_link), encoding="utf-8")
+
+    selected = owners_for(large_repo, "Payments")
+    assert new_owner.resolve() in selected
+    assert len(selected) == 5
+    assert old_link not in navigation.read_text(encoding="utf-8")
+
+    # The canonical map remains at the same routed owner; verify its trigger
+    # still works rather than rewriting the always-loaded instruction.
+    _, findings = auditor.audit(large_repo, "application", "single", "en")
+    assert not [f.code for f in findings if f.code.startswith("routing.")]
+    assert large_repo / MAP in _opened_for_task(large_repo, "Payments change")
+    lifecycle = (ROOT / "skills/afds-doc-writer/references/lifecycle-and-impact.md").read_text(
+        encoding="utf-8"
+    )
+    assert "update the canonical architecture map" in lifecycle
+    assert "review the applicable pre-discovery routes" in lifecycle
 
 
 def test_navigation_map_is_a_valid_governed_system_document(large_repo: Path) -> None:

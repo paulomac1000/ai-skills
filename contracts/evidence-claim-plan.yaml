@@ -53,6 +53,7 @@ profiles:
     selectors:
     - '*test_afds*'
     - '*test_contract_consistency_followup*'
+    - '*test_architecture_navigation_contract*'
     result_files:
     - repository-junit.xml
     execution_id: repository
