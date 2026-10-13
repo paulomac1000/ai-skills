@@ -170,6 +170,7 @@ def test_navigation_skill_routing_corpora_cover_positive_and_collision_cases() -
     assert cases["canonical-architecture-navigation-map"]["selected_skills"] == ["afds-doc-writer"]
     assert "agents-md-architect" in cases["architecture-map-vs-agents-instructions"]["rejected_skills"]
     assert cases["agents-only-route-near-miss"]["selected_skills"] == ["agents-md-architect"]
+    assert cases["maintain-governed-document-freshness"]["selected_skills"] == ["afds-doc-writer"]
 
     neighbors = yaml.safe_load(
         (ROOT / "evals/skills/agents-md-architect/routing.yaml").read_text(encoding="utf-8")
@@ -180,6 +181,7 @@ def test_navigation_skill_routing_corpora_cover_positive_and_collision_cases() -
     )
     description = (ROOT / "skills/afds-doc-writer/SKILL.md").read_text(encoding="utf-8")
     assert "bounded architecture navigation maps" in description.split("---", 2)[1]
+    assert "maintain evidence-based technical documentation" in description.split("---", 2)[1]
 
 
 def test_reachable_route_scopes_large_repo_to_five_owners(large_repo: Path) -> None:

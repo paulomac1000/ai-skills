@@ -1,6 +1,6 @@
 ---
 name: afds-doc-writer
-description: Create, repair, and validate evidence-based technical documentation, including bounded architecture navigation maps linking stable work units to canonical owners.
+description: Create, repair, validate, and maintain evidence-based technical documentation, including bounded architecture navigation maps linking stable work units to canonical owners.
 ---
 
 # AFDS document writer

@@ -22,3 +22,8 @@ cases:
   prompt: Produce an AFDS system architecture map for coding agents to discover the owning service, API contracts and tests before working. AGENTS.md already routes correctly and must not be modified.
   selected_skills: [afds-doc-writer]
   rejected_skills: [agents-md-architect]
+- id: maintain-governed-document-freshness
+  kind: positive
+  prompt: Maintain an already active AFDS system document after an upstream contract changes; refresh canonical references and downstream review obligations without unnecessarily rewriting the document.
+  selected_skills: [afds-doc-writer]
+  rejected_skills: []
