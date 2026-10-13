@@ -57,6 +57,13 @@ profiles:
     - repository-junit.xml
     execution_id: repository
   - kind: rule
+    subject: afds.system.navigation-bounded
+    selectors:
+    - '*test_architecture_navigation_contract*'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
     subject: afds.quality.executable
     selectors:
     - '*test_afds*'

@@ -137,11 +137,37 @@ def test_reachable_route_scopes_large_repo_to_five_owners(large_repo: Path) -> N
     assert len(owners) * 5 < len(list(large_repo.rglob("*.py")))
 
 
+def _opened_for_task(repo: Path, task: str) -> list[Path]:
+    """Exercise conditional route selection over the actual pre-loaded marker."""
+    instructions = (repo / "AGENTS.md").read_text(encoding="utf-8")
+    opened = [repo / "AGENTS.md"]
+    directives = re.findall(
+        r'<!-- agents-md: route owner="([^"]+)" when="([^"]+)" purpose="([^"]+)" -->',
+        instructions,
+    )
+    for owner, when, _purpose in directives:
+        trigger = re.fullmatch(r"before scoping a ([A-Za-z]+) change", when)
+        if trigger is None or trigger.group(1).casefold() not in task.casefold().split():
+            continue
+        path = (repo / owner).resolve()
+        if not path.is_relative_to(repo.resolve()) or not path.is_file():
+            raise ValueError("untrusted architecture route")
+        opened.append(path)
+        opened.extend(owners_for(repo, trigger.group(1)))
+    return opened
+
+
 def test_unrelated_task_does_not_eagerly_load_map(large_repo: Path) -> None:
-    instructions = (large_repo / "AGENTS.md").read_text(encoding="utf-8")
-    assert ROUTE in instructions
-    assert "Stable work units" not in instructions
-    assert "Payments" not in "Upgrade unrelated formatter"
+    unrelated = _opened_for_task(large_repo, "Upgrade unrelated formatter")
+    assert unrelated == [large_repo / "AGENTS.md"]
+    related = _opened_for_task(large_repo, "Payments change")
+    assert related[:2] == [large_repo / "AGENTS.md", large_repo / MAP]
+    assert len(related) == 7
+    assert len(related) < len(list(large_repo.rglob("*.py")))
+    skill = (ROOT / "skills/agents-md-architect/SKILL.md").read_text(encoding="utf-8")
+    assert skill.index("Before running broad repository discovery") < skill.index(
+        "Run `tools/discover_repository.py`"
+    )
 
 
 def test_owner_free_inventory_is_invalid(large_repo: Path) -> None:
