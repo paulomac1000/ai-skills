@@ -59,3 +59,12 @@ The Steward's completion authority ends at its declared boundary. A verification
 ## Completion/publication check
 
 Immediately before sealing an actionable terminal handoff, re-read mutable publication inputs that can invalidate the decision: current lineage/generation, exact subject/revision, required evidence freshness, unresolved external-operation ambiguity, and required effective authority. A result that became stale while work was running may be retained as historical evidence but cannot publish as the current decision.
+
+## Current effective evidence versus retained historical provenance
+
+For amendable evidence, proofs and completion consume only the current
+effective revision, not a historical record that has been retracted or
+superseded. Bind each dependent decision to the lineage effective identity.
+On a mismatch, emit a stale/re-evaluation-required outcome; preserving
+historical audit does not preserve current acceptance. Authorization to view
+original provenance and to mutate the lineage are distinct.
