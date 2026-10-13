@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 import re
 import sys
 from pathlib import Path
@@ -13,9 +14,9 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "skills/agents-md-architect/tools"))
 import audit_agents_md as auditor  # noqa: E402
 
-MAP = "docs/systems/navigation.md"
+MAP = "navigation.md"
 ROUTE = (
-    '<!-- agents-md: route owner="docs/systems/navigation.md" '
+    '<!-- agents-md: route owner="navigation.md" '
     'when="before scoping a Payments change" purpose="canonical owners" -->'
 )
 
@@ -42,7 +43,17 @@ def large_repo(tmp_path: Path) -> Path:
     navigation = tmp_path / MAP
     navigation.parent.mkdir(parents=True, exist_ok=True)
     navigation.write_text(
-        """<!-- agents-md: conditional-owner -->
+        """---
+afds_schema_version: 2
+description: Synthetic architecture navigation map for bounded discovery regression testing.
+doc_id: system.architecture-navigation-fixture
+type: system
+status: active
+rigor: informative
+owners: [documentation-maintainers]
+---
+
+<!-- agents-md: conditional-owner -->
 
 # Architecture navigation
 
@@ -50,8 +61,8 @@ def large_repo(tmp_path: Path) -> Path:
 
 | Unit | Implementation | Contracts | Tests | Operations | Decisions |
 | --- | --- | --- | --- | --- | --- |
-| Payments | [processor](../../src/payments/process.py) | [schema](../../contracts/payments/schema.json) | [test](../../tests/payments/test_process.py) | [runbook](../operations/payments.md) | [ADR](../decisions/payment-routing.md) |
-| Reporting | [pipeline](../../src/reporting/pipeline.py) | not applicable (internal) | [test](../../tests/reporting/test_pipeline.py) | not applicable (batch) | not applicable (none) |
+| Payments | [processor](src/payments/process.py) | [schema](contracts/payments/schema.json) | [test](tests/payments/test_process.py) | [runbook](docs/operations/payments.md) | [ADR](docs/decisions/payment-routing.md) |
+| Reporting | [pipeline](src/reporting/pipeline.py) | not applicable (internal) | [test](tests/reporting/test_pipeline.py) | not applicable (batch) | not applicable (none) |
 
 Payments consumes Reporting output through the Payments schema.
 """,
@@ -106,7 +117,7 @@ def owners_for(repo: Path, unit: str) -> list[Path]:
         match = re.fullmatch(r"\[[^]]+\]\(([^)]+)\)", cell)
         if match is None:
             raise ValueError("missing owner")
-        path = (repo / "docs/systems" / match.group(1)).resolve()
+        path = (repo / match.group(1)).resolve()
         if not path.is_relative_to(repo.resolve()) or not path.is_file():
             raise ValueError("invalid owner")
         targets.append(path)
@@ -179,7 +190,7 @@ def test_unrelated_task_does_not_eagerly_load_map(large_repo: Path) -> None:
 def test_owner_free_inventory_is_invalid(large_repo: Path) -> None:
     path = large_repo / MAP
     path.write_text(
-        path.read_text(encoding="utf-8").replace("[processor](../../src/payments/process.py)", "all files in src/"),
+        path.read_text(encoding="utf-8").replace("[processor](src/payments/process.py)", "all files in src/"),
         encoding="utf-8",
     )
     with pytest.raises(ValueError, match="missing owner"):
@@ -197,29 +208,44 @@ def test_stale_owner_and_unreachable_trigger_rejected(large_repo: Path) -> None:
 
 
 
-def test_navigation_playbook_examples_link_real_canonical_file_owners() -> None:
+def test_navigation_map_is_a_valid_governed_system_document(large_repo: Path) -> None:
+    path = ROOT / "skills/afds-doc-writer/validate.py"
+    spec = importlib.util.spec_from_file_location("afds_navigation_fixture_validator", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+
+    map_file = large_repo / MAP
+    raw = map_file.read_text(encoding="utf-8")
+    metadata = yaml.safe_load(raw.split("---", 2)[1])
+    assert metadata["type"] == "system"
+    assert metadata["afds_schema_version"] == 2
+    assert module.validate(map_file, large_repo, minimum_schema_version=2) == []
+
+    map_file.write_text(
+        raw.replace("[processor](src/payments/process.py)", "[processor](../outside.py)"),
+        encoding="utf-8",
+    )
+    invalid = module.validate(map_file, large_repo, minimum_schema_version=2)
+    assert any("unsafe relative link" in finding.message for finding in invalid)
+
+
+def test_playbook_example_matches_verified_synthetic_owner_map(large_repo: Path) -> None:
     playbook = ROOT / "skills/afds-doc-writer/references/type-playbooks.md"
-    source = playbook.read_text(encoding="utf-8")
-    row = next((line for line in source.splitlines() if line.startswith("| AFDS document validation |")), None)
-    assert row is not None
-    assert "not applicable (no standalone ADR" in row
-    links = re.findall(r"\[[^]]+\]\(([^)]+)\)", row)
-    assert len(links) == 4
-    prefix = "https://github.com/paulomac1000/ai-skills/blob/main/"
-    hosted = 0
-    for href in links:
-        if href.startswith(prefix):
-            hosted += 1
-            relative = href.removeprefix(prefix)
-            assert ".." not in relative.split("/")
-            owner = (ROOT / relative).resolve(strict=True)
-        else:
-            assert not href.startswith(("http:", "https:", "/"))
+    text = playbook.read_text(encoding="utf-8")
+    example = (large_repo / MAP).read_text(encoding="utf-8")
+    rows = [line for line in text.splitlines() if line.startswith(("| Payments |", "| Reporting |"))]
+    assert len(rows) == 2
+    assert all(row in example for row in rows)
+    for row in rows:
+        for href in re.findall(r"\[[^]]+\]\(([^)]+)\)", row):
+            assert not href.startswith(("/", "http:", "https:"))
             assert ".." not in href.split("/")
-            owner = (playbook.parent / href).resolve(strict=True)
-        assert owner.is_relative_to(ROOT)
-        assert owner.is_file()
-    assert hosted == 3
+            owner = (large_repo / href).resolve(strict=True)
+            assert owner.is_relative_to(large_repo.resolve())
+            assert owner.is_file()
+
 
 def test_no_mandatory_layout_or_runtime_snapshot() -> None:
     standard = (ROOT / "skills/afds-doc-writer/STANDARD.md").read_text(encoding="utf-8")

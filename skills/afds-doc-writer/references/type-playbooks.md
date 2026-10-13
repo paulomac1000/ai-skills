@@ -25,13 +25,16 @@ Describe responsibility, boundaries, components, data and control flows, state o
 
 ### Architecture navigation map (optional system specialization)
 
-Use a small table of stable, repository-selected units only when repeated wide scans are costly. This real `ai-skills` example links to canonical owner files relative to this playbook:
+Use a small table of stable, repository-selected units only when repeated wide scans are costly. This *synthetic* repository-root example is materialized with real files and verified by the governed AFDS validator in `tests/test_architecture_navigation_contract.py`:
 
+```markdown
 | Unit | Implementation | Contracts | Tests | Operations | Decisions |
 | --- | --- | --- | --- | --- | --- |
-| AFDS document validation | [validator](https://github.com/paulomac1000/ai-skills/blob/main/skills/afds-doc-writer/validate.py) | [frontmatter schema](https://github.com/paulomac1000/ai-skills/blob/main/contracts/afds-frontmatter.schema.json) | [validator tests](https://github.com/paulomac1000/ai-skills/blob/main/tests/test_afds_validator.py) | [lifecycle playbook](lifecycle-and-impact.md) | not applicable (no standalone ADR for this unit) |
+| Payments | [processor](src/payments/process.py) | [schema](contracts/payments/schema.json) | [test](tests/payments/test_process.py) | [runbook](docs/operations/payments.md) | [ADR](docs/decisions/payment-routing.md) |
+| Reporting | [pipeline](src/reporting/pipeline.py) | not applicable (internal) | [test](tests/reporting/test_pipeline.py) | not applicable (batch) | not applicable (none) |
+```
 
-The work-unit name and file layout are examples, not prescriptions. The three repository-hosted URLs cross the playbook's directory boundary without unsafe `..` link traversal; their local target paths are verified by the regression fixture. The same-directory lifecycle link is checked by AFDS. A real map verifies each linked file and names non-obvious dependencies/owners at the assessed revision; omit non-applicable categories with rationale. A flat file inventory, copied contract or live system-state dump lacks navigation ownership value. Keep the map behind a reachable, conditional pre-discovery route so unrelated tasks do not load it.
+Root placement is illustrative, not required: choose a durable owner whose local links can remain lexically confined. This fenced example is not a live owner map for `ai-skills`. In real maps, verify every linked file and non-obvious cross-unit dependency at the assessed revision, and explain non-applicable dimensions. A flat file inventory or volatile runtime snapshot is not architecture navigation. Keep the map behind a reachable conditional pre-discovery route, so unrelated tasks do not load it.
 
 ## Guide
 
