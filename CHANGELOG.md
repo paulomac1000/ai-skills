@@ -1,5 +1,16 @@
 # Changelog
 
+## 3.25.0 - 2026-10-13
+
+### Added
+
+- AFDS `system` documents can provide optional architecture-navigation maps routing stable work units to canonical implementation, contract, test, operational and decision owners.
+- AGENTS.md guidance adds conditional navigation before wide scans; a synthetic large-repository regression exercises bounded selection and missing-owner/route failures.
+
+### Changed
+
+- Architecture ownership changes now trigger map and route review. Volatile runtime observations and generated file inventories remain outside durable navigation maps.
+
 ## 3.24.0 - 2026-10-13
 
 ### Added

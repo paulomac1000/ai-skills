@@ -23,6 +23,19 @@ Define scope, vocabulary, stable facts, constraints, defaults, examples, non-goa
 
 Describe responsibility, boundaries, components, data and control flows, state ownership, concurrency, lifecycle, interfaces, trust boundaries, failure modes, degradation, observability, capacity assumptions, and recovery. Diagrams supplement rather than replace textual contracts.
 
+### Architecture navigation map (optional system specialization)
+
+Use a small table of stable, repository-selected units only when repeated wide scans are costly. This *synthetic* repository-root example is materialized with real files and verified by the governed AFDS validator in `tests/test_architecture_navigation_contract.py`:
+
+```markdown
+| Unit | Implementation | Contracts | Tests | Operations | Decisions |
+| --- | --- | --- | --- | --- | --- |
+| Payments | [processor](src/payments/process.py) | [schema](contracts/payments/schema.json) | [test](tests/payments/test_process.py) | [runbook](docs/operations/payments.md) | [ADR](docs/decisions/payment-routing.md) |
+| Reporting | [pipeline](src/reporting/pipeline.py) | not applicable (internal) | [test](tests/reporting/test_pipeline.py) | not applicable (batch) | not applicable (none) |
+```
+
+Root placement is illustrative, not required: choose a durable owner whose local links can remain lexically confined. This fenced example is not a live owner map for `ai-skills`. In real maps, verify every linked file and non-obvious cross-unit dependency at the assessed revision, and explain non-applicable dimensions. A flat file inventory or volatile runtime snapshot is not architecture navigation. Keep the map behind a reachable conditional pre-discovery route, so unrelated tasks do not load it.
+
 ## Guide
 
 Name the reader, prerequisites, target outcome, conceptual model, walkthrough, trade-offs, common mistakes, and next steps. A guide may simplify, but it must link to authoritative contracts when details matter.

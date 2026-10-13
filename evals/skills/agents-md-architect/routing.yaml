@@ -22,3 +22,13 @@ cases:
   prompt: Refactor repository AGENTS.md instructions into progressive routes without turning each procedure into a new reusable skill.
   selected_skills: [agents-md-architect]
   rejected_skills: [skill-architect]
+- id: canonical-map-authoring-near-miss
+  kind: negative
+  prompt: Write an AFDS system document that maps stable work units to implementation, contract, test and operational owners. Do not change AGENTS.md.
+  selected_skills: [afds-doc-writer]
+  rejected_skills: [agents-md-architect]
+- id: agents-route-to-existing-map-collision
+  kind: collision
+  prompt: Add a trigger-safe AGENTS.md route to a canonical system architecture map that already exists and is current; do not duplicate or edit its content.
+  selected_skills: [agents-md-architect]
+  rejected_skills: [afds-doc-writer]

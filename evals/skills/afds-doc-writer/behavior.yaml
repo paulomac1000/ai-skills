@@ -1,0 +1,22 @@
+schema_version: 1
+skill: afds-doc-writer
+suite: behavior
+cases:
+- id: bounded-architecture-navigation
+  kind: representative
+  prompt: Create a system-document architecture navigation map for a multi-service repository with costly broad scans.
+  baseline: optional
+  assertions:
+  - Selects the existing canonical architecture owner and a repository-specific stable unit of work rather than prescribing a monorepo or feature layout.
+  - Provides bounded paths to owning implementation, contracts, tests, operations and decisions where applicable.
+  - Uses governed AFDS type system metadata, validates real confined owner links and states uncertainty when evidence is missing.
+  - Keeps volatile runtime snapshots and generated file inventories outside the durable map.
+  - Leaves AGENTS.md policy and conditional route ownership with agents-md-architect.
+- id: stale-or-unsafe-map
+  kind: regression
+  prompt: An architecture map lists every discovered file, has a dangling canonical owner and embeds a runtime health snapshot.
+  baseline: optional
+  assertions:
+  - Rejects a flat file dump as a navigation owner because it cannot scope tasks to canonical authority.
+  - Reports stale or unsafe paths and fails closed until the correct owner is verified.
+  - Separates current runtime observations from durable architecture knowledge.

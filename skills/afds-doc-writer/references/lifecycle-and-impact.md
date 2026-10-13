@@ -81,6 +81,10 @@ Before describing a decision as implemented:
 
 A repository may project these facts from its canonical work/change system. AFDS does not require a universal implementation-status field or duplicate volatile CI/review state in frontmatter.
 
+## Navigation-owner changes
+
+When a mapped work unit, owner path, contract, entry point or cross-unit dependency changes, update the canonical architecture map within that change boundary and review the applicable pre-discovery routes. Reverify paths and owner identity. Do not substitute generated all-files inventories or volatile runtime observations for stable architectural ownership.
+
 ## Review triggers
 
 Review a document when its implementation, specification, security boundary, supported runtime, public contract, or operational evidence changes. A fixed calendar review may be added for regulated or high-risk material, but a handwritten `last_verified` date is not proof of review.

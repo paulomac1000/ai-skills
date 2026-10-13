@@ -53,6 +53,14 @@ profiles:
     selectors:
     - '*test_afds*'
     - '*test_contract_consistency_followup*'
+    - '*test_architecture_navigation_contract*'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
+    subject: afds.system.navigation-bounded
+    selectors:
+    - '*test_architecture_navigation_contract*'
     result_files:
     - repository-junit.xml
     execution_id: repository
@@ -76,6 +84,7 @@ profiles:
     subject: agents.scope.precedence
     selectors:
     - '*test_agents_md*'
+    - '*test_architecture_navigation_contract*'
     result_files:
     - repository-junit.xml
     execution_id: repository
@@ -83,6 +92,7 @@ profiles:
     subject: agents.discovery.evidence
     selectors:
     - '*test_agents_md*'
+    - '*test_architecture_navigation_contract*'
     result_files:
     - repository-junit.xml
     execution_id: repository
@@ -97,6 +107,7 @@ profiles:
     subject: agents.ownership.boundaries
     selectors:
     - '*test_agents_md*'
+    - '*test_architecture_navigation_contract*'
     result_files:
     - repository-junit.xml
     execution_id: repository
@@ -125,6 +136,7 @@ profiles:
     subject: agents.context.routed
     selectors:
     - '*test_agents_md*'
+    - '*test_architecture_navigation_contract*'
     result_files:
     - repository-junit.xml
     execution_id: repository
@@ -132,6 +144,7 @@ profiles:
     subject: agents.context.trigger-safe
     selectors:
     - '*test_agents_md*'
+    - '*test_architecture_navigation_contract*'
     result_files:
     - repository-junit.xml
     execution_id: repository
@@ -811,6 +824,7 @@ profiles:
     subject: skill.routing.contract
     selectors:
     - '*test_skill_architect::test_skill_routing_contract_has_positive_and_boundary_corpus'
+    - '*test_architecture_navigation_contract::test_navigation_skill_routing_corpora_cover_positive_and_collision_cases'
     result_files:
     - repository-junit.xml
     execution_id: repository

@@ -16,6 +16,8 @@ Produce a compact evidence inventory that explains which rules belong in `AGENTS
 
 ## Discovery sequence
 
+After verifying the active agent instruction surface and its precedence semantics, but before a repository-wide scan, check the applicable always-loaded instructions for a task-relevant canonical architecture-navigation owner. If its route is reachable, load the bounded map and inspect only the selected unit's implementation, contracts, tests, operations and decisions. When those owners answer the task, do not run the wider discovery sequence below; when they do not, discover the missing evidence in the smallest available scope before escalating to repository-wide discovery. If the owner or path is missing or unverified, report uncertainty and fall back to bounded static discovery; never invent paths. Do not load the map for unrelated tasks.
+
 1. Identify the repository root, default branch, assessed revision, active worktree, and any existing root or nested agent instruction files.
 2. Read package manifests, solution or workspace files, task runners, container definitions, and environment examples.
 3. Trace local and hosted quality gates. Record the fastest focused check and the complete acceptance path separately.

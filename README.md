@@ -2,13 +2,13 @@
 
 A production-oriented collection of reusable standards, implementation playbooks, executable policy helpers, and tested templates for AI-assisted software engineering.
 
-The current repository release is `3.24.0`. All bundled skills are published with `maturity: stable` and are intended for production adoption. Each skill declares its compatibility, dependencies, evidence lanes, and required entry points in `manifest.yaml`.
+The current repository release is `3.25.0`. All bundled skills are published with `maturity: stable` and are intended for production adoption. Each skill declares its compatibility, dependencies, evidence lanes, and required entry points in `manifest.yaml`.
 
 ## Included skills
 
 | Skill | Purpose | Reusable resources |
 | --- | --- | --- |
-| `afds-doc-writer` | Create, validate, and maintain evidence-based technical documentation. | Validator, lifecycle and impact playbooks, governed-document template |
+| `afds-doc-writer` | Create, validate, and maintain evidence-based technical documentation, including optional bounded architecture navigation. | Validator, lifecycle and impact playbooks, governed-document template |
 | `agents-md-architect` | Create, audit, split, and validate concise repository instruction systems for coding agents. | Root and nested templates, profile and routing playbooks, drift guidance, executable validator |
 | `changelog-release-architect` | Curate human-facing changelogs, choose one evidence-based repository SemVer transition, and finalize declared automatic releases after integration. | Release-boundary/publication standard and history-aware validator |
 | `ci-cd-architect` | Design secure and reproducible local and hosted quality gates. | Python, .NET, MCP, documentation, security, packaging, dependency-lock verification/refresh, container workflows, plus exact ArtifactPublicationLease authority |
