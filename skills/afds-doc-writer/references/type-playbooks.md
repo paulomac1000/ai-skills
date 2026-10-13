@@ -29,9 +29,9 @@ Use a small table of stable, repository-selected units only when repeated wide s
 
 | Unit | Implementation | Contracts | Tests | Operations | Decisions |
 | --- | --- | --- | --- | --- | --- |
-| AFDS document validation | [validator](../validate.py) | [frontmatter schema](../../../contracts/afds-frontmatter.schema.json) | [validator tests](../../../tests/test_afds_validator.py) | [lifecycle playbook](lifecycle-and-impact.md) | not applicable (no standalone ADR for this unit) |
+| AFDS document validation | [validator](https://github.com/paulomac1000/ai-skills/blob/main/skills/afds-doc-writer/validate.py) | [frontmatter schema](https://github.com/paulomac1000/ai-skills/blob/main/contracts/afds-frontmatter.schema.json) | [validator tests](https://github.com/paulomac1000/ai-skills/blob/main/tests/test_afds_validator.py) | [lifecycle playbook](lifecycle-and-impact.md) | not applicable (no standalone ADR for this unit) |
 
-The work-unit name and file layout are examples, not prescriptions. A real map verifies each linked file and names non-obvious dependencies/owners at the assessed revision; omit non-applicable categories with rationale. A flat file inventory, copied contract or live system-state dump lacks navigation ownership value. Keep the map behind a reachable, conditional pre-discovery route so unrelated tasks do not load it.
+The work-unit name and file layout are examples, not prescriptions. The three repository-hosted URLs cross the playbook's directory boundary without unsafe `..` link traversal; their local target paths are verified by the regression fixture. The same-directory lifecycle link is checked by AFDS. A real map verifies each linked file and names non-obvious dependencies/owners at the assessed revision; omit non-applicable categories with rationale. A flat file inventory, copied contract or live system-state dump lacks navigation ownership value. Keep the map behind a reachable, conditional pre-discovery route so unrelated tasks do not load it.
 
 ## Guide
 

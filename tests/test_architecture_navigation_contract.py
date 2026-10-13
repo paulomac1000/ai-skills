@@ -205,11 +205,21 @@ def test_navigation_playbook_examples_link_real_canonical_file_owners() -> None:
     assert "not applicable (no standalone ADR" in row
     links = re.findall(r"\[[^]]+\]\(([^)]+)\)", row)
     assert len(links) == 4
+    prefix = "https://github.com/paulomac1000/ai-skills/blob/main/"
+    hosted = 0
     for href in links:
-        assert not href.startswith("/")
-        owner = (playbook.parent / href).resolve(strict=True)
+        if href.startswith(prefix):
+            hosted += 1
+            relative = href.removeprefix(prefix)
+            assert ".." not in relative.split("/")
+            owner = (ROOT / relative).resolve(strict=True)
+        else:
+            assert not href.startswith(("http:", "https:", "/"))
+            assert ".." not in href.split("/")
+            owner = (playbook.parent / href).resolve(strict=True)
         assert owner.is_relative_to(ROOT)
         assert owner.is_file()
+    assert hosted == 3
 
 def test_no_mandatory_layout_or_runtime_snapshot() -> None:
     standard = (ROOT / "skills/afds-doc-writer/STANDARD.md").read_text(encoding="utf-8")
