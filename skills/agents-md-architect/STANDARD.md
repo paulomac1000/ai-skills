@@ -42,6 +42,8 @@ Every durable rule, contract, schema, generated artifact, and configuration defa
 
 Document only non-obvious boundaries that are expensive to infer incorrectly: dependency direction, generated-file ownership, required propagation, resource-access limits, or registry/generator authority. Generic engineering advice is not an architecture boundary.
 
+When a canonical architecture-navigation `system` owner exists and is needed to scope a task, provide a conditional task-to-owner route in the applicable always-loaded instructions before broad discovery. Leave the map itself behind that route; do not duplicate its rows or mandate a specific filename or architecture. A route visible only inside the unopened map is unreachable. Unrelated tasks must not load it.
+
 ## Safety and data boundaries
 
 High-impact repositories name protected data/components, allowed and forbidden flows, default-deny behavior, and verification. Secrets, personal data, production exports, credentials, raw sensitive payloads, and real user fixtures stay outside tracked files unless a reviewed contract explicitly permits them.

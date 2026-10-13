@@ -24,6 +24,9 @@ skills:
     - id: afds.ownership.lifecycle
       source: STANDARD.md#canonical-ownership-and-lifecycle
       description: Each rule has one canonical owner and an explicit lifecycle.
+    - id: afds.system.navigation-bounded
+      source: STANDARD.md#architecture-navigation-specialization
+      description: Optional system maps route stable work units to verified owner paths without broad scans, duplicate truth or volatile inventories.
     - id: afds.quality.executable
       source: STANDARD.md#quality-gate
       description: The repository executes the governed-document quality gate.

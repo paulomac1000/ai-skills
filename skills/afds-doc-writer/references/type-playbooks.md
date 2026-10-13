@@ -23,6 +23,16 @@ Define scope, vocabulary, stable facts, constraints, defaults, examples, non-goa
 
 Describe responsibility, boundaries, components, data and control flows, state ownership, concurrency, lifecycle, interfaces, trust boundaries, failure modes, degradation, observability, capacity assumptions, and recovery. Diagrams supplement rather than replace textual contracts.
 
+### Architecture navigation map (optional system specialization)
+
+Use a small table of stable, repository-selected units only when repeated wide scans are costly. For example:
+
+| Unit | Implementation | Contracts | Tests | Operations | Decisions |
+| --- | --- | --- | --- | --- | --- |
+| Payments | `src/payments/` | `contracts/payments/` | `tests/payments/` | `docs/operations/payments.md` | `docs/decisions/payment-routing.md` |
+
+These paths illustrate a possible layout, not a requirement. A real map verifies each linked path and names non-obvious dependencies/owners at the assessed revision; omit non-applicable categories with rationale. A flat file inventory, copied contract or live system-state dump lacks navigation ownership value. Keep the map behind a reachable, conditional pre-discovery route so unrelated tasks do not load it.
+
 ## Guide
 
 Name the reader, prerequisites, target outcome, conceptual model, walkthrough, trade-offs, common mistakes, and next steps. A guide may simplify, but it must link to authoritative contracts when details matter.

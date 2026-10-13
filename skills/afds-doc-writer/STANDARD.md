@@ -97,6 +97,14 @@ python skills/afds-doc-writer/validate.py \
 
 The strict option returns a deterministic migration finding for implicit-version documents. Unknown schema versions fail closed. A repository must not label itself fully migrated while its governed scope still depends on legacy compatibility.
 
+## Architecture navigation specialization
+
+When repository-wide discovery is repeatedly expensive, a repository MAY maintain one bounded, canonical architecture navigation map as a specialization of a `system` document. Map stable work units (feature, service, package, subsystem or capability) to verified implementation, contract, test, operations and decision owners where applicable. Record important boundaries and cross-unit dependencies; link to canonical owners instead of copying their contents.
+
+The map is optional and architecture-neutral: no mandatory monorepo, vertical slices, directory layout or fixed filename. A generated inventory or flat list of files without task-to-owner scoping value is not a navigation map. Volatile runtime observations belong to live evidence, not the durable map. Review the map and its routes whenever ownership or boundaries move.
+
+When the map is needed to scope a task before broad discovery, applicable always-loaded instructions MUST expose a conditional route to it before the broad scan. A route discovered only inside its unopened destination is ineffective. Unrelated tasks MUST NOT eagerly load the map. Use the existing `agents-md-architect` trigger-reachability contract for routing behavior.
+
 ## Governance profiles
 
 A repository assigns validation behavior through `governance.yaml`; a document is never exempted only because its basename is `README.md`, `SKILL.md`, or `CHANGELOG.md`.
