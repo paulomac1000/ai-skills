@@ -295,13 +295,16 @@ class ExternalPressure:
         """Advisory only; callers must use commit_publication for a durable decision."""
 
         row = self.db.execute(
-            "SELECT authority, physical, generation FROM pressure_operations WHERE operation_id=?", (operation_id,)
+            """SELECT authority, physical, generation, reconciliation
+            FROM pressure_operations WHERE operation_id=?""",
+            (operation_id,),
         ).fetchone()
         return bool(
-            row and row[0] == "current" and row[1] == "stopped" and row[2] == generation
-            and self.db.execute(
-                "SELECT reconciliation FROM pressure_operations WHERE operation_id=?", (operation_id,)
-            ).fetchone()[0] == "resolved"
+            row
+            and row[0] == "current"
+            and row[1] == "stopped"
+            and row[2] == generation
+            and row[3] == "resolved"
         )
 
     def acquire_control(self, control_id: str, operation_id: str, lane: str) -> None:
