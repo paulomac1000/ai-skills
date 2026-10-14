@@ -86,6 +86,13 @@ class AmendmentLineage:
                 PRIMARY KEY(lineage_id, revision), UNIQUE(lineage_id, operation_id),
                 UNIQUE(lineage_id, record_id)
             );
+            CREATE TRIGGER IF NOT EXISTS no_amendment_replace BEFORE INSERT ON amendments
+                WHEN EXISTS (
+                    SELECT 1 FROM amendments AS a WHERE a.lineage_id=NEW.lineage_id
+                    AND (a.revision=NEW.revision OR a.operation_id=NEW.operation_id
+                         OR a.record_id=NEW.record_id)
+                )
+                BEGIN SELECT RAISE(ABORT, 'amendments_are_immutable'); END;
             CREATE TRIGGER IF NOT EXISTS no_amendment_update BEFORE UPDATE ON amendments
                 BEGIN SELECT RAISE(ABORT, 'amendments_are_immutable'); END;
             CREATE TRIGGER IF NOT EXISTS no_amendment_delete BEFORE DELETE ON amendments
@@ -221,7 +228,10 @@ class AmendmentLineage:
             if self.db.in_transaction:
                 self.db.execute("ROLLBACK")
             raise
-        return self._snapshot(lineage_id, 0)
+        result = self._snapshot(lineage_id, 0)
+        if not result["is_current"]:
+            self._read_admit(lineage_id, "read_history")
+        return result
 
     def current(self, lineage_id: str) -> dict[str, Any]:
         self._read_admit(lineage_id, "read_current")
@@ -281,6 +291,8 @@ class AmendmentLineage:
             raise AmendmentRejected("replacement_payload_and_provenance_required")
         if operation == "retract" and payload is not None:
             raise AmendmentRejected("retraction_must_not_replace_payload")
+        if provenance is not None and not isinstance(provenance, Mapping):
+            raise AmendmentRejected("invalid_provenance")
         if len(lineage_id) > 256 or len(operation_id) > 256 or len(record_id) > 256 or len(reason) > 4096:
             raise AmendmentRejected("oversized_identity_or_reason")
         normalized_payload = None
@@ -314,7 +326,10 @@ class AmendmentLineage:
                 if replay[0] != fingerprint:
                     raise AmendmentRejected("operation_id_conflict")
                 self.db.execute("COMMIT")
-                return self._snapshot(lineage_id, replay[1])
+                result = self._snapshot(lineage_id, replay[1])
+                if not result["is_current"]:
+                    self._read_admit(lineage_id, "read_history")
+                return result
             head = self.db.execute("SELECT revision, head_id FROM lineage WHERE lineage_id=?", (lineage_id,)).fetchone()
             if head is None:
                 raise AmendmentRejected("unknown_lineage")

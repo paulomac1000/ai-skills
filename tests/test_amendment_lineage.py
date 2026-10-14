@@ -464,3 +464,77 @@ def test_unhashable_operation_values_fail_before_host_callbacks(tmp_path):
                 authority_ref="host-policy",
             )
     assert actions == []
+
+
+def test_historical_create_and_amend_replays_require_history_authority(tmp_path):
+    grants = {"create", "correct", "read_current", "read_history"}
+    obj = AmendmentLineage(
+        tmp_path / "history-replay.db",
+        lambda _who, _lineage, action: "host" if action in grants else None,
+        lambda: "trusted",
+    )
+    args = dict(lineage_id="l", record_id="r0", payload={"secret": "before"},
+                provenance={"origin": "a"}, principal="trusted", authority_ref="host")
+    obj.create(**args)
+    op = dict(lineage_id="l", operation_id="op-a", record_id="r1",
+              expected_revision=0, operation="correct", reason="correction",
+              payload={"secret": "after"}, provenance={"origin": "b"},
+              principal="trusted", authority_ref="host")
+    obj.amend(**op)
+    newer = dict(op, operation_id="op-b", record_id="r2", expected_revision=1,
+                 payload={"secret": "current"})
+    obj.amend(**newer)
+    grants.remove("read_history")
+    with pytest.raises(AmendmentRejected, match="read_unauthorized"):
+        obj.create(**args)
+    with pytest.raises(AmendmentRejected, match="read_unauthorized"):
+        obj.amend(**op)
+    assert obj.current("l")["revision"] == 2
+
+
+def test_insert_or_replace_cannot_mutate_prior_amendment(tmp_path):
+    import sqlite3
+
+    obj = store(tmp_path)
+    obj.create(lineage_id="l", record_id="r", payload={"safe": True},
+               provenance={"p": 1}, principal="trusted", authority_ref="host-policy")
+    before = obj.current("l")["effective_revision"]
+    with pytest.raises(sqlite3.DatabaseError, match="immutable"):
+        obj.db.execute(
+            """INSERT OR REPLACE INTO amendments
+            SELECT lineage_id, revision, operation_id, fingerprint, record_id,
+            predecessor, op, principal, authority_ref, reason, '{"safe":false}', provenance
+            FROM amendments WHERE lineage_id='l' AND revision=0"""
+        )
+    assert obj.current("l")["effective_revision"] == before
+
+
+def test_retraction_provenance_and_faulty_mapping_are_typed(tmp_path):
+    from collections.abc import Mapping
+
+    obj = store(tmp_path)
+    obj.create(lineage_id="l", record_id="r0", payload={}, provenance={},
+               principal="trusted", authority_ref="host-policy")
+    with pytest.raises(AmendmentRejected, match="invalid_provenance"):
+        obj.amend(
+            lineage_id="l", operation_id="ret", record_id="r1",
+            expected_revision=0, operation="retract", reason="withdraw",
+            provenance=[["origin", "forged"]], principal="trusted",
+            authority_ref="host-policy",
+        )
+    class FaultyMapping(Mapping):
+        def __iter__(self):
+            raise RuntimeError("lazy decoder failed")
+
+        def __getitem__(self, key):
+            return 1
+
+        def __len__(self):
+            return 1
+    with pytest.raises(AmendmentRejected, match="invalid_payload"):
+        obj.amend(
+            lineage_id="l", operation_id="op", record_id="r1",
+            expected_revision=0, operation="correct", reason="correct",
+            payload=FaultyMapping(), provenance={},
+            principal="trusted", authority_ref="host-policy",
+        )
