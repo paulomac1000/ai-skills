@@ -21,6 +21,25 @@ DISPOSITIONS = {"PRESERVE", "MOVE", "DEDUPLICATE", "REPLACE_BY_CANONICAL_OWNER",
 SHA40 = re.compile(r"^[0-9a-f]{40}$")
 
 
+def _contains_symlink(root: Path, relative: str) -> bool:
+    """Reject any symlink component, even one resolving back inside the skill."""
+    at = root
+    for part in Path(relative).parts:
+        at = at / part
+        if at.is_symlink():
+            return True
+    return False
+
+
+def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("duplicate_json_key")
+        result[key] = value
+    return result
+
+
 def _verify_baseline_git_revision(baseline: dict[str, Any], ledger: dict[str, Any], candidate: Path) -> list[str]:
     """Resolve historical objects only from the checker's own trusted checkout.
 
@@ -74,6 +93,9 @@ def _verify_baseline_git_revision(baseline: dict[str, Any], ledger: dict[str, An
         ).stdout.strip()
         if Path(actual_root).resolve() != trusted_root:
             return ["trusted_git_root_mismatch"]
+        # Tree and dangling object IDs are not historical commit identities.
+        if resolve(revision + "^{commit}") != revision:
+            return ["baseline_git_commit_mismatch"]
         historical_tree = resolve(revision + ":" + location)
         if historical_tree != expected_tree:
             return ["baseline_git_tree_mismatch"]
@@ -132,7 +154,9 @@ def _content_bindings(baseline: dict[str, Any], ledger: dict[str, Any], candidat
             findings.append("invalid_candidate_binding")
             continue
         path = (candidate / rel).resolve()
-        if not path.is_relative_to(root) or not path.is_file():
+        if _contains_symlink(root, rel):
+            findings.append("candidate_symlink_rejected:" + rel)
+        elif not path.is_relative_to(root) or not path.is_file():
             findings.append("candidate_file_missing:" + rel)
         elif path.stat().st_size > 1_000_000:
             findings.append("candidate_file_too_large:" + rel)
@@ -168,7 +192,9 @@ def assess(
                 findings.append("invalid_baseline_binding")
                 continue
             source = (baseline_tree / rel).resolve()
-            if not source.is_relative_to(root) or not source.is_file():
+            if _contains_symlink(root, rel):
+                findings.append("baseline_symlink_rejected:" + rel)
+            elif not source.is_relative_to(root) or not source.is_file():
                 findings.append("baseline_source_missing:" + rel)
             elif source.stat().st_size > 1_000_000:
                 findings.append("baseline_source_too_large:" + rel)
@@ -359,7 +385,7 @@ def _read_bounded_json_object(path: Path) -> dict[str, Any]:
         content = source.read(max_bytes + 1)
     if len(content) > max_bytes:
         raise ValueError("oversized_input")
-    obj = json.loads(content.decode("utf-8"))
+    obj = json.loads(content.decode("utf-8"), object_pairs_hook=_reject_duplicate_keys)
     if not isinstance(obj, dict):
         raise ValueError("invalid_json_object")
     return obj
