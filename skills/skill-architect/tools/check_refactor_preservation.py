@@ -10,12 +10,63 @@ import argparse
 import hashlib
 import json
 import re
+import subprocess
 from pathlib import Path
 from typing import Any
 
 MATERIAL = {"trigger", "authority", "safety_stop", "exception", "recovery", "completion", "evidence", "precedence"}
 DISPOSITIONS = {"PRESERVE", "MOVE", "DEDUPLICATE", "REPLACE_BY_CANONICAL_OWNER", "REMOVE_WITH_REASON"}
 SHA40 = re.compile(r"^[0-9a-f]{40}$")
+
+
+def _verify_baseline_git_revision(baseline: dict[str, Any], ledger: dict[str, Any], candidate: Path) -> list[str]:
+    """Resolve historical objects from local Git, never the candidate-authored ledger alone."""
+    revision = baseline.get("revision")
+    expected_tree = ledger.get("baseline_source_tree_sha")
+    source_blobs = ledger.get("baseline_source_blobs")
+    if (
+        not isinstance(revision, str)
+        or not SHA40.fullmatch(revision)
+        or not isinstance(expected_tree, str)
+        or not SHA40.fullmatch(expected_tree)
+        or not isinstance(source_blobs, dict)
+        or not source_blobs
+        or len(source_blobs) > 64
+    ):
+        return ["invalid_git_revision_bindings"]
+
+    def resolve(object_id: str) -> str:
+        completed = subprocess.run(
+            ["git", "-C", str(candidate), "rev-parse", "--verify", object_id],
+            check=True, capture_output=True, text=True, timeout=10,
+        )
+        return completed.stdout.strip()
+
+    try:
+        location = subprocess.run(
+            ["git", "-C", str(candidate), "rev-parse", "--show-prefix"],
+            check=True, capture_output=True, text=True, timeout=10,
+        ).stdout.strip("/")
+        historical_tree = resolve(revision + ":" + location) if location else resolve(revision + "^{tree}")
+        if historical_tree != expected_tree:
+            return ["baseline_git_tree_mismatch"]
+        for relative, expected_blob in source_blobs.items():
+            if (
+                not isinstance(relative, str)
+                or not relative
+                or Path(relative).is_absolute()
+                or ".." in Path(relative).parts
+                or not isinstance(expected_blob, str)
+                or not SHA40.fullmatch(expected_blob)
+            ):
+                return ["invalid_git_blob_reference"]
+            prefix = location + "/" if location else ""
+            if resolve(revision + ":" + prefix + relative) != expected_blob:
+                return ["baseline_git_blob_mismatch:" + relative[:100]]
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return ["baseline_git_revision_unavailable"]
+    return []
+
 
 
 def _canonical_json(value: object) -> bytes:
@@ -122,6 +173,8 @@ def assess(
             findings.append("missing_required_behavior:" + rule_id)
             continue
         kind = old.get("kind")
+        if kind not in MATERIAL:
+            findings.append("unsupported_behavior_class:" + rule_id[:128])
         old_path = decision.get("source_path")
         old_anchor = decision.get("source_anchor")
         if (
@@ -139,7 +192,13 @@ def assess(
             findings.append("incomplete_old_to_new_mapping:" + rule_id[:128])
         elif baseline_tree is not None:
             source = (baseline_tree / old_path).resolve()
-            if source.is_file() and old_anchor not in source.read_text(encoding="utf-8"):
+            root = baseline_tree.resolve()
+            if (
+                source.is_relative_to(root)
+                and source.is_file()
+                and source.stat().st_size <= 1_000_000
+                and old_anchor not in source.read_text(encoding="utf-8")
+            ):
                 findings.append("baseline_anchor_missing:" + rule_id[:128])
         disposition = decision.get("disposition")
         if disposition not in DISPOSITIONS:
@@ -165,6 +224,8 @@ def assess(
             required_anchor = decision.get("target_anchor")
             if not isinstance(required_anchor, str) or not required_anchor:
                 findings.append("missing_target_anchor:" + rule_id)
+            elif target.stat().st_size > 1_000_000:
+                findings.append("target_too_large:" + rule_id[:128])
             elif required_anchor not in target.read_text(encoding="utf-8"):
                 findings.append("anchor_not_present:" + rule_id)
             if kind in MATERIAL and not decision.get("negative_case"):
@@ -187,6 +248,7 @@ def assess(
                     if (
                         not route_file.is_relative_to(root)
                         or not route_file.is_file()
+                        or route_file.stat().st_size > 1_000_000
                         or marker not in route_file.read_text(encoding="utf-8")
                     ):
                         findings.append("preload_trigger_unreachable:" + rule_id)
@@ -220,6 +282,10 @@ def main() -> int:
             raise ValueError("invalid_ledger_or_candidate")
         baseline_tree = args.baseline_tree or args.baseline.parent / "baseline_snapshots"
         result = assess(baseline, ledger, args.candidate, baseline_tree=baseline_tree)
+        git_findings = _verify_baseline_git_revision(baseline, ledger, args.candidate)
+        if git_findings:
+            result["structural"] = "FAILED"
+            result["findings"] = (result["findings"] + git_findings)[:129]
     except (OSError, UnicodeError, json.JSONDecodeError, ValueError, TypeError) as exc:
         result = {
             "structural": "INVALID_INPUT",
