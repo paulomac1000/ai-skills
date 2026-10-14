@@ -17,7 +17,9 @@ def assess(baseline, ledger, path, *, baseline_tree=None):
 def case(tmp_path, kind='authority'):
     skill = tmp_path/'skill'
     skill.mkdir()
-    (skill/'SKILL.md').write_text('Trigger when destructive action requested; enforce policy before action')
+    (skill/'SKILL.md').write_text(
+        'Trigger when destructive action requested; read STANDARD.md before action'
+    )
     (skill/'STANDARD.md').write_text('Require policy authorization; retain rollback evidence')
     baseline = {'revision': 'a' * 40, 'required_behaviors': [{'id': 'auth', 'kind': kind}]}
     decision = {'id': 'auth', 'disposition': 'MOVE', 'target_path': 'STANDARD.md', 'target_anchor': 'Require policy authorization', 'negative_case': 'unauthorized_call', 'verification': 'negative-test', 'pre_load_path': 'SKILL.md', 'pre_load_trigger': 'Trigger when destructive action'}
@@ -25,6 +27,7 @@ def case(tmp_path, kind='authority'):
         raw = (skill / path).read_bytes()
         return hashlib.sha1(b"blob " + str(len(raw)).encode() + b"\0" + raw).hexdigest()
 
+    decision['entrypoint_route'] = 'Trigger when destructive action requested; read STANDARD.md'
     decision['source_path'] = 'STANDARD.md'
     decision['source_anchor'] = 'Require policy authorization'
     decision['positive_case'] = 'authorized_operation'
@@ -72,9 +75,18 @@ def test_independent_profiles_not_forcibly_merged(tmp_path):
     (path/'references').mkdir()
     (path/'references/p1.md').write_text('first independent route')
     (path/'references/p2.md').write_text('second independent route')
+    (path/'SKILL.md').write_text(
+        'Trigger when destructive action requested; read STANDARD.md before action\\n'
+        'first independent route -> references/p1.md\\n'
+        'second independent route -> references/p2.md'
+    )
+    raw_skill = (path / 'SKILL.md').read_bytes()
+    ledger['candidate_files']['SKILL.md'] = hashlib.sha1(
+        b'blob ' + str(len(raw_skill)).encode() + b'\\0' + raw_skill, usedforsecurity=False
+    ).hexdigest()
     baseline['required_behaviors'] = [{'id': 'p1', 'kind': 'evidence'}, {'id': 'p2', 'kind': 'evidence'}]
     ledger['decisions'] = [
-        {'id': key, 'disposition': 'PRESERVE', 'target_path': f'references/{key}.md', 'target_anchor': f'{word} independent route', 'negative_case': 'other-task', 'verification': key, 'source_path': f'references/{key}.md', 'source_anchor': f'{word} independent route', 'positive_case': key}
+        {'id': key, 'disposition': 'PRESERVE', 'target_path': f'references/{key}.md', 'target_anchor': f'{word} independent route', 'negative_case': 'other-task', 'verification': key, 'source_path': f'references/{key}.md', 'source_anchor': f'{word} independent route', 'positive_case': key, 'pre_load_trigger': f'{word} independent route', 'entrypoint_route': f'{word} independent route -> references/{key}.md'}
         for key, word in [('p1', 'first'), ('p2', 'second')]
     ]
     ledger['baseline_sha256'] = 'sha256:' + hashlib.sha256(
@@ -185,3 +197,21 @@ def test_unknown_material_class_cannot_be_structurally_approved(tmp_path):
         json.dumps(baseline, sort_keys=True, separators=(",", ":")).encode()
     ).hexdigest()
     assert "unsupported_behavior_class:auth" in assess(baseline, ledger, path)["findings"]
+
+
+def test_target_reference_route_must_survive_even_with_refreshed_hash(tmp_path):
+    path, baseline, ledger, decision = case(tmp_path)
+    assert assess(baseline, ledger, path)["structural"] == "PASS"
+    # Keep the trigger visible but remove the conditional route to its owner.
+    (path / "SKILL.md").write_text("Trigger when destructive action requested; enforce policy before action")
+    ledger["candidate_files"]["SKILL.md"] = mod._git_blob_sha((path / "SKILL.md").read_bytes())
+    findings = assess(baseline, ledger, path)["findings"]
+    assert "owner_route_unreachable:auth" in findings
+    assert "candidate_content_mismatch:SKILL.md" not in findings
+
+
+def test_noncritical_evidence_owner_route_is_also_required(tmp_path):
+    path, baseline, ledger, decision = case(tmp_path, kind="evidence")
+    assert assess(baseline, ledger, path)["structural"] == "PASS"
+    ledger["decisions"] = [decision | {"entrypoint_route": "Trigger when destructive action requested"}]
+    assert "owner_route_unreachable:auth" in assess(baseline, ledger, path)["findings"]

@@ -230,6 +230,28 @@ def assess(
             if not target.is_relative_to(root) or not target.is_file():
                 findings.append("unreachable_owner:" + rule_id)
                 continue
+            if rel != "SKILL.md":
+                # A visible trigger with an unreachable moved owner is not a valid
+                # route: bind the exact conditional entrypoint instruction to its
+                # destination, including for noncritical reference-only rules.
+                trigger = decision.get("pre_load_trigger")
+                route = decision.get("entrypoint_route")
+                entrypoint = candidate / "SKILL.md"
+                if (
+                    not isinstance(trigger, str)
+                    or not trigger
+                    or not isinstance(route, str)
+                    or len(route) > 1024
+                    or trigger not in route
+                    or rel not in route
+                ):
+                    findings.append("owner_route_unreachable:" + rule_id[:128])
+                elif (
+                    not entrypoint.is_file()
+                    or entrypoint.stat().st_size > 1_000_000
+                    or route not in entrypoint.read_text(encoding="utf-8")
+                ):
+                    findings.append("owner_route_unreachable:" + rule_id[:128])
             required_anchor = decision.get("target_anchor")
             if not isinstance(required_anchor, str) or not required_anchor:
                 findings.append("missing_target_anchor:" + rule_id)
