@@ -130,3 +130,14 @@ For verification/completion/update flows, assert known required revision/generat
 A test file existing in source is not proof it executed. Acceptance evidence should identify the executed case/result and exact candidate artifact/revision. Canonical gates must distinguish product failure from harness/infrastructure failure, not-executed, stale, partial, and unknown outcomes.
 
 Every advertised MCP transport still requires official-client exercise, and the exact packaged/deployed artifact must be smoke-tested under the inherited `mcp-server-architect` rules. Live/provider acceptance remains a separate lane and must not be inferred from fakes when real credentials/targets/provider behavior are required.
+
+## Cancellation-insensitive external pressure
+
+Use a deterministic fake provider that ignores cancel and keeps N remote
+operations alive. Prove old-generation publication is forbidden but
+physical pressure remains; global/per-capability and detached limits
+reject new dispatch, while bounded independent control lanes permit
+cancellation/reconciliation. Prove unknown termination never frees
+capacity, exact provider termination does, and restart preserves counts.
+Exercise `service_shutdown` separately from domain cancellation, with
+safe aggregate metrics and no secret/raw-provider payload.

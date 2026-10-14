@@ -148,6 +148,44 @@ Cancellation MUST first fence new side effects. A public cancellation request an
 
 A durable Steward MUST NOT hold a primary workflow worker solely while waiting for an external durable operation whose state is reconstructable from durable local state. Such waiting SHOULD be checkpointed and handled by a bounded external-maintenance/reconciliation lane. Control/cancellation work MAY use a separately bounded reserve so saturation cannot prevent safe closure.
 
+## External execution pressure and backpressure
+
+For applicable cancellation-insensitive or long-running external operations,
+an optional `features.external_pressure_bounded` Design Pack profile MUST
+declare positive global-active, per-capability, unresolved/detached and
+separate cancellation/reconciliation control reserve limits. These limits
+bound resource pressure after logical authority is lost; they do NOT replace
+per-job deadlines, cost limits, retries or #125 liveness decisions.
+
+**Logical authorization lost is not physical termination proven.**
+Track authority (current/fenced), physical execution
+(running/stopped/unknown) and reconciliation (none/required/resolved)
+independently. Timeout, cancel acknowledgement loss, generation
+supersession or stale-result discard MUST NOT release an external slot
+while physical work may continue. A terminated operation MAY release
+pressure only after provider/contract-backed termination observation
+and required reconciliation are durable. Unknown termination is
+pressure-bearing and fails closed.
+
+Global and capability limits bound all not-proven-stopped work; detached
+pressure is separately bounded. When either policy cap is reached,
+new expensive external dispatch is denied or paced before reservation.
+Reserve bounded cancellation and reconciliation control capacity apart
+from ordinary provider dispatch, so saturation cannot prevent safe
+closure. Deterministic local finalization MAY continue where policy allows.
+An obsolete generation MUST NOT publish a late result even if the
+provider later finishes successfully.
+
+Persist pressure state and policy limits before dispatch. After restart,
+reconstruct unresolved pressure from the durable source, not a blank
+in-memory semaphore. Service shutdown is NOT domain cancellation;
+remote durable work intentionally surviving shutdown resumes/reconciles
+with its existing handle rather than being classified as cancelled.
+Doctor/metrics expose only bounded counts, reason codes and non-secret
+capability classifications, never raw provider bodies, credentials or
+remote handles. See `references/external-operations-and-reconciliation.md`
+and deterministic `tools/external_pressure.py` reference fixture.
+
 ## Evidence identity and authority
 
 Intent, performed work, observation, evidence, claim, and policy decision are distinct objects. A provider result or model statement MUST NOT automatically satisfy an arbitrary criterion.

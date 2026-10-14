@@ -96,3 +96,14 @@ At minimum prove these recovery cases:
 2. attempt 1 persists canonical artifact A; retry computes B; downstream still consumes A;
 3. canonical artifact is committed and the process dies before successor scheduling; restart schedules from the persisted artifact without recomputing a different canonical result;
 4. lease expires during external wait; recovery resumes/reconciles without allowing both old and new owners to publish.
+
+## External pressure recovery
+
+An external operation that lost current generation/authority can still
+consume remote capacity. Persist its physical known/unknown state and
+reconciliation obligation before releasing workflow ownership. Rebuild
+global, per-capability and detached pressure counts after restart from
+these rows; an empty process semaphore is not a fresh capacity grant.
+Preserve remote-durable handles on `service_shutdown`; do not turn
+shutdown into `domain_cancel`. Keep ambiguous termination unresolved
+until provider-backed evidence closes the same operation.

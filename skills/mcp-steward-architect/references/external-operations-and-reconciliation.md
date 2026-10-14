@@ -66,3 +66,71 @@ Include deterministic tests for:
 - response is lost after dispatch and retry is requested with another credential;
 - restart with a recoverable remote handle resumes rather than submits again;
 - repeated status returns the same progress marker and does not advance semantic progress.
+
+## Durable unresolved external execution pressure
+
+Opt into `features.external_pressure_bounded` only for provider operations
+that can stay alive after local cancellation, supersession or a timeout.
+At reservation, count all operations not proven physically stopped against
+global and per-capability capacity. Fence former authority immediately;
+continue counting fenced running/unknown work against detached capacity.
+A provider that ignores cancellation is not evidence of remote termination.
+When detached threshold is reached, deny new expensive dispatch but keep
+deterministic local completion and a separately bounded control lane
+available for reconciliation and cancellation.
+
+Use independent authority, physical and reconciliation state machines.
+A late completion from a non-current generation cannot publish; a
+durably confirmed physical stop with reconciled result releases capacity.
+Persist operation pressure and limits as canonical state; a restart or
+service shutdown does not reset quotas or fabricate remote cancellation.
+Recover existing remote handles when the provider intentionally persists
+jobs across service lifetime. An unknown termination remains unresolved.
+The canonical adoption assessment remains
+`contracts/adoption-assessment.yaml.template`. Its empty `extensions`
+means the Steward pressure feature is disabled (L1 baseline). To explicitly
+enable or configure the feature, copy only the `steward` mapping from
+`templates/adoption-steward-extension.yaml.template` into the canonical
+assessment's `extensions` section, then adjust both the feature and its profile.
+
+For rule-catalog adoption, a Steward with
+`features.external_pressure_bounded: true` must declare the
+`external-pressure-bounded` applicability profile; without the opt-in this
+rule is not applicable. Resume of a durable operation after
+`service_shutdown` requires trusted host reauthorization for the exact
+operation/generation; a persisted fenced row never reacquires publication
+authority merely because the service restarted.
+
+The conservative fixture reserves enough capacity to fence **every** currently
+active external operation: admission never exceeds the smaller of global
+and detached limits. Shutdown reauthorization verifies host authority
+**outside** durable write transactions, then checks the original state
+again under the database lock. An already-fenced superseded operation retains its first reason across shutdown sweeps. A later domain or parent cancellation overrides an earlier shutdown fence and increments the authority epoch, permanently revoking shutdown resumption.
+
+The reference state machine in `tools/external_pressure.py` and the
+fake cancellation-insensitive provider tests illustrate accounting, not
+a new general scheduler, retry policy or circuit breaker.
+
+For authoritative local completion, use `commit_publication(operation_id,
+generation, result_digest)` rather than treating `publish_allowed()` as a
+durable authorization. The commit binds exactly one immutable result digest
+and the current authority epoch under the same SQLite writer lock as fencing.
+Replays return the prior receipt without creating a second publication.
+This fixture does not deliver to external providers: an external sink
+requires its own epoch-fenced outbox/transaction, not a cached boolean.
+
+For a proof-verified terminal operation, cancellation or supersession still
+fences **unpublished** results. Only an already committed publication receipt
+retains its historical idempotency identity; stopping external work does not
+by itself grant publication authority.
+
+The `publish_allowed()` status is a non-authoritative advisory signal for
+ongoing work. It is intentionally false after a proof-verified stop; only
+`commit_publication()` may accept a finished result as an atomic local
+decision. No external delivery is implied.
+A `service_shutdown` after durable proof of terminal completion leaves the
+current stopped/resolved result publishable. Later domain cancellation or
+supersession still fences an **unpublished** terminal result. Terminal
+observation retires associated cancellation and reconciliation reservations
+transactionally; repeated terminal observation can reclaim stale control rows
+without re-invoking the provider verifier.

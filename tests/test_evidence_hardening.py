@@ -179,7 +179,7 @@ def test_extension_namespace_is_closed_and_current_only() -> None:
     root = Path(__file__).resolve().parents[1]
     schema = json.loads((root / "contracts/adoption-assessment.schema.json").read_text(encoding="utf-8"))
     extension_schema = schema["properties"]["extensions"]
-    assert set(extension_schema["properties"]) == {"mcp"}
+    assert set(extension_schema["properties"]) == {"mcp", "steward"}
     assert extension_schema["additionalProperties"] is False
     documentation = (root / "contracts/README.md").read_text(encoding="utf-8")
     assert "closed current registry" in documentation
