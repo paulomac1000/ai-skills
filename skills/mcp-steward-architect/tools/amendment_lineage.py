@@ -107,17 +107,18 @@ class AmendmentLineage:
 
     def _snapshot(self, lineage_id: str, revision: int) -> dict[str, Any]:
         row = self.db.execute(
-            """SELECT record_id, op, payload, provenance FROM amendments
-            WHERE lineage_id=? AND revision=?""",
+            """SELECT a.record_id, a.op, a.payload, a.provenance, l.revision
+            FROM amendments AS a
+            JOIN lineage AS l ON l.lineage_id=a.lineage_id
+            WHERE a.lineage_id=? AND a.revision=?""",
             (lineage_id, revision),
         ).fetchone()
         if row is None:
             raise AmendmentRejected("unknown_lineage")
-        record_id, op, raw, provenance = row
+        record_id, op, raw, provenance, head_revision = row
         payload = json.loads(raw) if op != "retract" else None
         identity = _digest([lineage_id, revision, record_id, op, payload])
-        latest = self.db.execute("SELECT revision FROM lineage WHERE lineage_id=?", (lineage_id,)).fetchone()
-        is_current = bool(latest is not None and latest[0] == revision)
+        is_current = head_revision == revision
         return {
             "lineage_id": lineage_id,
             "revision": revision,
@@ -209,10 +210,27 @@ class AmendmentLineage:
 
     def current(self, lineage_id: str) -> dict[str, Any]:
         self._read_admit(lineage_id, "read_current")
-        row = self.db.execute("SELECT revision FROM lineage WHERE lineage_id=?", (lineage_id,)).fetchone()
+        row = self.db.execute(
+            """SELECT l.revision, a.record_id, a.op, a.payload, a.provenance
+            FROM lineage AS l
+            JOIN amendments AS a ON a.lineage_id=l.lineage_id AND a.revision=l.revision
+            WHERE l.lineage_id=?""",
+            (lineage_id,),
+        ).fetchone()
         if row is None:
             raise AmendmentRejected("unknown_lineage")
-        return self._snapshot(lineage_id, row[0])
+        revision, record_id, op, raw, provenance = row
+        payload = json.loads(raw) if op != "retract" else None
+        return {
+            "lineage_id": lineage_id,
+            "revision": revision,
+            "head_id": record_id,
+            "effective": payload,
+            "status": "retracted" if op == "retract" else "current",
+            "is_current": True,
+            "effective_revision": _digest([lineage_id, revision, record_id, op, payload]),
+            "provenance": json.loads(provenance),
+        }
 
     def amend(
         self,

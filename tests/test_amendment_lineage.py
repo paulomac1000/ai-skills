@@ -295,3 +295,22 @@ def test_amendment_opt_in_catalog_application():
             RuleContext("L1", profiles=frozenset({"amendable-facts"})),
         )
     }
+
+
+def test_current_uses_single_snapshot_for_head_and_amendment(tmp_path):
+    obj = store(tmp_path)
+    obj.create(
+        lineage_id="l1", record_id="r0", payload={"v": 0}, provenance={},
+        principal="trusted", authority_ref="host-policy",
+    )
+    queries = []
+    obj.db.set_trace_callback(lambda sql: queries.append(sql) if sql.lstrip().upper().startswith("SELECT") else None)
+    try:
+        assert obj.current("l1")["is_current"]
+        assert len(queries) == 1
+        assert "JOIN amendments" in queries[0]
+        queries.clear()
+        assert obj.dependency_status("l1", obj.current("l1")["effective_revision"]) == "CURRENT"
+        assert len(queries) == 2
+    finally:
+        obj.db.set_trace_callback(None)
