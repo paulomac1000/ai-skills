@@ -37,5 +37,18 @@
       "negative_case": "parallel_current_owner",
       "verification": "test_skill_refactor_preservation::test_independent_profiles_not_forcibly_merged"
     }
-  ]
+  ],
+  "baseline_sha256": "sha256:bc59f4944753676baf7c3d32b3ff1a518ffd160b6ac051aaa06c207f44f69219",
+  "candidate_files": {
+    "SKILL.md": "d210370d910f79244cd30167bf8f71d825af540a",
+    "STANDARD.md": "5d0b94a8b04e673596757b1e723bfa663862044a",
+    "manifest.yaml": "9662f9d887151a64ad42830bb855f27b06a277dc",
+    "references/admission-and-scope.md": "2f97350f543b0e99292a9a714bff219dbe9affda",
+    "references/behavioral-evaluation.md": "d1f079059f015a0c67d91b7ef9d8dc4f34f7f059",
+    "references/lifecycle-and-migration.md": "1a79194216fe0de747de83130961783ee7740e93",
+    "references/portability-and-trust.md": "79008594d4527004175faf2c6221af27787b7dff",
+    "references/resources-and-composition.md": "95bf1a9a0ca4867a4a5b35bbfa1761ca47509e46",
+    "references/routing-and-context.md": "d987a280f3f5aaeca4e037c4c3ef2ec5e50649a2",
+    "references/upstream-agent-skills-compatibility.md": "fecd8359806f991e555dcaf71b33ec9a3e73f459"
+  }
 }
