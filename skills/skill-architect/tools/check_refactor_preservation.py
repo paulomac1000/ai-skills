@@ -236,19 +236,24 @@ def assess(
                 # destination, including for noncritical reference-only rules.
                 trigger = decision.get("pre_load_trigger")
                 route = decision.get("entrypoint_route")
-                entrypoint = candidate / "SKILL.md"
+                entrypoint = (candidate / "SKILL.md").resolve()
+                entrypoint_digest = ledger.get("candidate_files", {}).get("SKILL.md")
                 if (
+                    not entrypoint.is_relative_to(root)
+                    or not entrypoint.is_file()
+                    or entrypoint.stat().st_size > 1_000_000
+                    or not isinstance(entrypoint_digest, str)
+                    or not SHA40.fullmatch(entrypoint_digest)
+                    or _git_blob_sha(entrypoint.read_bytes()) != entrypoint_digest
+                ):
+                    findings.append("owner_entrypoint_unbound:" + rule_id[:128])
+                elif (
                     not isinstance(trigger, str)
                     or not trigger
                     or not isinstance(route, str)
                     or len(route) > 1024
                     or trigger not in route
                     or rel not in route
-                ):
-                    findings.append("owner_route_unreachable:" + rule_id[:128])
-                elif (
-                    not entrypoint.is_file()
-                    or entrypoint.stat().st_size > 1_000_000
                     or route not in entrypoint.read_text(encoding="utf-8")
                 ):
                     findings.append("owner_route_unreachable:" + rule_id[:128])
