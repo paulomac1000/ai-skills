@@ -472,3 +472,30 @@ def test_baseline_git_revision_must_be_commit(tmp_path):
     assert "baseline_git_commit_mismatch" in mod._verify_baseline_git_revision(
         bad, ledger, root / "skills/skill-architect"
     )
+
+
+def test_git_provenance_ignores_inherited_repository_overrides(monkeypatch):
+    import pytest
+    import subprocess
+
+    root = Path(__file__).resolve().parents[1]
+    corpus = root / "evals/skills/skill-architect"
+    baseline = json.loads((corpus / "refactor-pilot-baseline.json").read_text(encoding="utf-8"))
+    ledger = json.loads((corpus / "refactor-pilot-ledger.json").read_text(encoding="utf-8"))
+    available = subprocess.run(
+        ["git", "-C", str(root), "cat-file", "-e", baseline["revision"] + "^{commit}"],
+        check=False, capture_output=True, timeout=10,
+    )
+    if available.returncode != 0:
+        pytest.skip("baseline history unavailable in shallow checkout")
+
+    monkeypatch.setenv("GIT_DIR", str(root / "nonexistent-attacker-repository"))
+    monkeypatch.setenv("GIT_WORK_TREE", str(root))
+    monkeypatch.setenv("GIT_OBJECT_DIRECTORY", str(root / "nonexistent-attacker-objects"))
+    monkeypatch.setenv("GIT_ALTERNATE_OBJECT_DIRECTORIES", str(root / "nonexistent-alternates"))
+    monkeypatch.setenv("GIT_CONFIG_COUNT", "1")
+    monkeypatch.setenv("GIT_CONFIG_KEY_0", "core.repositoryformatversion")
+    monkeypatch.setenv("GIT_CONFIG_VALUE_0", "777")
+    assert mod._verify_baseline_git_revision(
+        baseline, ledger, root / "skills/skill-architect"
+    ) == []
