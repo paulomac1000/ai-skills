@@ -63,7 +63,7 @@
     "references/routing-and-context.md": "d987a280f3f5aaeca4e037c4c3ef2ec5e50649a2",
     "references/upstream-agent-skills-compatibility.md": "fecd8359806f991e555dcaf71b33ec9a3e73f459"
   },
-  "baseline_source_tree_sha": "8e01d8112eaaa7c89f837fffe780e52a420b23f2",
+  "baseline_source_tree_sha": "7dc12c94da13c88ddf4eb7371ab106563d7f450e",
   "baseline_source_blobs": {
     "SKILL.md": "6b5c463800d28b6aa927921359a68820d78fecf5",
     "references/lifecycle-and-migration.md": "d4b57d923f825a338421b0e29216909627176d92"
