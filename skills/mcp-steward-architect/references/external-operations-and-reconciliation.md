@@ -86,6 +86,14 @@ Persist operation pressure and limits as canonical state; a restart or
 service shutdown does not reset quotas or fabricate remote cancellation.
 Recover existing remote handles when the provider intentionally persists
 jobs across service lifetime. An unknown termination remains unresolved.
+For rule-catalog adoption, a Steward with
+`features.external_pressure_bounded: true` must declare the
+`external-pressure-bounded` applicability profile; without the opt-in this
+rule is not applicable. Resume of a durable operation after
+`service_shutdown` requires trusted host reauthorization for the exact
+operation/generation; a persisted fenced row never reacquires publication
+authority merely because the service restarted.
+
 The reference state machine in `tools/external_pressure.py` and the
 fake cancellation-insensitive provider tests illustrate accounting, not
 a new general scheduler, retry policy or circuit breaker.

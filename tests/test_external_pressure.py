@@ -131,3 +131,56 @@ def test_doctor_aggregates_per_capability_without_exposing_raw_handles(tmp_path)
     assert all(x["capability_ref"].startswith("sha256:") for x in view["per_capability"])
     assert "private-operation-handle" not in str(view)
     assert "private-capability-text" not in str(view)
+
+def test_shutdown_durable_operation_requires_host_authority_reacquisition(tmp_path):
+    grants = set()
+    m = ExternalPressure(
+        tmp_path / "shutdown.db",
+        global_limit=2,
+        detached_limit=2,
+        per_capability_limit=2,
+        cancellation_reserve=1,
+        reconciliation_reserve=1,
+        verify_termination=lambda _op: False,
+        verify_resume_authority=lambda op, gen: (op, gen) in grants,
+    )
+    m.dispatch("durable", "remote", 1)
+    m.fence("durable", "service_shutdown")
+    assert not m.publish_allowed("durable", 1)
+    with pytest.raises(PressureRejected, match="resume_authority_unverified"):
+        m.resume_after_shutdown("durable", 1)
+    grants.add(("durable", 1))
+    with pytest.raises(PressureRejected, match="resume_state_conflict"):
+        m.resume_after_shutdown("durable", 2)
+    m.resume_after_shutdown("durable", 1)
+    assert m.publish_allowed("durable", 1)
+    assert m.doctor()["detached_unresolved"] == 0
+
+
+def test_unknown_operation_does_not_touch_provider_verifier(tmp_path):
+    called = []
+    m = ExternalPressure(
+        tmp_path / "unknown.db",
+        global_limit=2,
+        detached_limit=2,
+        per_capability_limit=2,
+        cancellation_reserve=1,
+        reconciliation_reserve=1,
+        verify_termination=lambda op: called.append(op) or False,
+    )
+    with pytest.raises(PressureRejected, match="unknown_operation"):
+        m.observe("hostile-unregistered", "stopped", reconciled=True)
+    assert called == []
+
+
+def test_external_pressure_catalog_rule_is_opt_in():
+    import yaml
+    from contracts.rule_applicability import RuleContext, expected_rules
+
+    root = Path(__file__).resolve().parents[1]
+    catalog = yaml.safe_load((root / "contracts/rule-catalog.yaml").read_text(encoding="utf-8"))
+    base = RuleContext("L1")
+    opted = RuleContext("L1", profiles=frozenset({"external-pressure-bounded"}))
+    rule_id = "steward.external-pressure.bounded"
+    assert rule_id not in {r["id"] for r in expected_rules(catalog, "mcp-steward-architect", base)}
+    assert rule_id in {r["id"] for r in expected_rules(catalog, "mcp-steward-architect", opted)}

@@ -452,6 +452,7 @@ skills:
       description: Stateful cancellation has its own durable delivery and reconciliation semantics, while reconstructable external waits leave the primary worker lane.
     - id: steward.external-pressure.bounded
       source: STANDARD.md#external-execution-pressure-and-backpressure
+      applies_when: {maturity_at_least: L1, profiles_any: [external-pressure-bounded]}
       description: Durable active and unresolved external pressure remains bounded after logical fencing; control capacity and restart recovery remain independent.
     - id: steward.evidence.provenance
       source: STANDARD.md#evidence-identity-and-authority

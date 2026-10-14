@@ -28,6 +28,7 @@ class ExternalPressure:
         cancellation_reserve: int,
         reconciliation_reserve: int,
         verify_termination: Callable[[str], bool],
+        verify_resume_authority: Callable[[str, int], bool] | None = None,
     ):
         limits = (global_limit, detached_limit, per_capability_limit, cancellation_reserve, reconciliation_reserve)
         if any(type(n) is not int or n < 1 for n in limits):
@@ -35,6 +36,7 @@ class ExternalPressure:
         if not callable(verify_termination):
             raise ValueError("trusted_provider_termination_verifier_required")
         self.verify_termination = verify_termination
+        self.verify_resume_authority = verify_resume_authority
         self.global_limit, self.detached_limit, self.per_capability_limit = limits[:3]
         self.reserves = {"cancel": cancellation_reserve, "reconcile": reconciliation_reserve}
         self.db = sqlite3.connect(str(path), isolation_level=None, timeout=5)
@@ -76,7 +78,7 @@ class ExternalPressure:
     def _counts(self) -> tuple[int, int]:
         active = self.db.execute("SELECT COUNT(*) FROM pressure_operations WHERE physical!='stopped'").fetchone()[0]
         detached = self.db.execute("""SELECT COUNT(*) FROM pressure_operations
-            WHERE authority='fenced' AND physical!='stopped'""").fetchone()[0]
+            WHERE authority!='current' AND physical!='stopped'""").fetchone()[0]
         return active, detached
 
     def dispatch(self, operation_id: str, capability: str, generation: int) -> None:
@@ -133,6 +135,33 @@ class ExternalPressure:
                 self.db.execute("ROLLBACK")
             raise
 
+    def resume_after_shutdown(self, operation_id: str, generation: int) -> None:
+        """Reclaim an existing durable operation only after a trusted authority probe."""
+        if not isinstance(operation_id, str) or not operation_id or type(generation) is not int or generation < 1:
+            raise PressureRejected("invalid_operation_identity")
+        self.db.execute("BEGIN IMMEDIATE")
+        try:
+            row = self.db.execute(
+                "SELECT generation, authority, physical, reason FROM pressure_operations WHERE operation_id=?",
+                (operation_id,),
+            ).fetchone()
+            if row is None:
+                raise PressureRejected("unknown_operation")
+            if row[0] != generation or row[1] != "fenced" or row[2] == "stopped" or row[3] != "service_shutdown":
+                raise PressureRejected("resume_state_conflict")
+            if self.verify_resume_authority is None or not self.verify_resume_authority(operation_id, generation):
+                raise PressureRejected("resume_authority_unverified")
+            self.db.execute(
+                """UPDATE pressure_operations SET authority='current',
+                reconciliation='none', reason='resumed' WHERE operation_id=?""",
+                (operation_id,),
+            )
+            self.db.execute("COMMIT")
+        except Exception:
+            if self.db.in_transaction:
+                self.db.execute("ROLLBACK")
+            raise
+
     def publish_allowed(self, operation_id: str, generation: int) -> bool:
         row = self.db.execute(
             "SELECT authority, physical, generation FROM pressure_operations WHERE operation_id=?", (operation_id,)
@@ -175,6 +204,13 @@ class ExternalPressure:
     def observe(self, operation_id: str, physical: str, *, reconciled: bool) -> None:
         if physical not in {"running", "unknown", "stopped"}:
             raise PressureRejected("invalid_physical_observation")
+        if not isinstance(operation_id, str) or not operation_id:
+            raise PressureRejected("invalid_operation_identity")
+        known = self.db.execute(
+            "SELECT 1 FROM pressure_operations WHERE operation_id=?", (operation_id,)
+        ).fetchone()
+        if known is None:
+            raise PressureRejected("unknown_operation")
         if physical == "stopped" and (not reconciled or not self.verify_termination(operation_id)):
             raise PressureRejected("termination_proof_required")
         self.db.execute("BEGIN IMMEDIATE")
