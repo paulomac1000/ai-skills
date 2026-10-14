@@ -9,7 +9,10 @@
       "negative_case": "not_skill_change",
       "verification": "test_skill_refactor_preservation::test_preload_route_lost",
       "pre_load_path": "SKILL.md",
-      "pre_load_trigger": "For an existing refactor/split/migration"
+      "pre_load_trigger": "For an existing refactor/split/migration",
+      "source_path": "SKILL.md",
+      "source_anchor": "10. For an existing skill, read references/lifecycle-and-migration.md",
+      "positive_case": "existing-skill-change"
     },
     {
       "id": "migration-compatibility",
@@ -19,7 +22,10 @@
       "negative_case": "unauthorized_semantic_deletion",
       "verification": "test_skill_refactor_preservation::test_omitted_authority_rule_fails_even_with_static_package",
       "pre_load_path": "SKILL.md",
-      "pre_load_trigger": "before deleting rules"
+      "pre_load_trigger": "before deleting rules",
+      "source_path": "references/lifecycle-and-migration.md",
+      "source_anchor": "Keep compliant consumer-specific behavior",
+      "positive_case": "compatible-consumer-preserved"
     },
     {
       "id": "observed-maintenance",
@@ -27,7 +33,10 @@
       "target_path": "references/lifecycle-and-migration.md",
       "target_anchor": "Inspect representative runs",
       "negative_case": "unobserved_speedup",
-      "verification": "test_skill_refactor_preservation::test_structural_green_does_not_claim_model_equivalence"
+      "verification": "test_skill_refactor_preservation::test_structural_green_does_not_claim_model_equivalence",
+      "source_path": "references/lifecycle-and-migration.md",
+      "source_anchor": "Inspect representative runs",
+      "positive_case": "observed-route-result"
     },
     {
       "id": "deprecation-boundary",
@@ -35,7 +44,10 @@
       "target_path": "references/lifecycle-and-migration.md",
       "target_anchor": "notice window, and removal condition",
       "negative_case": "parallel_current_owner",
-      "verification": "test_skill_refactor_preservation::test_independent_profiles_not_forcibly_merged"
+      "verification": "test_skill_refactor_preservation::test_independent_profiles_not_forcibly_merged",
+      "source_path": "references/lifecycle-and-migration.md",
+      "source_anchor": "notice window, and removal condition",
+      "positive_case": "deprecation-with-notice"
     }
   ],
   "baseline_sha256": "sha256:bc59f4944753676baf7c3d32b3ff1a518ffd160b6ac051aaa06c207f44f69219",
@@ -50,5 +62,10 @@
     "references/resources-and-composition.md": "95bf1a9a0ca4867a4a5b35bbfa1761ca47509e46",
     "references/routing-and-context.md": "d987a280f3f5aaeca4e037c4c3ef2ec5e50649a2",
     "references/upstream-agent-skills-compatibility.md": "fecd8359806f991e555dcaf71b33ec9a3e73f459"
+  },
+  "baseline_source_tree_sha": "8e01d8112eaaa7c89f837fffe780e52a420b23f2",
+  "baseline_source_blobs": {
+    "SKILL.md": "6b5c463800d28b6aa927921359a68820d78fecf5",
+    "references/lifecycle-and-migration.md": "d4b57d923f825a338421b0e29216909627176d92"
   }
 }
