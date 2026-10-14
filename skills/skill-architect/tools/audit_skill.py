@@ -396,8 +396,8 @@ def _strict_manifest_findings(
     if not isinstance(adoption, dict):
         invalid("adoption must be a mapping")
     else:
-        if adoption.get("extension") not in {"generic", "mcp"}:
-            invalid("adoption.extension must be generic or mcp")
+        if adoption.get("extension") not in {"generic", "mcp", "steward"}:
+            invalid("adoption.extension must be generic, mcp or steward")
         for field in ("template", "validator", "rule_catalog", "rule_map"):
             value = adoption.get(field)
             if not isinstance(value, str) or not value or not _confined(value):

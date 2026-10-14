@@ -51,7 +51,7 @@ def _bounded_mapping(value: Mapping[str, Any], *, field: str, max_bytes: int) ->
             elif isinstance(current, (list, tuple)):
                 pending.extend((item, depth + 1) for item in current)
         canonical = _json(result)
-    except (TypeError, ValueError, OverflowError, RecursionError) as exc:
+    except Exception as exc:
         raise AmendmentRejected("invalid_" + field) from exc
     if len(canonical.encode("utf-8")) > max_bytes:
         raise AmendmentRejected("oversized_" + field)

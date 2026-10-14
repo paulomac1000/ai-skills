@@ -1004,7 +1004,16 @@ def validate_document(
             # Canonical adoption template omits Steward-specific extensions.
             # An absent extension opts out; explicit opt-in must bind flags.
             context = RuleContext(target_level="L1")
-            machine_applicable_rules = {str(rule["id"]) for rule in expected_rules(catalog, skill_name, context)}
+            try:
+                if atomic_catalog is None:
+                    parent_rules = expected_rules(catalog, skill_name, context)
+                else:
+                    parent_rules = list(
+                        project_applicability(catalog, atomic_catalog, skill_name, context).parent_rules
+                    )
+                machine_applicable_rules = {str(rule["id"]) for rule in parent_rules}
+            except (KeyError, TypeError, ValueError) as exc:
+                findings.append(Finding("extensions.steward", f"cannot derive Steward applicability: {exc}"))
         elif not isinstance(steward, Mapping):
             findings.append(Finding("extensions.steward", "invalid Steward applicability context"))
         else:

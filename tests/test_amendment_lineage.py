@@ -416,3 +416,33 @@ def test_nested_json_depth_policy_does_not_depend_on_python_version(tmp_path):
             principal="trusted", authority_ref="host-policy",
             payload=too_deep, provenance={},
         )
+
+def test_mapping_iteration_failures_are_typed(tmp_path):
+    from collections.abc import Mapping
+
+    class BrokenMapping(Mapping):
+        def __len__(self):
+            return 1
+
+        def __iter__(self):
+            raise RuntimeError("underlying provider decoder failed")
+
+        def __getitem__(self, key):
+            raise RuntimeError("underlying provider decoder failed")
+
+    obj = store(tmp_path)
+    with pytest.raises(AmendmentRejected, match="invalid_payload"):
+        obj.create(
+            lineage_id="l1", record_id="r0", payload=BrokenMapping(),
+            provenance={}, principal="trusted", authority_ref="host-policy",
+        )
+    obj.create(
+        lineage_id="l1", record_id="r0", payload={}, provenance={},
+        principal="trusted", authority_ref="host-policy",
+    )
+    with pytest.raises(AmendmentRejected, match="invalid_provenance"):
+        obj.amend(
+            lineage_id="l1", operation_id="b", record_id="r1", expected_revision=0,
+            operation="correct", reason="decoder", payload={}, provenance=BrokenMapping(),
+            principal="trusted", authority_ref="host-policy",
+        )
