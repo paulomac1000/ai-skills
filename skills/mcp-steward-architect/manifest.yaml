@@ -76,7 +76,7 @@ adoption:
   atomic_claim_schema: contracts/atomic-claim-report.schema.json
   atomic_claim_validator: contracts/validate_atomic_claims.py
   evidence_profiles: contracts/evidence-profiles.yaml
-  extension: mcp
+  extension: steward
 conformance:
   template: contracts/conformance-report.yaml.template
   validator: contracts/validate_conformance.py

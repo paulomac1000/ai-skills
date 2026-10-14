@@ -535,9 +535,11 @@ def test_advisory_publication_predicate_matches_durable_gate(tmp_path):
         reconciliation_reserve=1, verify_termination=lambda _op: True,
     )
     m.dispatch("op", "cap", 1)
-    assert not m.publish_allowed("op", 1)
-    m.observe("op", "stopped", reconciled=True)
-    assert m.publish_allowed("op", 1)
+    assert m.publish_allowed("op", 1)  # Advisory: operation still running.
     assert not m.publish_allowed("op", 2)
+    m.observe("op", "stopped", reconciled=True)
+    assert not m.publish_allowed("op", 1)  # Completion is not ongoing work.
+    receipt = m.commit_publication("op", 1, "sha256:" + "e" * 64)
+    assert receipt["generation"] == 1
     m.fence("op", "parent_superseded")
-    assert not m.publish_allowed("op", 1)
+    assert m.commit_publication("op", 1, "sha256:" + "e" * 64) == receipt

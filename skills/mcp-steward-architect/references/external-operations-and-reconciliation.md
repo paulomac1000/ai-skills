@@ -123,3 +123,8 @@ For a proof-verified terminal operation, cancellation or supersession still
 fences **unpublished** results. Only an already committed publication receipt
 retains its historical idempotency identity; stopping external work does not
 by itself grant publication authority.
+
+The `publish_allowed()` status is a non-authoritative advisory signal for
+ongoing work. It is intentionally false after a proof-verified stop; only
+`commit_publication()` may accept a finished result as an atomic local
+decision. No external delivery is implied.
