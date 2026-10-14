@@ -139,8 +139,11 @@ class AmendmentLineage:
     ) -> dict[str, Any]:
         self._admit(principal, lineage_id, "create", authority_ref)
         self._read_admit(lineage_id, "read_current")
-        if not isinstance(record_id, str) or not record_id or not isinstance(payload, Mapping) or not isinstance(
-            provenance, Mapping
+        if (
+            not isinstance(record_id, str)
+            or not record_id
+            or not isinstance(payload, Mapping)
+            or not isinstance(provenance, Mapping)
         ):
             raise AmendmentRejected("invalid_initial_record")
         material = _json(dict(payload))
