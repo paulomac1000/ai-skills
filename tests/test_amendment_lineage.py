@@ -376,7 +376,7 @@ def test_deep_json_mapping_returns_typed_refusal(tmp_path):
         current = following
     with pytest.raises(AmendmentRejected, match="invalid_payload"):
         obj.create(
-            lineage_id="deep", record_id="r", payload=nested, provenance={},
+            lineage_id="l1", record_id="r", payload=nested, provenance={},
             principal="trusted", authority_ref="host-policy",
         )
     obj.create(

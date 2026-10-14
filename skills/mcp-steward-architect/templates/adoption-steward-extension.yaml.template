@@ -1,0 +1,7 @@
+# Optional extension mapping under 'extensions:' in canonical
+# contracts/adoption-assessment.yaml.template; do not copy the entire contract.
+steward:
+  target_level: L1
+  profiles: []
+  features:
+    amendable_facts: false

@@ -68,3 +68,12 @@ superseded. Bind each dependent decision to the lineage effective identity.
 On a mismatch, emit a stale/re-evaluation-required outcome; preserving
 historical audit does not preserve current acceptance. Authorization to view
 original provenance and to mutate the lineage are distinct.
+
+
+The adoption assessment remains `contracts/adoption-assessment.yaml.template`,
+the sole canonical template. An absent `extensions.steward` selects the
+feature-off baseline. To enable amendments, compose only the optional
+`templates/adoption-steward-extension.yaml.template` mapping under
+`extensions`, set `amendable_facts: true`, and declare the
+`amendable-facts` profile. Avoid cloning the canonical document: doing so
+would fork shared security and evidence requirements.
