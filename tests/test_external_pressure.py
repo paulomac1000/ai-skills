@@ -420,3 +420,27 @@ def test_duplicate_terminal_observation_skips_provider_probe(tmp_path):
     assert m.db.execute(
         "SELECT authority_epoch FROM pressure_operations WHERE operation_id='op'"
     ).fetchone() == (epoch,)
+
+
+def test_reject_non_sqlite_generation_and_unhashable_controls(tmp_path):
+    m = ExternalPressure(
+        tmp_path / "bad-input.db", global_limit=3, detached_limit=3,
+        per_capability_limit=3, cancellation_reserve=1, reconciliation_reserve=1,
+        verify_termination=lambda _op: False,
+        verify_resume_authority=lambda _op, _generation: True,
+    )
+    too_big = 1 << 63
+    with pytest.raises(PressureRejected, match="invalid_operation_identity"):
+        m.dispatch("huge", "cap", too_big)
+    m.dispatch("small", "cap", 1)
+    with pytest.raises(PressureRejected, match="invalid_operation_identity"):
+        m.resume_after_shutdown("small", too_big)
+    with pytest.raises(PressureRejected, match="invalid_publication_identity"):
+        m.commit_publication("small", too_big, "sha256:" + "a" * 64)
+    with pytest.raises(PressureRejected, match="invalid_fence_reason"):
+        m.fence("small", ["unknown"])
+    with pytest.raises(PressureRejected, match="invalid_physical_observation"):
+        m.observe("small", ["stopped"], reconciled=True)
+    with pytest.raises(PressureRejected, match="invalid_control_lane"):
+        m.acquire_control("control", "small", ["cancel"])
+    assert m.doctor()["active"] == 1

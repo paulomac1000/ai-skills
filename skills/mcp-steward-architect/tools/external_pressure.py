@@ -13,6 +13,9 @@ from pathlib import Path
 from typing import Any
 
 
+SQLITE_INT_MAX = (1 << 63) - 1
+
+
 class PressureRejected(ValueError):
     """Typed admission/reconciliation refusal with no provider payload."""
 
@@ -96,7 +99,7 @@ class ExternalPressure:
             or not isinstance(capability, str)
             or not capability
             or type(generation) is not int
-            or generation < 1
+            or not 1 <= generation <= SQLITE_INT_MAX
         ):
             raise PressureRejected("invalid_operation_identity")
         self.db.execute("BEGIN IMMEDIATE")
@@ -124,7 +127,7 @@ class ExternalPressure:
             raise
 
     def fence(self, operation_id: str, reason: str) -> None:
-        if reason not in {
+        if not isinstance(reason, str) or reason not in {
             "superseded",
             "parent_superseded",
             "caller_cancel",
@@ -167,7 +170,12 @@ class ExternalPressure:
 
     def resume_after_shutdown(self, operation_id: str, generation: int) -> None:
         """Reclaim shutdown-fenced authority only after host verification and a fresh CAS."""
-        if not isinstance(operation_id, str) or not operation_id or type(generation) is not int or generation < 1:
+        if (
+            not isinstance(operation_id, str)
+            or not operation_id
+            or type(generation) is not int
+            or not 1 <= generation <= SQLITE_INT_MAX
+        ):
             raise PressureRejected("invalid_operation_identity")
         query = """
             SELECT generation, authority, physical, reason, authority_epoch
@@ -213,7 +221,7 @@ class ExternalPressure:
             not isinstance(operation_id, str)
             or not operation_id
             or type(generation) is not int
-            or generation < 1
+            or not 1 <= generation <= SQLITE_INT_MAX
             or not isinstance(result_digest, str)
             or len(result_digest) != 71
             or not result_digest.startswith("sha256:")
@@ -276,7 +284,7 @@ class ExternalPressure:
         return bool(row and row[0] == "current" and row[1] == "running" and row[2] == generation)
 
     def acquire_control(self, control_id: str, operation_id: str, lane: str) -> None:
-        if lane not in self.reserves or not isinstance(control_id, str) or not control_id:
+        if not isinstance(lane, str) or lane not in self.reserves or not isinstance(control_id, str) or not control_id:
             raise PressureRejected("invalid_control_lane")
         self.db.execute("BEGIN IMMEDIATE")
         try:
@@ -323,7 +331,7 @@ class ExternalPressure:
             raise PressureRejected("control_not_active")
 
     def observe(self, operation_id: str, physical: str, *, reconciled: bool) -> None:
-        if physical not in {"running", "unknown", "stopped"}:
+        if not isinstance(physical, str) or physical not in {"running", "unknown", "stopped"}:
             raise PressureRejected("invalid_physical_observation")
         if not isinstance(operation_id, str) or not operation_id:
             raise PressureRejected("invalid_operation_identity")
