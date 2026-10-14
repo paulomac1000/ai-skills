@@ -527,3 +527,17 @@ def test_previously_committed_result_remains_idempotently_auditable(tmp_path):
     receipt = m.commit_publication("job", 1, digest)
     m.fence("job", "parent_superseded")
     assert m.commit_publication("job", 1, digest) == receipt
+
+def test_advisory_publication_predicate_matches_durable_gate(tmp_path):
+    m = ExternalPressure(
+        tmp_path / "advisory.db", global_limit=2, detached_limit=2,
+        per_capability_limit=2, cancellation_reserve=1,
+        reconciliation_reserve=1, verify_termination=lambda _op: True,
+    )
+    m.dispatch("op", "cap", 1)
+    assert not m.publish_allowed("op", 1)
+    m.observe("op", "stopped", reconciled=True)
+    assert m.publish_allowed("op", 1)
+    assert not m.publish_allowed("op", 2)
+    m.fence("op", "parent_superseded")
+    assert not m.publish_allowed("op", 1)

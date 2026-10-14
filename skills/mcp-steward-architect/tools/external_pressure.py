@@ -148,9 +148,12 @@ class ExternalPressure:
                 raise PressureRejected("unknown_operation")
             # Completion does not imply publication. A stopped but still
             # unpublished operation must lose authority on supersession.
-            unpublished_terminal = row[1] == "stopped" and not self.db.execute(
-                "SELECT 1 FROM pressure_publications WHERE operation_id=?", (operation_id,)
-            ).fetchone()
+            unpublished_terminal = (
+                row[1] == "stopped"
+                and not self.db.execute(
+                    "SELECT 1 FROM pressure_publications WHERE operation_id=?", (operation_id,)
+                ).fetchone()
+            )
             if row[1] != "stopped" or unpublished_terminal:
                 current = row[0] == "current"
                 # A shutdown fence is resumable. A later domain cancellation
@@ -283,9 +286,17 @@ class ExternalPressure:
         """Advisory only; callers must use commit_publication for a durable decision."""
 
         row = self.db.execute(
-            "SELECT authority, physical, generation FROM pressure_operations WHERE operation_id=?", (operation_id,)
+            """SELECT authority, physical, reconciliation, generation
+            FROM pressure_operations WHERE operation_id=?""",
+            (operation_id,),
         ).fetchone()
-        return bool(row and row[0] == "current" and row[1] == "running" and row[2] == generation)
+        return bool(
+            row
+            and row[0] == "current"
+            and row[1] == "stopped"
+            and row[2] == "resolved"
+            and row[3] == generation
+        )
 
     def acquire_control(self, control_id: str, operation_id: str, lane: str) -> None:
         if not isinstance(lane, str) or lane not in self.reserves or not isinstance(control_id, str) or not control_id:
