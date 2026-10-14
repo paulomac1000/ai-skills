@@ -44,12 +44,18 @@ def test_install_locked_uses_exact_file_hash_enforcement_and_pip_check(monkeypat
     lock.write_text("pytest==9.1.1 --hash=sha256:" + "a" * 64 + "\n", encoding="utf-8")
     calls: list[tuple[list[str], dict[str, object]]] = []
     monkeypatch.setattr(installer, "selected_lock", lambda: lock)
-    monkeypatch.setattr(installer.subprocess, "run", lambda command, **kwargs: calls.append((command, kwargs)))
+    def fake_run(command, **kwargs):
+        calls.append((command, kwargs))
+        return subprocess.CompletedProcess(command, 0, stdout="No broken requirements found.", stderr="")
+
+    monkeypatch.setattr(installer.subprocess, "run", fake_run)
     assert installer.main() == 0
     assert calls[0][0] == [sys.executable, "-m", "pip", "install", "--require-hashes", "-r", str(lock)]
     assert calls[0][1] == {"check": True, "timeout": 900}
     assert calls[1][0] == [sys.executable, "-m", "pip", "check"]
-    assert calls[1][1] == {"check": True, "timeout": 120}
+    assert calls[1][1] == {
+        "capture_output": True, "text": True, "check": False, "timeout": 120
+    }
 
 
 def test_local_ci_runs_every_bounded_gate(monkeypatch, tmp_path: Path) -> None:
