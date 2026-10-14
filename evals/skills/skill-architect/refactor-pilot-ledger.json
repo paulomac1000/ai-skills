@@ -25,7 +25,8 @@
       "pre_load_trigger": "before deleting rules",
       "source_path": "references/lifecycle-and-migration.md",
       "source_anchor": "Preserve compliant repository-specific behavior",
-      "positive_case": "compatible-consumer-preserved"
+      "positive_case": "compatible-consumer-preserved",
+      "entrypoint_route": "For an existing refactor/split/migration, consult references/lifecycle-and-migration.md before deleting rules"
     },
     {
       "id": "observed-maintenance",
@@ -36,7 +37,9 @@
       "verification": "test_skill_refactor_preservation::test_structural_green_does_not_claim_model_equivalence",
       "source_path": "references/lifecycle-and-migration.md",
       "source_anchor": "Inspect representative runs",
-      "positive_case": "observed-route-result"
+      "positive_case": "observed-route-result",
+      "pre_load_trigger": "For an existing refactor/split/migration",
+      "entrypoint_route": "For an existing refactor/split/migration, consult references/lifecycle-and-migration.md before deleting rules"
     },
     {
       "id": "deprecation-boundary",
@@ -47,7 +50,9 @@
       "verification": "test_skill_refactor_preservation::test_independent_profiles_not_forcibly_merged",
       "source_path": "references/lifecycle-and-migration.md",
       "source_anchor": "notice window, and removal condition",
-      "positive_case": "deprecation-with-notice"
+      "positive_case": "deprecation-with-notice",
+      "pre_load_trigger": "For an existing refactor/split/migration",
+      "entrypoint_route": "For an existing refactor/split/migration, consult references/lifecycle-and-migration.md before deleting rules"
     }
   ],
   "baseline_sha256": "sha256:bc59f4944753676baf7c3d32b3ff1a518ffd160b6ac051aaa06c207f44f69219",
