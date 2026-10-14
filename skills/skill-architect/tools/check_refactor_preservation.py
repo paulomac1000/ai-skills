@@ -52,7 +52,7 @@ def _verify_baseline_git_revision(baseline: dict[str, Any], ledger: dict[str, An
             capture_output=True,
             text=True,
             timeout=10,
-        ).stdout.strip("/")
+        ).stdout.strip().strip("/")
         historical_tree = resolve(revision + ":" + location) if location else resolve(revision + "^{tree}")
         if historical_tree != expected_tree:
             return ["baseline_git_tree_mismatch"]
