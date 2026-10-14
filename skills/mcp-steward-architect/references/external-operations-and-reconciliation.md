@@ -105,8 +105,7 @@ The conservative fixture reserves enough capacity to fence **every** currently
 active external operation: admission never exceeds the smaller of global
 and detached limits. Shutdown reauthorization verifies host authority
 **outside** durable write transactions, then checks the original state
-again under the database lock. An already-fenced superseded operation
-retains its first reason across shutdown sweeps.
+again under the database lock. An already-fenced superseded operation retains its first reason across shutdown sweeps. A later domain or parent cancellation overrides an earlier shutdown fence and increments the authority epoch, permanently revoking shutdown resumption.
 
 The reference state machine in `tools/external_pressure.py` and the
 fake cancellation-insensitive provider tests illustrate accounting, not

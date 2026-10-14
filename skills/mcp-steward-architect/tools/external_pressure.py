@@ -115,6 +115,10 @@ class ExternalPressure:
     def fence(self, operation_id: str, reason: str) -> None:
         if reason not in {
             "superseded",
+            "parent_superseded",
+            "caller_cancel",
+            "provider_cancel",
+            "unknown",
             "application_deadline",
             "transport_timeout",
             "domain_cancel",
@@ -129,13 +133,21 @@ class ExternalPressure:
             ).fetchone()
             if row is None:
                 raise PressureRejected("unknown_operation")
-            if row[1] != "stopped" and row[0] == "current":
-                self.db.execute(
-                    """UPDATE pressure_operations SET authority='fenced',
-                    reconciliation='required', reason=?, authority_epoch=authority_epoch+1
-                    WHERE operation_id=?""",
-                    (reason, operation_id),
-                )
+            if row[1] != "stopped":
+                current = row[0] == "current"
+                # A shutdown fence is resumable. A later domain cancellation
+                # or supersession revokes that option even for already-fenced work.
+                previous = self.db.execute(
+                    "SELECT reason FROM pressure_operations WHERE operation_id=?", (operation_id,)
+                ).fetchone()[0]
+                revoke_shutdown = previous == "service_shutdown" and reason != "service_shutdown"
+                if current or revoke_shutdown:
+                    self.db.execute(
+                        """UPDATE pressure_operations SET authority='fenced',
+                        reconciliation='required', reason=?, authority_epoch=authority_epoch+1
+                        WHERE operation_id=?""",
+                        (reason, operation_id),
+                    )
             self.db.execute("COMMIT")
         except Exception:
             if self.db.in_transaction:
@@ -198,6 +210,12 @@ class ExternalPressure:
                 raise PressureRejected("unknown_operation")
             if op[0] == "stopped" or (lane == "reconcile" and op[1] != "fenced"):
                 raise PressureRejected("control_operation_ineligible")
+            if self.db.execute(
+                """SELECT 1 FROM pressure_controls
+                WHERE operation_id=? AND lane=? AND state='active'""",
+                (operation_id, lane),
+            ).fetchone():
+                raise PressureRejected("active_control_already_reserved")
             current = self.db.execute(
                 "SELECT COUNT(*) FROM pressure_controls WHERE lane=? AND state='active'", (lane,)
             ).fetchone()[0]

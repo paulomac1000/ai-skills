@@ -313,3 +313,37 @@ def test_existing_operation_schema_upgrades_with_epoch(tmp_path):
     assert m.db.execute("SELECT authority_epoch FROM pressure_operations WHERE operation_id='old'").fetchone() == (0,)
     m.resume_after_shutdown("old", 1)
     assert m.publish_allowed("old", 1)
+
+
+def test_shutdown_fence_followed_by_supersession_revokes_resume(tmp_path):
+    m = ExternalPressure(
+        tmp_path / "revoke.db", global_limit=2, detached_limit=2,
+        per_capability_limit=2, cancellation_reserve=2,
+        reconciliation_reserve=2, verify_termination=lambda _: False,
+        verify_resume_authority=lambda _op, _generation: True,
+    )
+    m.dispatch("job", "cap", 1)
+    m.fence("job", "service_shutdown")
+    epoch = m.db.execute("SELECT authority_epoch FROM pressure_operations").fetchone()[0]
+    m.fence("job", "parent_superseded")
+    assert m.db.execute("SELECT reason FROM pressure_operations").fetchone()[0] == "parent_superseded"
+    assert m.db.execute("SELECT authority_epoch FROM pressure_operations").fetchone()[0] > epoch
+    m.fence("job", "service_shutdown")
+    with pytest.raises(PressureRejected, match="resume_state_conflict"):
+        m.resume_after_shutdown("job", 1)
+    assert not m.publish_allowed("job", 1)
+
+
+def test_duplicate_control_ids_do_not_exhaust_safe_closure_capacity(tmp_path):
+    m = ExternalPressure(
+        tmp_path / "control.db", global_limit=3, detached_limit=3,
+        per_capability_limit=3, cancellation_reserve=2,
+        reconciliation_reserve=2, verify_termination=lambda _: False,
+    )
+    m.dispatch("a", "cap", 1)
+    m.dispatch("b", "cap", 1)
+    m.acquire_control("first", "a", "cancel")
+    with pytest.raises(PressureRejected, match="active_control_already_reserved"):
+        m.acquire_control("retry-different-id", "a", "cancel")
+    m.acquire_control("second", "b", "cancel")
+    assert m.doctor()["control_active"]["cancel"] == 2
