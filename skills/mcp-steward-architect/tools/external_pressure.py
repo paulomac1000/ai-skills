@@ -12,7 +12,6 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-
 SQLITE_INT_MAX = (1 << 63) - 1
 
 
