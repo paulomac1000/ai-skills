@@ -321,18 +321,23 @@ jobs:
           architecture: ${{ matrix.architecture }}
           cache: pip
           cache-dependency-path: requirements-dev-${{ matrix.lock_id }}.lock
-      - name: Isolate locked Python from Windows global pipx
+      # The compatibility suite builds a SECOND wheel smoke venv with
+      # system_site_packages=True. Install the pinned lock into setup-python's
+      # base interpreter so that nested smoke inherits those dependencies.
+      # Remove ONLY the unmanaged pipx shipped by the ephemeral Windows image;
+      # it conflicts with locked filelock/packaging/platformdirs in pip check.
+      - name: Remove unmanaged Windows image pipx before strict pinned install
         if: runner.os == 'Windows'
         shell: pwsh
-        run: python -m venv .venv
-      - run: ${{ runner.os == 'Windows' && './.venv/Scripts/python.exe' || 'python' }} scripts/install_locked.py
+        run: python -m pip uninstall --yes pipx
+      - run: python scripts/install_locked.py
       - name: Run full Python contract suite for declared compatibility
         run: >-
-          ${{ runner.os == 'Windows' && './.venv/Scripts/python.exe' || 'python' }} contracts/run_evidence_command.py
+          python contracts/run_evidence_command.py
           --execution-id compatibility
           --result-file compatibility-${{ matrix.lock_id }}.xml
           --output evidence/executions/compatibility.json
-          -- ${{ runner.os == 'Windows' && './.venv/Scripts/python.exe' || 'python' }} -m pytest -m "not container"
+          -- python -m pytest -m "not container"
           --ignore=tests/test_mcp_dotnet_generator.py
           --ignore=tests/test_mcp_dotnet_runtime_contracts.py
           --junitxml=compatibility-${{ matrix.lock_id }}.xml
@@ -344,7 +349,7 @@ jobs:
           EVIDENCE_SUBJECT: ${{ matrix.operating_system }}|${{ matrix.architecture }}|python|${{ matrix.python }}|python-compatibility
         run: |
           set -euo pipefail
-          ${{ runner.os == 'Windows' && './.venv/Scripts/python.exe' || 'python' }} contracts/write_evidence_report.py \
+          python contracts/write_evidence_report.py \
             --repository "$GITHUB_REPOSITORY" \
             --source-head-sha "$SOURCE_HEAD_SHA" \
             --tested-checkout-sha "$(git rev-parse HEAD)" \
