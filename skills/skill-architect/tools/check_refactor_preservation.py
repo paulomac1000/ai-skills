@@ -40,9 +40,40 @@ def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     return result
 
 
-def _trusted_git_env() -> dict[str, str]:
-    """Drop inherited Git object-store/config overrides before provenance probes."""
-    env = {name: value for name, value in os.environ.items() if not name.upper().startswith("GIT_")}
+def _trusted_git_executable() -> str:
+    """Choose only fixed system installation locations, never the caller's PATH."""
+    if os.name == "nt":
+        candidates = (
+            "C:/Program Files/Git/cmd/git.exe",
+            "C:/Program Files/Git/bin/git.exe",
+            "C:/Program Files/Git/mingw64/bin/git.exe",
+            "C:/Program Files (x86)/Git/cmd/git.exe",
+        )
+    else:
+        candidates = ("/usr/bin/git", "/bin/git", "/opt/homebrew/bin/git", "/usr/local/bin/git")
+    for name in candidates:
+        try:
+            binary = Path(name).resolve(strict=True)
+            mode = binary.stat().st_mode
+            if binary.is_file() and not mode & stat.S_IWOTH:
+                return str(binary)
+        except (OSError, RuntimeError):
+            continue
+    raise FileNotFoundError("trusted_git_executable_unavailable")
+
+
+def _trusted_git_env(executable: str) -> dict[str, str]:
+    """Drop inherited Git and dynamic loader overrides; use fixed helper paths."""
+    env = {
+        name: value
+        for name, value in os.environ.items()
+        if not name.upper().startswith(("GIT_", "LD_", "DYLD_"))
+    }
+    env["PATH"] = (
+        str(Path(executable).parent) + ";C:/Windows/System32;C:/Windows"
+        if os.name == "nt"
+        else "/usr/bin:/bin:/usr/sbin:/sbin"
+    )
     env["GIT_CONFIG_NOSYSTEM"] = "1"
     env["GIT_CONFIG_GLOBAL"] = os.devnull
     env["GIT_NO_REPLACE_OBJECTS"] = "1"
@@ -77,17 +108,18 @@ def _verify_baseline_git_revision(baseline: dict[str, Any], ledger: dict[str, An
     # may select historical subtree names. A foreign candidate's .git cannot.
     try:
         relative_skill = candidate.resolve().relative_to(trusted_root)
-    except ValueError:
+    except (ValueError, RuntimeError):
         return ["candidate_outside_trusted_repo"]
     if len(relative_skill.parts) != 2 or relative_skill.parts[0] != "skills":
         return ["candidate_not_skill_directory"]
     location = relative_skill.as_posix()
-    git_env = _trusted_git_env()
     try:
+        git_executable = _trusted_git_executable()
+        git_env = _trusted_git_env(git_executable)
 
         def resolve(object_id: str) -> str:
             completed = subprocess.run(
-                ["git", "-C", str(trusted_root), "rev-parse", "--verify", object_id],
+                [git_executable, "-C", str(trusted_root), "rev-parse", "--verify", object_id],
                 check=True,
                 capture_output=True,
                 text=True,
@@ -97,7 +129,7 @@ def _verify_baseline_git_revision(baseline: dict[str, Any], ledger: dict[str, An
             return completed.stdout.strip()
 
         actual_root = subprocess.run(
-            ["git", "-C", str(trusted_root), "rev-parse", "--show-toplevel"],
+            [git_executable, "-C", str(trusted_root), "rev-parse", "--show-toplevel"],
             check=True,
             capture_output=True,
             text=True,
@@ -109,7 +141,7 @@ def _verify_baseline_git_revision(baseline: dict[str, Any], ledger: dict[str, An
         # Classify an existing tree/tag/blob as a wrong revision type rather
         # than conflating it with an unavailable Git object.
         object_type = subprocess.run(
-            ["git", "-C", str(trusted_root), "cat-file", "-t", revision],
+            [git_executable, "-C", str(trusted_root), "cat-file", "-t", revision],
             check=True,
             capture_output=True,
             text=True,
@@ -177,10 +209,11 @@ def _content_bindings(baseline: dict[str, Any], ledger: dict[str, Any], candidat
         ):
             findings.append("invalid_candidate_binding")
             continue
-        path = (candidate / rel).resolve()
         if _contains_symlink(root, rel):
             findings.append("candidate_symlink_rejected:" + rel)
-        elif not path.is_relative_to(root) or not path.is_file():
+            continue
+        path = (candidate / rel).resolve()
+        if not path.is_relative_to(root) or not path.is_file():
             findings.append("candidate_file_missing:" + rel)
         elif path.stat().st_size > 1_000_000:
             findings.append("candidate_file_too_large:" + rel)
@@ -215,10 +248,11 @@ def assess(
             ):
                 findings.append("invalid_baseline_binding")
                 continue
-            source = (baseline_tree / rel).resolve()
             if _contains_symlink(root, rel):
                 findings.append("baseline_symlink_rejected:" + rel)
-            elif not source.is_relative_to(root) or not source.is_file():
+                continue
+            source = (baseline_tree / rel).resolve()
+            if not source.is_relative_to(root) or not source.is_file():
                 findings.append("baseline_source_missing:" + rel)
             elif source.stat().st_size > 1_000_000:
                 findings.append("baseline_source_too_large:" + rel)
@@ -275,15 +309,18 @@ def assess(
         ):
             findings.append("incomplete_old_to_new_mapping:" + rule_id[:128])
         elif baseline_tree is not None:
-            source = (baseline_tree / old_path).resolve()
             root = baseline_tree.resolve()
-            if (
-                source.is_relative_to(root)
-                and source.is_file()
-                and source.stat().st_size <= 1_000_000
-                and old_anchor not in source.read_text(encoding="utf-8")
-            ):
-                findings.append("baseline_anchor_missing:" + rule_id[:128])
+            if _contains_symlink(root, old_path):
+                findings.append("baseline_symlink_rejected:" + old_path)
+            else:
+                source = (baseline_tree / old_path).resolve()
+                if (
+                    source.is_relative_to(root)
+                    and source.is_file()
+                    and source.stat().st_size <= 1_000_000
+                    and old_anchor not in source.read_text(encoding="utf-8")
+                ):
+                    findings.append("baseline_anchor_missing:" + rule_id[:128])
         disposition = decision.get("disposition")
         if disposition not in DISPOSITIONS:
             findings.append("invalid_disposition:" + rule_id)
@@ -300,8 +337,11 @@ def assess(
                 continue
             if rel not in candidate_files:
                 findings.append("unbound_owner:" + rule_id)
-            target = (candidate / rel).resolve()
             root = candidate.resolve()
+            if _contains_symlink(root, rel):
+                findings.append("candidate_symlink_rejected:" + rel)
+                continue
+            target = (candidate / rel).resolve()
             if not target.is_relative_to(root) or not target.is_file():
                 findings.append("unreachable_owner:" + rule_id)
                 continue
@@ -311,27 +351,30 @@ def assess(
                 # destination, including for noncritical reference-only rules.
                 trigger = decision.get("pre_load_trigger")
                 route = decision.get("entrypoint_route")
-                entrypoint = (candidate / "SKILL.md").resolve()
                 entrypoint_digest = candidate_files.get("SKILL.md")
-                if (
-                    not entrypoint.is_relative_to(root)
-                    or not entrypoint.is_file()
-                    or entrypoint.stat().st_size > 1_000_000
-                    or not isinstance(entrypoint_digest, str)
-                    or not SHA40.fullmatch(entrypoint_digest)
-                    or _git_blob_sha(entrypoint.read_bytes()) != entrypoint_digest
-                ):
+                if _contains_symlink(root, "SKILL.md"):
                     findings.append("owner_entrypoint_unbound:" + rule_id[:128])
-                elif (
-                    not isinstance(trigger, str)
-                    or not trigger
-                    or not isinstance(route, str)
-                    or len(route) > 1024
-                    or trigger not in route
-                    or rel not in route
-                    or route not in entrypoint.read_text(encoding="utf-8")
-                ):
-                    findings.append("owner_route_unreachable:" + rule_id[:128])
+                else:
+                    entrypoint = (candidate / "SKILL.md").resolve()
+                    if (
+                        not entrypoint.is_relative_to(root)
+                        or not entrypoint.is_file()
+                        or entrypoint.stat().st_size > 1_000_000
+                        or not isinstance(entrypoint_digest, str)
+                        or not SHA40.fullmatch(entrypoint_digest)
+                        or _git_blob_sha(entrypoint.read_bytes()) != entrypoint_digest
+                    ):
+                        findings.append("owner_entrypoint_unbound:" + rule_id[:128])
+                    elif (
+                        not isinstance(trigger, str)
+                        or not trigger
+                        or not isinstance(route, str)
+                        or len(route) > 1024
+                        or trigger not in route
+                        or rel not in route
+                        or route not in entrypoint.read_text(encoding="utf-8")
+                    ):
+                        findings.append("owner_route_unreachable:" + rule_id[:128])
             required_anchor = decision.get("target_anchor")
             if not isinstance(required_anchor, str) or not required_anchor:
                 findings.append("missing_target_anchor:" + rule_id)
@@ -355,14 +398,17 @@ def assess(
                 else:
                     if pre_load not in candidate_files:
                         findings.append("unbound_preload_route:" + rule_id)
-                    route_file = (candidate / pre_load).resolve()
-                    if (
-                        not route_file.is_relative_to(root)
-                        or not route_file.is_file()
-                        or route_file.stat().st_size > 1_000_000
-                        or marker not in route_file.read_text(encoding="utf-8")
-                    ):
+                    if _contains_symlink(root, pre_load):
                         findings.append("preload_trigger_unreachable:" + rule_id)
+                    else:
+                        route_file = (candidate / pre_load).resolve()
+                        if (
+                            not route_file.is_relative_to(root)
+                            or not route_file.is_file()
+                            or route_file.stat().st_size > 1_000_000
+                            or marker not in route_file.read_text(encoding="utf-8")
+                        ):
+                            findings.append("preload_trigger_unreachable:" + rule_id)
     unknown = sorted(set(by_id) - {x.get("id") for x in baseline_rules if isinstance(x, dict)})
     findings.extend("unreviewed_new_rule:" + item for item in unknown)
     # Bounded diagnostics never promote a failed or incomplete check.
@@ -435,7 +481,7 @@ def main() -> int:
         if git_findings:
             result["structural"] = "FAILED"
             result["findings"] = (result["findings"] + git_findings)[:129]
-    except (OSError, UnicodeError, json.JSONDecodeError, ValueError, TypeError) as exc:
+    except (OSError, UnicodeError, json.JSONDecodeError, ValueError, TypeError, RuntimeError) as exc:
         result = {
             "structural": "INVALID_INPUT",
             "behavior": "BEHAVIOR_NOT_VERIFIED",
