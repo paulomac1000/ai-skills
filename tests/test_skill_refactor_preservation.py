@@ -361,3 +361,49 @@ def test_cli_rejects_non_object_candidate_files_with_typed_exit(tmp_path):
         assert proc.returncode == 2
         assert json.loads(proc.stdout)["structural"] == "INVALID_INPUT"
         assert "Traceback" not in proc.stderr
+
+def test_cli_rejects_fifo_and_character_device_before_reading(tmp_path):
+    import os
+    import pytest
+    import subprocess
+
+    if not hasattr(os, "mkfifo"):
+        pytest.skip("FIFO unsupported")
+    path, baseline, ledger, _ = case(tmp_path)
+    fifo = tmp_path / "untrusted.fifo"
+    os.mkfifo(fifo)
+    ledger_path = tmp_path / "ledger.json"
+    ledger_path.write_text(json.dumps(ledger), encoding="utf-8")
+    inputs = [fifo]
+    if Path("/dev/zero").exists():
+        inputs.append(Path("/dev/zero"))
+    for bad_input in inputs:
+        proc = subprocess.run(
+            [
+                sys.executable, str(MODULE_PATH), "--baseline", str(bad_input),
+                "--ledger", str(ledger_path), "--candidate", str(path),
+            ],
+            capture_output=True, text=True, timeout=5, check=False,
+        )
+        assert proc.returncode == 2
+        assert json.loads(proc.stdout)["structural"] == "INVALID_INPUT"
+        assert "Traceback" not in proc.stderr
+
+
+def test_cli_oversized_regular_file_is_rejected_before_json_parse(tmp_path):
+    import subprocess
+
+    path, baseline, ledger, _ = case(tmp_path)
+    large = tmp_path / "too-large.json"
+    large.write_bytes(b"{" + b" " * 262144 + b"}")
+    ledger_path = tmp_path / "ledger.json"
+    ledger_path.write_text(json.dumps(ledger), encoding="utf-8")
+    proc = subprocess.run(
+        [
+            sys.executable, str(MODULE_PATH), "--baseline", str(large),
+            "--ledger", str(ledger_path), "--candidate", str(path),
+        ],
+        capture_output=True, text=True, timeout=5, check=False,
+    )
+    assert proc.returncode == 2
+    assert json.loads(proc.stdout)["structural"] == "INVALID_INPUT"

@@ -9,7 +9,9 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
+import stat
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -342,6 +344,27 @@ class JsonArgumentParser(argparse.ArgumentParser):
         raise SystemExit(2)
 
 
+def _read_bounded_json_object(path: Path) -> dict[str, Any]:
+    """Validate the opened descriptor, not a racy path stat; never read a FIFO."""
+    max_bytes = 262144
+    flags = os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_BINARY", 0)
+    flags |= getattr(os, "O_CLOEXEC", 0)
+    fd = os.open(path, flags)
+    with os.fdopen(fd, "rb") as source:
+        st = os.fstat(source.fileno())
+        if not stat.S_ISREG(st.st_mode):
+            raise ValueError("non_regular_input")
+        if st.st_size > max_bytes:
+            raise ValueError("oversized_input")
+        content = source.read(max_bytes + 1)
+    if len(content) > max_bytes:
+        raise ValueError("oversized_input")
+    obj = json.loads(content.decode("utf-8"))
+    if not isinstance(obj, dict):
+        raise ValueError("invalid_json_object")
+    return obj
+
+
 def main() -> int:
     parser = JsonArgumentParser(description=__doc__)
     parser.add_argument("--baseline", type=Path, required=True)
@@ -350,13 +373,10 @@ def main() -> int:
     parser.add_argument("--baseline-tree", type=Path)
     args = parser.parse_args()
     try:
-        for source in (args.baseline, args.ledger):
-            if source.stat().st_size > 262144:
-                raise ValueError("oversized_input")
-        baseline = json.loads(args.baseline.read_text(encoding="utf-8"))
-        ledger = json.loads(args.ledger.read_text(encoding="utf-8"))
-        if not isinstance(baseline, dict) or not isinstance(ledger, dict) or not args.candidate.is_dir():
-            raise ValueError("invalid_ledger_or_candidate")
+        baseline = _read_bounded_json_object(args.baseline)
+        ledger = _read_bounded_json_object(args.ledger)
+        if not args.candidate.is_dir():
+            raise ValueError("invalid_candidate")
         if not isinstance(ledger.get("candidate_files"), dict):
             raise ValueError("invalid_candidate_files")
         baseline_tree = args.baseline_tree or args.baseline.parent / "baseline_snapshots"
