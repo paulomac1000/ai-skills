@@ -108,3 +108,72 @@ def test_principal_text_cannot_impersonate_trusted_identity(tmp_path):
     with pytest.raises(AmendmentRejected, match='unauthorized'):
         unprivileged.create(lineage_id='l', record_id='r0', payload={}, provenance={}, principal='trusted', authority_ref='policy')
     assert unprivileged.db.execute('SELECT COUNT(*) FROM lineage').fetchone()[0] == 0
+
+def test_exact_replay_after_later_amendment_returns_original_result(tmp_path):
+    obj = store(tmp_path)
+    create = dict(
+        lineage_id="l1", record_id="r0", payload={"v": 0},
+        provenance={"source": "s0"}, principal="trusted", authority_ref="host-policy",
+    )
+    first = obj.create(**create)
+    a = obj.amend(
+        lineage_id="l1", operation_id="a", record_id="r1",
+        expected_revision=0, operation="correct", reason="correct",
+        principal="trusted", authority_ref="host-policy",
+        payload={"v": 1}, provenance={"source": "s1"},
+    )
+    b = obj.amend(
+        lineage_id="l1", operation_id="b", record_id="r2",
+        expected_revision=1, operation="supersede", reason="replace",
+        principal="trusted", authority_ref="host-policy",
+        payload={"v": 2}, provenance={"source": "s2"},
+    )
+    assert obj.create(**create) == first
+    assert obj.amend(
+        lineage_id="l1", operation_id="a", record_id="r1",
+        expected_revision=0, operation="correct", reason="correct",
+        principal="trusted", authority_ref="host-policy",
+        payload={"v": 1}, provenance={"source": "s1"},
+    ) == a
+    assert obj.current("l1") == b
+    with pytest.raises(AmendmentRejected, match="create_persistence_conflict"):
+        obj.create(**(create | {"payload": {"v": 999}}))
+
+
+def test_lineage_ids_reject_coercion_and_read_disclosure_requires_host_grant(tmp_path):
+    policy = {"read_current", "read_history", "create", "correct"}
+    obj = AmendmentLineage(
+        tmp_path / "reads.db",
+        lambda principal, lineage, action: "policy" if action in policy and principal == "trusted" else None,
+        lambda: "trusted",
+    )
+    with pytest.raises(AmendmentRejected, match="invalid_lineage_id"):
+        obj.create(lineage_id=1, record_id="r", payload={}, provenance={}, principal="trusted", authority_ref="policy")
+    obj.create(lineage_id="l", record_id="r", payload={"secret": True}, provenance={}, principal="trusted", authority_ref="policy")
+    before = obj.current("l")["effective_revision"]
+    with pytest.raises(AmendmentRejected, match="invalid_lineage_id"):
+        obj.current(1)
+    assert obj.current("l")["effective_revision"] == before
+    policy.remove("read_current")
+    with pytest.raises(AmendmentRejected, match="read_unauthorized"):
+        obj.current("l")
+    policy.remove("read_history")
+    with pytest.raises(AmendmentRejected, match="read_unauthorized"):
+        obj.history("l")
+
+
+def test_sqlite_busy_write_is_a_typed_refusal(tmp_path):
+    import sqlite3
+
+    path = tmp_path / "locked.db"
+    obj = AmendmentLineage(path, lambda *_: "policy", lambda: "trusted")
+    obj.db.execute("PRAGMA busy_timeout=1")
+    blocker = sqlite3.connect(str(path), timeout=1, isolation_level=None)
+    blocker.execute("BEGIN IMMEDIATE")
+    try:
+        with pytest.raises(AmendmentRejected, match="writer_busy"):
+            obj.create(lineage_id="l", record_id="r", payload={}, provenance={},
+                       principal="trusted", authority_ref="policy")
+    finally:
+        blocker.execute("ROLLBACK")
+        blocker.close()

@@ -69,7 +69,54 @@ class AmendmentLineage:
     def close(self) -> None:
         self.db.close()
 
+    def _read_admit(self, lineage_id: str, action: str) -> None:
+        """Require separately issued host authority for payload/provenance disclosure."""
+        self._check_lineage_id(lineage_id)
+        principal = self.authenticated_principal()
+        if (
+            not isinstance(principal, str)
+            or not principal
+            or not isinstance(grant := self.authorize(principal, lineage_id, action), str)
+            or not grant
+        ):
+            raise AmendmentRejected("read_unauthorized")
+
+    @staticmethod
+    def _check_lineage_id(lineage_id: str) -> None:
+        if not isinstance(lineage_id, str) or not lineage_id:
+            raise AmendmentRejected("invalid_lineage_id")
+
+    def _begin(self) -> None:
+        try:
+            self.db.execute("BEGIN IMMEDIATE")
+        except sqlite3.OperationalError as exc:
+            if "locked" in str(exc).lower() or "busy" in str(exc).lower():
+                raise AmendmentRejected("writer_busy") from exc
+            raise AmendmentRejected("persistence_unavailable") from exc
+
+    def _snapshot(self, lineage_id: str, revision: int) -> dict[str, Any]:
+        row = self.db.execute(
+            """SELECT record_id, op, payload, provenance FROM amendments
+            WHERE lineage_id=? AND revision=?""",
+            (lineage_id, revision),
+        ).fetchone()
+        if row is None:
+            raise AmendmentRejected("unknown_lineage")
+        record_id, op, raw, provenance = row
+        payload = json.loads(raw) if op != "retract" else None
+        identity = _digest([lineage_id, revision, record_id, op, payload])
+        return {
+            "lineage_id": lineage_id,
+            "revision": revision,
+            "head_id": record_id,
+            "effective": payload,
+            "status": "retracted" if op == "retract" else "current",
+            "effective_revision": identity,
+            "provenance": json.loads(provenance),
+        }
+
     def _admit(self, principal: str, lineage_id: str, action: str, authority_ref: str) -> None:
+        self._check_lineage_id(lineage_id)
         if (
             not isinstance(principal, str)
             or not principal
@@ -91,57 +138,59 @@ class AmendmentLineage:
         authority_ref: str,
     ) -> dict[str, Any]:
         self._admit(principal, lineage_id, "create", authority_ref)
-        if not lineage_id or not record_id or not isinstance(payload, Mapping) or not isinstance(provenance, Mapping):
+        self._read_admit(lineage_id, "read_current")
+        if not isinstance(record_id, str) or not record_id or not isinstance(payload, Mapping) or not isinstance(
+            provenance, Mapping
+        ):
             raise AmendmentRejected("invalid_initial_record")
         material = _json(dict(payload))
         source = _json(dict(provenance))
-        self.db.execute("BEGIN IMMEDIATE")
+        fingerprint = _digest([material, source, principal, authority_ref, record_id])
+        self._begin()
         try:
-            self.db.execute("INSERT INTO lineage VALUES (?, 0, ?)", (lineage_id, record_id))
-            self.db.execute(
-                "INSERT INTO amendments VALUES (?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (
-                    lineage_id,
-                    "initial:" + record_id,
-                    _digest([material, source]),
-                    record_id,
-                    None,
-                    "create",
-                    principal,
-                    authority_ref,
-                    "initial_record",
-                    material,
-                    source,
-                ),
-            )
+            existing = self.db.execute(
+                """SELECT record_id, fingerprint FROM amendments
+                WHERE lineage_id=? AND revision=0""",
+                (lineage_id,),
+            ).fetchone()
+            if existing is not None:
+                if existing != (record_id, fingerprint):
+                    raise AmendmentRejected("create_persistence_conflict")
+            else:
+                self.db.execute("INSERT INTO lineage VALUES (?, 0, ?)", (lineage_id, record_id))
+                self.db.execute(
+                    "INSERT INTO amendments VALUES (?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        lineage_id,
+                        "initial:" + record_id,
+                        fingerprint,
+                        record_id,
+                        None,
+                        "create",
+                        principal,
+                        authority_ref,
+                        "initial_record",
+                        material,
+                        source,
+                    ),
+                )
             self.db.execute("COMMIT")
         except sqlite3.DatabaseError as exc:
             if self.db.in_transaction:
                 self.db.execute("ROLLBACK")
             raise AmendmentRejected("create_persistence_conflict") from exc
-        return self.current(lineage_id)
+        except Exception:
+            if self.db.in_transaction:
+                self.db.execute("ROLLBACK")
+            raise
+        return self._snapshot(lineage_id, 0)
 
     def current(self, lineage_id: str) -> dict[str, Any]:
-        row = self.db.execute(
-            """SELECT l.revision, a.record_id, a.op, a.payload, a.provenance
-            FROM lineage l JOIN amendments a ON a.lineage_id=l.lineage_id AND a.revision=l.revision
-            WHERE l.lineage_id=?""",
-            (lineage_id,),
-        ).fetchone()
+        self._read_admit(lineage_id, "read_current")
+        row = self.db.execute("SELECT revision FROM lineage WHERE lineage_id=?", (lineage_id,)).fetchone()
         if row is None:
             raise AmendmentRejected("unknown_lineage")
-        rev, record_id, op, raw, provenance = row
-        payload = json.loads(raw) if op != "retract" else None
-        identity = _digest([lineage_id, rev, record_id, op, payload])
-        return {
-            "lineage_id": lineage_id,
-            "revision": rev,
-            "head_id": record_id,
-            "effective": payload,
-            "status": "retracted" if op == "retract" else "current",
-            "effective_revision": identity,
-            "provenance": json.loads(provenance),
-        }
+        return self._snapshot(lineage_id, row[0])
 
     def amend(
         self,
@@ -158,9 +207,12 @@ class AmendmentLineage:
         provenance: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
         self._admit(principal, lineage_id, operation, authority_ref)
+        self._read_admit(lineage_id, "read_current")
         if (
             operation not in {"correct", "retract", "supersede"}
+            or not isinstance(operation_id, str)
             or not operation_id
+            or not isinstance(record_id, str)
             or not record_id
             or not isinstance(reason, str)
             or not reason.strip()
@@ -185,7 +237,7 @@ class AmendmentLineage:
                 provenance,
             ]
         )
-        self.db.execute("BEGIN IMMEDIATE")
+        self._begin()
         try:
             replay = self.db.execute(
                 "SELECT fingerprint, revision FROM amendments WHERE lineage_id=? AND operation_id=?",
@@ -195,7 +247,7 @@ class AmendmentLineage:
                 if replay[0] != fingerprint:
                     raise AmendmentRejected("operation_id_conflict")
                 self.db.execute("COMMIT")
-                return self.current(lineage_id)
+                return self._snapshot(lineage_id, replay[1])
             head = self.db.execute("SELECT revision, head_id FROM lineage WHERE lineage_id=?", (lineage_id,)).fetchone()
             if head is None:
                 raise AmendmentRejected("unknown_lineage")
@@ -234,9 +286,10 @@ class AmendmentLineage:
             if self.db.in_transaction:
                 self.db.execute("ROLLBACK")
             raise
-        return self.current(lineage_id)
+        return self._snapshot(lineage_id, new_revision)
 
     def history(self, lineage_id: str) -> list[dict[str, Any]]:
+        self._read_admit(lineage_id, "read_history")
         rows = self.db.execute(
             """SELECT revision, record_id, predecessor, op, principal, authority_ref,
             reason, payload, provenance FROM amendments WHERE lineage_id=? ORDER BY revision""",
@@ -258,6 +311,7 @@ class AmendmentLineage:
         ]
 
     def dependency_status(self, lineage_id: str, effective_revision: str) -> str:
+        self._read_admit(lineage_id, "read_current")
         return (
             "CURRENT"
             if self.current(lineage_id)["effective_revision"] == effective_revision
