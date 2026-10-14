@@ -317,16 +317,9 @@ class AmendmentLineage:
             raise
         return self._snapshot(lineage_id, new_revision)
 
-    def history(
-        self, lineage_id: str, *, after_revision: int = -1, limit: int = 20
-    ) -> list[dict[str, Any]]:
+    def history(self, lineage_id: str, *, after_revision: int = -1, limit: int = 20) -> list[dict[str, Any]]:
         self._read_admit(lineage_id, "read_history")
-        if (
-            type(after_revision) is not int
-            or after_revision < -1
-            or type(limit) is not int
-            or not 1 <= limit <= 50
-        ):
+        if type(after_revision) is not int or after_revision < -1 or type(limit) is not int or not 1 <= limit <= 50:
             raise AmendmentRejected("invalid_history_page")
         rows = self.db.execute(
             """SELECT revision, record_id, predecessor, op, principal, authority_ref,
