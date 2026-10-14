@@ -499,3 +499,44 @@ def test_git_provenance_ignores_inherited_repository_overrides(monkeypatch):
     assert mod._verify_baseline_git_revision(
         baseline, ledger, root / "skills/skill-architect"
     ) == []
+
+
+def test_git_provenance_does_not_resolve_executable_through_inherited_path(tmp_path, monkeypatch):
+    import pytest
+    import subprocess
+
+    root = Path(__file__).resolve().parents[1]
+    corpus = root / "evals/skills/skill-architect"
+    baseline = json.loads((corpus / "refactor-pilot-baseline.json").read_text(encoding="utf-8"))
+    ledger = json.loads((corpus / "refactor-pilot-ledger.json").read_text(encoding="utf-8"))
+    available = subprocess.run(
+        ["git", "-C", str(root), "cat-file", "-e", baseline["revision"] + "^{commit}"],
+        check=False, capture_output=True, timeout=10,
+    )
+    if available.returncode != 0:
+        pytest.skip("baseline unavailable in shallow checkout")
+
+    fake = tmp_path / "git"
+    fake.write_text("#!/bin/sh\necho forged-history\n", encoding="utf-8")
+    fake.chmod(0o755)
+    monkeypatch.setenv("PATH", str(tmp_path))
+    assert Path(mod._trusted_git_executable()).is_absolute()
+    assert mod._verify_baseline_git_revision(
+        baseline, ledger, root / "skills/skill-architect"
+    ) == []
+
+
+def test_cyclic_symlink_bindings_fail_closed_before_resolve(tmp_path):
+    import pytest
+
+    path, baseline, ledger, decision = case(tmp_path, kind="evidence")
+    loop = path / "loop.md"
+    try:
+        loop.symlink_to("loop.md")
+    except (OSError, NotImplementedError):
+        pytest.skip("symlinks unavailable")
+    ledger["candidate_files"]["loop.md"] = ledger["candidate_files"]["STANDARD.md"]
+    ledger["decisions"] = [decision | {"target_path": "loop.md"}]
+    result = assess(baseline, ledger, path)
+    assert result["structural"] == "FAILED"
+    assert "candidate_symlink_rejected:loop.md" in result["findings"]
