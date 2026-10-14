@@ -346,3 +346,22 @@ def test_nested_payload_mutation_during_writer_wait_cannot_change_fingerprint(tm
         authority_ref="host-policy", payload={"items": [{"v": 1}]}, provenance={"ids": [1]},
     )
     assert replay["effective_revision"] == saved["effective_revision"]
+
+
+def test_sqlite_revision_integer_overflow_is_typed_rejection(tmp_path):
+    obj = store(tmp_path)
+    obj.create(
+        lineage_id="l1", record_id="r0", payload={}, provenance={},
+        principal="trusted", authority_ref="host-policy",
+    )
+    above_sqlite = 1 << 63
+    with pytest.raises(AmendmentRejected, match="invalid_expected_revision"):
+        obj.amend(
+            lineage_id="l1", operation_id="overflow", record_id="r1",
+            expected_revision=above_sqlite, operation="correct",
+            reason="test", principal="trusted", authority_ref="host-policy",
+            payload={}, provenance={},
+        )
+    with pytest.raises(AmendmentRejected, match="invalid_history_page"):
+        obj.history("l1", after_revision=above_sqlite)
+    assert obj.current("l1")["revision"] == 0

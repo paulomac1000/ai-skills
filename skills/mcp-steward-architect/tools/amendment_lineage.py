@@ -15,6 +15,9 @@ from pathlib import Path
 from typing import Any
 
 
+SQLITE_INT_MAX = (1 << 63) - 1
+
+
 class AmendmentRejected(ValueError):
     """Typed fail-closed refusal with a bounded current revision."""
 
@@ -258,7 +261,7 @@ class AmendmentLineage:
             or not reason.strip()
         ):
             raise AmendmentRejected("invalid_amendment")
-        if type(expected_revision) is not int or expected_revision < 0:
+        if type(expected_revision) is not int or not 0 <= expected_revision <= SQLITE_INT_MAX:
             raise AmendmentRejected("invalid_expected_revision")
         if operation != "retract" and (not isinstance(payload, Mapping) or not isinstance(provenance, Mapping)):
             raise AmendmentRejected("replacement_payload_and_provenance_required")
@@ -344,7 +347,12 @@ class AmendmentLineage:
 
     def history(self, lineage_id: str, *, after_revision: int = -1, limit: int = 20) -> list[dict[str, Any]]:
         self._read_admit(lineage_id, "read_history")
-        if type(after_revision) is not int or after_revision < -1 or type(limit) is not int or not 1 <= limit <= 50:
+        if (
+            type(after_revision) is not int
+            or not -1 <= after_revision <= SQLITE_INT_MAX
+            or type(limit) is not int
+            or not 1 <= limit <= 50
+        ):
             raise AmendmentRejected("invalid_history_page")
         rows = self.db.execute(
             """SELECT revision, record_id, predecessor, op, principal, authority_ref,
