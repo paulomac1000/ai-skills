@@ -76,13 +76,13 @@ def test_independent_profiles_not_forcibly_merged(tmp_path):
     (path/'references/p1.md').write_text('first independent route')
     (path/'references/p2.md').write_text('second independent route')
     (path/'SKILL.md').write_text(
-        'Trigger when destructive action requested; read STANDARD.md before action\\n'
-        'first independent route -> references/p1.md\\n'
+        'Trigger when destructive action requested; read STANDARD.md before action\n'
+        'first independent route -> references/p1.md\n'
         'second independent route -> references/p2.md'
     )
     raw_skill = (path / 'SKILL.md').read_bytes()
     ledger['candidate_files']['SKILL.md'] = hashlib.sha1(
-        b'blob ' + str(len(raw_skill)).encode() + b'\\0' + raw_skill, usedforsecurity=False
+        b'blob ' + str(len(raw_skill)).encode() + b'\0' + raw_skill, usedforsecurity=False
     ).hexdigest()
     baseline['required_behaviors'] = [{'id': 'p1', 'kind': 'evidence'}, {'id': 'p2', 'kind': 'evidence'}]
     ledger['decisions'] = [
