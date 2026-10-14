@@ -93,7 +93,17 @@ def _verify_baseline_git_revision(baseline: dict[str, Any], ledger: dict[str, An
         ).stdout.strip()
         if Path(actual_root).resolve() != trusted_root:
             return ["trusted_git_root_mismatch"]
-        # Tree and dangling object IDs are not historical commit identities.
+        # Classify an existing tree/tag/blob as a wrong revision type rather
+        # than conflating it with an unavailable Git object.
+        object_type = subprocess.run(
+            ["git", "-C", str(trusted_root), "cat-file", "-t", revision],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        ).stdout.strip()
+        if object_type != "commit":
+            return ["baseline_git_commit_mismatch"]
         if resolve(revision + "^{commit}") != revision:
             return ["baseline_git_commit_mismatch"]
         historical_tree = resolve(revision + ":" + location)
