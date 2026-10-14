@@ -35,8 +35,15 @@ deprecation.
 
 Optional static diagnostic: `tools/check_refactor_preservation.py` accepts
 `--baseline`, `--ledger` and `--candidate`. The synthetic pilot lives in
-`evals/skills/skill-architect/`. Its PASS establishes structural mapping,
-never model equivalence.
+`evals/skills/skill-architect/`. Its `structural: PASS` has the narrow
+`normative_owner_and_route_mapping` scope; it verifies only pinned normative
+source/target documents and entrypoint routes. It explicitly reports
+`eval_corpus: NOT_VERIFIED` and `behavior: BEHAVIOR_NOT_VERIFIED`.
+The caller must independently baseline and validate repository-scoped eval
+corpus revisions with `tools/validate_skill_evals.py` plus any required
+model-backed comparisons before claiming complete semantic preservation.
+Never present this static result as a passing corpus migration or model
+equivalence check.
 
 ## Migration first principles
 

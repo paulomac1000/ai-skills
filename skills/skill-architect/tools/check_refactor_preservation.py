@@ -175,11 +175,16 @@ def assess(
         if entry["id"] in by_id:
             findings.append("duplicate_decision:" + entry["id"])
         by_id[entry["id"]] = entry
+    seen_baseline_ids: set[str] = set()
     for old in baseline_rules:
         if not isinstance(old, dict) or not isinstance(old.get("id"), str):
             findings.append("invalid_baseline_rule")
             continue
         rule_id = old["id"]
+        if rule_id in seen_baseline_ids:
+            findings.append("duplicate_baseline_rule:" + rule_id[:128])
+            continue
+        seen_baseline_ids.add(rule_id)
         decision = by_id.get(rule_id)
         if decision is None:
             findings.append("missing_required_behavior:" + rule_id)
@@ -298,14 +303,32 @@ def assess(
     return {
         "structural": "FAILED" if findings else "PASS",
         "behavior": "BEHAVIOR_NOT_VERIFIED",
+        "verification_scope": "normative_owner_and_route_mapping",
+        "eval_corpus": "NOT_VERIFIED",
         "findings": findings,
         "baseline_revision": baseline.get("revision"),
         "candidate_revision": ledger.get("candidate_revision"),
     }
 
 
+class JsonArgumentParser(argparse.ArgumentParser):
+    def error(self, message: str) -> None:
+        # Parser-supplied messages can embed caller paths or untrusted argument
+        # values. Keep the public outcome typed, bounded, and non-disclosing.
+        print(
+            json.dumps(
+                {
+                    "structural": "INVALID_INPUT",
+                    "behavior": "BEHAVIOR_NOT_VERIFIED",
+                    "findings": ["invalid_arguments"],
+                }
+            )
+        )
+        raise SystemExit(2)
+
+
 def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = JsonArgumentParser(description=__doc__)
     parser.add_argument("--baseline", type=Path, required=True)
     parser.add_argument("--ledger", type=Path, required=True)
     parser.add_argument("--candidate", type=Path, required=True)
