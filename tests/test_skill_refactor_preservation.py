@@ -271,3 +271,25 @@ def test_argparse_failures_emit_bounded_json_and_exit_two(tmp_path):
         response = json.loads(proc.stdout)
         assert response["structural"] == "INVALID_INPUT"
         assert response["findings"] == ["invalid_arguments"]
+
+def test_candidate_owned_git_cannot_substitute_trusted_baseline(tmp_path):
+    import subprocess
+
+    root = Path(__file__).resolve().parents[1]
+    corpus = root / "evals/skills/skill-architect"
+    baseline = json.loads((corpus / "refactor-pilot-baseline.json").read_text(encoding="utf-8"))
+    ledger = json.loads((corpus / "refactor-pilot-ledger.json").read_text(encoding="utf-8"))
+    trusted = subprocess.run(
+        ["git", "-C", str(root), "cat-file", "-e", baseline["revision"] + "^{commit}"],
+        check=False, capture_output=True, timeout=10,
+    )
+    if trusted.returncode != 0:
+        import pytest
+
+        pytest.skip("baseline Git object absent from shallow checkout")
+    foreign = tmp_path / "foreign-skill"
+    foreign.mkdir()
+    subprocess.run(["git", "init", "-q", str(foreign)], check=True, timeout=10)
+    assert mod._verify_baseline_git_revision(baseline, ledger, foreign) == []
+    bogus = dict(ledger, baseline_source_tree_sha="0" * 40)
+    assert mod._verify_baseline_git_revision(baseline, bogus, foreign) == ["baseline_git_tree_mismatch"]
