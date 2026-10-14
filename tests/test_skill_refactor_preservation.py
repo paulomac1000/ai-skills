@@ -1,3 +1,4 @@
+import hashlib
 import importlib.util
 import json
 import sys
@@ -17,9 +18,20 @@ def case(tmp_path, kind='authority'):
     skill.mkdir()
     (skill/'SKILL.md').write_text('Trigger when destructive action requested; enforce policy before action')
     (skill/'STANDARD.md').write_text('Require policy authorization; retain rollback evidence')
-    baseline = {'revision': 'base-sha', 'required_behaviors': [{'id': 'auth', 'kind': kind}]}
+    baseline = {'revision': 'a' * 40, 'required_behaviors': [{'id': 'auth', 'kind': kind}]}
     decision = {'id': 'auth', 'disposition': 'MOVE', 'target_path': 'STANDARD.md', 'target_anchor': 'Require policy authorization', 'negative_case': 'unauthorized_call', 'verification': 'negative-test', 'pre_load_path': 'SKILL.md', 'pre_load_trigger': 'Trigger when destructive action'}
-    ledger = {'candidate_revision': 'candidate-sha', 'decisions': [decision]}
+    def blob(path):
+        raw = (skill / path).read_bytes()
+        return hashlib.sha1(b"blob " + str(len(raw)).encode() + b"\0" + raw).hexdigest()
+
+    ledger = {
+        'candidate_revision': 'candidate-sha',
+        'baseline_sha256': 'sha256:' + hashlib.sha256(
+            json.dumps(baseline, sort_keys=True, separators=(',', ':')).encode()
+        ).hexdigest(),
+        'candidate_files': {'SKILL.md': blob('SKILL.md'), 'STANDARD.md': blob('STANDARD.md')},
+        'decisions': [decision],
+    }
     return skill, baseline, ledger, decision
 
 
@@ -60,6 +72,14 @@ def test_independent_profiles_not_forcibly_merged(tmp_path):
         {'id': key, 'disposition': 'PRESERVE', 'target_path': f'references/{key}.md', 'target_anchor': f'{word} independent route', 'negative_case': 'other-task', 'verification': key}
         for key, word in [('p1', 'first'), ('p2', 'second')]
     ]
+    ledger['baseline_sha256'] = 'sha256:' + hashlib.sha256(
+        json.dumps(baseline, sort_keys=True, separators=(',', ':')).encode()
+    ).hexdigest()
+    for key in ('p1', 'p2'):
+        raw = (path / f'references/{key}.md').read_bytes()
+        ledger['candidate_files'][f'references/{key}.md'] = hashlib.sha1(
+            b"blob " + str(len(raw)).encode() + b"\0" + raw
+        ).hexdigest()
     assert assess(baseline, ledger, path)['structural'] == 'PASS'
 
 
@@ -77,3 +97,28 @@ def test_real_pilot_tracks_live_normative_sources():
     assert result["behavior"] == "BEHAVIOR_NOT_VERIFIED"
     assert result["baseline_revision"] == "5c656ac0602e35f51cb0ba9b576f8e5af10a54ba"
     assert result["candidate_revision"] == "3.26.0"
+
+def test_content_drift_cannot_pass_a_pinned_pilot(tmp_path):
+    path, baseline, ledger, decision = case(tmp_path)
+    assert assess(baseline, ledger, path)['structural'] == 'PASS'
+    (path / 'STANDARD.md').write_text('Require policy authorization; retain rollback evidence\n')
+    assert 'candidate_content_mismatch:STANDARD.md' in assess(baseline, ledger, path)['findings']
+    (path / 'STANDARD.md').write_text('Require policy authorization; retain rollback evidence')
+    baseline['required_behaviors'][0]['kind'] = 'exception'
+    assert 'baseline_content_mismatch' in assess(baseline, ledger, path)['findings']
+
+
+def test_invalid_input_returns_json_and_exit_code_two(tmp_path):
+    import subprocess
+
+    invalid = tmp_path / 'invalid.json'
+    invalid.write_text('{broken')
+    candidate = tmp_path / 'skill'
+    candidate.mkdir()
+    result = subprocess.run(
+        [sys.executable, str(MODULE_PATH), '--baseline', str(invalid),
+         '--ledger', str(invalid), '--candidate', str(candidate)],
+        capture_output=True, text=True, check=False,
+    )
+    assert result.returncode == 2
+    assert json.loads(result.stdout)['structural'] == 'INVALID_INPUT'
