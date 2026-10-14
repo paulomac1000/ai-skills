@@ -31,6 +31,44 @@ def _contains_symlink(root: Path, relative: str) -> bool:
     return False
 
 
+def _read_attested_regular_file(root: Path, relative: str) -> bytes:
+    """Read through a verified regular-file descriptor; never follow POSIX symlinks."""
+    parts = Path(relative).parts
+    if not parts or Path(relative).is_absolute() or ".." in parts:
+        raise ValueError("invalid_relative_path")
+    if os.name != "posix":
+        # Windows lacks the portable dir_fd/O_NOFOLLOW chain; double-check
+        # reparse/symlink status and require a bounded regular-file handle.
+        if _contains_symlink(root, relative):
+            raise ValueError("symlink_rejected")
+        with (root / relative).open("rb") as stream:
+            info = os.fstat(stream.fileno())
+            if not stat.S_ISREG(info.st_mode) or info.st_size > 1_000_000:
+                raise ValueError("unsafe_file_type_or_size")
+            data = stream.read(1_000_001)
+        if _contains_symlink(root, relative) or len(data) > 1_000_000:
+            raise ValueError("file_changed_or_oversized")
+        return data
+
+    directory_flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    handles: list[int] = [os.open(root, directory_flags)]
+    try:
+        for part in parts[:-1]:
+            handles.append(os.open(part, directory_flags, dir_fd=handles[-1]))
+        flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK
+        handles.append(os.open(parts[-1], flags, dir_fd=handles[-1]))
+        info = os.fstat(handles[-1])
+        if not stat.S_ISREG(info.st_mode) or info.st_size > 1_000_000:
+            raise ValueError("unsafe_file_type_or_size")
+        data = os.read(handles[-1], 1_000_001)
+        if len(data) > 1_000_000:
+            raise ValueError("oversized_file")
+        return data
+    finally:
+        for handle in reversed(handles):
+            os.close(handle)
+
+
 def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     result: dict[str, Any] = {}
     for key, value in pairs:
@@ -179,11 +217,15 @@ def _positive_entrypoint_route(route: str, owner: str) -> bool:
     if position < 0 or route.find(owner, position + len(owner)) >= 0:
         return False
     prefix = route[max(0, position - 128) : position]
-    if re.search(r"\\b(?:not|never|avoid|without|skip|prohibit|forbid|cannot|don't|doesn't|shouldn't|mustn't)\\b", prefix, re.IGNORECASE):
+    if re.search(
+        r"\b(?:not|never|avoid|without|skip|prohibit|forbid|cannot|don't|doesn't|shouldn't|mustn't)\b",
+        prefix,
+        re.IGNORECASE,
+    ):
         return False
     return bool(
         re.search(
-            r"(?:\\b(?:read|consult|load|open|follow|use|see)\\s+`?|->\\s*`?)$",
+            r"(?:\b(?:read|consult|load|open|follow|use|see)\s+`?|->\s*`?)$",
             prefix,
             re.IGNORECASE,
         )
@@ -232,16 +274,18 @@ def _content_bindings(
             findings.append("candidate_symlink_rejected:" + rel)
             continue
         path = (candidate / rel).resolve()
-        if not path.is_relative_to(root) or not path.is_file():
+        if not path.is_relative_to(root):
             findings.append("candidate_file_missing:" + rel)
-        elif path.stat().st_size > 1_000_000:
-            findings.append("candidate_file_too_large:" + rel)
-        else:
-            content = path.read_bytes()
-            if _git_blob_sha(content) != expected:
-                findings.append("candidate_content_mismatch:" + rel)
-            elif verified is not None:
-                verified[rel] = content
+            continue
+        try:
+            content = _read_attested_regular_file(root, rel)
+        except (OSError, ValueError):
+            findings.append("candidate_file_unreadable:" + rel)
+            continue
+        if _git_blob_sha(content) != expected:
+            findings.append("candidate_content_mismatch:" + rel)
+        elif verified is not None:
+            verified[rel] = content
     return findings
 
 
@@ -277,16 +321,18 @@ def assess(
                 findings.append("baseline_symlink_rejected:" + rel)
                 continue
             source = (baseline_tree / rel).resolve()
-            if not source.is_relative_to(root) or not source.is_file():
+            if not source.is_relative_to(root):
                 findings.append("baseline_source_missing:" + rel)
-            elif source.stat().st_size > 1_000_000:
-                findings.append("baseline_source_too_large:" + rel)
+                continue
+            try:
+                original = _read_attested_regular_file(root, rel)
+            except (OSError, ValueError):
+                findings.append("baseline_source_unreadable:" + rel)
+                continue
+            if _git_blob_sha(original) != blob:
+                findings.append("baseline_source_drift:" + rel)
             else:
-                original = source.read_bytes()
-                if _git_blob_sha(original) != blob:
-                    findings.append("baseline_source_drift:" + rel)
-                else:
-                    baseline_verified[rel] = original
+                baseline_verified[rel] = original
     baseline_rules = baseline.get("required_behaviors")
     decisions = ledger.get("decisions")
     if (
