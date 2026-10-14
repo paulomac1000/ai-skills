@@ -106,11 +106,7 @@ def assess(
         return {"structural": "FAILED", "behavior": "BEHAVIOR_NOT_VERIFIED", "findings": findings + ["invalid_ledger"]}
     by_id: dict[str, dict[str, Any]] = {}
     for entry in decisions:
-        if (
-            not isinstance(entry, dict)
-            or not isinstance(entry.get("id"), str)
-            or not 1 <= len(entry["id"]) <= 128
-        ):
+        if not isinstance(entry, dict) or not isinstance(entry.get("id"), str) or not 1 <= len(entry["id"]) <= 128:
             findings.append("invalid_decision")
             continue
         if entry["id"] in by_id:
