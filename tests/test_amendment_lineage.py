@@ -365,3 +365,27 @@ def test_sqlite_revision_integer_overflow_is_typed_rejection(tmp_path):
     with pytest.raises(AmendmentRejected, match="invalid_history_page"):
         obj.history("l1", after_revision=above_sqlite)
     assert obj.current("l1")["revision"] == 0
+
+def test_deep_json_mapping_returns_typed_refusal(tmp_path):
+    obj = store(tmp_path)
+    nested = {}
+    current = nested
+    for _ in range(1500):
+        following = {}
+        current["child"] = following
+        current = following
+    with pytest.raises(AmendmentRejected, match="invalid_payload"):
+        obj.create(
+            lineage_id="deep", record_id="r", payload=nested, provenance={},
+            principal="trusted", authority_ref="host-policy",
+        )
+    obj.create(
+        lineage_id="l1", record_id="r0", payload={}, provenance={},
+        principal="trusted", authority_ref="host-policy",
+    )
+    with pytest.raises(AmendmentRejected, match="invalid_provenance"):
+        obj.amend(
+            lineage_id="l1", operation_id="deep", record_id="r1", expected_revision=0,
+            operation="correct", reason="deep", principal="trusted",
+            authority_ref="host-policy", payload={}, provenance=nested,
+        )

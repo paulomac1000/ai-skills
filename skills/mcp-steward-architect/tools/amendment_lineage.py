@@ -38,7 +38,7 @@ def _bounded_mapping(value: Mapping[str, Any], *, field: str, max_bytes: int) ->
     try:
         result = dict(value)
         canonical = _json(result)
-    except (TypeError, ValueError, OverflowError) as exc:
+    except (TypeError, ValueError, OverflowError, RecursionError) as exc:
         raise AmendmentRejected("invalid_" + field) from exc
     if len(canonical.encode("utf-8")) > max_bytes:
         raise AmendmentRejected("oversized_" + field)
