@@ -497,7 +497,7 @@ def test_insert_or_replace_cannot_mutate_prior_amendment(tmp_path):
 
     obj = store(tmp_path)
     obj.create(lineage_id="l", record_id="r", payload={"safe": True},
-               provenance={"p": 1}, principal="trusted", authority_ref="host-policy")
+               provenance={"p": 1}, principal="trusted", authority_ref="policy")
     before = obj.current("l")["effective_revision"]
     with pytest.raises(sqlite3.DatabaseError, match="immutable"):
         obj.db.execute(
@@ -514,13 +514,13 @@ def test_retraction_provenance_and_faulty_mapping_are_typed(tmp_path):
 
     obj = store(tmp_path)
     obj.create(lineage_id="l", record_id="r0", payload={}, provenance={},
-               principal="trusted", authority_ref="host-policy")
+               principal="trusted", authority_ref="policy")
     with pytest.raises(AmendmentRejected, match="invalid_provenance"):
         obj.amend(
             lineage_id="l", operation_id="ret", record_id="r1",
             expected_revision=0, operation="retract", reason="withdraw",
             provenance=[["origin", "forged"]], principal="trusted",
-            authority_ref="host-policy",
+            authority_ref="policy",
         )
     class FaultyMapping(Mapping):
         def __iter__(self):
@@ -536,5 +536,5 @@ def test_retraction_provenance_and_faulty_mapping_are_typed(tmp_path):
             lineage_id="l", operation_id="op", record_id="r1",
             expected_revision=0, operation="correct", reason="correct",
             payload=FaultyMapping(), provenance={},
-            principal="trusted", authority_ref="host-policy",
+            principal="trusted", authority_ref="policy",
         )
