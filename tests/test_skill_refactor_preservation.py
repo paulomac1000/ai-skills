@@ -160,6 +160,17 @@ def test_pilot_revision_resolves_against_actual_git_history():
     corpus = root / "evals/skills/skill-architect"
     baseline = json.loads((corpus / "refactor-pilot-baseline.json").read_text(encoding="utf-8"))
     ledger = json.loads((corpus / "refactor-pilot-ledger.json").read_text(encoding="utf-8"))
+    import pytest
+    import subprocess
+
+    # Other CI matrix jobs use shallow checkouts; exact-head fetches BASE_SHA
+    # and runs this verification with real immutable Git history.
+    present = subprocess.run(
+        ["git", "-C", str(root), "cat-file", "-e", baseline["revision"] + "^{commit}"],
+        check=False, capture_output=True, timeout=10,
+    )
+    if present.returncode != 0:
+        pytest.skip("baseline object absent from shallow checkout")
     assert mod._verify_baseline_git_revision(baseline, ledger, root / "skills/skill-architect") == []
     bad = dict(ledger, baseline_source_tree_sha="0" * 40)
     assert mod._verify_baseline_git_revision(baseline, bad, root / "skills/skill-architect") == [
