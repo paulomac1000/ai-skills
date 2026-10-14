@@ -391,9 +391,7 @@ def assess(
                 else:
                     if pre_load not in candidate_files:
                         findings.append("unbound_preload_route:" + rule_id)
-                    if pre_load not in candidate_verified or marker not in candidate_verified[pre_load].decode(
-                        "utf-8"
-                    ):
+                    if pre_load not in candidate_verified or marker not in candidate_verified[pre_load].decode("utf-8"):
                         findings.append("preload_trigger_unreachable:" + rule_id)
     unknown = sorted(set(by_id) - {x.get("id") for x in baseline_rules if isinstance(x, dict)})
     findings.extend("unreviewed_new_rule:" + item for item in unknown)
