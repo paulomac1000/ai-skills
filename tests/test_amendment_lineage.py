@@ -314,3 +314,35 @@ def test_current_uses_single_snapshot_for_head_and_amendment(tmp_path):
         assert len(queries) == 2
     finally:
         obj.db.set_trace_callback(None)
+
+
+def test_nested_payload_mutation_during_writer_wait_cannot_change_fingerprint(tmp_path):
+    obj = store(tmp_path)
+    obj.create(
+        lineage_id="l1", record_id="r0", payload={}, provenance={},
+        principal="trusted", authority_ref="host-policy",
+    )
+    nested = {"items": [{"v": 1}]}
+    provenance = {"ids": [1]}
+    real_begin = obj._begin
+
+    def mutate_while_waiting():
+        nested["items"][0]["v"] = 999
+        provenance["ids"].append(2)
+        real_begin()
+
+    obj._begin = mutate_while_waiting
+    saved = obj.amend(
+        lineage_id="l1", operation_id="a", record_id="r1", expected_revision=0,
+        operation="correct", reason="first", principal="trusted",
+        authority_ref="host-policy", payload=nested, provenance=provenance,
+    )
+    assert saved["effective"] == {"items": [{"v": 1}]}
+    assert saved["provenance"] == {"ids": [1]}
+    obj._begin = real_begin
+    replay = obj.amend(
+        lineage_id="l1", operation_id="a", record_id="r1", expected_revision=0,
+        operation="correct", reason="first", principal="trusted",
+        authority_ref="host-policy", payload={"items": [{"v": 1}]}, provenance={"ids": [1]},
+    )
+    assert replay["effective_revision"] == saved["effective_revision"]

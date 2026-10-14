@@ -40,7 +40,7 @@ def _bounded_mapping(value: Mapping[str, Any], *, field: str, max_bytes: int) ->
         raise AmendmentRejected("invalid_" + field) from exc
     if len(canonical.encode("utf-8")) > max_bytes:
         raise AmendmentRejected("oversized_" + field)
-    return result, canonical
+    return json.loads(canonical), canonical
 
 
 class AmendmentLineage:
