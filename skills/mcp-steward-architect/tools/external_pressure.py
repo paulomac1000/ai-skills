@@ -146,6 +146,11 @@ class ExternalPressure:
             ).fetchone()
             if row is None:
                 raise PressureRejected("unknown_operation")
+            if row[1] == "stopped" and reason == "service_shutdown":
+                # Terminal completion already has proof; shutdown is not a
+                # domain cancellation and must not revoke publication rights.
+                self.db.execute("COMMIT")
+                return
             # Completion does not imply publication. A stopped but still
             # unpublished operation must lose authority on supersession.
             unpublished_terminal = (
@@ -348,7 +353,12 @@ class ExternalPressure:
         if known is None:
             raise PressureRejected("unknown_operation")
         if known[0] == "stopped" and physical == "stopped":
-            return  # Already proof-verified durably, no provider call or epoch mutation.
+            self.db.execute(
+                """UPDATE pressure_controls SET state='complete'
+                WHERE operation_id=? AND state='active'""",
+                (operation_id,),
+            )
+            return  # Verified terminal observation; no repeated provider probe.
         if physical == "stopped" and (not reconciled or not self.verify_termination(operation_id)):
             raise PressureRejected("termination_proof_required")
         self.db.execute("BEGIN IMMEDIATE")
@@ -369,6 +379,12 @@ class ExternalPressure:
                 authority_epoch=authority_epoch+1 WHERE operation_id=?""",
                 (physical, status, operation_id),
             )
+            if physical == "stopped":
+                self.db.execute(
+                    """UPDATE pressure_controls SET state='complete'
+                    WHERE operation_id=? AND state='active'""",
+                    (operation_id,),
+                )
             self.db.execute("COMMIT")
         except Exception:
             if self.db.in_transaction:

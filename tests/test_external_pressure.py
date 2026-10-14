@@ -543,3 +543,42 @@ def test_advisory_publication_predicate_matches_durable_gate(tmp_path):
     assert receipt["generation"] == 1
     m.fence("op", "parent_superseded")
     assert m.commit_publication("op", 1, "sha256:" + "e" * 64) == receipt
+
+def test_verified_terminal_result_survives_shutdown_before_publication(tmp_path):
+    m = ExternalPressure(
+        tmp_path / "stopped-shutdown.db", global_limit=2, detached_limit=2,
+        per_capability_limit=2, cancellation_reserve=1,
+        reconciliation_reserve=1, verify_termination=lambda _op: True,
+    )
+    m.dispatch("op", "cap", 1)
+    m.observe("op", "stopped", reconciled=True)
+    m.fence("op", "service_shutdown")
+    assert m.db.execute(
+        "SELECT authority, physical, reconciliation FROM pressure_operations"
+    ).fetchone() == ("current", "stopped", "resolved")
+    assert m.commit_publication("op", 1, "sha256:" + "f" * 64)["generation"] == 1
+
+
+def test_terminal_proof_retires_controls_durably(tmp_path):
+    path = tmp_path / "retire.db"
+    m = ExternalPressure(
+        path, global_limit=2, detached_limit=2, per_capability_limit=2,
+        cancellation_reserve=1, reconciliation_reserve=1,
+        verify_termination=lambda _op: True,
+    )
+    m.dispatch("a", "cap", 1)
+    m.fence("a", "caller_cancel")
+    m.acquire_control("first", "a", "cancel")
+    assert m.doctor()["control_active"]["cancel"] == 1
+    m.observe("a", "stopped", reconciled=True)
+    assert m.doctor()["control_active"]["cancel"] == 0
+    m.close()
+    other = ExternalPressure(
+        path, global_limit=2, detached_limit=2, per_capability_limit=2,
+        cancellation_reserve=1, reconciliation_reserve=1,
+        verify_termination=lambda _op: True,
+    )
+    other.dispatch("b", "cap", 2)
+    other.fence("b", "caller_cancel")
+    other.acquire_control("next", "b", "cancel")
+    assert other.doctor()["control_active"]["cancel"] == 1

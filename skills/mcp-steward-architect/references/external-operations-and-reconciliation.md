@@ -128,3 +128,9 @@ The `publish_allowed()` status is a non-authoritative advisory signal for
 ongoing work. It is intentionally false after a proof-verified stop; only
 `commit_publication()` may accept a finished result as an atomic local
 decision. No external delivery is implied.
+A `service_shutdown` after durable proof of terminal completion leaves the
+current stopped/resolved result publishable. Later domain cancellation or
+supersession still fences an **unpublished** terminal result. Terminal
+observation retires associated cancellation and reconciliation reservations
+transactionally; repeated terminal observation can reclaim stale control rows
+without re-invoking the provider verifier.
