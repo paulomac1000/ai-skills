@@ -58,13 +58,9 @@ class ExternalPressure:
         # A caller cannot restart with higher limits and pretend prior admissions were below policy.
         self.db.execute("BEGIN IMMEDIATE")
         try:
-            columns = {
-                row[1] for row in self.db.execute("PRAGMA table_info(pressure_operations)")
-            }
+            columns = {row[1] for row in self.db.execute("PRAGMA table_info(pressure_operations)")}
             if "authority_epoch" not in columns:
-                self.db.execute(
-                    "ALTER TABLE pressure_operations ADD COLUMN authority_epoch INTEGER NOT NULL DEFAULT 0"
-                )
+                self.db.execute("ALTER TABLE pressure_operations ADD COLUMN authority_epoch INTEGER NOT NULL DEFAULT 0")
             self.db.execute(
                 "CREATE TABLE IF NOT EXISTS pressure_limits (slot INTEGER PRIMARY KEY CHECK(slot=1), caps TEXT NOT NULL)"
             )
