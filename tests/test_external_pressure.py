@@ -115,3 +115,19 @@ def test_caller_boolean_cannot_claim_remote_termination(tmp_path):
     terminated.add('remote')  # trusted provider reports physical stop
     mgr.observe('remote', 'stopped', reconciled=True)
     assert mgr.doctor()['active'] == 0
+
+
+def test_doctor_aggregates_per_capability_without_exposing_raw_handles(tmp_path):
+    m = manager(tmp_path / "metrics.db", set())
+    m.dispatch("private-operation-handle", "private-capability-text", 1)
+    m.dispatch("op2", "provider-b", 1)
+    m.fence("private-operation-handle", "service_shutdown")
+    view = m.doctor()
+    assert view["active"] == 2 and view["detached_unresolved"] == 1
+    assert view["detached_reason_counts"] == {"service_shutdown": 1}
+    assert len(view["per_capability"]) == 2
+    assert sum(x["active"] for x in view["per_capability"]) == 2
+    assert sum(x["detached_unresolved"] for x in view["per_capability"]) == 1
+    assert all(x["capability_ref"].startswith("sha256:") for x in view["per_capability"])
+    assert "private-operation-handle" not in str(view)
+    assert "private-capability-text" not in str(view)

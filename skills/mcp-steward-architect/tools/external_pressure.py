@@ -6,6 +6,7 @@ Durable SQLite rows remain pressure-bearing until physical resolution is proven.
 
 from __future__ import annotations
 
+import hashlib
 import sqlite3
 from collections.abc import Callable
 from pathlib import Path
@@ -201,15 +202,43 @@ class ExternalPressure:
         control = {
             lane: self.db.execute(
                 """SELECT COUNT(*) FROM pressure_controls
-            WHERE lane=? AND state='active'""",
+                WHERE lane=? AND state='active'""",
                 (lane,),
             ).fetchone()[0]
             for lane in self.reserves
         }
+        # Group active physical pressure by capability but never expose the
+        # supplied capability strings or remote execution handles.
+        rows = self.db.execute(
+            """SELECT capability, COUNT(*),
+            SUM(CASE WHEN authority='fenced' THEN 1 ELSE 0 END)
+            FROM pressure_operations WHERE physical!='stopped'
+            GROUP BY capability"""
+        ).fetchall()
+        per_capability = sorted(
+            (
+                {
+                    "capability_ref": "sha256:" + hashlib.sha256(name.encode("utf-8")).hexdigest()[:16],
+                    "active": count,
+                    "detached_unresolved": unresolved,
+                }
+                for name, count, unresolved in rows
+            ),
+            key=lambda entry: entry["capability_ref"],
+        )
+        detached_reason_counts = dict(
+            self.db.execute(
+                """SELECT reason, COUNT(*) FROM pressure_operations
+                WHERE authority='fenced' AND physical!='stopped'
+                GROUP BY reason"""
+            )
+        )
         return {
             "active": active,
             "detached_unresolved": detached,
             "control_active": control,
+            "per_capability": per_capability,
+            "detached_reason_counts": detached_reason_counts,
             "admission_blocked": active >= self.global_limit or detached >= self.detached_limit,
             "reason_codes": ["external_pressure_unresolved"] if detached else [],
         }
