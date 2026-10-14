@@ -44,6 +44,7 @@ dependencies:
   skills: []
   tools:
   - python
+  - git
   packages:
     python:
     - PyYAML>=6.0.3,<7
