@@ -331,3 +331,33 @@ def test_historical_git_resolution_tracks_selected_trusted_skill():
     assert mod._verify_baseline_git_revision(baseline, ledger, root) == [
         "candidate_not_skill_directory"
     ]
+
+def test_cli_rejects_non_object_candidate_files_with_typed_exit(tmp_path):
+    import subprocess
+
+    path, baseline, ledger, _ = case(tmp_path)
+    baseline_path = tmp_path / "baseline.json"
+    ledger_path = tmp_path / "ledger.json"
+    baseline_path.write_text(json.dumps(baseline), encoding="utf-8")
+    for malformed in (None, [], ["SKILL.md"], "SKILL.md", 123):
+        ledger_path.write_text(
+            json.dumps({**ledger, "candidate_files": malformed}), encoding="utf-8"
+        )
+        proc = subprocess.run(
+            [
+                sys.executable,
+                str(MODULE_PATH),
+                "--baseline",
+                str(baseline_path),
+                "--ledger",
+                str(ledger_path),
+                "--candidate",
+                str(path),
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert proc.returncode == 2
+        assert json.loads(proc.stdout)["structural"] == "INVALID_INPUT"
+        assert "Traceback" not in proc.stderr

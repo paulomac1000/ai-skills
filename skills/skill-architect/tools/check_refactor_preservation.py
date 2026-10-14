@@ -357,6 +357,8 @@ def main() -> int:
         ledger = json.loads(args.ledger.read_text(encoding="utf-8"))
         if not isinstance(baseline, dict) or not isinstance(ledger, dict) or not args.candidate.is_dir():
             raise ValueError("invalid_ledger_or_candidate")
+        if not isinstance(ledger.get("candidate_files"), dict):
+            raise ValueError("invalid_candidate_files")
         baseline_tree = args.baseline_tree or args.baseline.parent / "baseline_snapshots"
         result = assess(baseline, ledger, args.candidate, baseline_tree=baseline_tree)
         git_findings = _verify_baseline_git_revision(baseline, ledger, args.candidate)
