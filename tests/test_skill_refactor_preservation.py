@@ -239,3 +239,35 @@ def test_malformed_candidate_file_inventory_returns_structured_refusal(tmp_path)
         assert result["structural"] == "FAILED"
         assert "candidate_files_missing" in result["findings"]
         assert "owner_entrypoint_unbound:auth" in result["findings"]
+
+def test_duplicate_baseline_behavior_ids_are_rejected(tmp_path):
+    path, baseline, ledger, decision = case(tmp_path)
+    baseline["required_behaviors"].append(dict(baseline["required_behaviors"][0]))
+    ledger["baseline_sha256"] = "sha256:" + hashlib.sha256(
+        json.dumps(baseline, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    findings = assess(baseline, ledger, path)["findings"]
+    assert "duplicate_baseline_rule:auth" in findings
+
+
+def test_structural_pass_does_not_certify_eval_corpus(tmp_path):
+    path, baseline, ledger, decision = case(tmp_path)
+    result = assess(baseline, ledger, path)
+    assert result["structural"] == "PASS"
+    assert result["verification_scope"] == "normative_owner_and_route_mapping"
+    assert result["eval_corpus"] == "NOT_VERIFIED"
+    assert result["behavior"] == "BEHAVIOR_NOT_VERIFIED"
+
+
+def test_argparse_failures_emit_bounded_json_and_exit_two(tmp_path):
+    import subprocess
+
+    for extra in ([], ["--unrecognized"], ["--baseline"]):
+        proc = subprocess.run(
+            [sys.executable, str(MODULE_PATH), *extra],
+            capture_output=True, text=True, check=False,
+        )
+        assert proc.returncode == 2
+        response = json.loads(proc.stdout)
+        assert response["structural"] == "INVALID_INPUT"
+        assert response["findings"] == ["invalid_arguments"]
