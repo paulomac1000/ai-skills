@@ -389,3 +389,30 @@ def test_deep_json_mapping_returns_typed_refusal(tmp_path):
             operation="correct", reason="deep", principal="trusted",
             authority_ref="host-policy", payload={}, provenance=nested,
         )
+
+def test_nested_json_depth_policy_does_not_depend_on_python_version(tmp_path):
+    obj = store(tmp_path)
+    payload = {}
+    head = payload
+    for _ in range(32):
+        nxt = {"child": {}}
+        head["child"] = nxt
+        head = nxt
+    created = obj.create(
+        lineage_id="l1", record_id="r0", payload=payload, provenance={},
+        principal="trusted", authority_ref="host-policy",
+    )
+    assert created["is_current"]
+    too_deep = {}
+    head = too_deep
+    for _ in range(65):
+        child = {}
+        head["child"] = child
+        head = child
+    with pytest.raises(AmendmentRejected, match="invalid_payload"):
+        obj.amend(
+            lineage_id="l1", operation_id="deep", record_id="r1",
+            expected_revision=0, operation="correct", reason="too deep",
+            principal="trusted", authority_ref="host-policy",
+            payload=too_deep, provenance={},
+        )

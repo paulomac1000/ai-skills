@@ -400,14 +400,18 @@ jobs:
           architecture: ${{ matrix.architecture }}
           cache: pip
           cache-dependency-path: requirements-dev-${{ matrix.lock_id }}.lock
-      - run: python scripts/install_locked.py
+      - name: Isolate pinned Python from Windows runner global pipx
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: python -m venv .venv
+      - run: ${{ runner.os == 'Windows' && './.venv/Scripts/python.exe' || 'python' }} scripts/install_locked.py
       - name: Exercise atomic no-replace publication and namespace rendering
         run: >-
-          python contracts/run_evidence_command.py
+          ${{ runner.os == 'Windows' && './.venv/Scripts/python.exe' || 'python' }} contracts/run_evidence_command.py
           --execution-id filesystem
           --result-file filesystem-junit.xml
           --output evidence/executions/filesystem.json
-          -- python -m pytest
+          -- ${{ runner.os == 'Windows' && './.venv/Scripts/python.exe' || 'python' }} -m pytest
           tests/test_mcp_generator.py::test_generator_concurrent_create_has_one_winner_and_never_replaces
           tests/test_mcp_dotnet_generator.py::test_generator_concurrent_create_has_one_winner_and_never_replaces
           tests/test_mcp_dotnet_generator.py::test_generator_preserves_competing_target_created_before_publish
@@ -420,7 +424,7 @@ jobs:
           SOURCE_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           set -euo pipefail
-          python contracts/write_evidence_report.py \
+          ${{ runner.os == 'Windows' && './.venv/Scripts/python.exe' || 'python' }} contracts/write_evidence_report.py \
             --repository "$GITHUB_REPOSITORY" \
             --source-head-sha "$SOURCE_HEAD_SHA" \
             --tested-checkout-sha "$(git rev-parse HEAD)" \
@@ -488,14 +492,14 @@ jobs:
         run: |
           python -m venv .venv
           Add-Content -Path $env:GITHUB_PATH -Value "$env:GITHUB_WORKSPACE\.venv\Scripts"
-      - run: python scripts/install_locked.py
+      - run: ${{ runner.os == 'Windows' && './.venv/Scripts/python.exe' || 'python' }} scripts/install_locked.py
       - name: Generate, restore, build, publish, and invoke exact .NET artifact
         run: >-
-          python contracts/run_evidence_command.py
+          ${{ runner.os == 'Windows' && './.venv/Scripts/python.exe' || 'python' }} contracts/run_evidence_command.py
           --execution-id dotnet
           --result-file dotnet-${{ matrix.operating_system }}-${{ matrix.architecture }}.xml
           --output evidence/executions/dotnet.json
-          -- python -m pytest tests/test_mcp_dotnet_generator.py tests/test_mcp_dotnet_runtime_contracts.py
+          -- ${{ runner.os == 'Windows' && './.venv/Scripts/python.exe' || 'python' }} -m pytest tests/test_mcp_dotnet_generator.py tests/test_mcp_dotnet_runtime_contracts.py
           --junitxml=dotnet-${{ matrix.operating_system }}-${{ matrix.architecture }}.xml
       - name: Write machine-bound .NET evidence
         shell: bash
@@ -505,7 +509,7 @@ jobs:
           EVIDENCE_SUBJECT: ${{ matrix.operating_system }}|${{ matrix.architecture }}|dotnet|${{ matrix.dotnet }}|dotnet-compatibility
         run: |
           set -euo pipefail
-          python contracts/write_evidence_report.py \
+          ${{ runner.os == 'Windows' && './.venv/Scripts/python.exe' || 'python' }} contracts/write_evidence_report.py \
             --repository "$GITHUB_REPOSITORY" \
             --source-head-sha "$SOURCE_HEAD_SHA" \
             --tested-checkout-sha "$(git rev-parse HEAD)" \

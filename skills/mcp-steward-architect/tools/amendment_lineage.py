@@ -37,6 +37,19 @@ def _digest(value: object) -> str:
 def _bounded_mapping(value: Mapping[str, Any], *, field: str, max_bytes: int) -> tuple[dict[str, Any], str]:
     try:
         result = dict(value)
+        # Do not delegate the nesting policy to version-dependent json.dumps
+        # recursion limits; walk nonrecursively with a strict work bound.
+        pending: list[tuple[object, int]] = [(result, 0)]
+        count = 0
+        while pending:
+            current, depth = pending.pop()
+            count += 1
+            if count > 10_000 or depth > 64:
+                raise AmendmentRejected("invalid_" + field)
+            if isinstance(current, dict):
+                pending.extend((item, depth + 1) for item in current.values())
+            elif isinstance(current, (list, tuple)):
+                pending.extend((item, depth + 1) for item in current)
         canonical = _json(result)
     except (TypeError, ValueError, OverflowError, RecursionError) as exc:
         raise AmendmentRejected("invalid_" + field) from exc
