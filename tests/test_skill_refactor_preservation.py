@@ -290,6 +290,44 @@ def test_candidate_owned_git_cannot_substitute_trusted_baseline(tmp_path):
     foreign = tmp_path / "foreign-skill"
     foreign.mkdir()
     subprocess.run(["git", "init", "-q", str(foreign)], check=True, timeout=10)
-    assert mod._verify_baseline_git_revision(baseline, ledger, foreign) == []
+    assert mod._verify_baseline_git_revision(baseline, ledger, foreign) == [
+        "candidate_outside_trusted_repo"
+    ]
+    real_skill = root / "skills/skill-architect"
+    assert mod._verify_baseline_git_revision(baseline, ledger, real_skill) == []
     bogus = dict(ledger, baseline_source_tree_sha="0" * 40)
-    assert mod._verify_baseline_git_revision(baseline, bogus, foreign) == ["baseline_git_tree_mismatch"]
+    assert mod._verify_baseline_git_revision(baseline, bogus, real_skill) == [
+        "baseline_git_tree_mismatch"
+    ]
+
+def test_historical_git_resolution_tracks_selected_trusted_skill():
+    import pytest
+    import subprocess
+
+    root = Path(__file__).resolve().parents[1]
+    base = "5c656ac0602e35f51cb0ba9b576f8e5af10a54ba"
+    probe = subprocess.run(
+        ["git", "-C", str(root), "cat-file", "-e", base + "^{commit}"],
+        check=False, capture_output=True, timeout=10,
+    )
+    if probe.returncode != 0:
+        pytest.skip("baseline object unavailable in shallow checkout")
+
+    def rev(rev_spec):
+        return subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "--verify", rev_spec],
+            capture_output=True, text=True, check=True, timeout=10,
+        ).stdout.strip()
+
+    target = root / "skills/mcp-steward-architect"
+    baseline = {"revision": base}
+    ledger = {
+        "baseline_source_tree_sha": rev(base + ":skills/mcp-steward-architect"),
+        "baseline_source_blobs": {
+            "SKILL.md": rev(base + ":skills/mcp-steward-architect/SKILL.md")
+        },
+    }
+    assert mod._verify_baseline_git_revision(baseline, ledger, target) == []
+    assert mod._verify_baseline_git_revision(baseline, ledger, root) == [
+        "candidate_not_skill_directory"
+    ]
