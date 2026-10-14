@@ -368,3 +368,55 @@ def test_publication_decision_is_atomic_with_fence(tmp_path):
     with pytest.raises(PressureRejected, match="publication_authority_stale"):
         m.commit_publication("after", 2, digest)
     assert m.db.execute("SELECT COUNT(*) FROM pressure_publications").fetchone()[0] == 1
+
+
+def test_invalid_dispatch_identity_does_not_strand_pressure(tmp_path):
+    m = manager(tmp_path / "text-only.db", set())
+    with pytest.raises(PressureRejected, match="invalid_operation_identity"):
+        m.dispatch(b"blob", "cap", 1)
+    with pytest.raises(PressureRejected, match="invalid_operation_identity"):
+        m.dispatch("op", b"blob", 1)
+    assert m.doctor()["active"] == 0
+
+
+def test_durable_control_idempotent_retry_after_restart(tmp_path):
+    path = tmp_path / "recover-control.db"
+    m = ExternalPressure(
+        path, global_limit=2, detached_limit=2, per_capability_limit=2,
+        cancellation_reserve=1, reconciliation_reserve=1,
+        verify_termination=lambda _: False,
+    )
+    m.dispatch("op", "cap", 1)
+    m.acquire_control("stable-cancel", "op", "cancel")
+    m.close()
+    resumed = ExternalPressure(
+        path, global_limit=2, detached_limit=2, per_capability_limit=2,
+        cancellation_reserve=1, reconciliation_reserve=1,
+        verify_termination=lambda _: False,
+    )
+    resumed.acquire_control("stable-cancel", "op", "cancel")
+    assert resumed.doctor()["control_active"]["cancel"] == 1
+    with pytest.raises(PressureRejected, match="active_control_already_reserved"):
+        resumed.acquire_control("different-request", "op", "cancel")
+    resumed.release_control("stable-cancel")
+    assert resumed.doctor()["control_active"]["cancel"] == 0
+
+
+def test_duplicate_terminal_observation_skips_provider_probe(tmp_path):
+    calls = []
+    m = ExternalPressure(
+        tmp_path / "terminal-repeat.db", global_limit=2, detached_limit=2,
+        per_capability_limit=2, cancellation_reserve=1,
+        reconciliation_reserve=1,
+        verify_termination=lambda op: calls.append(op) or True,
+    )
+    m.dispatch("op", "cap", 1)
+    m.observe("op", "stopped", reconciled=True)
+    epoch = m.db.execute(
+        "SELECT authority_epoch FROM pressure_operations WHERE operation_id='op'"
+    ).fetchone()[0]
+    m.observe("op", "stopped", reconciled=True)
+    assert calls == ["op"]
+    assert m.db.execute(
+        "SELECT authority_epoch FROM pressure_operations WHERE operation_id='op'"
+    ).fetchone() == (epoch,)

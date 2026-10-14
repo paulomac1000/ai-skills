@@ -90,7 +90,11 @@ class ExternalPressure:
         return active, detached
 
     def dispatch(self, operation_id: str, capability: str, generation: int) -> None:
-        if not operation_id or not capability or type(generation) is not int or generation < 1:
+        if (
+            not isinstance(operation_id, str) or not operation_id
+            or not isinstance(capability, str) or not capability
+            or type(generation) is not int or generation < 1
+        ):
             raise PressureRejected("invalid_operation_identity")
         self.db.execute("BEGIN IMMEDIATE")
         try:
@@ -261,7 +265,7 @@ class ExternalPressure:
         return bool(row and row[0] == "current" and row[1] == "running" and row[2] == generation)
 
     def acquire_control(self, control_id: str, operation_id: str, lane: str) -> None:
-        if lane not in self.reserves or not control_id:
+        if lane not in self.reserves or not isinstance(control_id, str) or not control_id:
             raise PressureRejected("invalid_control_lane")
         self.db.execute("BEGIN IMMEDIATE")
         try:
@@ -272,12 +276,16 @@ class ExternalPressure:
                 raise PressureRejected("unknown_operation")
             if op[0] == "stopped" or (lane == "reconcile" and op[1] != "fenced"):
                 raise PressureRejected("control_operation_ineligible")
-            if self.db.execute(
-                """SELECT 1 FROM pressure_controls
+            existing = self.db.execute(
+                """SELECT control_id FROM pressure_controls
                 WHERE operation_id=? AND lane=? AND state='active'""",
                 (operation_id, lane),
-            ).fetchone():
-                raise PressureRejected("active_control_already_reserved")
+            ).fetchone()
+            if existing is not None:
+                if existing[0] != control_id:
+                    raise PressureRejected("active_control_already_reserved")
+                self.db.execute("COMMIT")
+                return
             current = self.db.execute(
                 "SELECT COUNT(*) FROM pressure_controls WHERE lane=? AND state='active'", (lane,)
             ).fetchone()[0]
@@ -308,9 +316,13 @@ class ExternalPressure:
             raise PressureRejected("invalid_physical_observation")
         if not isinstance(operation_id, str) or not operation_id:
             raise PressureRejected("invalid_operation_identity")
-        known = self.db.execute("SELECT 1 FROM pressure_operations WHERE operation_id=?", (operation_id,)).fetchone()
+        known = self.db.execute(
+            "SELECT physical FROM pressure_operations WHERE operation_id=?", (operation_id,)
+        ).fetchone()
         if known is None:
             raise PressureRejected("unknown_operation")
+        if known[0] == "stopped" and physical == "stopped":
+            return  # Already proof-verified durably, no provider call or epoch mutation.
         if physical == "stopped" and (not reconciled or not self.verify_termination(operation_id)):
             raise PressureRejected("termination_proof_required")
         self.db.execute("BEGIN IMMEDIATE")
@@ -320,8 +332,11 @@ class ExternalPressure:
             ).fetchone()
             if row is None:
                 raise PressureRejected("unknown_operation")
-            if row[0] == "stopped" and physical != "stopped":
-                raise PressureRejected("cannot_revive_terminated_operation")
+            if row[0] == "stopped":
+                if physical != "stopped":
+                    raise PressureRejected("cannot_revive_terminated_operation")
+                self.db.execute("COMMIT")
+                return
             status = "resolved" if physical == "stopped" else ("required" if row[1] == "fenced" else "none")
             self.db.execute(
                 """UPDATE pressure_operations SET physical=?, reconciliation=?,
