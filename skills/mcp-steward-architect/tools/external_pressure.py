@@ -37,6 +37,8 @@ class ExternalPressure:
             raise ValueError("positive_integer_limits_required")
         if not callable(verify_termination):
             raise ValueError("trusted_provider_termination_verifier_required")
+        if verify_resume_authority is not None and not callable(verify_resume_authority):
+            raise ValueError("trusted_resume_verifier_must_be_callable")
         self.verify_termination = verify_termination
         self.verify_resume_authority = verify_resume_authority
         self.global_limit, self.detached_limit, self.per_capability_limit = limits[:3]
@@ -126,6 +128,8 @@ class ExternalPressure:
             raise
 
     def fence(self, operation_id: str, reason: str) -> None:
+        if not isinstance(operation_id, str) or not operation_id:
+            raise PressureRejected("invalid_operation_identity")
         if not isinstance(reason, str) or reason not in {
             "superseded",
             "parent_superseded",
@@ -204,7 +208,7 @@ class ExternalPressure:
         ):
             raise PressureRejected("resume_state_conflict")
         # Provider/authority probes must never execute while holding a durable write lock.
-        if self.verify_resume_authority is None or not self.verify_resume_authority(operation_id, generation):
+        if self.verify_resume_authority is None or self.verify_resume_authority(operation_id, generation) is not True:
             raise PressureRejected("resume_authority_unverified")
         self.db.execute("BEGIN IMMEDIATE")
         try:
@@ -293,9 +297,16 @@ class ExternalPressure:
         row = self.db.execute(
             "SELECT authority, physical, generation FROM pressure_operations WHERE operation_id=?", (operation_id,)
         ).fetchone()
-        return bool(row and row[0] == "current" and row[1] == "running" and row[2] == generation)
+        return bool(
+            row and row[0] == "current" and row[1] == "stopped" and row[2] == generation
+            and self.db.execute(
+                "SELECT reconciliation FROM pressure_operations WHERE operation_id=?", (operation_id,)
+            ).fetchone()[0] == "resolved"
+        )
 
     def acquire_control(self, control_id: str, operation_id: str, lane: str) -> None:
+        if not isinstance(operation_id, str) or not operation_id:
+            raise PressureRejected("invalid_operation_identity")
         if not isinstance(lane, str) or lane not in self.reserves or not isinstance(control_id, str) or not control_id:
             raise PressureRejected("invalid_control_lane")
         self.db.execute("BEGIN IMMEDIATE")
@@ -336,13 +347,13 @@ class ExternalPressure:
             raise
 
     def release_control(self, control_id: str) -> None:
+        if not isinstance(control_id, str) or not control_id:
+            raise PressureRejected("invalid_control_identity")
         changed = self.db.execute(
             "UPDATE pressure_controls SET state='complete' WHERE control_id=? AND state='active'", (control_id,)
         ).rowcount
         if changed != 1:
-            stored = self.db.execute(
-                "SELECT state FROM pressure_controls WHERE control_id=?", (control_id,)
-            ).fetchone()
+            stored = self.db.execute("SELECT state FROM pressure_controls WHERE control_id=?", (control_id,)).fetchone()
             if stored is not None and stored[0] == "complete":
                 return  # Already retired by a proven terminal observation.
             raise PressureRejected("control_not_active")
@@ -352,6 +363,8 @@ class ExternalPressure:
             raise PressureRejected("invalid_physical_observation")
         if not isinstance(operation_id, str) or not operation_id:
             raise PressureRejected("invalid_operation_identity")
+        if type(reconciled) is not bool:
+            raise PressureRejected("invalid_reconciliation_flag")
         known = self.db.execute(
             "SELECT physical FROM pressure_operations WHERE operation_id=?", (operation_id,)
         ).fetchone()
@@ -364,7 +377,7 @@ class ExternalPressure:
                 (operation_id,),
             )
             return  # Verified terminal observation; no repeated provider probe.
-        if physical == "stopped" and (not reconciled or not self.verify_termination(operation_id)):
+        if physical == "stopped" and (not reconciled or self.verify_termination(operation_id) is not True):
             raise PressureRejected("termination_proof_required")
         self.db.execute("BEGIN IMMEDIATE")
         try:

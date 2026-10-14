@@ -62,7 +62,7 @@ def test_detached_pressure_survives_cancel_shutdown_and_restart(tmp_path):
     mgr.observe('op0', 'stopped', reconciled=True)
     mgr.release_control('cancel-1')
     mgr.dispatch('new', 'provider-a', 2)
-    assert mgr.publish_allowed('new', 2)
+    assert not mgr.publish_allowed('new', 2)
     assert not mgr.publish_allowed('new', 1)
     assert mgr.doctor()['detached_unresolved'] == 1
 
@@ -153,7 +153,7 @@ def test_shutdown_durable_operation_requires_host_authority_reacquisition(tmp_pa
     with pytest.raises(PressureRejected, match="resume_state_conflict"):
         m.resume_after_shutdown("durable", 2)
     m.resume_after_shutdown("durable", 1)
-    assert m.publish_allowed("durable", 1)
+    assert not m.publish_allowed("durable", 1)
     assert m.doctor()["detached_unresolved"] == 0
 
 
@@ -230,7 +230,7 @@ def test_resume_verifier_runs_outside_sqlite_writer_lock(tmp_path):
     m.fence("durable", "service_shutdown")
     m.resume_after_shutdown("durable", 1)
     assert callbacks == [("durable", 1)]
-    assert m.publish_allowed("durable", 1)
+    assert not m.publish_allowed("durable", 1)
 
 def test_terminated_operation_cannot_consume_control_reserve(tmp_path):
     m = ExternalPressure(
@@ -312,7 +312,7 @@ def test_existing_operation_schema_upgrades_with_epoch(tmp_path):
     )
     assert m.db.execute("SELECT authority_epoch FROM pressure_operations WHERE operation_id='old'").fetchone() == (0,)
     m.resume_after_shutdown("old", 1)
-    assert m.publish_allowed("old", 1)
+    assert not m.publish_allowed("old", 1)
 
 
 def test_shutdown_fence_followed_by_supersession_revokes_resume(tmp_path):
@@ -600,3 +600,38 @@ def test_completed_control_release_is_idempotent_but_unknown_id_rejected(tmp_pat
     assert m.doctor()["control_active"]["cancel"] == 0
     with pytest.raises(PressureRejected, match="control_not_active"):
         m.release_control("never-admitted")
+
+
+def test_verifier_literal_true_required_and_runtime_ids_are_typed(tmp_path):
+    m = ExternalPressure(
+        tmp_path / "strict.db", global_limit=2, detached_limit=2,
+        per_capability_limit=2, cancellation_reserve=1, reconciliation_reserve=1,
+        verify_termination=lambda _op: {"verified": False},
+        verify_resume_authority=lambda _op, _gen: {"verified": False},
+    )
+    m.dispatch("1", "cap", 1)
+    for invalid in (1, ["1"], {"id": "1"}):
+        with pytest.raises(PressureRejected, match="invalid_operation_identity"):
+            m.fence(invalid, "domain_cancel")
+        with pytest.raises(PressureRejected, match="invalid_operation_identity"):
+            m.acquire_control("control", invalid, "cancel")
+    with pytest.raises(PressureRejected, match="invalid_control_identity"):
+        m.release_control(1)
+    with pytest.raises(PressureRejected, match="invalid_reconciliation_flag"):
+        m.observe("1", "stopped", reconciled="false")
+    with pytest.raises(PressureRejected, match="termination_proof_required"):
+        m.observe("1", "stopped", reconciled=True)
+    m.fence("1", "service_shutdown")
+    with pytest.raises(PressureRejected, match="resume_authority_unverified"):
+        m.resume_after_shutdown("1", 1)
+    assert m.doctor()["active"] == 1
+
+
+def test_invalid_resume_verifier_rejected_before_state_creation(tmp_path):
+    with pytest.raises(ValueError, match="trusted_resume_verifier_must_be_callable"):
+        ExternalPressure(
+            tmp_path / "never-create.db", global_limit=2, detached_limit=2,
+            per_capability_limit=2, cancellation_reserve=1, reconciliation_reserve=1,
+            verify_termination=lambda _: True, verify_resume_authority={"allowed": False},
+        )
+    assert not (tmp_path / "never-create.db").exists()
