@@ -10,7 +10,8 @@ assert spec and spec.loader
 mod = importlib.util.module_from_spec(spec)
 sys.modules[spec.name] = mod
 spec.loader.exec_module(mod)
-assess = mod.assess
+def assess(baseline, ledger, path, *, baseline_tree=None):
+    return mod.assess(baseline, ledger, path, baseline_tree=baseline_tree or path)
 
 
 def case(tmp_path, kind='authority'):
@@ -24,12 +25,16 @@ def case(tmp_path, kind='authority'):
         raw = (skill / path).read_bytes()
         return hashlib.sha1(b"blob " + str(len(raw)).encode() + b"\0" + raw).hexdigest()
 
+    decision['source_path'] = 'STANDARD.md'
+    decision['source_anchor'] = 'Require policy authorization'
+    decision['positive_case'] = 'authorized_operation'
     ledger = {
         'candidate_revision': 'candidate-sha',
         'baseline_sha256': 'sha256:' + hashlib.sha256(
             json.dumps(baseline, sort_keys=True, separators=(',', ':')).encode()
         ).hexdigest(),
         'candidate_files': {'SKILL.md': blob('SKILL.md'), 'STANDARD.md': blob('STANDARD.md')},
+        'baseline_source_blobs': {'STANDARD.md': blob('STANDARD.md')},
         'decisions': [decision],
     }
     return skill, baseline, ledger, decision
@@ -69,7 +74,7 @@ def test_independent_profiles_not_forcibly_merged(tmp_path):
     (path/'references/p2.md').write_text('second independent route')
     baseline['required_behaviors'] = [{'id': 'p1', 'kind': 'evidence'}, {'id': 'p2', 'kind': 'evidence'}]
     ledger['decisions'] = [
-        {'id': key, 'disposition': 'PRESERVE', 'target_path': f'references/{key}.md', 'target_anchor': f'{word} independent route', 'negative_case': 'other-task', 'verification': key}
+        {'id': key, 'disposition': 'PRESERVE', 'target_path': f'references/{key}.md', 'target_anchor': f'{word} independent route', 'negative_case': 'other-task', 'verification': key, 'source_path': f'references/{key}.md', 'source_anchor': f'{word} independent route', 'positive_case': key}
         for key, word in [('p1', 'first'), ('p2', 'second')]
     ]
     ledger['baseline_sha256'] = 'sha256:' + hashlib.sha256(
@@ -78,8 +83,9 @@ def test_independent_profiles_not_forcibly_merged(tmp_path):
     for key in ('p1', 'p2'):
         raw = (path / f'references/{key}.md').read_bytes()
         ledger['candidate_files'][f'references/{key}.md'] = hashlib.sha1(
-            b"blob " + str(len(raw)).encode() + b"\0" + raw
+            b"blob " + str(len(raw)).encode() + b"\0" + raw, usedforsecurity=False
         ).hexdigest()
+        ledger['baseline_source_blobs'][f'references/{key}.md'] = ledger['candidate_files'][f'references/{key}.md']
     assert assess(baseline, ledger, path)['structural'] == 'PASS'
 
 
@@ -92,7 +98,10 @@ def test_real_pilot_tracks_live_normative_sources():
     corpus = root / "evals/skills/skill-architect"
     baseline = json.loads((corpus / "refactor-pilot-baseline.json").read_text(encoding="utf-8"))
     ledger = json.loads((corpus / "refactor-pilot-ledger.json").read_text(encoding="utf-8"))
-    result = assess(baseline, ledger, root / "skills/skill-architect")
+    result = assess(
+        baseline, ledger, root / "skills/skill-architect",
+        baseline_tree=corpus / "baseline_snapshots",
+    )
     assert result["structural"] == "PASS", result["findings"]
     assert result["behavior"] == "BEHAVIOR_NOT_VERIFIED"
     assert result["baseline_revision"] == "5c656ac0602e35f51cb0ba9b576f8e5af10a54ba"
@@ -122,3 +131,25 @@ def test_invalid_input_returns_json_and_exit_code_two(tmp_path):
     )
     assert result.returncode == 2
     assert json.loads(result.stdout)['structural'] == 'INVALID_INPUT'
+
+def test_critical_route_cannot_move_out_of_skill_entrypoint(tmp_path):
+    path, baseline, ledger, decision = case(tmp_path)
+    ledger["decisions"] = [decision | {"pre_load_path": "STANDARD.md", "pre_load_trigger": "Require policy authorization"}]
+    assert "critical_preload_not_in_skill_entrypoint:auth" in assess(baseline, ledger, path)["findings"]
+
+
+def test_missing_old_owner_or_positive_case_never_passes(tmp_path):
+    path, baseline, ledger, decision = case(tmp_path)
+    ledger["decisions"] = [decision | {"positive_case": ""}]
+    assert "incomplete_old_to_new_mapping:auth" in assess(baseline, ledger, path)["findings"]
+    ledger["decisions"] = [decision | {"source_path": "untrusted.md"}]
+    assert "incomplete_old_to_new_mapping:auth" in assess(baseline, ledger, path)["findings"]
+
+
+def test_pinned_baseline_snapshot_is_not_self_authorizing(tmp_path):
+    path, baseline, ledger, decision = case(tmp_path)
+    assert assess(baseline, ledger, path)["structural"] == "PASS"
+    raw = (path / "STANDARD.md").read_text()
+    (path / "STANDARD.md").write_text(raw + "\n")
+    assert "baseline_source_drift:STANDARD.md" in assess(baseline, ledger, path)["findings"]
+    assert "baseline_source_unverified" in mod.assess(baseline, ledger, path)["findings"]
