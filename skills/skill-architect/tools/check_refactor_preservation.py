@@ -169,6 +169,27 @@ def _verify_baseline_git_revision(baseline: dict[str, Any], ledger: dict[str, An
     return []
 
 
+def _positive_entrypoint_route(route: str, owner: str) -> bool:
+    """Accept only a local affirmative instruction leading to the declared owner.
+
+    The static grammar is intentionally restrictive: unsupported phrasing
+    requires a reviewed route rewrite, never a guessed behavioral equivalent.
+    """
+    position = route.find(owner)
+    if position < 0 or route.find(owner, position + len(owner)) >= 0:
+        return False
+    prefix = route[max(0, position - 128) : position]
+    if re.search(r"\\b(?:not|never|avoid|without|skip|prohibit|forbid|cannot|don't|doesn't|shouldn't|mustn't)\\b", prefix, re.IGNORECASE):
+        return False
+    return bool(
+        re.search(
+            r"(?:\\b(?:read|consult|load|open|follow|use|see)\\s+`?|->\\s*`?)$",
+            prefix,
+            re.IGNORECASE,
+        )
+    )
+
+
 def _canonical_json(value: object) -> bytes:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
 
@@ -365,6 +386,7 @@ def assess(
                     or len(route) > 1024
                     or trigger not in route
                     or rel not in route
+                    or not _positive_entrypoint_route(route, rel)
                     or route not in candidate_verified["SKILL.md"].decode("utf-8")
                 ):
                     findings.append("owner_route_unreachable:" + rule_id[:128])

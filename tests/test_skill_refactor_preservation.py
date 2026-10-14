@@ -560,3 +560,23 @@ def test_modified_ledger_target_remains_failed_even_with_matching_anchor(tmp_pat
     result = assess(baseline, ledger, path)
     assert result["structural"] == "FAILED"
     assert "candidate_content_mismatch:STANDARD.md" in result["findings"]
+
+def test_negated_entrypoint_route_rejected_with_correct_blob_binding(tmp_path):
+    path, baseline, ledger, decision = case(tmp_path)
+    route = "Trigger when destructive action requested; do not read STANDARD.md"
+    (path / "SKILL.md").write_text(route, encoding="utf-8")
+    ledger["candidate_files"]["SKILL.md"] = mod._git_blob_sha((path / "SKILL.md").read_bytes())
+    ledger["decisions"] = [decision | {"entrypoint_route": route}]
+    result = assess(baseline, ledger, path)
+    assert "owner_route_unreachable:auth" in result["findings"]
+    assert "candidate_content_mismatch:SKILL.md" not in result["findings"]
+
+
+def test_positive_route_grammar_covers_read_consult_and_arrow():
+    assert mod._positive_entrypoint_route("read STANDARD.md", "STANDARD.md")
+    assert mod._positive_entrypoint_route(
+        "For a refactor consult references/behavior.md", "references/behavior.md"
+    )
+    assert mod._positive_entrypoint_route("routine -> references/owner.md", "references/owner.md")
+    assert not mod._positive_entrypoint_route("never consult references/owner.md", "references/owner.md")
+    assert not mod._positive_entrypoint_route("without reading references/owner.md", "references/owner.md")
