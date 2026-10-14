@@ -261,6 +261,8 @@ class AmendmentLineage:
         payload: Mapping[str, Any] | None = None,
         provenance: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
+        if type(operation) is not str or operation not in {"correct", "retract", "supersede"}:
+            raise AmendmentRejected("invalid_amendment")
         self._admit(principal, lineage_id, operation, authority_ref)
         self._read_admit(lineage_id, "read_current")
         if (

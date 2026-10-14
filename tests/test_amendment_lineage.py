@@ -446,3 +446,21 @@ def test_mapping_iteration_failures_are_typed(tmp_path):
             operation="correct", reason="decoder", payload={}, provenance=BrokenMapping(),
             principal="trusted", authority_ref="host-policy",
         )
+
+def test_unhashable_operation_values_fail_before_host_callbacks(tmp_path):
+    actions = []
+
+    def authorize(principal, lineage, action):
+        actions.append(action)
+        return "host-policy"
+
+    obj = AmendmentLineage(tmp_path / "input.db", authorize, lambda: "trusted")
+    for invalid in ([], {}, ["retract"], {"op": "correct"}, None):
+        with pytest.raises(AmendmentRejected, match="invalid_amendment"):
+            obj.amend(
+                lineage_id="l1", operation_id="a", record_id="r1",
+                expected_revision=0, operation=invalid, reason="reject",
+                payload={}, provenance={}, principal="trusted",
+                authority_ref="host-policy",
+            )
+    assert actions == []
