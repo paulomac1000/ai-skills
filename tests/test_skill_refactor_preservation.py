@@ -1,5 +1,5 @@
-from pathlib import Path
 import importlib.util
+import json
 import sys
 from pathlib import Path
 
@@ -66,3 +66,14 @@ def test_independent_profiles_not_forcibly_merged(tmp_path):
 def test_structural_green_does_not_claim_model_equivalence(tmp_path):
     path, baseline, ledger, decision = case(tmp_path)
     assert assess(baseline, ledger, path)['behavior'] == 'BEHAVIOR_NOT_VERIFIED'
+
+def test_real_pilot_tracks_live_normative_sources():
+    root = Path(__file__).resolve().parents[1]
+    corpus = root / "evals/skills/skill-architect"
+    baseline = json.loads((corpus / "refactor-pilot-baseline.json").read_text(encoding="utf-8"))
+    ledger = json.loads((corpus / "refactor-pilot-ledger.json").read_text(encoding="utf-8"))
+    result = assess(baseline, ledger, root / "skills/skill-architect")
+    assert result["structural"] == "PASS", result["findings"]
+    assert result["behavior"] == "BEHAVIOR_NOT_VERIFIED"
+    assert result["baseline_revision"] == "5c656ac0602e35f51cb0ba9b576f8e5af10a54ba"
+    assert result["candidate_revision"] == "3.26.0"
