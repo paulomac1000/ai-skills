@@ -128,13 +128,17 @@ def test_exact_replay_after_later_amendment_returns_original_result(tmp_path):
         principal="trusted", authority_ref="host-policy",
         payload={"v": 2}, provenance={"source": "s2"},
     )
-    assert obj.create(**create) == first
-    assert obj.amend(
+    replay_initial = obj.create(**create)
+    assert replay_initial["effective_revision"] == first["effective_revision"]
+    assert replay_initial["status"] == "superseded" and not replay_initial["is_current"]
+    replay_a = obj.amend(
         lineage_id="l1", operation_id="a", record_id="r1",
         expected_revision=0, operation="correct", reason="correct",
         principal="trusted", authority_ref="host-policy",
         payload={"v": 1}, provenance={"source": "s1"},
-    ) == a
+    )
+    assert replay_a["effective_revision"] == a["effective_revision"]
+    assert replay_a["status"] == "superseded" and not replay_a["is_current"]
     assert obj.current("l1") == b
     with pytest.raises(AmendmentRejected, match="create_persistence_conflict"):
         obj.create(**(create | {"payload": {"v": 999}}))
@@ -257,3 +261,37 @@ def test_history_pagination_is_bounded_and_cursor_stable(tmp_path):
     assert [x["revision"] for x in second] == list(range(20, 26))
     with pytest.raises(AmendmentRejected, match="invalid_history_page"):
         obj.history("l1", limit=10_000)
+
+def test_sqlite_write_failure_translates_to_typed_refusal(tmp_path):
+    obj = store(tmp_path)
+    obj.create(lineage_id="l1", record_id="r0", payload={}, provenance={},
+               principal="trusted", authority_ref="host-policy")
+    obj.db.execute(
+        """CREATE TRIGGER fail_write BEFORE INSERT ON amendments
+        BEGIN SELECT RAISE(ABORT, 'synthetic_failure'); END"""
+    )
+    with pytest.raises(AmendmentRejected, match="amend_persistence_failure"):
+        obj.amend(
+            lineage_id="l1", operation_id="new", record_id="r1", expected_revision=0,
+            operation="correct", reason="repair", payload={"v": 1}, provenance={},
+            principal="trusted", authority_ref="host-policy",
+        )
+    assert obj.current("l1")["revision"] == 0
+
+
+def test_amendment_opt_in_catalog_application():
+    import yaml
+    from contracts.rule_applicability import RuleContext, expected_rules
+
+    root = Path(__file__).resolve().parents[1]
+    catalog = yaml.safe_load((root / "contracts/rule-catalog.yaml").read_text(encoding="utf-8"))
+    rule_id = "steward.amendment.append-only"
+    assert rule_id not in {
+        r["id"] for r in expected_rules(catalog, "mcp-steward-architect", RuleContext("L1"))
+    }
+    assert rule_id in {
+        r["id"] for r in expected_rules(
+            catalog, "mcp-steward-architect",
+            RuleContext("L1", profiles=frozenset({"amendable-facts"})),
+        )
+    }

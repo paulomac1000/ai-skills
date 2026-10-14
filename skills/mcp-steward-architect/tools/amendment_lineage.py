@@ -116,12 +116,15 @@ class AmendmentLineage:
         record_id, op, raw, provenance = row
         payload = json.loads(raw) if op != "retract" else None
         identity = _digest([lineage_id, revision, record_id, op, payload])
+        latest = self.db.execute("SELECT revision FROM lineage WHERE lineage_id=?", (lineage_id,)).fetchone()
+        is_current = bool(latest is not None and latest[0] == revision)
         return {
             "lineage_id": lineage_id,
             "revision": revision,
             "head_id": record_id,
             "effective": payload,
-            "status": "retracted" if op == "retract" else "current",
+            "status": "superseded" if not is_current else ("retracted" if op == "retract" else "current"),
+            "is_current": is_current,
             "effective_revision": identity,
             "provenance": json.loads(provenance),
         }
@@ -311,6 +314,10 @@ class AmendmentLineage:
             if changed != 1:
                 raise AmendmentRejected("stale_revision")
             self.db.execute("COMMIT")
+        except sqlite3.DatabaseError as exc:
+            if self.db.in_transaction:
+                self.db.execute("ROLLBACK")
+            raise AmendmentRejected("amend_persistence_failure") from exc
         except Exception:
             if self.db.in_transaction:
                 self.db.execute("ROLLBACK")

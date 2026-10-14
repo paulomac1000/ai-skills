@@ -482,3 +482,28 @@ def test_mcp_applicability_is_derived_from_catalog_context(tmp_path: Path) -> No
     catalog["skills"]["mcp-server-architect"]["rules"][0]["applies_when"] = {"maturity_at_least": "L4"}
     result = "\n".join(findings(document, catalog, skills, tmp_path))
     assert "catalog applicability requires this rule to be not-applicable" in result
+
+def test_steward_amendment_adoption_respects_opt_in_context(tmp_path: Path) -> None:
+    document, catalog, skills = assessment_for(tmp_path, skill_name="mcp-steward-architect")
+    rule = catalog["skills"]["mcp-steward-architect"]["rules"][0]
+    rule["id"] = "steward.amendment.append-only"
+    rule["applies_when"] = {"maturity_at_least": "L1", "profiles_any": ["amendable-facts"]}
+    document["applicability"][0]["rule_id"] = rule["id"]
+    document["applicability"][0]["status"] = "not-applicable"
+    document["applicability"][0]["implementation"] = []
+    document["applicability"][0]["verification"] = []
+    document["extensions"] = {
+        "steward": {
+            "target_level": "L1",
+            "profiles": ["amendable-facts"],
+            "features": {"amendable_facts": True},
+        }
+    }
+    report = "\n".join(findings(document, catalog, skills, tmp_path))
+    assert "catalog applicability requires this rule to be applicable or explicitly deferred" in report
+    document["extensions"]["steward"]["features"]["amendable_facts"] = False
+    report = "\n".join(findings(document, catalog, skills, tmp_path))
+    assert "amendable feature/profile mismatch" in report
+    document["extensions"]["steward"]["profiles"] = []
+    report = "\n".join(findings(document, catalog, skills, tmp_path))
+    assert "catalog applicability requires this rule to be applicable or explicitly deferred" not in report
