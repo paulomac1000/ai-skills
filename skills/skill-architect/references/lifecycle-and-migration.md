@@ -42,6 +42,10 @@ source/target documents and entrypoint routes. It explicitly reports
 The caller must independently baseline and validate repository-scoped eval
 corpus revisions with `tools/validate_skill_evals.py` plus any required
 model-backed comparisons before claiming complete semantic preservation.
+Historical Git tree/blob proof comes only from the executing checker's
+own repository checkout, not from `--candidate` or its nested `.git`.
+Run this verifier from a trusted installed checkout with the baseline Git
+objects locally available; otherwise revision verification fails closed.
 Never present this static result as a passing corpus migration or model
 equivalence check.
 

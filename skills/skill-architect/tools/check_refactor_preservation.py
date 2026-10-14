@@ -20,7 +20,11 @@ SHA40 = re.compile(r"^[0-9a-f]{40}$")
 
 
 def _verify_baseline_git_revision(baseline: dict[str, Any], ledger: dict[str, Any], candidate: Path) -> list[str]:
-    """Resolve historical objects from local Git, never the candidate-authored ledger alone."""
+    """Resolve historical objects only from the checker's own trusted checkout.
+
+    Candidate paths, candidate-owned .git and caller-authored metadata cannot
+    select the provenance repository; a missing baseline object fails closed.
+    """
     revision = baseline.get("revision")
     expected_tree = ledger.get("baseline_source_tree_sha")
     source_blobs = ledger.get("baseline_source_blobs")
@@ -35,29 +39,33 @@ def _verify_baseline_git_revision(baseline: dict[str, Any], ledger: dict[str, An
     ):
         return ["invalid_git_revision_bindings"]
 
-    def resolve(object_id: str) -> str:
-        completed = subprocess.run(
-            ["git", "-C", str(candidate), "rev-parse", "--verify", object_id],
-            check=True,
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        return completed.stdout.strip()
-
+    # The running tool itself establishes the trust anchor. The candidate
+    # is never a source for historical Git object resolution.
+    trusted_root = Path(__file__).resolve().parents[3]
+    trusted_skill = Path(__file__).resolve().parents[1]
     try:
-        location = (
-            subprocess.run(
-                ["git", "-C", str(candidate), "rev-parse", "--show-prefix"],
+        location = trusted_skill.relative_to(trusted_root).as_posix()
+
+        def resolve(object_id: str) -> str:
+            completed = subprocess.run(
+                ["git", "-C", str(trusted_root), "rev-parse", "--verify", object_id],
                 check=True,
                 capture_output=True,
                 text=True,
                 timeout=10,
             )
-            .stdout.strip()
-            .strip("/")
-        )
-        historical_tree = resolve(revision + ":" + location) if location else resolve(revision + "^{tree}")
+            return completed.stdout.strip()
+
+        actual_root = subprocess.run(
+            ["git", "-C", str(trusted_root), "rev-parse", "--show-toplevel"],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        ).stdout.strip()
+        if Path(actual_root).resolve() != trusted_root:
+            return ["trusted_git_root_mismatch"]
+        historical_tree = resolve(revision + ":" + location)
         if historical_tree != expected_tree:
             return ["baseline_git_tree_mismatch"]
         for relative, expected_blob in source_blobs.items():
