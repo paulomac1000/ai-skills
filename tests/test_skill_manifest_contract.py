@@ -172,7 +172,7 @@ def test_every_skill_manifest_is_versioned_and_declares_exact_evidenced_combinat
             assert providers <= covered, (path, providers - covered)
 
         adoption = manifest["adoption"]
-        assert adoption["extension"] in {"generic", "mcp"}, path
+        assert adoption["extension"] in {"generic", "mcp", "steward"}, path
         for field in ("template", "validator", "rule_catalog", "rule_map"):
             resource = Path(adoption[field])
             assert not resource.is_absolute() and ".." not in resource.parts, (path, field)

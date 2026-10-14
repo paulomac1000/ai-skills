@@ -1,5 +1,5 @@
 schema_version: 1
-catalog_version: 3.25.0
+catalog_version: 3.26.0
 skills:
   afds-doc-writer:
     rules:
@@ -432,6 +432,10 @@ skills:
     - id: steward.lineage.fenced
       source: STANDARD.md#lineage-generations-attempts-and-leases
       description: Attempts and lineage generations are fenced so stale workers and superseded jobs cannot publish current results.
+    - id: steward.amendment.append-only
+      source: STANDARD.md#append-only-amendable-fact-and-evidence-lineage
+      applies_when: {maturity_at_least: L1, profiles_any: [amendable-facts]}
+      description: Optional amendments are append-only, independently authorized, CAS-fenced and deterministically projected with effective-revision invalidation.
     - id: steward.checkpoint.current
       source: STANDARD.md#semantic-checkpoints-and-dependency-scoped-reuse
       description: Canonical checkpoints bind generation and exact semantic dependencies so restart can derive the earliest safe resume point and minimum recomputation set.
