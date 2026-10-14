@@ -38,14 +38,20 @@ def _verify_baseline_git_revision(baseline: dict[str, Any], ledger: dict[str, An
     def resolve(object_id: str) -> str:
         completed = subprocess.run(
             ["git", "-C", str(candidate), "rev-parse", "--verify", object_id],
-            check=True, capture_output=True, text=True, timeout=10,
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=10,
         )
         return completed.stdout.strip()
 
     try:
         location = subprocess.run(
             ["git", "-C", str(candidate), "rev-parse", "--show-prefix"],
-            check=True, capture_output=True, text=True, timeout=10,
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=10,
         ).stdout.strip("/")
         historical_tree = resolve(revision + ":" + location) if location else resolve(revision + "^{tree}")
         if historical_tree != expected_tree:
@@ -66,7 +72,6 @@ def _verify_baseline_git_revision(baseline: dict[str, Any], ledger: dict[str, An
     except (OSError, subprocess.SubprocessError, ValueError):
         return ["baseline_git_revision_unavailable"]
     return []
-
 
 
 def _canonical_json(value: object) -> bytes:
