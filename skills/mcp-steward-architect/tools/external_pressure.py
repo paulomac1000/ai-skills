@@ -91,9 +91,12 @@ class ExternalPressure:
 
     def dispatch(self, operation_id: str, capability: str, generation: int) -> None:
         if (
-            not isinstance(operation_id, str) or not operation_id
-            or not isinstance(capability, str) or not capability
-            or type(generation) is not int or generation < 1
+            not isinstance(operation_id, str)
+            or not operation_id
+            or not isinstance(capability, str)
+            or not capability
+            or type(generation) is not int
+            or generation < 1
         ):
             raise PressureRejected("invalid_operation_identity")
         self.db.execute("BEGIN IMMEDIATE")
@@ -227,8 +230,12 @@ class ExternalPressure:
             if prior is not None:
                 if prior[0] != generation or prior[2] != result_digest:
                     raise PressureRejected("publication_id_conflict")
-                receipt = {"operation_id": operation_id, "generation": generation,
-                           "authority_epoch": prior[1], "result_digest": result_digest}
+                receipt = {
+                    "operation_id": operation_id,
+                    "generation": generation,
+                    "authority_epoch": prior[1],
+                    "result_digest": result_digest,
+                }
             else:
                 row = self.db.execute(
                     """SELECT generation, authority, physical, authority_epoch
@@ -243,8 +250,12 @@ class ExternalPressure:
                     "INSERT INTO pressure_publications VALUES (?, ?, ?, ?)",
                     (operation_id, generation, row[3], result_digest),
                 )
-                receipt = {"operation_id": operation_id, "generation": generation,
-                           "authority_epoch": row[3], "result_digest": result_digest}
+                receipt = {
+                    "operation_id": operation_id,
+                    "generation": generation,
+                    "authority_epoch": row[3],
+                    "result_digest": result_digest,
+                }
             self.db.execute("COMMIT")
             return receipt
         except sqlite3.DatabaseError as exc:
