@@ -509,20 +509,27 @@ def test_steward_adoption_enforces_opt_in_pressure_profile(tmp_path: Path) -> No
     assert "catalog applicability requires this rule to be applicable or explicitly deferred" not in result
 
 
-def test_steward_adoption_fails_closed_without_profile_context(tmp_path: Path) -> None:
+def test_steward_adoption_defaults_to_disabled_profile_from_canonical_template(tmp_path: Path) -> None:
     doc, catalog, skills = assessment_for(tmp_path, skill_name="mcp-steward-architect")
     result = "\n".join(findings(doc, catalog, skills, tmp_path))
-    assert "Steward profile applicability context is required" in result
+    assert "extensions.steward" not in result
 
-def test_steward_adoption_template_has_valid_explicit_default_opt_out() -> None:
+def test_steward_template_reuses_canonical_contract_with_small_overlay() -> None:
     root = Path(__file__).resolve().parents[1]
-    target = yaml.safe_load(
-        (root / "skills/mcp-steward-architect/templates/adoption-assessment.yaml.template").read_text(encoding="utf-8")
+    manifest = yaml.safe_load((root / "skills/mcp-steward-architect/manifest.yaml").read_text(encoding="utf-8"))
+    assert manifest["adoption"]["template"] == "contracts/adoption-assessment.yaml.template"
+    canonical = yaml.safe_load((root / manifest["adoption"]["template"]).read_text(encoding="utf-8"))
+    assert canonical["extensions"] == {}
+    overlay = yaml.safe_load(
+        (root / "skills/mcp-steward-architect/templates/adoption-steward-extension.yaml.template").read_text(
+            encoding="utf-8"
+        )
     )
-    steward = target["extensions"]["steward"]
-    assert steward == {
-        "target_level": "L1",
-        "profiles": [],
-        "features": {"external_pressure_bounded": False},
+    assert overlay == {
+        "steward": {
+            "target_level": "L1",
+            "profiles": [],
+            "features": {"external_pressure_bounded": False},
+        }
     }
-    Draft202012Validator(SCHEMA["properties"]["extensions"]).validate({"steward": steward})
+    Draft202012Validator(SCHEMA["properties"]["extensions"]).validate(overlay)

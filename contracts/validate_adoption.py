@@ -1000,8 +1000,12 @@ def validate_document(
     elif skill_name == "mcp-steward-architect":
         raw_extensions = assessment.get("extensions")
         raw_steward = raw_extensions.get("steward") if isinstance(raw_extensions, Mapping) else None
-        if not isinstance(raw_steward, Mapping):
-            findings.append(Finding("extensions.steward", "Steward profile applicability context is required"))
+        if raw_steward is None:
+            # An unextended canonical adoption template selects the feature-off baseline.
+            context = RuleContext(target_level="L1")
+            machine_applicable_rules = {str(rule["id"]) for rule in expected_rules(catalog, skill_name, context)}
+        elif not isinstance(raw_steward, Mapping):
+            findings.append(Finding("extensions.steward", "invalid Steward applicability context"))
         else:
             level = raw_steward.get("target_level")
             profiles = raw_steward.get("profiles")

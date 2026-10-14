@@ -46,6 +46,7 @@ required:
   - tools/persistent_context.py
   - tools/integration_lease.py
   - tools/external_pressure.py
+  - templates/adoption-steward-extension.yaml.template
   - tools/generate_steward.py
 categories: [core, references, templates, tools]
 applicability:
@@ -67,7 +68,7 @@ applicability:
     - exact_candidate_binding
     - external_pressure_bounded
 adoption:
-  template: skills/mcp-steward-architect/templates/adoption-assessment.yaml.template
+  template: contracts/adoption-assessment.yaml.template
   validator: contracts/validate_adoption.py
   rule_catalog: contracts/rule-catalog.yaml
   rule_map: contracts/standard-rule-map.yaml

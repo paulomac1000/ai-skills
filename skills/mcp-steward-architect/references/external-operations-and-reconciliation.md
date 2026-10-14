@@ -86,6 +86,13 @@ Persist operation pressure and limits as canonical state; a restart or
 service shutdown does not reset quotas or fabricate remote cancellation.
 Recover existing remote handles when the provider intentionally persists
 jobs across service lifetime. An unknown termination remains unresolved.
+The canonical adoption assessment remains
+`contracts/adoption-assessment.yaml.template`. Its empty `extensions`
+means the Steward pressure feature is disabled (L1 baseline). To explicitly
+enable or configure the feature, copy only the `steward` mapping from
+`templates/adoption-steward-extension.yaml.template` into the canonical
+assessment's `extensions` section, then adjust both the feature and its profile.
+
 For rule-catalog adoption, a Steward with
 `features.external_pressure_bounded: true` must declare the
 `external-pressure-bounded` applicability profile; without the opt-in this

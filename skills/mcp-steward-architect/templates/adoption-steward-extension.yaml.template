@@ -1,0 +1,7 @@
+# Optional extensions stanza to place under "extensions:" in the canonical
+# contracts/adoption-assessment.yaml.template. Do not copy the entire contract.
+steward:
+  target_level: L1
+  profiles: []
+  features:
+    external_pressure_bounded: false
