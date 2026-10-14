@@ -231,3 +231,22 @@ def test_resume_verifier_runs_outside_sqlite_writer_lock(tmp_path):
     m.resume_after_shutdown("durable", 1)
     assert callbacks == [("durable", 1)]
     assert m.publish_allowed("durable", 1)
+
+def test_terminated_operation_cannot_consume_control_reserve(tmp_path):
+    m = ExternalPressure(
+        tmp_path / "lane.db",
+        global_limit=3,
+        detached_limit=3,
+        per_capability_limit=3,
+        cancellation_reserve=1,
+        reconciliation_reserve=1,
+        verify_termination=lambda op: op == "stopped",
+    )
+    m.dispatch("stopped", "cap", 1)
+    m.observe("stopped", "stopped", reconciled=True)
+    m.dispatch("active", "cap", 1)
+    m.fence("active", "domain_cancel")
+    with pytest.raises(PressureRejected, match="control_operation_ineligible"):
+        m.acquire_control("fake", "stopped", "cancel")
+    m.acquire_control("real", "active", "cancel")
+    assert m.doctor()["control_active"]["cancel"] == 1

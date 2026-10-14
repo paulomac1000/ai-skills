@@ -180,9 +180,13 @@ class ExternalPressure:
             raise PressureRejected("invalid_control_lane")
         self.db.execute("BEGIN IMMEDIATE")
         try:
-            op = self.db.execute("SELECT 1 FROM pressure_operations WHERE operation_id=?", (operation_id,)).fetchone()
+            op = self.db.execute(
+                "SELECT physical, authority FROM pressure_operations WHERE operation_id=?", (operation_id,)
+            ).fetchone()
             if op is None:
                 raise PressureRejected("unknown_operation")
+            if op[0] == "stopped" or (lane == "reconcile" and op[1] != "fenced"):
+                raise PressureRejected("control_operation_ineligible")
             current = self.db.execute(
                 "SELECT COUNT(*) FROM pressure_controls WHERE lane=? AND state='active'", (lane,)
             ).fetchone()[0]
