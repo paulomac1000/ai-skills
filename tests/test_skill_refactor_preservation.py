@@ -407,3 +407,68 @@ def test_cli_oversized_regular_file_is_rejected_before_json_parse(tmp_path):
     )
     assert proc.returncode == 2
     assert json.loads(proc.stdout)["structural"] == "INVALID_INPUT"
+
+
+def test_candidate_symlink_cannot_impersonate_a_pinned_blob(tmp_path):
+    import pytest
+
+    path, baseline, ledger, decision = case(tmp_path, kind="evidence")
+    real = path / "STANDARD.md"
+    alias = path / "reference.md"
+    try:
+        alias.symlink_to(real.name)
+    except (OSError, NotImplementedError):
+        pytest.skip("symlink creation unavailable on this host")
+    ledger["candidate_files"]["reference.md"] = ledger["candidate_files"]["STANDARD.md"]
+    assert "candidate_symlink_rejected:reference.md" in assess(baseline, ledger, path)["findings"]
+    ledger["decisions"] = [
+        decision | {"target_path": "reference.md", "entrypoint_route": "Trigger when destructive action requested; read reference.md"}
+    ]
+    assert "candidate_symlink_rejected:reference.md" in assess(baseline, ledger, path)["findings"]
+
+
+def test_duplicate_json_keys_produce_structured_invalid_input(tmp_path):
+    import subprocess
+
+    path, baseline, ledger, decision = case(tmp_path)
+    baseline_file = tmp_path / "base.json"
+    ledger_file = tmp_path / "ledger.json"
+    for broken_baseline, broken_ledger in (
+        ('{"revision":"a","revision":"b","required_behaviors":[]}', json.dumps(ledger)),
+        (json.dumps(baseline), '{"candidate_files":{},"candidate_files":{}}'),
+    ):
+        baseline_file.write_text(broken_baseline, encoding="utf-8")
+        ledger_file.write_text(broken_ledger, encoding="utf-8")
+        result = subprocess.run(
+            [sys.executable, str(MODULE_PATH), "--baseline", str(baseline_file),
+             "--ledger", str(ledger_file), "--candidate", str(path)],
+            capture_output=True, text=True, check=False,
+        )
+        assert result.returncode == 2
+        response = json.loads(result.stdout)
+        assert response["structural"] == "INVALID_INPUT"
+        assert "invalid_input:ValueError" in response["findings"]
+
+
+def test_baseline_git_revision_must_be_commit(tmp_path):
+    root = Path(__file__).resolve().parents[1]
+    corpus = root / "evals/skills/skill-architect"
+    baseline = json.loads((corpus / "refactor-pilot-baseline.json").read_text(encoding="utf-8"))
+    ledger = json.loads((corpus / "refactor-pilot-ledger.json").read_text(encoding="utf-8"))
+    import subprocess
+    import pytest
+
+    available = subprocess.run(
+        ["git", "-C", str(root), "cat-file", "-e", baseline["revision"] + "^{commit}"],
+        capture_output=True, check=False, timeout=10,
+    )
+    if available.returncode != 0:
+        pytest.skip("base Git object unavailable in shallow checkout")
+    source = subprocess.run(
+        ["git", "-C", str(root), "rev-parse", baseline["revision"] + "^{tree}"],
+        check=True, capture_output=True, text=True, timeout=10,
+    ).stdout.strip()
+    bad = dict(baseline, revision=source)
+    assert "baseline_git_commit_mismatch" in mod._verify_baseline_git_revision(
+        bad, ledger, root / "skills/skill-architect"
+    )
