@@ -153,3 +153,24 @@ def test_pinned_baseline_snapshot_is_not_self_authorizing(tmp_path):
     (path / "STANDARD.md").write_text(raw + "\n")
     assert "baseline_source_drift:STANDARD.md" in assess(baseline, ledger, path)["findings"]
     assert "baseline_source_unverified" in mod.assess(baseline, ledger, path)["findings"]
+
+
+def test_pilot_revision_resolves_against_actual_git_history():
+    root = Path(__file__).resolve().parents[1]
+    corpus = root / "evals/skills/skill-architect"
+    baseline = json.loads((corpus / "refactor-pilot-baseline.json").read_text(encoding="utf-8"))
+    ledger = json.loads((corpus / "refactor-pilot-ledger.json").read_text(encoding="utf-8"))
+    assert mod._verify_baseline_git_revision(baseline, ledger, root / "skills/skill-architect") == []
+    bad = dict(ledger, baseline_source_tree_sha="0" * 40)
+    assert mod._verify_baseline_git_revision(baseline, bad, root / "skills/skill-architect") == [
+        "baseline_git_tree_mismatch"
+    ]
+
+
+def test_unknown_material_class_cannot_be_structurally_approved(tmp_path):
+    path, baseline, ledger, _ = case(tmp_path)
+    baseline["required_behaviors"][0]["kind"] = "safety-stop"
+    ledger["baseline_sha256"] = "sha256:" + hashlib.sha256(
+        json.dumps(baseline, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    assert "unsupported_behavior_class:auth" in assess(baseline, ledger, path)["findings"]
