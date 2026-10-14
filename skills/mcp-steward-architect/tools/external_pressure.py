@@ -245,22 +245,22 @@ class ExternalPressure:
                 }
             else:
                 row = self.db.execute(
-                    """SELECT generation, authority, physical, authority_epoch
+                    """SELECT generation, authority, physical, reconciliation, authority_epoch
                     FROM pressure_operations WHERE operation_id=?""",
                     (operation_id,),
                 ).fetchone()
                 if row is None:
                     raise PressureRejected("unknown_operation")
-                if row[0] != generation or row[1] != "current" or row[2] != "running":
+                if row[0] != generation or row[1] != "current" or row[2] != "stopped" or row[3] != "resolved":
                     raise PressureRejected("publication_authority_stale")
                 self.db.execute(
                     "INSERT INTO pressure_publications VALUES (?, ?, ?, ?)",
-                    (operation_id, generation, row[3], result_digest),
+                    (operation_id, generation, row[4], result_digest),
                 )
                 receipt = {
                     "operation_id": operation_id,
                     "generation": generation,
-                    "authority_epoch": row[3],
+                    "authority_epoch": row[4],
                     "result_digest": result_digest,
                 }
             self.db.execute("COMMIT")

@@ -357,6 +357,10 @@ def test_publication_decision_is_atomic_with_fence(tmp_path):
         reconciliation_reserve=1, verify_termination=lambda _: False,
     )
     m.dispatch("before", "cap", 1)
+    with pytest.raises(PressureRejected, match="publication_authority_stale"):
+        m.commit_publication("before", 1, digest)
+    m.verify_termination = lambda operation: operation == "before"
+    m.observe("before", "stopped", reconciled=True)
     receipt = m.commit_publication("before", 1, digest)
     assert receipt["generation"] == 1
     m.fence("before", "parent_superseded")
@@ -444,3 +448,51 @@ def test_reject_non_sqlite_generation_and_unhashable_controls(tmp_path):
     with pytest.raises(PressureRejected, match="invalid_control_lane"):
         m.acquire_control("control", "small", ["cancel"])
     assert m.doctor()["active"] == 1
+
+def test_publication_requires_proven_terminal_completion(tmp_path):
+    digest = "sha256:" + "a" * 64
+    terminated = set()
+    m = ExternalPressure(
+        tmp_path / "publication-terminal.db",
+        global_limit=3, detached_limit=3, per_capability_limit=3,
+        cancellation_reserve=1, reconciliation_reserve=1,
+        verify_termination=lambda op: op in terminated,
+    )
+    m.dispatch("done", "provider", 1)
+    with pytest.raises(PressureRejected, match="publication_authority_stale"):
+        m.commit_publication("done", 1, digest)
+    with pytest.raises(PressureRejected, match="termination_proof_required"):
+        m.observe("done", "stopped", reconciled=True)
+    terminated.add("done")
+    m.observe("done", "stopped", reconciled=True)
+    assert m.commit_publication("done", 1, digest)["result_digest"] == digest
+    m.dispatch("cancelled", "provider", 1)
+    m.fence("cancelled", "parent_superseded")
+    terminated.add("cancelled")
+    m.observe("cancelled", "stopped", reconciled=True)
+    with pytest.raises(PressureRejected, match="publication_authority_stale"):
+        m.commit_publication("cancelled", 1, digest)
+
+
+def test_pressure_profile_requires_doctor_observability():
+    import json
+    from pathlib import Path
+
+    from jsonschema import Draft202012Validator
+
+    root = Path(__file__).resolve().parents[1]
+    schema = json.loads((root / "contracts/steward-profile.schema.json").read_text(encoding="utf-8"))
+    validator = Draft202012Validator(schema)
+    sample = {
+        "features": {"external_pressure_bounded": True},
+        "external_operations": {"external_pressure": {}},
+        "observability": {"doctor": False},
+    }
+    def doctor_failures():
+        return [err for err in validator.iter_errors(sample) if list(err.path) == ["observability", "doctor"]]
+    assert doctor_failures()
+    sample["observability"]["doctor"] = True
+    assert not doctor_failures()
+    sample["features"]["external_pressure_bounded"] = False
+    sample["observability"]["doctor"] = False
+    assert not doctor_failures()

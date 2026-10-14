@@ -482,6 +482,12 @@ jobs:
       - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68
         with:
           dotnet-version: ${{ matrix.dotnet }}
+      - name: Isolate pinned Python from Windows runner global pipx
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          python -m venv .venv
+          Add-Content -Path $env:GITHUB_PATH -Value "$env:GITHUB_WORKSPACE\.venv\Scripts"
       - run: python scripts/install_locked.py
       - name: Generate, restore, build, publish, and invoke exact .NET artifact
         run: >-
