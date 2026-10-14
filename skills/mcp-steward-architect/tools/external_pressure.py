@@ -300,11 +300,7 @@ class ExternalPressure:
             (operation_id,),
         ).fetchone()
         return bool(
-            row
-            and row[0] == "current"
-            and row[1] == "stopped"
-            and row[2] == generation
-            and row[3] == "resolved"
+            row and row[0] == "current" and row[1] == "stopped" and row[2] == generation and row[3] == "resolved"
         )
 
     def acquire_control(self, control_id: str, operation_id: str, lane: str) -> None:
