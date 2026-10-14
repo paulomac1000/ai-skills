@@ -42,9 +42,16 @@ def _verify_baseline_git_revision(baseline: dict[str, Any], ledger: dict[str, An
     # The running tool itself establishes the trust anchor. The candidate
     # is never a source for historical Git object resolution.
     trusted_root = Path(__file__).resolve().parents[3]
-    trusted_skill = Path(__file__).resolve().parents[1]
+    # Only auditable skill directories inside the checker's trusted checkout
+    # may select historical subtree names. A foreign candidate's .git cannot.
     try:
-        location = trusted_skill.relative_to(trusted_root).as_posix()
+        relative_skill = candidate.resolve().relative_to(trusted_root)
+    except ValueError:
+        return ["candidate_outside_trusted_repo"]
+    if len(relative_skill.parts) != 2 or relative_skill.parts[0] != "skills":
+        return ["candidate_not_skill_directory"]
+    location = relative_skill.as_posix()
+    try:
 
         def resolve(object_id: str) -> str:
             completed = subprocess.run(
