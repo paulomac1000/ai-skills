@@ -64,11 +64,7 @@ def _trusted_git_executable() -> str:
 
 def _trusted_git_env(executable: str) -> dict[str, str]:
     """Drop inherited Git and dynamic loader overrides; use fixed helper paths."""
-    env = {
-        name: value
-        for name, value in os.environ.items()
-        if not name.upper().startswith(("GIT_", "LD_", "DYLD_"))
-    }
+    env = {name: value for name, value in os.environ.items() if not name.upper().startswith(("GIT_", "LD_", "DYLD_"))}
     env["PATH"] = (
         str(Path(executable).parent) + ";C:/Windows/System32;C:/Windows"
         if os.name == "nt"
@@ -184,7 +180,9 @@ def _git_blob_sha(data: bytes) -> str:
     ).hexdigest()
 
 
-def _content_bindings(baseline: dict[str, Any], ledger: dict[str, Any], candidate: Path) -> list[str]:
+def _content_bindings(
+    baseline: dict[str, Any], ledger: dict[str, Any], candidate: Path, verified: dict[str, bytes] | None = None
+) -> list[str]:
     findings: list[str] = []
     revision = baseline.get("revision")
     if not isinstance(revision, str) or not SHA40.fullmatch(revision):
@@ -217,8 +215,12 @@ def _content_bindings(baseline: dict[str, Any], ledger: dict[str, Any], candidat
             findings.append("candidate_file_missing:" + rel)
         elif path.stat().st_size > 1_000_000:
             findings.append("candidate_file_too_large:" + rel)
-        elif _git_blob_sha(path.read_bytes()) != expected:
-            findings.append("candidate_content_mismatch:" + rel)
+        else:
+            content = path.read_bytes()
+            if _git_blob_sha(content) != expected:
+                findings.append("candidate_content_mismatch:" + rel)
+            elif verified is not None:
+                verified[rel] = content
     return findings
 
 
@@ -226,7 +228,9 @@ def assess(
     baseline: dict[str, Any], ledger: dict[str, Any], candidate: Path, *, baseline_tree: Path | None = None
 ) -> dict[str, Any]:
     """Verify original source mapping and exact candidate documents, not model equivalence."""
-    findings: list[str] = _content_bindings(baseline, ledger, candidate)
+    candidate_verified: dict[str, bytes] = {}
+    baseline_verified: dict[str, bytes] = {}
+    findings: list[str] = _content_bindings(baseline, ledger, candidate, candidate_verified)
     candidate_files = ledger.get("candidate_files")
     if not isinstance(candidate_files, dict):
         candidate_files = {}  # The invalid shape was already reported above.
@@ -256,8 +260,12 @@ def assess(
                 findings.append("baseline_source_missing:" + rel)
             elif source.stat().st_size > 1_000_000:
                 findings.append("baseline_source_too_large:" + rel)
-            elif _git_blob_sha(source.read_bytes()) != blob:
-                findings.append("baseline_source_drift:" + rel)
+            else:
+                original = source.read_bytes()
+                if _git_blob_sha(original) != blob:
+                    findings.append("baseline_source_drift:" + rel)
+                else:
+                    baseline_verified[rel] = original
     baseline_rules = baseline.get("required_behaviors")
     decisions = ledger.get("decisions")
     if (
@@ -313,13 +321,10 @@ def assess(
             if _contains_symlink(root, old_path):
                 findings.append("baseline_symlink_rejected:" + old_path)
             else:
-                source = (baseline_tree / old_path).resolve()
-                if (
-                    source.is_relative_to(root)
-                    and source.is_file()
-                    and source.stat().st_size <= 1_000_000
-                    and old_anchor not in source.read_text(encoding="utf-8")
-                ):
+                content = baseline_verified.get(old_path)
+                if content is None:
+                    findings.append("baseline_source_unverified:" + rule_id[:128])
+                elif old_anchor not in content.decode("utf-8"):
                     findings.append("baseline_anchor_missing:" + rule_id[:128])
         disposition = decision.get("disposition")
         if disposition not in DISPOSITIONS:
@@ -351,36 +356,24 @@ def assess(
                 # destination, including for noncritical reference-only rules.
                 trigger = decision.get("pre_load_trigger")
                 route = decision.get("entrypoint_route")
-                entrypoint_digest = candidate_files.get("SKILL.md")
-                if _contains_symlink(root, "SKILL.md"):
+                if "SKILL.md" not in candidate_verified:
                     findings.append("owner_entrypoint_unbound:" + rule_id[:128])
-                else:
-                    entrypoint = (candidate / "SKILL.md").resolve()
-                    if (
-                        not entrypoint.is_relative_to(root)
-                        or not entrypoint.is_file()
-                        or entrypoint.stat().st_size > 1_000_000
-                        or not isinstance(entrypoint_digest, str)
-                        or not SHA40.fullmatch(entrypoint_digest)
-                        or _git_blob_sha(entrypoint.read_bytes()) != entrypoint_digest
-                    ):
-                        findings.append("owner_entrypoint_unbound:" + rule_id[:128])
-                    elif (
-                        not isinstance(trigger, str)
-                        or not trigger
-                        or not isinstance(route, str)
-                        or len(route) > 1024
-                        or trigger not in route
-                        or rel not in route
-                        or route not in entrypoint.read_text(encoding="utf-8")
-                    ):
-                        findings.append("owner_route_unreachable:" + rule_id[:128])
+                elif (
+                    not isinstance(trigger, str)
+                    or not trigger
+                    or not isinstance(route, str)
+                    or len(route) > 1024
+                    or trigger not in route
+                    or rel not in route
+                    or route not in candidate_verified["SKILL.md"].decode("utf-8")
+                ):
+                    findings.append("owner_route_unreachable:" + rule_id[:128])
             required_anchor = decision.get("target_anchor")
             if not isinstance(required_anchor, str) or not required_anchor:
                 findings.append("missing_target_anchor:" + rule_id)
-            elif target.stat().st_size > 1_000_000:
-                findings.append("target_too_large:" + rule_id[:128])
-            elif required_anchor not in target.read_text(encoding="utf-8"):
+            elif rel not in candidate_verified:
+                findings.append("target_content_unverified:" + rule_id[:128])
+            elif required_anchor not in candidate_verified[rel].decode("utf-8"):
                 findings.append("anchor_not_present:" + rule_id)
             if kind in MATERIAL and not decision.get("negative_case"):
                 findings.append("negative_case_missing:" + rule_id)
@@ -398,17 +391,10 @@ def assess(
                 else:
                     if pre_load not in candidate_files:
                         findings.append("unbound_preload_route:" + rule_id)
-                    if _contains_symlink(root, pre_load):
+                    if pre_load not in candidate_verified or marker not in candidate_verified[pre_load].decode(
+                        "utf-8"
+                    ):
                         findings.append("preload_trigger_unreachable:" + rule_id)
-                    else:
-                        route_file = (candidate / pre_load).resolve()
-                        if (
-                            not route_file.is_relative_to(root)
-                            or not route_file.is_file()
-                            or route_file.stat().st_size > 1_000_000
-                            or marker not in route_file.read_text(encoding="utf-8")
-                        ):
-                            findings.append("preload_trigger_unreachable:" + rule_id)
     unknown = sorted(set(by_id) - {x.get("id") for x in baseline_rules if isinstance(x, dict)})
     findings.extend("unreviewed_new_rule:" + item for item in unknown)
     # Bounded diagnostics never promote a failed or incomplete check.

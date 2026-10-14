@@ -540,3 +540,23 @@ def test_cyclic_symlink_bindings_fail_closed_before_resolve(tmp_path):
     result = assess(baseline, ledger, path)
     assert result["structural"] == "FAILED"
     assert "candidate_symlink_rejected:loop.md" in result["findings"]
+
+def test_verified_anchor_reads_are_from_original_hashed_bytes(tmp_path, monkeypatch):
+    path, baseline, ledger, _ = case(tmp_path)
+    original = Path.read_text
+
+    def guarded_read_text(self, *args, **kwargs):
+        if self == path / "SKILL.md" or self == path / "STANDARD.md":
+            raise AssertionError("verified file reopened after hash")
+        return original(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", guarded_read_text)
+    assert assess(baseline, ledger, path)["structural"] == "PASS"
+
+
+def test_modified_ledger_target_remains_failed_even_with_matching_anchor(tmp_path):
+    path, baseline, ledger, decision = case(tmp_path, kind="evidence")
+    (path / "STANDARD.md").write_text("Require policy authorization; retain rollback evidence / edited")
+    result = assess(baseline, ledger, path)
+    assert result["structural"] == "FAILED"
+    assert "candidate_content_mismatch:STANDARD.md" in result["findings"]
