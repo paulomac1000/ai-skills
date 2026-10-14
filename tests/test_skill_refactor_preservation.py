@@ -81,9 +81,7 @@ def test_independent_profiles_not_forcibly_merged(tmp_path):
         'second independent route -> references/p2.md'
     )
     raw_skill = (path / 'SKILL.md').read_bytes()
-    ledger['candidate_files']['SKILL.md'] = hashlib.sha1(
-        b'blob ' + str(len(raw_skill)).encode() + b'\0' + raw_skill, usedforsecurity=False
-    ).hexdigest()
+    ledger['candidate_files']['SKILL.md'] = mod._git_blob_sha(raw_skill)
     baseline['required_behaviors'] = [{'id': 'p1', 'kind': 'evidence'}, {'id': 'p2', 'kind': 'evidence'}]
     ledger['decisions'] = [
         {'id': key, 'disposition': 'PRESERVE', 'target_path': f'references/{key}.md', 'target_anchor': f'{word} independent route', 'negative_case': 'other-task', 'verification': key, 'source_path': f'references/{key}.md', 'source_anchor': f'{word} independent route', 'positive_case': key, 'pre_load_trigger': f'{word} independent route', 'entrypoint_route': f'{word} independent route -> references/{key}.md'}
@@ -215,3 +213,20 @@ def test_noncritical_evidence_owner_route_is_also_required(tmp_path):
     assert assess(baseline, ledger, path)["structural"] == "PASS"
     ledger["decisions"] = [decision | {"entrypoint_route": "Trigger when destructive action requested"}]
     assert "owner_route_unreachable:auth" in assess(baseline, ledger, path)["findings"]
+
+def test_reference_route_rejects_unbound_entrypoint(tmp_path):
+    path, baseline, ledger, decision = case(tmp_path, kind="evidence")
+    assert assess(baseline, ledger, path)["structural"] == "PASS"
+    ledger["candidate_files"].pop("SKILL.md")
+    findings = assess(baseline, ledger, path)["findings"]
+    assert "owner_entrypoint_unbound:auth" in findings
+    assert "candidate_content_mismatch:SKILL.md" not in findings
+
+
+def test_reference_route_rejects_changed_entrypoint_even_with_live_route(tmp_path):
+    path, baseline, ledger, decision = case(tmp_path, kind="evidence")
+    assert assess(baseline, ledger, path)["structural"] == "PASS"
+    (path / "SKILL.md").write_text(
+        "Trigger when destructive action requested; read STANDARD.md before action, unauthorized update"
+    )
+    assert "owner_entrypoint_unbound:auth" in assess(baseline, ledger, path)["findings"]
