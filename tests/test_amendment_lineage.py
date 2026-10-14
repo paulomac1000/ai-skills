@@ -177,3 +177,83 @@ def test_sqlite_busy_write_is_a_typed_refusal(tmp_path):
     finally:
         blocker.execute("ROLLBACK")
         blocker.close()
+
+def test_write_grant_revoked_during_writer_wait_fails_closed(tmp_path):
+    allowed = {"create", "correct", "read_current", "read_history"}
+    obj = AmendmentLineage(
+        tmp_path / "race.db",
+        lambda principal, lineage, action: "policy" if action in allowed else None,
+        lambda: "trusted",
+    )
+    real_begin = obj._begin
+
+    def revoked_begin():
+        real_begin()
+        allowed.discard("create")
+
+    obj._begin = revoked_begin
+    with pytest.raises(AmendmentRejected, match="unauthorized"):
+        obj.create(lineage_id="l", record_id="r", payload={}, provenance={},
+                   principal="trusted", authority_ref="policy")
+    assert obj.db.execute("SELECT COUNT(*) FROM lineage").fetchone()[0] == 0
+    allowed.add("create")
+    obj._begin = real_begin
+    obj.create(lineage_id="l", record_id="r", payload={}, provenance={},
+               principal="trusted", authority_ref="policy")
+
+    def revoked_amend_begin():
+        real_begin()
+        allowed.discard("correct")
+
+    obj._begin = revoked_amend_begin
+    with pytest.raises(AmendmentRejected, match="unauthorized"):
+        obj.amend(
+            lineage_id="l", operation_id="a", record_id="r1", expected_revision=0,
+            operation="correct", reason="correction", principal="trusted",
+            authority_ref="policy", payload={"v": 1}, provenance={},
+        )
+    assert obj.current("l")["revision"] == 0
+
+
+def test_mapping_normalization_and_invalid_payload_are_typed(tmp_path):
+    from collections import UserDict
+    from types import MappingProxyType
+
+    obj = store(tmp_path)
+    obj.create(
+        lineage_id="l1", record_id="r", payload=UserDict({"v": 1}),
+        provenance=MappingProxyType({"source": "ok"}),
+        principal="trusted", authority_ref="host-policy",
+    )
+    amended = obj.amend(
+        lineage_id="l1", operation_id="a", record_id="r1", expected_revision=0,
+        operation="correct", reason="change", principal="trusted",
+        authority_ref="host-policy", payload=UserDict({"v": 2}),
+        provenance=MappingProxyType({"source": "ok"}),
+    )
+    assert amended["effective"] == {"v": 2}
+    with pytest.raises(AmendmentRejected, match="invalid_payload"):
+        obj.amend(
+            lineage_id="l1", operation_id="bad", record_id="r2", expected_revision=1,
+            operation="correct", reason="invalid", principal="trusted",
+            authority_ref="host-policy", payload={"nan": float("nan")}, provenance={},
+        )
+
+
+def test_history_pagination_is_bounded_and_cursor_stable(tmp_path):
+    obj = store(tmp_path)
+    obj.create(lineage_id="l1", record_id="r0", payload={}, provenance={},
+               principal="trusted", authority_ref="host-policy")
+    for rev in range(1, 26):
+        obj.amend(
+            lineage_id="l1", operation_id=f"op{rev}", record_id=f"r{rev}",
+            expected_revision=rev - 1, operation="supersede", reason="update",
+            principal="trusted", authority_ref="host-policy",
+            payload={"rev": rev}, provenance={},
+        )
+    first = obj.history("l1")
+    assert len(first) == 20 and [x["revision"] for x in first] == list(range(20))
+    second = obj.history("l1", after_revision=19, limit=20)
+    assert [x["revision"] for x in second] == list(range(20, 26))
+    with pytest.raises(AmendmentRejected, match="invalid_history_page"):
+        obj.history("l1", limit=10_000)

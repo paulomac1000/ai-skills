@@ -32,6 +32,17 @@ def _digest(value: object) -> str:
     return "sha256:" + hashlib.sha256(_json(value).encode()).hexdigest()
 
 
+def _bounded_mapping(value: Mapping[str, Any], *, field: str, max_bytes: int) -> tuple[dict[str, Any], str]:
+    try:
+        result = dict(value)
+        canonical = _json(result)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise AmendmentRejected("invalid_" + field) from exc
+    if len(canonical.encode("utf-8")) > max_bytes:
+        raise AmendmentRejected("oversized_" + field)
+    return result, canonical
+
+
 class AmendmentLineage:
     """A single SQLite-backed linear history (one SQLite writer lock per database)."""
 
@@ -146,11 +157,16 @@ class AmendmentLineage:
             or not isinstance(provenance, Mapping)
         ):
             raise AmendmentRejected("invalid_initial_record")
-        material = _json(dict(payload))
-        source = _json(dict(provenance))
+        if len(record_id) > 256 or len(lineage_id) > 256:
+            raise AmendmentRejected("oversized_identity")
+        _, material = _bounded_mapping(payload, field="payload", max_bytes=65536)
+        _, source = _bounded_mapping(provenance, field="provenance", max_bytes=16384)
         fingerprint = _digest([material, source, principal, authority_ref, record_id])
         self._begin()
         try:
+            # Host callbacks for transactional checks must be synchronous and local.
+            self._admit(principal, lineage_id, "create", authority_ref)
+            self._read_admit(lineage_id, "read_current")
             existing = self.db.execute(
                 """SELECT record_id, fingerprint FROM amendments
                 WHERE lineage_id=? AND revision=0""",
@@ -227,6 +243,14 @@ class AmendmentLineage:
             raise AmendmentRejected("replacement_payload_and_provenance_required")
         if operation == "retract" and payload is not None:
             raise AmendmentRejected("retraction_must_not_replace_payload")
+        if len(lineage_id) > 256 or len(operation_id) > 256 or len(record_id) > 256 or len(reason) > 4096:
+            raise AmendmentRejected("oversized_identity_or_reason")
+        normalized_payload = None
+        if payload is not None:
+            normalized_payload, _ = _bounded_mapping(payload, field="payload", max_bytes=65536)
+        normalized_provenance = None
+        if provenance is not None:
+            normalized_provenance, _ = _bounded_mapping(provenance, field="provenance", max_bytes=16384)
         fingerprint = _digest(
             [
                 operation_id,
@@ -236,12 +260,14 @@ class AmendmentLineage:
                 reason,
                 principal,
                 authority_ref,
-                payload,
-                provenance,
+                normalized_payload,
+                normalized_provenance,
             ]
         )
         self._begin()
         try:
+            self._admit(principal, lineage_id, operation, authority_ref)
+            self._read_admit(lineage_id, "read_current")
             replay = self.db.execute(
                 "SELECT fingerprint, revision FROM amendments WHERE lineage_id=? AND operation_id=?",
                 (lineage_id, operation_id),
@@ -274,8 +300,8 @@ class AmendmentLineage:
                     principal,
                     authority_ref,
                     reason,
-                    None if payload is None else _json(dict(payload)),
-                    _json(dict(provenance or {})),
+                    None if normalized_payload is None else _json(normalized_payload),
+                    _json(normalized_provenance or {}),
                 ),
             )
             changed = self.db.execute(
@@ -291,12 +317,22 @@ class AmendmentLineage:
             raise
         return self._snapshot(lineage_id, new_revision)
 
-    def history(self, lineage_id: str) -> list[dict[str, Any]]:
+    def history(
+        self, lineage_id: str, *, after_revision: int = -1, limit: int = 20
+    ) -> list[dict[str, Any]]:
         self._read_admit(lineage_id, "read_history")
+        if (
+            type(after_revision) is not int
+            or after_revision < -1
+            or type(limit) is not int
+            or not 1 <= limit <= 50
+        ):
+            raise AmendmentRejected("invalid_history_page")
         rows = self.db.execute(
             """SELECT revision, record_id, predecessor, op, principal, authority_ref,
-            reason, payload, provenance FROM amendments WHERE lineage_id=? ORDER BY revision""",
-            (lineage_id,),
+            reason, payload, provenance FROM amendments
+            WHERE lineage_id=? AND revision>? ORDER BY revision LIMIT ?""",
+            (lineage_id, after_revision, limit),
         )
         return [
             {
