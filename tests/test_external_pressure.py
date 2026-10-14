@@ -496,3 +496,34 @@ def test_pressure_profile_requires_doctor_observability():
     sample["features"]["external_pressure_bounded"] = False
     sample["observability"]["doctor"] = False
     assert not doctor_failures()
+
+def test_supersession_after_terminal_proof_blocks_late_publication(tmp_path):
+    m = ExternalPressure(
+        tmp_path / "terminal-race.db", global_limit=2, detached_limit=2,
+        per_capability_limit=2, cancellation_reserve=1,
+        reconciliation_reserve=1, verify_termination=lambda _op: True,
+    )
+    digest = "sha256:" + "a" * 64
+    m.dispatch("job", "cap", 1)
+    m.observe("job", "stopped", reconciled=True)
+    m.fence("job", "parent_superseded")
+    with pytest.raises(PressureRejected, match="publication_authority_stale"):
+        m.commit_publication("job", 1, digest)
+    row = m.db.execute(
+        "SELECT authority, reason FROM pressure_operations WHERE operation_id='job'"
+    ).fetchone()
+    assert row == ("fenced", "parent_superseded")
+
+
+def test_previously_committed_result_remains_idempotently_auditable(tmp_path):
+    m = ExternalPressure(
+        tmp_path / "committed.db", global_limit=2, detached_limit=2,
+        per_capability_limit=2, cancellation_reserve=1,
+        reconciliation_reserve=1, verify_termination=lambda _op: True,
+    )
+    digest = "sha256:" + "b" * 64
+    m.dispatch("job", "cap", 1)
+    m.observe("job", "stopped", reconciled=True)
+    receipt = m.commit_publication("job", 1, digest)
+    m.fence("job", "parent_superseded")
+    assert m.commit_publication("job", 1, digest) == receipt

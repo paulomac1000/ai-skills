@@ -118,3 +118,8 @@ and the current authority epoch under the same SQLite writer lock as fencing.
 Replays return the prior receipt without creating a second publication.
 This fixture does not deliver to external providers: an external sink
 requires its own epoch-fenced outbox/transaction, not a cached boolean.
+
+For a proof-verified terminal operation, cancellation or supersession still
+fences **unpublished** results. Only an already committed publication receipt
+retains its historical idempotency identity; stopping external work does not
+by itself grant publication authority.

@@ -146,7 +146,12 @@ class ExternalPressure:
             ).fetchone()
             if row is None:
                 raise PressureRejected("unknown_operation")
-            if row[1] != "stopped":
+            # Completion does not imply publication. A stopped but still
+            # unpublished operation must lose authority on supersession.
+            unpublished_terminal = row[1] == "stopped" and not self.db.execute(
+                "SELECT 1 FROM pressure_publications WHERE operation_id=?", (operation_id,)
+            ).fetchone()
+            if row[1] != "stopped" or unpublished_terminal:
                 current = row[0] == "current"
                 # A shutdown fence is resumable. A later domain cancellation
                 # or supersession revokes that option even for already-fenced work.
