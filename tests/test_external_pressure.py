@@ -184,3 +184,50 @@ def test_external_pressure_catalog_rule_is_opt_in():
     rule_id = "steward.external-pressure.bounded"
     assert rule_id not in {r["id"] for r in expected_rules(catalog, "mcp-steward-architect", base)}
     assert rule_id in {r["id"] for r in expected_rules(catalog, "mcp-steward-architect", opted)}
+
+def test_admission_reserves_all_future_detached_pressure(tmp_path):
+    m = ExternalPressure(
+        tmp_path / "bounded.db", global_limit=5, detached_limit=2,
+        per_capability_limit=5, cancellation_reserve=1,
+        reconciliation_reserve=1, verify_termination=lambda _op: False,
+    )
+    m.dispatch("a", "cap", 1)
+    m.dispatch("b", "cap", 1)
+    with pytest.raises(PressureRejected, match="backpressure"):
+        m.dispatch("c", "cap", 1)
+    m.fence("a", "superseded")
+    m.fence("a", "service_shutdown")
+    m.fence("b", "domain_cancel")
+    assert m.doctor()["detached_unresolved"] == 2
+    assert m.db.execute("SELECT reason FROM pressure_operations WHERE operation_id='a'").fetchone()[0] == "superseded"
+    with pytest.raises(PressureRejected, match="resume_state_conflict"):
+        m.resume_after_shutdown("a", 1)
+
+
+def test_resume_verifier_runs_outside_sqlite_writer_lock(tmp_path):
+    import sqlite3
+
+    path = tmp_path / "no-lock.db"
+    callbacks = []
+
+    def verify(op, generation):
+        alternate = sqlite3.connect(str(path), isolation_level=None, timeout=1)
+        try:
+            alternate.execute("BEGIN IMMEDIATE")
+            alternate.execute("ROLLBACK")
+            callbacks.append((op, generation))
+        finally:
+            alternate.close()
+        return True
+
+    m = ExternalPressure(
+        path, global_limit=2, detached_limit=2,
+        per_capability_limit=2, cancellation_reserve=1,
+        reconciliation_reserve=1, verify_termination=lambda _op: False,
+        verify_resume_authority=verify,
+    )
+    m.dispatch("durable", "cap", 1)
+    m.fence("durable", "service_shutdown")
+    m.resume_after_shutdown("durable", 1)
+    assert callbacks == [("durable", 1)]
+    assert m.publish_allowed("durable", 1)

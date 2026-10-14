@@ -997,6 +997,39 @@ def validate_document(
                             f"cannot derive catalog applicability: {exc}",
                         )
                     )
+    elif skill_name == "mcp-steward-architect":
+        raw_extensions = assessment.get("extensions")
+        raw_steward = raw_extensions.get("steward") if isinstance(raw_extensions, Mapping) else None
+        if not isinstance(raw_steward, Mapping):
+            findings.append(Finding("extensions.steward", "Steward profile applicability context is required"))
+        else:
+            level = raw_steward.get("target_level")
+            profiles = raw_steward.get("profiles")
+            features = raw_steward.get("features")
+            enabled = features.get("external_pressure_bounded") if isinstance(features, Mapping) else None
+            if (
+                not isinstance(level, str)
+                or not isinstance(profiles, list)
+                or not all(isinstance(name, str) and name for name in profiles)
+                or type(enabled) is not bool
+            ):
+                findings.append(Finding("extensions.steward", "invalid Steward applicability context"))
+            elif enabled != ("external-pressure-bounded" in profiles):
+                findings.append(
+                    Finding("extensions.steward", "external pressure feature/profile applicability mismatch")
+                )
+            else:
+                try:
+                    context = RuleContext(target_level=level, profiles=frozenset(profiles))
+                    if atomic_catalog is None:
+                        parent_rules = expected_rules(catalog, skill_name, context)
+                    else:
+                        parent_rules = list(
+                            project_applicability(catalog, atomic_catalog, skill_name, context).parent_rules
+                        )
+                    machine_applicable_rules = {str(rule["id"]) for rule in parent_rules}
+                except (KeyError, TypeError, ValueError) as exc:
+                    findings.append(Finding("extensions.steward", f"cannot derive catalog applicability: {exc}"))
     _validate_applicability(
         assessment,
         catalog_rules,

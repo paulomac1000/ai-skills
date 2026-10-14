@@ -94,7 +94,7 @@ class ExternalPressure:
                 WHERE capability=? AND physical!='stopped'""",
                 (capability,),
             ).fetchone()[0]
-            if active >= self.global_limit or detached >= self.detached_limit or occupied >= self.per_capability_limit:
+            if active >= min(self.global_limit, self.detached_limit) or occupied >= self.per_capability_limit:
                 raise PressureRejected("external_admission_backpressure")
             self.db.execute(
                 "INSERT INTO pressure_operations VALUES (?, ?, ?, 'current', 'running', 'none', 'admitted')",
@@ -123,7 +123,7 @@ class ExternalPressure:
             ).fetchone()
             if row is None:
                 raise PressureRejected("unknown_operation")
-            if row[1] != "stopped":
+            if row[1] != "stopped" and row[0] == "current":
                 self.db.execute(
                     """UPDATE pressure_operations SET authority='fenced',
                     reconciliation='required', reason=? WHERE operation_id=?""",
@@ -136,21 +136,28 @@ class ExternalPressure:
             raise
 
     def resume_after_shutdown(self, operation_id: str, generation: int) -> None:
-        """Reclaim an existing durable operation only after a trusted authority probe."""
+        """Reclaim shutdown-fenced authority only after host verification and a fresh CAS."""
         if not isinstance(operation_id, str) or not operation_id or type(generation) is not int or generation < 1:
             raise PressureRejected("invalid_operation_identity")
+        query = "SELECT generation, authority, physical, reason FROM pressure_operations WHERE operation_id=?"
+        before = self.db.execute(query, (operation_id,)).fetchone()
+        if before is None:
+            raise PressureRejected("unknown_operation")
+        if (
+            before[0] != generation
+            or before[1] != "fenced"
+            or before[2] == "stopped"
+            or before[3] != "service_shutdown"
+        ):
+            raise PressureRejected("resume_state_conflict")
+        # Provider/authority probes must never execute while holding a durable write lock.
+        if self.verify_resume_authority is None or not self.verify_resume_authority(operation_id, generation):
+            raise PressureRejected("resume_authority_unverified")
         self.db.execute("BEGIN IMMEDIATE")
         try:
-            row = self.db.execute(
-                "SELECT generation, authority, physical, reason FROM pressure_operations WHERE operation_id=?",
-                (operation_id,),
-            ).fetchone()
-            if row is None:
-                raise PressureRejected("unknown_operation")
-            if row[0] != generation or row[1] != "fenced" or row[2] == "stopped" or row[3] != "service_shutdown":
+            after = self.db.execute(query, (operation_id,)).fetchone()
+            if after != before:
                 raise PressureRejected("resume_state_conflict")
-            if self.verify_resume_authority is None or not self.verify_resume_authority(operation_id, generation):
-                raise PressureRejected("resume_authority_unverified")
             self.db.execute(
                 """UPDATE pressure_operations SET authority='current',
                 reconciliation='none', reason='resumed' WHERE operation_id=?""",
@@ -273,6 +280,6 @@ class ExternalPressure:
             "control_active": control,
             "per_capability": per_capability,
             "detached_reason_counts": detached_reason_counts,
-            "admission_blocked": active >= self.global_limit or detached >= self.detached_limit,
+            "admission_blocked": active >= min(self.global_limit, self.detached_limit),
             "reason_codes": ["external_pressure_unresolved"] if detached else [],
         }

@@ -482,3 +482,34 @@ def test_mcp_applicability_is_derived_from_catalog_context(tmp_path: Path) -> No
     catalog["skills"]["mcp-server-architect"]["rules"][0]["applies_when"] = {"maturity_at_least": "L4"}
     result = "\n".join(findings(document, catalog, skills, tmp_path))
     assert "catalog applicability requires this rule to be not-applicable" in result
+
+def test_steward_adoption_enforces_opt_in_pressure_profile(tmp_path: Path) -> None:
+    doc, catalog, skills = assessment_for(tmp_path, skill_name="mcp-steward-architect")
+    rule = catalog["skills"]["mcp-steward-architect"]["rules"][0]
+    rule["id"] = "steward.external-pressure.bounded"
+    rule["applies_when"] = {"maturity_at_least": "L1", "profiles_any": ["external-pressure-bounded"]}
+    doc["applicability"][0]["rule_id"] = rule["id"]
+    doc["applicability"][0]["status"] = "not-applicable"
+    doc["applicability"][0]["implementation"] = []
+    doc["applicability"][0]["verification"] = []
+    doc["extensions"] = {
+        "steward": {
+            "target_level": "L1",
+            "profiles": ["external-pressure-bounded"],
+            "features": {"external_pressure_bounded": True},
+        }
+    }
+    result = "\n".join(findings(doc, catalog, skills, tmp_path))
+    assert "catalog applicability requires this rule to be applicable or explicitly deferred" in result
+    doc["extensions"]["steward"]["features"]["external_pressure_bounded"] = False
+    result = "\n".join(findings(doc, catalog, skills, tmp_path))
+    assert "external pressure feature/profile applicability mismatch" in result
+    doc["extensions"]["steward"]["profiles"] = []
+    result = "\n".join(findings(doc, catalog, skills, tmp_path))
+    assert "catalog applicability requires this rule to be applicable or explicitly deferred" not in result
+
+
+def test_steward_adoption_fails_closed_without_profile_context(tmp_path: Path) -> None:
+    doc, catalog, skills = assessment_for(tmp_path, skill_name="mcp-steward-architect")
+    result = "\n".join(findings(doc, catalog, skills, tmp_path))
+    assert "Steward profile applicability context is required" in result
