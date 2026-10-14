@@ -24,7 +24,7 @@
       "pre_load_path": "SKILL.md",
       "pre_load_trigger": "before deleting rules",
       "source_path": "references/lifecycle-and-migration.md",
-      "source_anchor": "Keep compliant consumer-specific behavior",
+      "source_anchor": "Preserve compliant repository-specific behavior",
       "positive_case": "compatible-consumer-preserved"
     },
     {
