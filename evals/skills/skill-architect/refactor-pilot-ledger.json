@@ -5,11 +5,11 @@
       "id": "existing-skill-route",
       "disposition": "PRESERVE",
       "target_path": "SKILL.md",
-      "target_anchor": "For an existing skill refactor",
+      "target_anchor": "For an existing refactor/split/migration",
       "negative_case": "not_skill_change",
       "verification": "test_skill_refactor_preservation::test_preload_route_lost",
       "pre_load_path": "SKILL.md",
-      "pre_load_trigger": "For an existing skill refactor"
+      "pre_load_trigger": "For an existing refactor/split/migration"
     },
     {
       "id": "migration-compatibility",
@@ -19,7 +19,7 @@
       "negative_case": "unauthorized_semantic_deletion",
       "verification": "test_skill_refactor_preservation::test_omitted_authority_rule_fails_even_with_static_package",
       "pre_load_path": "SKILL.md",
-      "pre_load_trigger": "before removing any rule"
+      "pre_load_trigger": "before deleting rules"
     },
     {
       "id": "observed-maintenance",
