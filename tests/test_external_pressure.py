@@ -582,3 +582,21 @@ def test_terminal_proof_retires_controls_durably(tmp_path):
     other.fence("b", "caller_cancel")
     other.acquire_control("next", "b", "cancel")
     assert other.doctor()["control_active"]["cancel"] == 1
+
+def test_completed_control_release_is_idempotent_but_unknown_id_rejected(tmp_path):
+    m = ExternalPressure(
+        tmp_path / "released-by-observer.db", global_limit=2,
+        detached_limit=2, per_capability_limit=2,
+        cancellation_reserve=1, reconciliation_reserve=1,
+        verify_termination=lambda _: True,
+    )
+    m.dispatch("op", "cap", 1)
+    m.fence("op", "caller_cancel")
+    m.acquire_control("cancel-request", "op", "cancel")
+    m.observe("op", "stopped", reconciled=True)
+    assert m.doctor()["control_active"]["cancel"] == 0
+    m.release_control("cancel-request")
+    m.release_control("cancel-request")
+    assert m.doctor()["control_active"]["cancel"] == 0
+    with pytest.raises(PressureRejected, match="control_not_active"):
+        m.release_control("never-admitted")

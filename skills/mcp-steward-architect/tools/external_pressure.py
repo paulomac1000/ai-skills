@@ -340,6 +340,11 @@ class ExternalPressure:
             "UPDATE pressure_controls SET state='complete' WHERE control_id=? AND state='active'", (control_id,)
         ).rowcount
         if changed != 1:
+            stored = self.db.execute(
+                "SELECT state FROM pressure_controls WHERE control_id=?", (control_id,)
+            ).fetchone()
+            if stored is not None and stored[0] == "complete":
+                return  # Already retired by a proven terminal observation.
             raise PressureRejected("control_not_active")
 
     def observe(self, operation_id: str, physical: str, *, reconciled: bool) -> None:
