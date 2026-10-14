@@ -12,7 +12,7 @@
 
 ### Known limitations
 
-- Deterministic preservation checking does not establish model-backed behavior equivalence; evidence without an approved model run remains BEHAVIOR_NOT_VERIFIED.
+- A structural PASS verifies only pinned normative ownership and entrypoint routes; it does not verify repository eval-corpus revisions (`NOT_VERIFIED`) or model-backed behavioral equivalence (`BEHAVIOR_NOT_VERIFIED`). Run those evidence lanes separately.
 
 ## 3.25.0 - 2026-10-13
 
