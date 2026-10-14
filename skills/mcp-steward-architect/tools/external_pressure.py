@@ -54,6 +54,10 @@ class ExternalPressure:
                 control_id TEXT PRIMARY KEY, operation_id TEXT NOT NULL,
                 lane TEXT NOT NULL, state TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS pressure_publications (
+                operation_id TEXT PRIMARY KEY, generation INTEGER NOT NULL,
+                authority_epoch INTEGER NOT NULL, result_digest TEXT NOT NULL
+            );
         """)
         # A caller cannot restart with higher limits and pretend prior admissions were below policy.
         self.db.execute("BEGIN IMMEDIATE")
@@ -192,7 +196,65 @@ class ExternalPressure:
                 self.db.execute("ROLLBACK")
             raise
 
+    def commit_publication(self, operation_id: str, generation: int, result_digest: str) -> dict[str, object]:
+        """Atomically accept one immutable result identity at the current authority epoch.
+
+        This is a canonical local publication decision, NOT a remote sink delivery.
+        Remote sinks must enforce their own generation/epoch fencing.
+        """
+        if (
+            not isinstance(operation_id, str)
+            or not operation_id
+            or type(generation) is not int
+            or generation < 1
+            or not isinstance(result_digest, str)
+            or len(result_digest) != 71
+            or not result_digest.startswith("sha256:")
+            or any(ch not in "0123456789abcdef" for ch in result_digest[7:])
+        ):
+            raise PressureRejected("invalid_publication_identity")
+        self.db.execute("BEGIN IMMEDIATE")
+        try:
+            prior = self.db.execute(
+                """SELECT generation, authority_epoch, result_digest FROM pressure_publications
+                WHERE operation_id=?""",
+                (operation_id,),
+            ).fetchone()
+            if prior is not None:
+                if prior[0] != generation or prior[2] != result_digest:
+                    raise PressureRejected("publication_id_conflict")
+                receipt = {"operation_id": operation_id, "generation": generation,
+                           "authority_epoch": prior[1], "result_digest": result_digest}
+            else:
+                row = self.db.execute(
+                    """SELECT generation, authority, physical, authority_epoch
+                    FROM pressure_operations WHERE operation_id=?""",
+                    (operation_id,),
+                ).fetchone()
+                if row is None:
+                    raise PressureRejected("unknown_operation")
+                if row[0] != generation or row[1] != "current" or row[2] != "running":
+                    raise PressureRejected("publication_authority_stale")
+                self.db.execute(
+                    "INSERT INTO pressure_publications VALUES (?, ?, ?, ?)",
+                    (operation_id, generation, row[3], result_digest),
+                )
+                receipt = {"operation_id": operation_id, "generation": generation,
+                           "authority_epoch": row[3], "result_digest": result_digest}
+            self.db.execute("COMMIT")
+            return receipt
+        except sqlite3.DatabaseError as exc:
+            if self.db.in_transaction:
+                self.db.execute("ROLLBACK")
+            raise PressureRejected("publication_persistence_failure") from exc
+        except Exception:
+            if self.db.in_transaction:
+                self.db.execute("ROLLBACK")
+            raise
+
     def publish_allowed(self, operation_id: str, generation: int) -> bool:
+        """Advisory only; callers must use commit_publication for a durable decision."""
+
         row = self.db.execute(
             "SELECT authority, physical, generation FROM pressure_operations WHERE operation_id=?", (operation_id,)
         ).fetchone()

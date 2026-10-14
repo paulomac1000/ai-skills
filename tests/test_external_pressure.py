@@ -347,3 +347,24 @@ def test_duplicate_control_ids_do_not_exhaust_safe_closure_capacity(tmp_path):
         m.acquire_control("retry-different-id", "a", "cancel")
     m.acquire_control("second", "b", "cancel")
     assert m.doctor()["control_active"]["cancel"] == 2
+
+
+def test_publication_decision_is_atomic_with_fence(tmp_path):
+    digest = "sha256:" + "a" * 64
+    m = ExternalPressure(
+        tmp_path / "publish.db", global_limit=2, detached_limit=2,
+        per_capability_limit=2, cancellation_reserve=1,
+        reconciliation_reserve=1, verify_termination=lambda _: False,
+    )
+    m.dispatch("before", "cap", 1)
+    receipt = m.commit_publication("before", 1, digest)
+    assert receipt["generation"] == 1
+    m.fence("before", "parent_superseded")
+    assert m.commit_publication("before", 1, digest) == receipt
+    with pytest.raises(PressureRejected, match="publication_id_conflict"):
+        m.commit_publication("before", 1, "sha256:" + "b" * 64)
+    m.dispatch("after", "cap", 2)
+    m.fence("after", "parent_superseded")
+    with pytest.raises(PressureRejected, match="publication_authority_stale"):
+        m.commit_publication("after", 2, digest)
+    assert m.db.execute("SELECT COUNT(*) FROM pressure_publications").fetchone()[0] == 1

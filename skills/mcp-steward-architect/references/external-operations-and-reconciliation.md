@@ -110,3 +110,11 @@ again under the database lock. An already-fenced superseded operation retains it
 The reference state machine in `tools/external_pressure.py` and the
 fake cancellation-insensitive provider tests illustrate accounting, not
 a new general scheduler, retry policy or circuit breaker.
+
+For authoritative local completion, use `commit_publication(operation_id,
+generation, result_digest)` rather than treating `publish_allowed()` as a
+durable authorization. The commit binds exactly one immutable result digest
+and the current authority epoch under the same SQLite writer lock as fencing.
+Replays return the prior receipt without creating a second publication.
+This fixture does not deliver to external providers: an external sink
+requires its own epoch-fenced outbox/transaction, not a cached boolean.
