@@ -47,7 +47,8 @@ class ExternalPressure:
                 operation_id TEXT PRIMARY KEY, capability TEXT NOT NULL,
                 generation INTEGER NOT NULL, authority TEXT NOT NULL,
                 physical TEXT NOT NULL, reconciliation TEXT NOT NULL,
-                reason TEXT NOT NULL
+                reason TEXT NOT NULL,
+                authority_epoch INTEGER NOT NULL DEFAULT 0
             );
             CREATE TABLE IF NOT EXISTS pressure_controls (
                 control_id TEXT PRIMARY KEY, operation_id TEXT NOT NULL,
@@ -57,6 +58,13 @@ class ExternalPressure:
         # A caller cannot restart with higher limits and pretend prior admissions were below policy.
         self.db.execute("BEGIN IMMEDIATE")
         try:
+            columns = {
+                row[1] for row in self.db.execute("PRAGMA table_info(pressure_operations)")
+            }
+            if "authority_epoch" not in columns:
+                self.db.execute(
+                    "ALTER TABLE pressure_operations ADD COLUMN authority_epoch INTEGER NOT NULL DEFAULT 0"
+                )
             self.db.execute(
                 "CREATE TABLE IF NOT EXISTS pressure_limits (slot INTEGER PRIMARY KEY CHECK(slot=1), caps TEXT NOT NULL)"
             )
@@ -97,7 +105,9 @@ class ExternalPressure:
             if active >= min(self.global_limit, self.detached_limit) or occupied >= self.per_capability_limit:
                 raise PressureRejected("external_admission_backpressure")
             self.db.execute(
-                "INSERT INTO pressure_operations VALUES (?, ?, ?, 'current', 'running', 'none', 'admitted')",
+                """INSERT INTO pressure_operations
+                (operation_id, capability, generation, authority, physical, reconciliation, reason)
+                VALUES (?, ?, ?, 'current', 'running', 'none', 'admitted')""",
                 (operation_id, capability, generation),
             )
             self.db.execute("COMMIT")
@@ -126,7 +136,8 @@ class ExternalPressure:
             if row[1] != "stopped" and row[0] == "current":
                 self.db.execute(
                     """UPDATE pressure_operations SET authority='fenced',
-                    reconciliation='required', reason=? WHERE operation_id=?""",
+                    reconciliation='required', reason=?, authority_epoch=authority_epoch+1
+                    WHERE operation_id=?""",
                     (reason, operation_id),
                 )
             self.db.execute("COMMIT")
@@ -139,7 +150,10 @@ class ExternalPressure:
         """Reclaim shutdown-fenced authority only after host verification and a fresh CAS."""
         if not isinstance(operation_id, str) or not operation_id or type(generation) is not int or generation < 1:
             raise PressureRejected("invalid_operation_identity")
-        query = "SELECT generation, authority, physical, reason FROM pressure_operations WHERE operation_id=?"
+        query = """
+            SELECT generation, authority, physical, reason, authority_epoch
+            FROM pressure_operations WHERE operation_id=?
+        """
         before = self.db.execute(query, (operation_id,)).fetchone()
         if before is None:
             raise PressureRejected("unknown_operation")
@@ -160,7 +174,8 @@ class ExternalPressure:
                 raise PressureRejected("resume_state_conflict")
             self.db.execute(
                 """UPDATE pressure_operations SET authority='current',
-                reconciliation='none', reason='resumed' WHERE operation_id=?""",
+                reconciliation='none', reason='resumed',
+                authority_epoch=authority_epoch+1 WHERE operation_id=?""",
                 (operation_id,),
             )
             self.db.execute("COMMIT")
@@ -233,7 +248,8 @@ class ExternalPressure:
                 raise PressureRejected("cannot_revive_terminated_operation")
             status = "resolved" if physical == "stopped" else ("required" if row[1] == "fenced" else "none")
             self.db.execute(
-                "UPDATE pressure_operations SET physical=?, reconciliation=? WHERE operation_id=?",
+                """UPDATE pressure_operations SET physical=?, reconciliation=?,
+                authority_epoch=authority_epoch+1 WHERE operation_id=?""",
                 (physical, status, operation_id),
             )
             self.db.execute("COMMIT")

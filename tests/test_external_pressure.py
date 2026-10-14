@@ -250,3 +250,66 @@ def test_terminated_operation_cannot_consume_control_reserve(tmp_path):
         m.acquire_control("fake", "stopped", "cancel")
     m.acquire_control("real", "active", "cancel")
     assert m.doctor()["control_active"]["cancel"] == 1
+
+
+def test_shutdown_resume_rejects_aba_authority_cycle(tmp_path):
+    path = tmp_path / "epoch.db"
+    latest = ExternalPressure(
+        path, global_limit=2, detached_limit=2, per_capability_limit=2,
+        cancellation_reserve=1, reconciliation_reserve=1,
+        verify_termination=lambda _: False,
+        verify_resume_authority=lambda _op, _gen: True,
+    )
+    latest.dispatch("durable", "cap", 1)
+    latest.fence("durable", "service_shutdown")
+    before = latest.db.execute(
+        "SELECT authority_epoch FROM pressure_operations WHERE operation_id='durable'"
+    ).fetchone()[0]
+
+    def overlapping_recovery(op, generation):
+        other = ExternalPressure(
+            path, global_limit=2, detached_limit=2, per_capability_limit=2,
+            cancellation_reserve=1, reconciliation_reserve=1,
+            verify_termination=lambda _: False,
+            verify_resume_authority=lambda _op, _gen: True,
+        )
+        try:
+            other.resume_after_shutdown(op, generation)
+            other.fence(op, "service_shutdown")
+        finally:
+            other.close()
+        return True
+
+    latest.verify_resume_authority = overlapping_recovery
+    with pytest.raises(PressureRejected, match="resume_state_conflict"):
+        latest.resume_after_shutdown("durable", 1)
+    after = latest.db.execute(
+        "SELECT authority_epoch FROM pressure_operations WHERE operation_id='durable'"
+    ).fetchone()[0]
+    assert after > before
+    assert not latest.publish_allowed("durable", 1)
+
+
+def test_existing_operation_schema_upgrades_with_epoch(tmp_path):
+    import sqlite3
+
+    path = tmp_path / "pre-epoch.db"
+    db = sqlite3.connect(str(path))
+    db.execute(
+        """CREATE TABLE pressure_operations(
+        operation_id TEXT PRIMARY KEY, capability TEXT NOT NULL, generation INTEGER NOT NULL,
+        authority TEXT NOT NULL, physical TEXT NOT NULL, reconciliation TEXT NOT NULL,
+        reason TEXT NOT NULL)"""
+    )
+    db.execute("INSERT INTO pressure_operations VALUES ('old', 'cap', 1, 'fenced', 'running', 'required', 'service_shutdown')")
+    db.commit()
+    db.close()
+    m = ExternalPressure(
+        path, global_limit=2, detached_limit=2, per_capability_limit=2,
+        cancellation_reserve=1, reconciliation_reserve=1,
+        verify_termination=lambda _: False,
+        verify_resume_authority=lambda _op, _gen: True,
+    )
+    assert m.db.execute("SELECT authority_epoch FROM pressure_operations WHERE operation_id='old'").fetchone() == (0,)
+    m.resume_after_shutdown("old", 1)
+    assert m.publish_allowed("old", 1)
