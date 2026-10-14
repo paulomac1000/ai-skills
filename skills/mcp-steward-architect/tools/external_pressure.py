@@ -206,9 +206,7 @@ class ExternalPressure:
             raise PressureRejected("invalid_physical_observation")
         if not isinstance(operation_id, str) or not operation_id:
             raise PressureRejected("invalid_operation_identity")
-        known = self.db.execute(
-            "SELECT 1 FROM pressure_operations WHERE operation_id=?", (operation_id,)
-        ).fetchone()
+        known = self.db.execute("SELECT 1 FROM pressure_operations WHERE operation_id=?", (operation_id,)).fetchone()
         if known is None:
             raise PressureRejected("unknown_operation")
         if physical == "stopped" and (not reconciled or not self.verify_termination(operation_id)):
