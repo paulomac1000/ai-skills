@@ -230,3 +230,12 @@ def test_reference_route_rejects_changed_entrypoint_even_with_live_route(tmp_pat
         "Trigger when destructive action requested; read STANDARD.md before action, unauthorized update"
     )
     assert "owner_entrypoint_unbound:auth" in assess(baseline, ledger, path)["findings"]
+
+def test_malformed_candidate_file_inventory_returns_structured_refusal(tmp_path):
+    path, baseline, ledger, decision = case(tmp_path, kind="evidence")
+    for invalid in (None, [], ["SKILL.md"], "SKILL.md", 123):
+        ledger["candidate_files"] = invalid
+        result = assess(baseline, ledger, path)
+        assert result["structural"] == "FAILED"
+        assert "candidate_files_missing" in result["findings"]
+        assert "owner_entrypoint_unbound:auth" in result["findings"]

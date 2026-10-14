@@ -129,6 +129,9 @@ def assess(
 ) -> dict[str, Any]:
     """Verify original source mapping and exact candidate documents, not model equivalence."""
     findings: list[str] = _content_bindings(baseline, ledger, candidate)
+    candidate_files = ledger.get("candidate_files")
+    if not isinstance(candidate_files, dict):
+        candidate_files = {}  # The invalid shape was already reported above.
     original_files = ledger.get("baseline_source_blobs")
     if baseline_tree is None or not isinstance(original_files, dict) or not original_files:
         findings.append("baseline_source_unverified")
@@ -223,7 +226,7 @@ def assess(
             if not isinstance(rel, str) or not rel or Path(rel).is_absolute() or ".." in Path(rel).parts:
                 findings.append("unsafe_or_missing_owner:" + rule_id)
                 continue
-            if rel not in ledger.get("candidate_files", {}):
+            if rel not in candidate_files:
                 findings.append("unbound_owner:" + rule_id)
             target = (candidate / rel).resolve()
             root = candidate.resolve()
@@ -237,7 +240,7 @@ def assess(
                 trigger = decision.get("pre_load_trigger")
                 route = decision.get("entrypoint_route")
                 entrypoint = (candidate / "SKILL.md").resolve()
-                entrypoint_digest = ledger.get("candidate_files", {}).get("SKILL.md")
+                entrypoint_digest = candidate_files.get("SKILL.md")
                 if (
                     not entrypoint.is_relative_to(root)
                     or not entrypoint.is_file()
@@ -278,7 +281,7 @@ def assess(
                 elif Path(pre_load).is_absolute() or ".." in Path(pre_load).parts:
                     findings.append("preload_route_unsafe:" + rule_id)
                 else:
-                    if pre_load not in ledger.get("candidate_files", {}):
+                    if pre_load not in candidate_files:
                         findings.append("unbound_preload_route:" + rule_id)
                     route_file = (candidate / pre_load).resolve()
                     if (
