@@ -40,6 +40,16 @@ def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     return result
 
 
+def _trusted_git_env() -> dict[str, str]:
+    """Drop inherited Git object-store/config overrides before provenance probes."""
+    env = {name: value for name, value in os.environ.items() if not name.upper().startswith("GIT_")}
+    env["GIT_CONFIG_NOSYSTEM"] = "1"
+    env["GIT_CONFIG_GLOBAL"] = os.devnull
+    env["GIT_NO_REPLACE_OBJECTS"] = "1"
+    env["GIT_OPTIONAL_LOCKS"] = "0"
+    return env
+
+
 def _verify_baseline_git_revision(baseline: dict[str, Any], ledger: dict[str, Any], candidate: Path) -> list[str]:
     """Resolve historical objects only from the checker's own trusted checkout.
 
@@ -72,6 +82,7 @@ def _verify_baseline_git_revision(baseline: dict[str, Any], ledger: dict[str, An
     if len(relative_skill.parts) != 2 or relative_skill.parts[0] != "skills":
         return ["candidate_not_skill_directory"]
     location = relative_skill.as_posix()
+    git_env = _trusted_git_env()
     try:
 
         def resolve(object_id: str) -> str:
@@ -81,6 +92,7 @@ def _verify_baseline_git_revision(baseline: dict[str, Any], ledger: dict[str, An
                 capture_output=True,
                 text=True,
                 timeout=10,
+                env=git_env,
             )
             return completed.stdout.strip()
 
@@ -90,6 +102,7 @@ def _verify_baseline_git_revision(baseline: dict[str, Any], ledger: dict[str, An
             capture_output=True,
             text=True,
             timeout=10,
+            env=git_env,
         ).stdout.strip()
         if Path(actual_root).resolve() != trusted_root:
             return ["trusted_git_root_mismatch"]
@@ -101,6 +114,7 @@ def _verify_baseline_git_revision(baseline: dict[str, Any], ledger: dict[str, An
             capture_output=True,
             text=True,
             timeout=10,
+            env=git_env,
         ).stdout.strip()
         if object_type != "commit":
             return ["baseline_git_commit_mismatch"]
