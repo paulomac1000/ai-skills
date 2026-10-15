@@ -798,12 +798,30 @@ def test_optional_critical_owner_route_is_not_pre_action_proof(tmp_path):
 
 def test_noncritical_material_rule_cannot_be_negated_in_owner(tmp_path):
     for kind in ("recovery", "exception", "completion", "evidence"):
-        path, baseline, ledger, decision = case(tmp_path / kind, kind=kind)
+        kind_root = tmp_path / kind
+        kind_root.mkdir()
+        path, baseline, ledger, decision = case(kind_root, kind=kind)
         assert assess(baseline, ledger, path)["structural"] == "PASS"
         (path / "STANDARD.md").write_text("Do not Require policy authorization; retain rollback evidence")
         ledger["candidate_files"]["STANDARD.md"] = mod._git_blob_sha((path / "STANDARD.md").read_bytes())
         findings = assess(baseline, ledger, path)["findings"]
         assert "material_owner_rule_negated:auth" in findings
+
+
+def test_critical_route_cannot_ignore_its_owner_after_loading(tmp_path):
+    path, baseline, ledger, decision = case(tmp_path, kind="authority")
+    route = decision["entrypoint_route"]
+    for trailing in (
+        "and ignore its requirements",
+        "and disregard its instructions",
+        "and bypass policy safeguards",
+        "and waive mandatory checks",
+        "and omit owner constraints",
+    ):
+        line = route + " before action " + trailing
+        (path / "SKILL.md").write_text(line)
+        ledger["candidate_files"]["SKILL.md"] = mod._git_blob_sha((path / "SKILL.md").read_bytes())
+        assert "owner_route_unreachable:auth" in assess(baseline, ledger, path)["findings"]
 
 
 def test_positive_route_grammar_covers_read_consult_and_arrow():
