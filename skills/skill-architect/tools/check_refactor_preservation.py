@@ -446,11 +446,9 @@ def assess(
                     or len(route) > 1024
                     or trigger not in route
                     or rel not in route
-                    or not _positive_entrypoint_route(route, rel, require_pre_action=require_pre_action)
+                    or not _positive_entrypoint_route(route, rel)
                     or not any(
-                        _positive_entrypoint_route(
-                            match.group(0), rel, require_pre_action=require_pre_action
-                        )
+                        _positive_entrypoint_route(match.group(0), rel, require_pre_action=require_pre_action)
                         for match in re.finditer(
                             r"(?m)^[ \t]*(?:[-*+]|\d+\.)?[ \t]*" + re.escape(route) + r"[^\r\n]*",
                             candidate_verified["SKILL.md"].decode("utf-8"),
