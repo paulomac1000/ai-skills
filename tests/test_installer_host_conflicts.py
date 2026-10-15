@@ -32,6 +32,51 @@ def test_locked_distribution_conflicts_remain_fatal():
     assert len(blocked) == 1 and ignored == []
 
 
+def test_main_rejects_stderr_even_when_stdout_only_names_unmanaged_host(tmp_path, monkeypatch):
+    import subprocess
+
+    import pytest
+
+    lock = tmp_path / "selected.lock"
+    lock.write_text("filelock==3.32.0\\n", encoding="utf-8")
+    monkeypatch.setattr(mod, "selected_lock", lambda: lock)
+
+    def run(command, **kwargs):
+        if "install" in command:
+            return subprocess.CompletedProcess(command, 0)
+        return subprocess.CompletedProcess(
+            command,
+            1,
+            stdout="pipx 1.17.12 requires filelock>=4, but you have filelock 3.32.0.\\n",
+            stderr="ERROR: pip check could not inspect all packages",
+        )
+
+    monkeypatch.setattr(mod.subprocess, "run", run)
+    with pytest.raises(subprocess.CalledProcessError):
+        mod.main()
+
+
+def test_main_accepts_only_unmanaged_conflict_when_stderr_empty(tmp_path, monkeypatch):
+    import subprocess
+
+    lock = tmp_path / "selected.lock"
+    lock.write_text("filelock==3.32.0\\n", encoding="utf-8")
+    monkeypatch.setattr(mod, "selected_lock", lambda: lock)
+
+    def run(command, **kwargs):
+        if "install" in command:
+            return subprocess.CompletedProcess(command, 0)
+        return subprocess.CompletedProcess(
+            command,
+            1,
+            stdout="pipx 1.17.12 requires filelock>=4, but you have filelock 3.32.0.\\n",
+            stderr="",
+        )
+
+    monkeypatch.setattr(mod.subprocess, "run", run)
+    assert mod.main() == 0
+
+
 def test_unknown_failure_or_unpinned_lock_fails_closed():
     assert mod.classify_pip_check("unexpected resolver failure", "mcp==2.2.0")[0]
     assert mod.classify_pip_check("pipx 1.0 requires x>=2, but you have x 1", "")[0]

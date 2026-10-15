@@ -54,6 +54,11 @@ def main() -> int:
         timeout=120,
     )
     if outcome.returncode:
+        # Unexpected stderr is not evidence of an unmanaged host conflict.
+        # It may indicate that pip failed before completing the dependency audit.
+        if outcome.stderr and outcome.stderr.strip():
+            print(outcome.stderr, file=sys.stderr)
+            raise subprocess.CalledProcessError(outcome.returncode, outcome.args)
         blocking, unmanaged = classify_pip_check(outcome.stdout, lock.read_text(encoding="utf-8"))
         for notice in unmanaged:
             print("HOST_UNMANAGED_PACKAGE_CONFLICT: " + notice, file=sys.stderr)

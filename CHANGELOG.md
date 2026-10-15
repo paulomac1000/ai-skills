@@ -1,6 +1,6 @@
 # Changelog
 
-## 3.26.0 - 2026-10-15
+## 3.26.0 - 2026-10-16
 
 ### Added
 
@@ -13,6 +13,8 @@
 ### Fixed
 
 - Hardened the skill refactor route audit against delayed loads, unrelated deadlines, optional or negated critical rules, and hidden route qualifiers; authenticated system-owned Git paths and explicitly labeled unverified candidate versions.
+
+- Dependency-lock installation treats unexpected `pip check` stderr as a blocking verification error, rather than downgrading it to an unmanaged host-package conflict.
 
 ### Known limitations
 
