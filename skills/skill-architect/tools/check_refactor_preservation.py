@@ -250,12 +250,30 @@ def _has_negated_or_delayed_route(text: str) -> bool:
 def _effect_bound_timing(text: str) -> bool:
     """Recognize explicit pre-effect clauses; unrelated deadlines are not proof."""
     return bool(
-        re.search(
+        re.match(
             r"\b(?:before|prior to)\s+(?:(?:any|the|a|each)\s+)?"
             r"(?:(?:governed|destructive|external|mutating|irreversible)\s+)?"
             r"(?:action|operation|effect|side[- ]effect|mutation|change|write|commit|"
             r"call|execution|publishing|publication|deleting|deletion|removing|removal)\b",
-            text,
+            text.lstrip(" \t`"),
+            re.IGNORECASE,
+        )
+    )
+
+
+def _retained_pre_action(line: str, anchor: str) -> bool:
+    """Require an effect deadline directly on the anchor or the owner load."""
+    index = line.find(anchor)
+    if index < 0:
+        return False
+    remainder = line[index + len(anchor) :]
+    if _effect_bound_timing(remainder):
+        return True
+    return any(
+        _effect_bound_timing(remainder[match.end() :])
+        for match in re.finditer(
+            r"\b(?:read|consult|load|open|follow|use|see)\s+`?[A-Za-z0-9_./-]+`?",
+            remainder,
             re.IGNORECASE,
         )
     )
@@ -535,7 +553,7 @@ def assess(
                         trigger in line
                         and anchor in line
                         and _mandatory_owner_instruction(line, anchor)
-                        and _effect_bound_timing(line)
+                        and _retained_pre_action(line, anchor)
                         for line in candidate_verified["SKILL.md"].decode("utf-8").splitlines()
                     )
                 ):
@@ -553,7 +571,7 @@ def assess(
                     _mandatory_owner_instruction(line, required_anchor)
                     if critical
                     else any(
-                        required_anchor in sentence and not _has_negated_or_delayed_route(sentence)
+                        _mandatory_owner_instruction(sentence, required_anchor)
                         for sentence in re.split(r"(?<=[.!?])\s+", line)
                     )
                     for line in candidate_verified[rel].decode("utf-8").splitlines()

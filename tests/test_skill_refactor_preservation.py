@@ -824,6 +824,36 @@ def test_critical_route_cannot_ignore_its_owner_after_loading(tmp_path):
         assert "owner_route_unreachable:auth" in assess(baseline, ledger, path)["findings"]
 
 
+def test_critical_route_timing_must_govern_owner_read(tmp_path):
+    path, baseline, ledger, decision = case(tmp_path, kind="authority")
+    route = decision["entrypoint_route"]
+    (path / "SKILL.md").write_text(route + " eventually; write audit log before action")
+    ledger["candidate_files"]["SKILL.md"] = mod._git_blob_sha((path / "SKILL.md").read_bytes())
+    assert "owner_route_unreachable:auth" in assess(baseline, ledger, path)["findings"]
+
+
+def test_retained_critical_route_rejects_unrelated_timed_log(tmp_path):
+    path, baseline, ledger, decision = case(tmp_path, kind="authority")
+    ledger["decisions"] = [
+        decision
+        | {
+            "target_path": "SKILL.md",
+            "target_anchor": "Require authorization",
+            "pre_load_trigger": "Require authorization",
+        }
+    ]
+    (path / "SKILL.md").write_text("Require authorization; write audit log before action")
+    ledger["candidate_files"]["SKILL.md"] = mod._git_blob_sha((path / "SKILL.md").read_bytes())
+    assert "critical_entrypoint_not_affirmative:auth" in assess(baseline, ledger, path)["findings"]
+
+
+def test_noncritical_owner_historical_mention_does_not_preserve_rule(tmp_path):
+    path, baseline, ledger, decision = case(tmp_path, kind="recovery")
+    (path / "STANDARD.md").write_text("The legacy documentation mentioned Require policy authorization")
+    ledger["candidate_files"]["STANDARD.md"] = mod._git_blob_sha((path / "STANDARD.md").read_bytes())
+    assert "material_owner_rule_negated:auth" in assess(baseline, ledger, path)["findings"]
+
+
 def test_positive_route_grammar_covers_read_consult_and_arrow():
     assert mod._positive_entrypoint_route("read STANDARD.md", "STANDARD.md")
     assert mod._positive_entrypoint_route(
