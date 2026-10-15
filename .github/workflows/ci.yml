@@ -79,7 +79,7 @@ jobs:
             2>&1 | tee pip-audit.txt
       - name: Upload Python quality diagnostics
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: python-quality-diagnostics-${{ github.run_id }}
           path: |
@@ -202,7 +202,7 @@ jobs:
             --output evidence/report.json
       - name: Upload repository diagnostics
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: repository-diagnostics-${{ github.run_id }}
           path: |
@@ -272,7 +272,7 @@ jobs:
           --workspace "${RUNNER_TEMP}/ai-skills-consumer-canaries"
       - name: Upload consumer discovery reports
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: consumer-canary-discovery-${{ github.run_id }}
           path: ${{ runner.temp }}/ai-skills-consumer-canaries/*.discovery.json
@@ -374,7 +374,7 @@ jobs:
             --output evidence/report.json
       - name: Upload compatibility evidence
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: compatibility-${{ matrix.lock_id }}-${{ github.run_id }}
           path: |
@@ -451,7 +451,7 @@ jobs:
             --output evidence/report.json
       - name: Upload filesystem-contract evidence
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: filesystem-${{ matrix.lock_id }}-${{ github.run_id }}
           path: |
@@ -544,7 +544,7 @@ jobs:
             --output evidence/report.json
       - name: Upload .NET artifact evidence
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: dotnet-${{ matrix.operating_system }}-${{ matrix.architecture }}-${{ github.run_id }}
           path: |
@@ -606,7 +606,7 @@ jobs:
             --output evidence/report.json
       - name: Upload container-artifact evidence
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: python-container-${{ github.run_id }}
           path: |

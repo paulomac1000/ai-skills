@@ -178,7 +178,7 @@ jobs:
           echo "checksum_sha256=$checksum_sha256" >> "$GITHUB_OUTPUT"
       - name: Upload prepared release payload
         if: steps.release.outputs.release_needed == 'true'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: release-payload-${{ steps.release.outputs.version }}
           path: |
