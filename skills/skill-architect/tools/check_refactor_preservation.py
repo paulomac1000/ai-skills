@@ -235,6 +235,14 @@ def _has_negated_or_delayed_route(text: str) -> bool:
             re.IGNORECASE,
         )
         or re.search(r"\b(?:after|later|until|once|afterward|afterwards)\b", normalized, re.IGNORECASE)
+        or re.search(
+            r"\b(?:optional|optionally|may|might|could|can|should|unless|suggested|"
+            r"recommended|discretionary|discretion)\b"
+            r"|\bif\s+(?:convenient|available|possible|practical|desired|preferred|requested)\b"
+            r"|\bwhen\s+convenient\b",
+            normalized,
+            re.IGNORECASE,
+        )
     )
 
 
@@ -275,6 +283,11 @@ def _positive_entrypoint_route(route: str, owner: str, *, require_pre_action: bo
     """
     position = route.find(owner)
     if position < 0 or route.find(owner, position + len(owner)) >= 0:
+        return False
+    # A declared owner must terminate at a path/token boundary. Otherwise a
+    # route to STANDARD.md.bak can impersonate a route to STANDARD.md.
+    suffix = route[position + len(owner) :]
+    if suffix and suffix[0] not in " \t\r\n`),;:!?":
         return False
     # Examine the entire declared route for explicit negation. Restricting
     # this check to the last 128 characters can certify a long negative
@@ -533,11 +546,19 @@ def assess(
                 findings.append("target_content_unverified:" + rule_id[:128])
             elif required_anchor not in candidate_verified[rel].decode("utf-8"):
                 findings.append("anchor_not_present:" + rule_id)
-            elif kind in {"trigger", "authority", "safety_stop", "precedence"} and not any(
-                _mandatory_owner_instruction(line, required_anchor)
-                for line in candidate_verified[rel].decode("utf-8").splitlines()
-            ):
-                findings.append("critical_owner_rule_negated:" + rule_id[:128])
+            elif kind in MATERIAL:
+                critical = kind in {"trigger", "authority", "safety_stop", "precedence"}
+                if not any(
+                    _mandatory_owner_instruction(line, required_anchor)
+                    if critical
+                    else any(
+                        required_anchor in sentence and not _has_negated_or_delayed_route(sentence)
+                        for sentence in re.split(r"(?<=[.!?])\s+", line)
+                    )
+                    for line in candidate_verified[rel].decode("utf-8").splitlines()
+                ):
+                    finding = "critical_owner_rule_negated:" if critical else "material_owner_rule_negated:"
+                    findings.append(finding + rule_id[:128])
             if kind in MATERIAL and not decision.get("negative_case"):
                 findings.append("negative_case_missing:" + rule_id)
             if not decision.get("verification"):
