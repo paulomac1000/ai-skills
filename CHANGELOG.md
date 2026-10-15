@@ -1,6 +1,6 @@
 # Changelog
 
-## 3.26.0 - 2026-10-14
+## 3.26.0 - 2026-10-15
 
 ### Added
 
@@ -9,6 +9,10 @@
 ### Changed
 
 - The skill-architect migration playbook now separates structural acceptance, model-backed behavior, context cost and independently activated profiles. The pilot preserves existing lifecycle behavior while shortening redundant guidance.
+
+### Fixed
+
+- Hardened the skill refactor route audit against distant negations, typographic and unlisted contractions, and hidden same-line prefixes; added negative and positive regression cases.
 
 ### Known limitations
 
