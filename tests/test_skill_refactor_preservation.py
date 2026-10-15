@@ -572,6 +572,13 @@ def test_negated_entrypoint_route_rejected_with_correct_blob_binding(tmp_path):
     assert "candidate_content_mismatch:SKILL.md" not in result["findings"]
 
 
+def test_distant_negative_route_never_counts_as_positive():
+    owner = "references/owner.md"
+    route = "Never " + ("under any circumstances " * 8) + "consult " + owner
+    assert len(route[: route.index(owner)]) > 128
+    assert not mod._positive_entrypoint_route(route, owner)
+
+
 def test_positive_route_grammar_covers_read_consult_and_arrow():
     assert mod._positive_entrypoint_route("read STANDARD.md", "STANDARD.md")
     assert mod._positive_entrypoint_route(

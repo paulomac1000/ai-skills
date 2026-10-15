@@ -216,13 +216,17 @@ def _positive_entrypoint_route(route: str, owner: str) -> bool:
     position = route.find(owner)
     if position < 0 or route.find(owner, position + len(owner)) >= 0:
         return False
-    prefix = route[max(0, position - 128) : position]
+    # Examine the entire declared route for explicit negation. Restricting
+    # this check to the last 128 characters can certify a long negative
+    # instruction as an affirmative owner route.
+    full_prefix = route[:position]
     if re.search(
         r"\b(?:not|never|avoid|without|skip|prohibit|forbid|cannot|don't|doesn't|shouldn't|mustn't)\b",
-        prefix,
+        full_prefix,
         re.IGNORECASE,
     ):
         return False
+    prefix = full_prefix[-128:]
     return bool(
         re.search(
             r"(?:\b(?:read|consult|load|open|follow|use|see)\s+`?|->\s*`?)$",
