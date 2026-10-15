@@ -78,9 +78,13 @@ def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     return result
 
 
-def _trusted_git_executable() -> str:
-    """Choose only fixed system installation locations, never the caller's PATH."""
-    if os.name == "nt":
+def _trusted_git_executable(configured: str | None = None) -> str:
+    """Choose fixed system Git or an operator-configured absolute path, never PATH."""
+    if configured is not None:
+        if not configured or not Path(configured).is_absolute():
+            raise ValueError("trusted_git_executable_not_absolute")
+        candidates = (configured,)
+    elif os.name == "nt":
         candidates = (
             "C:/Program Files/Git/cmd/git.exe",
             "C:/Program Files/Git/bin/git.exe",
@@ -106,7 +110,7 @@ def _trusted_git_env(executable: str) -> dict[str, str]:
     env["PATH"] = (
         str(Path(executable).parent) + ";C:/Windows/System32;C:/Windows"
         if os.name == "nt"
-        else "/usr/bin:/bin:/usr/sbin:/sbin"
+        else str(Path(executable).parent) + ":/usr/bin:/bin:/usr/sbin:/sbin"
     )
     env["GIT_CONFIG_NOSYSTEM"] = "1"
     env["GIT_CONFIG_GLOBAL"] = os.devnull
@@ -115,7 +119,9 @@ def _trusted_git_env(executable: str) -> dict[str, str]:
     return env
 
 
-def _verify_baseline_git_revision(baseline: dict[str, Any], ledger: dict[str, Any], candidate: Path) -> list[str]:
+def _verify_baseline_git_revision(
+    baseline: dict[str, Any], ledger: dict[str, Any], candidate: Path, *, trusted_git_executable: str | None = None
+) -> list[str]:
     """Resolve historical objects only from the checker's own trusted checkout.
 
     Candidate paths, candidate-owned .git and caller-authored metadata cannot
@@ -148,7 +154,7 @@ def _verify_baseline_git_revision(baseline: dict[str, Any], ledger: dict[str, An
         return ["candidate_not_skill_directory"]
     location = relative_skill.as_posix()
     try:
-        git_executable = _trusted_git_executable()
+        git_executable = _trusted_git_executable(trusted_git_executable)
         git_env = _trusted_git_env(git_executable)
 
         def resolve(object_id: str) -> str:
@@ -488,6 +494,11 @@ def assess(
                 findings.append("target_content_unverified:" + rule_id[:128])
             elif required_anchor not in candidate_verified[rel].decode("utf-8"):
                 findings.append("anchor_not_present:" + rule_id)
+            elif kind in {"trigger", "authority", "safety_stop", "precedence"} and not any(
+                required_anchor in line and not _has_negated_or_delayed_route(line)
+                for line in candidate_verified[rel].decode("utf-8").splitlines()
+            ):
+                findings.append("critical_owner_rule_negated:" + rule_id[:128])
             if kind in MATERIAL and not decision.get("negative_case"):
                 findings.append("negative_case_missing:" + rule_id)
             if not decision.get("verification"):
@@ -570,6 +581,7 @@ def main() -> int:
     parser.add_argument("--ledger", type=Path, required=True)
     parser.add_argument("--candidate", type=Path, required=True)
     parser.add_argument("--baseline-tree", type=Path)
+    parser.add_argument("--trusted-git-executable", type=str)
     args = parser.parse_args()
     try:
         baseline = _read_bounded_json_object(args.baseline)
@@ -580,7 +592,9 @@ def main() -> int:
             raise ValueError("invalid_candidate_files")
         baseline_tree = args.baseline_tree or args.baseline.parent / "baseline_snapshots"
         result = assess(baseline, ledger, args.candidate, baseline_tree=baseline_tree)
-        git_findings = _verify_baseline_git_revision(baseline, ledger, args.candidate)
+        git_findings = _verify_baseline_git_revision(
+            baseline, ledger, args.candidate, trusted_git_executable=args.trusted_git_executable
+        )
         if git_findings:
             result["structural"] = "FAILED"
             result["findings"] = (result["findings"] + git_findings)[:129]

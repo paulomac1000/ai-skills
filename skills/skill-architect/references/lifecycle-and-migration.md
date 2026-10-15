@@ -34,7 +34,10 @@ deprecation.
    versions, observed checks and residual risks.
 
 Optional static diagnostic: `tools/check_refactor_preservation.py` accepts
-`--baseline`, `--ledger` and `--candidate`. The synthetic pilot lives in
+`--baseline`, `--ledger` and `--candidate`. For Git installations outside
+the standard trusted locations, a trusted operator may supply
+`--trusted-git-executable /absolute/path/to/git`; caller PATH, candidate
+content and the ledger must not select the Git binary. The synthetic pilot lives in
 `evals/skills/skill-architect/`. Its `structural: PASS` has the narrow
 `normative_owner_and_route_mapping` scope; it verifies only pinned normative
 source/target documents and entrypoint routes. It explicitly reports
