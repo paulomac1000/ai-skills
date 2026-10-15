@@ -709,7 +709,13 @@ def test_moved_critical_owner_must_contain_affirmative_rule(tmp_path):
 def test_explicit_git_override_is_absolute_and_ignores_path(monkeypatch, tmp_path):
     import pytest
 
-    trusted = str(Path(sys.executable).resolve(strict=True))
+    # The path resolver does not execute the configured binary. Use a locally
+    # controlled executable-looking file rather than runner-managed Python,
+    # whose POSIX world-write mode differs across hosted environments.
+    configured_git = tmp_path / "configured-git"
+    configured_git.write_bytes(b"stand-in")
+    configured_git.chmod(0o755)
+    trusted = str(configured_git.resolve(strict=True))
     try:
         default_git = mod._trusted_git_executable()
     except FileNotFoundError:
