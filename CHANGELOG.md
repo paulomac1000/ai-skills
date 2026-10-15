@@ -19,7 +19,7 @@
 
 ### Fixed
 
-- Hardened the skill refactor route audit against distant negations, typographic and unlisted contractions, and hidden same-line prefixes; added negative and positive regression cases.
+- Hardened the skill refactor route audit against distant negations, delayed or post-effect owner loads, typographic contractions, and hidden same-line prefixes; exposed candidate versions as unverified labels rather than Git identities.
 
 ### Known limitations
 
