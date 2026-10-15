@@ -696,6 +696,30 @@ def test_untrusted_candidate_revision_is_not_reported_as_verified(tmp_path):
     assert result["declared_candidate_version"] == "3.26.0"
 
 
+def test_moved_critical_owner_must_contain_affirmative_rule(tmp_path):
+    path, baseline, ledger, decision = case(tmp_path, kind="authority")
+    assert assess(baseline, ledger, path)["structural"] == "PASS"
+    (path / "STANDARD.md").write_text("Do not Require policy authorization; retain rollback evidence")
+    ledger["candidate_files"]["STANDARD.md"] = mod._git_blob_sha((path / "STANDARD.md").read_bytes())
+    result = assess(baseline, ledger, path)
+    assert "critical_owner_rule_negated:auth" in result["findings"]
+    assert "candidate_content_mismatch:STANDARD.md" not in result["findings"]
+
+
+def test_explicit_git_override_is_absolute_and_ignores_path(monkeypatch, tmp_path):
+    import pytest
+
+    trusted = mod._trusted_git_executable()
+    fake = tmp_path / "git"
+    fake.write_text("#!/bin/sh\\necho untrusted\\n")
+    fake.chmod(0o755)
+    monkeypatch.setenv("PATH", str(tmp_path))
+    assert mod._trusted_git_executable(trusted) == str(Path(trusted).resolve(strict=True))
+    assert mod._trusted_git_executable() == trusted
+    with pytest.raises(ValueError, match="trusted_git_executable_not_absolute"):
+        mod._trusted_git_executable("git")
+
+
 def test_positive_route_grammar_covers_read_consult_and_arrow():
     assert mod._positive_entrypoint_route("read STANDARD.md", "STANDARD.md")
     assert mod._positive_entrypoint_route(
