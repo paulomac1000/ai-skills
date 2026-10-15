@@ -97,7 +97,9 @@ def _trusted_git_executable(configured: str | None = None) -> str:
         try:
             binary = Path(name).resolve(strict=True)
             mode = binary.stat().st_mode
-            if binary.is_file() and not mode & stat.S_IWOTH:
+            # Windows st_mode write bits do not reflect actual ACL permissions.
+            # A nonstandard Windows binary must still be operator-selected explicitly.
+            if binary.is_file() and (os.name == "nt" or not mode & stat.S_IWOTH):
                 return str(binary)
         except (OSError, RuntimeError):
             continue
