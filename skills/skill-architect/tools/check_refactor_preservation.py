@@ -207,7 +207,7 @@ def _verify_baseline_git_revision(baseline: dict[str, Any], ledger: dict[str, An
     return []
 
 
-def _positive_entrypoint_route(route: str, owner: str) -> bool:
+def _positive_entrypoint_route(route: str, owner: str, *, require_pre_action: bool = False) -> bool:
     """Accept only a local affirmative instruction leading to the declared owner.
 
     The static grammar is intentionally restrictive: unsupported phrasing
@@ -225,6 +225,14 @@ def _positive_entrypoint_route(route: str, owner: str) -> bool:
         r"\b(?:not|never|no|avoid|without|skip|prohibit|forbid|cannot)\b|\w+n't\b",
         normalized,
         re.IGNORECASE,
+    ):
+        return False
+    # Delayed loads do not satisfy pre-action ownership. Reject unsupported timing
+    # qualifiers instead of pretending static text checks prove their ordering.
+    if re.search(r"\b(?:after|later|until|once|afterward|afterwards)\b", normalized, re.IGNORECASE):
+        return False
+    if require_pre_action and not re.search(
+        r"\b(?:before|prior to)\b", normalized[position + len(owner) :], re.IGNORECASE
     ):
         return False
     prefix = normalized[:position][-128:]
@@ -423,6 +431,7 @@ def assess(
                 findings.append("unreachable_owner:" + rule_id)
                 continue
             if rel != "SKILL.md":
+                require_pre_action = kind in {"trigger", "authority", "safety_stop", "precedence"}
                 # A visible trigger with an unreachable moved owner is not a valid
                 # route: bind the exact conditional entrypoint instruction to its
                 # destination, including for noncritical reference-only rules.
@@ -437,13 +446,13 @@ def assess(
                     or len(route) > 1024
                     or trigger not in route
                     or rel not in route
-                    or not _positive_entrypoint_route(route, rel)
+                    or not _positive_entrypoint_route(route, rel, require_pre_action=require_pre_action)
                     or not any(
-                        _positive_entrypoint_route(match.group(0), rel)
+                        _positive_entrypoint_route(
+                            match.group(0), rel, require_pre_action=require_pre_action
+                        )
                         for match in re.finditer(
-                            r"(?m)^[ \t]*(?:[-*+]|\d+\.)?[ \t]*"
-                            + re.escape(route)
-                            + r"[^\r\n]*",
+                            r"(?m)^[ \t]*(?:[-*+]|\d+\.)?[ \t]*" + re.escape(route) + r"[^\r\n]*",
                             candidate_verified["SKILL.md"].decode("utf-8"),
                         )
                     )
@@ -478,6 +487,11 @@ def assess(
     findings.extend("unreviewed_new_rule:" + item for item in unknown)
     # Bounded diagnostics never promote a failed or incomplete check.
     findings = [item[:256] for item in findings[:128]] + (["findings_truncated"] if len(findings) > 128 else [])
+    # Candidate files are content-attested, but the ledger's release label is
+    # not a Git commit identity and must never be presented as one.
+    declared_version = ledger.get("candidate_revision")
+    if not isinstance(declared_version, str) or re.fullmatch(r"\d+\.\d+\.\d+", declared_version) is None:
+        declared_version = None
     return {
         "structural": "FAILED" if findings else "PASS",
         "behavior": "BEHAVIOR_NOT_VERIFIED",
@@ -485,7 +499,8 @@ def assess(
         "eval_corpus": "NOT_VERIFIED",
         "findings": findings,
         "baseline_revision": baseline.get("revision"),
-        "candidate_revision": ledger.get("candidate_revision"),
+        "candidate_revision": "NOT_VERIFIED",
+        "declared_candidate_version": declared_version,
     }
 
 

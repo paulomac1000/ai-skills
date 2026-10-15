@@ -115,7 +115,8 @@ def test_real_pilot_tracks_live_normative_sources():
     assert result["structural"] == "PASS", result["findings"]
     assert result["behavior"] == "BEHAVIOR_NOT_VERIFIED"
     assert result["baseline_revision"] == "5c656ac0602e35f51cb0ba9b576f8e5af10a54ba"
-    assert result["candidate_revision"] == "3.26.0"
+    assert result["candidate_revision"] == "NOT_VERIFIED"
+    assert result["declared_candidate_version"] == "3.26.0"
 
 def test_content_drift_cannot_pass_a_pinned_pilot(tmp_path):
     path, baseline, ledger, decision = case(tmp_path)
@@ -625,6 +626,49 @@ def test_post_owner_positive_qualifier_preserves_route(tmp_path):
     (path / "SKILL.md").write_text("- " + route + " before any governed effect")
     ledger["candidate_files"]["SKILL.md"] = mod._git_blob_sha((path / "SKILL.md").read_bytes())
     assert assess(baseline, ledger, path)["structural"] == "PASS"
+
+
+def test_delayed_owner_route_is_rejected_for_critical_rules(tmp_path):
+    path, baseline, ledger, decision = case(tmp_path, kind="authority")
+    route = "Trigger when destructive action requested; read STANDARD.md only after action"
+    (path / "SKILL.md").write_text(route)
+    ledger["candidate_files"]["SKILL.md"] = mod._git_blob_sha((path / "SKILL.md").read_bytes())
+    ledger["decisions"] = [decision | {"entrypoint_route": route}]
+    result = assess(baseline, ledger, path)
+    assert "owner_route_unreachable:auth" in result["findings"]
+    assert not mod._positive_entrypoint_route(route, "STANDARD.md", require_pre_action=True)
+
+
+def test_once_complete_and_unqualified_critical_routes_fail_closed(tmp_path):
+    path, baseline, ledger, decision = case(tmp_path, kind="authority")
+    for suffix in ("once the action is complete", "when convenient"):
+        route = "Trigger when destructive action requested; read STANDARD.md " + suffix
+        (path / "SKILL.md").write_text(route)
+        ledger["candidate_files"]["SKILL.md"] = mod._git_blob_sha((path / "SKILL.md").read_bytes())
+        ledger["decisions"] = [decision | {"entrypoint_route": route}]
+        assert "owner_route_unreachable:auth" in assess(baseline, ledger, path)["findings"]
+
+
+def test_explicit_before_action_route_is_accepted(tmp_path):
+    path, baseline, ledger, decision = case(tmp_path, kind="authority")
+    assert assess(baseline, ledger, path)["structural"] == "PASS"
+    assert mod._positive_entrypoint_route(
+        decision["entrypoint_route"], "STANDARD.md", require_pre_action=True
+    )
+
+
+def test_untrusted_candidate_revision_is_not_reported_as_verified(tmp_path):
+    path, baseline, ledger, decision = case(tmp_path)
+    for raw in ("attacker-controlled", None, "f" * 40):
+        ledger["candidate_revision"] = raw
+        result = assess(baseline, ledger, path)
+        assert result["structural"] == "PASS"
+        assert result["candidate_revision"] == "NOT_VERIFIED"
+        assert result["declared_candidate_version"] is None
+    ledger["candidate_revision"] = "3.26.0"
+    result = assess(baseline, ledger, path)
+    assert result["candidate_revision"] == "NOT_VERIFIED"
+    assert result["declared_candidate_version"] == "3.26.0"
 
 
 def test_positive_route_grammar_covers_read_consult_and_arrow():
