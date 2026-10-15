@@ -709,26 +709,64 @@ def test_moved_critical_owner_must_contain_affirmative_rule(tmp_path):
 def test_explicit_git_override_is_absolute_and_ignores_path(monkeypatch, tmp_path):
     import pytest
 
-    # The path resolver does not execute the configured binary. Use a locally
-    # controlled executable-looking file rather than runner-managed Python,
-    # whose POSIX world-write mode differs across hosted environments.
-    configured_git = tmp_path / "configured-git"
-    configured_git.write_bytes(b"stand-in")
-    configured_git.chmod(0o755)
-    trusted = str(configured_git.resolve(strict=True))
+    fake = tmp_path / "git"
+    fake.write_text("#!/bin/sh\\necho forged-history\\n")
+    fake.chmod(0o777)
+    monkeypatch.setenv("PATH", str(tmp_path))
+    with pytest.raises(ValueError, match="trusted_git_executable_not_absolute"):
+        mod._trusted_git_executable("git")
+    if sys.platform == "win32":
+        with pytest.raises(ValueError, match="trusted_git_override_unsupported_on_windows"):
+            mod._trusted_git_executable(str(fake))
+    else:
+        with pytest.raises(FileNotFoundError, match="trusted_git_executable_unavailable"):
+            mod._trusted_git_executable(str(fake))
     try:
         default_git = mod._trusted_git_executable()
     except FileNotFoundError:
         default_git = None
-    fake = tmp_path / "git"
-    fake.write_text("#!/bin/sh\\necho untrusted\\n")
-    fake.chmod(0o755)
-    monkeypatch.setenv("PATH", str(tmp_path))
-    assert mod._trusted_git_executable(trusted) == trusted
     if default_git is not None:
         assert mod._trusted_git_executable() == default_git
-    with pytest.raises(ValueError, match="trusted_git_executable_not_absolute"):
-        mod._trusted_git_executable("git")
+        if sys.platform != "win32":
+            assert mod._trusted_git_executable(default_git) == default_git
+
+
+def test_pre_action_timing_must_identify_a_governed_effect(tmp_path):
+    path, baseline, ledger, decision = case(tmp_path, kind="authority")
+    route = decision["entrypoint_route"]
+    for suffix in ("before lunch", "prior to breakfast", "before the end of the day"):
+        (path / "SKILL.md").write_text(route + " " + suffix)
+        ledger["candidate_files"]["SKILL.md"] = mod._git_blob_sha((path / "SKILL.md").read_bytes())
+        assert "owner_route_unreachable:auth" in assess(baseline, ledger, path)["findings"]
+    for suffix in ("before action", "prior to any governed effect"):
+        (path / "SKILL.md").write_text(route + " " + suffix)
+        ledger["candidate_files"]["SKILL.md"] = mod._git_blob_sha((path / "SKILL.md").read_bytes())
+        assert assess(baseline, ledger, path)["structural"] == "PASS"
+
+
+def test_critical_owner_rejects_optional_and_modal_weakening(tmp_path):
+    path, baseline, ledger, decision = case(tmp_path, kind="authority")
+    for weakened in (
+        "Require policy authorization is optional",
+        "You may Require policy authorization",
+        "Require policy authorization when convenient",
+    ):
+        (path / "STANDARD.md").write_text(weakened)
+        ledger["candidate_files"]["STANDARD.md"] = mod._git_blob_sha((path / "STANDARD.md").read_bytes())
+        assert "critical_owner_rule_negated:auth" in assess(baseline, ledger, path)["findings"]
+
+
+def test_critical_retained_owner_must_be_mandatory(tmp_path):
+    path, baseline, ledger, decision = case(tmp_path, kind="authority")
+    ledger["decisions"] = [
+        decision
+        | {"target_path": "SKILL.md", "target_anchor": "Require authorization", "pre_load_trigger": "Require authorization"}
+    ]
+    (path / "SKILL.md").write_text("Require authorization is optional before action")
+    ledger["candidate_files"]["SKILL.md"] = mod._git_blob_sha((path / "SKILL.md").read_bytes())
+    result = assess(baseline, ledger, path)
+    assert "critical_entrypoint_not_affirmative:auth" in result["findings"]
+    assert "critical_owner_rule_negated:auth" in result["findings"]
 
 
 def test_positive_route_grammar_covers_read_consult_and_arrow():
