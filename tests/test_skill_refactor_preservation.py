@@ -603,6 +603,30 @@ def test_distant_negative_route_never_counts_as_positive():
     assert not mod._positive_entrypoint_route(route, owner)
 
 
+def test_post_owner_negation_in_declared_route_rejected():
+    owner = "STANDARD.md"
+    route = "Trigger when destructive action requested; read STANDARD.md, but not before action"
+    assert not mod._positive_entrypoint_route(route, owner)
+
+
+def test_post_owner_negation_outside_ledger_route_rejected(tmp_path):
+    path, baseline, ledger, decision = case(tmp_path, kind="evidence")
+    route = decision["entrypoint_route"]
+    (path / "SKILL.md").write_text(route + ", but not before the destructive action")
+    ledger["candidate_files"]["SKILL.md"] = mod._git_blob_sha((path / "SKILL.md").read_bytes())
+    result = assess(baseline, ledger, path)
+    assert "owner_route_unreachable:auth" in result["findings"]
+    assert "candidate_content_mismatch:SKILL.md" not in result["findings"]
+
+
+def test_post_owner_positive_qualifier_preserves_route(tmp_path):
+    path, baseline, ledger, decision = case(tmp_path, kind="evidence")
+    route = decision["entrypoint_route"]
+    (path / "SKILL.md").write_text("- " + route + " before any governed effect")
+    ledger["candidate_files"]["SKILL.md"] = mod._git_blob_sha((path / "SKILL.md").read_bytes())
+    assert assess(baseline, ledger, path)["structural"] == "PASS"
+
+
 def test_positive_route_grammar_covers_read_consult_and_arrow():
     assert mod._positive_entrypoint_route("read STANDARD.md", "STANDARD.md")
     assert mod._positive_entrypoint_route(
