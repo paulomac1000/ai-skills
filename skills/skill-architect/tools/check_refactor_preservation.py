@@ -230,7 +230,8 @@ def _has_negated_or_delayed_route(text: str) -> bool:
     normalized = text.replace("\u2019", "'")
     return bool(
         re.search(
-            r"\b(?:not|never|no|avoid|without|skip|ignore|disregard|bypass|waive|"\n            r"omit|discard|circumvent|prohibit|forbid|cannot|set\s+aside)\b|\w+n't\b",
+            r"\b(?:not|never|no|avoid|without|skip|ignore|disregard|bypass|waive|"
+            r"omit|discard|circumvent|prohibit|forbid|cannot|set\s+aside)\b|\w+n't\b",
             normalized,
             re.IGNORECASE,
         )
