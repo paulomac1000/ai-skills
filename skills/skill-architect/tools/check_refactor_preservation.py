@@ -26,9 +26,37 @@ def _contains_symlink(root: Path, relative: str) -> bool:
     at = root
     for part in Path(relative).parts:
         at = at / part
-        if at.is_symlink():
+        if at.is_symlink() or (os.name == "nt" and at.is_junction()):
             return True
     return False
+
+
+def _windows_fd_inside_root(fd: int, root: Path) -> bool:
+    """Bind the Windows path boundary to the opened file handle, not a racy name."""
+    import ctypes
+    import msvcrt
+
+    try:
+        kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+        get_name = kernel.GetFinalPathNameByHandleW
+        get_name.argtypes = (ctypes.c_void_p, ctypes.c_wchar_p, ctypes.c_uint32, ctypes.c_uint32)
+        get_name.restype = ctypes.c_uint32
+        handle = ctypes.c_void_p(msvcrt.get_osfhandle(fd))
+        count = get_name(handle, None, 0, 0)
+        if not count or count > 32768:
+            return False
+        buffer = ctypes.create_unicode_buffer(count + 1)
+        written = get_name(handle, buffer, len(buffer), 0)
+        if not written or written >= len(buffer):
+            return False
+        name = buffer.value
+        if name.startswith("\\\\?\\UNC\\"):
+            name = "\\\\" + name[8:]
+        elif name.startswith("\\\\?\\"):
+            name = name[4:]
+        return Path(name).is_relative_to(root)
+    except (OSError, RuntimeError, ValueError):
+        return False
 
 
 def _read_attested_regular_file(root: Path, relative: str) -> bytes:
@@ -42,6 +70,8 @@ def _read_attested_regular_file(root: Path, relative: str) -> bytes:
         if _contains_symlink(root, relative):
             raise ValueError("symlink_rejected")
         with (root / relative).open("rb") as stream:
+            if not _windows_fd_inside_root(stream.fileno(), root):
+                raise ValueError("outside_root_handle")
             info = os.fstat(stream.fileno())
             if not stat.S_ISREG(info.st_mode) or info.st_size > 1_000_000:
                 raise ValueError("unsafe_file_type_or_size")
@@ -261,7 +291,7 @@ def _effect_bound_timing(text: str) -> bool:
     )
 
 
-def _retained_pre_action(line: str, anchor: str) -> bool:
+def _retained_pre_action(line: str, anchor: str, kind: str) -> bool:
     """Require an effect deadline directly on the anchor or the owner load."""
     index = line.find(anchor)
     if index < 0:
@@ -269,6 +299,8 @@ def _retained_pre_action(line: str, anchor: str) -> bool:
     remainder = line[index + len(anchor) :]
     if _effect_bound_timing(remainder):
         return True
+    if kind != "trigger":
+        return False
     return any(
         _effect_bound_timing(remainder[match.end() :])
         for match in re.finditer(
@@ -553,7 +585,7 @@ def assess(
                         trigger in line
                         and anchor in line
                         and _mandatory_owner_instruction(line, anchor)
-                        and _retained_pre_action(line, anchor)
+                        and _retained_pre_action(line, anchor, kind)
                         for line in candidate_verified["SKILL.md"].decode("utf-8").splitlines()
                     )
                 ):
