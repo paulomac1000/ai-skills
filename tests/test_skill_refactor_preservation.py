@@ -653,8 +653,33 @@ def test_explicit_before_action_route_is_accepted(tmp_path):
     path, baseline, ledger, decision = case(tmp_path, kind="authority")
     assert assess(baseline, ledger, path)["structural"] == "PASS"
     assert mod._positive_entrypoint_route(
-        decision["entrypoint_route"], "STANDARD.md", require_pre_action=True
+        (path / "SKILL.md").read_text(), "STANDARD.md", require_pre_action=True
     )
+
+
+def test_retained_critical_skill_route_rejects_negation_and_delay(tmp_path):
+    path, baseline, ledger, decision = case(tmp_path, kind="authority")
+    ledger["decisions"] = [
+        decision
+        | {
+            "target_path": "SKILL.md",
+            "target_anchor": "Require authorization",
+            "pre_load_trigger": "Require authorization",
+        }
+    ]
+    for line, valid in (
+        ("Require authorization before action", True),
+        ("Do not Require authorization before action", False),
+        ("Require authorization only after action", False),
+        ("Require authorization", False),
+    ):
+        (path / "SKILL.md").write_text(line)
+        ledger["candidate_files"]["SKILL.md"] = mod._git_blob_sha((path / "SKILL.md").read_bytes())
+        result = assess(baseline, ledger, path)
+        if valid:
+            assert result["structural"] == "PASS", result["findings"]
+        else:
+            assert "critical_entrypoint_not_affirmative:auth" in result["findings"]
 
 
 def test_untrusted_candidate_revision_is_not_reported_as_verified(tmp_path):

@@ -207,6 +207,19 @@ def _verify_baseline_git_revision(baseline: dict[str, Any], ledger: dict[str, An
     return []
 
 
+def _has_negated_or_delayed_route(text: str) -> bool:
+    """Fail closed on negated and delayed requirements in verified instructions."""
+    normalized = text.replace("\u2019", "'")
+    return bool(
+        re.search(
+            r"\b(?:not|never|no|avoid|without|skip|prohibit|forbid|cannot)\b|\w+n't\b",
+            normalized,
+            re.IGNORECASE,
+        )
+        or re.search(r"\b(?:after|later|until|once|afterward|afterwards)\b", normalized, re.IGNORECASE)
+    )
+
+
 def _positive_entrypoint_route(route: str, owner: str, *, require_pre_action: bool = False) -> bool:
     """Accept only a local affirmative instruction leading to the declared owner.
 
@@ -220,16 +233,8 @@ def _positive_entrypoint_route(route: str, owner: str, *, require_pre_action: bo
     # this check to the last 128 characters can certify a long negative
     # instruction as an affirmative owner route.
     normalized = route.replace("\u2019", "'")
-    # Qualifiers following the owner can negate a seemingly positive route.
-    if re.search(
-        r"\b(?:not|never|no|avoid|without|skip|prohibit|forbid|cannot)\b|\w+n't\b",
-        normalized,
-        re.IGNORECASE,
-    ):
-        return False
-    # Delayed loads do not satisfy pre-action ownership. Reject unsupported timing
-    # qualifiers instead of pretending static text checks prove their ordering.
-    if re.search(r"\b(?:after|later|until|once|afterward|afterwards)\b", normalized, re.IGNORECASE):
+    # Check the entire instruction, including qualifiers after the owner.
+    if _has_negated_or_delayed_route(normalized):
         return False
     if require_pre_action and not re.search(
         r"\b(?:before|prior to)\b", normalized[position + len(owner) :], re.IGNORECASE
@@ -456,6 +461,26 @@ def assess(
                     )
                 ):
                     findings.append("owner_route_unreachable:" + rule_id[:128])
+            elif kind in {"trigger", "authority", "safety_stop", "precedence"}:
+                # Rules retained in SKILL.md still need an affirmative before-action
+                # instruction; a matching anchor alone may be a negated instruction.
+                trigger = decision.get("pre_load_trigger")
+                anchor = decision.get("target_anchor")
+                if (
+                    "SKILL.md" not in candidate_verified
+                    or not isinstance(trigger, str)
+                    or not trigger
+                    or not isinstance(anchor, str)
+                    or not anchor
+                    or not any(
+                        trigger in line
+                        and anchor in line
+                        and not _has_negated_or_delayed_route(line)
+                        and re.search(r"\b(?:before|prior to)\b", line, re.IGNORECASE)
+                        for line in candidate_verified["SKILL.md"].decode("utf-8").splitlines()
+                    )
+                ):
+                    findings.append("critical_entrypoint_not_affirmative:" + rule_id[:128])
             required_anchor = decision.get("target_anchor")
             if not isinstance(required_anchor, str) or not required_anchor:
                 findings.append("missing_target_anchor:" + rule_id)
