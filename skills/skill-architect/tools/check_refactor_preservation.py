@@ -219,9 +219,9 @@ def _positive_entrypoint_route(route: str, owner: str) -> bool:
     # Examine the entire declared route for explicit negation. Restricting
     # this check to the last 128 characters can certify a long negative
     # instruction as an affirmative owner route.
-    full_prefix = route[:position]
+    full_prefix = route[:position].replace("\u2019", "'")
     if re.search(
-        r"\b(?:not|never|avoid|without|skip|prohibit|forbid|cannot|don't|doesn't|shouldn't|mustn't)\b",
+        r"\b(?:not|never|no|avoid|without|skip|prohibit|forbid|cannot)\b|\w+n't\b",
         full_prefix,
         re.IGNORECASE,
     ):
@@ -437,7 +437,10 @@ def assess(
                     or trigger not in route
                     or rel not in route
                     or not _positive_entrypoint_route(route, rel)
-                    or route not in candidate_verified["SKILL.md"].decode("utf-8")
+                    or re.search(
+                        r"(?m)^[ \t]*(?:[-*+]|\d+\.)?[ \t]*" + re.escape(route),
+                        candidate_verified["SKILL.md"].decode("utf-8"),
+                    ) is None
                 ):
                     findings.append("owner_route_unreachable:" + rule_id[:128])
             required_anchor = decision.get("target_anchor")

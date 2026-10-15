@@ -572,6 +572,30 @@ def test_negated_entrypoint_route_rejected_with_correct_blob_binding(tmp_path):
     assert "candidate_content_mismatch:SKILL.md" not in result["findings"]
 
 
+def test_typographic_and_unlisted_contractions_fail_closed():
+    owner = "STANDARD.md"
+    for negative in ("Don’t", "won't", "isn't", "can't", "wouldn't", "shouldn’t", "no"):
+        route = f"Trigger when destructive action requested; {negative} read {owner}"
+        assert not mod._positive_entrypoint_route(route, owner), negative
+
+
+def test_route_cannot_hide_same_line_negation_before_declared_text(tmp_path):
+    path, baseline, ledger, decision = case(tmp_path, kind="evidence")
+    skill_text = "Do not apply: Trigger when destructive action requested; read STANDARD.md before action"
+    (path / "SKILL.md").write_text(skill_text, encoding="utf-8")
+    ledger["candidate_files"]["SKILL.md"] = mod._git_blob_sha((path / "SKILL.md").read_bytes())
+    result = assess(baseline, ledger, path)
+    assert "owner_route_unreachable:auth" in result["findings"]
+    assert "candidate_content_mismatch:SKILL.md" not in result["findings"]
+
+
+def test_route_at_list_item_line_start_is_reachable(tmp_path):
+    path, baseline, ledger, decision = case(tmp_path, kind="evidence")
+    (path / "SKILL.md").write_text("- Trigger when destructive action requested; read STANDARD.md before action")
+    ledger["candidate_files"]["SKILL.md"] = mod._git_blob_sha((path / "SKILL.md").read_bytes())
+    assert assess(baseline, ledger, path)["structural"] == "PASS"
+
+
 def test_distant_negative_route_never_counts_as_positive():
     owner = "references/owner.md"
     route = "Never " + ("under any circumstances " * 8) + "consult " + owner
