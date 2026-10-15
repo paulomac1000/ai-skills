@@ -17,6 +17,10 @@
 - A shutdown-fenced external operation that finished remotely and was reconciled by the host keeps its resolved status and remains publishable through a host-verified recovery transition; superseded, cancelled and unreconciled terminal operations stay rejected.
 - The optional external pressure flag is not required in the adoption assessment, so an assessment written for 3.26.0 stays valid after the upgrade instead of failing on a newly required field.
 
+### Fixed
+
+- Hardened the skill refactor route audit against distant negations, typographic and unlisted contractions, and hidden same-line prefixes; added negative and positive regression cases.
+
 ### Known limitations
 
 - Reference fixture and synthetic tests do not establish live remote-provider conformance.

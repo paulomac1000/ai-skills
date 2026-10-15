@@ -440,7 +440,8 @@ def assess(
                     or re.search(
                         r"(?m)^[ \t]*(?:[-*+]|\d+\.)?[ \t]*" + re.escape(route),
                         candidate_verified["SKILL.md"].decode("utf-8"),
-                    ) is None
+                    )
+                    is None
                 ):
                     findings.append("owner_route_unreachable:" + rule_id[:128])
             required_anchor = decision.get("target_anchor")
