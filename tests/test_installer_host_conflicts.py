@@ -38,7 +38,7 @@ def test_main_rejects_stderr_even_when_stdout_only_names_unmanaged_host(tmp_path
     import pytest
 
     lock = tmp_path / "selected.lock"
-    lock.write_text("filelock==3.32.0\\n", encoding="utf-8")
+    lock.write_text("filelock==3.32.0\n", encoding="utf-8")
     monkeypatch.setattr(mod, "selected_lock", lambda: lock)
 
     def run(command, **kwargs):
@@ -47,7 +47,7 @@ def test_main_rejects_stderr_even_when_stdout_only_names_unmanaged_host(tmp_path
         return subprocess.CompletedProcess(
             command,
             1,
-            stdout="pipx 1.17.12 requires filelock>=4, but you have filelock 3.32.0.\\n",
+            stdout="pipx 1.17.12 requires filelock>=4, but you have filelock 3.32.0.\n",
             stderr="ERROR: pip check could not inspect all packages",
         )
 
@@ -60,7 +60,7 @@ def test_main_accepts_only_unmanaged_conflict_when_stderr_empty(tmp_path, monkey
     import subprocess
 
     lock = tmp_path / "selected.lock"
-    lock.write_text("filelock==3.32.0\\n", encoding="utf-8")
+    lock.write_text("filelock==3.32.0\n", encoding="utf-8")
     monkeypatch.setattr(mod, "selected_lock", lambda: lock)
 
     def run(command, **kwargs):
@@ -69,7 +69,7 @@ def test_main_accepts_only_unmanaged_conflict_when_stderr_empty(tmp_path, monkey
         return subprocess.CompletedProcess(
             command,
             1,
-            stdout="pipx 1.17.12 requires filelock>=4, but you have filelock 3.32.0.\\n",
+            stdout="pipx 1.17.12 requires filelock>=4, but you have filelock 3.32.0.\n",
             stderr="",
         )
 
