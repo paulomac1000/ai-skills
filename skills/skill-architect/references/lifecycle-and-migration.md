@@ -35,9 +35,13 @@ deprecation.
 
 Optional static diagnostic: `tools/check_refactor_preservation.py` accepts
 `--baseline`, `--ledger` and `--candidate`. For Git installations outside
-the standard trusted locations, a trusted operator may supply
-`--trusted-git-executable /absolute/path/to/git`; caller PATH, candidate
-content and the ledger must not select the Git binary. The synthetic pilot lives in
+the standard trusted locations, an operator may supply
+`--trusted-git-executable /absolute/path/to/git` on POSIX hosts only when
+the executable and every parent directory are owned by root and are not
+group- or world-writable (such as a system-owned Nix store executable).
+Portable per-user Git shims and Windows overrides fail closed; Windows
+requires Git in a standard system-managed installation. Caller PATH,
+candidate content, and the ledger never authenticate the Git binary. The synthetic pilot lives in
 `evals/skills/skill-architect/`. Its `structural: PASS` has the narrow
 `normative_owner_and_route_mapping` scope; it verifies only pinned normative
 source/target documents and entrypoint routes. It explicitly reports

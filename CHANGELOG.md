@@ -19,7 +19,7 @@
 
 ### Fixed
 
-- Hardened the skill refactor route audit against distant negations, delayed or post-effect owner loads, typographic contractions, and hidden same-line prefixes; exposed candidate versions as unverified labels rather than Git identities.
+- Hardened the skill refactor route audit against delayed loads, unrelated deadlines, optional or negated critical rules, and hidden route qualifiers; authenticated system-owned Git paths and explicitly labeled unverified candidate versions.
 
 ### Known limitations
 

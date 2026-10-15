@@ -83,6 +83,9 @@ def _trusted_git_executable(configured: str | None = None) -> str:
     if configured is not None:
         if not configured or not Path(configured).is_absolute():
             raise ValueError("trusted_git_executable_not_absolute")
+        if os.name == "nt":
+            # Portable Windows paths need externally verified ACL authority.
+            raise ValueError("trusted_git_override_unsupported_on_windows")
         candidates = (configured,)
     elif os.name == "nt":
         candidates = (
@@ -96,10 +99,17 @@ def _trusted_git_executable(configured: str | None = None) -> str:
     for name in candidates:
         try:
             binary = Path(name).resolve(strict=True)
-            mode = binary.stat().st_mode
-            # Windows st_mode write bits do not reflect actual ACL permissions.
-            # A nonstandard Windows binary must still be operator-selected explicitly.
-            if binary.is_file() and (os.name == "nt" or not mode & stat.S_IWOTH):
+            if not binary.is_file():
+                continue
+            if os.name == "nt":
+                # Fixed Program Files installations are the Windows trust boundary.
+                return str(binary)
+            # The complete executable chain must be system-owned, not caller-
+            # controlled; a chmod 755 shim alone cannot authenticate Git.
+            if all(
+                part.stat().st_uid == 0 and not part.stat().st_mode & (stat.S_IWGRP | stat.S_IWOTH)
+                for part in (binary, *binary.parents)
+            ):
                 return str(binary)
         except (OSError, RuntimeError):
             continue
@@ -228,6 +238,35 @@ def _has_negated_or_delayed_route(text: str) -> bool:
     )
 
 
+def _effect_bound_timing(text: str) -> bool:
+    """Recognize explicit pre-effect clauses; unrelated deadlines are not proof."""
+    return bool(
+        re.search(
+            r"\b(?:before|prior to)\s+(?:(?:any|the|a|each)\s+)?"
+            r"(?:(?:governed|destructive|external|mutating|irreversible)\s+)?"
+            r"(?:action|operation|effect|side[- ]effect|mutation|change|write|commit|"
+            r"call|execution|publishing|publication|deleting|deletion|removing|removal)\b",
+            text,
+            re.IGNORECASE,
+        )
+    )
+
+
+def _mandatory_owner_instruction(line: str, anchor: str) -> bool:
+    """A critical owner anchor must start an affirmative, mandatory instruction."""
+    normalized = re.sub(r"^\s*(?:[-*+]|\d+\.)\s+", "", line).lstrip()
+    if _has_negated_or_delayed_route(normalized):
+        return False
+    if re.search(
+        r"\b(?:optional|optionally|may|might|could|can|should|suggested|recommended|"
+        r"discretionary|unless|when convenient)\b",
+        normalized,
+        re.IGNORECASE,
+    ):
+        return False
+    return bool(re.match(re.escape(anchor) + r"\b", normalized))
+
+
 def _positive_entrypoint_route(route: str, owner: str, *, require_pre_action: bool = False) -> bool:
     """Accept only a local affirmative instruction leading to the declared owner.
 
@@ -244,9 +283,7 @@ def _positive_entrypoint_route(route: str, owner: str, *, require_pre_action: bo
     # Check the entire instruction, including qualifiers after the owner.
     if _has_negated_or_delayed_route(normalized):
         return False
-    if require_pre_action and not re.search(
-        r"\b(?:before|prior to)\b", normalized[position + len(owner) :], re.IGNORECASE
-    ):
+    if require_pre_action and not _effect_bound_timing(normalized[position + len(owner) :]):
         return False
     prefix = normalized[:position][-128:]
     return bool(
@@ -483,8 +520,8 @@ def assess(
                     or not any(
                         trigger in line
                         and anchor in line
-                        and not _has_negated_or_delayed_route(line)
-                        and re.search(r"\b(?:before|prior to)\b", line, re.IGNORECASE)
+                        and _mandatory_owner_instruction(line, anchor)
+                        and _effect_bound_timing(line)
                         for line in candidate_verified["SKILL.md"].decode("utf-8").splitlines()
                     )
                 ):
@@ -497,7 +534,7 @@ def assess(
             elif required_anchor not in candidate_verified[rel].decode("utf-8"):
                 findings.append("anchor_not_present:" + rule_id)
             elif kind in {"trigger", "authority", "safety_stop", "precedence"} and not any(
-                required_anchor in line and not _has_negated_or_delayed_route(line)
+                _mandatory_owner_instruction(line, required_anchor)
                 for line in candidate_verified[rel].decode("utf-8").splitlines()
             ):
                 findings.append("critical_owner_rule_negated:" + rule_id[:128])
