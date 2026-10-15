@@ -854,6 +854,50 @@ def test_noncritical_owner_historical_mention_does_not_preserve_rule(tmp_path):
     assert "material_owner_rule_negated:auth" in assess(baseline, ledger, path)["findings"]
 
 
+def test_retained_authority_does_not_borrow_unrelated_resource_timing(tmp_path):
+    path, baseline, ledger, decision = case(tmp_path, kind="authority")
+    ledger["decisions"] = [
+        decision
+        | {
+            "target_path": "SKILL.md",
+            "target_anchor": "Require authorization",
+            "pre_load_trigger": "Require authorization",
+        }
+    ]
+    (path / "SKILL.md").write_text("Require authorization; read audit.md before action")
+    ledger["candidate_files"]["SKILL.md"] = mod._git_blob_sha((path / "SKILL.md").read_bytes())
+    assert "critical_entrypoint_not_affirmative:auth" in assess(baseline, ledger, path)["findings"]
+
+
+def test_windows_junction_cannot_escape_attested_root(tmp_path, monkeypatch):
+    import subprocess
+
+    import pytest
+
+    if sys.platform != "win32":
+        pytest.skip("Windows junction API only")
+    root = tmp_path / "skill"
+    root.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "owner.md").write_text("external")
+    junction = root / "references"
+    attempt = subprocess.run(
+        ["cmd", "/c", "mklink", "/J", str(junction), str(outside)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if attempt.returncode:
+        pytest.skip("Windows runner does not permit creating junctions")
+    assert mod._contains_symlink(root, "references/owner.md")
+    with pytest.raises(ValueError):
+        mod._read_attested_regular_file(root, "references/owner.md")
+    monkeypatch.setattr(mod, "_contains_symlink", lambda *_: False)
+    with pytest.raises(ValueError, match="outside_root_handle"):
+        mod._read_attested_regular_file(root, "references/owner.md")
+
+
 def test_positive_route_grammar_covers_read_consult_and_arrow():
     assert mod._positive_entrypoint_route("read STANDARD.md", "STANDARD.md")
     assert mod._positive_entrypoint_route(
