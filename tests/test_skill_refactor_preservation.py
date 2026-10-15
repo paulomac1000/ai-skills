@@ -709,13 +709,18 @@ def test_moved_critical_owner_must_contain_affirmative_rule(tmp_path):
 def test_explicit_git_override_is_absolute_and_ignores_path(monkeypatch, tmp_path):
     import pytest
 
-    trusted = mod._trusted_git_executable()
+    trusted = str(Path(sys.executable).resolve(strict=True))
+    try:
+        default_git = mod._trusted_git_executable()
+    except FileNotFoundError:
+        default_git = None
     fake = tmp_path / "git"
     fake.write_text("#!/bin/sh\\necho untrusted\\n")
     fake.chmod(0o755)
     monkeypatch.setenv("PATH", str(tmp_path))
-    assert mod._trusted_git_executable(trusted) == str(Path(trusted).resolve(strict=True))
-    assert mod._trusted_git_executable() == trusted
+    assert mod._trusted_git_executable(trusted) == trusted
+    if default_git is not None:
+        assert mod._trusted_git_executable() == default_git
     with pytest.raises(ValueError, match="trusted_git_executable_not_absolute"):
         mod._trusted_git_executable("git")
 
