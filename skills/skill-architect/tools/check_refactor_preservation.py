@@ -355,7 +355,7 @@ def _mandatory_owner_instruction(line: str, anchor: str) -> bool:
     suffix = normalized[len(anchor) :]
     if re.search(
         r"\b(?:prohibited|forbidden|disallowed|disabled|revoked|deprecated|"
-        r"waived|unnecessary|not\s+required|no\s+longer\s+required)\b",
+        r"waived|not\s+required|no\s+longer\s+required)\b",
         suffix,
         re.IGNORECASE,
     ):
