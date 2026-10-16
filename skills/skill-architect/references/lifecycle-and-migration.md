@@ -38,7 +38,7 @@ Optional static diagnostic: `tools/check_refactor_preservation.py` accepts
 the standard trusted locations, an operator may supply
 `--trusted-git-executable /absolute/path/to/git` on POSIX hosts only when
 the executable and every parent directory are owned by root and are not
-group- or world-writable (such as a system-owned Nix store executable).
+group- or world-writable (for example, a root-owned /usr/libexec installation).
 Portable per-user Git shims and Windows overrides fail closed; Windows
 requires Git in a standard system-managed installation. Caller PATH,
 candidate content, and the ledger never authenticate the Git binary. The synthetic pilot lives in

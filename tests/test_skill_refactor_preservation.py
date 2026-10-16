@@ -31,6 +31,26 @@ def assess(baseline, ledger, path, *, baseline_tree=None):
     )
 
 
+def _require_trusted_main_ancestry(root: Path) -> None:
+    """Skip isolated shallow checkouts; the exact-head job proves Git ancestry."""
+    import subprocess
+
+    import pytest
+
+    probe = subprocess.run(
+        [
+            "git", "-C", str(root), "merge-base", "--is-ancestor",
+            "5c656ac0602e35f51cb0ba9b576f8e5af10a54ba",
+            "refs/remotes/origin/main",
+        ],
+        check=False,
+        capture_output=True,
+        timeout=10,
+    )
+    if probe.returncode:
+        pytest.skip("trusted origin/main ancestry unavailable in shallow checkout")
+
+
 def case(tmp_path, kind='authority'):
     skill = tmp_path/'skill'
     skill.mkdir()
@@ -186,6 +206,7 @@ def test_pinned_baseline_snapshot_is_not_self_authorizing(tmp_path):
 
 def test_pilot_revision_resolves_against_actual_git_history():
     root = Path(__file__).resolve().parents[1]
+    _require_trusted_main_ancestry(root)
     corpus = root / "evals/skills/skill-architect"
     baseline = json.loads((corpus / "refactor-pilot-baseline.json").read_text(encoding="utf-8"))
     ledger = json.loads((corpus / "refactor-pilot-ledger.json").read_text(encoding="utf-8"))
@@ -295,6 +316,7 @@ def test_candidate_owned_git_cannot_substitute_trusted_baseline(tmp_path):
     import subprocess
 
     root = Path(__file__).resolve().parents[1]
+    _require_trusted_main_ancestry(root)
     corpus = root / "evals/skills/skill-architect"
     baseline = json.loads((corpus / "refactor-pilot-baseline.json").read_text(encoding="utf-8"))
     ledger = json.loads((corpus / "refactor-pilot-ledger.json").read_text(encoding="utf-8"))
@@ -324,6 +346,7 @@ def test_historical_git_resolution_tracks_selected_trusted_skill():
     import subprocess
 
     root = Path(__file__).resolve().parents[1]
+    _require_trusted_main_ancestry(root)
     base = "5c656ac0602e35f51cb0ba9b576f8e5af10a54ba"
     probe = subprocess.run(
         ["git", "-C", str(root), "cat-file", "-e", base + "^{commit}"],
@@ -471,6 +494,7 @@ def test_duplicate_json_keys_produce_structured_invalid_input(tmp_path):
 
 def test_baseline_git_revision_must_be_commit(tmp_path):
     root = Path(__file__).resolve().parents[1]
+    _require_trusted_main_ancestry(root)
     corpus = root / "evals/skills/skill-architect"
     baseline = json.loads((corpus / "refactor-pilot-baseline.json").read_text(encoding="utf-8"))
     ledger = json.loads((corpus / "refactor-pilot-ledger.json").read_text(encoding="utf-8"))
@@ -498,6 +522,7 @@ def test_git_provenance_ignores_inherited_repository_overrides(monkeypatch):
     import subprocess
 
     root = Path(__file__).resolve().parents[1]
+    _require_trusted_main_ancestry(root)
     corpus = root / "evals/skills/skill-architect"
     baseline = json.loads((corpus / "refactor-pilot-baseline.json").read_text(encoding="utf-8"))
     ledger = json.loads((corpus / "refactor-pilot-ledger.json").read_text(encoding="utf-8"))
@@ -525,6 +550,7 @@ def test_git_provenance_does_not_resolve_executable_through_inherited_path(tmp_p
     import subprocess
 
     root = Path(__file__).resolve().parents[1]
+    _require_trusted_main_ancestry(root)
     corpus = root / "evals/skills/skill-architect"
     baseline = json.loads((corpus / "refactor-pilot-baseline.json").read_text(encoding="utf-8"))
     ledger = json.loads((corpus / "refactor-pilot-ledger.json").read_text(encoding="utf-8"))
@@ -1035,14 +1061,18 @@ def test_baseline_inventory_cannot_self_authorize_by_rehash(tmp_path):
     path, baseline, ledger, _ = case(tmp_path)
     approved = "sha256:" + hashlib.sha256(mod._canonical_json(baseline)).hexdigest()
     assert mod.assess(
-        baseline, ledger, path, baseline_tree=path, trusted_baseline_sha256=approved
+        baseline, ledger, path, baseline_tree=path,
+        trusted_baseline_sha256=approved,
+        trusted_source_anchors={"auth": ("STANDARD.md", "Require policy authorization")},
     )["structural"] == "PASS"
     bad = {**baseline, "required_behaviors": [{"id": "unreviewed", "kind": "recovery"}]}
     revised_ledger = {
         **ledger, "baseline_sha256": "sha256:" + hashlib.sha256(mod._canonical_json(bad)).hexdigest()
     }
     result = mod.assess(
-        bad, revised_ledger, path, baseline_tree=path, trusted_baseline_sha256=approved
+        bad, revised_ledger, path, baseline_tree=path,
+        trusted_baseline_sha256=approved,
+        trusted_source_anchors={"auth": ("STANDARD.md", "Require policy authorization")},
     )
     assert "baseline_behavior_inventory_untrusted" in result["findings"]
 
@@ -1088,6 +1118,29 @@ def test_production_pilot_pins_each_reviewed_source_anchor():
         entry["id"]: (entry["source_path"], entry["source_anchor"])
         for entry in ledger["decisions"]
     }
+
+
+def test_indented_markdown_continuation_cannot_hide_qualifiers(tmp_path):
+    path, baseline, ledger, decision = case(tmp_path)
+    route = "- " + decision["entrypoint_route"] + " before action\n    but skip it for small edits."
+    (path / "SKILL.md").write_text(route)
+    ledger["candidate_files"]["SKILL.md"] = mod._git_blob_sha((path / "SKILL.md").read_bytes())
+    assert "owner_route_unreachable:auth" in assess(baseline, ledger, path)["findings"]
+
+    (path / "SKILL.md").write_text(decision["entrypoint_route"] + " before action")
+    ledger["candidate_files"]["SKILL.md"] = mod._git_blob_sha((path / "SKILL.md").read_bytes())
+    (path / "STANDARD.md").write_text("Require policy authorization\n    is prohibited.")
+    ledger["candidate_files"]["STANDARD.md"] = mod._git_blob_sha((path / "STANDARD.md").read_bytes())
+    assert "critical_owner_rule_negated:auth" in assess(baseline, ledger, path)["findings"]
+
+
+def test_existing_skill_lifecycle_route_covers_all_owned_operations():
+    root = Path(__file__).resolve().parents[1]
+    text = (root / "skills/skill-architect/SKILL.md").read_text()
+    line = next(line for line in text.splitlines() if line.startswith("10. For an existing skill"))
+    for change in ("refactor", "split", "migration", "rename", "model upgrade", "deprecation"):
+        assert change in line
+    assert "consult references/lifecycle-and-migration.md" in line
 
 
 def test_positive_route_grammar_covers_read_consult_and_arrow():
