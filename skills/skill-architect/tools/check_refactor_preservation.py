@@ -963,7 +963,11 @@ def main() -> int:
             baseline, ledger, args.candidate, trusted_git_executable=args.trusted_git_executable
         )
         if git_findings:
-            result["structural"] = "FAILED"
+            unavailable = git_findings == ["baseline_git_revision_unavailable"]
+            if unavailable and result["structural"] == "PASS":
+                result["structural"] = "ENVIRONMENT_NOT_READY"
+            else:
+                result["structural"] = "FAILED"
             result["findings"] = (result["findings"] + git_findings)[:129]
     except (OSError, UnicodeError, json.JSONDecodeError, ValueError, TypeError, RuntimeError) as exc:
         result = {
@@ -974,6 +978,8 @@ def main() -> int:
         print(json.dumps(result))
         return 2
     print(json.dumps(result, indent=2))
+    if result["structural"] == "ENVIRONMENT_NOT_READY":
+        return 3
     return 1 if result["structural"] != "PASS" else 0
 
 
