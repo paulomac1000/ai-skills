@@ -12,7 +12,7 @@
 
 ### Fixed
 
-- Hardened the skill refactor route audit against delayed and optional loads, wrapped Markdown negations, noncritical negated safeguards, owner-path suffix spoofing, unrelated deadlines, and hidden route qualifiers; pinned the independently reviewed baseline inventory and exact source-anchor identities; authenticated system-owned Git paths and explicitly labeled unverified candidate versions.
+- Hardened the skill refactor route audit against delayed and optional loads, wrapped Markdown and raw HTML example bypasses, noncritical negated safeguards, owner-path suffix spoofing, unrelated deadlines, and hidden route qualifiers; pinned the independently reviewed baseline inventory and exact source-anchor identities; authenticated system-owned Git paths and explicitly labeled unverified candidate versions.
 
 - Dependency-lock installation treats unexpected `pip check` stderr, canonicalized conflicts, and missing lock-pinned packages as blocking errors; verification checks every selected lock pin against the installed name/version inventory even when `pip check` succeeds.
 

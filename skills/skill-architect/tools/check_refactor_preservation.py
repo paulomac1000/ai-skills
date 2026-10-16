@@ -576,21 +576,51 @@ def _logical_lines(text: str, *, preserve_blank: bool = False) -> list[str]:
     return result if preserve_blank else [line for line in result if line]
 
 
+_RAW_HTML_START = re.compile(
+    r"^[ ]{0,3}<(?P<tag>pre|script|style|textarea|details|div|table|"
+    r"section|article|figure|blockquote|p|ul|ol|li)\b[^>]*>",
+    re.IGNORECASE,
+)
+
+
+def _html_depth_delta(line: str, tag: str) -> int:
+    tag_pattern = re.escape(tag)
+    opens = len(re.findall(r"<\s*" + tag_pattern + r"\b[^>]*>", line, re.IGNORECASE))
+    closes = len(re.findall(r"</\s*" + tag_pattern + r"\s*>", line, re.IGNORECASE))
+    return opens - closes
+
+
 def _operative_skill_text(content: bytes) -> str:
-    """Exclude fenced examples, HTML comments, quotes and indented code."""
+    """Exclude fenced/raw-HTML examples, comments, quotes and indented code."""
     text = re.sub(r"<!--.*?(?:-->|\Z)", "", content.decode("utf-8"), flags=re.DOTALL)
     kept: list[str] = []
     fence = ""
     quoted = False
+    raw_html_tag = ""
+    raw_html_depth = 0
     for line in text.splitlines():
         if fence:
             close = r"^[ ]{0,3}" + re.escape(fence[0]) + "{" + str(len(fence)) + r",}[ \t]*$"
             if re.match(close, line):
                 fence = ""
             continue
+        if raw_html_tag:
+            raw_html_depth += _html_depth_delta(line, raw_html_tag)
+            if raw_html_depth <= 0:
+                raw_html_tag = ""
+                kept.append("")
+            continue
         opener = re.match(r"^[ ]{0,3}(`{3,}|~{3,})", line)
         if opener:
             fence = opener.group(1)
+            continue
+        html_open = _RAW_HTML_START.match(line)
+        if html_open:
+            raw_html_tag = html_open.group("tag").lower()
+            raw_html_depth = _html_depth_delta(line, raw_html_tag)
+            kept.append("")
+            if raw_html_depth <= 0:
+                raw_html_tag = ""
             continue
         if not line.strip():
             quoted = False

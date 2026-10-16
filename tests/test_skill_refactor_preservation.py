@@ -1321,6 +1321,33 @@ def test_higher_authority_cannot_reverse_reference_owner(tmp_path):
     assert "higher_authority_contradiction:auth" in result["findings"]
 
 
+def test_raw_html_owner_examples_never_count_as_requirements(tmp_path):
+    path, baseline, ledger, decision = case(tmp_path, kind="authority")
+    for body in (
+        "<pre>\n\nRequire policy authorization\n</pre>",
+        "<script>\nRequire policy authorization\n</script>",
+        "<div><div>Nested example</div>\nRequire policy authorization\n</div>",
+        "<pre>\nRequire policy authorization",
+    ):
+        (path / "STANDARD.md").write_text(body)
+        ledger["candidate_files"]["STANDARD.md"] = mod._git_blob_sha((path / "STANDARD.md").read_bytes())
+        result = assess(baseline, ledger, path)
+        assert "anchor_not_present:auth" in result["findings"], body
+    (path / "STANDARD.md").write_text(
+        "<pre>Require policy authorization</pre>\n\nRequire policy authorization"
+    )
+    ledger["candidate_files"]["STANDARD.md"] = mod._git_blob_sha((path / "STANDARD.md").read_bytes())
+    assert assess(baseline, ledger, path)["structural"] == "PASS"
+
+
+def test_raw_html_entrypoint_does_not_supply_a_pre_action_route(tmp_path):
+    path, baseline, ledger, decision = case(tmp_path, kind="authority")
+    route = decision["entrypoint_route"] + " before action"
+    (path / "SKILL.md").write_text("<pre>\n" + route + "\n</pre>")
+    ledger["candidate_files"]["SKILL.md"] = mod._git_blob_sha((path / "SKILL.md").read_bytes())
+    assert "owner_route_unreachable:auth" in assess(baseline, ledger, path)["findings"]
+
+
 def test_positive_route_grammar_covers_read_consult_and_arrow():
     assert mod._positive_entrypoint_route("read STANDARD.md", "STANDARD.md")
     assert mod._positive_entrypoint_route(
