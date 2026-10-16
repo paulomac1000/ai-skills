@@ -8,7 +8,7 @@
 
 ### Changed
 
-- The skill-architect migration playbook now separates structural acceptance, model-backed behavior, context cost and independently activated profiles. The pilot preserves existing lifecycle behavior while shortening redundant guidance.
+- The skill-architect migration playbook now separates structural acceptance, model-backed behavior, context cost and independently activated profiles. The pilot retains broad existing-skill lifecycle routing (including rename, model upgrades, and deprecation) while shortening redundant guidance.
 
 ### Fixed
 

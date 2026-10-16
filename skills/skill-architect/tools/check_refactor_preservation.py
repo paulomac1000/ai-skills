@@ -534,7 +534,10 @@ def _operative_skill_text(content: bytes) -> str:
         if opener:
             fence = opener.group(1)
             continue
-        if line.startswith(("    ", "\t")) or re.match(r"^[ ]{0,3}>", line):
+        indented = line.startswith(("    ", "\t"))
+        # Indented code cannot interrupt a running paragraph or list item.
+        # Such continuations may contain qualifiers that negate the prior rule.
+        if (indented and (not kept or not kept[-1].strip())) or re.match(r"^[ ]{0,3}>", line):
             continue
         kept.append(line)
     return "\n".join(_logical_lines("\n".join(kept)))
