@@ -63,7 +63,9 @@ equivalence check.
 
 Compare the old and target STANDARD.md, manifest contract, routing boundary,
 conditional references, tools, templates, and behavioral evidence before
-editing consumers. A version change alone does not justify a rewrite.
+editing consumers.
+
+Require a material normative change before rewriting a useful existing adoption.
 
 Keep compliant consumer-specific behavior when the contract is unchanged;
 change only the surface necessary for the normative delta.

@@ -16,6 +16,10 @@
     {
       "id": "deprecation-boundary",
       "kind": "completion"
+    },
+    {
+      "id": "version-change-alone-no-rewrite",
+      "kind": "safety_stop"
     }
   ]
 }

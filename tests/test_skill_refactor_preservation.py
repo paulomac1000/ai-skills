@@ -1216,6 +1216,45 @@ def test_distinct_paragraphs_are_not_contradictory_owner_instructions():
     )
 
 
+def test_pilot_version_only_regeneration_rule_is_authenticated():
+    root = Path(__file__).resolve().parents[1]
+    baseline = json.loads((root / "evals/skills/skill-architect/refactor-pilot-baseline.json").read_text())
+    ledger = json.loads((root / "evals/skills/skill-architect/refactor-pilot-ledger.json").read_text())
+    key = (baseline["revision"], "skills/skill-architect")
+    rule_id = "version-change-alone-no-rewrite"
+    assert {"id": rule_id, "kind": "safety_stop"} in baseline["required_behaviors"]
+    decision = next(item for item in ledger["decisions"] if item["id"] == rule_id)
+    assert mod.TRUSTED_BASELINE_SOURCE_ANCHORS[key][rule_id] == (
+        decision["source_path"], decision["source_anchor"]
+    )
+    assert mod.TRUSTED_CANDIDATE_TARGETS[key][rule_id] == (
+        decision["target_path"], decision["target_anchor"]
+    )
+
+
+def test_higher_authority_cannot_reverse_reference_owner(tmp_path):
+    path, baseline, ledger, decision = case(tmp_path, kind="evidence")
+    original = tmp_path / "baseline"
+    original.mkdir()
+    (original / "STANDARD.md").write_bytes((path / "STANDARD.md").read_bytes())
+    refs = path / "references"
+    refs.mkdir()
+    (refs / "owner.md").write_text("Require policy authorization")
+    route = "Trigger when destructive action requested; read references/owner.md before action"
+    (path / "SKILL.md").write_text(route)
+    (path / "STANDARD.md").write_text("Do not require policy authorization")
+    for rel in ("SKILL.md", "STANDARD.md", "references/owner.md"):
+        ledger["candidate_files"][rel] = mod._git_blob_sha((path / rel).read_bytes())
+    ledger["decisions"] = [
+        decision | {
+            "target_path": "references/owner.md",
+            "entrypoint_route": route.removesuffix(" before action"),
+        }
+    ]
+    result = assess(baseline, ledger, path, baseline_tree=original)
+    assert "higher_authority_contradiction:auth" in result["findings"]
+
+
 def test_positive_route_grammar_covers_read_consult_and_arrow():
     assert mod._positive_entrypoint_route("read STANDARD.md", "STANDARD.md")
     assert mod._positive_entrypoint_route(
