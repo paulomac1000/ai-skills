@@ -62,9 +62,7 @@ def _locked_inventory_findings(lock_text: str) -> list[str]:
             findings.append(f"locked_distribution_missing:{canonical}=={expected}")
         else:
             if installed != expected:
-                findings.append(
-                    f"locked_distribution_version_mismatch:{canonical}=={expected}:installed={installed}"
-                )
+                findings.append(f"locked_distribution_version_mismatch:{canonical}=={expected}:installed={installed}")
     return findings
 
 
