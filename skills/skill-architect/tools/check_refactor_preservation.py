@@ -434,7 +434,7 @@ def _mandatory_owner_instruction(line: str, anchor: str) -> bool:
 
 def _contradicts_owner(text: str, anchor: str) -> bool:
     """Detect a second operative instruction that reverses a reviewed owner."""
-    for sentence in _logical_lines(text):
+    for sentence in text.splitlines():
         position = sentence.find(anchor)
         if position < 0:
             continue
@@ -552,7 +552,7 @@ def _content_bindings(
 _MARKDOWN_BLOCK_START = re.compile(r"^[ \t]*(?:[-*+]\s+|\d+\.\s+|#{1,6}\s+|\|)")
 
 
-def _logical_lines(text: str) -> list[str]:
+def _logical_lines(text: str, *, preserve_blank: bool = False) -> list[str]:
     """Join hard-wrapped Markdown without crossing structural boundaries."""
     result: list[str] = []
     for line in text.splitlines():
@@ -562,7 +562,7 @@ def _logical_lines(text: str) -> list[str]:
             result[-1] += " " + line.strip()
         else:
             result.append(line)
-    return [line for line in result if line]
+    return result if preserve_blank else [line for line in result if line]
 
 
 def _operative_skill_text(content: bytes) -> str:
@@ -570,6 +570,7 @@ def _operative_skill_text(content: bytes) -> str:
     text = re.sub(r"<!--.*?(?:-->|\Z)", "", content.decode("utf-8"), flags=re.DOTALL)
     kept: list[str] = []
     fence = ""
+    quoted = False
     for line in text.splitlines():
         if fence:
             close = r"^[ ]{0,3}" + re.escape(fence[0]) + "{" + str(len(fence)) + r",}[ \t]*$"
@@ -580,13 +581,25 @@ def _operative_skill_text(content: bytes) -> str:
         if opener:
             fence = opener.group(1)
             continue
+        if not line.strip():
+            quoted = False
+            kept.append("")
+            continue
+        if re.match(r"^[ ]{0,3}>", line):
+            quoted = True
+            continue
+        # CommonMark permits a paragraph to continue a blockquote without '>'.
+        # Do not promote this illustrative text into a binding requirement.
+        if quoted:
+            if not _MARKDOWN_BLOCK_START.match(line):
+                continue
+            quoted = False
         indented = line.startswith(("    ", "\t"))
-        # Indented code cannot interrupt a running paragraph or list item.
-        # Such continuations may contain qualifiers that negate the prior rule.
-        if (indented and (not kept or not kept[-1].strip())) or re.match(r"^[ ]{0,3}>", line):
+        # An indented continuation may negate an operative instruction.
+        if indented and (not kept or not kept[-1].strip()):
             continue
         kept.append(line)
-    return "\n".join(_logical_lines("\n".join(kept)))
+    return "\n".join(_logical_lines("\n".join(kept), preserve_blank=True))
 
 
 def assess(
@@ -822,9 +835,7 @@ def assess(
             ):
                 findings.append("anchor_not_present:" + rule_id)
             elif kind in MATERIAL:
-                owner_text = (
-                    operative_skill if rel == "SKILL.md" else _operative_skill_text(candidate_verified[rel])
-                )
+                owner_text = operative_skill if rel == "SKILL.md" else _operative_skill_text(candidate_verified[rel])
                 if _contradicts_owner(owner_text, required_anchor):
                     findings.append("contradictory_owner_rule:" + rule_id[:128])
                 critical = kind in {"trigger", "authority", "safety_stop", "precedence"}

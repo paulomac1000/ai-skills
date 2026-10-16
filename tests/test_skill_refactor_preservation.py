@@ -1194,6 +1194,28 @@ def test_production_target_identity_matches_reviewed_pilot():
     ] == expected
 
 
+def test_blockquote_lazy_continuation_is_not_owner_requirement(tmp_path):
+    path, baseline, ledger, decision = case(tmp_path, kind="authority")
+    for quote in (
+        "> Example of a removed requirement:\nRequire policy authorization",
+        "> Example of a removed requirement:\n  Require policy authorization",
+    ):
+        (path / "STANDARD.md").write_text(quote)
+        ledger["candidate_files"]["STANDARD.md"] = mod._git_blob_sha((path / "STANDARD.md").read_bytes())
+        assert "anchor_not_present:auth" in assess(baseline, ledger, path)["findings"]
+
+
+def test_distinct_paragraphs_are_not_contradictory_owner_instructions():
+    text = "This unrelated proposal does not justify a rewrite.\n\nKeep compliant consumer-specific behavior."
+    operative = mod._operative_skill_text(text.encode("utf-8"))
+    assert operative == text
+    assert not mod._contradicts_owner(operative, "Keep compliant consumer-specific behavior")
+    assert mod._contradicts_owner(
+        "Keep compliant consumer-specific behavior\nIgnore Keep compliant consumer-specific behavior",
+        "Keep compliant consumer-specific behavior",
+    )
+
+
 def test_positive_route_grammar_covers_read_consult_and_arrow():
     assert mod._positive_entrypoint_route("read STANDARD.md", "STANDARD.md")
     assert mod._positive_entrypoint_route(
