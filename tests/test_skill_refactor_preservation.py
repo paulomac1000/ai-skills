@@ -1001,15 +1001,19 @@ def test_unreachable_baseline_git_commit_rejected_when_object_exists(monkeypatch
         pytest.skip("baseline Git object unavailable")
     original = mod.subprocess.run
 
-    def blocked_ancestry(argv, **kwargs):
-        if "merge-base" in argv and "--is-ancestor" in argv:
-            assert argv[-1] == "refs/remotes/origin/main"
-            return subprocess.CompletedProcess(argv, 1)
-        return original(argv, **kwargs)
+    for exit_code, expected in (
+        (1, "baseline_git_revision_untrusted"),
+        (128, "baseline_git_revision_unavailable"),
+    ):
+        def blocked_ancestry(argv, **kwargs):
+            if "merge-base" in argv and "--is-ancestor" in argv:
+                assert argv[-1] == "refs/remotes/origin/main"
+                return subprocess.CompletedProcess(argv, exit_code)
+            return original(argv, **kwargs)
 
-    monkeypatch.setattr(mod.subprocess, "run", blocked_ancestry)
-    actual = mod._verify_baseline_git_revision(baseline, ledger, root / "skills/skill-architect")
-    assert actual == ["baseline_git_revision_untrusted"]
+        monkeypatch.setattr(mod.subprocess, "run", blocked_ancestry)
+        actual = mod._verify_baseline_git_revision(baseline, ledger, root / "skills/skill-architect")
+        assert actual == [expected]
 
 
 def test_wrapped_owner_negation_and_entrypoint_skip_fail_closed(tmp_path):
@@ -1224,6 +1228,10 @@ def test_existing_skill_change_loads_lifecycle_reference_before_any_change():
     )
     assert "consult references/lifecycle-and-migration.md before any change" in step
     assert "before deleting rules, preserve permissions" in step
+    workflow = step.split("## Workflow", 1)[1].split("## Routing boundaries", 1)[0]
+    assert "2. For an existing skill" in workflow
+    assert workflow.index("2. For an existing skill") < workflow.index("9. Add routing")
+    assert workflow.index("2. For an existing skill") < workflow.index("10. Run tools/audit_skill.py")
     for entry in ledger["decisions"]:
         if entry.get("target_path") == "references/lifecycle-and-migration.md":
             assert entry["entrypoint_route"].endswith("before any change"), entry["id"]
