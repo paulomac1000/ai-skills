@@ -316,8 +316,11 @@ def _verify_baseline_git_revision(
             timeout=10,
             env=git_env,
         )
-        if ancestry.returncode != 0:
+        if ancestry.returncode == 1:
             return ["baseline_git_revision_untrusted"]
+        if ancestry.returncode != 0:
+            # Missing trusted ancestry infrastructure is not proof of untrusted history.
+            return ["baseline_git_revision_unavailable"]
         historical_tree = resolve(revision + ":" + location)
         if historical_tree != expected_tree:
             return ["baseline_git_tree_mismatch"]
