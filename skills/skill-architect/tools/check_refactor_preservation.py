@@ -24,8 +24,10 @@ SHA40 = re.compile(r"^[0-9a-f]{40}$")
 # candidate-controlled ledger. New skill/revision pairs need a reviewed
 # registry update before a production structural PASS is possible.
 TRUSTED_BASELINE_INVENTORIES = {
-    ("5c656ac0602e35f51cb0ba9b576f8e5af10a54ba", "skills/skill-architect"):
-        "sha256:bc59f4944753676baf7c3d32b3ff1a518ffd160b6ac051aaa06c207f44f69219",
+    (
+        "5c656ac0602e35f51cb0ba9b576f8e5af10a54ba",
+        "skills/skill-architect",
+    ): "sha256:bc59f4944753676baf7c3d32b3ff1a518ffd160b6ac051aaa06c207f44f69219",
 }
 
 
