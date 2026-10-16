@@ -14,7 +14,7 @@
 
 - Hardened the skill refactor route audit against delayed and optional loads, wrapped Markdown negations, noncritical negated safeguards, owner-path suffix spoofing, unrelated deadlines, and hidden route qualifiers; authenticated system-owned Git paths and explicitly labeled unverified candidate versions.
 
-- Dependency-lock installation treats unexpected `pip check` stderr as a blocking verification error, rather than downgrading it to an unmanaged host-package conflict.
+- Dependency-lock installation treats unexpected `pip check` stderr and canonicalized locked-distribution conflicts as blocking verification errors, rather than downgrading them to unmanaged host-package conflicts.
 
 ### Known limitations
 

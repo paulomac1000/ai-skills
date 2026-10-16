@@ -78,8 +78,8 @@ def test_independent_profiles_not_forcibly_merged(tmp_path):
     (path/'references/p2.md').write_text('second independent route')
     (path/'SKILL.md').write_text(
         'Trigger when destructive action requested; read STANDARD.md before action\n'
-        'first independent route -> references/p1.md\n'
-        'second independent route -> references/p2.md'
+        '- first independent route -> references/p1.md\n'
+        '- second independent route -> references/p2.md'
     )
     raw_skill = (path / 'SKILL.md').read_bytes()
     ledger['candidate_files']['SKILL.md'] = mod._git_blob_sha(raw_skill)
@@ -987,6 +987,18 @@ def test_logical_lines_keep_independent_list_items_separate():
     assert mod._logical_lines("Require policy authorization\nis prohibited.") == [
         "Require policy authorization is prohibited."
     ]
+
+
+def test_observed_absent_references_do_not_negate_inspection():
+    line = (
+        "Inspect representative runs for unexpected skill selection, "
+        "references always or never opened, repeated unnecessary reads."
+    )
+    assert mod._mandatory_owner_instruction(line, "Inspect representative runs")
+    assert not mod._mandatory_owner_instruction(
+        "Inspect representative runs, but never inspect them",
+        "Inspect representative runs",
+    )
 
 
 def test_positive_route_grammar_covers_read_consult_and_arrow():

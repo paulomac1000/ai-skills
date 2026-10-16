@@ -19,7 +19,7 @@ def classify_pip_check(report: str, lock_text: str) -> tuple[list[str], list[str
     Unknown report syntax stays blocking.
     """
     pinned = {
-        name.lower().replace("_", "-") for name in re.findall(r"(?m)^\s*([A-Za-z0-9_.-]+)==[0-9][^\s]*", lock_text)
+        re.sub(r"[-_.]+", "-", name).lower() for name in re.findall(r"(?m)^\s*([A-Za-z0-9_.-]+)==[0-9][^\s]*", lock_text)
     }
     if not pinned:
         return ["locked_distribution_inventory_missing"], []
@@ -32,7 +32,7 @@ def classify_pip_check(report: str, lock_text: str) -> tuple[list[str], list[str
         match = re.fullmatch(r"([A-Za-z0-9_.-]+)\s+\S+\s+(?:has requirement|requires)\s+.+", message)
         if match is None:
             blocking.append(message)
-        elif match.group(1).lower().replace("_", "-") in pinned:
+        elif re.sub(r"[-_.]+", "-", match.group(1)).lower() in pinned:
             blocking.append(message)
         else:
             unmanaged.append(message)

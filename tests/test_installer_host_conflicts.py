@@ -25,6 +25,17 @@ def test_unmanaged_runner_distribution_is_diagnostic_only():
     assert len(ignored) == 2
 
 
+def test_pep503_locked_name_cannot_be_downgraded_to_unmanaged():
+    lock = "zope.interface==7.2\nmy__package...core==1.0\n"
+    report = (
+        "zope-interface 7.2 requires setuptools>=90, but you have setuptools 70.\n"
+        "my-package-core 1.0 requires packaging>=99, but you have packaging 25.\n"
+    )
+    blocked, unmanaged = mod.classify_pip_check(report, lock)
+    assert len(blocked) == 2
+    assert unmanaged == []
+
+
 def test_locked_distribution_conflicts_remain_fatal():
     lock = "mcp==2.2.0\nfilelock==3.32.0\n"
     report = "mcp 2.2.0 has requirement filelock>=4, but you have filelock 3.32.0.\n"
