@@ -21,6 +21,7 @@ def case(tmp_path, kind='authority'):
         'Trigger when destructive action requested; read STANDARD.md before action'
     )
     (skill/'STANDARD.md').write_text('Require policy authorization; retain rollback evidence')
+    (skill/'manifest.yaml').write_text('name: fixture-skill\nversion: 0.0.0\n')
     baseline = {'revision': 'a' * 40, 'required_behaviors': [{'id': 'auth', 'kind': kind}]}
     decision = {'id': 'auth', 'disposition': 'MOVE', 'target_path': 'STANDARD.md', 'target_anchor': 'Require policy authorization', 'negative_case': 'unauthorized_call', 'verification': 'negative-test', 'pre_load_path': 'SKILL.md', 'pre_load_trigger': 'Trigger when destructive action'}
     def blob(path):
@@ -36,7 +37,7 @@ def case(tmp_path, kind='authority'):
         'baseline_sha256': 'sha256:' + hashlib.sha256(
             json.dumps(baseline, sort_keys=True, separators=(',', ':')).encode()
         ).hexdigest(),
-        'candidate_files': {'SKILL.md': blob('SKILL.md'), 'STANDARD.md': blob('STANDARD.md')},
+        'candidate_files': {'SKILL.md': blob('SKILL.md'), 'STANDARD.md': blob('STANDARD.md'), 'manifest.yaml': blob('manifest.yaml')},
         'baseline_source_blobs': {'STANDARD.md': blob('STANDARD.md')},
         'decisions': [decision],
     }
@@ -912,6 +913,53 @@ def test_owner_anchor_rejects_passive_or_inflected_prohibitions(tmp_path):
         ledger["candidate_files"]["STANDARD.md"] = mod._git_blob_sha((path / "STANDARD.md").read_bytes())
         result = assess(baseline, ledger, path)
         assert "critical_owner_rule_negated:auth" in result["findings"], line
+
+
+def test_required_normative_document_inventory_cannot_omit_files(tmp_path):
+    path, baseline, ledger, decision = case(tmp_path)
+    for required in ("SKILL.md", "STANDARD.md", "manifest.yaml"):
+        omission = {key: blob for key, blob in ledger["candidate_files"].items() if key != required}
+        result = assess(baseline, {**ledger, "candidate_files": omission}, path)
+        assert "required_candidate_document_missing:" + required in result["findings"]
+
+
+def test_code_fence_and_comment_routes_do_not_count_as_live_instructions(tmp_path):
+    path, baseline, ledger, decision = case(tmp_path)
+    route = decision["entrypoint_route"] + " before action"
+    for content in (
+        "```markdown\n" + route + "\n```",
+        "~~~yaml\n" + route + "\n~~~",
+        "<!-- " + route + " -->",
+        "    " + route,
+        "> " + route,
+    ):
+        (path / "SKILL.md").write_text(content)
+        ledger["candidate_files"]["SKILL.md"] = mod._git_blob_sha((path / "SKILL.md").read_bytes())
+        result = assess(baseline, ledger, path)
+        assert "owner_route_unreachable:auth" in result["findings"]
+
+
+def test_unreachable_baseline_git_commit_rejected_when_object_exists(monkeypatch):
+    import subprocess
+    import pytest
+
+    root = Path(__file__).resolve().parents[1]
+    corpus = root / "evals/skills/skill-architect"
+    baseline = json.loads((corpus / "refactor-pilot-baseline.json").read_text(encoding="utf-8"))
+    ledger = json.loads((corpus / "refactor-pilot-ledger.json").read_text(encoding="utf-8"))
+    probe = subprocess.run(["git", "-C", str(root), "cat-file", "-e", baseline["revision"] + "^{commit}"], check=False)
+    if probe.returncode:
+        pytest.skip("baseline Git object unavailable")
+    original = mod.subprocess.run
+
+    def blocked_ancestry(argv, **kwargs):
+        if "merge-base" in argv and "--is-ancestor" in argv:
+            return subprocess.CompletedProcess(argv, 1)
+        return original(argv, **kwargs)
+
+    monkeypatch.setattr(mod.subprocess, "run", blocked_ancestry)
+    actual = mod._verify_baseline_git_revision(baseline, ledger, root / "skills/skill-architect")
+    assert actual == ["baseline_git_revision_untrusted"]
 
 
 def test_positive_route_grammar_covers_read_consult_and_arrow():
