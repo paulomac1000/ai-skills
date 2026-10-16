@@ -1230,6 +1230,7 @@ def test_pilot_version_only_regeneration_rule_is_authenticated():
     assert mod.TRUSTED_CANDIDATE_TARGETS[key][rule_id] == (
         decision["target_path"], decision["target_anchor"]
     )
+    assert decision["pre_load_path"] == "SKILL.md"
 
 
 def test_higher_authority_cannot_reverse_reference_owner(tmp_path):

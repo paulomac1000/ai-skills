@@ -65,7 +65,8 @@
       "source_anchor": "A version change alone does not justify a rewrite.",
       "positive_case": "normative_delta_required_before_rewrite",
       "pre_load_trigger": "For an existing skill",
-      "entrypoint_route": "For an existing skill (including refactor, split, migration, rename, model upgrade, or deprecation), consult references/lifecycle-and-migration.md before deleting rules"
+      "entrypoint_route": "For an existing skill (including refactor, split, migration, rename, model upgrade, or deprecation), consult references/lifecycle-and-migration.md before deleting rules",
+      "pre_load_path": "SKILL.md"
     }
   ],
   "baseline_sha256": "sha256:112a66d6b0b5c0e8261ad94a7bf3deb26af78b1ac876a34afb8292d15c1da8f4",
