@@ -1,6 +1,6 @@
 schema_version: 1
 name: skill-architect
-version: 3.25.0
+version: 3.26.0
 maturity: stable
 skill_format: ai-skills/v1
 normative_entrypoint: STANDARD.md
@@ -44,6 +44,7 @@ dependencies:
   skills: []
   tools:
   - python
+  - git
   packages:
     python:
     - PyYAML>=6.0.3,<7
@@ -63,6 +64,33 @@ executable_resources:
     exit_code_mapping:
       '0': no-error-findings
       '1': error-findings
+      '2': invalid-arguments
+    timeout: policy
+    cancellation: supported
+    safe_stop: supported
+  effects:
+    class: read_only
+    replay_safety: idempotent
+    network: none
+    credential_class: none
+  diagnostics:
+    bounded: true
+    safe_egress_profile_ref: null
+- id: check-refactor-preservation
+  resource: tools/check_refactor_preservation.py
+  kind: agent_cli
+  canonical_invocation:
+    mode: python_script
+    entrypoint: tools/check_refactor_preservation.py
+  input_contract_ref: null
+  outcome_contract:
+    mode: structured
+    schema_ref: null
+  process_semantics:
+    exit_code_mapping:
+      '0': structural-ledger-pass-not-model-equivalence
+      '1': structural-preservation-findings
+      '3': environment-not-ready
       '2': invalid-arguments
     timeout: policy
     cancellation: supported
@@ -145,6 +173,7 @@ required:
 - schemas/skill-eval.schema.json
 - schemas/executable-resource.schema.json
 - tools/audit_skill.py
+- tools/check_refactor_preservation.py
 - tools/scaffold_skill.py
 - tools/validate_skill_evals.py
 categories:

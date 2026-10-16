@@ -237,6 +237,30 @@ capability-uplift skill may become unnecessary as base models improve; simplify
 or deprecate it when the claimed uplift disappears rather than preserving
 obsolete instructions.
 
+## Semantic-preserving refactoring
+
+Before deleting or moving skill rules, baseline the original skill, manifest,
+standard, routes and evaluation revision. Inventory load-bearing requirements:
+activation, permissions, safety stops, exceptions, precedence, recovery, proof,
+negative cases and completion. Use a bounded preservation ledger with one
+disposition per item: PRESERVE, MOVE, DEDUPLICATE,
+REPLACE_BY_CANONICAL_OWNER or REMOVE_WITH_REASON. Record old and new normative
+sources, route, positive/negative cases and verification identity. Removal of
+a mandatory safeguard requires an explicit normative change, not a size goal.
+
+Critical pre-action conditions remain observable in SKILL.md before governed
+effects. Moved conditional references must be reachable. Independent profiles
+remain separate if combining them increases unnecessary loads; duplicated
+policy has one normative source. Examples use supported interfaces, never
+invented command semantics.
+
+Deterministic structure and ledger checks do not establish model behavior.
+Absent approved revision-bound model observations, report
+`BEHAVIOR_NOT_VERIFIED`, not `BEHAVIOR_EQUIVALENT`. Track safety/correctness,
+routing, runtime context consumption and human reviewability independently:
+size savings cannot override an invariant failure. Follow
+`references/lifecycle-and-migration.md` for the procedure and pilot.
+
 ## Migration and deprecation
 
 Before migrating an existing skill, compare the old and target normative

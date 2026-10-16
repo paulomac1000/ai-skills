@@ -1,5 +1,27 @@
 # Changelog
 
+## 3.26.0 - 2026-10-17
+
+### Added
+
+- A fail-conservative skill refactoring contract with bounded preservation-ledger checks, explicit before-action route validation and synthetic six-class regressions.
+
+### Changed
+
+- The skill-architect migration playbook now separates structural acceptance, model-backed behavior, context cost and independently activated profiles. The pilot retains broad existing-skill lifecycle routing (including rename, model upgrades, and deprecation) while shortening redundant guidance.
+
+### Fixed
+
+- Hardened the skill refactor route audit against delayed and optional loads, wrapped Markdown and raw HTML example bypasses, noncritical negated safeguards, owner-path suffix spoofing, unrelated deadlines, and hidden route qualifiers; pinned the independently reviewed baseline inventory and exact source-anchor identities; authenticated system-owned Git paths and explicitly labeled unverified candidate versions.
+
+- Dependency-lock installation treats unexpected `pip check` stderr, canonicalized conflicts, and missing lock-pinned packages as blocking errors; verification checks every selected lock pin against the installed name/version inventory even when `pip check` succeeds.
+
+- Pin the version-only no-rewrite safeguard in the reviewed inventory; preload lifecycle guidance as workflow step 2 before editing any existing skill; distinguish missing Git main-ref infrastructure from untrusted history or structural preservation failures; reject higher-authority contradictions and reuse lock verification for the complete CI gate.
+
+### Known limitations
+
+- A structural PASS verifies only pinned normative ownership and entrypoint routes; it does not verify repository eval-corpus revisions (`NOT_VERIFIED`) or model-backed behavioral equivalence (`BEHAVIOR_NOT_VERIFIED`). Run those evidence lanes separately.
+
 ## 3.25.0 - 2026-10-13
 
 ### Added

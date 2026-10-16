@@ -44,12 +44,18 @@ def test_install_locked_uses_exact_file_hash_enforcement_and_pip_check(monkeypat
     lock.write_text("pytest==9.1.1 --hash=sha256:" + "a" * 64 + "\n", encoding="utf-8")
     calls: list[tuple[list[str], dict[str, object]]] = []
     monkeypatch.setattr(installer, "selected_lock", lambda: lock)
-    monkeypatch.setattr(installer.subprocess, "run", lambda command, **kwargs: calls.append((command, kwargs)))
+    def fake_run(command, **kwargs):
+        calls.append((command, kwargs))
+        return subprocess.CompletedProcess(command, 0, stdout="No broken requirements found.", stderr="")
+
+    monkeypatch.setattr(installer.subprocess, "run", fake_run)
     assert installer.main() == 0
     assert calls[0][0] == [sys.executable, "-m", "pip", "install", "--require-hashes", "-r", str(lock)]
     assert calls[0][1] == {"check": True, "timeout": 900}
     assert calls[1][0] == [sys.executable, "-m", "pip", "check"]
-    assert calls[1][1] == {"check": True, "timeout": 120}
+    assert calls[1][1] == {
+        "capture_output": True, "text": True, "check": False, "timeout": 120
+    }
 
 
 def test_local_ci_runs_every_bounded_gate(monkeypatch, tmp_path: Path) -> None:
@@ -112,6 +118,14 @@ def test_security_branch_coverage_fails_closed_for_malformed_report(report, mess
     ci = load(ROOT / "scripts/ci.py", f"local_ci_branch_coverage_failure_{message.replace(' ', '_')}")
     with pytest.raises(RuntimeError, match=message):
         ci._branch_coverage_percentage(report, "contracts/example.py")
+
+
+def test_local_ci_uses_shared_lock_validation_command() -> None:
+    ci = load(ROOT / "scripts/ci.py", "local_ci_pip_check_contract")
+    import inspect
+
+    source = inspect.getsource(ci.main)
+    assert 'run(sys.executable, "scripts/install_locked.py", "--verify-only")' in source
 
 
 def test_local_ci_run_wrapper_is_bounded_and_environment_isolated(monkeypatch) -> None:

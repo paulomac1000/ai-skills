@@ -1316,7 +1316,7 @@ def test_executable_resource_contract_rejects_explicit_null(tmp_path: Path) -> N
 
 
 def test_self_hosted_cli_contract_maps_argparse_invalid_arguments() -> None:
-    """Declare argparse exit code 2 for both machine-consumed skill-architect CLIs."""
+    """Declare argparse exit code 2 for each machine-consumed skill-architect CLI."""
     manifest = (SKILL / "manifest.yaml").read_text(encoding="utf-8")
-    assert manifest.count("'2': invalid-arguments") == 2
+    assert manifest.count("'2': invalid-arguments") == 3
 

@@ -1,0 +1,25 @@
+{
+  "revision": "5c656ac0602e35f51cb0ba9b576f8e5af10a54ba",
+  "required_behaviors": [
+    {
+      "id": "existing-skill-route",
+      "kind": "trigger"
+    },
+    {
+      "id": "migration-compatibility",
+      "kind": "safety_stop"
+    },
+    {
+      "id": "observed-maintenance",
+      "kind": "evidence"
+    },
+    {
+      "id": "deprecation-boundary",
+      "kind": "completion"
+    },
+    {
+      "id": "version-change-alone-no-rewrite",
+      "kind": "safety_stop"
+    }
+  ]
+}

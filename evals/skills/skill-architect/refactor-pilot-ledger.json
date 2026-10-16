@@ -1,0 +1,90 @@
+{
+  "candidate_revision": "3.26.0",
+  "decisions": [
+    {
+      "id": "existing-skill-route",
+      "disposition": "PRESERVE",
+      "target_path": "SKILL.md",
+      "target_anchor": "For an existing skill",
+      "negative_case": "not_skill_change",
+      "verification": "test_skill_refactor_preservation::test_preload_route_lost",
+      "pre_load_path": "SKILL.md",
+      "pre_load_trigger": "For an existing skill",
+      "source_path": "SKILL.md",
+      "source_anchor": "10. For an existing skill, read references/lifecycle-and-migration.md",
+      "positive_case": "existing-skill-change"
+    },
+    {
+      "id": "migration-compatibility",
+      "disposition": "MOVE",
+      "target_path": "references/lifecycle-and-migration.md",
+      "target_anchor": "Keep compliant consumer-specific behavior",
+      "negative_case": "unauthorized_semantic_deletion",
+      "verification": "test_skill_refactor_preservation::test_omitted_authority_rule_fails_even_with_static_package",
+      "pre_load_path": "SKILL.md",
+      "pre_load_trigger": "before any change",
+      "source_path": "references/lifecycle-and-migration.md",
+      "source_anchor": "Preserve compliant repository-specific behavior",
+      "positive_case": "compatible-consumer-preserved",
+      "entrypoint_route": "For an existing skill (including refactor, split, migration, rename, model upgrade, or deprecation), consult references/lifecycle-and-migration.md before any change"
+    },
+    {
+      "id": "observed-maintenance",
+      "disposition": "PRESERVE",
+      "target_path": "references/lifecycle-and-migration.md",
+      "target_anchor": "Inspect representative runs",
+      "negative_case": "unobserved_speedup",
+      "verification": "test_skill_refactor_preservation::test_structural_green_does_not_claim_model_equivalence",
+      "source_path": "references/lifecycle-and-migration.md",
+      "source_anchor": "Inspect representative runs",
+      "positive_case": "observed-route-result",
+      "pre_load_trigger": "For an existing skill",
+      "entrypoint_route": "For an existing skill (including refactor, split, migration, rename, model upgrade, or deprecation), consult references/lifecycle-and-migration.md before any change"
+    },
+    {
+      "id": "deprecation-boundary",
+      "disposition": "PRESERVE",
+      "target_path": "references/lifecycle-and-migration.md",
+      "target_anchor": "A split, rename, or removal identifies",
+      "negative_case": "parallel_current_owner",
+      "verification": "test_skill_refactor_preservation::test_independent_profiles_not_forcibly_merged",
+      "source_path": "references/lifecycle-and-migration.md",
+      "source_anchor": "notice window, and removal condition",
+      "positive_case": "deprecation-with-notice",
+      "pre_load_trigger": "For an existing skill",
+      "entrypoint_route": "For an existing skill (including refactor, split, migration, rename, model upgrade, or deprecation), consult references/lifecycle-and-migration.md before any change"
+    },
+    {
+      "id": "version-change-alone-no-rewrite",
+      "disposition": "PRESERVE",
+      "target_path": "references/lifecycle-and-migration.md",
+      "target_anchor": "Require a material normative change before rewriting a useful existing adoption",
+      "negative_case": "regenerate_on_version_only",
+      "verification": "test_skill_refactor_preservation::test_pilot_version_only_regeneration_rule_is_authenticated",
+      "source_path": "references/lifecycle-and-migration.md",
+      "source_anchor": "A version change alone does not justify a rewrite.",
+      "positive_case": "normative_delta_required_before_rewrite",
+      "pre_load_trigger": "For an existing skill",
+      "entrypoint_route": "For an existing skill (including refactor, split, migration, rename, model upgrade, or deprecation), consult references/lifecycle-and-migration.md before any change",
+      "pre_load_path": "SKILL.md"
+    }
+  ],
+  "baseline_sha256": "sha256:112a66d6b0b5c0e8261ad94a7bf3deb26af78b1ac876a34afb8292d15c1da8f4",
+  "candidate_files": {
+    "SKILL.md": "42ca23c9b92381897e55b9f5ef159fd4b6f90ab3",
+    "STANDARD.md": "5d0b94a8b04e673596757b1e723bfa663862044a",
+    "manifest.yaml": "47a7d1880c2c9f929bf6ec0a508e624437fa8c34",
+    "references/admission-and-scope.md": "2f97350f543b0e99292a9a714bff219dbe9affda",
+    "references/behavioral-evaluation.md": "d1f079059f015a0c67d91b7ef9d8dc4f34f7f059",
+    "references/lifecycle-and-migration.md": "5e6144c3c7c5edb85d69e911a36f367e4d8a50ce",
+    "references/portability-and-trust.md": "79008594d4527004175faf2c6221af27787b7dff",
+    "references/resources-and-composition.md": "95bf1a9a0ca4867a4a5b35bbfa1761ca47509e46",
+    "references/routing-and-context.md": "d987a280f3f5aaeca4e037c4c3ef2ec5e50649a2",
+    "references/upstream-agent-skills-compatibility.md": "fecd8359806f991e555dcaf71b33ec9a3e73f459"
+  },
+  "baseline_source_tree_sha": "7dc12c94da13c88ddf4eb7371ab106563d7f450e",
+  "baseline_source_blobs": {
+    "SKILL.md": "6b5c463800d28b6aa927921359a68820d78fecf5",
+    "references/lifecycle-and-migration.md": "d4b57d923f825a338421b0e29216909627176d92"
+  }
+}
