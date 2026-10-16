@@ -325,7 +325,21 @@ def _retained_pre_action(line: str, anchor: str, kind: str) -> bool:
 def _mandatory_owner_instruction(line: str, anchor: str) -> bool:
     """A critical owner anchor must start an affirmative, mandatory instruction."""
     normalized = re.sub(r"^\s*(?:[-*+]|\d+\.)\s+", "", line).lstrip()
-    if _has_negated_or_delayed_route(normalized):
+    # Scope a prohibition to the imperative clause. Later comma-separated
+    # observations (e.g. references "never opened") are evidence, not a
+    # reversal of the leading action.
+    clauses = re.split(r"[,;]\s*", normalized)
+    if _has_negated_or_delayed_route(clauses[0]):
+        return False
+    if any(
+        re.match(
+            r"\s*(?:(?:but|however|instead|except)\s+)?"
+            r"(?:do\s+not|never|not|skip|ignore|disregard|bypass|waive|omit|forbid|prohibit)\b",
+            clause,
+            re.IGNORECASE,
+        )
+        for clause in clauses[1:]
+    ):
         return False
     if re.search(
         r"\b(?:optional|optionally|may|might|could|can|should|suggested|recommended|"
