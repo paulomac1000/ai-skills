@@ -36,6 +36,42 @@ def test_pep503_locked_name_cannot_be_downgraded_to_unmanaged():
     assert unmanaged == []
 
 
+def test_unmanaged_host_report_cannot_hide_missing_locked_package():
+    lock = "filelock==3.32.0\npackaging==26.2\n"
+    report = (
+        "pipx 1.0 requires filelock, which is not installed.\n"
+        "some-tool 2.0 requires packaging>=27, which is not installed.\n"
+        "other-host-tool 4.0 requires unpinned-lib, which is not installed.\n"
+    )
+    blocking, unmanaged = mod.classify_pip_check(report, lock)
+    assert len(blocking) == 2
+    assert len(unmanaged) == 1
+    assert "unpinned-lib" in unmanaged[0]
+
+
+def test_verify_only_blocks_missing_locked_package_from_unmanaged_host(tmp_path, monkeypatch):
+    import subprocess
+
+    import pytest
+
+    lock = tmp_path / "selected.lock"
+    lock.write_text("filelock==3.32.0\n", encoding="utf-8")
+    monkeypatch.setattr(mod, "selected_lock", lambda: lock)
+
+    def run(command, **kwargs):
+        assert command[-2:] == ["pip", "check"]
+        return subprocess.CompletedProcess(
+            command,
+            1,
+            stdout="pipx 1.0 requires filelock, which is not installed.\n",
+            stderr="",
+        )
+
+    monkeypatch.setattr(mod.subprocess, "run", run)
+    with pytest.raises(subprocess.CalledProcessError):
+        mod.main(verify_only=True)
+
+
 def test_locked_distribution_conflicts_remain_fatal():
     lock = "mcp==2.2.0\nfilelock==3.32.0\n"
     report = "mcp 2.2.0 has requirement filelock>=4, but you have filelock 3.32.0.\n"

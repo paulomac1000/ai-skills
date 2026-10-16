@@ -31,7 +31,14 @@ def classify_pip_check(report: str, lock_text: str) -> tuple[list[str], list[str
         if not message or message == "No broken requirements found.":
             continue
         match = re.fullmatch(r"([A-Za-z0-9_.-]+)\s+\S+\s+(?:has requirement|requires)\s+.+", message)
-        if match is None:
+        missing = re.search(
+            r"\b(?:requires|has requirement)\s+([A-Za-z0-9_.-]+).*\bwhich is not installed\.\s*$",
+            message,
+            re.IGNORECASE,
+        )
+        if missing is not None and re.sub(r"[-_.]+", "-", missing.group(1)).lower() in pinned:
+            blocking.append(message)
+        elif match is None:
             blocking.append(message)
         elif re.sub(r"[-_.]+", "-", match.group(1)).lower() in pinned:
             blocking.append(message)
