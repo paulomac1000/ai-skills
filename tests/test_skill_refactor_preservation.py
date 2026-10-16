@@ -1150,7 +1150,10 @@ def test_indented_markdown_continuation_cannot_hide_qualifiers(tmp_path):
 def test_existing_skill_lifecycle_route_covers_all_owned_operations():
     root = Path(__file__).resolve().parents[1]
     text = (root / "skills/skill-architect/SKILL.md").read_text()
-    line = next(line for line in text.splitlines() if line.startswith("10. For an existing skill"))
+    steps = text.splitlines()
+    line = next(line for line in steps if line.startswith("2. For an existing skill"))
+    assert "before any change" in line
+    assert steps.index(line) < next(i for i, step in enumerate(steps) if step.startswith("9. Add routing"))
     for change in ("refactor", "split", "migration", "rename", "model upgrade", "deprecation"):
         assert change in line
     assert "consult references/lifecycle-and-migration.md" in line
