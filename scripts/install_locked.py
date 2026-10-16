@@ -40,13 +40,14 @@ def classify_pip_check(report: str, lock_text: str) -> tuple[list[str], list[str
     return blocking, unmanaged
 
 
-def main() -> int:
+def main(*, verify_only: bool = False) -> int:
     lock = selected_lock()
-    subprocess.run(
-        [sys.executable, "-m", "pip", "install", "--require-hashes", "-r", str(lock)],
-        check=True,
-        timeout=900,
-    )
+    if not verify_only:
+        subprocess.run(
+            [sys.executable, "-m", "pip", "install", "--require-hashes", "-r", str(lock)],
+            check=True,
+            timeout=900,
+        )
     outcome = subprocess.run(
         [sys.executable, "-m", "pip", "check"],
         capture_output=True,
@@ -70,4 +71,6 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    if sys.argv[1:] not in ([], ["--verify-only"]):
+        raise SystemExit(2)
+    raise SystemExit(main(verify_only=bool(sys.argv[1:])))

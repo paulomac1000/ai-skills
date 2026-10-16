@@ -16,6 +16,8 @@
 
 - Dependency-lock installation treats unexpected `pip check` stderr and canonicalized locked-distribution conflicts as blocking verification errors, rather than downgrading them to unmanaged host-package conflicts.
 
+- Pin the version-only no-rewrite safeguard in the reviewed inventory; reject higher-authority contradictions and reuse lock verification for the complete CI gate.
+
 ### Known limitations
 
 - A structural PASS verifies only pinned normative ownership and entrypoint routes; it does not verify repository eval-corpus revisions (`NOT_VERIFIED`) or model-backed behavioral equivalence (`BEHAVIOR_NOT_VERIFIED`). Run those evidence lanes separately.

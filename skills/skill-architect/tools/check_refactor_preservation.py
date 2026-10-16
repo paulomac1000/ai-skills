@@ -27,7 +27,7 @@ TRUSTED_BASELINE_INVENTORIES = {
     (
         "5c656ac0602e35f51cb0ba9b576f8e5af10a54ba",
         "skills/skill-architect",
-    ): "sha256:bc59f4944753676baf7c3d32b3ff1a518ffd160b6ac051aaa06c207f44f69219",
+    ): "sha256:112a66d6b0b5c0e8261ad94a7bf3deb26af78b1ac876a34afb8292d15c1da8f4",
 }
 
 
@@ -51,6 +51,10 @@ TRUSTED_BASELINE_SOURCE_ANCHORS = {
             "references/lifecycle-and-migration.md",
             "notice window, and removal condition",
         ),
+        "version-change-alone-no-rewrite": (
+            "references/lifecycle-and-migration.md",
+            "A version change alone does not justify a rewrite.",
+        ),
     }
 }
 
@@ -72,6 +76,10 @@ TRUSTED_CANDIDATE_TARGETS = {
         "deprecation-boundary": (
             "references/lifecycle-and-migration.md",
             "A split, rename, or removal identifies",
+        ),
+        "version-change-alone-no-rewrite": (
+            "references/lifecycle-and-migration.md",
+            "Require a material normative change before rewriting a useful existing adoption",
         ),
     }
 }
@@ -435,7 +443,7 @@ def _mandatory_owner_instruction(line: str, anchor: str) -> bool:
 def _contradicts_owner(text: str, anchor: str) -> bool:
     """Detect a second operative instruction that reverses a reviewed owner."""
     for sentence in text.splitlines():
-        position = sentence.find(anchor)
+        position = sentence.casefold().find(anchor.casefold())
         if position < 0:
             continue
         before = sentence[:position]
@@ -838,6 +846,10 @@ def assess(
                 owner_text = operative_skill if rel == "SKILL.md" else _operative_skill_text(candidate_verified[rel])
                 if _contradicts_owner(owner_text, required_anchor):
                     findings.append("contradictory_owner_rule:" + rule_id[:128])
+                if rel != "STANDARD.md" and "STANDARD.md" in candidate_verified:
+                    standard_text = _operative_skill_text(candidate_verified["STANDARD.md"])
+                    if _contradicts_owner(standard_text, required_anchor):
+                        findings.append("higher_authority_contradiction:" + rule_id[:128])
                 critical = kind in {"trigger", "authority", "safety_stop", "precedence"}
                 if not any(
                     _mandatory_owner_instruction(line, required_anchor)

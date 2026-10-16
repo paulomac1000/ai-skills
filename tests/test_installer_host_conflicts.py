@@ -88,6 +88,29 @@ def test_main_accepts_only_unmanaged_conflict_when_stderr_empty(tmp_path, monkey
     assert mod.main() == 0
 
 
+def test_verify_only_reuses_host_conflict_classification(tmp_path, monkeypatch):
+    import subprocess
+
+    lock = tmp_path / "selected.lock"
+    lock.write_text("filelock==3.32.0\n", encoding="utf-8")
+    monkeypatch.setattr(mod, "selected_lock", lambda: lock)
+    commands = []
+
+    def run(command, **kwargs):
+        commands.append(command)
+        assert "install" not in command
+        return subprocess.CompletedProcess(
+            command, 1,
+            stdout="pipx 1.17.12 requires filelock>=4, but you have filelock 3.32.0.\n",
+            stderr="",
+        )
+
+    monkeypatch.setattr(mod.subprocess, "run", run)
+    assert mod.main(verify_only=True) == 0
+    assert len(commands) == 1
+    assert commands[0][-2:] == ["pip", "check"]
+
+
 def test_unknown_failure_or_unpinned_lock_fails_closed():
     assert mod.classify_pip_check("unexpected resolver failure", "mcp==2.2.0")[0]
     assert mod.classify_pip_check("pipx 1.0 requires x>=2, but you have x 1", "")[0]

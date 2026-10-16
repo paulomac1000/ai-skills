@@ -120,6 +120,14 @@ def test_security_branch_coverage_fails_closed_for_malformed_report(report, mess
         ci._branch_coverage_percentage(report, "contracts/example.py")
 
 
+def test_local_ci_uses_shared_lock_validation_command() -> None:
+    ci = load(ROOT / "scripts/ci.py", "local_ci_pip_check_contract")
+    import inspect
+
+    source = inspect.getsource(ci.main)
+    assert 'run(sys.executable, "scripts/install_locked.py", "--verify-only")' in source
+
+
 def test_local_ci_run_wrapper_is_bounded_and_environment_isolated(monkeypatch) -> None:
     ci = load(ROOT / "scripts/ci.py", "local_ci_run_contract")
     observed: dict[str, object] = {}
