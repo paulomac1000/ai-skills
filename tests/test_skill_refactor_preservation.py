@@ -16,8 +16,18 @@ def assess(baseline, ledger, path, *, baseline_tree=None):
     review_pin = "sha256:" + hashlib.sha256(
         json.dumps(baseline, sort_keys=True, separators=(",", ":")).encode()
     ).hexdigest()
+    # Test harness approves source identity explicitly. Production gets its
+    # source identity from the audited code registry, never the ledger.
+    approved_sources = {
+        entry["id"]: (entry["source_path"], entry["source_anchor"])
+        for entry in ledger.get("decisions", [])
+        if isinstance(entry, dict) and all(key in entry for key in ("id", "source_path", "source_anchor"))
+    }
     return mod.assess(
-        baseline, ledger, path, baseline_tree=baseline_tree or path, trusted_baseline_sha256=review_pin
+        baseline, ledger, path,
+        baseline_tree=baseline_tree or path,
+        trusted_baseline_sha256=review_pin,
+        trusted_source_anchors=approved_sources,
     )
 
 
@@ -1046,6 +1056,38 @@ def test_production_pilot_inventory_pin_matches_reviewed_baseline():
     assert mod.TRUSTED_BASELINE_INVENTORIES[
         (baseline["revision"], "skills/skill-architect")
     ] == expected
+
+
+def test_repointed_source_anchor_cannot_impersonate_reviewed_rule(tmp_path):
+    path, baseline, ledger, decision = case(tmp_path)
+    approved_digest = "sha256:" + hashlib.sha256(mod._canonical_json(baseline)).hexdigest()
+    altered = dict(
+        decision, source_anchor="retain rollback evidence", target_anchor="retain rollback evidence"
+    )
+    ledger["decisions"] = [altered]
+    result = mod.assess(
+        baseline, ledger, path,
+        baseline_tree=path,
+        trusted_baseline_sha256=approved_digest,
+        trusted_source_anchors={"auth": ("STANDARD.md", "Require policy authorization")},
+    )
+    assert "baseline_source_identity_untrusted:auth" in result["findings"]
+
+
+def test_production_pilot_pins_each_reviewed_source_anchor():
+    root = Path(__file__).resolve().parents[1]
+    base = json.loads(
+        (root / "evals/skills/skill-architect/refactor-pilot-baseline.json").read_text()
+    )
+    ledger = json.loads(
+        (root / "evals/skills/skill-architect/refactor-pilot-ledger.json").read_text()
+    )
+    key = (base["revision"], "skills/skill-architect")
+    reviewed = mod.TRUSTED_BASELINE_SOURCE_ANCHORS[key]
+    assert reviewed == {
+        entry["id"]: (entry["source_path"], entry["source_anchor"])
+        for entry in ledger["decisions"]
+    }
 
 
 def test_positive_route_grammar_covers_read_consult_and_arrow():
