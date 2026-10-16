@@ -234,10 +234,19 @@ def _verify_baseline_git_revision(
             return ["baseline_git_commit_mismatch"]
         if resolve(revision + "^{commit}") != revision:
             return ["baseline_git_commit_mismatch"]
-        # A valid object hash is not a history trust boundary: reject detached
-        # objects unrelated to the checked-out, reviewed revision.
+        # HEAD is candidate-controlled and cannot authenticate the baseline.
+        # The operator/CI must fetch the trusted remote main ref beforehand.
+        # A PR-only ancestor of HEAD is not accepted as reviewed history.
         ancestry = subprocess.run(
-            [git_executable, "-C", str(trusted_root), "merge-base", "--is-ancestor", revision, "HEAD"],
+            [
+                git_executable,
+                "-C",
+                str(trusted_root),
+                "merge-base",
+                "--is-ancestor",
+                revision,
+                "refs/remotes/origin/main",
+            ],
             check=False,
             capture_output=True,
             timeout=10,
