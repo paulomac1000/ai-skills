@@ -1,6 +1,6 @@
 # Changelog
 
-## 3.26.0 - 2026-10-16
+## 3.26.0 - Unreleased
 
 ### Added
 

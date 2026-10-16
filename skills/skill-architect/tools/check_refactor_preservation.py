@@ -323,7 +323,23 @@ def _mandatory_owner_instruction(line: str, anchor: str) -> bool:
         re.IGNORECASE,
     ):
         return False
-    return bool(re.match(re.escape(anchor) + r"\b", normalized))
+    if not re.match(re.escape(anchor) + r"\b", normalized):
+        return False
+    # Passive or historical negation can disable an apparently imperative
+    # anchor. Prefer rejecting unsupported semantic qualifiers to false PASS.
+    suffix = normalized[len(anchor) :]
+    if re.search(
+        r"\b(?:prohibited|forbidden|disallowed|disabled|revoked|deprecated|"
+        r"waived|unnecessary|not\s+required|no\s+longer\s+required)\b",
+        suffix,
+        re.IGNORECASE,
+    ):
+        return False
+    if re.match(r"\s+(?:is|was|are|were|becomes|became)\s+", suffix, re.IGNORECASE):
+        # An anchor asserting that something 'is ...' is descriptive rather
+        # than an imperative; explicit rewrites are required for acceptance.
+        return False
+    return True
 
 
 def _positive_entrypoint_route(route: str, owner: str, *, require_pre_action: bool = False) -> bool:

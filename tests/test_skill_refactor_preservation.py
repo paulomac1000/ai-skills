@@ -898,6 +898,22 @@ def test_windows_junction_cannot_escape_attested_root(tmp_path, monkeypatch):
         mod._read_attested_regular_file(root, "references/owner.md")
 
 
+def test_owner_anchor_rejects_passive_or_inflected_prohibitions(tmp_path):
+    path, baseline, ledger, decision = case(tmp_path, kind="authority")
+    for line in (
+        "Require policy authorization is prohibited",
+        "Require policy authorization is forbidden",
+        "Require policy authorization was disallowed",
+        "Require policy authorization is revoked",
+        "Require policy authorization is no longer required",
+        "Require policy authorization is optional",
+    ):
+        (path / "STANDARD.md").write_text(line)
+        ledger["candidate_files"]["STANDARD.md"] = mod._git_blob_sha((path / "STANDARD.md").read_bytes())
+        result = assess(baseline, ledger, path)
+        assert "critical_owner_rule_negated:auth" in result["findings"], line
+
+
 def test_positive_route_grammar_covers_read_consult_and_arrow():
     assert mod._positive_entrypoint_route("read STANDARD.md", "STANDARD.md")
     assert mod._positive_entrypoint_route(
