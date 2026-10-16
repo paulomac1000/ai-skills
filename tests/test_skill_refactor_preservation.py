@@ -26,7 +26,7 @@ def case(tmp_path, kind='authority'):
     decision = {'id': 'auth', 'disposition': 'MOVE', 'target_path': 'STANDARD.md', 'target_anchor': 'Require policy authorization', 'negative_case': 'unauthorized_call', 'verification': 'negative-test', 'pre_load_path': 'SKILL.md', 'pre_load_trigger': 'Trigger when destructive action'}
     def blob(path):
         raw = (skill / path).read_bytes()
-        return hashlib.sha1(b"blob " + str(len(raw)).encode() + b"\0" + raw).hexdigest()
+        return mod._git_blob_sha(raw)
 
     decision['entrypoint_route'] = 'Trigger when destructive action requested; read STANDARD.md'
     decision['source_path'] = 'STANDARD.md'
@@ -960,6 +960,33 @@ def test_unreachable_baseline_git_commit_rejected_when_object_exists(monkeypatch
     monkeypatch.setattr(mod.subprocess, "run", blocked_ancestry)
     actual = mod._verify_baseline_git_revision(baseline, ledger, root / "skills/skill-architect")
     assert actual == ["baseline_git_revision_untrusted"]
+
+
+def test_wrapped_owner_negation_and_entrypoint_skip_fail_closed(tmp_path):
+    path, baseline, ledger, decision = case(tmp_path)
+    (path / "STANDARD.md").write_text("Require policy authorization\nis prohibited.")
+    ledger["candidate_files"]["STANDARD.md"] = mod._git_blob_sha((path / "STANDARD.md").read_bytes())
+    assert "critical_owner_rule_negated:auth" in assess(baseline, ledger, path)["findings"]
+    (path / "STANDARD.md").write_text("Require policy authorization; retain rollback evidence")
+    ledger["candidate_files"]["STANDARD.md"] = mod._git_blob_sha((path / "STANDARD.md").read_bytes())
+    route = decision["entrypoint_route"]
+    for text in (
+        route + " before action\nbut skip it for small edits.",
+        "Do not apply:\n" + route + " before action",
+    ):
+        (path / "SKILL.md").write_text(text)
+        ledger["candidate_files"]["SKILL.md"] = mod._git_blob_sha((path / "SKILL.md").read_bytes())
+        assert "owner_route_unreachable:auth" in assess(baseline, ledger, path)["findings"]
+
+
+def test_logical_lines_keep_independent_list_items_separate():
+    assert mod._logical_lines("- read STANDARD.md before action\n- preserve rollback") == [
+        "- read STANDARD.md before action",
+        "- preserve rollback",
+    ]
+    assert mod._logical_lines("Require policy authorization\nis prohibited.") == [
+        "Require policy authorization is prohibited."
+    ]
 
 
 def test_positive_route_grammar_covers_read_consult_and_arrow():
