@@ -20,6 +20,14 @@ MATERIAL = {"trigger", "authority", "safety_stop", "exception", "recovery", "com
 DISPOSITIONS = {"PRESERVE", "MOVE", "DEDUPLICATE", "REPLACE_BY_CANONICAL_OWNER", "REMOVE_WITH_REASON"}
 SHA40 = re.compile(r"^[0-9a-f]{40}$")
 
+# Independently reviewed baseline inventory authority, never read from a
+# candidate-controlled ledger. New skill/revision pairs need a reviewed
+# registry update before a production structural PASS is possible.
+TRUSTED_BASELINE_INVENTORIES = {
+    ("5c656ac0602e35f51cb0ba9b576f8e5af10a54ba", "skills/skill-architect"):
+        "sha256:bc59f4944753676baf7c3d32b3ff1a518ffd160b6ac051aaa06c207f44f69219",
+}
+
 
 def _contains_symlink(root: Path, relative: str) -> bool:
     """Reject any symlink component, even one resolving back inside the skill."""
@@ -352,7 +360,7 @@ def _mandatory_owner_instruction(line: str, anchor: str) -> bool:
         return False
     if re.search(
         r"\b(?:optional|optionally|may|might|could|can|should|suggested|recommended|"
-        r"discretionary|unless|when convenient)\b",
+        r"discretionary|unless|except|excepting|save\s+for|when convenient)\b",
         normalized,
         re.IGNORECASE,
     ):
@@ -507,12 +515,29 @@ def _operative_skill_text(content: bytes) -> str:
 
 
 def assess(
-    baseline: dict[str, Any], ledger: dict[str, Any], candidate: Path, *, baseline_tree: Path | None = None
+    baseline: dict[str, Any],
+    ledger: dict[str, Any],
+    candidate: Path,
+    *,
+    baseline_tree: Path | None = None,
+    trusted_baseline_sha256: str | None = None,
 ) -> dict[str, Any]:
     """Verify original source mapping and exact candidate documents, not model equivalence."""
     candidate_verified: dict[str, bytes] = {}
     baseline_verified: dict[str, bytes] = {}
     findings: list[str] = _content_bindings(baseline, ledger, candidate, candidate_verified)
+    digest = "sha256:" + hashlib.sha256(_canonical_json(baseline)).hexdigest()
+    if trusted_baseline_sha256 is None:
+        try:
+            key = (
+                baseline.get("revision"),
+                candidate.resolve().relative_to(Path(__file__).resolve().parents[3]).as_posix(),
+            )
+            trusted_baseline_sha256 = TRUSTED_BASELINE_INVENTORIES.get(key)
+        except (ValueError, RuntimeError):
+            trusted_baseline_sha256 = None
+    if trusted_baseline_sha256 != digest:
+        findings.append("baseline_behavior_inventory_untrusted")
     operative_skill = _operative_skill_text(candidate_verified["SKILL.md"]) if "SKILL.md" in candidate_verified else ""
     candidate_files = ledger.get("candidate_files")
     if not isinstance(candidate_files, dict):

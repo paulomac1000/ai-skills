@@ -11,7 +11,14 @@ mod = importlib.util.module_from_spec(spec)
 sys.modules[spec.name] = mod
 spec.loader.exec_module(mod)
 def assess(baseline, ledger, path, *, baseline_tree=None):
-    return mod.assess(baseline, ledger, path, baseline_tree=baseline_tree or path)
+    # Synthetic case() owns this pin; the production CLI uses only the
+    # independent trusted inventory registry, not ledger/baseline self-hashes.
+    review_pin = "sha256:" + hashlib.sha256(
+        json.dumps(baseline, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    return mod.assess(
+        baseline, ledger, path, baseline_tree=baseline_tree or path, trusted_baseline_sha256=review_pin
+    )
 
 
 def case(tmp_path, kind='authority'):
@@ -1000,6 +1007,45 @@ def test_observed_absent_references_do_not_negate_inspection():
         "Inspect representative runs, but never inspect them",
         "Inspect representative runs",
     )
+
+
+def test_exception_qualified_critical_owner_fails_closed(tmp_path):
+    path, baseline, ledger, _ = case(tmp_path, kind="authority")
+    for weakening in (
+        "Require policy authorization except in production",
+        "Require policy authorization, except for small edits",
+        "Require policy authorization save for emergency",
+    ):
+        (path / "STANDARD.md").write_text(weakening)
+        ledger["candidate_files"]["STANDARD.md"] = mod._git_blob_sha((path / "STANDARD.md").read_bytes())
+        assert "critical_owner_rule_negated:auth" in assess(baseline, ledger, path)["findings"]
+
+
+def test_baseline_inventory_cannot_self_authorize_by_rehash(tmp_path):
+    path, baseline, ledger, _ = case(tmp_path)
+    approved = "sha256:" + hashlib.sha256(mod._canonical_json(baseline)).hexdigest()
+    assert mod.assess(
+        baseline, ledger, path, baseline_tree=path, trusted_baseline_sha256=approved
+    )["structural"] == "PASS"
+    bad = {**baseline, "required_behaviors": [{"id": "unreviewed", "kind": "recovery"}]}
+    revised_ledger = {
+        **ledger, "baseline_sha256": "sha256:" + hashlib.sha256(mod._canonical_json(bad)).hexdigest()
+    }
+    result = mod.assess(
+        bad, revised_ledger, path, baseline_tree=path, trusted_baseline_sha256=approved
+    )
+    assert "baseline_behavior_inventory_untrusted" in result["findings"]
+
+
+def test_production_pilot_inventory_pin_matches_reviewed_baseline():
+    root = Path(__file__).resolve().parents[1]
+    baseline = json.loads(
+        (root / "evals/skills/skill-architect/refactor-pilot-baseline.json").read_text()
+    )
+    expected = "sha256:" + hashlib.sha256(mod._canonical_json(baseline)).hexdigest()
+    assert mod.TRUSTED_BASELINE_INVENTORIES[
+        (baseline["revision"], "skills/skill-architect")
+    ] == expected
 
 
 def test_positive_route_grammar_covers_read_consult_and_arrow():
