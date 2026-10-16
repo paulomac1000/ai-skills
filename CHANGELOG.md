@@ -21,7 +21,7 @@
 
 - Hardened the skill refactor route audit against delayed and optional loads, wrapped Markdown negations, noncritical negated safeguards, owner-path suffix spoofing, unrelated deadlines, and hidden route qualifiers; pinned the independently reviewed baseline inventory and exact source-anchor identities; authenticated system-owned Git paths and explicitly labeled unverified candidate versions.
 
-- Dependency-lock installation treats unexpected `pip check` stderr and canonicalized locked-distribution conflicts as blocking verification errors, rather than downgrading them to unmanaged host-package conflicts.
+- Dependency-lock installation treats unexpected `pip check` stderr, canonicalized locked-distribution conflicts, and missing lock-pinned packages reported by unmanaged host tools as blocking verification errors.
 
 - Pin the version-only no-rewrite safeguard in the reviewed inventory; preload lifecycle guidance as workflow step 2 before editing any existing skill; distinguish missing Git main-ref infrastructure from untrusted history or structural preservation failures; reject higher-authority contradictions and reuse lock verification for the complete CI gate.
 
