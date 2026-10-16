@@ -55,6 +55,28 @@ TRUSTED_BASELINE_SOURCE_ANCHORS = {
 }
 
 
+# Canonical candidate identity maps receive the same independent code review
+# as historical source and behavior pins. Ledger edits alone cannot remap
+# a verified baseline behavior to unrelated or reversed target instructions.
+TRUSTED_CANDIDATE_TARGETS = {
+    ("5c656ac0602e35f51cb0ba9b576f8e5af10a54ba", "skills/skill-architect"): {
+        "existing-skill-route": ("SKILL.md", "For an existing skill"),
+        "migration-compatibility": (
+            "references/lifecycle-and-migration.md",
+            "Keep compliant consumer-specific behavior",
+        ),
+        "observed-maintenance": (
+            "references/lifecycle-and-migration.md",
+            "Inspect representative runs",
+        ),
+        "deprecation-boundary": (
+            "references/lifecycle-and-migration.md",
+            "A split, rename, or removal identifies",
+        ),
+    }
+}
+
+
 def _contains_symlink(root: Path, relative: str) -> bool:
     """Reject any symlink component, even one resolving back inside the skill."""
     at = root
@@ -410,6 +432,30 @@ def _mandatory_owner_instruction(line: str, anchor: str) -> bool:
     return True
 
 
+def _contradicts_owner(text: str, anchor: str) -> bool:
+    """Detect a second operative instruction that reverses a reviewed owner."""
+    for sentence in _logical_lines(text):
+        position = sentence.find(anchor)
+        if position < 0:
+            continue
+        before = sentence[:position]
+        after = sentence[position + len(anchor) :]
+        if re.search(
+            r"\b(?:do\s+not|never|not|ignore|disregard|skip|bypass|omit|waive|"
+            r"forbid|prohibit|disable|remove|delete)\b",
+            before,
+            re.IGNORECASE,
+        ):
+            return True
+        if re.match(
+            r"\s+(?:is|are|was|were)\s+(?:prohibited|forbidden|disallowed|disabled|waived)\b",
+            after,
+            re.IGNORECASE,
+        ):
+            return True
+    return False
+
+
 def _positive_entrypoint_route(route: str, owner: str, *, require_pre_action: bool = False) -> bool:
     """Accept only a local affirmative instruction leading to the declared owner.
 
@@ -551,6 +597,7 @@ def assess(
     baseline_tree: Path | None = None,
     trusted_baseline_sha256: str | None = None,
     trusted_source_anchors: dict[str, tuple[str, str]] | None = None,
+    trusted_target_mappings: dict[str, tuple[str, str]] | None = None,
 ) -> dict[str, Any]:
     """Verify original source mapping and exact candidate documents, not model equivalence."""
     candidate_verified: dict[str, bytes] = {}
@@ -577,6 +624,15 @@ def assess(
             trusted_source_anchors = TRUSTED_BASELINE_SOURCE_ANCHORS.get(source_key)
         except (ValueError, RuntimeError):
             trusted_source_anchors = None
+    if trusted_target_mappings is None:
+        try:
+            target_key = (
+                baseline.get("revision"),
+                candidate.resolve().relative_to(Path(__file__).resolve().parents[3]).as_posix(),
+            )
+            trusted_target_mappings = TRUSTED_CANDIDATE_TARGETS.get(target_key)
+        except (ValueError, RuntimeError):
+            trusted_target_mappings = None
     operative_skill = _operative_skill_text(candidate_verified["SKILL.md"]) if "SKILL.md" in candidate_verified else ""
     candidate_files = ledger.get("candidate_files")
     if not isinstance(candidate_files, dict):
@@ -629,6 +685,9 @@ def assess(
     if trusted_source_anchors is None or set(trusted_source_anchors) != expected_ids:
         findings.append("baseline_source_identity_inventory_untrusted")
         trusted_source_anchors = {}
+    if trusted_target_mappings is None or set(trusted_target_mappings) != expected_ids:
+        findings.append("candidate_target_inventory_untrusted")
+        trusted_target_mappings = {}
     by_id: dict[str, dict[str, Any]] = {}
     for entry in decisions:
         if not isinstance(entry, dict) or not isinstance(entry.get("id"), str) or not 1 <= len(entry["id"]) <= 128:
@@ -752,6 +811,8 @@ def assess(
                 ):
                     findings.append("critical_entrypoint_not_affirmative:" + rule_id[:128])
             required_anchor = decision.get("target_anchor")
+            if (rel, required_anchor) != trusted_target_mappings.get(rule_id):
+                findings.append("candidate_target_mapping_untrusted:" + rule_id[:128])
             if not isinstance(required_anchor, str) or not required_anchor:
                 findings.append("missing_target_anchor:" + rule_id)
             elif rel not in candidate_verified:
@@ -761,6 +822,11 @@ def assess(
             ):
                 findings.append("anchor_not_present:" + rule_id)
             elif kind in MATERIAL:
+                owner_text = (
+                    operative_skill if rel == "SKILL.md" else _operative_skill_text(candidate_verified[rel])
+                )
+                if _contradicts_owner(owner_text, required_anchor):
+                    findings.append("contradictory_owner_rule:" + rule_id[:128])
                 critical = kind in {"trigger", "authority", "safety_stop", "precedence"}
                 if not any(
                     _mandatory_owner_instruction(line, required_anchor)

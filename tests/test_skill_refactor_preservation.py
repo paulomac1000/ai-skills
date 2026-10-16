@@ -23,11 +23,17 @@ def assess(baseline, ledger, path, *, baseline_tree=None):
         for entry in ledger.get("decisions", [])
         if isinstance(entry, dict) and all(key in entry for key in ("id", "source_path", "source_anchor"))
     }
+    approved_targets = {
+        entry["id"]: (entry["target_path"], entry["target_anchor"])
+        for entry in ledger.get("decisions", [])
+        if isinstance(entry, dict) and all(key in entry for key in ("id", "target_path", "target_anchor"))
+    }
     return mod.assess(
         baseline, ledger, path,
         baseline_tree=baseline_tree or path,
         trusted_baseline_sha256=review_pin,
         trusted_source_anchors=approved_sources,
+        trusted_target_mappings=approved_targets,
     )
 
 
@@ -1064,6 +1070,7 @@ def test_baseline_inventory_cannot_self_authorize_by_rehash(tmp_path):
         baseline, ledger, path, baseline_tree=path,
         trusted_baseline_sha256=approved,
         trusted_source_anchors={"auth": ("STANDARD.md", "Require policy authorization")},
+        trusted_target_mappings={"auth": ("STANDARD.md", "Require policy authorization")},
     )["structural"] == "PASS"
     bad = {**baseline, "required_behaviors": [{"id": "unreviewed", "kind": "recovery"}]}
     revised_ledger = {
@@ -1073,6 +1080,7 @@ def test_baseline_inventory_cannot_self_authorize_by_rehash(tmp_path):
         bad, revised_ledger, path, baseline_tree=path,
         trusted_baseline_sha256=approved,
         trusted_source_anchors={"auth": ("STANDARD.md", "Require policy authorization")},
+        trusted_target_mappings={"auth": ("STANDARD.md", "Require policy authorization")},
     )
     assert "baseline_behavior_inventory_untrusted" in result["findings"]
 
@@ -1100,6 +1108,7 @@ def test_repointed_source_anchor_cannot_impersonate_reviewed_rule(tmp_path):
         baseline_tree=path,
         trusted_baseline_sha256=approved_digest,
         trusted_source_anchors={"auth": ("STANDARD.md", "Require policy authorization")},
+        trusted_target_mappings={"auth": ("STANDARD.md", "Require policy authorization")},
     )
     assert "baseline_source_identity_untrusted:auth" in result["findings"]
 
@@ -1141,6 +1150,48 @@ def test_existing_skill_lifecycle_route_covers_all_owned_operations():
     for change in ("refactor", "split", "migration", "rename", "model upgrade", "deprecation"):
         assert change in line
     assert "consult references/lifecycle-and-migration.md" in line
+
+
+def test_candidate_target_cannot_be_rebound_to_reversed_rule(tmp_path):
+    path, baseline, ledger, decision = case(tmp_path)
+    reviewed = {"auth": ("STANDARD.md", "Require policy authorization")}
+    ledger["decisions"] = [
+        dict(decision, target_anchor="Delete policy authorization")
+    ]
+    (path / "STANDARD.md").write_text("Delete policy authorization before operations")
+    ledger["candidate_files"]["STANDARD.md"] = mod._git_blob_sha((path / "STANDARD.md").read_bytes())
+    result = mod.assess(
+        baseline, ledger, path, baseline_tree=path,
+        trusted_baseline_sha256="sha256:" + hashlib.sha256(mod._canonical_json(baseline)).hexdigest(),
+        trusted_source_anchors=reviewed, trusted_target_mappings=reviewed,
+    )
+    assert "candidate_target_mapping_untrusted:auth" in result["findings"]
+
+
+def test_separate_contradictory_owner_instruction_blocks_pass(tmp_path):
+    path, baseline, ledger, decision = case(tmp_path)
+    (path / "STANDARD.md").write_text(
+        "Require policy authorization\n- Ignore Require policy authorization"
+    )
+    ledger["candidate_files"]["STANDARD.md"] = mod._git_blob_sha((path / "STANDARD.md").read_bytes())
+    assert "contradictory_owner_rule:auth" in assess(baseline, ledger, path)["findings"]
+
+
+def test_production_target_identity_matches_reviewed_pilot():
+    root = Path(__file__).resolve().parents[1]
+    baseline = json.loads(
+        (root / "evals/skills/skill-architect/refactor-pilot-baseline.json").read_text()
+    )
+    ledger = json.loads(
+        (root / "evals/skills/skill-architect/refactor-pilot-ledger.json").read_text()
+    )
+    expected = {
+        entry["id"]: (entry["target_path"], entry["target_anchor"])
+        for entry in ledger["decisions"]
+    }
+    assert mod.TRUSTED_CANDIDATE_TARGETS[
+        (baseline["revision"], "skills/skill-architect")
+    ] == expected
 
 
 def test_positive_route_grammar_covers_read_consult_and_arrow():
