@@ -234,6 +234,14 @@ def _verify_baseline_git_revision(
             return ["baseline_git_commit_mismatch"]
         if resolve(revision + "^{commit}") != revision:
             return ["baseline_git_commit_mismatch"]
+        # A valid object hash is not a history trust boundary: reject detached
+        # objects unrelated to the checked-out, reviewed revision.
+        ancestry = subprocess.run(
+            [git_executable, "-C", str(trusted_root), "merge-base", "--is-ancestor", revision, "HEAD"],
+            check=False, capture_output=True, timeout=10, env=git_env,
+        )
+        if ancestry.returncode != 0:
+            return ["baseline_git_revision_untrusted"]
         historical_tree = resolve(revision + ":" + location)
         if historical_tree != expected_tree:
             return ["baseline_git_tree_mismatch"]
@@ -401,6 +409,9 @@ def _content_bindings(
         return findings + ["candidate_files_missing"]
     if len(bindings) > 64:
         return findings + ["candidate_inventory_too_large"]
+    for required in ("SKILL.md", "STANDARD.md", "manifest.yaml"):
+        if required not in bindings:
+            findings.append("required_candidate_document_missing:" + required)
     root = candidate.resolve()
     for rel, expected in bindings.items():
         if (
@@ -432,6 +443,27 @@ def _content_bindings(
     return findings
 
 
+def _operative_skill_text(content: bytes) -> str:
+    """Exclude fenced examples, HTML comments, quotes and indented code."""
+    text = re.sub(r"<!--.*?(?:-->|\Z)", "", content.decode("utf-8"), flags=re.DOTALL)
+    kept: list[str] = []
+    fence = ""
+    for line in text.splitlines():
+        if fence:
+            close = r"^[ ]{0,3}" + re.escape(fence[0]) + "{" + str(len(fence)) + r",}[ \t]*$"
+            if re.match(close, line):
+                fence = ""
+            continue
+        opener = re.match(r"^[ ]{0,3}(`{3,}|~{3,})", line)
+        if opener:
+            fence = opener.group(1)
+            continue
+        if line.startswith(("    ", "\t")) or re.match(r"^[ ]{0,3}>", line):
+            continue
+        kept.append(line)
+    return "\n".join(kept)
+
+
 def assess(
     baseline: dict[str, Any], ledger: dict[str, Any], candidate: Path, *, baseline_tree: Path | None = None
 ) -> dict[str, Any]:
@@ -439,6 +471,9 @@ def assess(
     candidate_verified: dict[str, bytes] = {}
     baseline_verified: dict[str, bytes] = {}
     findings: list[str] = _content_bindings(baseline, ledger, candidate, candidate_verified)
+    operative_skill = (
+        _operative_skill_text(candidate_verified["SKILL.md"]) if "SKILL.md" in candidate_verified else ""
+    )
     candidate_files = ledger.get("candidate_files")
     if not isinstance(candidate_files, dict):
         candidate_files = {}  # The invalid shape was already reported above.
@@ -581,7 +616,7 @@ def assess(
                         _positive_entrypoint_route(match.group(0), rel, require_pre_action=require_pre_action)
                         for match in re.finditer(
                             r"(?m)^[ \t]*(?:[-*+]|\d+\.)?[ \t]*" + re.escape(route) + r"[^\r\n]*",
-                            candidate_verified["SKILL.md"].decode("utf-8"),
+                            operative_skill,
                         )
                     )
                 ):
@@ -602,7 +637,7 @@ def assess(
                         and anchor in line
                         and _mandatory_owner_instruction(line, anchor)
                         and _retained_pre_action(line, anchor, kind)
-                        for line in candidate_verified["SKILL.md"].decode("utf-8").splitlines()
+                        for line in operative_skill.splitlines()
                     )
                 ):
                     findings.append("critical_entrypoint_not_affirmative:" + rule_id[:128])
@@ -611,7 +646,9 @@ def assess(
                 findings.append("missing_target_anchor:" + rule_id)
             elif rel not in candidate_verified:
                 findings.append("target_content_unverified:" + rule_id[:128])
-            elif required_anchor not in candidate_verified[rel].decode("utf-8"):
+            elif required_anchor not in (
+                operative_skill if rel == "SKILL.md" else candidate_verified[rel].decode("utf-8")
+            ):
                 findings.append("anchor_not_present:" + rule_id)
             elif kind in MATERIAL:
                 critical = kind in {"trigger", "authority", "safety_stop", "precedence"}
@@ -622,7 +659,9 @@ def assess(
                         _mandatory_owner_instruction(sentence, required_anchor)
                         for sentence in re.split(r"(?<=[.!?])\s+", line)
                     )
-                    for line in candidate_verified[rel].decode("utf-8").splitlines()
+                    for line in (
+                        operative_skill if rel == "SKILL.md" else candidate_verified[rel].decode("utf-8")
+                    ).splitlines()
                 ):
                     finding = "critical_owner_rule_negated:" if critical else "material_owner_rule_negated:"
                     findings.append(finding + rule_id[:128])
@@ -642,7 +681,9 @@ def assess(
                 else:
                     if pre_load not in candidate_files:
                         findings.append("unbound_preload_route:" + rule_id)
-                    if pre_load not in candidate_verified or marker not in candidate_verified[pre_load].decode("utf-8"):
+                    if pre_load not in candidate_verified or marker not in (
+                        operative_skill if pre_load == "SKILL.md" else candidate_verified[pre_load].decode("utf-8")
+                    ):
                         findings.append("preload_trigger_unreachable:" + rule_id)
     unknown = sorted(set(by_id) - {x.get("id") for x in baseline_rules if isinstance(x, dict)})
     findings.extend("unreviewed_new_rule:" + item for item in unknown)
