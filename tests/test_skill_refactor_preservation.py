@@ -954,6 +954,7 @@ def test_unreachable_baseline_git_commit_rejected_when_object_exists(monkeypatch
 
     def blocked_ancestry(argv, **kwargs):
         if "merge-base" in argv and "--is-ancestor" in argv:
+            assert argv[-1] == "refs/remotes/origin/main"
             return subprocess.CompletedProcess(argv, 1)
         return original(argv, **kwargs)
 
