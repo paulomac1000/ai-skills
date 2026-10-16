@@ -238,7 +238,10 @@ def _verify_baseline_git_revision(
         # objects unrelated to the checked-out, reviewed revision.
         ancestry = subprocess.run(
             [git_executable, "-C", str(trusted_root), "merge-base", "--is-ancestor", revision, "HEAD"],
-            check=False, capture_output=True, timeout=10, env=git_env,
+            check=False,
+            capture_output=True,
+            timeout=10,
+            env=git_env,
         )
         if ancestry.returncode != 0:
             return ["baseline_git_revision_untrusted"]
@@ -443,6 +446,22 @@ def _content_bindings(
     return findings
 
 
+_MARKDOWN_BLOCK_START = re.compile(r"^[ \t]*(?:[-*+]\s+|\d+\.\s+|#{1,6}\s+|\|)")
+
+
+def _logical_lines(text: str) -> list[str]:
+    """Join hard-wrapped Markdown without crossing structural boundaries."""
+    result: list[str] = []
+    for line in text.splitlines():
+        if not line.strip():
+            result.append("")
+        elif result and result[-1] and not _MARKDOWN_BLOCK_START.match(line):
+            result[-1] += " " + line.strip()
+        else:
+            result.append(line)
+    return [line for line in result if line]
+
+
 def _operative_skill_text(content: bytes) -> str:
     """Exclude fenced examples, HTML comments, quotes and indented code."""
     text = re.sub(r"<!--.*?(?:-->|\Z)", "", content.decode("utf-8"), flags=re.DOTALL)
@@ -461,7 +480,7 @@ def _operative_skill_text(content: bytes) -> str:
         if line.startswith(("    ", "\t")) or re.match(r"^[ ]{0,3}>", line):
             continue
         kept.append(line)
-    return "\n".join(kept)
+    return "\n".join(_logical_lines("\n".join(kept)))
 
 
 def assess(
@@ -471,9 +490,7 @@ def assess(
     candidate_verified: dict[str, bytes] = {}
     baseline_verified: dict[str, bytes] = {}
     findings: list[str] = _content_bindings(baseline, ledger, candidate, candidate_verified)
-    operative_skill = (
-        _operative_skill_text(candidate_verified["SKILL.md"]) if "SKILL.md" in candidate_verified else ""
-    )
+    operative_skill = _operative_skill_text(candidate_verified["SKILL.md"]) if "SKILL.md" in candidate_verified else ""
     candidate_files = ledger.get("candidate_files")
     if not isinstance(candidate_files, dict):
         candidate_files = {}  # The invalid shape was already reported above.
@@ -647,7 +664,7 @@ def assess(
             elif rel not in candidate_verified:
                 findings.append("target_content_unverified:" + rule_id[:128])
             elif required_anchor not in (
-                operative_skill if rel == "SKILL.md" else candidate_verified[rel].decode("utf-8")
+                operative_skill if rel == "SKILL.md" else _operative_skill_text(candidate_verified[rel])
             ):
                 findings.append("anchor_not_present:" + rule_id)
             elif kind in MATERIAL:
@@ -660,7 +677,7 @@ def assess(
                         for sentence in re.split(r"(?<=[.!?])\s+", line)
                     )
                     for line in (
-                        operative_skill if rel == "SKILL.md" else candidate_verified[rel].decode("utf-8")
+                        operative_skill if rel == "SKILL.md" else _operative_skill_text(candidate_verified[rel])
                     ).splitlines()
                 ):
                     finding = "critical_owner_rule_negated:" if critical else "material_owner_rule_negated:"

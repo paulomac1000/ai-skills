@@ -45,7 +45,7 @@
       "id": "deprecation-boundary",
       "disposition": "PRESERVE",
       "target_path": "references/lifecycle-and-migration.md",
-      "target_anchor": "notice window, and removal condition",
+      "target_anchor": "A split, rename, or removal identifies",
       "negative_case": "parallel_current_owner",
       "verification": "test_skill_refactor_preservation::test_independent_profiles_not_forcibly_merged",
       "source_path": "references/lifecycle-and-migration.md",
