@@ -23,7 +23,7 @@
 
 - Dependency-lock installation treats unexpected `pip check` stderr and canonicalized locked-distribution conflicts as blocking verification errors, rather than downgrading them to unmanaged host-package conflicts.
 
-- Pin the version-only no-rewrite safeguard in the reviewed inventory; reject higher-authority contradictions and reuse lock verification for the complete CI gate.
+- Pin the version-only no-rewrite safeguard in the reviewed inventory; restore lifecycle reference loading before every existing-skill change; distinguish Git environment-not-ready from preservation violations; reject higher-authority contradictions and reuse lock verification for the complete CI gate.
 
 ### Known limitations
 

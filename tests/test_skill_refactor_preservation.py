@@ -1216,6 +1216,60 @@ def test_distinct_paragraphs_are_not_contradictory_owner_instructions():
     )
 
 
+def test_existing_skill_change_loads_lifecycle_reference_before_any_change():
+    root = Path(__file__).resolve().parents[1]
+    step = (root / "skills/skill-architect/SKILL.md").read_text(encoding="utf-8")
+    ledger = json.loads(
+        (root / "evals/skills/skill-architect/refactor-pilot-ledger.json").read_text(encoding="utf-8")
+    )
+    assert "consult references/lifecycle-and-migration.md before any change" in step
+    assert "before deleting rules, preserve permissions" in step
+    for entry in ledger["decisions"]:
+        if entry.get("target_path") == "references/lifecycle-and-migration.md":
+            assert entry["entrypoint_route"].endswith("before any change"), entry["id"]
+    migration = next(x for x in ledger["decisions"] if x["id"] == "migration-compatibility")
+    assert migration["pre_load_trigger"] == "before any change"
+
+
+def test_git_environment_unavailable_has_distinct_cli_status(tmp_path, monkeypatch, capsys):
+    path, baseline, ledger, decision = case(tmp_path)
+    baseline_file = tmp_path / "baseline.json"
+    ledger_file = tmp_path / "ledger.json"
+    baseline_file.write_text(json.dumps(baseline), encoding="utf-8")
+    ledger_file.write_text(json.dumps(ledger), encoding="utf-8")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "check_refactor_preservation.py",
+            "--baseline",
+            str(baseline_file),
+            "--ledger",
+            str(ledger_file),
+            "--candidate",
+            str(path),
+        ],
+    )
+    monkeypatch.setattr(mod, "_verify_baseline_git_revision", lambda *args, **kwargs: ["baseline_git_revision_unavailable"])
+    monkeypatch.setattr(mod, "assess", lambda *args, **kwargs: {"structural": "PASS", "findings": []})
+    assert mod.main() == 3
+    result = json.loads(capsys.readouterr().out)
+    assert result["structural"] == "ENVIRONMENT_NOT_READY"
+    assert result["findings"] == ["baseline_git_revision_unavailable"]
+    monkeypatch.setattr(
+        mod,
+        "assess",
+        lambda *args, **kwargs: {"structural": "FAILED", "findings": ["owner_route_unreachable:auth"]},
+    )
+    assert mod.main() == 1
+    result = json.loads(capsys.readouterr().out)
+    assert result["structural"] == "FAILED"
+    assert result["findings"] == ["owner_route_unreachable:auth", "baseline_git_revision_unavailable"]
+    assert "'3': environment-not-ready" in (root := Path(__file__).resolve().parents[1]).joinpath(
+        "skills/skill-architect/manifest.yaml"
+    ).read_text(encoding="utf-8")
+
+
 def test_pilot_version_only_regeneration_rule_is_authenticated():
     root = Path(__file__).resolve().parents[1]
     baseline = json.loads((root / "evals/skills/skill-architect/refactor-pilot-baseline.json").read_text())
