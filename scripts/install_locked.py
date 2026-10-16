@@ -6,6 +6,7 @@ from __future__ import annotations
 import re
 import subprocess
 import sys
+from importlib import metadata
 
 from select_lock import selected_lock
 
@@ -47,6 +48,26 @@ def classify_pip_check(report: str, lock_text: str) -> tuple[list[str], list[str
     return blocking, unmanaged
 
 
+def _locked_inventory_findings(lock_text: str) -> list[str]:
+    """Require every selected lock pin at its installed distribution version."""
+    pins = re.findall(r"(?m)^\s*([A-Za-z0-9_.-]+)==([0-9][A-Za-z0-9.+!_-]*)", lock_text)
+    if not pins:
+        return ["locked_distribution_inventory_missing"]
+    findings: list[str] = []
+    for name, expected in pins:
+        canonical = re.sub(r"[-_.]+", "-", name).lower()
+        try:
+            installed = metadata.version(canonical)
+        except metadata.PackageNotFoundError:
+            findings.append(f"locked_distribution_missing:{canonical}=={expected}")
+        else:
+            if installed != expected:
+                findings.append(
+                    f"locked_distribution_version_mismatch:{canonical}=={expected}:installed={installed}"
+                )
+    return findings
+
+
 def main(*, verify_only: bool = False) -> int:
     lock = selected_lock()
     if not verify_only:
@@ -74,6 +95,11 @@ def main(*, verify_only: bool = False) -> int:
         if blocking or not unmanaged or outcome.returncode != 1:
             print(outcome.stdout, file=sys.stderr)
             raise subprocess.CalledProcessError(outcome.returncode, outcome.args)
+    inventory_findings = _locked_inventory_findings(lock.read_text(encoding="utf-8"))
+    if inventory_findings:
+        for finding in inventory_findings:
+            print("LOCK_INVENTORY_INVALID: " + finding, file=sys.stderr)
+        raise subprocess.CalledProcessError(1, outcome.args)
     return 0
 
 
