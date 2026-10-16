@@ -31,6 +31,30 @@ TRUSTED_BASELINE_INVENTORIES = {
 }
 
 
+# Reviewed, historical source identities are separate from the candidate ledger.
+# The exact source path/anchor pair is part of each load-bearing rule's identity.
+TRUSTED_BASELINE_SOURCE_ANCHORS = {
+    ("5c656ac0602e35f51cb0ba9b576f8e5af10a54ba", "skills/skill-architect"): {
+        "existing-skill-route": (
+            "SKILL.md",
+            "10. For an existing skill, read references/lifecycle-and-migration.md",
+        ),
+        "migration-compatibility": (
+            "references/lifecycle-and-migration.md",
+            "Preserve compliant repository-specific behavior",
+        ),
+        "observed-maintenance": (
+            "references/lifecycle-and-migration.md",
+            "Inspect representative runs",
+        ),
+        "deprecation-boundary": (
+            "references/lifecycle-and-migration.md",
+            "notice window, and removal condition",
+        ),
+    }
+}
+
+
 def _contains_symlink(root: Path, relative: str) -> bool:
     """Reject any symlink component, even one resolving back inside the skill."""
     at = root
@@ -523,6 +547,7 @@ def assess(
     *,
     baseline_tree: Path | None = None,
     trusted_baseline_sha256: str | None = None,
+    trusted_source_anchors: dict[str, tuple[str, str]] | None = None,
 ) -> dict[str, Any]:
     """Verify original source mapping and exact candidate documents, not model equivalence."""
     candidate_verified: dict[str, bytes] = {}
@@ -540,6 +565,15 @@ def assess(
             trusted_baseline_sha256 = None
     if trusted_baseline_sha256 != digest:
         findings.append("baseline_behavior_inventory_untrusted")
+    if trusted_source_anchors is None:
+        try:
+            source_key = (
+                baseline.get("revision"),
+                candidate.resolve().relative_to(Path(__file__).resolve().parents[3]).as_posix(),
+            )
+            trusted_source_anchors = TRUSTED_BASELINE_SOURCE_ANCHORS.get(source_key)
+        except (ValueError, RuntimeError):
+            trusted_source_anchors = None
     operative_skill = _operative_skill_text(candidate_verified["SKILL.md"]) if "SKILL.md" in candidate_verified else ""
     candidate_files = ledger.get("candidate_files")
     if not isinstance(candidate_files, dict):
@@ -588,6 +622,10 @@ def assess(
         or len(decisions) > 128
     ):
         return {"structural": "FAILED", "behavior": "BEHAVIOR_NOT_VERIFIED", "findings": findings + ["invalid_ledger"]}
+    expected_ids = {rule.get("id") for rule in baseline_rules if isinstance(rule, dict)}
+    if trusted_source_anchors is None or set(trusted_source_anchors) != expected_ids:
+        findings.append("baseline_source_identity_inventory_untrusted")
+        trusted_source_anchors = {}
     by_id: dict[str, dict[str, Any]] = {}
     for entry in decisions:
         if not isinstance(entry, dict) or not isinstance(entry.get("id"), str) or not 1 <= len(entry["id"]) <= 128:
@@ -615,6 +653,8 @@ def assess(
             findings.append("unsupported_behavior_class:" + rule_id[:128])
         old_path = decision.get("source_path")
         old_anchor = decision.get("source_anchor")
+        if (old_path, old_anchor) != trusted_source_anchors.get(rule_id):
+            findings.append("baseline_source_identity_untrusted:" + rule_id[:128])
         if (
             not isinstance(old_path, str)
             or old_path not in (original_files if isinstance(original_files, dict) else {})
