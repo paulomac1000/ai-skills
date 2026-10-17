@@ -27,7 +27,7 @@ TRUSTED_BASELINE_INVENTORIES = {
     (
         "5c656ac0602e35f51cb0ba9b576f8e5af10a54ba",
         "skills/skill-architect",
-    ): "sha256:112a66d6b0b5c0e8261ad94a7bf3deb26af78b1ac876a34afb8292d15c1da8f4",
+    ): "sha256:516744337a0570b8a6e096a3d48e91db65095e1a5f19b243124585acdc0f0e5d",
 }
 
 
@@ -55,6 +55,10 @@ TRUSTED_BASELINE_SOURCE_ANCHORS = {
             "references/lifecycle-and-migration.md",
             "A version change alone does not justify a rewrite.",
         ),
+        "privileged-capabilities-explicit": (
+            "STANDARD.md",
+            "Keep privileged filesystem, network, secret, publication, and destructive",
+        ),
     }
 }
 
@@ -80,6 +84,10 @@ TRUSTED_CANDIDATE_TARGETS = {
         "version-change-alone-no-rewrite": (
             "references/lifecycle-and-migration.md",
             "Require a material normative change before rewriting a useful existing adoption",
+        ),
+        "privileged-capabilities-explicit": (
+            "STANDARD.md",
+            "Keep privileged filesystem, network, secret, publication, and destructive",
         ),
     }
 }
@@ -370,7 +378,7 @@ def _effect_bound_timing(text: str) -> bool:
         re.match(
             r"\b(?:before|prior to)\s+(?:(?:any|the|a|each)\s+)?"
             r"(?:(?:governed|destructive|external|mutating|irreversible)\s+)?"
-            r"(?:action|operation|effect|side[- ]effect|mutation|change|write|commit|"
+            r"(?:making\s+normative\s+decisions|action|operation|effect|side[- ]effect|mutation|change|write|commit|"
             r"call|execution|publishing|publication|deleting|deletion|removing|removal)\b",
             text.lstrip(" \t`"),
             re.IGNORECASE,
@@ -423,6 +431,8 @@ def _mandatory_owner_instruction(line: str, anchor: str) -> bool:
         normalized,
         re.IGNORECASE,
     ):
+        return False
+    if re.search(r"\b(?:only|solely)\s+(?:in|for|when|if|on|during|under)\b", normalized, re.IGNORECASE):
         return False
     if not re.match(re.escape(anchor) + r"\b", normalized):
         return False
@@ -578,7 +588,7 @@ def _logical_lines(text: str, *, preserve_blank: bool = False) -> list[str]:
 
 _RAW_HTML_START = re.compile(
     r"^[ ]{0,3}<(?P<tag>pre|script|style|textarea|details|div|table|"
-    r"section|article|figure|blockquote|p|ul|ol|li)\b[^>]*>",
+    r"section|article|figure|blockquote|p|ul|ol|li|template|iframe|object|"\n    r"code|noscript|form|fieldset|canvas|svg|x-[A-Za-z0-9-]+)\b[^>]*>",
     re.IGNORECASE,
 )
 

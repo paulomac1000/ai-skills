@@ -67,9 +67,23 @@
       "pre_load_trigger": "For an existing skill",
       "entrypoint_route": "For an existing skill (including refactor, split, migration, rename, model upgrade, or deprecation), consult references/lifecycle-and-migration.md before any change",
       "pre_load_path": "SKILL.md"
+    },
+    {
+      "id": "privileged-capabilities-explicit",
+      "disposition": "PRESERVE",
+      "target_path": "STANDARD.md",
+      "target_anchor": "Keep privileged filesystem, network, secret, publication, and destructive",
+      "negative_case": "privileged_capabilities_not_explicit",
+      "verification": "test_skill_refactor_preservation::test_real_pilot_tracks_live_normative_sources",
+      "source_path": "STANDARD.md",
+      "source_anchor": "Keep privileged filesystem, network, secret, publication, and destructive",
+      "positive_case": "explicit_privileged_capability_gate",
+      "pre_load_path": "SKILL.md",
+      "pre_load_trigger": "Read STANDARD.md",
+      "entrypoint_route": "Read STANDARD.md before making normative decisions"
     }
   ],
-  "baseline_sha256": "sha256:112a66d6b0b5c0e8261ad94a7bf3deb26af78b1ac876a34afb8292d15c1da8f4",
+  "baseline_sha256": "sha256:516744337a0570b8a6e096a3d48e91db65095e1a5f19b243124585acdc0f0e5d",
   "candidate_files": {
     "SKILL.md": "42ca23c9b92381897e55b9f5ef159fd4b6f90ab3",
     "STANDARD.md": "5d0b94a8b04e673596757b1e723bfa663862044a",
@@ -85,6 +99,7 @@
   "baseline_source_tree_sha": "7dc12c94da13c88ddf4eb7371ab106563d7f450e",
   "baseline_source_blobs": {
     "SKILL.md": "6b5c463800d28b6aa927921359a68820d78fecf5",
-    "references/lifecycle-and-migration.md": "d4b57d923f825a338421b0e29216909627176d92"
+    "references/lifecycle-and-migration.md": "d4b57d923f825a338421b0e29216909627176d92",
+    "STANDARD.md": "56bc30c01cf8da14a13f6bcaa8bc8b0879235c56"
   }
 }

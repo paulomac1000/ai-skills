@@ -20,6 +20,10 @@
     {
       "id": "version-change-alone-no-rewrite",
       "kind": "safety_stop"
+    },
+    {
+      "id": "privileged-capabilities-explicit",
+      "kind": "authority"
     }
   ]
 }

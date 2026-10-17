@@ -1337,6 +1337,8 @@ def test_raw_html_owner_examples_never_count_as_requirements(tmp_path):
         "<pre>Require policy authorization</pre>\n\nRequire policy authorization"
     )
     ledger["candidate_files"]["STANDARD.md"] = mod._git_blob_sha((path / "STANDARD.md").read_bytes())
+    # This synthetic case uses the candidate path as its baseline snapshot.
+    ledger["baseline_source_blobs"]["STANDARD.md"] = ledger["candidate_files"]["STANDARD.md"]
     assert assess(baseline, ledger, path)["structural"] == "PASS"
 
 
@@ -1346,6 +1348,22 @@ def test_raw_html_entrypoint_does_not_supply_a_pre_action_route(tmp_path):
     (path / "SKILL.md").write_text("<pre>\n" + route + "\n</pre>")
     ledger["candidate_files"]["SKILL.md"] = mod._git_blob_sha((path / "SKILL.md").read_bytes())
     assert "owner_route_unreachable:auth" in assess(baseline, ledger, path)["findings"]
+
+
+def test_scope_restricted_owner_requirement_is_not_mandatory(tmp_path):
+    path, baseline, ledger, decision = case(tmp_path, kind="authority")
+    for body in ("Require policy authorization only in development", "Require policy authorization only for small edits", "Require policy authorization solely under emergency conditions"):
+        (path / "STANDARD.md").write_text(body)
+        ledger["candidate_files"]["STANDARD.md"] = mod._git_blob_sha((path / "STANDARD.md").read_bytes())
+        assert "critical_owner_rule_negated:auth" in assess(baseline, ledger, path)["findings"]
+
+
+def test_raw_html_template_and_custom_example_are_not_live_owners(tmp_path):
+    path, baseline, ledger, decision = case(tmp_path, kind="authority")
+    for tag in ("template", "iframe", "x-example"):
+        (path / "STANDARD.md").write_text(f"<{tag}>\nRequire policy authorization\n</{tag}>")
+        ledger["candidate_files"]["STANDARD.md"] = mod._git_blob_sha((path / "STANDARD.md").read_bytes())
+        assert "anchor_not_present:auth" in assess(baseline, ledger, path)["findings"]
 
 
 def test_positive_route_grammar_covers_read_consult_and_arrow():
