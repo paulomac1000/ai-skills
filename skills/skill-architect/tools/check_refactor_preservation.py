@@ -49,7 +49,7 @@ TRUSTED_BASELINE_SOURCE_ANCHORS = {
         ),
         "deprecation-boundary": (
             "references/lifecycle-and-migration.md",
-            "notice window, and removal condition",
+            "A split, rename, or removal identifies the replacement, compatibility impact, notice window, and removal condition. Do not maintain parallel current owners",
         ),
         "version-change-alone-no-rewrite": (
             "references/lifecycle-and-migration.md",
@@ -79,7 +79,7 @@ TRUSTED_CANDIDATE_TARGETS = {
         ),
         "deprecation-boundary": (
             "references/lifecycle-and-migration.md",
-            "A split, rename, or removal identifies",
+            "A split, rename, or removal identifies the replacement, compatibility impact, notice window, and removal condition. Do not maintain parallel current owners",
         ),
         "version-change-alone-no-rewrite": (
             "references/lifecycle-and-migration.md",
@@ -451,6 +451,18 @@ def _mandatory_owner_instruction(line: str, anchor: str) -> bool:
         # than an imperative; explicit rewrites are required for acceptance.
         return False
     return True
+
+
+def _owner_rule_is_active(line: str, anchor: str, critical: bool) -> bool:
+    """Preserve multi-sentence normative clauses without losing sentence-level rules."""
+    if _mandatory_owner_instruction(line, anchor):
+        return True
+    if critical:
+        return False
+    return any(
+        _mandatory_owner_instruction(sentence, anchor)
+        for sentence in re.split(r"(?<=[.!?])\s+", line)
+    )
 
 
 def _contradicts_owner(text: str, anchor: str) -> bool:
@@ -896,12 +908,7 @@ def assess(
                         findings.append("higher_authority_contradiction:" + rule_id[:128])
                 critical = kind in {"trigger", "authority", "safety_stop", "precedence"}
                 if not any(
-                    _mandatory_owner_instruction(line, required_anchor)
-                    if critical
-                    else any(
-                        _mandatory_owner_instruction(sentence, required_anchor)
-                        for sentence in re.split(r"(?<=[.!?])\s+", line)
-                    )
+                    _owner_rule_is_active(line, required_anchor, critical)
                     for line in (
                         operative_skill if rel == "SKILL.md" else _operative_skill_text(candidate_verified[rel])
                     ).splitlines()

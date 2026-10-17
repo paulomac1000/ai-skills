@@ -45,11 +45,11 @@
       "id": "deprecation-boundary",
       "disposition": "PRESERVE",
       "target_path": "references/lifecycle-and-migration.md",
-      "target_anchor": "A split, rename, or removal identifies",
+      "target_anchor": "A split, rename, or removal identifies the replacement, compatibility impact, notice window, and removal condition. Do not maintain parallel current owners",
       "negative_case": "parallel_current_owner",
       "verification": "test_skill_refactor_preservation::test_independent_profiles_not_forcibly_merged",
       "source_path": "references/lifecycle-and-migration.md",
-      "source_anchor": "notice window, and removal condition",
+      "source_anchor": "A split, rename, or removal identifies the replacement, compatibility impact, notice window, and removal condition. Do not maintain parallel current owners",
       "positive_case": "deprecation-with-notice",
       "pre_load_trigger": "For an existing skill",
       "entrypoint_route": "For an existing skill (including refactor, split, migration, rename, model upgrade, or deprecation), consult references/lifecycle-and-migration.md before any change"

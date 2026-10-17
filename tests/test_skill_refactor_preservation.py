@@ -1397,6 +1397,38 @@ def test_repinning_candidate_cannot_weaken_privileged_capability_explicitness(tm
     assert "anchor_not_present:privileged-capabilities-explicit" in finding
 
 
+def test_repinning_deprecation_reference_cannot_drop_lifecycle_obligations(tmp_path):
+    import shutil
+
+    root = Path(__file__).resolve().parents[1]
+    corpus = root / "evals/skills/skill-architect"
+    baseline = json.loads((corpus / "refactor-pilot-baseline.json").read_text(encoding="utf-8"))
+    ledger = json.loads((corpus / "refactor-pilot-ledger.json").read_text(encoding="utf-8"))
+    candidate = tmp_path / "skill"
+    candidate.mkdir()
+    for rel in ledger["candidate_files"]:
+        destination = candidate / rel
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(root / "skills/skill-architect" / rel, destination)
+    reference = candidate / "references/lifecycle-and-migration.md"
+    original = reference.read_text(encoding="utf-8")
+    full = "A split, rename, or removal identifies the replacement, compatibility impact,\nnotice window, and removal condition. Do not maintain parallel current owners."
+    assert full in original
+    reference.write_text(original.replace(full, "A split, rename, or removal identifies the replacement."), encoding="utf-8")
+    ledger["candidate_files"]["references/lifecycle-and-migration.md"] = mod._git_blob_sha(reference.read_bytes())
+    key = (baseline["revision"], "skills/skill-architect")
+    findings = mod.assess(
+        baseline,
+        ledger,
+        candidate,
+        baseline_tree=corpus / "baseline_snapshots",
+        trusted_baseline_sha256=mod.TRUSTED_BASELINE_INVENTORIES[key],
+        trusted_source_anchors=mod.TRUSTED_BASELINE_SOURCE_ANCHORS[key],
+        trusted_target_mappings=mod.TRUSTED_CANDIDATE_TARGETS[key],
+    )["findings"]
+    assert "anchor_not_present:deprecation-boundary" in findings
+
+
 def test_positive_route_grammar_covers_read_consult_and_arrow():
     assert mod._positive_entrypoint_route("read STANDARD.md", "STANDARD.md")
     assert mod._positive_entrypoint_route(
