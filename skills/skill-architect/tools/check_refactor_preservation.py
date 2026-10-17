@@ -588,7 +588,8 @@ def _logical_lines(text: str, *, preserve_blank: bool = False) -> list[str]:
 
 _RAW_HTML_START = re.compile(
     r"^[ ]{0,3}<(?P<tag>pre|script|style|textarea|details|div|table|"
-    r"section|article|figure|blockquote|p|ul|ol|li|template|iframe|object|"\n    r"code|noscript|form|fieldset|canvas|svg|x-[A-Za-z0-9-]+)\b[^>]*>",
+    r"section|article|figure|blockquote|p|ul|ol|li|template|iframe|object|"
+    r"code|noscript|form|fieldset|canvas|svg|x-[A-Za-z0-9-]+)\b[^>]*>",
     re.IGNORECASE,
 )
 
