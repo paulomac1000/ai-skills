@@ -1366,6 +1366,37 @@ def test_raw_html_template_and_custom_example_are_not_live_owners(tmp_path):
         assert "anchor_not_present:auth" in assess(baseline, ledger, path)["findings"]
 
 
+def test_repinning_candidate_cannot_weaken_privileged_capability_explicitness(tmp_path):
+    import shutil
+
+    root = Path(__file__).resolve().parents[1]
+    corpus = root / "evals/skills/skill-architect"
+    baseline = json.loads((corpus / "refactor-pilot-baseline.json").read_text(encoding="utf-8"))
+    ledger = json.loads((corpus / "refactor-pilot-ledger.json").read_text(encoding="utf-8"))
+    candidate = tmp_path / "skill"
+    candidate.mkdir()
+    for rel in ledger["candidate_files"]:
+        destination = candidate / rel
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(root / "skills/skill-architect" / rel, destination)
+    standard = candidate / "STANDARD.md"
+    original = standard.read_text(encoding="utf-8")
+    assert "capabilities explicit." in original
+    standard.write_text(original.replace("capabilities explicit.", "capabilities implicit."), encoding="utf-8")
+    ledger["candidate_files"]["STANDARD.md"] = mod._git_blob_sha(standard.read_bytes())
+    key = (baseline["revision"], "skills/skill-architect")
+    finding = mod.assess(
+        baseline,
+        ledger,
+        candidate,
+        baseline_tree=corpus / "baseline_snapshots",
+        trusted_baseline_sha256=mod.TRUSTED_BASELINE_INVENTORIES[key],
+        trusted_source_anchors=mod.TRUSTED_BASELINE_SOURCE_ANCHORS[key],
+        trusted_target_mappings=mod.TRUSTED_CANDIDATE_TARGETS[key],
+    )["findings"]
+    assert "anchor_not_present:privileged-capabilities-explicit" in finding
+
+
 def test_positive_route_grammar_covers_read_consult_and_arrow():
     assert mod._positive_entrypoint_route("read STANDARD.md", "STANDARD.md")
     assert mod._positive_entrypoint_route(

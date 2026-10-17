@@ -57,7 +57,7 @@ TRUSTED_BASELINE_SOURCE_ANCHORS = {
         ),
         "privileged-capabilities-explicit": (
             "STANDARD.md",
-            "Keep privileged filesystem, network, secret, publication, and destructive",
+            "Keep privileged filesystem, network, secret, publication, and destructive capabilities explicit",
         ),
     }
 }
@@ -87,7 +87,7 @@ TRUSTED_CANDIDATE_TARGETS = {
         ),
         "privileged-capabilities-explicit": (
             "STANDARD.md",
-            "Keep privileged filesystem, network, secret, publication, and destructive",
+            "Keep privileged filesystem, network, secret, publication, and destructive capabilities explicit",
         ),
     }
 }
@@ -803,7 +803,7 @@ def assess(
                 content = baseline_verified.get(old_path)
                 if content is None:
                     findings.append("baseline_source_unverified:" + rule_id[:128])
-                elif old_anchor not in content.decode("utf-8"):
+                elif old_anchor not in _operative_skill_text(content):
                     findings.append("baseline_anchor_missing:" + rule_id[:128])
         disposition = decision.get("disposition")
         if disposition not in DISPOSITIONS:
