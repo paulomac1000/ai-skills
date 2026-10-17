@@ -1429,6 +1429,45 @@ def test_repinning_deprecation_reference_cannot_drop_lifecycle_obligations(tmp_p
     assert "anchor_not_present:deprecation-boundary" in findings
 
 
+def test_higher_authority_cannot_reverse_preserved_deprecation_prohibition(tmp_path):
+    import shutil
+
+    root = Path(__file__).resolve().parents[1]
+    corpus = root / "evals/skills/skill-architect"
+    baseline = json.loads((corpus / "refactor-pilot-baseline.json").read_text(encoding="utf-8"))
+    ledger = json.loads((corpus / "refactor-pilot-ledger.json").read_text(encoding="utf-8"))
+    key = (baseline["revision"], "skills/skill-architect")
+    anchor = next(rule["target_anchor"] for rule in ledger["decisions"] if rule["id"] == "deprecation-boundary")
+    assert mod._reverses_preserved_prohibition(
+        "Maintain parallel current owners during deprecation.", anchor
+    )
+    assert not mod._reverses_preserved_prohibition(
+        "Do not maintain parallel current owners.", anchor
+    )
+    candidate = tmp_path / "skill"
+    candidate.mkdir()
+    for rel in ledger["candidate_files"]:
+        dest = candidate / rel
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(root / "skills/skill-architect" / rel, dest)
+    standard = candidate / "STANDARD.md"
+    standard.write_text(
+        standard.read_text(encoding="utf-8") + "\nMaintain parallel current owners during deprecation.",
+        encoding="utf-8",
+    )
+    ledger["candidate_files"]["STANDARD.md"] = mod._git_blob_sha(standard.read_bytes())
+    findings = mod.assess(
+        baseline,
+        ledger,
+        candidate,
+        baseline_tree=corpus / "baseline_snapshots",
+        trusted_baseline_sha256=mod.TRUSTED_BASELINE_INVENTORIES[key],
+        trusted_source_anchors=mod.TRUSTED_BASELINE_SOURCE_ANCHORS[key],
+        trusted_target_mappings=mod.TRUSTED_CANDIDATE_TARGETS[key],
+    )["findings"]
+    assert "higher_authority_negative_obligation_reversed:deprecation-boundary" in findings
+
+
 def test_positive_route_grammar_covers_read_consult_and_arrow():
     assert mod._positive_entrypoint_route("read STANDARD.md", "STANDARD.md")
     assert mod._positive_entrypoint_route(

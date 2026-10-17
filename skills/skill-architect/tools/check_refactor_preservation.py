@@ -459,10 +459,7 @@ def _owner_rule_is_active(line: str, anchor: str, critical: bool) -> bool:
         return True
     if critical:
         return False
-    return any(
-        _mandatory_owner_instruction(sentence, anchor)
-        for sentence in re.split(r"(?<=[.!?])\s+", line)
-    )
+    return any(_mandatory_owner_instruction(sentence, anchor) for sentence in re.split(r"(?<=[.!?])\s+", line))
 
 
 def _contradicts_owner(text: str, anchor: str) -> bool:
@@ -486,6 +483,26 @@ def _contradicts_owner(text: str, anchor: str) -> bool:
             re.IGNORECASE,
         ):
             return True
+    return False
+
+
+def _reverses_preserved_prohibition(text: str, anchor: str) -> bool:
+    """Detect positive instructions reversing a separately preserved 'do not' obligation."""
+    negative_clauses = re.findall(
+        r"\b(?:do\s+not|never)\s+([a-z][a-z0-9 -]{4,100})(?=[.!?]|$)",
+        anchor,
+        re.IGNORECASE,
+    )
+    for prohibition in negative_clauses:
+        for sentence in re.split(r"(?<=[.!?])\s+|\n", text):
+            for match in re.finditer(r"\b" + re.escape(prohibition) + r"\b", sentence, re.IGNORECASE):
+                prefix = sentence[max(0, match.start() - 75) : match.start()]
+                if not re.search(
+                    r"\b(?:do\s+not|must\s+not|never|avoid|without|forbid|prohibit|cannot)\s*$",
+                    prefix,
+                    re.IGNORECASE,
+                ):
+                    return True
     return False
 
 
@@ -902,10 +919,14 @@ def assess(
                 owner_text = operative_skill if rel == "SKILL.md" else _operative_skill_text(candidate_verified[rel])
                 if _contradicts_owner(owner_text, required_anchor):
                     findings.append("contradictory_owner_rule:" + rule_id[:128])
+                if _reverses_preserved_prohibition(owner_text, required_anchor):
+                    findings.append("negative_obligation_reversed:" + rule_id[:128])
                 if rel != "STANDARD.md" and "STANDARD.md" in candidate_verified:
                     standard_text = _operative_skill_text(candidate_verified["STANDARD.md"])
                     if _contradicts_owner(standard_text, required_anchor):
                         findings.append("higher_authority_contradiction:" + rule_id[:128])
+                    if _reverses_preserved_prohibition(standard_text, required_anchor):
+                        findings.append("higher_authority_negative_obligation_reversed:" + rule_id[:128])
                 critical = kind in {"trigger", "authority", "safety_stop", "precedence"}
                 if not any(
                     _owner_rule_is_active(line, required_anchor, critical)
