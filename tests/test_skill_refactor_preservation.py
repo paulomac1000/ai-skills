@@ -1352,7 +1352,13 @@ def test_raw_html_entrypoint_does_not_supply_a_pre_action_route(tmp_path):
 
 def test_scope_restricted_owner_requirement_is_not_mandatory(tmp_path):
     path, baseline, ledger, decision = case(tmp_path, kind="authority")
-    for body in ("Require policy authorization only in development", "Require policy authorization only for small edits", "Require policy authorization solely under emergency conditions"):
+    for body in (
+        "Require policy authorization only in development",
+        "Require policy authorization only for small edits",
+        "Require policy authorization solely under emergency conditions",
+        "Require policy authorization if running in development",
+        "Require policy authorization when running in development",
+    ):
         (path / "STANDARD.md").write_text(body)
         ledger["candidate_files"]["STANDARD.md"] = mod._git_blob_sha((path / "STANDARD.md").read_bytes())
         assert "critical_owner_rule_negated:auth" in assess(baseline, ledger, path)["findings"]
@@ -1382,19 +1388,30 @@ def test_repinning_candidate_cannot_weaken_privileged_capability_explicitness(tm
     standard = candidate / "STANDARD.md"
     original = standard.read_text(encoding="utf-8")
     assert "capabilities explicit." in original
-    standard.write_text(original.replace("capabilities explicit.", "capabilities implicit."), encoding="utf-8")
-    ledger["candidate_files"]["STANDARD.md"] = mod._git_blob_sha(standard.read_bytes())
     key = (baseline["revision"], "skills/skill-architect")
-    finding = mod.assess(
-        baseline,
-        ledger,
-        candidate,
-        baseline_tree=corpus / "baseline_snapshots",
-        trusted_baseline_sha256=mod.TRUSTED_BASELINE_INVENTORIES[key],
-        trusted_source_anchors=mod.TRUSTED_BASELINE_SOURCE_ANCHORS[key],
-        trusted_target_mappings=mod.TRUSTED_CANDIDATE_TARGETS[key],
-    )["findings"]
-    assert "anchor_not_present:privileged-capabilities-explicit" in finding
+    for replacement, expected_finding in (
+        ("capabilities implicit.", "anchor_not_present:privileged-capabilities-explicit"),
+        (
+            "capabilities explicit if running in development.",
+            "critical_owner_rule_negated:privileged-capabilities-explicit",
+        ),
+        (
+            "capabilities explicit when running in development.",
+            "critical_owner_rule_negated:privileged-capabilities-explicit",
+        ),
+    ):
+        standard.write_text(original.replace("capabilities explicit.", replacement), encoding="utf-8")
+        ledger["candidate_files"]["STANDARD.md"] = mod._git_blob_sha(standard.read_bytes())
+        findings = mod.assess(
+            baseline,
+            ledger,
+            candidate,
+            baseline_tree=corpus / "baseline_snapshots",
+            trusted_baseline_sha256=mod.TRUSTED_BASELINE_INVENTORIES[key],
+            trusted_source_anchors=mod.TRUSTED_BASELINE_SOURCE_ANCHORS[key],
+            trusted_target_mappings=mod.TRUSTED_CANDIDATE_TARGETS[key],
+        )["findings"]
+        assert expected_finding in findings, replacement
 
 
 def test_repinning_deprecation_reference_cannot_drop_lifecycle_obligations(tmp_path):

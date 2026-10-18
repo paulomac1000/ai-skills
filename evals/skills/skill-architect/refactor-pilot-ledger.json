@@ -18,7 +18,7 @@
       "id": "migration-compatibility",
       "disposition": "MOVE",
       "target_path": "references/lifecycle-and-migration.md",
-      "target_anchor": "Keep compliant consumer-specific behavior",
+      "target_anchor": "Keep compliant consumer-specific behavior when the contract is unchanged",
       "negative_case": "unauthorized_semantic_deletion",
       "verification": "test_skill_refactor_preservation::test_omitted_authority_rule_fails_even_with_static_package",
       "pre_load_path": "SKILL.md",

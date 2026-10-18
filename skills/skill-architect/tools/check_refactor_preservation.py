@@ -71,7 +71,7 @@ TRUSTED_CANDIDATE_TARGETS = {
         "existing-skill-route": ("SKILL.md", "For an existing skill"),
         "migration-compatibility": (
             "references/lifecycle-and-migration.md",
-            "Keep compliant consumer-specific behavior",
+            "Keep compliant consumer-specific behavior when the contract is unchanged",
         ),
         "observed-maintenance": (
             "references/lifecycle-and-migration.md",
@@ -436,9 +436,17 @@ def _mandatory_owner_instruction(line: str, anchor: str) -> bool:
         return False
     if not re.match(re.escape(anchor) + r"\b", normalized):
         return False
+    # The trusted anchor owns its permitted conditions. Any additional
+    # conditional suffix silently narrows a previously mandatory safeguard.
+    suffix = normalized[len(anchor) :]
+    if re.search(
+        r"\b(?:if|when|whenever|provided\s+that|subject\s+to|in\s+case)\b",
+        suffix,
+        re.IGNORECASE,
+    ):
+        return False
     # Passive or historical negation can disable an apparently imperative
     # anchor. Prefer rejecting unsupported semantic qualifiers to false PASS.
-    suffix = normalized[len(anchor) :]
     if re.search(
         r"\b(?:prohibited|forbidden|disallowed|disabled|revoked|deprecated|"
         r"waived|not\s+required|no\s+longer\s+required)\b",
