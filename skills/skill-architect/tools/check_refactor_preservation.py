@@ -1023,9 +1023,7 @@ def main() -> int:
     parser.add_argument("--trusted-git-executable", type=str)
     args = parser.parse_args()
     if args.trusted_git_executable is not None and (
-        os.name == "nt"
-        or not args.trusted_git_executable
-        or not Path(args.trusted_git_executable).is_absolute()
+        os.name == "nt" or not args.trusted_git_executable or not Path(args.trusted_git_executable).is_absolute()
     ):
         parser.error("invalid_trusted_git_executable")
     try:
