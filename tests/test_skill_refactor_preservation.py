@@ -1468,6 +1468,53 @@ def test_higher_authority_cannot_reverse_preserved_deprecation_prohibition(tmp_p
     assert "higher_authority_negative_obligation_reversed:deprecation-boundary" in findings
 
 
+def test_cli_rejects_invalid_trusted_git_override_before_files(tmp_path):
+    import subprocess
+
+    for invalid in ("git", "../git"):
+        proc = subprocess.run(
+            [
+                sys.executable,
+                str(MODULE_PATH),
+                "--baseline",
+                str(tmp_path / "missing-baseline.json"),
+                "--ledger",
+                str(tmp_path / "missing-ledger.json"),
+                "--candidate",
+                str(tmp_path),
+                "--trusted-git-executable",
+                invalid,
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert proc.returncode == 2
+        response = json.loads(proc.stdout)
+        assert response["structural"] == "INVALID_INPUT"
+        assert response["findings"] == ["invalid_arguments"]
+    if sys.platform == "win32":
+        proc = subprocess.run(
+            [
+                sys.executable,
+                str(MODULE_PATH),
+                "--baseline",
+                str(tmp_path / "missing-baseline.json"),
+                "--ledger",
+                str(tmp_path / "missing-ledger.json"),
+                "--candidate",
+                str(tmp_path),
+                "--trusted-git-executable",
+                str(tmp_path / "git.exe"),
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert proc.returncode == 2
+        assert json.loads(proc.stdout)["structural"] == "INVALID_INPUT"
+
+
 def test_positive_route_grammar_covers_read_consult_and_arrow():
     assert mod._positive_entrypoint_route("read STANDARD.md", "STANDARD.md")
     assert mod._positive_entrypoint_route(

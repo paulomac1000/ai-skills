@@ -1022,6 +1022,12 @@ def main() -> int:
     parser.add_argument("--baseline-tree", type=Path)
     parser.add_argument("--trusted-git-executable", type=str)
     args = parser.parse_args()
+    if args.trusted_git_executable is not None and (
+        os.name == "nt"
+        or not args.trusted_git_executable
+        or not Path(args.trusted_git_executable).is_absolute()
+    ):
+        parser.error("invalid_trusted_git_executable")
     try:
         baseline = _read_bounded_json_object(args.baseline)
         ledger = _read_bounded_json_object(args.ledger)
