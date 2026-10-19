@@ -34,8 +34,9 @@ deprecation.
    versions, observed checks and residual risks.
 
 Optional static diagnostic: `tools/check_refactor_preservation.py` accepts
-`--baseline`, `--ledger` and `--candidate`. For Git installations outside
-the standard trusted locations, an operator may supply
+`--baseline`, `--ledger` and `--candidate`, plus the optional `--baseline-tree`
+(default `baseline_snapshots/` next to the baseline file). For Git installations
+outside the standard trusted locations, an operator may supply
 `--trusted-git-executable /absolute/path/to/git` on POSIX hosts only when
 the executable and every parent directory are owned by root and are not
 group- or world-writable (for example, a root-owned /usr/libexec installation).
