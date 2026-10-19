@@ -663,7 +663,7 @@ def _operative_skill_text(content: bytes) -> str:
     raw_html_depth = 0
     for line in text.splitlines():
         if fence:
-            close = r"^[ ]{0,3}(?:[-*+]|\d+[.)])?[ \t]*" + re.escape(fence[0]) + "{" + str(len(fence)) + r",}[ \t]*$"
+            close = r"^[ ]{0,3}" + re.escape(fence[0]) + "{" + str(len(fence)) + r",}[ \t]*$"
             if re.match(close, line):
                 fence = ""
             continue
@@ -675,8 +675,10 @@ def _operative_skill_text(content: bytes) -> str:
             continue
         # A fenced example may sit inside a list container, for example
         # "- ```text". Track the container prefix so example content is not
-        # promoted to an operative instruction.
-        opener = re.match(r"^[ ]{0,3}(?:[-*+]|\d+[.)])?[ \t]*(`{3,}|~{3,})", line)
+        # promoted to an operative instruction. The marker requires the
+        # separation CommonMark demands; a closing fence never carries a list
+        # marker, because inside a block that text is literal content.
+        opener = re.match(r"^[ ]{0,3}(?:(?:[-*+]|\d+[.)])[ \t]+)?(`{3,}|~{3,})", line)
         if opener:
             fence = opener.group(1)
             continue
