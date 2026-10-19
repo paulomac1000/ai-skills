@@ -113,3 +113,14 @@ query and never silently satisfies current evidence.
 The optional SQLite reference in `tools/amendment_lineage.py` exercises
 durable atomic append/CAS, restart, immutability and projection decisions.
 It is not an authority issuer and cannot be used by a model to grant access.
+
+## External pressure recovery
+
+An external operation that lost current generation/authority can still
+consume remote capacity. Persist its physical known/unknown state and
+reconciliation obligation before releasing workflow ownership. Rebuild
+global, per-capability and detached pressure counts after restart from
+these rows; an empty process semaphore is not a fresh capacity grant.
+Preserve remote-durable handles on `service_shutdown`; do not turn
+shutdown into `domain_cancel`. Keep ambiguous termination unresolved
+until provider-backed evidence closes the same operation.

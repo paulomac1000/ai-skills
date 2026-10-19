@@ -1,6 +1,6 @@
 schema_version: 1
 name: mcp-steward-architect
-version: 3.26.0
+version: 3.27.0
 maturity: stable
 skill_format: ai-skills/v1
 normative_entrypoint: STANDARD.md
@@ -46,6 +46,7 @@ required:
   - tools/persistent_context.py
   - tools/integration_lease.py
   - tools/amendment_lineage.py
+  - tools/external_pressure.py
   - templates/adoption-steward-extension.yaml.template
   - tools/generate_steward.py
 categories: [core, references, templates, tools]
@@ -66,7 +67,8 @@ applicability:
     - proof_producers
     - runtime_binding_required
     - exact_candidate_binding
-    - amendable_facts
+    - amendable-facts
+    - external-pressure-bounded
 adoption:
   template: contracts/adoption-assessment.yaml.template
   validator: contracts/validate_adoption.py

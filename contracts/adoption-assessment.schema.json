@@ -223,9 +223,8 @@
             "profiles": {"type": "array", "items": {"$ref": "#/$defs/text"}, "uniqueItems": true},
             "features": {
               "type": "object", "additionalProperties": false,
-              "properties": {"amendable_facts": {"type": "boolean"}},
-              "required": ["amendable_facts"]
-            }
+              "properties": {"amendable_facts": {"type": "boolean"}, "external_pressure_bounded": {"type": "boolean"}},
+              "required": ["amendable_facts"]            }
           },
           "required": ["target_level", "profiles", "features"]
         },

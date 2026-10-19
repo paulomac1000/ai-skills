@@ -1,5 +1,26 @@
 # Changelog
 
+## 3.27.0 - 2026-10-19
+
+### Added
+
+- Optional Steward external execution pressure admission with durable global/per-capability and detached-unresolved limits, reserved cancellation/reconciliation lanes and fail-closed unknown physical termination.
+- Deterministic SQLite pressure fixture and cancellation-insensitive fake-provider regressions, including restart and superseded-generation safety.
+
+### Changed
+
+- Local cancellation and logical generation fencing no longer imply physical external capacity is available; service shutdown preserves remotely durable work.
+- The optional amendment lineage and the optional external pressure profile now share one Steward profile contract: both feature flags are declared, each opt-in stays bound to its own profile, and enabling one never enables the other.
+
+### Fixed
+
+- A shutdown-fenced external operation that finished remotely and was reconciled by the host keeps its resolved status and remains publishable through a host-verified recovery transition; superseded, cancelled and unreconciled terminal operations stay rejected.
+- The optional external pressure flag is not required in the adoption assessment, so an assessment written for 3.26.0 stays valid after the upgrade instead of failing on a newly required field.
+
+### Known limitations
+
+- Reference fixture and synthetic tests do not establish live remote-provider conformance.
+
 ## 3.26.0 - 2026-10-19
 
 ### Added

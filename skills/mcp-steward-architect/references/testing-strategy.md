@@ -139,3 +139,14 @@ provenance, exact request replay, conflict-by-operation-ID rejection, stale
 expected-revision CAS, competing writer serialization, effective revision
 invalidation, current external projection and restart convergence. Exercise
 the actual schema and the deterministic SQLite fixture before provider proof.
+
+## Cancellation-insensitive external pressure
+
+Use a deterministic fake provider that ignores cancel and keeps N remote
+operations alive. Prove old-generation publication is forbidden but
+physical pressure remains; global/per-capability and detached limits
+reject new dispatch, while bounded independent control lanes permit
+cancellation/reconciliation. Prove unknown termination never frees
+capacity, exact provider termination does, and restart preserves counts.
+Exercise `service_shutdown` separately from domain cancellation, with
+safe aggregate metrics and no secret/raw-provider payload.

@@ -117,6 +117,7 @@ skills:
       integration-authority-and-lease: {rule_id: steward.integration.authorized, primary: true}
       external-operations-and-reconciliation: {rule_id: steward.delivery.reconciled, primary: true}
       cancellation-and-external-wait-isolation: {rule_id: steward.cancellation.reconciled, primary: true}
+      external-execution-pressure-and-backpressure: {rule_id: steward.external-pressure.bounded, primary: true}
       evidence-identity-and-authority: {rule_id: steward.evidence.provenance, primary: true}
       claim-binding-and-epistemic-promotion: {rule_id: steward.claim.bound, primary: true}
       completion-and-handoff: {rule_id: steward.completion.gated, primary: true}

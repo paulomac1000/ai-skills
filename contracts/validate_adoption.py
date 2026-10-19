@@ -1018,18 +1018,24 @@ def validate_document(
             findings.append(Finding("extensions.steward", "invalid Steward applicability context"))
         else:
             features = steward.get("features")
-            enabled = features.get("amendable_facts") if isinstance(features, Mapping) else None
+            amendable = features.get("amendable_facts") if isinstance(features, Mapping) else None
+            pressure = features.get("external_pressure_bounded", False) if isinstance(features, Mapping) else None
             level = steward.get("target_level")
             profiles = steward.get("profiles")
             if (
                 not isinstance(level, str)
                 or not isinstance(profiles, list)
                 or not all(isinstance(item, str) and item for item in profiles)
-                or type(enabled) is not bool
+                or type(amendable) is not bool
+                or type(pressure) is not bool
             ):
                 findings.append(Finding("extensions.steward", "invalid Steward applicability context"))
-            elif enabled != ("amendable-facts" in profiles):
+            elif amendable != ("amendable-facts" in profiles):
                 findings.append(Finding("extensions.steward", "amendable feature/profile mismatch"))
+            elif pressure != ("external-pressure-bounded" in profiles):
+                findings.append(
+                    Finding("extensions.steward", "external pressure feature/profile applicability mismatch")
+                )
             else:
                 try:
                     context = RuleContext(target_level=level, profiles=frozenset(profiles))

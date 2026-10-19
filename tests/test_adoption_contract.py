@@ -496,7 +496,7 @@ def test_steward_amendment_adoption_respects_opt_in_context(tmp_path: Path) -> N
         "steward": {
             "target_level": "L1",
             "profiles": ["amendable-facts"],
-            "features": {"amendable_facts": True},
+            "features": {"amendable_facts": True, "external_pressure_bounded": False},
         }
     }
     report = "\n".join(findings(document, catalog, skills, tmp_path))
@@ -523,11 +523,106 @@ def test_steward_canonical_adoption_template_and_extension_overlay() -> None:
         "steward": {
             "target_level": "L1",
             "profiles": [],
-            "features": {"amendable_facts": False},
+            "features": {"amendable_facts": False, "external_pressure_bounded": False},
         }
     }
     Draft202012Validator(SCHEMA["properties"]["extensions"]).validate(overlay)
 
+def test_steward_adoption_enforces_opt_in_pressure_profile(tmp_path: Path) -> None:
+    doc, catalog, skills = assessment_for(tmp_path, skill_name="mcp-steward-architect")
+    rule = catalog["skills"]["mcp-steward-architect"]["rules"][0]
+    rule["id"] = "steward.external-pressure.bounded"
+    rule["applies_when"] = {"maturity_at_least": "L1", "profiles_any": ["external-pressure-bounded"]}
+    doc["applicability"][0]["rule_id"] = rule["id"]
+    doc["applicability"][0]["status"] = "not-applicable"
+    doc["applicability"][0]["implementation"] = []
+    doc["applicability"][0]["verification"] = []
+    doc["extensions"] = {
+        "steward": {
+            "target_level": "L1",
+            "profiles": ["external-pressure-bounded"],
+            "features": {"amendable_facts": False, "external_pressure_bounded": True},
+        }
+    }
+    result = "\n".join(findings(doc, catalog, skills, tmp_path))
+    assert "catalog applicability requires this rule to be applicable or explicitly deferred" in result
+    doc["extensions"]["steward"]["features"]["external_pressure_bounded"] = False
+    result = "\n".join(findings(doc, catalog, skills, tmp_path))
+    assert "external pressure feature/profile applicability mismatch" in result
+    doc["extensions"]["steward"]["profiles"] = []
+    result = "\n".join(findings(doc, catalog, skills, tmp_path))
+    assert "catalog applicability requires this rule to be applicable or explicitly deferred" not in result
+
+
+def test_assessment_without_the_external_pressure_flag_remains_accepted(tmp_path: Path) -> None:
+    """A 3.26.0 assessment that declares only amendable_facts must stay valid."""
+    doc, catalog, skills = assessment_for(tmp_path, skill_name="mcp-steward-architect")
+    doc["extensions"] = {
+        "steward": {
+            "target_level": "L1",
+            "profiles": ["amendable-facts"],
+            "features": {"amendable_facts": True},
+        }
+    }
+    report = "\n".join(findings(doc, catalog, skills, tmp_path))
+    assert "invalid Steward applicability context" not in report
+    assert "feature/profile mismatch" not in report
+    assert "external pressure feature/profile applicability mismatch" not in report
+    # The declared feature object still satisfies the extension schema without
+    # the newly optional flag.
+    features_schema = SCHEMA["properties"]["extensions"]["properties"]["steward"]["properties"]["features"]
+    assert "external_pressure_bounded" not in features_schema["required"]
+    Draft202012Validator(SCHEMA["properties"]["extensions"]).validate(
+        {
+            "steward": {
+                "target_level": "L1",
+                "profiles": [],
+                "features": {"amendable_facts": True},
+            }
+        }
+    )
+
+
+def test_steward_optional_feature_flags_are_independent_and_must_match_their_profile(
+    tmp_path: Path,
+) -> None:
+    """Both optional profiles declare their own flag; neither enables the other."""
+    doc, catalog, skills = assessment_for(tmp_path, skill_name="mcp-steward-architect")
+    steward: dict[str, Any] = {
+        "target_level": "L1",
+        "profiles": [],
+        "features": {"amendable_facts": False, "external_pressure_bounded": False},
+    }
+    doc["extensions"] = {"steward": steward}
+    report = "\n".join(findings(doc, catalog, skills, tmp_path))
+    assert "extensions.steward" not in report
+
+    # One profile enabled alone stays consistent and never enables the other.
+    steward["profiles"] = ["amendable-facts"]
+    steward["features"] = {"amendable_facts": True, "external_pressure_bounded": False}
+    report = "\n".join(findings(doc, catalog, skills, tmp_path))
+    assert "amendable feature/profile mismatch" not in report
+    assert "external pressure feature/profile applicability mismatch" not in report
+
+    # A flag that contradicts its own profile is rejected.
+    steward["features"]["amendable_facts"] = False
+    report = "\n".join(findings(doc, catalog, skills, tmp_path))
+    assert "amendable feature/profile mismatch" in report
+
+    # Both profiles together with both flags stay consistent.
+    steward["profiles"] = ["amendable-facts", "external-pressure-bounded"]
+    steward["features"] = {"amendable_facts": True, "external_pressure_bounded": True}
+    report = "\n".join(findings(doc, catalog, skills, tmp_path))
+    assert "amendable feature/profile mismatch" not in report
+    assert "external pressure feature/profile applicability mismatch" not in report
+
+    # The extension schema declares both optional flags and requires only the
+    # amendable one, so an assessment written for 3.26.0 stays valid and a
+    # missing optional flag is not a schema violation.
+    features_schema = SCHEMA["properties"]["extensions"]["properties"]["steward"]["properties"]["features"]
+    assert features_schema["required"] == ["amendable_facts"]
+    assert set(features_schema["properties"]) == {"amendable_facts", "external_pressure_bounded"}
+    assert features_schema["properties"]["external_pressure_bounded"]["type"] == "boolean"
 
 def test_amendment_absent_extension_uses_feature_off_baseline(tmp_path: Path) -> None:
     document, catalog, skills = assessment_for(tmp_path, skill_name="mcp-steward-architect")

@@ -88,8 +88,7 @@ Repository evidence artifacts are retained for 90 days and represent a point-in-
 
 ## Extension model
 
-The base assessment is domain-neutral, but the extension namespace is a closed current registry rather than an arbitrary object bag. Currently, `mcp` and `steward` are registered keys under `extensions`; unknown keys are rejected. The `steward` extension declares the target L1–L4 level, active applicability profiles, and feature flags (including opt-in `amendable_facts`). Both extension namespaces are schema-validated and require semantic validator coverage. Registering another extension requires a versioned schema definition, semantic validator support, templates, and regression tests. The MCP server extension records maturity level, implementation profiles, advertised transports, official-client commands, and transport-specific listing, read, failure, and write-boundary results.
-
+The base assessment is domain-neutral, but the extension namespace is a closed current registry rather than an arbitrary object bag. Currently, `mcp` and `steward` are registered keys under `extensions`; unknown keys are rejected. The `steward` extension declares the target L1–L4 level, active applicability profiles, and feature flags (including the opt-in `amendable_facts` and `external_pressure_bounded` flags, which are declared independently and each stay bound to its own profile). Both extension namespaces are schema-validated and require semantic validator coverage. Registering another extension requires a versioned schema definition, semantic validator support, templates, and regression tests. The MCP server extension records maturity level, implementation profiles, advertised transports, official-client commands, and transport-specific listing, read, failure, and write-boundary results.
 ## Validation
 
 A migrated repository vendors or pins these contracts and first runs structural validation:
