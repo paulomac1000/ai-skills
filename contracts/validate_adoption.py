@@ -997,6 +997,51 @@ def validate_document(
                             f"cannot derive catalog applicability: {exc}",
                         )
                     )
+    elif skill_name == "mcp-steward-architect":
+        extensions = assessment.get("extensions")
+        steward = extensions.get("steward") if isinstance(extensions, Mapping) else None
+        if steward is None:
+            # Canonical adoption template omits Steward-specific extensions.
+            # An absent extension opts out; explicit opt-in must bind flags.
+            context = RuleContext(target_level="L1")
+            try:
+                if atomic_catalog is None:
+                    parent_rules = expected_rules(catalog, skill_name, context)
+                else:
+                    parent_rules = list(
+                        project_applicability(catalog, atomic_catalog, skill_name, context).parent_rules
+                    )
+                machine_applicable_rules = {str(rule["id"]) for rule in parent_rules}
+            except (KeyError, TypeError, ValueError) as exc:
+                findings.append(Finding("extensions.steward", f"cannot derive Steward applicability: {exc}"))
+        elif not isinstance(steward, Mapping):
+            findings.append(Finding("extensions.steward", "invalid Steward applicability context"))
+        else:
+            features = steward.get("features")
+            enabled = features.get("amendable_facts") if isinstance(features, Mapping) else None
+            level = steward.get("target_level")
+            profiles = steward.get("profiles")
+            if (
+                not isinstance(level, str)
+                or not isinstance(profiles, list)
+                or not all(isinstance(item, str) and item for item in profiles)
+                or type(enabled) is not bool
+            ):
+                findings.append(Finding("extensions.steward", "invalid Steward applicability context"))
+            elif enabled != ("amendable-facts" in profiles):
+                findings.append(Finding("extensions.steward", "amendable feature/profile mismatch"))
+            else:
+                try:
+                    context = RuleContext(target_level=level, profiles=frozenset(profiles))
+                    if atomic_catalog is None:
+                        parent_rules = expected_rules(catalog, skill_name, context)
+                    else:
+                        parent_rules = list(
+                            project_applicability(catalog, atomic_catalog, skill_name, context).parent_rules
+                        )
+                    machine_applicable_rules = {str(rule["id"]) for rule in parent_rules}
+                except (KeyError, TypeError, ValueError) as exc:
+                    findings.append(Finding("extensions.steward", f"cannot derive Steward applicability: {exc}"))
     _validate_applicability(
         assessment,
         catalog_rules,

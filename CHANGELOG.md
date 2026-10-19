@@ -1,5 +1,25 @@
 # Changelog
 
+## 3.26.0 - 2026-10-19
+
+### Added
+
+- Optional append-only correction, retraction, and supersession lineage for durable Steward evidence with trusted actor authority, linear CAS revisions, idempotent replay and history-preserving effective projections.
+- A deterministic SQLite reference implementation, fault-path regressions, and opt-in Steward Design Pack contract fields.
+
+### Changed
+
+- Dependent evidence and artifacts must re-evaluate after effective lineage identity changes; the historical audit remains intact.
+
+### Fixed
+
+- An amendment that is superseded by a concurrent writer before its result is read now requires the same historical-read grant as a replay, so a superseded payload and its provenance are never disclosed to an unauthorized caller.
+- Locked dependency installation distinguishes a locked-graph failure from an unmanaged runner host conflict, refuses a report that names a missing lock-pinned distribution, and verifies every selected lock pin against the installed name and version inventory; the complete local gate reuses that verification instead of running an unclassified check.
+
+### Known limitations
+
+- Model and production-provider acceptance remain outside deterministic reference-fixture evidence.
+
 ## 3.25.0 - 2026-10-13
 
 ### Added
