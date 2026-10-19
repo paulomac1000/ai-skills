@@ -74,7 +74,8 @@ TRUSTED_CANDIDATE_TARGETS = {
         "existing-skill-route": ("SKILL.md", "For an existing skill"),
         "migration-compatibility": (
             "references/lifecycle-and-migration.md",
-            "Keep compliant consumer-specific behavior when the contract is unchanged",
+            "Keep compliant consumer-specific behavior when the contract is unchanged;"
+            " change only the surface necessary for the normative delta",
         ),
         "observed-maintenance": (
             "references/lifecycle-and-migration.md",
@@ -564,22 +565,36 @@ def _route_suffix(matched: str, route: str) -> str:
     return matched if position < 0 else matched[position + len(route) :]
 
 
-def _contradicts_route_line(line: str, owner: str) -> bool:
-    """Detect a separate instruction that cancels the reviewed preload route.
+_OWNER_LOAD = re.compile(r"\b(?:read|consult|load|open|follow|use|see)\b", re.IGNORECASE)
 
-    The negation must belong to the clause that names the owner. A sentence
-    that merely mentions the owner somewhere else, for example "do not treat
-    examples as higher authority than STANDARD.md", is not a contradiction of
-    the preload route.
+
+def _owner_load_clauses(text: str, owner: str) -> list[str]:
+    """Return the entrypoint clauses that instruct the agent to load the owner.
+
+    A reviewed preload route is the single instruction that may load the owner.
+    Any other instruction that loads it can narrow or cancel the reviewed route
+    without negating it, so a second such clause is a contradiction.
     """
-    for clause in re.split(r"[,;]", line):
-        if owner not in clause:
+    clauses: list[str] = []
+    for line in text.splitlines():
+        for clause in re.split(r"[,;]", line):
+            if owner in clause and _OWNER_LOAD.search(clause):
+                clauses.append(clause.strip())
+    return clauses
+
+
+def _owner_has_unreviewed_tail(text: str, anchor: str) -> bool:
+    """Require the reviewed owner instruction to end where the reviewed anchor ends.
+
+    A complete pinned anchor does not authenticate the end of the instruction.
+    Text that follows it can narrow the obligation, for example "for development
+    builds", so only trailing punctuation and whitespace may follow it.
+    """
+    for line in text.splitlines():
+        position = line.find(anchor)
+        if position < 0:
             continue
-        if re.search(
-            r"\b(?:do\s+not|never|skip|ignore|disregard|bypass|omit|waive|avoid|without)\b",
-            clause,
-            re.IGNORECASE,
-        ):
+        if not _BENIGN_ROUTE_TAIL.match(line[position + len(anchor) :]):
             return True
     return False
 
@@ -984,7 +999,7 @@ def assess(
                 route = decision.get("entrypoint_route")
                 if trusted_entrypoint_routes is None or trusted_entrypoint_routes.get(rule_id) != route:
                     findings.append("entrypoint_route_untrusted:" + rule_id[:128])
-                if any(_contradicts_route_line(line, rel) for line in operative_skill.splitlines()):
+                if len(_owner_load_clauses(operative_skill, rel)) > 1:
                     findings.append("owner_route_contradicted:" + rule_id[:128])
                 if "SKILL.md" not in candidate_verified:
                     findings.append("owner_entrypoint_unbound:" + rule_id[:128])
@@ -1039,6 +1054,13 @@ def assess(
                 findings.append("anchor_not_present:" + rule_id)
             elif kind in MATERIAL:
                 owner_text = operative_skill if rel == "SKILL.md" else _operative_skill_text(candidate_verified[rel])
+                # A trigger anchor identifies a routing phrase and is a prefix
+                # of a longer instruction by design, and a retained rule keeps
+                # its anchor inside the entrypoint line. A moved obligation
+                # anchor is the complete instruction, so text after it can
+                # narrow the duty.
+                if rel != "SKILL.md" and kind != "trigger" and _owner_has_unreviewed_tail(owner_text, required_anchor):
+                    findings.append("material_owner_rule_narrowed:" + rule_id[:128])
                 if _contradicts_owner(owner_text, required_anchor):
                     findings.append("contradictory_owner_rule:" + rule_id[:128])
                 if _reverses_preserved_prohibition(owner_text, required_anchor):

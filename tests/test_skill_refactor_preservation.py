@@ -75,7 +75,7 @@ def case(tmp_path, kind="authority"):
     skill = tmp_path / "skill"
     skill.mkdir()
     (skill / "SKILL.md").write_text("Trigger when destructive action requested; read STANDARD.md before action")
-    (skill / "STANDARD.md").write_text("Require policy authorization; retain rollback evidence")
+    (skill / "STANDARD.md").write_text("Require policy authorization")
     (skill / "manifest.yaml").write_text("name: fixture-skill\nversion: 0.0.0\n")
     baseline = {"revision": "a" * 40, "required_behaviors": [{"id": "auth", "kind": kind}]}
     decision = {
@@ -851,7 +851,7 @@ def test_untrusted_candidate_revision_is_not_reported_as_verified(tmp_path):
 def test_moved_critical_owner_must_contain_affirmative_rule(tmp_path):
     path, baseline, ledger, decision = case(tmp_path, kind="authority")
     assert assess(baseline, ledger, path)["structural"] == "PASS"
-    (path / "STANDARD.md").write_text("Do not Require policy authorization; retain rollback evidence")
+    (path / "STANDARD.md").write_text("Do not Require policy authorization")
     ledger["candidate_files"]["STANDARD.md"] = mod._git_blob_sha((path / "STANDARD.md").read_bytes())
     result = assess(baseline, ledger, path)
     assert "critical_owner_rule_negated:auth" in result["findings"]
@@ -962,7 +962,7 @@ def test_noncritical_material_rule_cannot_be_negated_in_owner(tmp_path):
         kind_root.mkdir()
         path, baseline, ledger, decision = case(kind_root, kind=kind)
         assert assess(baseline, ledger, path)["structural"] == "PASS"
-        (path / "STANDARD.md").write_text("Do not Require policy authorization; retain rollback evidence")
+        (path / "STANDARD.md").write_text("Do not Require policy authorization")
         ledger["candidate_files"]["STANDARD.md"] = mod._git_blob_sha((path / "STANDARD.md").read_bytes())
         findings = assess(baseline, ledger, path)["findings"]
         assert "material_owner_rule_negated:auth" in findings
@@ -1132,7 +1132,7 @@ def test_wrapped_owner_negation_and_entrypoint_skip_fail_closed(tmp_path):
     (path / "STANDARD.md").write_text("Require policy authorization\nis prohibited.")
     ledger["candidate_files"]["STANDARD.md"] = mod._git_blob_sha((path / "STANDARD.md").read_bytes())
     assert "critical_owner_rule_negated:auth" in assess(baseline, ledger, path)["findings"]
-    (path / "STANDARD.md").write_text("Require policy authorization; retain rollback evidence")
+    (path / "STANDARD.md").write_text("Require policy authorization")
     ledger["candidate_files"]["STANDARD.md"] = mod._git_blob_sha((path / "STANDARD.md").read_bytes())
     route = decision["entrypoint_route"]
     for text in (
@@ -1941,6 +1941,106 @@ def test_repinning_candidate_cannot_contradict_the_preload_route(tmp_path):
         trusted_entrypoint_routes=mod.TRUSTED_ENTRYPOINT_ROUTES[key],
     )["findings"]
     assert "owner_route_contradicted:privileged-capabilities-explicit" in findings
+
+
+def test_repinning_candidate_cannot_narrow_the_complete_owner_anchor(tmp_path):
+    import shutil
+
+    root = Path(__file__).resolve().parents[1]
+    corpus = root / "evals/skills/skill-architect"
+    baseline = json.loads((corpus / "refactor-pilot-baseline.json").read_text(encoding="utf-8"))
+    ledger = json.loads((corpus / "refactor-pilot-ledger.json").read_text(encoding="utf-8"))
+    candidate = tmp_path / "skill"
+    candidate.mkdir()
+    for rel in ledger["candidate_files"]:
+        destination = candidate / rel
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(root / "skills/skill-architect" / rel, destination)
+    standard = candidate / "STANDARD.md"
+    original = standard.read_text(encoding="utf-8")
+    complete = "is not proof of trusted human authorization."
+    assert complete in original
+    standard.write_text(original.replace(complete, complete + " for development builds."), encoding="utf-8")
+    ledger["candidate_files"]["STANDARD.md"] = mod._git_blob_sha(standard.read_bytes())
+    key = (baseline["revision"], "skills/skill-architect")
+    findings = mod.assess(
+        baseline,
+        ledger,
+        candidate,
+        baseline_tree=corpus / "baseline_snapshots",
+        trusted_baseline_sha256=mod.TRUSTED_BASELINE_INVENTORIES[key],
+        trusted_source_anchors=mod.TRUSTED_BASELINE_SOURCE_ANCHORS[key],
+        trusted_target_mappings=mod.TRUSTED_CANDIDATE_TARGETS[key],
+        trusted_entrypoint_routes=mod.TRUSTED_ENTRYPOINT_ROUTES[key],
+    )["findings"]
+    assert "material_owner_rule_narrowed:privileged-capabilities-explicit" in findings
+
+
+def test_repinning_candidate_cannot_add_a_second_owner_load_instruction(tmp_path):
+    import shutil
+
+    root = Path(__file__).resolve().parents[1]
+    corpus = root / "evals/skills/skill-architect"
+    baseline = json.loads((corpus / "refactor-pilot-baseline.json").read_text(encoding="utf-8"))
+    ledger = json.loads((corpus / "refactor-pilot-ledger.json").read_text(encoding="utf-8"))
+    candidate = tmp_path / "skill"
+    candidate.mkdir()
+    for rel in ledger["candidate_files"]:
+        destination = candidate / rel
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(root / "skills/skill-architect" / rel, destination)
+    entrypoint = candidate / "SKILL.md"
+    original = entrypoint.read_text(encoding="utf-8")
+    entrypoint.write_text(original + "\n- Read STANDARD.md only for development builds.\n", encoding="utf-8")
+    ledger["candidate_files"]["SKILL.md"] = mod._git_blob_sha(entrypoint.read_bytes())
+    key = (baseline["revision"], "skills/skill-architect")
+    findings = mod.assess(
+        baseline,
+        ledger,
+        candidate,
+        baseline_tree=corpus / "baseline_snapshots",
+        trusted_baseline_sha256=mod.TRUSTED_BASELINE_INVENTORIES[key],
+        trusted_source_anchors=mod.TRUSTED_BASELINE_SOURCE_ANCHORS[key],
+        trusted_target_mappings=mod.TRUSTED_CANDIDATE_TARGETS[key],
+        trusted_entrypoint_routes=mod.TRUSTED_ENTRYPOINT_ROUTES[key],
+    )["findings"]
+    assert "owner_route_contradicted:privileged-capabilities-explicit" in findings
+
+
+def test_benign_owner_authority_reference_is_not_a_route_contradiction(tmp_path):
+    import shutil
+
+    root = Path(__file__).resolve().parents[1]
+    corpus = root / "evals/skills/skill-architect"
+    baseline = json.loads((corpus / "refactor-pilot-baseline.json").read_text(encoding="utf-8"))
+    ledger = json.loads((corpus / "refactor-pilot-ledger.json").read_text(encoding="utf-8"))
+    candidate = tmp_path / "skill"
+    candidate.mkdir()
+    for rel in ledger["candidate_files"]:
+        destination = candidate / rel
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(root / "skills/skill-architect" / rel, destination)
+    entrypoint = candidate / "SKILL.md"
+    original = entrypoint.read_text(encoding="utf-8")
+    entrypoint.write_text(
+        original + "\n- Do not treat examples, templates, generators, local evals, or model self-review as higher"
+        " authority than STANDARD.md.\n",
+        encoding="utf-8",
+    )
+    ledger["candidate_files"]["SKILL.md"] = mod._git_blob_sha(entrypoint.read_bytes())
+    key = (baseline["revision"], "skills/skill-architect")
+    result = mod.assess(
+        baseline,
+        ledger,
+        candidate,
+        baseline_tree=corpus / "baseline_snapshots",
+        trusted_baseline_sha256=mod.TRUSTED_BASELINE_INVENTORIES[key],
+        trusted_source_anchors=mod.TRUSTED_BASELINE_SOURCE_ANCHORS[key],
+        trusted_target_mappings=mod.TRUSTED_CANDIDATE_TARGETS[key],
+        trusted_entrypoint_routes=mod.TRUSTED_ENTRYPOINT_ROUTES[key],
+    )
+    assert result["structural"] == "PASS"
+    assert not [finding for finding in result["findings"] if "privileged-capabilities-explicit" in finding]
 
 
 def test_higher_authority_cannot_reverse_preserved_deprecation_prohibition(tmp_path):
