@@ -1489,11 +1489,11 @@ def test_repinning_candidate_cannot_weaken_privileged_capability_explicitness(tm
         ("capabilities implicit.", "anchor_not_present:privileged-capabilities-explicit"),
         (
             "capabilities explicit if running in development.",
-            "critical_owner_rule_negated:privileged-capabilities-explicit",
+            "anchor_not_present:privileged-capabilities-explicit",
         ),
         (
             "capabilities explicit when running in development.",
-            "critical_owner_rule_negated:privileged-capabilities-explicit",
+            "anchor_not_present:privileged-capabilities-explicit",
         ),
     ):
         standard.write_text(original.replace("capabilities explicit.", replacement), encoding="utf-8")
@@ -1870,6 +1870,77 @@ def test_repinning_candidate_cannot_self_authorize_a_narrowed_preload_route(tmp_
         trusted_entrypoint_routes=mod.TRUSTED_ENTRYPOINT_ROUTES[key],
     )["findings"]
     assert "entrypoint_route_untrusted:privileged-capabilities-explicit" in findings
+
+
+def test_repinning_candidate_cannot_narrow_the_owner_instruction(tmp_path):
+    import shutil
+
+    root = Path(__file__).resolve().parents[1]
+    corpus = root / "evals/skills/skill-architect"
+    baseline = json.loads((corpus / "refactor-pilot-baseline.json").read_text(encoding="utf-8"))
+    ledger = json.loads((corpus / "refactor-pilot-ledger.json").read_text(encoding="utf-8"))
+    candidate = tmp_path / "skill"
+    candidate.mkdir()
+    for rel in ledger["candidate_files"]:
+        destination = candidate / rel
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(root / "skills/skill-architect" / rel, destination)
+    standard = candidate / "STANDARD.md"
+    original = standard.read_text(encoding="utf-8")
+    assert "capabilities explicit." in original
+    standard.write_text(
+        original.replace("capabilities explicit.", "capabilities explicit for development builds."),
+        encoding="utf-8",
+    )
+    ledger["candidate_files"]["STANDARD.md"] = mod._git_blob_sha(standard.read_bytes())
+    key = (baseline["revision"], "skills/skill-architect")
+    findings = mod.assess(
+        baseline,
+        ledger,
+        candidate,
+        baseline_tree=corpus / "baseline_snapshots",
+        trusted_baseline_sha256=mod.TRUSTED_BASELINE_INVENTORIES[key],
+        trusted_source_anchors=mod.TRUSTED_BASELINE_SOURCE_ANCHORS[key],
+        trusted_target_mappings=mod.TRUSTED_CANDIDATE_TARGETS[key],
+        trusted_entrypoint_routes=mod.TRUSTED_ENTRYPOINT_ROUTES[key],
+    )["findings"]
+    assert "anchor_not_present:privileged-capabilities-explicit" in findings
+
+
+def test_repinning_candidate_cannot_contradict_the_preload_route(tmp_path):
+    import shutil
+
+    root = Path(__file__).resolve().parents[1]
+    corpus = root / "evals/skills/skill-architect"
+    baseline = json.loads((corpus / "refactor-pilot-baseline.json").read_text(encoding="utf-8"))
+    ledger = json.loads((corpus / "refactor-pilot-ledger.json").read_text(encoding="utf-8"))
+    candidate = tmp_path / "skill"
+    candidate.mkdir()
+    for rel in ledger["candidate_files"]:
+        destination = candidate / rel
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(root / "skills/skill-architect" / rel, destination)
+    entrypoint = candidate / "SKILL.md"
+    original = entrypoint.read_text(encoding="utf-8")
+    route = "Read STANDARD.md before making normative decisions."
+    assert route in original
+    entrypoint.write_text(
+        original + "\n- Do not read STANDARD.md before making normative decisions.\n",
+        encoding="utf-8",
+    )
+    ledger["candidate_files"]["SKILL.md"] = mod._git_blob_sha(entrypoint.read_bytes())
+    key = (baseline["revision"], "skills/skill-architect")
+    findings = mod.assess(
+        baseline,
+        ledger,
+        candidate,
+        baseline_tree=corpus / "baseline_snapshots",
+        trusted_baseline_sha256=mod.TRUSTED_BASELINE_INVENTORIES[key],
+        trusted_source_anchors=mod.TRUSTED_BASELINE_SOURCE_ANCHORS[key],
+        trusted_target_mappings=mod.TRUSTED_CANDIDATE_TARGETS[key],
+        trusted_entrypoint_routes=mod.TRUSTED_ENTRYPOINT_ROUTES[key],
+    )["findings"]
+    assert "owner_route_contradicted:privileged-capabilities-explicit" in findings
 
 
 def test_higher_authority_cannot_reverse_preserved_deprecation_prohibition(tmp_path):
