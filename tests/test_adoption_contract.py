@@ -554,6 +554,33 @@ def test_steward_adoption_enforces_opt_in_pressure_profile(tmp_path: Path) -> No
     assert "catalog applicability requires this rule to be applicable or explicitly deferred" not in result
 
 
+def test_assessment_without_the_external_pressure_flag_remains_accepted(tmp_path: Path) -> None:
+    """A 3.26.0 assessment that declares only amendable_facts must stay valid."""
+    doc, catalog, skills = assessment_for(tmp_path, skill_name="mcp-steward-architect")
+    doc["extensions"] = {
+        "steward": {
+            "target_level": "L1",
+            "profiles": ["amendable-facts"],
+            "features": {"amendable_facts": True},
+        }
+    }
+    report = "\n".join(findings(doc, catalog, skills, tmp_path))
+    assert "invalid Steward applicability context" not in report
+    assert "feature/profile mismatch" not in report
+    assert "external pressure feature/profile applicability mismatch" not in report
+    # The declared feature object still satisfies the extension schema without
+    # the newly optional flag.
+    Draft202012Validator(SCHEMA["properties"]["extensions"]).validate(
+        {
+            "steward": {
+                "target_level": "L1",
+                "profiles": [],
+                "features": {"amendable_facts": True},
+            }
+        }
+    )
+
+
 def test_steward_optional_feature_flags_are_independent_and_must_match_their_profile(
     tmp_path: Path,
 ) -> None:

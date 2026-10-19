@@ -1019,7 +1019,7 @@ def validate_document(
         else:
             features = steward.get("features")
             amendable = features.get("amendable_facts") if isinstance(features, Mapping) else None
-            pressure = features.get("external_pressure_bounded") if isinstance(features, Mapping) else None
+            pressure = features.get("external_pressure_bounded", False) if isinstance(features, Mapping) else None
             level = steward.get("target_level")
             profiles = steward.get("profiles")
             if (

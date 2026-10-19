@@ -157,6 +157,49 @@ def test_shutdown_durable_operation_requires_host_authority_reacquisition(tmp_pa
     assert m.doctor()["detached_unresolved"] == 0
 
 
+def test_reconciled_terminal_shutdown_fence_remains_recoverable(tmp_path):
+    """A shutdown-fenced operation that finished remotely keeps its publishable result."""
+    m = ExternalPressure(
+        tmp_path / "terminal-shutdown-recovery.db",
+        global_limit=2,
+        detached_limit=2,
+        per_capability_limit=2,
+        cancellation_reserve=1,
+        reconciliation_reserve=1,
+        verify_termination=lambda _op: True,
+        verify_resume_authority=lambda _op, _gen: True,
+    )
+    m.dispatch("op", "cap", 1)
+    m.fence("op", "service_shutdown")
+    m.observe("op", "stopped", reconciled=True)
+    assert not m.publish_allowed("op", 1)
+    m.resume_after_shutdown("op", 1)
+    assert m.publish_allowed("op", 1)
+    assert m.commit_publication("op", 1, "sha256:" + "f" * 64)["generation"] == 1
+
+
+def test_unreconciled_or_cancelled_terminal_shutdown_stays_unrecoverable(tmp_path):
+    """Only a host-reconciled terminal shutdown fence may be recovered."""
+    m = ExternalPressure(
+        tmp_path / "terminal-shutdown-rejected.db",
+        global_limit=2,
+        detached_limit=2,
+        per_capability_limit=2,
+        cancellation_reserve=1,
+        reconciliation_reserve=1,
+        verify_termination=lambda _op: True,
+        verify_resume_authority=lambda _op, _gen: True,
+    )
+    m.dispatch("cancelled", "cap", 1)
+    m.fence("cancelled", "domain_cancel")
+    with pytest.raises(PressureRejected, match="resume_state_conflict"):
+        m.resume_after_shutdown("cancelled", 1)
+    m.dispatch("superseded", "cap", 2)
+    m.fence("superseded", "superseded")
+    with pytest.raises(PressureRejected, match="resume_state_conflict"):
+        m.resume_after_shutdown("superseded", 2)
+
+
 def test_unknown_operation_does_not_touch_provider_verifier(tmp_path):
     called = []
     m = ExternalPressure(

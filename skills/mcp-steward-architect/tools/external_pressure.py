@@ -194,16 +194,21 @@ class ExternalPressure:
         ):
             raise PressureRejected("invalid_operation_identity")
         query = """
-            SELECT generation, authority, physical, reason, authority_epoch
+            SELECT generation, authority, physical, reason, authority_epoch, reconciliation
             FROM pressure_operations WHERE operation_id=?
         """
         before = self.db.execute(query, (operation_id,)).fetchone()
         if before is None:
             raise PressureRejected("unknown_operation")
+        # A shutdown-fenced operation that finished remotely and was reconciled
+        # by the host keeps its resolved status and stays recoverable. Any
+        # other terminal state, and every superseded or cancelled operation,
+        # stays rejected.
+        terminal_reconciled = before[2] == "stopped" and before[5] == "resolved"
         if (
             before[0] != generation
             or before[1] != "fenced"
-            or before[2] == "stopped"
+            or (before[2] == "stopped" and not terminal_reconciled)
             or before[3] != "service_shutdown"
         ):
             raise PressureRejected("resume_state_conflict")
@@ -217,9 +222,9 @@ class ExternalPressure:
                 raise PressureRejected("resume_state_conflict")
             self.db.execute(
                 """UPDATE pressure_operations SET authority='current',
-                reconciliation='none', reason='resumed',
+                reconciliation=?, reason='resumed',
                 authority_epoch=authority_epoch+1 WHERE operation_id=?""",
-                (operation_id,),
+                ("resolved" if terminal_reconciled else "none", operation_id),
             )
             self.db.execute("COMMIT")
         except Exception:
