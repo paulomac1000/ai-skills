@@ -32,11 +32,11 @@
       "id": "observed-maintenance",
       "disposition": "PRESERVE",
       "target_path": "references/lifecycle-and-migration.md",
-      "target_anchor": "Inspect representative runs",
+      "target_anchor": "Inspect representative runs for unexpected skill selection, references always or never opened, repeated unnecessary reads, bypassed deterministic tools, and recurring failure modes",
       "negative_case": "unobserved_speedup",
       "verification": "test_skill_refactor_preservation::test_structural_green_does_not_claim_model_equivalence",
       "source_path": "references/lifecycle-and-migration.md",
-      "source_anchor": "Inspect representative runs",
+      "source_anchor": "Inspect representative runs for unexpected skill selection, references always or never opened, repeated unnecessary reads, bypassed deterministic tools, and recurring failure modes",
       "positive_case": "observed-route-result",
       "pre_load_trigger": "For an existing skill",
       "entrypoint_route": "For an existing skill (including refactor, split, migration, rename, model upgrade, or deprecation), consult references/lifecycle-and-migration.md before any change"

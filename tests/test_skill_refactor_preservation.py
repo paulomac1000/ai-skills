@@ -1446,6 +1446,42 @@ def test_repinning_deprecation_reference_cannot_drop_lifecycle_obligations(tmp_p
     assert "anchor_not_present:deprecation-boundary" in findings
 
 
+def test_repinning_candidate_cannot_delete_maintenance_observations(tmp_path):
+    import shutil
+
+    root = Path(__file__).resolve().parents[1]
+    corpus = root / "evals/skills/skill-architect"
+    baseline = json.loads((corpus / "refactor-pilot-baseline.json").read_text(encoding="utf-8"))
+    ledger = json.loads((corpus / "refactor-pilot-ledger.json").read_text(encoding="utf-8"))
+    candidate = tmp_path / "skill"
+    candidate.mkdir()
+    for rel in ledger["candidate_files"]:
+        destination = candidate / rel
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(root / "skills/skill-architect" / rel, destination)
+    reference = candidate / "references/lifecycle-and-migration.md"
+    original = reference.read_text(encoding="utf-8")
+    full = (
+        "Inspect representative runs for unexpected skill selection, references always\n"
+        "or never opened, repeated unnecessary reads, bypassed deterministic tools, and\n"
+        "recurring failure modes."
+    )
+    assert full in original
+    reference.write_text(original.replace(full, "Inspect representative runs for spelling errors."), encoding="utf-8")
+    ledger["candidate_files"]["references/lifecycle-and-migration.md"] = mod._git_blob_sha(reference.read_bytes())
+    key = (baseline["revision"], "skills/skill-architect")
+    findings = mod.assess(
+        baseline,
+        ledger,
+        candidate,
+        baseline_tree=corpus / "baseline_snapshots",
+        trusted_baseline_sha256=mod.TRUSTED_BASELINE_INVENTORIES[key],
+        trusted_source_anchors=mod.TRUSTED_BASELINE_SOURCE_ANCHORS[key],
+        trusted_target_mappings=mod.TRUSTED_CANDIDATE_TARGETS[key],
+    )["findings"]
+    assert "anchor_not_present:observed-maintenance" in findings
+
+
 def test_higher_authority_cannot_reverse_preserved_deprecation_prohibition(tmp_path):
     import shutil
 

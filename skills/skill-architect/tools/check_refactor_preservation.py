@@ -45,7 +45,8 @@ TRUSTED_BASELINE_SOURCE_ANCHORS = {
         ),
         "observed-maintenance": (
             "references/lifecycle-and-migration.md",
-            "Inspect representative runs",
+            "Inspect representative runs for unexpected skill selection, references always or never opened,"
+            " repeated unnecessary reads, bypassed deterministic tools, and recurring failure modes",
         ),
         "deprecation-boundary": (
             "references/lifecycle-and-migration.md",
@@ -75,7 +76,8 @@ TRUSTED_CANDIDATE_TARGETS = {
         ),
         "observed-maintenance": (
             "references/lifecycle-and-migration.md",
-            "Inspect representative runs",
+            "Inspect representative runs for unexpected skill selection, references always or never opened,"
+            " repeated unnecessary reads, bypassed deterministic tools, and recurring failure modes",
         ),
         "deprecation-boundary": (
             "references/lifecycle-and-migration.md",
