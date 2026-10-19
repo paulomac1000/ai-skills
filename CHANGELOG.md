@@ -1,6 +1,6 @@
 # Changelog
 
-## 3.27.0 - Unreleased
+## 3.27.0 - 2026-10-19
 
 ### Added
 
