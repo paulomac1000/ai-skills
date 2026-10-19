@@ -30,6 +30,11 @@ def assess(baseline, ledger, path, *, baseline_tree=None):
         for entry in ledger.get("decisions", [])
         if isinstance(entry, dict) and all(key in entry for key in ("id", "target_path", "target_anchor"))
     }
+    approved_routes = {
+        entry["id"]: entry["entrypoint_route"]
+        for entry in ledger.get("decisions", [])
+        if isinstance(entry, dict) and "entrypoint_route" in entry
+    }
     return mod.assess(
         baseline,
         ledger,
@@ -38,6 +43,7 @@ def assess(baseline, ledger, path, *, baseline_tree=None):
         trusted_baseline_sha256=review_pin,
         trusted_source_anchors=approved_sources,
         trusted_target_mappings=approved_targets,
+        trusted_entrypoint_routes=approved_routes,
     )
 
 
@@ -1173,7 +1179,7 @@ def test_exception_qualified_critical_owner_fails_closed(tmp_path):
 
 
 def test_baseline_inventory_cannot_self_authorize_by_rehash(tmp_path):
-    path, baseline, ledger, _ = case(tmp_path)
+    path, baseline, ledger, decision = case(tmp_path)
     approved = "sha256:" + hashlib.sha256(mod._canonical_json(baseline)).hexdigest()
     assert (
         mod.assess(
@@ -1184,6 +1190,7 @@ def test_baseline_inventory_cannot_self_authorize_by_rehash(tmp_path):
             trusted_baseline_sha256=approved,
             trusted_source_anchors={"auth": ("STANDARD.md", "Require policy authorization")},
             trusted_target_mappings={"auth": ("STANDARD.md", "Require policy authorization")},
+            trusted_entrypoint_routes={"auth": decision["entrypoint_route"]},
         )["structural"]
         == "PASS"
     )
@@ -1197,6 +1204,7 @@ def test_baseline_inventory_cannot_self_authorize_by_rehash(tmp_path):
         trusted_baseline_sha256=approved,
         trusted_source_anchors={"auth": ("STANDARD.md", "Require policy authorization")},
         trusted_target_mappings={"auth": ("STANDARD.md", "Require policy authorization")},
+        trusted_entrypoint_routes={"auth": decision["entrypoint_route"]},
     )
     assert "baseline_behavior_inventory_untrusted" in result["findings"]
 
@@ -1221,6 +1229,7 @@ def test_repointed_source_anchor_cannot_impersonate_reviewed_rule(tmp_path):
         trusted_baseline_sha256=approved_digest,
         trusted_source_anchors={"auth": ("STANDARD.md", "Require policy authorization")},
         trusted_target_mappings={"auth": ("STANDARD.md", "Require policy authorization")},
+        trusted_entrypoint_routes={"auth": decision["entrypoint_route"]},
     )
     assert "baseline_source_identity_untrusted:auth" in result["findings"]
 
@@ -1497,6 +1506,7 @@ def test_repinning_candidate_cannot_weaken_privileged_capability_explicitness(tm
             trusted_baseline_sha256=mod.TRUSTED_BASELINE_INVENTORIES[key],
             trusted_source_anchors=mod.TRUSTED_BASELINE_SOURCE_ANCHORS[key],
             trusted_target_mappings=mod.TRUSTED_CANDIDATE_TARGETS[key],
+            trusted_entrypoint_routes=mod.TRUSTED_ENTRYPOINT_ROUTES[key],
         )["findings"]
         assert expected_finding in findings, replacement
 
@@ -1531,6 +1541,7 @@ def test_repinning_deprecation_reference_cannot_drop_lifecycle_obligations(tmp_p
         trusted_baseline_sha256=mod.TRUSTED_BASELINE_INVENTORIES[key],
         trusted_source_anchors=mod.TRUSTED_BASELINE_SOURCE_ANCHORS[key],
         trusted_target_mappings=mod.TRUSTED_CANDIDATE_TARGETS[key],
+        trusted_entrypoint_routes=mod.TRUSTED_ENTRYPOINT_ROUTES[key],
     )["findings"]
     assert "anchor_not_present:deprecation-boundary" in findings
 
@@ -1567,6 +1578,7 @@ def test_repinning_candidate_cannot_delete_maintenance_observations(tmp_path):
         trusted_baseline_sha256=mod.TRUSTED_BASELINE_INVENTORIES[key],
         trusted_source_anchors=mod.TRUSTED_BASELINE_SOURCE_ANCHORS[key],
         trusted_target_mappings=mod.TRUSTED_CANDIDATE_TARGETS[key],
+        trusted_entrypoint_routes=mod.TRUSTED_ENTRYPOINT_ROUTES[key],
     )["findings"]
     assert "anchor_not_present:observed-maintenance" in findings
 
@@ -1603,6 +1615,7 @@ def test_repinning_candidate_cannot_relocate_owner_requirement_into_frontmatter(
         trusted_baseline_sha256=mod.TRUSTED_BASELINE_INVENTORIES[key],
         trusted_source_anchors=mod.TRUSTED_BASELINE_SOURCE_ANCHORS[key],
         trusted_target_mappings=mod.TRUSTED_CANDIDATE_TARGETS[key],
+        trusted_entrypoint_routes=mod.TRUSTED_ENTRYPOINT_ROUTES[key],
     )["findings"]
     assert "anchor_not_present:privileged-capabilities-explicit" in findings
 
@@ -1647,6 +1660,7 @@ def test_repinning_candidate_cannot_hide_owner_requirement_in_list_contained_fen
         trusted_baseline_sha256=mod.TRUSTED_BASELINE_INVENTORIES[key],
         trusted_source_anchors=mod.TRUSTED_BASELINE_SOURCE_ANCHORS[key],
         trusted_target_mappings=mod.TRUSTED_CANDIDATE_TARGETS[key],
+        trusted_entrypoint_routes=mod.TRUSTED_ENTRYPOINT_ROUTES[key],
     )["findings"]
     assert "anchor_not_present:privileged-capabilities-explicit" in findings
 
@@ -1690,6 +1704,7 @@ def test_repinning_candidate_cannot_hide_owner_requirement_behind_a_pseudo_closi
         trusted_baseline_sha256=mod.TRUSTED_BASELINE_INVENTORIES[key],
         trusted_source_anchors=mod.TRUSTED_BASELINE_SOURCE_ANCHORS[key],
         trusted_target_mappings=mod.TRUSTED_CANDIDATE_TARGETS[key],
+        trusted_entrypoint_routes=mod.TRUSTED_ENTRYPOINT_ROUTES[key],
     )["findings"]
     assert "anchor_not_present:privileged-capabilities-explicit" in findings
 
@@ -1733,6 +1748,7 @@ def test_invalid_pseudo_fence_opener_keeps_the_following_requirement_visible(tmp
         trusted_baseline_sha256=mod.TRUSTED_BASELINE_INVENTORIES[key],
         trusted_source_anchors=mod.TRUSTED_BASELINE_SOURCE_ANCHORS[key],
         trusted_target_mappings=mod.TRUSTED_CANDIDATE_TARGETS[key],
+        trusted_entrypoint_routes=mod.TRUSTED_ENTRYPOINT_ROUTES[key],
     )
     assert result["structural"] == "PASS"
     assert not [finding for finding in result["findings"] if "privileged-capabilities-explicit" in finding]
@@ -1769,6 +1785,7 @@ def test_repinning_candidate_cannot_condition_the_preload_route(tmp_path):
         trusted_baseline_sha256=mod.TRUSTED_BASELINE_INVENTORIES[key],
         trusted_source_anchors=mod.TRUSTED_BASELINE_SOURCE_ANCHORS[key],
         trusted_target_mappings=mod.TRUSTED_CANDIDATE_TARGETS[key],
+        trusted_entrypoint_routes=mod.TRUSTED_ENTRYPOINT_ROUTES[key],
     )["findings"]
     assert "owner_route_unreachable:privileged-capabilities-explicit" in findings
 
@@ -1810,9 +1827,49 @@ def test_repinning_candidate_cannot_append_any_narrowing_clause_to_the_preload_r
             trusted_baseline_sha256=mod.TRUSTED_BASELINE_INVENTORIES[key],
             trusted_source_anchors=mod.TRUSTED_BASELINE_SOURCE_ANCHORS[key],
             trusted_target_mappings=mod.TRUSTED_CANDIDATE_TARGETS[key],
+            trusted_entrypoint_routes=mod.TRUSTED_ENTRYPOINT_ROUTES[key],
         )["findings"]
         assert "owner_route_unreachable:privileged-capabilities-explicit" in findings, suffix
         shutil.rmtree(candidate)
+
+
+def test_repinning_candidate_cannot_self_authorize_a_narrowed_preload_route(tmp_path):
+    import shutil
+
+    root = Path(__file__).resolve().parents[1]
+    corpus = root / "evals/skills/skill-architect"
+    baseline = json.loads((corpus / "refactor-pilot-baseline.json").read_text(encoding="utf-8"))
+    ledger = json.loads((corpus / "refactor-pilot-ledger.json").read_text(encoding="utf-8"))
+    candidate = tmp_path / "skill"
+    candidate.mkdir()
+    for rel in ledger["candidate_files"]:
+        destination = candidate / rel
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(root / "skills/skill-architect" / rel, destination)
+    entrypoint = candidate / "SKILL.md"
+    original = entrypoint.read_text(encoding="utf-8")
+    route = "Read STANDARD.md before making normative decisions"
+    narrowed = route + " for development builds"
+    assert route + "." in original
+    entrypoint.write_text(original.replace(route + ".", narrowed + "."), encoding="utf-8")
+    ledger["candidate_files"]["SKILL.md"] = mod._git_blob_sha(entrypoint.read_bytes())
+    # The candidate also rewrites its own ledger route, so the narrowed text
+    # looks reviewed from the ledger alone.
+    for decision in ledger["decisions"]:
+        if decision["id"] == "privileged-capabilities-explicit":
+            decision["entrypoint_route"] = narrowed
+    key = (baseline["revision"], "skills/skill-architect")
+    findings = mod.assess(
+        baseline,
+        ledger,
+        candidate,
+        baseline_tree=corpus / "baseline_snapshots",
+        trusted_baseline_sha256=mod.TRUSTED_BASELINE_INVENTORIES[key],
+        trusted_source_anchors=mod.TRUSTED_BASELINE_SOURCE_ANCHORS[key],
+        trusted_target_mappings=mod.TRUSTED_CANDIDATE_TARGETS[key],
+        trusted_entrypoint_routes=mod.TRUSTED_ENTRYPOINT_ROUTES[key],
+    )["findings"]
+    assert "entrypoint_route_untrusted:privileged-capabilities-explicit" in findings
 
 
 def test_higher_authority_cannot_reverse_preserved_deprecation_prohibition(tmp_path):
@@ -1846,6 +1903,7 @@ def test_higher_authority_cannot_reverse_preserved_deprecation_prohibition(tmp_p
         trusted_baseline_sha256=mod.TRUSTED_BASELINE_INVENTORIES[key],
         trusted_source_anchors=mod.TRUSTED_BASELINE_SOURCE_ANCHORS[key],
         trusted_target_mappings=mod.TRUSTED_CANDIDATE_TARGETS[key],
+        trusted_entrypoint_routes=mod.TRUSTED_ENTRYPOINT_ROUTES[key],
     )["findings"]
     assert "higher_authority_negative_obligation_reversed:deprecation-boundary" in findings
 

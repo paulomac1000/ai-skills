@@ -95,6 +95,41 @@ TRUSTED_CANDIDATE_TARGETS = {
 }
 
 
+# Reviewed preload routes are independently pinned, like the source and target
+# identities. A candidate that rewrites both its ledger route and its
+# instruction must not be able to narrow a reviewed obligation by self
+# declaring the narrowed text as reviewed.
+TRUSTED_ENTRYPOINT_ROUTES = {
+    ("5c656ac0602e35f51cb0ba9b576f8e5af10a54ba", "skills/skill-architect"): {
+        "migration-compatibility": (
+            "For an existing skill (including refactor, split, migration, rename, model upgrade, or deprecation),"
+            " consult references/lifecycle-and-migration.md before any change; before deleting rules, preserve"
+            " permissions, safety, exceptions, proof, recovery and DoD via a bounded old\u2192new ledger."
+            " Static PASS is BEHAVIOR_NOT_VERIFIED"
+        ),
+        "observed-maintenance": (
+            "For an existing skill (including refactor, split, migration, rename, model upgrade, or deprecation),"
+            " consult references/lifecycle-and-migration.md before any change; before deleting rules, preserve"
+            " permissions, safety, exceptions, proof, recovery and DoD via a bounded old\u2192new ledger."
+            " Static PASS is BEHAVIOR_NOT_VERIFIED"
+        ),
+        "deprecation-boundary": (
+            "For an existing skill (including refactor, split, migration, rename, model upgrade, or deprecation),"
+            " consult references/lifecycle-and-migration.md before any change; before deleting rules, preserve"
+            " permissions, safety, exceptions, proof, recovery and DoD via a bounded old\u2192new ledger."
+            " Static PASS is BEHAVIOR_NOT_VERIFIED"
+        ),
+        "version-change-alone-no-rewrite": (
+            "For an existing skill (including refactor, split, migration, rename, model upgrade, or deprecation),"
+            " consult references/lifecycle-and-migration.md before any change; before deleting rules, preserve"
+            " permissions, safety, exceptions, proof, recovery and DoD via a bounded old\u2192new ledger."
+            " Static PASS is BEHAVIOR_NOT_VERIFIED"
+        ),
+        "privileged-capabilities-explicit": "Read STANDARD.md before making normative decisions",
+    }
+}
+
+
 def _contains_symlink(root: Path, relative: str) -> bool:
     """Reject any symlink component, even one resolving back inside the skill."""
     at = root
@@ -740,6 +775,7 @@ def assess(
     trusted_baseline_sha256: str | None = None,
     trusted_source_anchors: dict[str, tuple[str, str]] | None = None,
     trusted_target_mappings: dict[str, tuple[str, str]] | None = None,
+    trusted_entrypoint_routes: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """Verify original source mapping and exact candidate documents, not model equivalence."""
     candidate_verified: dict[str, bytes] = {}
@@ -775,6 +811,15 @@ def assess(
             trusted_target_mappings = TRUSTED_CANDIDATE_TARGETS.get(target_key)
         except (ValueError, RuntimeError):
             trusted_target_mappings = None
+    if trusted_entrypoint_routes is None:
+        try:
+            route_key = (
+                baseline.get("revision"),
+                candidate.resolve().relative_to(Path(__file__).resolve().parents[3]).as_posix(),
+            )
+            trusted_entrypoint_routes = TRUSTED_ENTRYPOINT_ROUTES.get(route_key)
+        except (ValueError, RuntimeError):
+            trusted_entrypoint_routes = None
     operative_skill = _operative_skill_text(candidate_verified["SKILL.md"]) if "SKILL.md" in candidate_verified else ""
     candidate_files = ledger.get("candidate_files")
     if not isinstance(candidate_files, dict):
@@ -913,6 +958,8 @@ def assess(
                 # destination, including for noncritical reference-only rules.
                 trigger = decision.get("pre_load_trigger")
                 route = decision.get("entrypoint_route")
+                if trusted_entrypoint_routes is None or trusted_entrypoint_routes.get(rule_id) != route:
+                    findings.append("entrypoint_route_untrusted:" + rule_id[:128])
                 if "SKILL.md" not in candidate_verified:
                     findings.append("owner_entrypoint_unbound:" + rule_id[:128])
                 elif (
