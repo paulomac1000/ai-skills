@@ -570,6 +570,8 @@ def test_assessment_without_the_external_pressure_flag_remains_accepted(tmp_path
     assert "external pressure feature/profile applicability mismatch" not in report
     # The declared feature object still satisfies the extension schema without
     # the newly optional flag.
+    features_schema = SCHEMA["properties"]["extensions"]["properties"]["steward"]["properties"]["features"]
+    assert "external_pressure_bounded" not in features_schema["required"]
     Draft202012Validator(SCHEMA["properties"]["extensions"]).validate(
         {
             "steward": {
@@ -614,10 +616,13 @@ def test_steward_optional_feature_flags_are_independent_and_must_match_their_pro
     assert "amendable feature/profile mismatch" not in report
     assert "external pressure feature/profile applicability mismatch" not in report
 
-    # A missing declared feature flag is rejected by the contract schema.
-    steward["features"] = {"amendable_facts": True}
-    with pytest.raises(Exception):
-        Draft202012Validator(SCHEMA["properties"]["extensions"]).validate(doc["extensions"])
+    # The extension schema declares both optional flags and requires only the
+    # amendable one, so an assessment written for 3.26.0 stays valid and a
+    # missing optional flag is not a schema violation.
+    features_schema = SCHEMA["properties"]["extensions"]["properties"]["steward"]["properties"]["features"]
+    assert features_schema["required"] == ["amendable_facts"]
+    assert set(features_schema["properties"]) == {"amendable_facts", "external_pressure_bounded"}
+    assert features_schema["properties"]["external_pressure_bounded"]["type"] == "boolean"
 
 def test_amendment_absent_extension_uses_feature_off_baseline(tmp_path: Path) -> None:
     document, catalog, skills = assessment_for(tmp_path, skill_name="mcp-steward-architect")
