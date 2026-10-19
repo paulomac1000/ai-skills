@@ -14,7 +14,7 @@
 ### Fixed
 
 - An amendment that is superseded by a concurrent writer before its result is read now requires the same historical-read grant as a replay, so a superseded payload and its provenance are never disclosed to an unauthorized caller.
-- Locked dependency installation distinguishes a locked-graph failure from an unmanaged runner host conflict, and the complete local gate reuses that verification instead of running an unclassified check.
+- Locked dependency installation distinguishes a locked-graph failure from an unmanaged runner host conflict, refuses a report that names a missing lock-pinned distribution, and verifies every selected lock pin against the installed name and version inventory; the complete local gate reuses that verification instead of running an unclassified check.
 
 ### Known limitations
 
