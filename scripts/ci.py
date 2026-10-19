@@ -75,7 +75,8 @@ def main() -> int:
         if not compileall.compile_dir(directory, quiet=1):
             return 1
 
-    run(sys.executable, "-m", "pip", "check")
+    # Reuse the locked installer's fail-closed host-conflict classification.
+    run(sys.executable, "scripts/install_locked.py", "--verify-only")
     run(sys.executable, "-m", "ruff", "check", *QUALITY_PATHS)
     run(sys.executable, "-m", "ruff", "format", "--check", *QUALITY_PATHS)
     run(sys.executable, "-m", "mypy", *TYPE_PATHS)

@@ -372,7 +372,13 @@ class AmendmentLineage:
             if self.db.in_transaction:
                 self.db.execute("ROLLBACK")
             raise
-        return self._snapshot(lineage_id, new_revision)
+        result = self._snapshot(lineage_id, new_revision)
+        if not result["is_current"]:
+            # Another writer may have advanced the lineage between the commit
+            # and this snapshot. A superseded payload and its provenance are
+            # historical disclosure and need the same grant as a replay.
+            self._read_admit(lineage_id, "read_history")
+        return result
 
     def history(self, lineage_id: str, *, after_revision: int = -1, limit: int = 20) -> list[dict[str, Any]]:
         self._read_admit(lineage_id, "read_history")

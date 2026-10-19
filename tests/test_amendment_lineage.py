@@ -13,55 +13,144 @@ AmendmentLineage, AmendmentRejected = module.AmendmentLineage, module.AmendmentR
 
 
 def store(tmp_path):
-    return AmendmentLineage(tmp_path / 'lineage.db', lambda principal, lineage, op: ('host-policy' if lineage == 'l1' else 'policy') if principal == 'trusted' else None,
-                            lambda: 'trusted')
+    return AmendmentLineage(
+        tmp_path / "lineage.db",
+        lambda principal, lineage, op: (
+            ("host-policy" if lineage == "l1" else "policy") if principal == "trusted" else None
+        ),
+        lambda: "trusted",
+    )
 
 
 def test_correction_supersession_and_retraction_preserve_audit(tmp_path):
     obj = store(tmp_path)
-    first = obj.create(lineage_id='l1', record_id='r0', payload={'value': 1}, provenance={'source': 'p0'}, principal='trusted', authority_ref='host-policy')
-    a = obj.amend(lineage_id='l1', operation_id='a', record_id='r1', expected_revision=0, operation='correct', reason='bad source', principal='trusted', authority_ref='host-policy', payload={'value': 2}, provenance={'source': 'p1'})
-    assert a['effective'] == {'value': 2}
-    assert obj.dependency_status('l1', first['effective_revision']) == 'RE_EVALUATION_REQUIRED'
-    assert obj.amend(lineage_id='l1', operation_id='a', record_id='r1', expected_revision=0, operation='correct', reason='bad source', principal='trusted', authority_ref='host-policy', payload={'value': 2}, provenance={'source': 'p1'}) == a
-    b = obj.amend(lineage_id='l1', operation_id='b', record_id='r2', expected_revision=1, operation='supersede', reason='new observation', principal='trusted', authority_ref='host-policy', payload={'value': 3}, provenance={'source': 'p2'})
-    assert b['effective'] == {'value': 3}
-    c = obj.amend(lineage_id='l1', operation_id='c', record_id='r3', expected_revision=2, operation='retract', reason='withdrawn', principal='trusted', authority_ref='host-policy')
-    assert c['effective'] is None and c['status'] == 'retracted'
-    assert [h['predecessor'] for h in obj.history('l1')] == [None, 'r0', 'r1', 'r2']
-    assert obj.history('l1')[0]['provenance'] == {'source': 'p0'}
+    first = obj.create(
+        lineage_id="l1",
+        record_id="r0",
+        payload={"value": 1},
+        provenance={"source": "p0"},
+        principal="trusted",
+        authority_ref="host-policy",
+    )
+    a = obj.amend(
+        lineage_id="l1",
+        operation_id="a",
+        record_id="r1",
+        expected_revision=0,
+        operation="correct",
+        reason="bad source",
+        principal="trusted",
+        authority_ref="host-policy",
+        payload={"value": 2},
+        provenance={"source": "p1"},
+    )
+    assert a["effective"] == {"value": 2}
+    assert obj.dependency_status("l1", first["effective_revision"]) == "RE_EVALUATION_REQUIRED"
+    assert (
+        obj.amend(
+            lineage_id="l1",
+            operation_id="a",
+            record_id="r1",
+            expected_revision=0,
+            operation="correct",
+            reason="bad source",
+            principal="trusted",
+            authority_ref="host-policy",
+            payload={"value": 2},
+            provenance={"source": "p1"},
+        )
+        == a
+    )
+    b = obj.amend(
+        lineage_id="l1",
+        operation_id="b",
+        record_id="r2",
+        expected_revision=1,
+        operation="supersede",
+        reason="new observation",
+        principal="trusted",
+        authority_ref="host-policy",
+        payload={"value": 3},
+        provenance={"source": "p2"},
+    )
+    assert b["effective"] == {"value": 3}
+    c = obj.amend(
+        lineage_id="l1",
+        operation_id="c",
+        record_id="r3",
+        expected_revision=2,
+        operation="retract",
+        reason="withdrawn",
+        principal="trusted",
+        authority_ref="host-policy",
+    )
+    assert c["effective"] is None and c["status"] == "retracted"
+    assert [h["predecessor"] for h in obj.history("l1")] == [None, "r0", "r1", "r2"]
+    assert obj.history("l1")[0]["provenance"] == {"source": "p0"}
     obj.close()
     reopened = store(tmp_path)
-    assert reopened.current('l1') == c
+    assert reopened.current("l1") == c
     with pytest.raises(Exception):
         reopened.db.execute("UPDATE amendments SET reason='tampered'")
 
 
 def test_competing_cas_and_stale_and_unauthorized(tmp_path):
     obj = store(tmp_path)
-    obj.create(lineage_id='l', record_id='r0', payload={'v': 0}, provenance={}, principal='trusted', authority_ref='policy')
-    kwargs = dict(lineage_id='l', expected_revision=0, operation='correct', reason='fix', principal='trusted', authority_ref='policy', payload={'v': 1}, provenance={})
-    obj.amend(operation_id='winning', record_id='r1', **kwargs)
+    obj.create(
+        lineage_id="l", record_id="r0", payload={"v": 0}, provenance={}, principal="trusted", authority_ref="policy"
+    )
+    kwargs = dict(
+        lineage_id="l",
+        expected_revision=0,
+        operation="correct",
+        reason="fix",
+        principal="trusted",
+        authority_ref="policy",
+        payload={"v": 1},
+        provenance={},
+    )
+    obj.amend(operation_id="winning", record_id="r1", **kwargs)
     with pytest.raises(AmendmentRejected) as ex:
-        obj.amend(operation_id='loser', record_id='r2', **kwargs)
-    assert ex.value.reason == 'stale_revision' and ex.value.current_revision == 1
+        obj.amend(operation_id="loser", record_id="r2", **kwargs)
+    assert ex.value.reason == "stale_revision" and ex.value.current_revision == 1
     with pytest.raises(AmendmentRejected) as ex:
-        obj.amend(operation_id='winning', record_id='r1', **(kwargs | {'payload': {'v': 99}}))
-    assert ex.value.reason == 'operation_id_conflict'
+        obj.amend(operation_id="winning", record_id="r1", **(kwargs | {"payload": {"v": 99}}))
+    assert ex.value.reason == "operation_id_conflict"
     with pytest.raises(AmendmentRejected) as ex:
-        obj.amend(operation_id='spoof', record_id='r2', **(kwargs | {'principal': 'model'}))
-    assert ex.value.reason == 'unauthorized'
-    assert len(obj.history('l')) == 2
+        obj.amend(operation_id="spoof", record_id="r2", **(kwargs | {"principal": "model"}))
+    assert ex.value.reason == "unauthorized"
+    assert len(obj.history("l")) == 2
 
 
 def test_adversarial_validation(tmp_path):
     obj = store(tmp_path)
-    obj.create(lineage_id='l', record_id='r', payload={}, provenance={}, principal='trusted', authority_ref='policy')
+    obj.create(lineage_id="l", record_id="r", payload={}, provenance={}, principal="trusted", authority_ref="policy")
     with pytest.raises(AmendmentRejected):
-        obj.amend(lineage_id='l', operation_id='x', record_id='r2', expected_revision=True, operation='correct', reason='bad', principal='trusted', authority_ref='policy', payload={}, provenance={})
+        obj.amend(
+            lineage_id="l",
+            operation_id="x",
+            record_id="r2",
+            expected_revision=True,
+            operation="correct",
+            reason="bad",
+            principal="trusted",
+            authority_ref="policy",
+            payload={},
+            provenance={},
+        )
     with pytest.raises(AmendmentRejected):
-        obj.amend(lineage_id='l', operation_id='x', record_id='r2', expected_revision=0, operation='retract', reason='withdraw', principal='trusted', authority_ref='policy', payload={})
-    assert obj.current('l')['revision'] == 0
+        obj.amend(
+            lineage_id="l",
+            operation_id="x",
+            record_id="r2",
+            expected_revision=0,
+            operation="retract",
+            reason="withdraw",
+            principal="trusted",
+            authority_ref="policy",
+            payload={},
+        )
+    assert obj.current("l")["revision"] == 0
 
 
 def test_real_profile_schema_requires_authority_when_feature_enabled():
@@ -70,72 +159,120 @@ def test_real_profile_schema_requires_authority_when_feature_enabled():
     from jsonschema import Draft202012Validator
 
     root = Path(__file__).resolve().parents[1]
-    schema = json.loads((root / 'contracts/steward-profile.schema.json').read_text())
-    profile = yaml.safe_load((root / 'skills/mcp-steward-architect/templates/steward-profile.yaml.template').read_text())
+    schema = json.loads((root / "contracts/steward-profile.schema.json").read_text())
+    profile = yaml.safe_load(
+        (root / "skills/mcp-steward-architect/templates/steward-profile.yaml.template").read_text()
+    )
     validator = Draft202012Validator(schema)
     # The generator replaces the placeholder ID; the schema doesn't require specific ID syntax.
-    profile['features']['amendable_facts'] = True
-    assert list(validator.iter_errors(profile)), 'must reject feature without policy'
-    profile['amendment'] = {'mode': 'append_only', 'supported_operations': ['correct', 'retract', 'supersede'],
-                            'authority_policy_ref': 'host-owned-amendments-policy', 'effective_revision_required': True}
+    profile["features"]["amendable_facts"] = True
+    assert list(validator.iter_errors(profile)), "must reject feature without policy"
+    profile["amendment"] = {
+        "mode": "append_only",
+        "supported_operations": ["correct", "retract", "supersede"],
+        "authority_policy_ref": "host-owned-amendments-policy",
+        "effective_revision_required": True,
+    }
     assert not list(validator.iter_errors(profile))
-    profile['amendment']['authority_policy_ref'] = ''
+    profile["amendment"]["authority_policy_ref"] = ""
     assert list(validator.iter_errors(profile))
 
 
 def test_authority_reference_is_not_caller_issued(tmp_path):
     obj = store(tmp_path)
-    with pytest.raises(AmendmentRejected, match='unauthorized'):
-        obj.create(lineage_id='l', record_id='r', payload={}, provenance={}, principal='trusted', authority_ref='forged-policy')
-    obj.create(lineage_id='l', record_id='r', payload={}, provenance={}, principal='trusted', authority_ref='policy')
-    with pytest.raises(AmendmentRejected, match='unauthorized'):
-        obj.amend(lineage_id='l', operation_id='a', record_id='r1', expected_revision=0, operation='correct', reason='fix', principal='trusted', authority_ref='forged-policy', payload={}, provenance={})
+    with pytest.raises(AmendmentRejected, match="unauthorized"):
+        obj.create(
+            lineage_id="l", record_id="r", payload={}, provenance={}, principal="trusted", authority_ref="forged-policy"
+        )
+    obj.create(lineage_id="l", record_id="r", payload={}, provenance={}, principal="trusted", authority_ref="policy")
+    with pytest.raises(AmendmentRejected, match="unauthorized"):
+        obj.amend(
+            lineage_id="l",
+            operation_id="a",
+            record_id="r1",
+            expected_revision=0,
+            operation="correct",
+            reason="fix",
+            principal="trusted",
+            authority_ref="forged-policy",
+            payload={},
+            provenance={},
+        )
 
 
 def test_initial_record_is_one_atomic_transaction(tmp_path):
     obj = store(tmp_path)
-    obj.db.execute("CREATE TRIGGER inject_failure BEFORE INSERT ON amendments BEGIN SELECT RAISE(ABORT, 'synthetic_failure'); END")
-    with pytest.raises(AmendmentRejected, match='create_persistence_conflict'):
-        obj.create(lineage_id='l', record_id='r', payload={}, provenance={}, principal='trusted', authority_ref='policy')
+    obj.db.execute(
+        "CREATE TRIGGER inject_failure BEFORE INSERT ON amendments BEGIN SELECT RAISE(ABORT, 'synthetic_failure'); END"
+    )
+    with pytest.raises(AmendmentRejected, match="create_persistence_conflict"):
+        obj.create(
+            lineage_id="l", record_id="r", payload={}, provenance={}, principal="trusted", authority_ref="policy"
+        )
     assert obj.db.execute("SELECT COUNT(*) FROM lineage").fetchone()[0] == 0
     assert obj.db.execute("SELECT COUNT(*) FROM amendments").fetchone()[0] == 0
 
 
 def test_principal_text_cannot_impersonate_trusted_identity(tmp_path):
-    path = tmp_path / 'identity.db'
-    evaluator = lambda principal, lineage, op: 'policy' if principal == 'trusted' else None
-    unprivileged = AmendmentLineage(path, evaluator, lambda: 'model')
-    with pytest.raises(AmendmentRejected, match='unauthorized'):
-        unprivileged.create(lineage_id='l', record_id='r0', payload={}, provenance={}, principal='trusted', authority_ref='policy')
-    assert unprivileged.db.execute('SELECT COUNT(*) FROM lineage').fetchone()[0] == 0
+    path = tmp_path / "identity.db"
+    evaluator = lambda principal, lineage, op: "policy" if principal == "trusted" else None
+    unprivileged = AmendmentLineage(path, evaluator, lambda: "model")
+    with pytest.raises(AmendmentRejected, match="unauthorized"):
+        unprivileged.create(
+            lineage_id="l", record_id="r0", payload={}, provenance={}, principal="trusted", authority_ref="policy"
+        )
+    assert unprivileged.db.execute("SELECT COUNT(*) FROM lineage").fetchone()[0] == 0
+
 
 def test_exact_replay_after_later_amendment_returns_original_result(tmp_path):
     obj = store(tmp_path)
     create = dict(
-        lineage_id="l1", record_id="r0", payload={"v": 0},
-        provenance={"source": "s0"}, principal="trusted", authority_ref="host-policy",
+        lineage_id="l1",
+        record_id="r0",
+        payload={"v": 0},
+        provenance={"source": "s0"},
+        principal="trusted",
+        authority_ref="host-policy",
     )
     first = obj.create(**create)
     a = obj.amend(
-        lineage_id="l1", operation_id="a", record_id="r1",
-        expected_revision=0, operation="correct", reason="correct",
-        principal="trusted", authority_ref="host-policy",
-        payload={"v": 1}, provenance={"source": "s1"},
+        lineage_id="l1",
+        operation_id="a",
+        record_id="r1",
+        expected_revision=0,
+        operation="correct",
+        reason="correct",
+        principal="trusted",
+        authority_ref="host-policy",
+        payload={"v": 1},
+        provenance={"source": "s1"},
     )
     b = obj.amend(
-        lineage_id="l1", operation_id="b", record_id="r2",
-        expected_revision=1, operation="supersede", reason="replace",
-        principal="trusted", authority_ref="host-policy",
-        payload={"v": 2}, provenance={"source": "s2"},
+        lineage_id="l1",
+        operation_id="b",
+        record_id="r2",
+        expected_revision=1,
+        operation="supersede",
+        reason="replace",
+        principal="trusted",
+        authority_ref="host-policy",
+        payload={"v": 2},
+        provenance={"source": "s2"},
     )
     replay_initial = obj.create(**create)
     assert replay_initial["effective_revision"] == first["effective_revision"]
     assert replay_initial["status"] == "superseded" and not replay_initial["is_current"]
     replay_a = obj.amend(
-        lineage_id="l1", operation_id="a", record_id="r1",
-        expected_revision=0, operation="correct", reason="correct",
-        principal="trusted", authority_ref="host-policy",
-        payload={"v": 1}, provenance={"source": "s1"},
+        lineage_id="l1",
+        operation_id="a",
+        record_id="r1",
+        expected_revision=0,
+        operation="correct",
+        reason="correct",
+        principal="trusted",
+        authority_ref="host-policy",
+        payload={"v": 1},
+        provenance={"source": "s1"},
     )
     assert replay_a["effective_revision"] == a["effective_revision"]
     assert replay_a["status"] == "superseded" and not replay_a["is_current"]
@@ -153,7 +290,14 @@ def test_lineage_ids_reject_coercion_and_read_disclosure_requires_host_grant(tmp
     )
     with pytest.raises(AmendmentRejected, match="invalid_lineage_id"):
         obj.create(lineage_id=1, record_id="r", payload={}, provenance={}, principal="trusted", authority_ref="policy")
-    obj.create(lineage_id="l", record_id="r", payload={"secret": True}, provenance={}, principal="trusted", authority_ref="policy")
+    obj.create(
+        lineage_id="l",
+        record_id="r",
+        payload={"secret": True},
+        provenance={},
+        principal="trusted",
+        authority_ref="policy",
+    )
     before = obj.current("l")["effective_revision"]
     with pytest.raises(AmendmentRejected, match="invalid_lineage_id"):
         obj.current(1)
@@ -176,11 +320,13 @@ def test_sqlite_busy_write_is_a_typed_refusal(tmp_path):
     blocker.execute("BEGIN IMMEDIATE")
     try:
         with pytest.raises(AmendmentRejected, match="writer_busy"):
-            obj.create(lineage_id="l", record_id="r", payload={}, provenance={},
-                       principal="trusted", authority_ref="policy")
+            obj.create(
+                lineage_id="l", record_id="r", payload={}, provenance={}, principal="trusted", authority_ref="policy"
+            )
     finally:
         blocker.execute("ROLLBACK")
         blocker.close()
+
 
 def test_write_grant_revoked_during_writer_wait_fails_closed(tmp_path):
     allowed = {"create", "correct", "read_current", "read_history"}
@@ -197,13 +343,13 @@ def test_write_grant_revoked_during_writer_wait_fails_closed(tmp_path):
 
     obj._begin = revoked_begin
     with pytest.raises(AmendmentRejected, match="unauthorized"):
-        obj.create(lineage_id="l", record_id="r", payload={}, provenance={},
-                   principal="trusted", authority_ref="policy")
+        obj.create(
+            lineage_id="l", record_id="r", payload={}, provenance={}, principal="trusted", authority_ref="policy"
+        )
     assert obj.db.execute("SELECT COUNT(*) FROM lineage").fetchone()[0] == 0
     allowed.add("create")
     obj._begin = real_begin
-    obj.create(lineage_id="l", record_id="r", payload={}, provenance={},
-               principal="trusted", authority_ref="policy")
+    obj.create(lineage_id="l", record_id="r", payload={}, provenance={}, principal="trusted", authority_ref="policy")
 
     def revoked_amend_begin():
         real_begin()
@@ -212,9 +358,16 @@ def test_write_grant_revoked_during_writer_wait_fails_closed(tmp_path):
     obj._begin = revoked_amend_begin
     with pytest.raises(AmendmentRejected, match="unauthorized"):
         obj.amend(
-            lineage_id="l", operation_id="a", record_id="r1", expected_revision=0,
-            operation="correct", reason="correction", principal="trusted",
-            authority_ref="policy", payload={"v": 1}, provenance={},
+            lineage_id="l",
+            operation_id="a",
+            record_id="r1",
+            expected_revision=0,
+            operation="correct",
+            reason="correction",
+            principal="trusted",
+            authority_ref="policy",
+            payload={"v": 1},
+            provenance={},
         )
     assert obj.current("l")["revision"] == 0
 
@@ -225,35 +378,58 @@ def test_mapping_normalization_and_invalid_payload_are_typed(tmp_path):
 
     obj = store(tmp_path)
     obj.create(
-        lineage_id="l1", record_id="r", payload=UserDict({"v": 1}),
+        lineage_id="l1",
+        record_id="r",
+        payload=UserDict({"v": 1}),
         provenance=MappingProxyType({"source": "ok"}),
-        principal="trusted", authority_ref="host-policy",
+        principal="trusted",
+        authority_ref="host-policy",
     )
     amended = obj.amend(
-        lineage_id="l1", operation_id="a", record_id="r1", expected_revision=0,
-        operation="correct", reason="change", principal="trusted",
-        authority_ref="host-policy", payload=UserDict({"v": 2}),
+        lineage_id="l1",
+        operation_id="a",
+        record_id="r1",
+        expected_revision=0,
+        operation="correct",
+        reason="change",
+        principal="trusted",
+        authority_ref="host-policy",
+        payload=UserDict({"v": 2}),
         provenance=MappingProxyType({"source": "ok"}),
     )
     assert amended["effective"] == {"v": 2}
     with pytest.raises(AmendmentRejected, match="invalid_payload"):
         obj.amend(
-            lineage_id="l1", operation_id="bad", record_id="r2", expected_revision=1,
-            operation="correct", reason="invalid", principal="trusted",
-            authority_ref="host-policy", payload={"nan": float("nan")}, provenance={},
+            lineage_id="l1",
+            operation_id="bad",
+            record_id="r2",
+            expected_revision=1,
+            operation="correct",
+            reason="invalid",
+            principal="trusted",
+            authority_ref="host-policy",
+            payload={"nan": float("nan")},
+            provenance={},
         )
 
 
 def test_history_pagination_is_bounded_and_cursor_stable(tmp_path):
     obj = store(tmp_path)
-    obj.create(lineage_id="l1", record_id="r0", payload={}, provenance={},
-               principal="trusted", authority_ref="host-policy")
+    obj.create(
+        lineage_id="l1", record_id="r0", payload={}, provenance={}, principal="trusted", authority_ref="host-policy"
+    )
     for rev in range(1, 26):
         obj.amend(
-            lineage_id="l1", operation_id=f"op{rev}", record_id=f"r{rev}",
-            expected_revision=rev - 1, operation="supersede", reason="update",
-            principal="trusted", authority_ref="host-policy",
-            payload={"rev": rev}, provenance={},
+            lineage_id="l1",
+            operation_id=f"op{rev}",
+            record_id=f"r{rev}",
+            expected_revision=rev - 1,
+            operation="supersede",
+            reason="update",
+            principal="trusted",
+            authority_ref="host-policy",
+            payload={"rev": rev},
+            provenance={},
         )
     first = obj.history("l1")
     assert len(first) == 20 and [x["revision"] for x in first] == list(range(20))
@@ -262,19 +438,28 @@ def test_history_pagination_is_bounded_and_cursor_stable(tmp_path):
     with pytest.raises(AmendmentRejected, match="invalid_history_page"):
         obj.history("l1", limit=10_000)
 
+
 def test_sqlite_write_failure_translates_to_typed_refusal(tmp_path):
     obj = store(tmp_path)
-    obj.create(lineage_id="l1", record_id="r0", payload={}, provenance={},
-               principal="trusted", authority_ref="host-policy")
+    obj.create(
+        lineage_id="l1", record_id="r0", payload={}, provenance={}, principal="trusted", authority_ref="host-policy"
+    )
     obj.db.execute(
         """CREATE TRIGGER fail_write BEFORE INSERT ON amendments
         BEGIN SELECT RAISE(ABORT, 'synthetic_failure'); END"""
     )
     with pytest.raises(AmendmentRejected, match="amend_persistence_failure"):
         obj.amend(
-            lineage_id="l1", operation_id="new", record_id="r1", expected_revision=0,
-            operation="correct", reason="repair", payload={"v": 1}, provenance={},
-            principal="trusted", authority_ref="host-policy",
+            lineage_id="l1",
+            operation_id="new",
+            record_id="r1",
+            expected_revision=0,
+            operation="correct",
+            reason="repair",
+            payload={"v": 1},
+            provenance={},
+            principal="trusted",
+            authority_ref="host-policy",
         )
     assert obj.current("l1")["revision"] == 0
 
@@ -286,12 +471,12 @@ def test_amendment_opt_in_catalog_application():
     root = Path(__file__).resolve().parents[1]
     catalog = yaml.safe_load((root / "contracts/rule-catalog.yaml").read_text(encoding="utf-8"))
     rule_id = "steward.amendment.append-only"
-    assert rule_id not in {
-        r["id"] for r in expected_rules(catalog, "mcp-steward-architect", RuleContext("L1"))
-    }
+    assert rule_id not in {r["id"] for r in expected_rules(catalog, "mcp-steward-architect", RuleContext("L1"))}
     assert rule_id in {
-        r["id"] for r in expected_rules(
-            catalog, "mcp-steward-architect",
+        r["id"]
+        for r in expected_rules(
+            catalog,
+            "mcp-steward-architect",
             RuleContext("L1", profiles=frozenset({"amendable-facts"})),
         )
     }
@@ -300,8 +485,12 @@ def test_amendment_opt_in_catalog_application():
 def test_current_uses_single_snapshot_for_head_and_amendment(tmp_path):
     obj = store(tmp_path)
     obj.create(
-        lineage_id="l1", record_id="r0", payload={"v": 0}, provenance={},
-        principal="trusted", authority_ref="host-policy",
+        lineage_id="l1",
+        record_id="r0",
+        payload={"v": 0},
+        provenance={},
+        principal="trusted",
+        authority_ref="host-policy",
     )
     queries = []
     obj.db.set_trace_callback(lambda sql: queries.append(sql) if sql.lstrip().upper().startswith("SELECT") else None)
@@ -319,8 +508,12 @@ def test_current_uses_single_snapshot_for_head_and_amendment(tmp_path):
 def test_nested_payload_mutation_during_writer_wait_cannot_change_fingerprint(tmp_path):
     obj = store(tmp_path)
     obj.create(
-        lineage_id="l1", record_id="r0", payload={}, provenance={},
-        principal="trusted", authority_ref="host-policy",
+        lineage_id="l1",
+        record_id="r0",
+        payload={},
+        provenance={},
+        principal="trusted",
+        authority_ref="host-policy",
     )
     nested = {"items": [{"v": 1}]}
     provenance = {"ids": [1]}
@@ -333,17 +526,31 @@ def test_nested_payload_mutation_during_writer_wait_cannot_change_fingerprint(tm
 
     obj._begin = mutate_while_waiting
     saved = obj.amend(
-        lineage_id="l1", operation_id="a", record_id="r1", expected_revision=0,
-        operation="correct", reason="first", principal="trusted",
-        authority_ref="host-policy", payload=nested, provenance=provenance,
+        lineage_id="l1",
+        operation_id="a",
+        record_id="r1",
+        expected_revision=0,
+        operation="correct",
+        reason="first",
+        principal="trusted",
+        authority_ref="host-policy",
+        payload=nested,
+        provenance=provenance,
     )
     assert saved["effective"] == {"items": [{"v": 1}]}
     assert saved["provenance"] == {"ids": [1]}
     obj._begin = real_begin
     replay = obj.amend(
-        lineage_id="l1", operation_id="a", record_id="r1", expected_revision=0,
-        operation="correct", reason="first", principal="trusted",
-        authority_ref="host-policy", payload={"items": [{"v": 1}]}, provenance={"ids": [1]},
+        lineage_id="l1",
+        operation_id="a",
+        record_id="r1",
+        expected_revision=0,
+        operation="correct",
+        reason="first",
+        principal="trusted",
+        authority_ref="host-policy",
+        payload={"items": [{"v": 1}]},
+        provenance={"ids": [1]},
     )
     assert replay["effective_revision"] == saved["effective_revision"]
 
@@ -351,20 +558,31 @@ def test_nested_payload_mutation_during_writer_wait_cannot_change_fingerprint(tm
 def test_sqlite_revision_integer_overflow_is_typed_rejection(tmp_path):
     obj = store(tmp_path)
     obj.create(
-        lineage_id="l1", record_id="r0", payload={}, provenance={},
-        principal="trusted", authority_ref="host-policy",
+        lineage_id="l1",
+        record_id="r0",
+        payload={},
+        provenance={},
+        principal="trusted",
+        authority_ref="host-policy",
     )
     above_sqlite = 1 << 63
     with pytest.raises(AmendmentRejected, match="invalid_expected_revision"):
         obj.amend(
-            lineage_id="l1", operation_id="overflow", record_id="r1",
-            expected_revision=above_sqlite, operation="correct",
-            reason="test", principal="trusted", authority_ref="host-policy",
-            payload={}, provenance={},
+            lineage_id="l1",
+            operation_id="overflow",
+            record_id="r1",
+            expected_revision=above_sqlite,
+            operation="correct",
+            reason="test",
+            principal="trusted",
+            authority_ref="host-policy",
+            payload={},
+            provenance={},
         )
     with pytest.raises(AmendmentRejected, match="invalid_history_page"):
         obj.history("l1", after_revision=above_sqlite)
     assert obj.current("l1")["revision"] == 0
+
 
 def test_deep_json_mapping_returns_typed_refusal(tmp_path):
     obj = store(tmp_path)
@@ -376,19 +594,35 @@ def test_deep_json_mapping_returns_typed_refusal(tmp_path):
         current = following
     with pytest.raises(AmendmentRejected, match="invalid_payload"):
         obj.create(
-            lineage_id="l1", record_id="r", payload=nested, provenance={},
-            principal="trusted", authority_ref="host-policy",
+            lineage_id="l1",
+            record_id="r",
+            payload=nested,
+            provenance={},
+            principal="trusted",
+            authority_ref="host-policy",
         )
     obj.create(
-        lineage_id="l1", record_id="r0", payload={}, provenance={},
-        principal="trusted", authority_ref="host-policy",
+        lineage_id="l1",
+        record_id="r0",
+        payload={},
+        provenance={},
+        principal="trusted",
+        authority_ref="host-policy",
     )
     with pytest.raises(AmendmentRejected, match="invalid_provenance"):
         obj.amend(
-            lineage_id="l1", operation_id="deep", record_id="r1", expected_revision=0,
-            operation="correct", reason="deep", principal="trusted",
-            authority_ref="host-policy", payload={}, provenance=nested,
+            lineage_id="l1",
+            operation_id="deep",
+            record_id="r1",
+            expected_revision=0,
+            operation="correct",
+            reason="deep",
+            principal="trusted",
+            authority_ref="host-policy",
+            payload={},
+            provenance=nested,
         )
+
 
 def test_nested_json_depth_policy_does_not_depend_on_python_version(tmp_path):
     obj = store(tmp_path)
@@ -399,8 +633,12 @@ def test_nested_json_depth_policy_does_not_depend_on_python_version(tmp_path):
         head["child"] = nxt
         head = nxt
     created = obj.create(
-        lineage_id="l1", record_id="r0", payload=payload, provenance={},
-        principal="trusted", authority_ref="host-policy",
+        lineage_id="l1",
+        record_id="r0",
+        payload=payload,
+        provenance={},
+        principal="trusted",
+        authority_ref="host-policy",
     )
     assert created["is_current"]
     too_deep = {}
@@ -411,11 +649,18 @@ def test_nested_json_depth_policy_does_not_depend_on_python_version(tmp_path):
         head = child
     with pytest.raises(AmendmentRejected, match="invalid_payload"):
         obj.amend(
-            lineage_id="l1", operation_id="deep", record_id="r1",
-            expected_revision=0, operation="correct", reason="too deep",
-            principal="trusted", authority_ref="host-policy",
-            payload=too_deep, provenance={},
+            lineage_id="l1",
+            operation_id="deep",
+            record_id="r1",
+            expected_revision=0,
+            operation="correct",
+            reason="too deep",
+            principal="trusted",
+            authority_ref="host-policy",
+            payload=too_deep,
+            provenance={},
         )
+
 
 def test_mapping_iteration_failures_are_typed(tmp_path):
     from collections.abc import Mapping
@@ -433,19 +678,35 @@ def test_mapping_iteration_failures_are_typed(tmp_path):
     obj = store(tmp_path)
     with pytest.raises(AmendmentRejected, match="invalid_payload"):
         obj.create(
-            lineage_id="l1", record_id="r0", payload=BrokenMapping(),
-            provenance={}, principal="trusted", authority_ref="host-policy",
+            lineage_id="l1",
+            record_id="r0",
+            payload=BrokenMapping(),
+            provenance={},
+            principal="trusted",
+            authority_ref="host-policy",
         )
     obj.create(
-        lineage_id="l1", record_id="r0", payload={}, provenance={},
-        principal="trusted", authority_ref="host-policy",
+        lineage_id="l1",
+        record_id="r0",
+        payload={},
+        provenance={},
+        principal="trusted",
+        authority_ref="host-policy",
     )
     with pytest.raises(AmendmentRejected, match="invalid_provenance"):
         obj.amend(
-            lineage_id="l1", operation_id="b", record_id="r1", expected_revision=0,
-            operation="correct", reason="decoder", payload={}, provenance=BrokenMapping(),
-            principal="trusted", authority_ref="host-policy",
+            lineage_id="l1",
+            operation_id="b",
+            record_id="r1",
+            expected_revision=0,
+            operation="correct",
+            reason="decoder",
+            payload={},
+            provenance=BrokenMapping(),
+            principal="trusted",
+            authority_ref="host-policy",
         )
+
 
 def test_unhashable_operation_values_fail_before_host_callbacks(tmp_path):
     actions = []
@@ -458,9 +719,15 @@ def test_unhashable_operation_values_fail_before_host_callbacks(tmp_path):
     for invalid in ([], {}, ["retract"], {"op": "correct"}, None):
         with pytest.raises(AmendmentRejected, match="invalid_amendment"):
             obj.amend(
-                lineage_id="l1", operation_id="a", record_id="r1",
-                expected_revision=0, operation=invalid, reason="reject",
-                payload={}, provenance={}, principal="trusted",
+                lineage_id="l1",
+                operation_id="a",
+                record_id="r1",
+                expected_revision=0,
+                operation=invalid,
+                reason="reject",
+                payload={},
+                provenance={},
+                principal="trusted",
                 authority_ref="host-policy",
             )
     assert actions == []
@@ -473,16 +740,29 @@ def test_historical_create_and_amend_replays_require_history_authority(tmp_path)
         lambda _who, _lineage, action: "host" if action in grants else None,
         lambda: "trusted",
     )
-    args = dict(lineage_id="l", record_id="r0", payload={"secret": "before"},
-                provenance={"origin": "a"}, principal="trusted", authority_ref="host")
+    args = dict(
+        lineage_id="l",
+        record_id="r0",
+        payload={"secret": "before"},
+        provenance={"origin": "a"},
+        principal="trusted",
+        authority_ref="host",
+    )
     obj.create(**args)
-    op = dict(lineage_id="l", operation_id="op-a", record_id="r1",
-              expected_revision=0, operation="correct", reason="correction",
-              payload={"secret": "after"}, provenance={"origin": "b"},
-              principal="trusted", authority_ref="host")
+    op = dict(
+        lineage_id="l",
+        operation_id="op-a",
+        record_id="r1",
+        expected_revision=0,
+        operation="correct",
+        reason="correction",
+        payload={"secret": "after"},
+        provenance={"origin": "b"},
+        principal="trusted",
+        authority_ref="host",
+    )
     obj.amend(**op)
-    newer = dict(op, operation_id="op-b", record_id="r2", expected_revision=1,
-                 payload={"secret": "current"})
+    newer = dict(op, operation_id="op-b", record_id="r2", expected_revision=1, payload={"secret": "current"})
     obj.amend(**newer)
     grants.remove("read_history")
     with pytest.raises(AmendmentRejected, match="read_unauthorized"):
@@ -492,12 +772,74 @@ def test_historical_create_and_amend_replays_require_history_authority(tmp_path)
     assert obj.current("l")["revision"] == 2
 
 
+def test_first_success_amendment_requires_history_authority_when_superseded(tmp_path):
+    grants = {"create", "correct", "read_current", "read_history"}
+    obj = AmendmentLineage(
+        tmp_path / "first-success-history.db",
+        lambda _who, _lineage, action: "host" if action in grants else None,
+        lambda: "trusted",
+    )
+    obj.create(
+        lineage_id="l",
+        record_id="r0",
+        payload={"secret": "before"},
+        provenance={"origin": "a"},
+        principal="trusted",
+        authority_ref="host",
+    )
+    other = AmendmentLineage(
+        tmp_path / "first-success-history.db",
+        lambda _who, _lineage, action: "host" if action in grants else None,
+        lambda: "trusted",
+    )
+    original_snapshot = obj._snapshot
+
+    def snapshot(lineage_id, revision):
+        # A second writer advances the lineage after the amendment committed
+        # and before the first writer reads its own result.
+        other.amend(
+            lineage_id="l",
+            operation_id="op-b",
+            record_id="r2",
+            expected_revision=1,
+            operation="correct",
+            reason="second writer",
+            payload={"secret": "second"},
+            provenance={"origin": "c"},
+            principal="trusted",
+            authority_ref="host",
+        )
+        return original_snapshot(lineage_id, revision)
+
+    obj._snapshot = snapshot
+    grants.remove("read_history")
+    with pytest.raises(AmendmentRejected, match="read_unauthorized"):
+        obj.amend(
+            lineage_id="l",
+            operation_id="op-a",
+            record_id="r1",
+            expected_revision=0,
+            operation="correct",
+            reason="correction",
+            payload={"secret": "after"},
+            provenance={"origin": "b"},
+            principal="trusted",
+            authority_ref="host",
+        )
+
+
 def test_insert_or_replace_cannot_mutate_prior_amendment(tmp_path):
     import sqlite3
 
     obj = store(tmp_path)
-    obj.create(lineage_id="l", record_id="r", payload={"safe": True},
-               provenance={"p": 1}, principal="trusted", authority_ref="policy")
+    obj.create(
+        lineage_id="l",
+        record_id="r",
+        payload={"safe": True},
+        provenance={"p": 1},
+        principal="trusted",
+        authority_ref="policy",
+    )
     before = obj.current("l")["effective_revision"]
     with pytest.raises(sqlite3.DatabaseError, match="immutable"):
         obj.db.execute(
@@ -513,15 +855,20 @@ def test_retraction_provenance_and_faulty_mapping_are_typed(tmp_path):
     from collections.abc import Mapping
 
     obj = store(tmp_path)
-    obj.create(lineage_id="l", record_id="r0", payload={}, provenance={},
-               principal="trusted", authority_ref="policy")
+    obj.create(lineage_id="l", record_id="r0", payload={}, provenance={}, principal="trusted", authority_ref="policy")
     with pytest.raises(AmendmentRejected, match="invalid_provenance"):
         obj.amend(
-            lineage_id="l", operation_id="ret", record_id="r1",
-            expected_revision=0, operation="retract", reason="withdraw",
-            provenance=[["origin", "forged"]], principal="trusted",
+            lineage_id="l",
+            operation_id="ret",
+            record_id="r1",
+            expected_revision=0,
+            operation="retract",
+            reason="withdraw",
+            provenance=[["origin", "forged"]],
+            principal="trusted",
             authority_ref="policy",
         )
+
     class FaultyMapping(Mapping):
         def __iter__(self):
             raise RuntimeError("lazy decoder failed")
@@ -531,10 +878,17 @@ def test_retraction_provenance_and_faulty_mapping_are_typed(tmp_path):
 
         def __len__(self):
             return 1
+
     with pytest.raises(AmendmentRejected, match="invalid_payload"):
         obj.amend(
-            lineage_id="l", operation_id="op", record_id="r1",
-            expected_revision=0, operation="correct", reason="correct",
-            payload=FaultyMapping(), provenance={},
-            principal="trusted", authority_ref="policy",
+            lineage_id="l",
+            operation_id="op",
+            record_id="r1",
+            expected_revision=0,
+            operation="correct",
+            reason="correct",
+            payload=FaultyMapping(),
+            provenance={},
+            principal="trusted",
+            authority_ref="policy",
         )
