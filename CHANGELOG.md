@@ -19,7 +19,7 @@
 
 ### Fixed
 
-- Hardened the skill refactor route audit against delayed and optional loads, frontmatter metadata, list-contained code fences, wrapped Markdown and raw HTML example bypasses, noncritical negated safeguards, owner-path suffix spoofing, unrelated deadlines, and conditional or narrowed preload routes; pinned the independently reviewed baseline inventory, exact source-anchor identities, and the complete maintenance-observation obligation; authenticated system-owned Git paths and explicitly labeled unverified candidate versions.
+- Hardened the skill refactor route audit against delayed and optional loads, frontmatter metadata, list-contained code fences, wrapped Markdown and raw HTML example bypasses, noncritical negated safeguards, owner-path suffix spoofing, unrelated deadlines, and unreviewed suffixes on a reviewed preload route; pinned the independently reviewed baseline inventory, exact source-anchor identities, and the complete maintenance-observation obligation; authenticated system-owned Git paths and explicitly labeled unverified candidate versions.
 
 - Dependency-lock installation treats unexpected `pip check` stderr, canonicalized conflicts, and missing lock-pinned packages as blocking errors; verification checks every selected lock pin against the installed name/version inventory even when `pip check` succeeds. Installed versions are compared under PEP 440 canonicalization, and an unavailable `packaging` dependency is reported as an explicit validation error.
 

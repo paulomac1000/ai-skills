@@ -26,7 +26,7 @@
       "source_path": "references/lifecycle-and-migration.md",
       "source_anchor": "Preserve compliant repository-specific behavior",
       "positive_case": "compatible-consumer-preserved",
-      "entrypoint_route": "For an existing skill (including refactor, split, migration, rename, model upgrade, or deprecation), consult references/lifecycle-and-migration.md before any change"
+      "entrypoint_route": "For an existing skill (including refactor, split, migration, rename, model upgrade, or deprecation), consult references/lifecycle-and-migration.md before any change; before deleting rules, preserve permissions, safety, exceptions, proof, recovery and DoD via a bounded old→new ledger. Static PASS is BEHAVIOR_NOT_VERIFIED"
     },
     {
       "id": "observed-maintenance",
@@ -39,7 +39,7 @@
       "source_anchor": "Inspect representative runs for unexpected skill selection, references always or never opened, repeated unnecessary reads, bypassed deterministic tools, and recurring failure modes",
       "positive_case": "observed-route-result",
       "pre_load_trigger": "For an existing skill",
-      "entrypoint_route": "For an existing skill (including refactor, split, migration, rename, model upgrade, or deprecation), consult references/lifecycle-and-migration.md before any change"
+      "entrypoint_route": "For an existing skill (including refactor, split, migration, rename, model upgrade, or deprecation), consult references/lifecycle-and-migration.md before any change; before deleting rules, preserve permissions, safety, exceptions, proof, recovery and DoD via a bounded old→new ledger. Static PASS is BEHAVIOR_NOT_VERIFIED"
     },
     {
       "id": "deprecation-boundary",
@@ -52,7 +52,7 @@
       "source_anchor": "A split, rename, or removal identifies the replacement, compatibility impact, notice window, and removal condition. Do not maintain parallel current owners",
       "positive_case": "deprecation-with-notice",
       "pre_load_trigger": "For an existing skill",
-      "entrypoint_route": "For an existing skill (including refactor, split, migration, rename, model upgrade, or deprecation), consult references/lifecycle-and-migration.md before any change"
+      "entrypoint_route": "For an existing skill (including refactor, split, migration, rename, model upgrade, or deprecation), consult references/lifecycle-and-migration.md before any change; before deleting rules, preserve permissions, safety, exceptions, proof, recovery and DoD via a bounded old→new ledger. Static PASS is BEHAVIOR_NOT_VERIFIED"
     },
     {
       "id": "version-change-alone-no-rewrite",
@@ -65,7 +65,7 @@
       "source_anchor": "A version change alone does not justify a rewrite.",
       "positive_case": "normative_delta_required_before_rewrite",
       "pre_load_trigger": "For an existing skill",
-      "entrypoint_route": "For an existing skill (including refactor, split, migration, rename, model upgrade, or deprecation), consult references/lifecycle-and-migration.md before any change",
+      "entrypoint_route": "For an existing skill (including refactor, split, migration, rename, model upgrade, or deprecation), consult references/lifecycle-and-migration.md before any change; before deleting rules, preserve permissions, safety, exceptions, proof, recovery and DoD via a bounded old→new ledger. Static PASS is BEHAVIOR_NOT_VERIFIED",
       "pre_load_path": "SKILL.md"
     },
     {

@@ -87,7 +87,7 @@ def case(tmp_path, kind="authority"):
         raw = (skill / path).read_bytes()
         return mod._git_blob_sha(raw)
 
-    decision["entrypoint_route"] = "Trigger when destructive action requested; read STANDARD.md"
+    decision["entrypoint_route"] = "Trigger when destructive action requested; read STANDARD.md before action"
     decision["source_path"] = "STANDARD.md"
     decision["source_anchor"] = "Require policy authorization"
     decision["positive_case"] = "authorized_operation"
@@ -768,8 +768,11 @@ def test_post_owner_negation_outside_ledger_route_rejected(tmp_path):
 def test_post_owner_positive_qualifier_preserves_route(tmp_path):
     path, baseline, ledger, decision = case(tmp_path, kind="evidence")
     route = decision["entrypoint_route"]
-    (path / "SKILL.md").write_text("- " + route + " before any governed effect")
+    line = route + " before any governed effect"
+    (path / "SKILL.md").write_text("- " + line)
     ledger["candidate_files"]["SKILL.md"] = mod._git_blob_sha((path / "SKILL.md").read_bytes())
+    # The reviewed route covers the complete instruction, qualifier included.
+    ledger["decisions"] = [decision | {"entrypoint_route": line}]
     assert assess(baseline, ledger, path)["structural"] == "PASS"
 
 
@@ -876,14 +879,18 @@ def test_explicit_git_override_is_absolute_and_ignores_path(monkeypatch, tmp_pat
 
 def test_pre_action_timing_must_identify_a_governed_effect(tmp_path):
     path, baseline, ledger, decision = case(tmp_path, kind="authority")
-    route = decision["entrypoint_route"]
+    base = "Trigger when destructive action requested; read STANDARD.md"
     for suffix in ("before lunch", "prior to breakfast", "before the end of the day"):
-        (path / "SKILL.md").write_text(route + " " + suffix)
+        line = base + " " + suffix
+        (path / "SKILL.md").write_text(line)
         ledger["candidate_files"]["SKILL.md"] = mod._git_blob_sha((path / "SKILL.md").read_bytes())
+        ledger["decisions"] = [decision | {"entrypoint_route": line}]
         assert "owner_route_unreachable:auth" in assess(baseline, ledger, path)["findings"]
     for suffix in ("before action", "prior to any governed effect"):
-        (path / "SKILL.md").write_text(route + " " + suffix)
+        line = base + " " + suffix
+        (path / "SKILL.md").write_text(line)
         ledger["candidate_files"]["SKILL.md"] = mod._git_blob_sha((path / "SKILL.md").read_bytes())
+        ledger["decisions"] = [decision | {"entrypoint_route": line}]
         assert assess(baseline, ledger, path)["structural"] == "PASS"
 
 
@@ -936,8 +943,10 @@ def test_optional_critical_owner_route_is_not_pre_action_proof(tmp_path):
         (path / "SKILL.md").write_text(line)
         ledger["candidate_files"]["SKILL.md"] = mod._git_blob_sha((path / "SKILL.md").read_bytes())
         assert "owner_route_unreachable:auth" in assess(baseline, ledger, path)["findings"]
-    (path / "SKILL.md").write_text(route + " before action")
+    line = route + " before action"
+    (path / "SKILL.md").write_text(line)
     ledger["candidate_files"]["SKILL.md"] = mod._git_blob_sha((path / "SKILL.md").read_bytes())
+    ledger["decisions"] = [decision | {"entrypoint_route": line}]
     assert assess(baseline, ledger, path)["structural"] == "PASS"
 
 
@@ -1318,7 +1327,7 @@ def test_existing_skill_change_loads_lifecycle_reference_before_any_change():
     assert workflow.index("2. For an existing skill") < workflow.index("10. Run tools/audit_skill.py")
     for entry in ledger["decisions"]:
         if entry.get("target_path") == "references/lifecycle-and-migration.md":
-            assert entry["entrypoint_route"].endswith("before any change"), entry["id"]
+            assert "before any change" in entry["entrypoint_route"], entry["id"]
     migration = next(x for x in ledger["decisions"] if x["id"] == "migration-compatibility")
     assert migration["pre_load_trigger"] == "before any change"
 
@@ -1762,6 +1771,48 @@ def test_repinning_candidate_cannot_condition_the_preload_route(tmp_path):
         trusted_target_mappings=mod.TRUSTED_CANDIDATE_TARGETS[key],
     )["findings"]
     assert "owner_route_unreachable:privileged-capabilities-explicit" in findings
+
+
+def test_repinning_candidate_cannot_append_any_narrowing_clause_to_the_preload_route(tmp_path):
+    import shutil
+
+    root = Path(__file__).resolve().parents[1]
+    corpus = root / "evals/skills/skill-architect"
+    baseline = json.loads((corpus / "refactor-pilot-baseline.json").read_text(encoding="utf-8"))
+    ledger = json.loads((corpus / "refactor-pilot-ledger.json").read_text(encoding="utf-8"))
+    key = (baseline["revision"], "skills/skill-architect")
+    route = "Read STANDARD.md before making normative decisions"
+    for suffix in (
+        " for development builds.",
+        " if running in development.",
+        " except in production.",
+        " on development deployments.",
+        " where applicable.",
+        " depending on deployment context.",
+    ):
+        ledger = json.loads(json.dumps(ledger))
+        candidate = tmp_path / "skill"
+        candidate.mkdir()
+        for rel in ledger["candidate_files"]:
+            destination = candidate / rel
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(root / "skills/skill-architect" / rel, destination)
+        entrypoint = candidate / "SKILL.md"
+        original = entrypoint.read_text(encoding="utf-8")
+        assert route + "." in original
+        entrypoint.write_text(original.replace(route + ".", route + suffix), encoding="utf-8")
+        ledger["candidate_files"]["SKILL.md"] = mod._git_blob_sha(entrypoint.read_bytes())
+        findings = mod.assess(
+            baseline,
+            ledger,
+            candidate,
+            baseline_tree=corpus / "baseline_snapshots",
+            trusted_baseline_sha256=mod.TRUSTED_BASELINE_INVENTORIES[key],
+            trusted_source_anchors=mod.TRUSTED_BASELINE_SOURCE_ANCHORS[key],
+            trusted_target_mappings=mod.TRUSTED_CANDIDATE_TARGETS[key],
+        )["findings"]
+        assert "owner_route_unreachable:privileged-capabilities-explicit" in findings, suffix
+        shutil.rmtree(candidate)
 
 
 def test_higher_authority_cannot_reverse_preserved_deprecation_prohibition(tmp_path):

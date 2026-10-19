@@ -516,23 +516,24 @@ def _reverses_preserved_prohibition(text: str, anchor: str) -> bool:
     return False
 
 
-def _route_has_unverified_condition(matched: str, route: str) -> bool:
-    """Reject a condition that narrows a reviewed preload route.
+_BENIGN_ROUTE_TAIL = re.compile(r"^[\s.,;:!?)\]}'\"`]*$")
 
-    The reviewed route is the prefix of the candidate instruction. Text that
-    follows it is candidate controlled, so a condition there silently limits
-    the preload without any reviewed decision.
-    """
+
+def _route_suffix(matched: str, route: str) -> str:
+    """Return the candidate-controlled text that follows the reviewed route."""
     position = matched.find(route)
-    suffix = matched if position < 0 else matched[position + len(route) :]
-    return bool(
-        re.search(
-            r"\b(?:if|when|whenever|unless|except|excepting|provided\s+that|subject\s+to|in\s+case|save\s+for)\b"
-            r"|\b(?:only|solely)\s+(?:in|for|when|if|on|during|under)\b",
-            suffix,
-            re.IGNORECASE,
-        )
-    )
+    return matched if position < 0 else matched[position + len(route) :]
+
+
+def _route_has_unreviewed_text(matched: str, route: str) -> bool:
+    """Require the reviewed route to be the complete operative instruction.
+
+    A candidate must not append words to a reviewed route. Any extra clause can
+    narrow the obligation - "for development builds" narrows a preload exactly
+    like a conditional does - and no reviewed decision covers it. Only trailing
+    punctuation and whitespace may follow the reviewed instruction.
+    """
+    return not bool(_BENIGN_ROUTE_TAIL.match(_route_suffix(matched, route)))
 
 
 def _positive_entrypoint_route(route: str, owner: str, *, require_pre_action: bool = False) -> bool:
@@ -924,7 +925,7 @@ def assess(
                     or not _positive_entrypoint_route(route, rel)
                     or not any(
                         _positive_entrypoint_route(match.group(0), rel, require_pre_action=require_pre_action)
-                        and not _route_has_unverified_condition(match.group(0), route)
+                        and not _route_has_unreviewed_text(match.group(0), route)
                         for match in re.finditer(
                             r"(?m)^[ \t]*(?:[-*+]|\d+\.)?[ \t]*" + re.escape(route) + r"[^\r\n]*",
                             operative_skill,
