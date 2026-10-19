@@ -1729,6 +1729,41 @@ def test_invalid_pseudo_fence_opener_keeps_the_following_requirement_visible(tmp
     assert not [finding for finding in result["findings"] if "privileged-capabilities-explicit" in finding]
 
 
+def test_repinning_candidate_cannot_condition_the_preload_route(tmp_path):
+    import shutil
+
+    root = Path(__file__).resolve().parents[1]
+    corpus = root / "evals/skills/skill-architect"
+    baseline = json.loads((corpus / "refactor-pilot-baseline.json").read_text(encoding="utf-8"))
+    ledger = json.loads((corpus / "refactor-pilot-ledger.json").read_text(encoding="utf-8"))
+    candidate = tmp_path / "skill"
+    candidate.mkdir()
+    for rel in ledger["candidate_files"]:
+        destination = candidate / rel
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(root / "skills/skill-architect" / rel, destination)
+    entrypoint = candidate / "SKILL.md"
+    original = entrypoint.read_text(encoding="utf-8")
+    route = "Read STANDARD.md before making normative decisions."
+    assert route in original
+    entrypoint.write_text(
+        original.replace(route, "Read STANDARD.md before making normative decisions if running in development."),
+        encoding="utf-8",
+    )
+    ledger["candidate_files"]["SKILL.md"] = mod._git_blob_sha(entrypoint.read_bytes())
+    key = (baseline["revision"], "skills/skill-architect")
+    findings = mod.assess(
+        baseline,
+        ledger,
+        candidate,
+        baseline_tree=corpus / "baseline_snapshots",
+        trusted_baseline_sha256=mod.TRUSTED_BASELINE_INVENTORIES[key],
+        trusted_source_anchors=mod.TRUSTED_BASELINE_SOURCE_ANCHORS[key],
+        trusted_target_mappings=mod.TRUSTED_CANDIDATE_TARGETS[key],
+    )["findings"]
+    assert "owner_route_unreachable:privileged-capabilities-explicit" in findings
+
+
 def test_higher_authority_cannot_reverse_preserved_deprecation_prohibition(tmp_path):
     import shutil
 

@@ -516,6 +516,25 @@ def _reverses_preserved_prohibition(text: str, anchor: str) -> bool:
     return False
 
 
+def _route_has_unverified_condition(matched: str, route: str) -> bool:
+    """Reject a condition that narrows a reviewed preload route.
+
+    The reviewed route is the prefix of the candidate instruction. Text that
+    follows it is candidate controlled, so a condition there silently limits
+    the preload without any reviewed decision.
+    """
+    position = matched.find(route)
+    suffix = matched if position < 0 else matched[position + len(route) :]
+    return bool(
+        re.search(
+            r"\b(?:if|when|whenever|unless|except|excepting|provided\s+that|subject\s+to|in\s+case|save\s+for)\b"
+            r"|\b(?:only|solely)\s+(?:in|for|when|if|on|during|under)\b",
+            suffix,
+            re.IGNORECASE,
+        )
+    )
+
+
 def _positive_entrypoint_route(route: str, owner: str, *, require_pre_action: bool = False) -> bool:
     """Accept only a local affirmative instruction leading to the declared owner.
 
@@ -905,6 +924,7 @@ def assess(
                     or not _positive_entrypoint_route(route, rel)
                     or not any(
                         _positive_entrypoint_route(match.group(0), rel, require_pre_action=require_pre_action)
+                        and not _route_has_unverified_condition(match.group(0), route)
                         for match in re.finditer(
                             r"(?m)^[ \t]*(?:[-*+]|\d+\.)?[ \t]*" + re.escape(route) + r"[^\r\n]*",
                             operative_skill,
