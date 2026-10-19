@@ -640,9 +640,22 @@ def _html_depth_delta(line: str, tag: str) -> int:
     return opens - closes
 
 
+def _strip_frontmatter(text: str) -> str:
+    """Remove a leading YAML frontmatter block; metadata is not an instruction."""
+    lines = text.splitlines()
+    if not lines or lines[0].strip() != "---":
+        return text
+    for index in range(1, len(lines)):
+        if lines[index].strip() in {"---", "..."}:
+            return "\n".join(lines[index + 1 :])
+    # An unterminated metadata block carries no operative requirement.
+    return ""
+
+
 def _operative_skill_text(content: bytes) -> str:
-    """Exclude fenced/raw-HTML examples, comments, quotes and indented code."""
-    text = re.sub(r"<!--.*?(?:-->|\Z)", "", content.decode("utf-8"), flags=re.DOTALL)
+    """Exclude frontmatter, fenced/raw-HTML examples, comments, quotes and indented code."""
+    text = _strip_frontmatter(content.decode("utf-8"))
+    text = re.sub(r"<!--.*?(?:-->|\Z)", "", text, flags=re.DOTALL)
     kept: list[str] = []
     fence = ""
     quoted = False
