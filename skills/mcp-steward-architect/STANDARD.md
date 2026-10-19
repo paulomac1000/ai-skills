@@ -98,6 +98,37 @@ reasonCodes: [...]
 
 `earliestSafeStage` is the first legal stage whose required checkpoint is non-current; if every required checkpoint is current, no recomputation is required. Restart with the same durable state and semantic dependencies MUST derive the same result without replaying prior model conversation/transcript. A losing retry/CAS path reloads the canonical winning checkpoint before deriving successors. Similarity, reviewer prose, or a model assertion is not compatibility proof.
 
+## Append-only amendable fact and evidence lineage
+
+When a domain allows durable observations, reports or evidence to be corrected,
+retracted or superseded, the Steward MAY enable the optional
+`features.amendable_facts` profile. The Design Pack MUST then declare an
+append-only amendment policy with a trusted `authority_policy_ref`, the three
+operations `correct`, `retract`, `supersede`, and an exact effective revision.
+
+Original payloads, producer provenance and historical entries MUST be immutable.
+Each amendment MUST persist a new, durable lineage entry with predecessor
+identity, expected current revision, operation identity, **trusted** actor
+identity, trusted authority binding and reason. Caller-provided record fields,
+model text or an asserted role MUST NOT self-authorize another producer's
+amendment. Competing expected-revision writes MUST use storage-backed CAS or
+single-writer serialization; losing updates are typed stale results, not forks.
+Identical operation-id and request identity MUST replay idempotently; different
+content under an existing id MUST fail.
+
+An effective head/set MUST be deterministically derived from the surviving
+linear history. Retraction removes an item from current proof and public
+effective projection, never from historical audit. Correction/supersession
+retains predecessor linkage and replacement provenance. Every semantic
+amendment advances effective identity: dependent evidence/checkpoints must
+be marked `RE_EVALUATION_REQUIRED` against that identity; checkpoint reuse
+rules remain owned by their existing contract (#126). Historical audit
+remains queryable while status/results expose only governed current effective
+content. Bound response details to authorized disclosure. This feature does
+not rewrite obligations (#107), transport receipts (#91), or generic entity edits.
+See `references/durable-state-and-recovery.md` for a reference state model and
+`tools/amendment_lineage.py` for a deterministic SQLite fixture.
+
 ## Persistent context provenance
 
 Persistent artifacts that can influence a later session MUST carry a bounded trusted provenance envelope with trust class, explicit scope, currentness, load-bearing dependency identities, and permitted influence. Persistence never upgrades authority: model/repository/user prose cannot grant capabilities, policy exemptions, merge/deploy/lifecycle authority, or satisfy a stronger evidence gate merely because it survived. Derived load-bearing summaries retain evidence refs; unknown provenance/currentness is not current truth.

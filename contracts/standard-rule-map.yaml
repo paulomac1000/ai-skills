@@ -111,6 +111,7 @@ skills:
       producer-reachability-and-liveness-closure: {rule_id: steward.closure.reachable, primary: true}
       lineage-generations-attempts-and-leases: {rule_id: steward.lineage.fenced, primary: true}
       semantic-checkpoints-and-dependency-scoped-reuse: {rule_id: steward.checkpoint.current, primary: true}
+      append-only-amendable-fact-and-evidence-lineage: {rule_id: steward.amendment.append-only, primary: true}
       persistent-context-provenance: {rule_id: steward.context.provenance, primary: true}
       mutation-admission-and-candidate-identity: {rule_id: steward.mutation.admitted, primary: true}
       integration-authority-and-lease: {rule_id: steward.integration.authorized, primary: true}

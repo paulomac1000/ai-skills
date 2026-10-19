@@ -131,6 +131,15 @@ A test file existing in source is not proof it executed. Acceptance evidence sho
 
 Every advertised MCP transport still requires official-client exercise, and the exact packaged/deployed artifact must be smoke-tested under the inherited `mcp-server-architect` rules. Live/provider acceptance remains a separate lane and must not be inferred from fakes when real credentials/targets/provider behavior are required.
 
+## Optional amendable evidence regression
+
+When `features.amendable_facts` is enabled, prove immutable original/history,
+trusted actor independent of caller metadata, correction, retraction, successor
+provenance, exact request replay, conflict-by-operation-ID rejection, stale
+expected-revision CAS, competing writer serialization, effective revision
+invalidation, current external projection and restart convergence. Exercise
+the actual schema and the deterministic SQLite fixture before provider proof.
+
 ## Cancellation-insensitive external pressure
 
 Use a deterministic fake provider that ignores cancel and keeps N remote

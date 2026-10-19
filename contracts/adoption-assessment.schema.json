@@ -222,11 +222,9 @@
             "target_level": {"enum": ["L1", "L2", "L3", "L4"]},
             "profiles": {"type": "array", "items": {"$ref": "#/$defs/text"}, "uniqueItems": true},
             "features": {
-              "type": "object",
-              "additionalProperties": false,
-              "properties": {"external_pressure_bounded": {"type": "boolean"}},
-              "required": ["external_pressure_bounded"]
-            }
+              "type": "object", "additionalProperties": false,
+              "properties": {"amendable_facts": {"type": "boolean"}, "external_pressure_bounded": {"type": "boolean"}},
+              "required": ["amendable_facts", "external_pressure_bounded"]            }
           },
           "required": ["target_level", "profiles", "features"]
         },

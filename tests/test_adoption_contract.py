@@ -483,38 +483,32 @@ def test_mcp_applicability_is_derived_from_catalog_context(tmp_path: Path) -> No
     result = "\n".join(findings(document, catalog, skills, tmp_path))
     assert "catalog applicability requires this rule to be not-applicable" in result
 
-def test_steward_adoption_enforces_opt_in_pressure_profile(tmp_path: Path) -> None:
-    doc, catalog, skills = assessment_for(tmp_path, skill_name="mcp-steward-architect")
+def test_steward_amendment_adoption_respects_opt_in_context(tmp_path: Path) -> None:
+    document, catalog, skills = assessment_for(tmp_path, skill_name="mcp-steward-architect")
     rule = catalog["skills"]["mcp-steward-architect"]["rules"][0]
-    rule["id"] = "steward.external-pressure.bounded"
-    rule["applies_when"] = {"maturity_at_least": "L1", "profiles_any": ["external-pressure-bounded"]}
-    doc["applicability"][0]["rule_id"] = rule["id"]
-    doc["applicability"][0]["status"] = "not-applicable"
-    doc["applicability"][0]["implementation"] = []
-    doc["applicability"][0]["verification"] = []
-    doc["extensions"] = {
+    rule["id"] = "steward.amendment.append-only"
+    rule["applies_when"] = {"maturity_at_least": "L1", "profiles_any": ["amendable-facts"]}
+    document["applicability"][0]["rule_id"] = rule["id"]
+    document["applicability"][0]["status"] = "not-applicable"
+    document["applicability"][0]["implementation"] = []
+    document["applicability"][0]["verification"] = []
+    document["extensions"] = {
         "steward": {
             "target_level": "L1",
-            "profiles": ["external-pressure-bounded"],
-            "features": {"external_pressure_bounded": True},
+            "profiles": ["amendable-facts"],
+            "features": {"amendable_facts": True, "external_pressure_bounded": False},
         }
     }
-    result = "\n".join(findings(doc, catalog, skills, tmp_path))
-    assert "catalog applicability requires this rule to be applicable or explicitly deferred" in result
-    doc["extensions"]["steward"]["features"]["external_pressure_bounded"] = False
-    result = "\n".join(findings(doc, catalog, skills, tmp_path))
-    assert "external pressure feature/profile applicability mismatch" in result
-    doc["extensions"]["steward"]["profiles"] = []
-    result = "\n".join(findings(doc, catalog, skills, tmp_path))
-    assert "catalog applicability requires this rule to be applicable or explicitly deferred" not in result
+    report = "\n".join(findings(document, catalog, skills, tmp_path))
+    assert "catalog applicability requires this rule to be applicable or explicitly deferred" in report
+    document["extensions"]["steward"]["features"]["amendable_facts"] = False
+    report = "\n".join(findings(document, catalog, skills, tmp_path))
+    assert "amendable feature/profile mismatch" in report
+    document["extensions"]["steward"]["profiles"] = []
+    report = "\n".join(findings(document, catalog, skills, tmp_path))
+    assert "catalog applicability requires this rule to be applicable or explicitly deferred" not in report
 
-
-def test_steward_adoption_defaults_to_disabled_profile_from_canonical_template(tmp_path: Path) -> None:
-    doc, catalog, skills = assessment_for(tmp_path, skill_name="mcp-steward-architect")
-    result = "\n".join(findings(doc, catalog, skills, tmp_path))
-    assert "extensions.steward" not in result
-
-def test_steward_template_reuses_canonical_contract_with_small_overlay() -> None:
+def test_steward_canonical_adoption_template_and_extension_overlay() -> None:
     root = Path(__file__).resolve().parents[1]
     manifest = yaml.safe_load((root / "skills/mcp-steward-architect/manifest.yaml").read_text(encoding="utf-8"))
     assert manifest["adoption"]["template"] == "contracts/adoption-assessment.yaml.template"
@@ -529,7 +523,76 @@ def test_steward_template_reuses_canonical_contract_with_small_overlay() -> None
         "steward": {
             "target_level": "L1",
             "profiles": [],
-            "features": {"external_pressure_bounded": False},
+            "features": {"amendable_facts": False, "external_pressure_bounded": False},
         }
     }
     Draft202012Validator(SCHEMA["properties"]["extensions"]).validate(overlay)
+
+def test_steward_adoption_enforces_opt_in_pressure_profile(tmp_path: Path) -> None:
+    doc, catalog, skills = assessment_for(tmp_path, skill_name="mcp-steward-architect")
+    rule = catalog["skills"]["mcp-steward-architect"]["rules"][0]
+    rule["id"] = "steward.external-pressure.bounded"
+    rule["applies_when"] = {"maturity_at_least": "L1", "profiles_any": ["external-pressure-bounded"]}
+    doc["applicability"][0]["rule_id"] = rule["id"]
+    doc["applicability"][0]["status"] = "not-applicable"
+    doc["applicability"][0]["implementation"] = []
+    doc["applicability"][0]["verification"] = []
+    doc["extensions"] = {
+        "steward": {
+            "target_level": "L1",
+            "profiles": ["external-pressure-bounded"],
+            "features": {"amendable_facts": False, "external_pressure_bounded": True},
+        }
+    }
+    result = "\n".join(findings(doc, catalog, skills, tmp_path))
+    assert "catalog applicability requires this rule to be applicable or explicitly deferred" in result
+    doc["extensions"]["steward"]["features"]["external_pressure_bounded"] = False
+    result = "\n".join(findings(doc, catalog, skills, tmp_path))
+    assert "external pressure feature/profile applicability mismatch" in result
+    doc["extensions"]["steward"]["profiles"] = []
+    result = "\n".join(findings(doc, catalog, skills, tmp_path))
+    assert "catalog applicability requires this rule to be applicable or explicitly deferred" not in result
+
+
+def test_steward_optional_feature_flags_are_independent_and_must_match_their_profile(
+    tmp_path: Path,
+) -> None:
+    """Both optional profiles declare their own flag; neither enables the other."""
+    doc, catalog, skills = assessment_for(tmp_path, skill_name="mcp-steward-architect")
+    steward: dict[str, Any] = {
+        "target_level": "L1",
+        "profiles": [],
+        "features": {"amendable_facts": False, "external_pressure_bounded": False},
+    }
+    doc["extensions"] = {"steward": steward}
+    report = "\n".join(findings(doc, catalog, skills, tmp_path))
+    assert "extensions.steward" not in report
+
+    # One profile enabled alone stays consistent and never enables the other.
+    steward["profiles"] = ["amendable-facts"]
+    steward["features"] = {"amendable_facts": True, "external_pressure_bounded": False}
+    report = "\n".join(findings(doc, catalog, skills, tmp_path))
+    assert "amendable feature/profile mismatch" not in report
+    assert "external pressure feature/profile applicability mismatch" not in report
+
+    # A flag that contradicts its own profile is rejected.
+    steward["features"]["amendable_facts"] = False
+    report = "\n".join(findings(doc, catalog, skills, tmp_path))
+    assert "amendable feature/profile mismatch" in report
+
+    # Both profiles together with both flags stay consistent.
+    steward["profiles"] = ["amendable-facts", "external-pressure-bounded"]
+    steward["features"] = {"amendable_facts": True, "external_pressure_bounded": True}
+    report = "\n".join(findings(doc, catalog, skills, tmp_path))
+    assert "amendable feature/profile mismatch" not in report
+    assert "external pressure feature/profile applicability mismatch" not in report
+
+    # A missing declared feature flag is rejected by the contract schema.
+    steward["features"] = {"amendable_facts": True}
+    with pytest.raises(Exception):
+        Draft202012Validator(SCHEMA["properties"]["extensions"]).validate(doc["extensions"])
+
+def test_amendment_absent_extension_uses_feature_off_baseline(tmp_path: Path) -> None:
+    document, catalog, skills = assessment_for(tmp_path, skill_name="mcp-steward-architect")
+    result = "\n".join(findings(document, catalog, skills, tmp_path))
+    assert "extensions.steward" not in result

@@ -998,27 +998,41 @@ def validate_document(
                         )
                     )
     elif skill_name == "mcp-steward-architect":
-        raw_extensions = assessment.get("extensions")
-        raw_steward = raw_extensions.get("steward") if isinstance(raw_extensions, Mapping) else None
-        if raw_steward is None:
-            # An unextended canonical adoption template selects the feature-off baseline.
+        extensions = assessment.get("extensions")
+        steward = extensions.get("steward") if isinstance(extensions, Mapping) else None
+        if steward is None:
+            # Canonical adoption template omits Steward-specific extensions.
+            # An absent extension opts out; explicit opt-in must bind flags.
             context = RuleContext(target_level="L1")
-            machine_applicable_rules = {str(rule["id"]) for rule in expected_rules(catalog, skill_name, context)}
-        elif not isinstance(raw_steward, Mapping):
+            try:
+                if atomic_catalog is None:
+                    parent_rules = expected_rules(catalog, skill_name, context)
+                else:
+                    parent_rules = list(
+                        project_applicability(catalog, atomic_catalog, skill_name, context).parent_rules
+                    )
+                machine_applicable_rules = {str(rule["id"]) for rule in parent_rules}
+            except (KeyError, TypeError, ValueError) as exc:
+                findings.append(Finding("extensions.steward", f"cannot derive Steward applicability: {exc}"))
+        elif not isinstance(steward, Mapping):
             findings.append(Finding("extensions.steward", "invalid Steward applicability context"))
         else:
-            level = raw_steward.get("target_level")
-            profiles = raw_steward.get("profiles")
-            features = raw_steward.get("features")
-            enabled = features.get("external_pressure_bounded") if isinstance(features, Mapping) else None
+            features = steward.get("features")
+            amendable = features.get("amendable_facts") if isinstance(features, Mapping) else None
+            pressure = features.get("external_pressure_bounded") if isinstance(features, Mapping) else None
+            level = steward.get("target_level")
+            profiles = steward.get("profiles")
             if (
                 not isinstance(level, str)
                 or not isinstance(profiles, list)
-                or not all(isinstance(name, str) and name for name in profiles)
-                or type(enabled) is not bool
+                or not all(isinstance(item, str) and item for item in profiles)
+                or type(amendable) is not bool
+                or type(pressure) is not bool
             ):
                 findings.append(Finding("extensions.steward", "invalid Steward applicability context"))
-            elif enabled != ("external-pressure-bounded" in profiles):
+            elif amendable != ("amendable-facts" in profiles):
+                findings.append(Finding("extensions.steward", "amendable feature/profile mismatch"))
+            elif pressure != ("external-pressure-bounded" in profiles):
                 findings.append(
                     Finding("extensions.steward", "external pressure feature/profile applicability mismatch")
                 )
@@ -1033,7 +1047,7 @@ def validate_document(
                         )
                     machine_applicable_rules = {str(rule["id"]) for rule in parent_rules}
                 except (KeyError, TypeError, ValueError) as exc:
-                    findings.append(Finding("extensions.steward", f"cannot derive catalog applicability: {exc}"))
+                    findings.append(Finding("extensions.steward", f"cannot derive Steward applicability: {exc}"))
     _validate_applicability(
         assessment,
         catalog_rules,

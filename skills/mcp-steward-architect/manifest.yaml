@@ -45,6 +45,7 @@ required:
   - tools/validate_steward.py
   - tools/persistent_context.py
   - tools/integration_lease.py
+  - tools/amendment_lineage.py
   - tools/external_pressure.py
   - templates/adoption-steward-extension.yaml.template
   - tools/generate_steward.py
@@ -66,7 +67,8 @@ applicability:
     - proof_producers
     - runtime_binding_required
     - exact_candidate_binding
-    - external_pressure_bounded
+    - amendable-facts
+    - external-pressure-bounded
 adoption:
   template: contracts/adoption-assessment.yaml.template
   validator: contracts/validate_adoption.py

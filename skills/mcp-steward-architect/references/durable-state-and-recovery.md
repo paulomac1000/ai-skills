@@ -97,6 +97,23 @@ At minimum prove these recovery cases:
 3. canonical artifact is committed and the process dies before successor scheduling; restart schedules from the persisted artifact without recomputing a different canonical result;
 4. lease expires during external wait; recovery resumes/reconciles without allowing both old and new owners to publish.
 
+## Optional append-only evidence amendments
+
+Keep `lineageId`, `expectedRevision`, `operationId`, `recordId`,
+`predecessor`, host-injected authenticated actor and independently issued authority reference, operation kind, reason and
+immutable provenance in one transaction. A winning CAS appends exactly one entry
+and atomically advances the canonical lineage revision/head. An exact operation
+replay is idempotent; conflicting content and stale revisions fail closed.
+`retract` yields no effective payload; `correct` and `supersede` select the
+new record while preserving the predecessor and its audit history.
+The effective revision must change on every accepted amendment and is a
+load-bearing input to downstream proofs; stale consumers require re-evaluation.
+A historical record remains visible only through an authorized historical
+query and never silently satisfies current evidence.
+The optional SQLite reference in `tools/amendment_lineage.py` exercises
+durable atomic append/CAS, restart, immutability and projection decisions.
+It is not an authority issuer and cannot be used by a model to grant access.
+
 ## External pressure recovery
 
 An external operation that lost current generation/authority can still

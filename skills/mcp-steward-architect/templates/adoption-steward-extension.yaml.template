@@ -1,7 +1,8 @@
-# Optional extensions stanza to place under "extensions:" in the canonical
-# contracts/adoption-assessment.yaml.template. Do not copy the entire contract.
+# Optional extension mapping under 'extensions:' in canonical
+# contracts/adoption-assessment.yaml.template; do not copy the entire contract.
 steward:
   target_level: L1
   profiles: []
   features:
+    amendable_facts: false
     external_pressure_bounded: false

@@ -16,6 +16,7 @@ features:
   proof_producers: true
   runtime_binding_required: false
   exact_candidate_binding: false
+  amendable_facts: false
   external_pressure_bounded: false
 authority:
   owns: [durable-job-state]

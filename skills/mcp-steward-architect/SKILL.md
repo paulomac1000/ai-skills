@@ -19,6 +19,7 @@ Before implementation produce a machine-readable Steward Design Pack covering:
 - durable state machine: states, terminality, lanes, legal transitions, real production producer paths, non-terminal liveness/convergence, progress, recovery, cancellation, fences;
 - identity: exact subject/candidate, lineage, semantic generation, attempt, optimistic version, decision/freshness dimensions;
 - semantic checkpoints: canonical artifact identity, exact dependency bindings, upstream checkpoint closure, generation fence, earliest safe resume and minimum recomputation;
+- optional amendable evidence: trusted append-only correct/retract/supersede lineage with CAS, effective-revision invalidation and historical audit when facts can change;
 - proof catalog: claims, producers, authority/observation grade, binding, coverage, freshness, completion obligations;
 - every stateful external effect, including submit/cancel ambiguity, reconciliation, idempotency, affinity and handle recovery;
 - when external execution can outlive logical authority, optional durable active/detached pressure limits, separate control reserves and generation-fenced late results;
