@@ -1,5 +1,21 @@
 # Changelog
 
+## 3.27.0 - Unreleased
+
+### Added
+
+- Optional Steward external execution pressure admission with durable global/per-capability and detached-unresolved limits, reserved cancellation/reconciliation lanes and fail-closed unknown physical termination.
+- Deterministic SQLite pressure fixture and cancellation-insensitive fake-provider regressions, including restart and superseded-generation safety.
+
+### Changed
+
+- Local cancellation and logical generation fencing no longer imply physical external capacity is available; service shutdown preserves remotely durable work.
+- The optional amendment lineage and the optional external pressure profile now share one Steward profile contract: both feature flags are declared, each opt-in stays bound to its own profile, and enabling one never enables the other.
+
+### Known limitations
+
+- Reference fixture and synthetic tests do not establish live remote-provider conformance.
+
 ## 3.26.0 - 2026-10-19
 
 ### Added
