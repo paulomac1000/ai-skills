@@ -1114,15 +1114,23 @@ def assess(
         declared_version = None
     return {
         "structural": "FAILED" if findings else "PASS",
-        "behavior": "BEHAVIOR_NOT_VERIFIED",
-        "semantic_equivalence": "NOT_VERIFIED",
-        "verification_scope": "normative_owner_and_route_mapping",
-        "eval_corpus": "NOT_VERIFIED",
+        **VERIFICATION_BOUNDARY,
         "findings": findings,
         "baseline_revision": baseline.get("revision"),
         "candidate_revision": "NOT_VERIFIED",
         "declared_candidate_version": declared_version,
     }
+
+
+# Every terminal outcome declares the same verification boundary, including the
+# error paths, so a consumer can never read a reduced schema as a result and
+# can never mistake any outcome for a semantic-equivalence claim.
+VERIFICATION_BOUNDARY = {
+    "behavior": "BEHAVIOR_NOT_VERIFIED",
+    "semantic_equivalence": "NOT_VERIFIED",
+    "verification_scope": "normative_owner_and_route_mapping",
+    "eval_corpus": "NOT_VERIFIED",
+}
 
 
 class JsonArgumentParser(argparse.ArgumentParser):
@@ -1133,7 +1141,7 @@ class JsonArgumentParser(argparse.ArgumentParser):
             json.dumps(
                 {
                     "structural": "INVALID_INPUT",
-                    "behavior": "BEHAVIOR_NOT_VERIFIED",
+                    **VERIFICATION_BOUNDARY,
                     "findings": ["invalid_arguments"],
                 }
             )
@@ -1196,7 +1204,7 @@ def main() -> int:
     except (OSError, UnicodeError, json.JSONDecodeError, ValueError, TypeError, RuntimeError) as exc:
         result = {
             "structural": "INVALID_INPUT",
-            "behavior": "BEHAVIOR_NOT_VERIFIED",
+            **VERIFICATION_BOUNDARY,
             "findings": ["invalid_input:" + type(exc).__name__],
         }
         print(json.dumps(result))

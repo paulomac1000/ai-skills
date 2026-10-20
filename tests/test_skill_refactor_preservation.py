@@ -249,6 +249,62 @@ def test_invalid_input_returns_json_and_exit_code_two(tmp_path):
     assert json.loads(result.stdout)["structural"] == "INVALID_INPUT"
 
 
+def test_every_terminal_outcome_declares_the_verification_boundary(tmp_path):
+    import subprocess
+
+    boundary = {
+        "behavior": "BEHAVIOR_NOT_VERIFIED",
+        "semantic_equivalence": "NOT_VERIFIED",
+        "verification_scope": "normative_owner_and_route_mapping",
+        "eval_corpus": "NOT_VERIFIED",
+    }
+
+    invalid = tmp_path / "invalid.json"
+    invalid.write_text("{broken")
+    candidate = tmp_path / "empty-candidate"
+    candidate.mkdir()
+
+    invalid_input = subprocess.run(
+        [
+            sys.executable,
+            str(MODULE_PATH),
+            "--baseline",
+            str(invalid),
+            "--ledger",
+            str(invalid),
+            "--candidate",
+            str(candidate),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert invalid_input.returncode == 2
+    invalid_payload = json.loads(invalid_input.stdout)
+    assert invalid_payload["structural"] == "INVALID_INPUT"
+    for field, value in boundary.items():
+        assert invalid_payload[field] == value
+
+    invalid_arguments = subprocess.run(
+        [sys.executable, str(MODULE_PATH), "--baseline"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert invalid_arguments.returncode == 2
+    argument_payload = json.loads(invalid_arguments.stdout)
+    assert argument_payload["structural"] == "INVALID_INPUT"
+    for field, value in boundary.items():
+        assert argument_payload[field] == value
+
+    path, baseline, ledger, decision = case(tmp_path)
+    ledger["decisions"] = [decision | {"disposition": "REPLACE_BY_CANONICAL_OWNER"}]
+    result = assess(baseline, ledger, path)
+    assert result["structural"] == "PASS"
+    for field, value in boundary.items():
+        assert result[field] == value
+
+
 def test_critical_route_cannot_move_out_of_skill_entrypoint(tmp_path):
     path, baseline, ledger, decision = case(tmp_path)
     ledger["decisions"] = [
