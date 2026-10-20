@@ -127,6 +127,16 @@ def test_reachable_deduplication_passes_structural_not_behavior(tmp_path):
     assert result["structural"] == "PASS" and result["behavior"] == "BEHAVIOR_NOT_VERIFIED"
 
 
+def test_structural_pass_never_claims_semantic_equivalence(tmp_path):
+    path, baseline, ledger, decision = case(tmp_path)
+    ledger["decisions"] = [decision | {"disposition": "REPLACE_BY_CANONICAL_OWNER"}]
+    result = assess(baseline, ledger, path)
+    assert result["structural"] == "PASS"
+    assert result["semantic_equivalence"] == "NOT_VERIFIED"
+    assert result["behavior"] == "BEHAVIOR_NOT_VERIFIED"
+    assert result["verification_scope"] == "normative_owner_and_route_mapping"
+
+
 def test_wrong_illustrative_command_has_no_verified_owner(tmp_path):
     path, baseline, ledger, decision = case(tmp_path)
     ledger["decisions"] = [decision | {"target_anchor": "unsupported-tool --magic"}]

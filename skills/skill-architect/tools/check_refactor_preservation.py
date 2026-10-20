@@ -1,7 +1,10 @@
-"""Read-only semantic-preservation audit of a pinned skill refactor ledger.
+"""Read-only structural-preservation audit of a pinned skill refactor ledger.
 
 This verifies declared invariants and route reachability, NOT stochastic model
 behavior.  A candidate-authored ledger cannot certify semantic equivalence.
+A pinned obligation can also be narrowed by separate prose that no
+deterministic structure check can separate from legitimate conditional
+normative content, so this tool never certifies semantic equivalence.
 """
 
 from __future__ import annotations
@@ -1112,6 +1115,7 @@ def assess(
     return {
         "structural": "FAILED" if findings else "PASS",
         "behavior": "BEHAVIOR_NOT_VERIFIED",
+        "semantic_equivalence": "NOT_VERIFIED",
         "verification_scope": "normative_owner_and_route_mapping",
         "eval_corpus": "NOT_VERIFIED",
         "findings": findings,

@@ -46,7 +46,12 @@ candidate content, and the ledger never authenticate the Git binary. The synthet
 `evals/skills/skill-architect/`. Its `structural: PASS` has the narrow
 `normative_owner_and_route_mapping` scope; it verifies only pinned normative
 source/target documents and entrypoint routes. It explicitly reports
-`eval_corpus: NOT_VERIFIED` and `behavior: BEHAVIOR_NOT_VERIFIED`.
+`eval_corpus: NOT_VERIFIED`, `behavior: BEHAVIOR_NOT_VERIFIED` and
+`semantic_equivalence: NOT_VERIFIED`. It does not and cannot detect a pinned
+obligation that stays intact at its pinned location while a separate sentence
+restricts its applicability, because the same constructions appear in valid
+normative content; treat that residual class as covered by the independent
+semantic review lane, never by a structural PASS.
 The caller must independently baseline and validate repository-scoped eval
 corpus revisions with `tools/validate_skill_evals.py` plus any required
 model-backed comparisons before claiming complete semantic preservation.
