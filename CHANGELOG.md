@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- Development dependencies updated together: `mypy` 2.3.1 to 2.4.0, `ruff` 0.16.9 to 0.16.10, `httpx2` 2.12.0 to 2.13.1, `types-PyYAML` 6.0.12.20260815 to 6.0.12.20260906 and `mcp` 2.2.0 to 2.3.0.
+- GitHub Actions updated: `actions/download-artifact` 4.3.0 to 8.0.2 in the release workflow and `actions/upload-artifact` 7.0.1 to 7.0.2 in the CI, lock-regeneration, release and Steward .NET workflows. The prepared payload is still uploaded and downloaded under the same artifact name within the same workflow run.
+
+### Verification
+
+- The locked dependency sets were regenerated with the repository's own lock generator and verified with the locked installer, and the complete development lock audit, the dependency audit and the generator contracts pass on the new versions.
+- The integration range is now audited for commit authorship before merge. Only the repository owner's verified address and the trusted automation accounts may appear, and an unauthorized identity fails the pull request closed.
 ## 3.29.3 - 2026-10-20
 
 ### Fixed

@@ -246,6 +246,10 @@ jobs:
           # Full history is needed for ancestry of older refactor baselines.
           git fetch --no-tags --unshallow origin +refs/heads/main:refs/remotes/origin/main
           python scripts/check_release_version.py --base "$BASE_SHA"
+      - name: Verify commit authorship of the integration range
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: python scripts/check_commit_authorship.py --base "$BASE_SHA"
       - name: Execute complete local gate on exact head
         run: python scripts/ci.py
 
