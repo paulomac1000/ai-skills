@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.29.2 - 2026-10-20
+
+### Fixed
+
+- The refactor-preservation checker now walks the document with the same quote-aware scanner that ends a tag, so a tag inside a quoted attribute value is neither counted nor able to end the enclosing block, and a fence-looking line inside an active raw HTML block no longer hides that block's own nested elements from the depth accounting. In both cases a reviewed requirement moved into non-operative HTML was previously certified as preserved.
+
 ## 3.29.1 - 2026-10-20
 
 ### Fixed

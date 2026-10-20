@@ -770,6 +770,48 @@ def _scan_html_tag(text: str, start: int) -> tuple[int, bool, bool]:
     return len(text), False, False
 
 
+def _html_tag_tokens(text: str, tag: str) -> list[tuple[str, bool]]:
+    """Return the matching block tags in `text` as (kind, self_closing) pairs.
+
+    The text is walked with the same quote-aware scanner that ends a tag, so a
+    tag inside a quoted attribute value is neither counted nor able to end the
+    enclosing tag.
+    """
+    tokens: list[tuple[str, bool]] = []
+    pattern = re.compile(r"<\s*(/?)\s*" + re.escape(tag) + r"\b", re.IGNORECASE)
+    index = 0
+    while index < len(text):
+        char = text[index]
+        if char in "\"'":
+            _, _, complete = _scan_html_tag(text, index - 1) if index else (index, False, False)
+            index = max(index, index + 1)
+            if complete and _scan_html_tag(text, index)[2]:
+                pass
+            # Skip the quoted value with the same rules the tag scanner uses.
+            quote = char
+            index += 1
+            while index < len(text):
+                if text[index] == "\\" and index + 1 < len(text):
+                    index += 2
+                    continue
+                if text[index] == quote:
+                    index += 1
+                    break
+                index += 1
+            continue
+        if char != "<":
+            index += 1
+            continue
+        end, self_closing, complete = _scan_html_tag(text, index)
+        if not complete:
+            break
+        match = pattern.match(text[index:end])
+        if match:
+            tokens.append(("close" if match.group(1) else "open", self_closing))
+        index = end
+    return tokens
+
+
 def _html_depth_delta(text: str, tag: str) -> int:
     """Return the net number of open block elements of `tag` in `text`.
 
@@ -777,21 +819,13 @@ def _html_depth_delta(text: str, tag: str) -> int:
     self-closing tag opens and closes at once, so it must not keep a block
     open and mask the rest of the document.
     """
-    pattern = re.compile(r"<\s*(/?)\s*" + re.escape(tag) + r"\b", re.IGNORECASE)
     depth = 0
-    index = 0
-    while True:
-        match = pattern.search(text, index)
-        if match is None:
-            return depth
-        end, self_closing, complete = _scan_html_tag(text, match.start())
-        if not complete:
-            return depth
-        if match.group(1):
+    for kind, self_closing in _html_tag_tokens(text, tag):
+        if kind == "close":
             depth -= 1
         elif not self_closing:
             depth += 1
-        index = max(end, match.end())
+    return depth
 
 
 def _strip_frontmatter(text: str) -> str:
@@ -832,10 +866,28 @@ def _operative_skill_text(content: bytes) -> str:
                 comment_open = False
             else:
                 continue
+        if raw_html_tag:
+            # An active raw HTML block wins over every Markdown construct on
+            # the line, so its own nested elements keep the depth accounting.
+            if raw_html_opening:
+                raw_html_buffer += "\n" + line
+                _, _, complete = _scan_html_tag(raw_html_buffer, 0)
+                if complete:
+                    raw_html_opening = False
+                    raw_html_depth = _html_depth_delta(raw_html_buffer, raw_html_tag)
+                    if raw_html_depth <= 0:
+                        raw_html_tag = ""
+                        kept.append("")
+                continue
+            raw_html_depth += _html_depth_delta(line, raw_html_tag)
+            if raw_html_depth <= 0:
+                raw_html_tag = ""
+                kept.append("")
+            continue
         # A fence opener is literal content. Its info string may contain any
         # text, including a comment marker, and that marker must not open a
         # comment that outlives the fence.
-        opener = re.match(r"^[ ]{0,3}(?:(?:[-*+|]|\d+[.)])[ \t]+)?(`{3,}|~{3,})", line)
+        opener = re.match(r"^[ ]{0,3}(?:(?:[-*+]|\d+[.)])[ \t]+)?(`{3,}|~{3,})", line)
         if opener:
             fence = opener.group(1)
             continue
@@ -856,22 +908,6 @@ def _operative_skill_text(content: bytes) -> str:
         cleaned_opener = re.match(r"^[ ]{0,3}(?:(?:[-*+]|\d+[.)])[ \t]+)?(`{3,}|~{3,})", line)
         if cleaned_opener:
             fence = cleaned_opener.group(1)
-            continue
-        if raw_html_tag:
-            if raw_html_opening:
-                raw_html_buffer += "\n" + line
-                _, _, complete = _scan_html_tag(raw_html_buffer, 0)
-                if complete:
-                    raw_html_opening = False
-                    raw_html_depth = _html_depth_delta(raw_html_buffer, raw_html_tag)
-                    if raw_html_depth <= 0:
-                        raw_html_tag = ""
-                        kept.append("")
-                continue
-            raw_html_depth += _html_depth_delta(line, raw_html_tag)
-            if raw_html_depth <= 0:
-                raw_html_tag = ""
-                kept.append("")
             continue
         html_open = _RAW_HTML_START.match(line)
         if html_open:

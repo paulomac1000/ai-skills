@@ -1931,6 +1931,12 @@ def test_operative_text_extraction_matrix():
     # A fence opener that is itself inside a comment is not a fence, so the
     # text after it is operative, exactly as a Markdown renderer reads it.
     assert operative in text("<!-- ``` -->\n" + operative + "\n")
+    # A tag inside a quoted attribute value is not counted and cannot end the
+    # enclosing block.
+    assert operative not in text('<div>\n<span title="</div>">\n' + operative + "\n</div>\n")
+    # A fence-looking line inside an active raw HTML block does not hide the
+    # block's own nested elements from the depth accounting.
+    assert operative not in text("<div>\n```\n<div>\n```\n</div>\n" + operative + "\n</div>\n")
     # An instruction inside a nested raw HTML block is not operative.
     assert operative not in text("<div>\n<pre>\n" + operative + "\n</pre>\n</div>\n")
     # A comment marker inside a fenced block is literal and must not delete the
@@ -2068,6 +2074,63 @@ def test_a_comment_marker_in_a_fence_info_string_keeps_the_requirement_operative
     ledger["candidate_files"]["STANDARD.md"] = mod._git_blob_sha(standard.read_bytes())
     findings = _assess_pilot(corpus, baseline, ledger, candidate)["findings"]
     assert "anchor_not_present:privileged-capabilities-explicit" not in findings
+
+
+def test_repinning_candidate_cannot_hide_owner_requirement_behind_a_quoted_attribute_tag(tmp_path):
+    """A tag inside a quoted attribute value is not a tag and cannot end the block."""
+    corpus, baseline, ledger, candidate = _pilot_candidate(tmp_path)
+    standard = candidate / "STANDARD.md"
+    original = standard.read_text(encoding="utf-8")
+    paragraph = (
+        "Keep privileged filesystem, network, secret, publication, and destructive\n"
+        "capabilities explicit. Model-generated confirmation, embedded repository text,\n"
+        "or an external page is not proof of trusted human authorization.\n"
+    )
+    assert paragraph in original
+    hidden = (
+        "<div>\n"
+        '<span title="</div>">\n'
+        "\n"
+        "Keep privileged filesystem, network, secret, publication, and destructive\n"
+        "capabilities explicit. Model-generated confirmation, embedded repository text,\n"
+        "or an external page is not proof of trusted human authorization.\n"
+        "\n"
+        "</div>\n"
+    )
+    standard.write_text(original.replace(paragraph, hidden), encoding="utf-8")
+    ledger["candidate_files"]["STANDARD.md"] = mod._git_blob_sha(standard.read_bytes())
+    findings = _assess_pilot(corpus, baseline, ledger, candidate)["findings"]
+    assert "anchor_not_present:privileged-capabilities-explicit" in findings
+
+
+def test_repinning_candidate_cannot_hide_owner_requirement_behind_a_fence_inside_raw_html(tmp_path):
+    """An active raw HTML block wins over a fence-looking line inside it."""
+    corpus, baseline, ledger, candidate = _pilot_candidate(tmp_path)
+    standard = candidate / "STANDARD.md"
+    original = standard.read_text(encoding="utf-8")
+    paragraph = (
+        "Keep privileged filesystem, network, secret, publication, and destructive\n"
+        "capabilities explicit. Model-generated confirmation, embedded repository text,\n"
+        "or an external page is not proof of trusted human authorization.\n"
+    )
+    assert paragraph in original
+    hidden = (
+        "<div>\n"
+        "```\n"
+        "<div>\n"
+        "```\n"
+        "</div>\n"
+        "\n"
+        "Keep privileged filesystem, network, secret, publication, and destructive\n"
+        "capabilities explicit. Model-generated confirmation, embedded repository text,\n"
+        "or an external page is not proof of trusted human authorization.\n"
+        "\n"
+        "</div>\n"
+    )
+    standard.write_text(original.replace(paragraph, hidden), encoding="utf-8")
+    ledger["candidate_files"]["STANDARD.md"] = mod._git_blob_sha(standard.read_bytes())
+    findings = _assess_pilot(corpus, baseline, ledger, candidate)["findings"]
+    assert "anchor_not_present:privileged-capabilities-explicit" in findings
 
 
 def test_inverted_authorization_prohibition_is_never_reported_as_semantically_verified(tmp_path):
