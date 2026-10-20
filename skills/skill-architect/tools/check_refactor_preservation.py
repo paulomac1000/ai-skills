@@ -23,6 +23,17 @@ MATERIAL = {"trigger", "authority", "safety_stop", "exception", "recovery", "com
 DISPOSITIONS = {"PRESERVE", "MOVE", "DEDUPLICATE", "REPLACE_BY_CANONICAL_OWNER", "REMOVE_WITH_REASON"}
 SHA40 = re.compile(r"^[0-9a-f]{40}$")
 
+# Every terminal outcome declares the same verification boundary, including the
+# error paths, so a consumer can never read a reduced schema as a result and
+# can never mistake any outcome for a semantic-equivalence claim.
+VERIFICATION_BOUNDARY = {
+    "behavior": "BEHAVIOR_NOT_VERIFIED",
+    "semantic_equivalence": "NOT_VERIFIED",
+    "verification_scope": "normative_owner_and_route_mapping",
+    "eval_corpus": "NOT_VERIFIED",
+}
+
+
 # Independently reviewed baseline inventory authority, never read from a
 # candidate-controlled ledger. New skill/revision pairs need a reviewed
 # registry update before a production structural PASS is possible.
@@ -909,7 +920,11 @@ def assess(
         or not isinstance(decisions, list)
         or len(decisions) > 128
     ):
-        return {"structural": "FAILED", "behavior": "BEHAVIOR_NOT_VERIFIED", "findings": findings + ["invalid_ledger"]}
+        return {
+            "structural": "FAILED",
+            **VERIFICATION_BOUNDARY,
+            "findings": findings + ["invalid_ledger"],
+        }
     expected_ids = {rule.get("id") for rule in baseline_rules if isinstance(rule, dict)}
     if trusted_source_anchors is None or set(trusted_source_anchors) != expected_ids:
         findings.append("baseline_source_identity_inventory_untrusted")
@@ -1120,17 +1135,6 @@ def assess(
         "candidate_revision": "NOT_VERIFIED",
         "declared_candidate_version": declared_version,
     }
-
-
-# Every terminal outcome declares the same verification boundary, including the
-# error paths, so a consumer can never read a reduced schema as a result and
-# can never mistake any outcome for a semantic-equivalence claim.
-VERIFICATION_BOUNDARY = {
-    "behavior": "BEHAVIOR_NOT_VERIFIED",
-    "semantic_equivalence": "NOT_VERIFIED",
-    "verification_scope": "normative_owner_and_route_mapping",
-    "eval_corpus": "NOT_VERIFIED",
-}
 
 
 class JsonArgumentParser(argparse.ArgumentParser):

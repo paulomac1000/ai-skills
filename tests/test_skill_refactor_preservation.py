@@ -305,6 +305,51 @@ def test_every_terminal_outcome_declares_the_verification_boundary(tmp_path):
         assert result[field] == value
 
 
+def test_invalid_ledger_outcome_declares_the_verification_boundary(tmp_path):
+    import subprocess
+
+    boundary = {
+        "behavior": "BEHAVIOR_NOT_VERIFIED",
+        "semantic_equivalence": "NOT_VERIFIED",
+        "verification_scope": "normative_owner_and_route_mapping",
+        "eval_corpus": "NOT_VERIFIED",
+    }
+
+    path, baseline, ledger, decision = case(tmp_path)
+    ledger["decisions"] = "not-a-decision-list"
+    result = assess(baseline, ledger, path)
+    assert result["structural"] == "FAILED"
+    assert "invalid_ledger" in result["findings"]
+    for field, value in boundary.items():
+        assert result[field] == value
+
+    baseline_file = tmp_path / "baseline.json"
+    ledger_file = tmp_path / "ledger.json"
+    baseline_file.write_text(json.dumps(baseline), encoding="utf-8")
+    ledger_file.write_text(json.dumps(ledger), encoding="utf-8")
+    invalid_ledger = subprocess.run(
+        [
+            sys.executable,
+            str(MODULE_PATH),
+            "--baseline",
+            str(baseline_file),
+            "--ledger",
+            str(ledger_file),
+            "--candidate",
+            str(path),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert invalid_ledger.returncode == 1
+    payload = json.loads(invalid_ledger.stdout)
+    assert payload["structural"] == "FAILED"
+    assert "invalid_ledger" in payload["findings"]
+    for field, value in boundary.items():
+        assert payload[field] == value
+
+
 def test_critical_route_cannot_move_out_of_skill_entrypoint(tmp_path):
     path, baseline, ledger, decision = case(tmp_path)
     ledger["decisions"] = [
