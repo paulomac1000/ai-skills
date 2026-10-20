@@ -13,6 +13,15 @@ spec.loader.exec_module(mod)
 
 
 def assess(baseline, ledger, path, *, baseline_tree=None):
+    """Grammar-level harness.
+
+    The trusted identities below are derived from the ledger under test, so this
+    harness exercises the checker's grammar only. It is deliberately NOT
+    evidence that a candidate cannot self-authorize its own mappings; that
+    claim is proved with independent fixtures in
+    test_candidate_cannot_self_authorize_its_own_mappings, and in production
+    the identities come from the audited module registries.
+    """
     # Synthetic case() owns this pin; the production CLI uses only the
     # independent trusted inventory registry, not ledger/baseline self-hashes.
     review_pin = (
@@ -1380,6 +1389,58 @@ def test_existing_skill_lifecycle_route_covers_all_owned_operations():
     assert "consult references/lifecycle-and-migration.md" in line
 
 
+def test_candidate_cannot_self_authorize_its_own_mappings(tmp_path):
+    """A ledger that rewrites its own reviewed identities must be rejected.
+
+    The trusted identities here are supplied independently of the ledger, the
+    way production reads them from the audited module registries. The candidate
+    rewrites its source, target and entrypoint route to match its own content,
+    and every one of those rewrites must be reported as untrusted.
+    """
+    path, baseline, ledger, decision = case(tmp_path)
+    reviewed_source = {"auth": ("STANDARD.md", "Require policy authorization")}
+    reviewed_target = {"auth": ("STANDARD.md", "Require policy authorization")}
+    reviewed_route = {"auth": "Trigger when destructive action requested; read STANDARD.md before action"}
+
+    # The candidate rewrites every reviewed identity to match its own content.
+    ledger["decisions"] = [
+        decision
+        | {
+            "source_path": "REWRITTEN.md",
+            "source_anchor": "Delete policy authorization",
+            "target_path": "REWRITTEN.md",
+            "target_anchor": "Delete policy authorization",
+            "entrypoint_route": "Trigger when destructive action requested; read REWRITTEN.md before action",
+        }
+    ]
+    (path / "REWRITTEN.md").write_text("Delete policy authorization before operations")
+    ledger["candidate_files"]["REWRITTEN.md"] = mod._git_blob_sha((path / "REWRITTEN.md").read_bytes())
+    (path / "SKILL.md").write_text(
+        "Trigger when destructive action requested; read REWRITTEN.md before action"
+    )
+    ledger["candidate_files"]["SKILL.md"] = mod._git_blob_sha((path / "SKILL.md").read_bytes())
+
+    result = mod.assess(
+        baseline,
+        ledger,
+        path,
+        baseline_tree=path,
+        trusted_baseline_sha256="sha256:" + hashlib.sha256(mod._canonical_json(baseline)).hexdigest(),
+        trusted_source_anchors=reviewed_source,
+        trusted_target_mappings=reviewed_target,
+        trusted_entrypoint_routes=reviewed_route,
+    )
+    assert result["structural"] == "FAILED"
+    assert "baseline_source_identity_untrusted:auth" in result["findings"]
+    assert "candidate_target_mapping_untrusted:auth" in result["findings"]
+    assert "entrypoint_route_untrusted:auth" in result["findings"]
+
+    # The same ledger is accepted by the grammar harness above, which is why
+    # that harness is not evidence of provenance enforcement.
+    grammar = assess(baseline, ledger, path)
+    assert "candidate_target_mapping_untrusted:auth" not in grammar["findings"]
+
+
 def test_candidate_target_cannot_be_rebound_to_reversed_rule(tmp_path):
     path, baseline, ledger, decision = case(tmp_path)
     reviewed = {"auth": ("STANDARD.md", "Require policy authorization")}
@@ -1474,20 +1535,35 @@ def test_git_environment_unavailable_has_distinct_cli_status(tmp_path, monkeypat
     monkeypatch.setattr(
         mod, "_verify_baseline_git_revision", lambda *args, **kwargs: ["baseline_git_revision_unavailable"]
     )
-    monkeypatch.setattr(mod, "assess", lambda *args, **kwargs: {"structural": "PASS", "findings": []})
+    # The stubbed assessment carries the same verification boundary as a real
+    # one, so this test also proves the boundary survives the CLI status
+    # transition instead of only the exit code.
+    monkeypatch.setattr(
+        mod,
+        "assess",
+        lambda *args, **kwargs: {"structural": "PASS", **mod.VERIFICATION_BOUNDARY, "findings": []},
+    )
     assert mod.main() == 3
     result = json.loads(capsys.readouterr().out)
     assert result["structural"] == "ENVIRONMENT_NOT_READY"
     assert result["findings"] == ["baseline_git_revision_unavailable"]
+    for field, value in mod.VERIFICATION_BOUNDARY.items():
+        assert result[field] == value
     monkeypatch.setattr(
         mod,
         "assess",
-        lambda *args, **kwargs: {"structural": "FAILED", "findings": ["owner_route_unreachable:auth"]},
+        lambda *args, **kwargs: {
+            "structural": "FAILED",
+            **mod.VERIFICATION_BOUNDARY,
+            "findings": ["owner_route_unreachable:auth"],
+        },
     )
     assert mod.main() == 1
     result = json.loads(capsys.readouterr().out)
     assert result["structural"] == "FAILED"
     assert result["findings"] == ["owner_route_unreachable:auth", "baseline_git_revision_unavailable"]
+    for field, value in mod.VERIFICATION_BOUNDARY.items():
+        assert result[field] == value
     assert "'3': environment-not-ready" in (root := Path(__file__).resolve().parents[1]).joinpath(
         "skills/skill-architect/manifest.yaml"
     ).read_text(encoding="utf-8")
