@@ -143,5 +143,43 @@ def test_declared_correction_allows_a_changed_published_section(tmp_path: Path) 
     _commit(root, "claim 1.4.0")
 
     findings = tool.validate_release_branch(root, base, ["manifest.yaml"])
-    assert not [item for item in findings if item.startswith("PUBLISHED_SECTION_MODIFIED:")]
-    assert not [item for item in findings if item.startswith("DUPLICATE_CATEGORY_HEADER:")]
+    assert findings == []
+
+
+def test_published_section_survives_a_crlf_working_tree(tmp_path: Path) -> None:
+    """A checkout that rewrites line endings must not look like a history change."""
+    tool = _load_tool()
+    root, base = _repo(tmp_path)
+    (root / "manifest.yaml").write_text("version: 1.4.0\n", encoding="utf-8")
+    (root / "CHANGELOG.md").write_text(
+        "# Changelog\n\n## 1.4.0 - 2026-08-27\n\n- Added release governance.\n\n## 1.3.0 - 2026-08-01\n",
+        encoding="utf-8",
+    )
+    _commit(root, "claim 1.4.0")
+    # The checkout rewrites line endings; the committed content is unchanged.
+    (root / "CHANGELOG.md").write_bytes(
+        (root / "CHANGELOG.md").read_text(encoding="utf-8").replace("\n", "\r\n").encode("utf-8")
+    )
+
+    findings = tool.validate_release_branch(root, base, ["manifest.yaml"])
+    assert findings == []
+
+
+def test_published_section_with_non_ascii_content_is_not_reported_as_modified(tmp_path: Path) -> None:
+    """Reading the base revision must not depend on the platform locale."""
+    tool = _load_tool()
+    root, _ = _repo(tmp_path)
+    published = "# Changelog\n\n## 1.3.0 - 2026-08-01\n\n- The published 1.3.0 outcome \u2014 with an em dash.\n"
+    (root / "CHANGELOG.md").write_text(published, encoding="utf-8")
+    _git(root, "add", ".")
+    _git(root, "commit", "--amend", "-m", "base with non-ascii content")
+    base = _git(root, "rev-parse", "HEAD")
+    (root / "manifest.yaml").write_text("version: 1.4.0\n", encoding="utf-8")
+    (root / "CHANGELOG.md").write_text(
+        "# Changelog\n\n## 1.4.0 - 2026-08-27\n\n- Added release governance.\n\n" + published.split("\n\n", 1)[1],
+        encoding="utf-8",
+    )
+    _commit(root, "claim 1.4.0")
+
+    findings = tool.validate_release_branch(root, base, ["manifest.yaml"])
+    assert findings == []

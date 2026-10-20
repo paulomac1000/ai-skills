@@ -27,6 +27,9 @@ def _git(root: Path, *args: str, allow_failure: bool = False) -> str | None:
         check=False,
         capture_output=True,
         text=True,
+        # Repository content is UTF-8; a platform locale must not change it.
+        encoding="utf-8",
+        errors="strict",
         timeout=30,
     )
     if completed.returncode == 0:
@@ -41,10 +44,20 @@ def _show(root: Path, revision: str, path: str) -> str | None:
     return _git(root, "show", f"{revision}:{path}", allow_failure=True)
 
 
+def _normalize_newlines(text: str) -> str:
+    """Normalize line endings.
+
+    A working tree checked out with CRLF line endings must compare equal to
+    the blob it was checked out from, otherwise every published section looks
+    modified on a platform that rewrites line endings.
+    """
+    return text.replace("\r\n", "\n").replace("\r", "\n")
+
+
 def _release_sections(text: str) -> list[tuple[str, str]]:
     """Return (version, section_text) pairs in document order."""
     sections: list[tuple[str, str]] = []
-    matches = list(HEADING.finditer(text))
+    matches = list(HEADING.finditer(_normalize_newlines(text)))
     for index, match in enumerate(matches):
         end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
         sections.append((match.group(1), text[match.start() : end]))

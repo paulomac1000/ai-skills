@@ -53,6 +53,9 @@ def _git_show(base: str, path: str) -> str | None:
         check=False,
         capture_output=True,
         text=True,
+        # Repository content is UTF-8; a platform locale must not change it.
+        encoding="utf-8",
+        errors="strict",
         timeout=30,
     )
     return completed.stdout if completed.returncode == 0 else None
