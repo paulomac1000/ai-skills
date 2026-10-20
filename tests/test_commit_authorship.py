@@ -172,3 +172,16 @@ def test_an_unparsable_commit_record_fails_closed() -> None:
         assert "cannot be parsed" in str(error)
     else:
         raise AssertionError("an unparsable commit record must fail the audit")
+
+
+def test_the_audited_head_is_taken_from_the_invocation(tmp_path: Path) -> None:
+    """The gate must measure the ref the caller names, not a default."""
+    module = _load_script()
+    root = _repository(tmp_path)
+    base = _commit(root, "base", email="pawel.maciejewski95@gmail.com")
+    head = _commit(root, "second", email="49699333+dependabot[bot]@users.noreply.github.com")
+    exit_code = module.main(["--base", base, "--head", head], root=root)
+    assert exit_code == 0
+    other = _commit(root, "third", email="sisyphus-lab@example.invalid")
+    exit_code = module.main(["--base", base, "--head", other], root=root)
+    assert exit_code == 1

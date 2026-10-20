@@ -13,6 +13,12 @@ Only identities the repository trusts may appear in the commits a pull request
 proposes for integration. The owner is identified by the verified address
 published on the GitHub account, not by a display name, because a name can be
 chosen by anyone.
+
+Addresses are compared case-insensitively, so an address that differs only in
+case is accepted. The platform address is trusted only as a committer, because
+a merge or a squash records the platform as the committer while the original
+author is preserved; it is never trusted as an author, because a web edit is
+attributed to it.
 """
 
 from __future__ import annotations
@@ -84,8 +90,10 @@ def _require_ancestor(base: str, head: str, root: Path = ROOT) -> None:
         text=True,
         timeout=60,
     )
-    if completed.returncode != 0:
+    if completed.returncode == 1:
         raise AuditError(f"base {base} is not an ancestor of {head}")
+    if completed.returncode != 0:
+        raise AuditError(f"base {base} cannot be resolved as an ancestor of {head} (git exit {completed.returncode})")
 
 
 def _commits(base: str, head: str, root: Path = ROOT) -> list[tuple[str, str, str, str]]:
