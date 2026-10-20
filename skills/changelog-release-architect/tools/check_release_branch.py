@@ -16,6 +16,8 @@ import yaml
 SEMVER = re.compile(r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z.-]+))?$")
 PY_VERSION = re.compile(r"^\s*__version__\s*=\s*['\"]([^'\"]+)['\"]\s*$", re.MULTILINE)
 HEADING = re.compile(r"^##\s+\[?(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)\]?(?:\s+[-—].*)?\s*$", re.MULTILINE)
+CATEGORY_HEADING = re.compile(r"^###\s+(?P<category>[^\n]+?)\s*$", re.MULTILINE)
+CORRECTION = "Correction:"
 
 
 def _git(root: Path, *args: str, allow_failure: bool = False) -> str | None:
@@ -25,6 +27,9 @@ def _git(root: Path, *args: str, allow_failure: bool = False) -> str | None:
         check=False,
         capture_output=True,
         text=True,
+        # Repository content is UTF-8; a platform locale must not change it.
+        encoding="utf-8",
+        errors="strict",
         timeout=30,
     )
     if completed.returncode == 0:
@@ -37,6 +42,75 @@ def _git(root: Path, *args: str, allow_failure: bool = False) -> str | None:
 
 def _show(root: Path, revision: str, path: str) -> str | None:
     return _git(root, "show", f"{revision}:{path}", allow_failure=True)
+
+
+def _normalize_newlines(text: str) -> str:
+    """Normalize line endings and a byte-order mark.
+
+    A working tree checked out with CRLF line endings must compare equal to
+    the blob it was checked out from, otherwise every published section looks
+    modified on a platform that rewrites line endings. A byte-order mark would
+    hide the first release heading from the section scan.
+    """
+    return text.lstrip("\ufeff").replace("\r\n", "\n").replace("\r", "\n")
+
+
+def _release_sections(text: str) -> list[tuple[str, str]]:
+    """Return (version, section_text) pairs in document order.
+
+    The offsets and the slices come from the same normalized text, so a
+    checkout that rewrote line endings still yields the same sections.
+    """
+    normalized = _normalize_newlines(text)
+    sections: list[tuple[str, str]] = []
+    matches = list(HEADING.finditer(normalized))
+    for index, match in enumerate(matches):
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(normalized)
+        sections.append((match.group(1), normalized[match.start() : end]))
+    return sections
+
+
+def _without_fenced_examples(text: str) -> str:
+    """Remove fenced code examples, so their content is not read as structure.
+
+    A closing fence may be longer than the opening one, so the fence is
+    tracked by character and length rather than by an exact backreference.
+    """
+    kept: list[str] = []
+    fence = ""
+    for line in text.splitlines():
+        if fence:
+            close = r"^[ ]{0,3}" + re.escape(fence[0]) + "{" + str(len(fence)) + r",}[ \t]*$"
+            if re.match(close, line):
+                fence = ""
+            continue
+        opener = re.match(r"^[ ]{0,3}(?:`{3,}|~{3,})", line)
+        if opener:
+            fence = opener.group(0).strip()
+            continue
+        kept.append(line)
+    return "\n".join(kept)
+
+
+def _category_headings(section: str) -> list[str]:
+    """Return the category headings of a section, ignoring fenced examples."""
+    return [match.group("category") for match in CATEGORY_HEADING.finditer(_without_fenced_examples(section))]
+
+
+def _declares_correction(section: str, version: str) -> bool:
+    """Report whether the release under construction declares a correction.
+
+    The declared version must be the exact version, so a correction for one
+    version cannot silence a change to a different one.
+    """
+    pattern = re.compile(r"(?<![\w.-])" + re.escape(version) + r"(?![\w.-])")
+    for line in _without_fenced_examples(section).splitlines():
+        content = line.lstrip()
+        if content.startswith("- "):
+            content = content[2:].lstrip()
+        if content.startswith(CORRECTION) and pattern.search(content):
+            return True
+    return False
 
 
 def _parse_version(path: str, text: str) -> str:
@@ -181,7 +255,8 @@ def validate_release_branch(
         current_changelog = root / changelog_path
         if current_changelog.is_file():
             try:
-                current_headings = set(HEADING.findall(current_changelog.read_text(encoding="utf-8")))
+                current_text = current_changelog.read_text(encoding="utf-8")
+                current_headings = set(HEADING.findall(current_text))
                 base_changelog = _show(root, merge_base, changelog_path)
                 base_headings = set(HEADING.findall(base_changelog or ""))
                 introduced = sorted(current_headings - base_headings)
@@ -194,6 +269,42 @@ def validate_release_branch(
                 elif len(introduced) == 1 and baseline and mirror_target == baseline:
                     findings.append(
                         f"VERSION_SOURCE_CONFLICT: changelog introduces {introduced[0]} without a version transition"
+                    )
+                current_sections = _release_sections(current_text)
+                for version, section in current_sections:
+                    categories = _category_headings(section)
+                    duplicated = sorted({name for name in categories if categories.count(name) > 1})
+                    for name in duplicated:
+                        findings.append(f"DUPLICATE_CATEGORY_HEADER: {changelog_path} repeats '{name}' in {version}")
+                # A published section is immutable; only the release under
+                # construction may change, and only with a declared correction.
+                # The changelog is ordered newest first, and the release under
+                # construction is the section the base does not contain yet.
+                # When the candidate introduces no section, no section is under
+                # construction and every section stays immutable.
+                construction_version = introduced[0] if introduced else ""
+                construction = next(
+                    (section for version, section in current_sections if version == construction_version),
+                    "",
+                )
+                base_sections = dict(_release_sections(base_changelog or ""))
+                current_versions_present = {version for version, _ in current_sections}
+                for version, section in current_sections:
+                    if version == construction_version:
+                        continue
+                    published = base_sections.get(version)
+                    if published is None or published == section:
+                        continue
+                    if _declares_correction(construction, version):
+                        continue
+                    findings.append(
+                        f"PUBLISHED_SECTION_MODIFIED: {changelog_path} changes the published section of {version}"
+                    )
+                for version in base_sections:
+                    if version in current_versions_present:
+                        continue
+                    findings.append(
+                        f"PUBLISHED_SECTION_DELETED: {changelog_path} removes the published section of {version}"
                     )
             except (OSError, UnicodeError) as exc:
                 findings.append(f"CHANGELOG_EVIDENCE_MISSING: cannot read {changelog_path}: {exc}")

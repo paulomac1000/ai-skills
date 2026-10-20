@@ -49,9 +49,15 @@ source/target documents and entrypoint routes. It explicitly reports
 `eval_corpus: NOT_VERIFIED`, `behavior: BEHAVIOR_NOT_VERIFIED` and
 `semantic_equivalence: NOT_VERIFIED`. It does not and cannot detect a pinned
 obligation that stays intact at its pinned location while a separate sentence
-restricts its applicability, because the same constructions appear in valid
-normative content; treat that residual class as covered by the independent
-semantic review lane, never by a structural PASS.
+changes its effect, because the same constructions appear in valid normative
+content. That residual class has two subclasses: a separate sentence that
+restricts the applicability of a pinned obligation, and a separate sentence
+that asserts the opposite of a prohibition the pinned obligation states. Treat
+both as covered by the independent semantic review lane, which requires an
+independent acceptance authority reviewing provider-backed exact-revision
+evidence under the repository's independent release evidence profile plus the
+candidate-specific semantic review scope owned by the verification owner, and
+never by a structural PASS.
 The caller must independently baseline and validate repository-scoped eval
 corpus revisions with `tools/validate_skill_evals.py` plus any required
 model-backed comparisons before claiming complete semantic preservation.

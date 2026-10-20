@@ -92,3 +92,236 @@ def test_multiple_release_headings_are_rejected(tmp_path: Path) -> None:
 
     findings = tool.validate_release_branch(root, base, ["manifest.yaml"])
     assert any(item.startswith("MULTIPLE_RELEASE_HEADINGS:") for item in findings)
+
+
+def test_duplicate_category_header_in_one_release_is_rejected(tmp_path: Path) -> None:
+    tool = _load_tool()
+    root, base = _repo(tmp_path)
+    (root / "manifest.yaml").write_text("version: 1.4.0\n", encoding="utf-8")
+    (root / "CHANGELOG.md").write_text(
+        "# Changelog\n\n"
+        "## 1.4.0 - 2026-08-27\n\n"
+        "### Fixed\n\n- first outcome.\n\n"
+        "### Fixed\n\n- second outcome.\n\n"
+        "## 1.3.0 - 2026-08-01\n",
+        encoding="utf-8",
+    )
+    _commit(root, "claim 1.4.0")
+
+    findings = tool.validate_release_branch(root, base, ["manifest.yaml"])
+    assert any(item.startswith("DUPLICATE_CATEGORY_HEADER:") for item in findings)
+
+
+def test_changed_published_section_is_rejected_without_a_declared_correction(tmp_path: Path) -> None:
+    tool = _load_tool()
+    root, base = _repo(tmp_path)
+    (root / "manifest.yaml").write_text("version: 1.4.0\n", encoding="utf-8")
+    (root / "CHANGELOG.md").write_text(
+        "# Changelog\n\n"
+        "## 1.4.0 - 2026-08-27\n\n- Added release governance.\n\n"
+        "## 1.3.0 - 2026-08-01\n\n- The published 1.3.0 outcome was rewritten.\n",
+        encoding="utf-8",
+    )
+    _commit(root, "claim 1.4.0")
+
+    findings = tool.validate_release_branch(root, base, ["manifest.yaml"])
+    assert any(item.startswith("PUBLISHED_SECTION_MODIFIED:") for item in findings)
+
+
+def test_declared_correction_allows_a_changed_published_section(tmp_path: Path) -> None:
+    tool = _load_tool()
+    root, base = _repo(tmp_path)
+    (root / "manifest.yaml").write_text("version: 1.4.0\n", encoding="utf-8")
+    (root / "CHANGELOG.md").write_text(
+        "# Changelog\n\n"
+        "## 1.4.0 - 2026-08-27\n\n"
+        "- Added release governance.\n"
+        "- Correction: the 1.3.0 section repeated a category heading and was corrected.\n\n"
+        "## 1.3.0 - 2026-08-01\n\n- The published 1.3.0 outcome was rewritten.\n",
+        encoding="utf-8",
+    )
+    _commit(root, "claim 1.4.0")
+
+    findings = tool.validate_release_branch(root, base, ["manifest.yaml"])
+    assert findings == []
+
+
+def test_published_section_survives_a_crlf_working_tree(tmp_path: Path) -> None:
+    """A checkout that rewrites line endings must not look like a history change."""
+    tool = _load_tool()
+    root, base = _repo(tmp_path)
+    (root / "manifest.yaml").write_text("version: 1.4.0\n", encoding="utf-8")
+    (root / "CHANGELOG.md").write_text(
+        "# Changelog\n\n## 1.4.0 - 2026-08-27\n\n- Added release governance.\n\n## 1.3.0 - 2026-08-01\n",
+        encoding="utf-8",
+    )
+    _commit(root, "claim 1.4.0")
+    # The checkout rewrites line endings; the committed content is unchanged.
+    (root / "CHANGELOG.md").write_bytes(
+        (root / "CHANGELOG.md").read_text(encoding="utf-8").replace("\n", "\r\n").encode("utf-8")
+    )
+
+    findings = tool.validate_release_branch(root, base, ["manifest.yaml"])
+    assert findings == []
+
+
+def test_published_section_with_non_ascii_content_is_not_reported_as_modified(tmp_path: Path) -> None:
+    """Reading the base revision must not depend on the platform locale."""
+    tool = _load_tool()
+    root, _ = _repo(tmp_path)
+    published = "# Changelog\n\n## 1.3.0 - 2026-08-01\n\n- The published 1.3.0 outcome \u2014 with an em dash.\n"
+    (root / "CHANGELOG.md").write_text(published, encoding="utf-8")
+    _git(root, "add", ".")
+    _git(root, "commit", "--amend", "-m", "base with non-ascii content")
+    base = _git(root, "rev-parse", "HEAD")
+    (root / "manifest.yaml").write_text("version: 1.4.0\n", encoding="utf-8")
+    (root / "CHANGELOG.md").write_text(
+        "# Changelog\n\n## 1.4.0 - 2026-08-27\n\n- Added release governance.\n\n" + published.split("\n\n", 1)[1],
+        encoding="utf-8",
+    )
+    _commit(root, "claim 1.4.0")
+
+    findings = tool.validate_release_branch(root, base, ["manifest.yaml"])
+    assert findings == []
+
+
+def test_crlf_checkout_with_several_published_sections_is_not_reported_as_modified(tmp_path: Path) -> None:
+    tool = _load_tool()
+    root, _ = _repo(tmp_path)
+    published = "## 1.3.0 - 2026-08-01\n\n- The 1.3.0 outcome.\n\n## 1.2.0 - 2026-07-01\n\n- The 1.2.0 outcome.\n"
+    (root / "CHANGELOG.md").write_text("# Changelog\n\n" + published, encoding="utf-8")
+    _git(root, "add", ".")
+    _git(root, "commit", "--amend", "-m", "base with two published sections")
+    base = _git(root, "rev-parse", "HEAD")
+    (root / "manifest.yaml").write_text("version: 1.4.0\n", encoding="utf-8")
+    (root / "CHANGELOG.md").write_text(
+        "# Changelog\n\n## 1.4.0 - 2026-08-27\n\n- Added release governance.\n\n" + published,
+        encoding="utf-8",
+    )
+    _commit(root, "claim 1.3.0")
+    (root / "CHANGELOG.md").write_bytes(
+        (root / "CHANGELOG.md").read_text(encoding="utf-8").replace("\n", "\r\n").encode("utf-8")
+    )
+
+    findings = tool.validate_release_branch(root, base, ["manifest.yaml"])
+    assert findings == []
+
+
+def test_editing_the_newest_published_section_without_a_new_heading_is_rejected(tmp_path: Path) -> None:
+    tool = _load_tool()
+    root, base = _repo(tmp_path)
+    (root / "CHANGELOG.md").write_text(
+        "# Changelog\n\n## 1.3.0 - 2026-08-01\n\n- The published 1.3.0 outcome was rewritten.\n",
+        encoding="utf-8",
+    )
+    _commit(root, "rewrite the newest published section")
+
+    findings = tool.validate_release_branch(root, base, ["manifest.yaml"])
+    assert any(item.startswith("PUBLISHED_SECTION_MODIFIED:") for item in findings)
+
+
+def test_a_correction_for_another_version_does_not_silence_a_change(tmp_path: Path) -> None:
+    tool = _load_tool()
+    root, base = _repo(tmp_path)
+    (root / "manifest.yaml").write_text("version: 1.4.0\n", encoding="utf-8")
+    (root / "CHANGELOG.md").write_text(
+        "# Changelog\n\n"
+        "## 1.4.0 - 2026-08-27\n\n"
+        "- Correction: the 1.2.30 section was corrected.\n\n"
+        "## 1.3.0 - 2026-08-01\n\n- The published 1.3.0 outcome was rewritten.\n",
+        encoding="utf-8",
+    )
+    _commit(root, "claim 1.4.0")
+
+    findings = tool.validate_release_branch(root, base, ["manifest.yaml"])
+    assert any(item.startswith("PUBLISHED_SECTION_MODIFIED:") for item in findings)
+
+
+def test_deleting_a_published_section_is_rejected(tmp_path: Path) -> None:
+    tool = _load_tool()
+    root, base = _repo(tmp_path)
+    (root / "manifest.yaml").write_text("version: 1.4.0\n", encoding="utf-8")
+    (root / "CHANGELOG.md").write_text(
+        "# Changelog\n\n## 1.4.0 - 2026-08-27\n\n- Added release governance.\n",
+        encoding="utf-8",
+    )
+    _commit(root, "claim 1.4.0 and drop the published section")
+
+    findings = tool.validate_release_branch(root, base, ["manifest.yaml"])
+    assert any(item.startswith("PUBLISHED_SECTION_DELETED:") for item in findings)
+
+
+def test_a_byte_order_mark_does_not_hide_the_first_release_section(tmp_path: Path) -> None:
+    tool = _load_tool()
+    root, _ = _repo(tmp_path)
+    published = "# Changelog\n\n## 1.3.0 - 2026-08-01\n\n- The published 1.3.0 outcome.\n"
+    (root / "CHANGELOG.md").write_text(published, encoding="utf-8")
+    _git(root, "add", ".")
+    _git(root, "commit", "--amend", "-m", "base")
+    base = _git(root, "rev-parse", "HEAD")
+    (root / "manifest.yaml").write_text("version: 1.4.0\n", encoding="utf-8")
+    (root / "CHANGELOG.md").write_text(
+        "\ufeff# Changelog\n\n## 1.4.0 - 2026-08-27\n\n- Added release governance.\n\n" + published.split("\n\n", 1)[1],
+        encoding="utf-8",
+    )
+    _commit(root, "claim 1.4.0 with a byte-order mark")
+
+    findings = tool.validate_release_branch(root, base, ["manifest.yaml"])
+    assert findings == []
+
+
+def test_a_fenced_example_is_not_a_category_heading(tmp_path: Path) -> None:
+    tool = _load_tool()
+    root, base = _repo(tmp_path)
+    (root / "manifest.yaml").write_text("version: 1.4.0\n", encoding="utf-8")
+    (root / "CHANGELOG.md").write_text(
+        "# Changelog\n\n"
+        "## 1.4.0 - 2026-08-27\n\n"
+        "### Added\n\n- Added release governance.\n\n"
+        "```markdown\n### Added\n```\n\n"
+        "## 1.3.0 - 2026-08-01\n",
+        encoding="utf-8",
+    )
+    _commit(root, "claim 1.4.0")
+
+    findings = tool.validate_release_branch(root, base, ["manifest.yaml"])
+    assert not [item for item in findings if item.startswith("DUPLICATE_CATEGORY_HEADER:")]
+
+
+def test_a_fenced_example_cannot_declare_a_correction(tmp_path: Path) -> None:
+    """A correction line inside a fenced example must not silence the guard."""
+    tool = _load_tool()
+    root, base = _repo(tmp_path)
+    (root / "manifest.yaml").write_text("version: 1.4.0\n", encoding="utf-8")
+    (root / "CHANGELOG.md").write_text(
+        "# Changelog\n\n"
+        "## 1.4.0 - 2026-08-27\n\n"
+        "```text\n"
+        "Correction: the 1.3.0 section was corrected.\n"
+        "```\n\n"
+        "## 1.3.0 - 2026-08-01\n\n- The published 1.3.0 outcome was rewritten.\n",
+        encoding="utf-8",
+    )
+    _commit(root, "claim 1.4.0")
+
+    findings = tool.validate_release_branch(root, base, ["manifest.yaml"])
+    assert any(item.startswith("PUBLISHED_SECTION_MODIFIED:") for item in findings)
+
+
+def test_a_fence_closed_with_more_backticks_is_still_an_example(tmp_path: Path) -> None:
+    """A closing fence may be longer than the opening one."""
+    tool = _load_tool()
+    root, base = _repo(tmp_path)
+    (root / "manifest.yaml").write_text("version: 1.4.0\n", encoding="utf-8")
+    (root / "CHANGELOG.md").write_text(
+        "# Changelog\n\n"
+        "## 1.4.0 - 2026-08-27\n\n"
+        "### Added\n\n- Added release governance.\n\n"
+        "```markdown\n### Added\n````\n\n"
+        "## 1.3.0 - 2026-08-01\n",
+        encoding="utf-8",
+    )
+    _commit(root, "claim 1.4.0")
+
+    findings = tool.validate_release_branch(root, base, ["manifest.yaml"])
+    assert not [item for item in findings if item.startswith("DUPLICATE_CATEGORY_HEADER:")]
