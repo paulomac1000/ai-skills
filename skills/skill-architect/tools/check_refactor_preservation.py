@@ -775,6 +775,9 @@ def _scan_html_tag(text: str, start: int) -> tuple[int, bool, bool]:
     return len(text), False, False
 
 
+_HTML_TAG_START = re.compile(r"<\s*/?\s*[A-Za-z]")
+
+
 def _remove_html_comments(text: str) -> str:
     """Remove HTML comment bodies, so a tag inside a comment is not markup."""
     kept: list[str] = []
@@ -810,6 +813,11 @@ def _html_tag_tokens(text: str, tag: str) -> list[tuple[str, bool]]:
         if text.startswith("<!--", start):
             end = text.find("-->", start + 4)
             index = len(text) if end < 0 else end + 3
+            continue
+        if not _HTML_TAG_START.match(text, start):
+            # A literal `<` in text is not a tag and must not swallow the tags
+            # that follow it on the same line.
+            index = start + 1
             continue
         end, self_closing, complete = _scan_html_tag(text, start)
         if not complete:
@@ -862,6 +870,7 @@ def _operative_skill_text(content: bytes) -> str:
     raw_html_depth = 0
     raw_html_buffer = ""
     raw_html_opening = False
+    raw_html_comment = False
     comment_open = False
     for line in text.splitlines():
         if fence:
@@ -891,7 +900,21 @@ def _operative_skill_text(content: bytes) -> str:
                         raw_html_tag = ""
                         kept.append("")
                 continue
-            raw_html_depth += _html_depth_delta(_remove_html_comments(line), raw_html_tag)
+            if raw_html_comment:
+                if "-->" in line:
+                    raw_html_comment = False
+                    line = line.split("-->", 1)[1]
+                else:
+                    continue
+            elif "<!--" in line:
+                before, _, after = line.partition("<!--")
+                if "-->" in after:
+                    line = before + " " + after.split("-->", 1)[1]
+                else:
+                    raw_html_comment = True
+                    line = before
+                    continue
+            raw_html_depth += _html_depth_delta(line, raw_html_tag)
             if raw_html_depth <= 0:
                 raw_html_tag = ""
                 kept.append("")
