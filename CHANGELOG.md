@@ -11,6 +11,7 @@
 
 - The locked dependency sets were regenerated with the repository's own lock generator and verified with the locked installer, and the complete development lock audit, the dependency audit and the generator contracts pass on the new versions.
 - The integration range is now audited for commit authorship before merge. Only the repository owner's verified address and the trusted automation accounts may appear, and an unauthorized identity fails the pull request closed.
+- The transitive `certifi` dependency is pinned to the release that fixes advisory GHSA-6q48-6c7w-9gw2, which the dependency audit reported against the previously locked version.
 ## 3.29.3 - 2026-10-20
 
 ### Fixed

@@ -1,5 +1,6 @@
 bandit==1.9.4
 build==1.6.1
+certifi==2026.10.19
 httpx2==2.13.1
 jsonschema==4.26.0
 mcp==2.3.0
