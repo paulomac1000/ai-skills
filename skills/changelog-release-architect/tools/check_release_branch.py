@@ -70,10 +70,31 @@ def _release_sections(text: str) -> list[tuple[str, str]]:
     return sections
 
 
+def _without_fenced_examples(text: str) -> str:
+    """Remove fenced code examples, so their content is not read as structure.
+
+    A closing fence may be longer than the opening one, so the fence is
+    tracked by character and length rather than by an exact backreference.
+    """
+    kept: list[str] = []
+    fence = ""
+    for line in text.splitlines():
+        if fence:
+            close = r"^[ ]{0,3}" + re.escape(fence[0]) + "{" + str(len(fence)) + r",}[ \t]*$"
+            if re.match(close, line):
+                fence = ""
+            continue
+        opener = re.match(r"^[ ]{0,3}(?:`{3,}|~{3,})", line)
+        if opener:
+            fence = opener.group(0).strip()
+            continue
+        kept.append(line)
+    return "\n".join(kept)
+
+
 def _category_headings(section: str) -> list[str]:
     """Return the category headings of a section, ignoring fenced examples."""
-    without_fences = re.sub(r"(?ms)^[ ]{0,3}(`{3,}|~{3,})[^\n]*\n.*?^[ ]{0,3}\1[ \t]*$", "", section)
-    return [match.group("category") for match in CATEGORY_HEADING.finditer(without_fences)]
+    return [match.group("category") for match in CATEGORY_HEADING.finditer(_without_fenced_examples(section))]
 
 
 def _declares_correction(section: str, version: str) -> bool:
@@ -83,7 +104,7 @@ def _declares_correction(section: str, version: str) -> bool:
     version cannot silence a change to a different one.
     """
     pattern = re.compile(r"(?<![\w.-])" + re.escape(version) + r"(?![\w.-])")
-    for line in section.splitlines():
+    for line in _without_fenced_examples(section).splitlines():
         content = line.lstrip()
         if content.startswith("- "):
             content = content[2:].lstrip()

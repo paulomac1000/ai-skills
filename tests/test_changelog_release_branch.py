@@ -286,3 +286,42 @@ def test_a_fenced_example_is_not_a_category_heading(tmp_path: Path) -> None:
 
     findings = tool.validate_release_branch(root, base, ["manifest.yaml"])
     assert not [item for item in findings if item.startswith("DUPLICATE_CATEGORY_HEADER:")]
+
+
+def test_a_fenced_example_cannot_declare_a_correction(tmp_path: Path) -> None:
+    """A correction line inside a fenced example must not silence the guard."""
+    tool = _load_tool()
+    root, base = _repo(tmp_path)
+    (root / "manifest.yaml").write_text("version: 1.4.0\n", encoding="utf-8")
+    (root / "CHANGELOG.md").write_text(
+        "# Changelog\n\n"
+        "## 1.4.0 - 2026-08-27\n\n"
+        "```text\n"
+        "Correction: the 1.3.0 section was corrected.\n"
+        "```\n\n"
+        "## 1.3.0 - 2026-08-01\n\n- The published 1.3.0 outcome was rewritten.\n",
+        encoding="utf-8",
+    )
+    _commit(root, "claim 1.4.0")
+
+    findings = tool.validate_release_branch(root, base, ["manifest.yaml"])
+    assert any(item.startswith("PUBLISHED_SECTION_MODIFIED:") for item in findings)
+
+
+def test_a_fence_closed_with_more_backticks_is_still_an_example(tmp_path: Path) -> None:
+    """A closing fence may be longer than the opening one."""
+    tool = _load_tool()
+    root, base = _repo(tmp_path)
+    (root / "manifest.yaml").write_text("version: 1.4.0\n", encoding="utf-8")
+    (root / "CHANGELOG.md").write_text(
+        "# Changelog\n\n"
+        "## 1.4.0 - 2026-08-27\n\n"
+        "### Added\n\n- Added release governance.\n\n"
+        "```markdown\n### Added\n````\n\n"
+        "## 1.3.0 - 2026-08-01\n",
+        encoding="utf-8",
+    )
+    _commit(root, "claim 1.4.0")
+
+    findings = tool.validate_release_branch(root, base, ["manifest.yaml"])
+    assert not [item for item in findings if item.startswith("DUPLICATE_CATEGORY_HEADER:")]
