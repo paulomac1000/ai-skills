@@ -748,26 +748,97 @@ def _scan_html_tag(text: str, start: int) -> tuple[int, bool, bool]:
     """Scan the HTML tag at `start`.
 
     Return the index just after the tag, whether the tag closes itself, and
-    whether a complete tag was found at all. Quoted attribute values are
-    skipped, so a `/>` inside a quoted value is not a self-closing marker and
-    a `>` inside a quoted value does not end the tag.
+    whether a complete tag was found at all. A quoted attribute value is
+    skipped, so a `/>` or a `>` inside it is neither a self-closing marker nor
+    the end of the tag. HTML attribute values have no backslash escape and a
+    value ends at its matching quote, so a quote only opens a value when it
+    follows an equals sign; a quote inside an unquoted value is ordinary text.
     """
     quote = ""
     index = start
+    previous = ""
     while index < len(text):
         char = text[index]
         if quote:
-            if char == "\\" and index + 1 < len(text):
-                index += 2
-                continue
             if char == quote:
                 quote = ""
-        elif char in "\"'":
-            quote = char
-        elif char == ">":
+                previous = ""
+            index += 1
+            continue
+        if char in "\"'":
+            if previous == "=":
+                quote = char
+            index += 1
+            continue
+        if text.startswith("<!--", index):
+            end = text.find("-->", index + 4)
+            if end < 0:
+                return len(text), False, False
+            index = end + 3
+            previous = ""
+            continue
+        if char == ">":
             return index + 1, index > start and text[index - 1] == "/", True
+        previous = "" if char.isspace() else char
         index += 1
     return len(text), False, False
+
+
+_HTML_TAG_START = re.compile(r"<\s*/?\s*[A-Za-z]")
+
+
+def _remove_html_comments(text: str) -> str:
+    """Remove HTML comment bodies, so a tag inside a comment is not markup."""
+    kept: list[str] = []
+    index = 0
+    while True:
+        start = text.find("<!--", index)
+        if start < 0:
+            kept.append(text[index:])
+            break
+        kept.append(text[index:start])
+        end = text.find("-->", start + 4)
+        if end < 0:
+            break
+        index = end + 3
+    return "".join(kept)
+
+
+def _html_tag_tokens(text: str, tag: str) -> list[tuple[str, bool]]:
+    """Return the matching block tags in `text` as (kind, self_closing) pairs.
+
+    The text is walked tag by tag. A tag is consumed as a whole, so a tag
+    inside a quoted attribute value of another tag is neither counted nor able
+    to end the enclosing tag, and a comment body is skipped entirely. A quote
+    outside a tag is ordinary text and never starts a quoted value.
+    """
+    tokens: list[tuple[str, bool]] = []
+    pattern = re.compile(r"<\s*(/?)\s*" + re.escape(tag) + r"\b", re.IGNORECASE)
+    index = 0
+    while index < len(text):
+        start = text.find("<", index)
+        if start < 0:
+            break
+        if text.startswith("<!--", start):
+            end = text.find("-->", start + 4)
+            index = len(text) if end < 0 else end + 3
+            continue
+        if not _HTML_TAG_START.match(text, start):
+            # A literal `<` in text is not a tag and must not swallow the tags
+            # that follow it on the same line.
+            index = start + 1
+            continue
+        end, self_closing, complete = _scan_html_tag(text, start)
+        if not complete:
+            # A `<` that does not open a tag must not hide the tags that follow
+            # it on the same line.
+            index = start + 1
+            continue
+        match = pattern.match(text[start:end])
+        if match:
+            tokens.append(("close" if match.group(1) else "open", self_closing))
+        index = end
+    return tokens
 
 
 def _html_depth_delta(text: str, tag: str) -> int:
@@ -777,21 +848,13 @@ def _html_depth_delta(text: str, tag: str) -> int:
     self-closing tag opens and closes at once, so it must not keep a block
     open and mask the rest of the document.
     """
-    pattern = re.compile(r"<\s*(/?)\s*" + re.escape(tag) + r"\b", re.IGNORECASE)
     depth = 0
-    index = 0
-    while True:
-        match = pattern.search(text, index)
-        if match is None:
-            return depth
-        end, self_closing, complete = _scan_html_tag(text, match.start())
-        if not complete:
-            return depth
-        if match.group(1):
+    for kind, self_closing in _html_tag_tokens(text, tag):
+        if kind == "close":
             depth -= 1
         elif not self_closing:
             depth += 1
-        index = max(end, match.end())
+    return depth
 
 
 def _strip_frontmatter(text: str) -> str:
@@ -816,6 +879,7 @@ def _operative_skill_text(content: bytes) -> str:
     raw_html_depth = 0
     raw_html_buffer = ""
     raw_html_opening = False
+    raw_html_comment = False
     comment_open = False
     for line in text.splitlines():
         if fence:
@@ -832,10 +896,48 @@ def _operative_skill_text(content: bytes) -> str:
                 comment_open = False
             else:
                 continue
+        if raw_html_tag:
+            # An active raw HTML block wins over every Markdown construct on
+            # the line, so its own nested elements keep the depth accounting.
+            if raw_html_opening:
+                raw_html_buffer += "\n" + line
+                _, _, complete = _scan_html_tag(raw_html_buffer, 0)
+                if complete:
+                    raw_html_opening = False
+                    raw_html_depth = _html_depth_delta(raw_html_buffer, raw_html_tag)
+                    if raw_html_depth <= 0:
+                        raw_html_tag = ""
+                        kept.append("")
+                continue
+            # The block tracks its own comments, and a line may close one
+            # comment and open another, so the handling repeats until no
+            # comment marker is left.
+            while True:
+                if raw_html_comment:
+                    if "-->" not in line:
+                        break
+                    raw_html_comment = False
+                    line = line.split("-->", 1)[1]
+                    continue
+                if "<!--" not in line:
+                    break
+                before, _, after = line.partition("<!--")
+                if "-->" not in after:
+                    raw_html_comment = True
+                    line = before
+                    break
+                line = before + " " + after.split("-->", 1)[1]
+            if raw_html_comment:
+                continue
+            raw_html_depth += _html_depth_delta(line, raw_html_tag)
+            if raw_html_depth <= 0:
+                raw_html_tag = ""
+                kept.append("")
+            continue
         # A fence opener is literal content. Its info string may contain any
         # text, including a comment marker, and that marker must not open a
         # comment that outlives the fence.
-        opener = re.match(r"^[ ]{0,3}(?:(?:[-*+|]|\d+[.)])[ \t]+)?(`{3,}|~{3,})", line)
+        opener = re.match(r"^[ ]{0,3}(?:(?:[-*+]|\d+[.)])[ \t]+)?(`{3,}|~{3,})", line)
         if opener:
             fence = opener.group(1)
             continue
@@ -856,22 +958,6 @@ def _operative_skill_text(content: bytes) -> str:
         cleaned_opener = re.match(r"^[ ]{0,3}(?:(?:[-*+]|\d+[.)])[ \t]+)?(`{3,}|~{3,})", line)
         if cleaned_opener:
             fence = cleaned_opener.group(1)
-            continue
-        if raw_html_tag:
-            if raw_html_opening:
-                raw_html_buffer += "\n" + line
-                _, _, complete = _scan_html_tag(raw_html_buffer, 0)
-                if complete:
-                    raw_html_opening = False
-                    raw_html_depth = _html_depth_delta(raw_html_buffer, raw_html_tag)
-                    if raw_html_depth <= 0:
-                        raw_html_tag = ""
-                        kept.append("")
-                continue
-            raw_html_depth += _html_depth_delta(line, raw_html_tag)
-            if raw_html_depth <= 0:
-                raw_html_tag = ""
-                kept.append("")
             continue
         html_open = _RAW_HTML_START.match(line)
         if html_open:
