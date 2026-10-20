@@ -1950,6 +1950,9 @@ def test_operative_text_extraction_matrix():
     # A quote inside an unquoted attribute value is ordinary text, so the
     # nested tag after it is still counted.
     assert operative not in text("<div>\n<span title=it's><div> ' >\n</div>\n\n" + operative + "\n\n</div>")
+    # Whitespace between the equals sign and a quoted value is legal, so the
+    # value is still a value and the element stays open.
+    assert operative not in text('<div>\n<div title= "a/>">\n</div>\n' + operative + "\n</div>\n")
     # An instruction inside a nested raw HTML block is not operative.
     assert operative not in text("<div>\n<pre>\n" + operative + "\n</pre>\n</div>\n")
     # A comment marker inside a fenced block is literal and must not delete the
