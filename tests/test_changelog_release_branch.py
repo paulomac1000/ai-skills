@@ -427,6 +427,7 @@ def test_repository_changelog_keeps_every_published_section_intact() -> None:
         assert not duplicated, f"{version} repeats a category heading: {duplicated}"
         assert categories, f"{version} has no category heading"
     versions = [version for version, _ in sections]
-    assert versions == sorted(versions, key=tool.SEMVER.match, reverse=True)
+    ordered = sorted(versions, key=lambda value: tuple(int(part) for part in value.split(".")), reverse=True)
+    assert versions == ordered
     for published in ("3.26.0", "3.27.0", "3.28.0", "3.29.0"):
         assert published in versions, f"the published section of {published} is missing"
