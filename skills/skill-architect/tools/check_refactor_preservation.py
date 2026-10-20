@@ -750,16 +750,16 @@ def _scan_html_tag(text: str, start: int) -> tuple[int, bool, bool]:
     Return the index just after the tag, whether the tag closes itself, and
     whether a complete tag was found at all. Quoted attribute values are
     skipped, so a `/>` inside a quoted value is not a self-closing marker and
-    a `>` inside a quoted value does not end the tag.
+    a `>` inside a quoted value does not end the tag. An attribute value ends
+    at its matching quote; HTML has no backslash escape.
     """
     quote = ""
     index = start
     while index < len(text):
         char = text[index]
         if quote:
-            if char == "\\" and index + 1 < len(text):
-                index += 2
-                continue
+            # An HTML attribute value ends at the matching quote. HTML has no
+            # backslash escape, so a backslash is ordinary text.
             if char == quote:
                 quote = ""
         elif char in "\"'":
