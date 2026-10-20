@@ -1,5 +1,28 @@
 # Changelog
 
+## 3.28.0 - 2026-10-20
+
+### Added
+
+- A fail-conservative skill refactoring contract with bounded preservation-ledger checks, explicit before-action route validation, documented checker options and synthetic six-class regressions.
+
+### Changed
+
+- The skill-architect migration playbook now separates structural acceptance, model-backed behavior, context cost and independently activated profiles. The preservation contract states its verification boundary explicitly: the checker verifies structural preservation of pinned obligations and route mapping, and it never certifies semantic equivalence. The pilot retains broad existing-skill lifecycle routing (including rename, model upgrades, and deprecation) while shortening redundant guidance.
+
+### Fixed
+
+- Hardened the skill refactor route audit against delayed and optional loads, frontmatter metadata, list-contained code fences, wrapped Markdown and raw HTML example bypasses, noncritical negated safeguards, owner-path suffix spoofing, unrelated deadlines, unreviewed suffixes on a reviewed preload route, candidate-rewritten preload routes, narrowed owner instructions, additional owner-load instructions, and instructions that contradict a preload route; pinned the independently reviewed baseline inventory, exact source-anchor identities, and the complete maintenance-observation obligation; authenticated system-owned Git paths and explicitly labeled unverified candidate versions.
+
+- Dependency-lock installation treats unexpected `pip check` stderr, canonicalized conflicts, and missing lock-pinned packages as blocking errors; verification checks every selected lock pin against the installed name/version inventory even when `pip check` succeeds. Installed versions are compared under PEP 440 canonicalization, and an unavailable `packaging` dependency is reported as an explicit validation error.
+
+- Pin the version-only no-rewrite safeguard in the reviewed inventory; preload lifecycle guidance as workflow step 2 before editing any existing skill; distinguish missing Git main-ref infrastructure from untrusted history or structural preservation failures; reject higher-authority contradictions and reuse lock verification for the complete CI gate.
+
+### Known limitations
+
+- A structural PASS verifies only pinned normative ownership and entrypoint routes; it does not verify repository eval-corpus revisions (`NOT_VERIFIED`), model-backed behavioral equivalence (`BEHAVIOR_NOT_VERIFIED`) or semantic equivalence (`semantic_equivalence: NOT_VERIFIED`). Run those evidence lanes separately.
+- The checker cannot decide whether a separate sentence narrows a reviewed obligation, because the same constructions appear in valid normative content of the same skill. That residual class is covered by the independent semantic review lane, never by a structural PASS.
+
 ## 3.27.0 - 2026-10-19
 
 ### Added
