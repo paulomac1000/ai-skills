@@ -1,5 +1,16 @@
 # Changelog
 
+## 3.29.5 - 2026-10-21
+
+### Fixed
+
+- The refactor-preservation checker now rejects a reversal of a preserved prohibition that is stated in copular form. A pinned obligation that states "X is not Y" could be reversed by a separate instruction that deleted the negation token, because the checker recognized only the imperative "do not" and "never" forms; such a candidate was certified as structurally preserved. The copular form is now compared per item of a negated subject list, and a claim that is only quoted, reported, hypothetical or otherwise mentioned is not treated as a reversal.
+- Correction: the 3.29.0 section stated that no deterministic structure check can separate a separate instruction asserting the opposite of a prohibition from legitimate conditional normative content, and placed both residual classes in the independent semantic review lane. The checker now rejects the mechanical polarity flip of a prohibition stated in the imperative form ("do not X", "never X") or in the copular form ("X is not Y"). The independent semantic review lane still covers a separate instruction that restricts the applicability of a pinned obligation, and a separate instruction that asserts the opposite of a prohibition whose stated form the checker does not model or whose restatement does not reuse the pinned wording.
+
+### Changed
+
+- The skill-architect semantic-preserving refactoring contract and its migration playbook now state that narrowed residual. The reviewed baseline inventory, the pinned pilot anchors and the reviewed entrypoint routes are unchanged; only the candidate file bindings of the synthetic pilot ledger were repinned for the edited contract text.
+
 ## 3.29.4 - 2026-10-20
 
 ### Changed

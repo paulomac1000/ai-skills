@@ -260,14 +260,19 @@ Absent approved revision-bound model observations, report
 
 Structural preservation is not semantic equivalence. A pinned obligation can
 stay present and unmodified at its pinned location and still be changed in
-effect by a separate instruction. Two residual subclasses follow from that, and
-no deterministic structure check can separate either from legitimate
-conditional normative content, because the same constructions appear in valid
-normative text: a separate instruction may restrict the applicability of a
-pinned obligation, or it may assert the opposite of a prohibition the pinned
-obligation states. The preservation checker therefore verifies structural
-preservation of pinned obligations and route mapping only, and it never reports
-semantic equivalence. A semantic-preservation claim requires the independent
+effect by a separate instruction. The preservation checker rejects the
+mechanical polarity flip of a prohibition the pinned obligation states: a
+separate instruction that restates that prohibition without its negation, in
+the imperative form ("do not X", "never X") or in the copular form ("X is not
+Y"), is reported as a reversed obligation. The residual classes that remain
+are not decidable by deterministic structure checks, because the same
+constructions appear in valid normative content: a separate instruction may
+restrict the applicability of a pinned obligation, and a separate instruction
+may assert the opposite of a prohibition whose stated form the checker does not
+model or whose restatement does not reuse the pinned wording. The preservation
+checker therefore verifies structural preservation of pinned obligations and
+route mapping only, and it never reports semantic equivalence. A
+semantic-preservation claim requires the independent
 semantic review lane: an independent acceptance authority reviewing
 provider-backed exact-revision evidence under the repository's independent
 release evidence profile, with the candidate-specific semantic review scope

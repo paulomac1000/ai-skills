@@ -550,8 +550,110 @@ def _contradicts_owner(text: str, anchor: str) -> bool:
     return False
 
 
+# A preserved prohibition can state its negative claim in copular form
+# ("X is not Y"). Deleting the negation token leaves a well-formed sentence
+# that asserts the opposite, so a candidate can reverse the obligation while
+# using no imperative "do not"/"never" construction at all. The subject may not
+# contain a copula, so the captured subject is always the one the negation
+# belongs to.
+_COPULAR_NEGATION = re.compile(
+    r"(?P<subject>(?:(?!\b(?:is|are|was|were)\b)[^.;:!?\n])+?)"
+    r"\s+(?P<copula>is|are|was|were)\s+not\s+"
+    r"(?P<predicate>[^.;:!?\n]+)",
+    re.IGNORECASE,
+)
+
+# A frame token introduces an embedded mention, quotation or hypothesis
+# instead of asserting the claim itself. Only a frame that still governs the
+# claim suppresses it, and a clause boundary ends that scope.
+_CLAIM_FRAME = re.compile(
+    r"\b(?:that|whether|if|unless|suppose|supposing|hypothetically|"
+    r"claims?|claimed|asserts?|asserted|states?|stated|says?|said|"
+    r"argues?|argued|describes?|described|mentions?|mentioned|"
+    r"notes?|noted|reports?|reported|insists?|insisted|"
+    r"proposes?|proposed|suggests?|suggested|assumes?|assumed|"
+    r"believes?|believed|thinks?|thought|writes?|wrote|written|"
+    r"declares?|declared|warns?|warned|"
+    r"is|are|was|were|be|been|being|not|never|"
+    r"rules?|requirements?|polic(?:y|ies)|sentences?|statements?|"
+    r"wording|phrases?|text|lines?|quotes?|quoted|quoting|"
+    r"examples?|hypothes[ei]s|myths?|misconceptions?|"
+    r"false|incorrect|wrong|forbidden|prohibited|rejected|denied|"
+    r"contradicts|contradiction)\b",
+    re.IGNORECASE,
+)
+
+# A clause boundary ends a frame's scope: beyond it the claim is asserted
+# again in its own right.
+_CLAUSE_BREAKER = re.compile(
+    r"[,;:]|[.!?](?=\s|$)|"
+    r"\b(?:and|or|but|so|then|because|since|therefore|however|although|"
+    r"though|whereas|additionally|moreover|otherwise|nevertheless|"
+    r"nonetheless|furthermore|hence|thus|instead)\b",
+    re.IGNORECASE,
+)
+
+# Quote and code delimiters that can enclose a claim without asserting it.
+_CLAIM_QUOTES = ('"', "\u201c", "\u201d", "`")
+
+
+def _copular_negative_claims(anchor: str) -> list[tuple[str, str, str]]:
+    """Return the (subject, copula, predicate) triples a pinned anchor denies.
+
+    A subject list is split on its commas and its "or" disjunction, so each
+    listed item is compared on its own. The predicate is also compared
+    without a trailing clause, because a narrowing suffix belongs to the
+    separate applicability residual and not to the polarity of the claim.
+    """
+    claims: list[tuple[str, str, str]] = []
+    for match in _COPULAR_NEGATION.finditer(anchor):
+        copula = match.group("copula").lower()
+        predicate = match.group("predicate").strip()
+        head = predicate.split(",")[0].strip()
+        for part in re.split(r",|\bor\b", match.group("subject")):
+            subject = re.sub(r"^(?:and|or)\s+", "", part.strip(), flags=re.IGNORECASE).strip()
+            if not subject:
+                continue
+            for candidate in (predicate, head):
+                if candidate and (subject, copula, candidate) not in claims:
+                    claims.append((subject, copula, candidate))
+    return claims
+
+
+def _inside_quoted_span(text: str, start: int) -> bool:
+    """Report whether an offset falls inside a quoted or code span."""
+    prefix = text[:start]
+    return any(prefix.count(quote) % 2 for quote in _CLAIM_QUOTES)
+
+
+def _copular_claim_is_asserted(text: str, start: int, end: int) -> bool:
+    """Decide whether a matched positive claim is asserted, not merely mentioned.
+
+    A claim is only mentioned when it is quoted, when it is the subject of a
+    further predicate ("... is a common misconception"), or when a frame token
+    that introduces an embedded clause still governs it. A frame stops
+    governing the claim once a clause boundary separates them.
+    """
+    if _inside_quoted_span(text, start):
+        return False
+    if re.match(r"\s+(?:is|are|was|were)\b", text[end:], re.IGNORECASE):
+        return False
+    frames = list(_CLAIM_FRAME.finditer(text, 0, start))
+    if frames:
+        gap = text[frames[-1].end() : start]
+        if not _CLAUSE_BREAKER.search(gap):
+            return False
+    return True
+
+
 def _reverses_preserved_prohibition(text: str, anchor: str) -> bool:
-    """Detect positive instructions reversing a separately preserved 'do not' obligation."""
+    """Detect positive instructions reversing a separately preserved prohibition.
+
+    A preserved prohibition is stated either imperatively ("do not X",
+    "never X") or copularly ("X is not Y"). Both forms can be reversed by a
+    positive instruction, and the copular form is mechanically reversible
+    because deleting its negation token leaves a well-formed sentence.
+    """
     negative_clauses = re.findall(
         r"\b(?:do\s+not|never)\s+([a-z][a-z0-9 -]{4,100})(?=[.!?]|$)",
         anchor,
@@ -567,6 +669,20 @@ def _reverses_preserved_prohibition(text: str, anchor: str) -> bool:
                     re.IGNORECASE,
                 ):
                     return True
+    for subject, copula, predicate in _copular_negative_claims(anchor):
+        pattern = re.compile(
+            r"(?<![A-Za-z0-9])"
+            + re.escape(subject)
+            + r"\s+"
+            + re.escape(copula)
+            + r"\s+"
+            + re.escape(predicate)
+            + r"(?![A-Za-z0-9])",
+            re.IGNORECASE,
+        )
+        for match in pattern.finditer(text):
+            if _copular_claim_is_asserted(text, match.start(), match.end()):
+                return True
     return False
 
 

@@ -1,6 +1,6 @@
 schema_version: 1
 name: qa-change-verifier
-version: 3.29.4
+version: 3.29.5
 maturity: stable
 skill_format: ai-skills/v1
 normative_entrypoint: STANDARD.md

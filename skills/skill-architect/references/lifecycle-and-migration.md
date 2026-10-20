@@ -47,13 +47,17 @@ candidate content, and the ledger never authenticate the Git binary. The synthet
 `normative_owner_and_route_mapping` scope; it verifies only pinned normative
 source/target documents and entrypoint routes. It explicitly reports
 `eval_corpus: NOT_VERIFIED`, `behavior: BEHAVIOR_NOT_VERIFIED` and
-`semantic_equivalence: NOT_VERIFIED`. It does not and cannot detect a pinned
-obligation that stays intact at its pinned location while a separate sentence
-changes its effect, because the same constructions appear in valid normative
-content. That residual class has two subclasses: a separate sentence that
-restricts the applicability of a pinned obligation, and a separate sentence
-that asserts the opposite of a prohibition the pinned obligation states. Treat
-both as covered by the independent semantic review lane, which requires an
+`semantic_equivalence: NOT_VERIFIED`. It detects the mechanical polarity flip
+of a prohibition the pinned obligation states, in the imperative form ("do not
+X", "never X") and in the copular form ("X is not Y"), and reports it as a
+reversed obligation. It does not and cannot detect every other way in which a
+pinned obligation that stays intact at its pinned location can be changed in
+effect by a separate sentence, because the same constructions appear in valid
+normative content. That residual class has two subclasses: a separate sentence
+that restricts the applicability of a pinned obligation, and a separate
+sentence that asserts the opposite of a prohibition whose stated form the
+checker does not model or whose restatement does not reuse the pinned wording.
+Treat both as covered by the independent semantic review lane, which requires an
 independent acceptance authority reviewing provider-backed exact-revision
 evidence under the repository's independent release evidence profile plus the
 candidate-specific semantic review scope owned by the verification owner, and
