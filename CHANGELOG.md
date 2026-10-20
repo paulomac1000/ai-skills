@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.29.3 - 2026-10-20
+
+### Fixed
+
+- The refactor-preservation checker now keeps the last non-space character when it decides whether a quote opens an attribute value, so a legal attribute with whitespace between the equals sign and the quoted value is read as a value. A candidate could otherwise hide a reviewed requirement in such a value and have it certified as an operative instruction.
+
 ## 3.29.2 - 2026-10-20
 
 ### Fixed

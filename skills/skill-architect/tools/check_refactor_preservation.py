@@ -779,7 +779,10 @@ def _scan_html_tag(text: str, start: int) -> tuple[int, bool, bool]:
             continue
         if char == ">":
             return index + 1, index > start and text[index - 1] == "/", True
-        previous = "" if char.isspace() else char
+        # The last non-space character decides whether a quote opens a value,
+        # so whitespace between the equals sign and the quote is allowed.
+        if not char.isspace():
+            previous = char
         index += 1
     return len(text), False, False
 
