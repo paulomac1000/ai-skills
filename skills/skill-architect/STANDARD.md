@@ -259,13 +259,19 @@ Absent approved revision-bound model observations, report
 `BEHAVIOR_NOT_VERIFIED`, not `BEHAVIOR_EQUIVALENT`.
 
 Structural preservation is not semantic equivalence. A pinned obligation can
-stay present and unmodified at its pinned location and still be narrowed by a
-separate instruction that restricts its applicability, and no deterministic
-structure check can separate such prose from legitimate conditional normative
-content. The preservation checker therefore verifies structural preservation of
-pinned obligations and route mapping only, and it never reports semantic
-equivalence. A semantic-preservation claim requires the independent semantic
-review lane; a structural PASS is not that evidence. Track safety/correctness,
+stay present and unmodified at its pinned location and still be changed in
+effect by a separate instruction. Two residual subclasses follow from that, and
+no deterministic structure check can separate either from legitimate
+conditional normative content, because the same constructions appear in valid
+normative text: a separate instruction may restrict the applicability of a
+pinned obligation, or it may assert the opposite of a prohibition the pinned
+obligation states. The preservation checker therefore verifies structural
+preservation of pinned obligations and route mapping only, and it never reports
+semantic equivalence. A semantic-preservation claim requires the independent
+semantic review lane: an independent acceptance authority reviewing
+provider-backed exact-revision evidence under the repository's independent
+release evidence profile, with the candidate-specific semantic review scope
+owned by the verification owner. A structural PASS is never that evidence. Track safety/correctness,
 routing, runtime context consumption and human reviewability independently:
 size savings cannot override an invariant failure. Follow
 `references/lifecycle-and-migration.md` for the procedure and pilot.
