@@ -747,8 +747,11 @@ _RAW_HTML_START = re.compile(
 def _html_depth_delta(line: str, tag: str) -> int:
     tag_pattern = re.escape(tag)
     opens = len(re.findall(r"<\s*" + tag_pattern + r"\b[^>]*>", line, re.IGNORECASE))
+    # A self-closing tag opens and closes at once, so it must not keep a
+    # block open and mask the rest of the document.
+    self_closing = len(re.findall(r"<\s*" + tag_pattern + r"\b[^>]*/>", line, re.IGNORECASE))
     closes = len(re.findall(r"</\s*" + tag_pattern + r"\s*>", line, re.IGNORECASE))
-    return opens - closes
+    return opens - self_closing - closes
 
 
 def _strip_frontmatter(text: str) -> str:

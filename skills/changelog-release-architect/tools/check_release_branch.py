@@ -45,32 +45,49 @@ def _show(root: Path, revision: str, path: str) -> str | None:
 
 
 def _normalize_newlines(text: str) -> str:
-    """Normalize line endings.
+    """Normalize line endings and a byte-order mark.
 
     A working tree checked out with CRLF line endings must compare equal to
     the blob it was checked out from, otherwise every published section looks
-    modified on a platform that rewrites line endings.
+    modified on a platform that rewrites line endings. A byte-order mark would
+    hide the first release heading from the section scan.
     """
-    return text.replace("\r\n", "\n").replace("\r", "\n")
+    return text.lstrip("\ufeff").replace("\r\n", "\n").replace("\r", "\n")
 
 
 def _release_sections(text: str) -> list[tuple[str, str]]:
-    """Return (version, section_text) pairs in document order."""
+    """Return (version, section_text) pairs in document order.
+
+    The offsets and the slices come from the same normalized text, so a
+    checkout that rewrote line endings still yields the same sections.
+    """
+    normalized = _normalize_newlines(text)
     sections: list[tuple[str, str]] = []
-    matches = list(HEADING.finditer(_normalize_newlines(text)))
+    matches = list(HEADING.finditer(normalized))
     for index, match in enumerate(matches):
-        end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
-        sections.append((match.group(1), text[match.start() : end]))
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(normalized)
+        sections.append((match.group(1), normalized[match.start() : end]))
     return sections
 
 
+def _category_headings(section: str) -> list[str]:
+    """Return the category headings of a section, ignoring fenced examples."""
+    without_fences = re.sub(r"(?ms)^[ ]{0,3}(`{3,}|~{3,})[^\n]*\n.*?^[ ]{0,3}\1[ \t]*$", "", section)
+    return [match.group("category") for match in CATEGORY_HEADING.finditer(without_fences)]
+
+
 def _declares_correction(section: str, version: str) -> bool:
-    """Report whether the release under construction declares a correction."""
+    """Report whether the release under construction declares a correction.
+
+    The declared version must be the exact version, so a correction for one
+    version cannot silence a change to a different one.
+    """
+    pattern = re.compile(r"(?<![\w.-])" + re.escape(version) + r"(?![\w.-])")
     for line in section.splitlines():
         content = line.lstrip()
         if content.startswith("- "):
             content = content[2:].lstrip()
-        if content.startswith(CORRECTION) and version in content:
+        if content.startswith(CORRECTION) and pattern.search(content):
             return True
     return False
 
@@ -234,7 +251,7 @@ def validate_release_branch(
                     )
                 current_sections = _release_sections(current_text)
                 for version, section in current_sections:
-                    categories = [match.group("category") for match in CATEGORY_HEADING.finditer(section)]
+                    categories = _category_headings(section)
                     duplicated = sorted({name for name in categories if categories.count(name) > 1})
                     for name in duplicated:
                         findings.append(f"DUPLICATE_CATEGORY_HEADER: {changelog_path} repeats '{name}' in {version}")
@@ -242,24 +259,32 @@ def validate_release_branch(
                 # construction may change, and only with a declared correction.
                 # The changelog is ordered newest first, and the release under
                 # construction is the section the base does not contain yet.
-                if current_sections:
-                    construction_version = introduced[0] if introduced else current_sections[0][0]
-                    construction = next(
-                        (section for version, section in current_sections if version == construction_version),
-                        "",
+                # When the candidate introduces no section, no section is under
+                # construction and every section stays immutable.
+                construction_version = introduced[0] if introduced else ""
+                construction = next(
+                    (section for version, section in current_sections if version == construction_version),
+                    "",
+                )
+                base_sections = dict(_release_sections(base_changelog or ""))
+                current_versions_present = {version for version, _ in current_sections}
+                for version, section in current_sections:
+                    if version == construction_version:
+                        continue
+                    published = base_sections.get(version)
+                    if published is None or published == section:
+                        continue
+                    if _declares_correction(construction, version):
+                        continue
+                    findings.append(
+                        f"PUBLISHED_SECTION_MODIFIED: {changelog_path} changes the published section of {version}"
                     )
-                    base_sections = dict(_release_sections(base_changelog or ""))
-                    for version, section in current_sections:
-                        if version == construction_version:
-                            continue
-                        published = base_sections.get(version)
-                        if published is None or published == section:
-                            continue
-                        if _declares_correction(construction, version):
-                            continue
-                        findings.append(
-                            f"PUBLISHED_SECTION_MODIFIED: {changelog_path} changes the published section of {version}"
-                        )
+                for version in base_sections:
+                    if version in current_versions_present:
+                        continue
+                    findings.append(
+                        f"PUBLISHED_SECTION_DELETED: {changelog_path} removes the published section of {version}"
+                    )
             except (OSError, UnicodeError) as exc:
                 findings.append(f"CHANGELOG_EVIDENCE_MISSING: cannot read {changelog_path}: {exc}")
 
