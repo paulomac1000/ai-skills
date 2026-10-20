@@ -733,10 +733,13 @@ def _logical_lines(text: str, *, preserve_blank: bool = False) -> list[str]:
     return result if preserve_blank else [line for line in result if line]
 
 
+# A raw HTML block starts at a block-level tag. The opening tag may continue
+# on the following lines, so the start is recognised before the tag is
+# complete; the block is then masked through its closing tag.
 _RAW_HTML_START = re.compile(
     r"^[ ]{0,3}<(?P<tag>pre|script|style|textarea|details|div|table|"
     r"section|article|figure|blockquote|p|ul|ol|li|template|iframe|object|"
-    r"code|noscript|form|fieldset|canvas|svg|x-[A-Za-z0-9-]+)\b[^>]*>",
+    r"code|noscript|form|fieldset|canvas|svg|x-[A-Za-z0-9-]+)\b",
     re.IGNORECASE,
 )
 
@@ -763,19 +766,46 @@ def _strip_frontmatter(text: str) -> str:
 def _operative_skill_text(content: bytes) -> str:
     """Exclude frontmatter, fenced/raw-HTML examples, comments, quotes and indented code."""
     text = _strip_frontmatter(content.decode("utf-8"))
-    text = re.sub(r"<!--.*?(?:-->|\Z)", "", text, flags=re.DOTALL)
     kept: list[str] = []
     fence = ""
     quoted = False
     raw_html_tag = ""
     raw_html_depth = 0
+    raw_html_buffer = ""
+    raw_html_opening = False
+    comment_open = False
     for line in text.splitlines():
         if fence:
+            # A fenced block is literal content: comment markers inside it are
+            # example text and must never be removed, because removing them
+            # would delete the closing fence and expose a later block.
             close = r"^[ ]{0,3}" + re.escape(fence[0]) + "{" + str(len(fence)) + r",}[ \t]*$"
             if re.match(close, line):
                 fence = ""
             continue
+        if comment_open:
+            if "-->" in line:
+                line = line.split("-->", 1)[1]
+                comment_open = False
+            else:
+                continue
+        if "<!--" in line:
+            before, _, after = line.partition("<!--")
+            if "-->" in after:
+                line = before + after.split("-->", 1)[1]
+            else:
+                line = before
+                comment_open = True
         if raw_html_tag:
+            if raw_html_opening:
+                raw_html_buffer += "\n" + line
+                if ">" in line:
+                    raw_html_opening = False
+                    raw_html_depth = _html_depth_delta(raw_html_buffer, raw_html_tag)
+                    if raw_html_depth <= 0:
+                        raw_html_tag = ""
+                        kept.append("")
+                continue
             raw_html_depth += _html_depth_delta(line, raw_html_tag)
             if raw_html_depth <= 0:
                 raw_html_tag = ""
@@ -793,10 +823,14 @@ def _operative_skill_text(content: bytes) -> str:
         html_open = _RAW_HTML_START.match(line)
         if html_open:
             raw_html_tag = html_open.group("tag").lower()
-            raw_html_depth = _html_depth_delta(line, raw_html_tag)
+            raw_html_buffer = line
+            raw_html_opening = ">" not in line
+            raw_html_depth = 0
             kept.append("")
-            if raw_html_depth <= 0:
-                raw_html_tag = ""
+            if not raw_html_opening:
+                raw_html_depth = _html_depth_delta(raw_html_buffer, raw_html_tag)
+                if raw_html_depth <= 0:
+                    raw_html_tag = ""
             continue
         if not line.strip():
             quoted = False
