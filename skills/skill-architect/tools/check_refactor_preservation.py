@@ -744,14 +744,54 @@ _RAW_HTML_START = re.compile(
 )
 
 
-def _html_depth_delta(line: str, tag: str) -> int:
-    tag_pattern = re.escape(tag)
-    opens = len(re.findall(r"<\s*" + tag_pattern + r"\b[^>]*>", line, re.IGNORECASE))
-    # A self-closing tag opens and closes at once, so it must not keep a
-    # block open and mask the rest of the document.
-    self_closing = len(re.findall(r"<\s*" + tag_pattern + r"\b[^>]*/>", line, re.IGNORECASE))
-    closes = len(re.findall(r"</\s*" + tag_pattern + r"\s*>", line, re.IGNORECASE))
-    return opens - self_closing - closes
+def _scan_html_tag(text: str, start: int) -> tuple[int, bool, bool]:
+    """Scan the HTML tag at `start`.
+
+    Return the index just after the tag, whether the tag closes itself, and
+    whether a complete tag was found at all. Quoted attribute values are
+    skipped, so a `/>` inside a quoted value is not a self-closing marker and
+    a `>` inside a quoted value does not end the tag.
+    """
+    quote = ""
+    index = start
+    while index < len(text):
+        char = text[index]
+        if quote:
+            if char == "\\" and index + 1 < len(text):
+                index += 2
+                continue
+            if char == quote:
+                quote = ""
+        elif char in "\"'":
+            quote = char
+        elif char == ">":
+            return index + 1, index > start and text[index - 1] == "/", True
+        index += 1
+    return len(text), False, False
+
+
+def _html_depth_delta(text: str, tag: str) -> int:
+    """Return the net number of open block elements of `tag` in `text`.
+
+    Only complete tags outside quoted attribute values are counted, and a
+    self-closing tag opens and closes at once, so it must not keep a block
+    open and mask the rest of the document.
+    """
+    pattern = re.compile(r"<\s*(/?)\s*" + re.escape(tag) + r"\b", re.IGNORECASE)
+    depth = 0
+    index = 0
+    while True:
+        match = pattern.search(text, index)
+        if match is None:
+            return depth
+        end, self_closing, complete = _scan_html_tag(text, match.start())
+        if not complete:
+            return depth
+        if match.group(1):
+            depth -= 1
+        elif not self_closing:
+            depth += 1
+        index = max(end, match.end())
 
 
 def _strip_frontmatter(text: str) -> str:
@@ -792,17 +832,36 @@ def _operative_skill_text(content: bytes) -> str:
                 comment_open = False
             else:
                 continue
-        if "<!--" in line:
+        # A fence opener is literal content. Its info string may contain any
+        # text, including a comment marker, and that marker must not open a
+        # comment that outlives the fence.
+        opener = re.match(r"^[ ]{0,3}(?:(?:[-*+|]|\d+[.)])[ \t]+)?(`{3,}|~{3,})", line)
+        if opener:
+            fence = opener.group(1)
+            continue
+        # Remove comments outside fences. One line may open more than one
+        # comment, so the removal repeats until no opener is left.
+        while "<!--" in line:
             before, _, after = line.partition("<!--")
             if "-->" in after:
-                line = before + after.split("-->", 1)[1]
+                # A space keeps the text on both sides of a comment apart, so a
+                # commented-out heading or declaration cannot become live.
+                line = before + " " + after.split("-->", 1)[1]
             else:
                 line = before
                 comment_open = True
+                break
+        # The comment-cleaned line is tested for a fence opener as well: a
+        # comment that hid a fence must not expose the fenced content.
+        cleaned_opener = re.match(r"^[ ]{0,3}(?:(?:[-*+]|\d+[.)])[ \t]+)?(`{3,}|~{3,})", line)
+        if cleaned_opener:
+            fence = cleaned_opener.group(1)
+            continue
         if raw_html_tag:
             if raw_html_opening:
                 raw_html_buffer += "\n" + line
-                if ">" in line:
+                _, _, complete = _scan_html_tag(raw_html_buffer, 0)
+                if complete:
                     raw_html_opening = False
                     raw_html_depth = _html_depth_delta(raw_html_buffer, raw_html_tag)
                     if raw_html_depth <= 0:
@@ -814,20 +873,12 @@ def _operative_skill_text(content: bytes) -> str:
                 raw_html_tag = ""
                 kept.append("")
             continue
-        # A fenced example may sit inside a list container, for example
-        # "- ```text". Track the container prefix so example content is not
-        # promoted to an operative instruction. The marker requires the
-        # separation CommonMark demands; a closing fence never carries a list
-        # marker, because inside a block that text is literal content.
-        opener = re.match(r"^[ ]{0,3}(?:(?:[-*+]|\d+[.)])[ \t]+)?(`{3,}|~{3,})", line)
-        if opener:
-            fence = opener.group(1)
-            continue
         html_open = _RAW_HTML_START.match(line)
         if html_open:
             raw_html_tag = html_open.group("tag").lower()
             raw_html_buffer = line
-            raw_html_opening = ">" not in line
+            _, _, complete = _scan_html_tag(line, 0)
+            raw_html_opening = not complete
             raw_html_depth = 0
             kept.append("")
             if not raw_html_opening:

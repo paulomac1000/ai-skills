@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.29.1 - 2026-10-20
+
+### Fixed
+
+- The refactor-preservation checker now removes every HTML comment opener on a line, so a second opener no longer leaves the rest of the document treated as operative text; it reads a raw HTML opening tag outside quoted attribute values, so a `/>` inside a quoted value no longer makes the element look closed and its content operative; and it recognises a fence opener before any comment removal, so a comment marker in a fence info string is literal content and no longer opens a comment that outlives the fence.
+- The release validator now reads a correction declaration only from operative text, so a declaration hidden in an HTML comment or a fenced example cannot authorize a change to a published section; it accepts a declared version that ends the sentence with a period while still refusing a prerelease identifier; and it separates the trailing global Markdown link definitions from the release sections, so ordinary reference-link maintenance no longer looks like a change to a published release.
+
 ## 3.29.0 - 2026-10-20
 
 ### Added

@@ -61,13 +61,58 @@ def _release_sections(text: str) -> list[tuple[str, str]]:
     The offsets and the slices come from the same normalized text, so a
     checkout that rewrote line endings still yields the same sections.
     """
-    normalized = _normalize_newlines(text)
+    normalized = _normalize_newlines(_split_link_definitions(_normalize_newlines(text)))
     sections: list[tuple[str, str]] = []
     matches = list(HEADING.finditer(normalized))
     for index, match in enumerate(matches):
         end = matches[index + 1].start() if index + 1 < len(matches) else len(normalized)
         sections.append((match.group(1), normalized[match.start() : end]))
     return sections
+
+
+def _without_html_comments(text: str) -> str:
+    """Remove HTML comments, so their content is never read as structure.
+
+    A correction declaration hidden inside a comment must not silence the
+    immutability guard, and a category heading inside a comment is not a
+    category heading.
+    """
+    kept: list[str] = []
+    in_comment = False
+    for line in text.splitlines():
+        while True:
+            if in_comment:
+                end = line.find("-->")
+                if end < 0:
+                    line = ""
+                    break
+                line = line[end + 3 :]
+                in_comment = False
+                continue
+            start = line.find("<!--")
+            if start < 0:
+                break
+            line = line[:start]
+            in_comment = True
+        kept.append(line)
+    return "\n".join(kept)
+
+
+_LINK_DEFINITION = re.compile(r"^[ ]{0,3}\[[^\]]+\]:\s*\S+.*$")
+
+
+def _split_link_definitions(text: str) -> str:
+    """Return the text without the trailing global Markdown link definitions.
+
+    Link definitions are repository-wide references, not the content of a
+    release, so updating one must not look like a change to a published
+    section.
+    """
+    lines = text.splitlines()
+    index = len(lines)
+    while index > 0 and (not lines[index - 1].strip() or _LINK_DEFINITION.match(lines[index - 1])):
+        index -= 1
+    return "\n".join(lines[:index])
 
 
 def _without_fenced_examples(text: str) -> str:
@@ -94,7 +139,10 @@ def _without_fenced_examples(text: str) -> str:
 
 def _category_headings(section: str) -> list[str]:
     """Return the category headings of a section, ignoring fenced examples."""
-    return [match.group("category") for match in CATEGORY_HEADING.finditer(_without_fenced_examples(section))]
+    return [
+        match.group("category")
+        for match in CATEGORY_HEADING.finditer(_without_html_comments(_without_fenced_examples(section)))
+    ]
 
 
 def _declares_correction(section: str, version: str) -> bool:
@@ -103,8 +151,10 @@ def _declares_correction(section: str, version: str) -> bool:
     The declared version must be the exact version, so a correction for one
     version cannot silence a change to a different one.
     """
-    pattern = re.compile(r"(?<![\w.-])" + re.escape(version) + r"(?![\w.-])")
-    for line in _without_fenced_examples(section).splitlines():
+    # A complete version identifier: a following dot may end the sentence, but
+    # a dot followed by a word character starts another identifier part.
+    pattern = re.compile(r"(?<![\w.+-])" + re.escape(version) + r"(?![\w_+-])(?!\.[\w])")
+    for line in _without_html_comments(_without_fenced_examples(section)).splitlines():
         content = line.lstrip()
         if content.startswith("- "):
             content = content[2:].lstrip()
