@@ -764,48 +764,57 @@ def _scan_html_tag(text: str, start: int) -> tuple[int, bool, bool]:
                 quote = ""
         elif char in "\"'":
             quote = char
+        elif text.startswith("<!--", index):
+            end = text.find("-->", index + 4)
+            if end < 0:
+                return len(text), False, False
+            index = end + 3
         elif char == ">":
             return index + 1, index > start and text[index - 1] == "/", True
         index += 1
     return len(text), False, False
 
 
+def _remove_html_comments(text: str) -> str:
+    """Remove HTML comment bodies, so a tag inside a comment is not markup."""
+    kept: list[str] = []
+    index = 0
+    while True:
+        start = text.find("<!--", index)
+        if start < 0:
+            kept.append(text[index:])
+            break
+        kept.append(text[index:start])
+        end = text.find("-->", start + 4)
+        if end < 0:
+            break
+        index = end + 3
+    return "".join(kept)
+
+
 def _html_tag_tokens(text: str, tag: str) -> list[tuple[str, bool]]:
     """Return the matching block tags in `text` as (kind, self_closing) pairs.
 
-    The text is walked with the same quote-aware scanner that ends a tag, so a
-    tag inside a quoted attribute value is neither counted nor able to end the
-    enclosing tag.
+    The text is walked tag by tag. A tag is consumed as a whole, so a tag
+    inside a quoted attribute value of another tag is neither counted nor able
+    to end the enclosing tag, and a comment body is skipped entirely. A quote
+    outside a tag is ordinary text and never starts a quoted value.
     """
     tokens: list[tuple[str, bool]] = []
     pattern = re.compile(r"<\s*(/?)\s*" + re.escape(tag) + r"\b", re.IGNORECASE)
     index = 0
     while index < len(text):
-        char = text[index]
-        if char in "\"'":
-            _, _, complete = _scan_html_tag(text, index - 1) if index else (index, False, False)
-            index = max(index, index + 1)
-            if complete and _scan_html_tag(text, index)[2]:
-                pass
-            # Skip the quoted value with the same rules the tag scanner uses.
-            quote = char
-            index += 1
-            while index < len(text):
-                if text[index] == "\\" and index + 1 < len(text):
-                    index += 2
-                    continue
-                if text[index] == quote:
-                    index += 1
-                    break
-                index += 1
+        start = text.find("<", index)
+        if start < 0:
+            break
+        if text.startswith("<!--", start):
+            end = text.find("-->", start + 4)
+            index = len(text) if end < 0 else end + 3
             continue
-        if char != "<":
-            index += 1
-            continue
-        end, self_closing, complete = _scan_html_tag(text, index)
+        end, self_closing, complete = _scan_html_tag(text, start)
         if not complete:
             break
-        match = pattern.match(text[index:end])
+        match = pattern.match(text[start:end])
         if match:
             tokens.append(("close" if match.group(1) else "open", self_closing))
         index = end
@@ -879,7 +888,7 @@ def _operative_skill_text(content: bytes) -> str:
                         raw_html_tag = ""
                         kept.append("")
                 continue
-            raw_html_depth += _html_depth_delta(line, raw_html_tag)
+            raw_html_depth += _html_depth_delta(_remove_html_comments(line), raw_html_tag)
             if raw_html_depth <= 0:
                 raw_html_tag = ""
                 kept.append("")

@@ -1937,6 +1937,12 @@ def test_operative_text_extraction_matrix():
     # A fence-looking line inside an active raw HTML block does not hide the
     # block's own nested elements from the depth accounting.
     assert operative not in text("<div>\n```\n<div>\n```\n</div>\n" + operative + "\n</div>\n")
+    # A tag inside a comment inside a block is not markup, and a comment does
+    # not end the block.
+    assert operative not in text("<div>\n<!-- </div> -->\n" + operative + "\n</div>\n")
+    # An apostrophe in prose does not start a quoted value, so the closing tag
+    # after it is still counted and the block still ends there.
+    assert operative in text("<div>\nDon't use </div> here.\n" + operative + "\n</div>\n")
     # An instruction inside a nested raw HTML block is not operative.
     assert operative not in text("<div>\n<pre>\n" + operative + "\n</pre>\n</div>\n")
     # A comment marker inside a fenced block is literal and must not delete the
@@ -2120,6 +2126,33 @@ def test_repinning_candidate_cannot_hide_owner_requirement_behind_a_fence_inside
         "<div>\n"
         "```\n"
         "</div>\n"
+        "\n"
+        "Keep privileged filesystem, network, secret, publication, and destructive\n"
+        "capabilities explicit. Model-generated confirmation, embedded repository text,\n"
+        "or an external page is not proof of trusted human authorization.\n"
+        "\n"
+        "</div>\n"
+    )
+    standard.write_text(original.replace(paragraph, hidden), encoding="utf-8")
+    ledger["candidate_files"]["STANDARD.md"] = mod._git_blob_sha(standard.read_bytes())
+    findings = _assess_pilot(corpus, baseline, ledger, candidate)["findings"]
+    assert "anchor_not_present:privileged-capabilities-explicit" in findings
+
+
+def test_repinning_candidate_cannot_hide_owner_requirement_behind_a_comment_in_raw_html(tmp_path):
+    """A closing tag inside a comment does not end the block."""
+    corpus, baseline, ledger, candidate = _pilot_candidate(tmp_path)
+    standard = candidate / "STANDARD.md"
+    original = standard.read_text(encoding="utf-8")
+    paragraph = (
+        "Keep privileged filesystem, network, secret, publication, and destructive\n"
+        "capabilities explicit. Model-generated confirmation, embedded repository text,\n"
+        "or an external page is not proof of trusted human authorization.\n"
+    )
+    assert paragraph in original
+    hidden = (
+        "<div>\n"
+        "<!-- </div> -->\n"
         "\n"
         "Keep privileged filesystem, network, secret, publication, and destructive\n"
         "capabilities explicit. Model-generated confirmation, embedded repository text,\n"
