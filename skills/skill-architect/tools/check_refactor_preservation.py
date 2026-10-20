@@ -900,20 +900,26 @@ def _operative_skill_text(content: bytes) -> str:
                         raw_html_tag = ""
                         kept.append("")
                 continue
-            if raw_html_comment:
-                if "-->" in line:
+            # The block tracks its own comments, and a line may close one
+            # comment and open another, so the handling repeats until no
+            # comment marker is left.
+            while True:
+                if raw_html_comment:
+                    if "-->" not in line:
+                        break
                     raw_html_comment = False
                     line = line.split("-->", 1)[1]
-                else:
                     continue
-            elif "<!--" in line:
+                if "<!--" not in line:
+                    break
                 before, _, after = line.partition("<!--")
-                if "-->" in after:
-                    line = before + " " + after.split("-->", 1)[1]
-                else:
+                if "-->" not in after:
                     raw_html_comment = True
                     line = before
-                    continue
+                    break
+                line = before + " " + after.split("-->", 1)[1]
+            if raw_html_comment:
+                continue
             raw_html_depth += _html_depth_delta(line, raw_html_tag)
             if raw_html_depth <= 0:
                 raw_html_tag = ""

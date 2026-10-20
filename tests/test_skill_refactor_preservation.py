@@ -1943,6 +1943,9 @@ def test_operative_text_extraction_matrix():
     # An apostrophe in prose does not start a quoted value, so the closing tag
     # after it is still counted and the block still ends there.
     assert operative in text("<div>\nDon't use </div> here.\n" + operative + "\n</div>\n")
+    # A line that closes one comment and opens another keeps the block's
+    # comment state, so a commented-out closing tag cannot end the block.
+    assert operative not in text("<div>\n--> <div><!-- x\n</div>\n\n" + operative + "\n\n</div>")
     # An instruction inside a nested raw HTML block is not operative.
     assert operative not in text("<div>\n<pre>\n" + operative + "\n</pre>\n</div>\n")
     # A comment marker inside a fenced block is literal and must not delete the
