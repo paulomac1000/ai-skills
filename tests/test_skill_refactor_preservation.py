@@ -2192,6 +2192,29 @@ def test_repinning_candidate_cannot_hide_owner_requirement_behind_html_text_nois
         assert "anchor_not_present:privileged-capabilities-explicit" in findings
 
 
+def test_repinning_candidate_cannot_hide_owner_requirement_behind_html_comment_noise(tmp_path):
+    """Comment markers in attributes, nested tags and interleaved comments cannot end a block."""
+    corpus, baseline, ledger, candidate = _pilot_candidate(tmp_path)
+    standard = candidate / "STANDARD.md"
+    original = standard.read_text(encoding="utf-8")
+    paragraph = (
+        "Keep privileged filesystem, network, secret, publication, and destructive\n"
+        "capabilities explicit. Model-generated confirmation, embedded repository text,\n"
+        "or an external page is not proof of trusted human authorization.\n"
+    )
+    assert paragraph in original
+    for wrapper in (
+        '<div>\n<div title="<!--">\n</div>\n{paragraph}</div>\n',
+        "<div>\n<div>\n<!--\n</div>\n{paragraph}</div>\n",
+        "<div>\n--> <div><!-- x\n</div>\n{paragraph}</div>\n",
+    ):
+        hidden = wrapper.format(paragraph=paragraph)
+        standard.write_text(original.replace(paragraph, hidden), encoding="utf-8")
+        ledger["candidate_files"]["STANDARD.md"] = mod._git_blob_sha(standard.read_bytes())
+        findings = _assess_pilot(corpus, baseline, ledger, candidate)["findings"]
+        assert "anchor_not_present:privileged-capabilities-explicit" in findings
+
+
 def test_inverted_authorization_prohibition_is_never_reported_as_semantically_verified(tmp_path):
     """A reversed prohibition stays a structural result and never a semantic claim.
 
