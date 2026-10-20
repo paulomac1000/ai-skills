@@ -1,10 +1,18 @@
 #!/usr/bin/env python3
 """Fail closed when a candidate branch carries an unauthorized commit identity.
 
-Only identities that GitHub can attribute to the repository owner or to a
-trusted automation account may appear in the commits a pull request proposes
-for integration. The owner is identified by the verified address published on
-the GitHub account, not by a display name.
+This is a metadata hygiene gate, not an authorization boundary. A commit
+identity is self-asserted metadata, so a determined actor can write any
+identity it likes; what the gate detects is the ordinary accident: an agent
+committing under a stale, foreign or unverified address while integrating a
+candidate. The authoritative attribution is the provider's own record of the
+commit, and the repository's protection rules and required reviews remain the
+authorization boundary.
+
+Only identities the repository trusts may appear in the commits a pull request
+proposes for integration. The owner is identified by the verified address
+published on the GitHub account, not by a display name, because a name can be
+chosen by anyone.
 """
 
 from __future__ import annotations
@@ -17,12 +25,18 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 
-# The repository owner's verified public address. A display name proves
-# nothing, because a name can be chosen by anyone.
-OWNER_EMAILS = frozenset({"pawel.maciejewski95@gmail.com"})
+# The repository owner's verified public address and the private form GitHub
+# attributes when the owner commits with a hidden email.
+OWNER_EMAILS = frozenset(
+    {
+        "pawel.maciejewski95@gmail.com",
+        "9095484+paulomac1000@users.noreply.github.com",
+    }
+)
 
-# Trusted automation accounts. Dependabot opens the dependency pull requests and
-# GitHub Actions writes the automation commits.
+# Trusted automation accounts. Dependabot opens the dependency pull requests
+# and GitHub Actions writes the automation commits. Neither may author a
+# human-owned change, but both may author their own automation commits.
 TRUSTED_BOT_EMAILS = frozenset(
     {
         "49699333+dependabot[bot]@users.noreply.github.com",
@@ -30,9 +44,17 @@ TRUSTED_BOT_EMAILS = frozenset(
     }
 )
 
-# The platform signs merges and rebase operations, so a merge or a rebase
-# carries the platform identity as its committer.
-PLATFORM_EMAILS = frozenset({"noreply@github.com"})
+# The platform signs merges and rebase operations, so it appears as the
+# committer of a platform-written commit. It is never trusted as an author:
+# a web edit is attributed to this address, and the gate must not mistake a
+# web edit for a reviewed integration.
+PLATFORM_COMMITTER_EMAILS = frozenset({"noreply@github.com"})
+
+SEPARATOR = "\x1f"
+
+
+class AuditError(RuntimeError):
+    """The audit could not be completed, so its result is not trustworthy."""
 
 
 def _git(*args: str, root: Path = ROOT) -> str:
@@ -47,22 +69,54 @@ def _git(*args: str, root: Path = ROOT) -> str:
     return completed.stdout
 
 
+def _require_ancestor(base: str, head: str, root: Path = ROOT) -> None:
+    """Fail closed when the base is not an ancestor of the head.
+
+    A stale or foreign base would otherwise turn the range into an unrelated
+    set of commits, and the audit would report on history that is not proposed
+    for integration.
+    """
+    completed = subprocess.run(
+        ["git", "merge-base", "--is-ancestor", base, head],
+        cwd=root,
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    if completed.returncode != 0:
+        raise AuditError(f"base {base} is not an ancestor of {head}")
+
+
 def _commits(base: str, head: str, root: Path = ROOT) -> list[tuple[str, str, str, str]]:
-    """Return (sha, author name, author email, committer email) for the range."""
+    """Return (sha, author name, author email, committer email) for the range.
+
+    A line that cannot be parsed is a failure, not a line to skip: a skipped
+    line would hide an identity from the audit.
+    """
     output = _git(
         "log",
         "--no-merges",
-        "--format=%H%x1f%an%x1f%ae%x1f%ce",
+        f"--format=%H{SEPARATOR}%an{SEPARATOR}%ae{SEPARATOR}%ce",
         f"{base}..{head}",
         root=root,
     )
+    return _parse_commits(output, base, head)
+
+
+def _parse_commits(output: str, base: str = "", head: str = "") -> list[tuple[str, str, str, str]]:
+    """Parse the commit records, refusing a record that cannot be read.
+
+    A record that cannot be parsed is a failure, not a record to skip: a
+    skipped record would hide an identity from the audit.
+    """
     commits: list[tuple[str, str, str, str]] = []
-    for line in output.splitlines():
+    for number, line in enumerate(output.splitlines(), start=1):
         if not line.strip():
             continue
-        parts = line.split("\x1f")
+        parts = line.split(SEPARATOR)
         if len(parts) != 4:
-            continue
+            raise AuditError(f"commit record {number} in {base}..{head} cannot be parsed")
         commits.append((parts[0], parts[1], parts[2], parts[3]))
     return commits
 
@@ -72,31 +126,47 @@ def unauthorized_identities(
     *,
     owner_emails: frozenset[str] = OWNER_EMAILS,
     bot_emails: frozenset[str] = TRUSTED_BOT_EMAILS,
-    platform_emails: frozenset[str] = PLATFORM_EMAILS,
+    platform_committer_emails: frozenset[str] = PLATFORM_COMMITTER_EMAILS,
 ) -> list[str]:
-    """Return a finding for every commit whose identity is not trusted."""
-    allowed = owner_emails | bot_emails | platform_emails
+    """Return a finding for every commit whose identity is not trusted.
+
+    The author of an integrated commit must be the owner or a trusted
+    automation account. The committer may additionally be the platform, because
+    a rebase or a squash records the platform as the committer while the
+    original author is preserved.
+    """
+    allowed_authors = {value.casefold() for value in owner_emails | bot_emails}
+    allowed_committers = allowed_authors | {value.casefold() for value in platform_committer_emails}
     findings: list[str] = []
     for sha, author, author_email, committer_email in commits:
-        if author_email.casefold() not in {value.casefold() for value in allowed}:
+        if author_email.casefold() not in allowed_authors:
             findings.append(f"UNAUTHORIZED_AUTHOR_IDENTITY: {sha} authored by {author} <{author_email}>")
-        if committer_email.casefold() not in {value.casefold() for value in allowed}:
+        if committer_email.casefold() not in allowed_committers:
             findings.append(f"UNAUTHORIZED_COMMITTER_IDENTITY: {sha} committed by {committer_email}")
     return findings
 
 
-def main(argv: Sequence[str] | None = None) -> int:
+def main(argv: Sequence[str] | None = None, root: Path = ROOT) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--base", required=True, help="The base ref the candidate is compared against.")
     parser.add_argument("--head", default="HEAD", help="The candidate ref to check.")
     args = parser.parse_args(argv)
 
-    commits = _commits(args.base, args.head)
+    try:
+        _require_ancestor(args.base, args.head, root)
+        commits = _commits(args.base, args.head, root)
+    except (AuditError, OSError, subprocess.SubprocessError) as error:
+        print(f"ERROR: AUTHORSHIP_AUDIT_INCOMPLETE: {error}")
+        return 1
+
+    if not commits:
+        # An empty range means the audit examined nothing, so it cannot pass.
+        print(f"ERROR: AUTHORSHIP_AUDIT_EMPTY: no commits in {args.base}..{args.head}")
+        return 1
+
     findings = unauthorized_identities(commits)
     for finding in findings:
         print(f"ERROR: {finding}")
-    if not commits:
-        print(f"AUTHORSHIP_AUDIT_EMPTY: no commits in {args.base}..{args.head}")
     return 1 if findings else 0
 
 
