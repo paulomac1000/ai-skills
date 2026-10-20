@@ -242,6 +242,9 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           git fetch --no-tags --depth=1 origin "$BASE_SHA"
+          # Trust-boundary: fetch the base branch from the provider, not the PR.
+          # Full history is needed for ancestry of older refactor baselines.
+          git fetch --no-tags --unshallow origin +refs/heads/main:refs/remotes/origin/main
           python scripts/check_release_version.py --base "$BASE_SHA"
       - name: Execute complete local gate on exact head
         run: python scripts/ci.py

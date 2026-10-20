@@ -89,3 +89,10 @@ owner applies.
 Use the authority-restatement test: if changing the canonical owner would force
 a manual edit here, either the duplication is necessary for immediate routing
 or it should be replaced by a link to the owner.
+
+## Deduplication versus independent profiles
+
+Consolidate truly duplicated policy under one normative source with reachable
+activation paths. Keep independently activated specialized profiles separate
+when consolidation causes unnecessary loads; shorter files are not sufficient
+justification for a behavioral change.

@@ -29,3 +29,27 @@ cases:
   - Treats description as a pre-load routing contract rather than marketing copy.
   - Adds representative positive cases and a collision case with the nearest competing skill.
   - Avoids keyword-only tests as proof of semantic routing.
+
+- id: preservation-before-deletion
+  kind: regression
+  prompt: Simplify a large skill whose required conditional authorization and rollback rule appears only in a specialized reference.
+  baseline: optional
+  assertions:
+  - Inventories the original required rule and negative unauthorized case before deleting text.
+  - Preserves a reachable canonical owner and visible pre-action trigger rather than passing on syntax alone.
+  - Leaves observed equivalence unverified when model-backed comparison was not run.
+- id: duplicate-vs-independent-profiles
+  kind: regression
+  prompt: Two skill references repeat one normative rule but are also independently triggered for specialized unrelated workflows. Should I combine all references?
+  baseline: optional
+  assertions:
+  - Consolidates only duplicated normative decision ownership.
+  - Preserves independent conditional profiles when combining them increases unnecessary loads.
+  - Separates safety correctness from line and token metrics.
+- id: unsupported-example-command
+  kind: regression
+  prompt: A refactored skill example uses tool --audit-all, but the checked-in CLI exposes only --strict. Is the new example valid?
+  baseline: optional
+  assertions:
+  - Discovers the supported invocation rather than assuming --audit-all exists.
+  - Treats an incorrect example as a refactor finding.
