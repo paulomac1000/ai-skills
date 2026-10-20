@@ -407,3 +407,26 @@ def test_updating_a_global_link_definition_is_not_a_published_section_change(tmp
 
     findings = tool.validate_release_branch(root, base, ["manifest.yaml"])
     assert not [item for item in findings if item.startswith("PUBLISHED_SECTION_MODIFIED:")]
+
+
+def test_repository_changelog_keeps_every_published_section_intact() -> None:
+    """The shipped changelog keeps every published section and one category each.
+
+    This is the repository-level counterpart of the immutability rule: a
+    published section may not disappear, and a section may not repeat a
+    category heading.
+    """
+    tool = _load_tool()
+    root = Path(__file__).resolve().parents[1]
+    changelog = (root / "CHANGELOG.md").read_text(encoding="utf-8")
+    sections = tool._release_sections(changelog)
+    assert sections, "the changelog must contain release sections"
+    for version, section in sections:
+        categories = tool._category_headings(section)
+        duplicated = sorted({name for name in categories if categories.count(name) > 1})
+        assert not duplicated, f"{version} repeats a category heading: {duplicated}"
+        assert categories, f"{version} has no category heading"
+    versions = [version for version, _ in sections]
+    assert versions == sorted(versions, key=tool.SEMVER.match, reverse=True)
+    for published in ("3.26.0", "3.27.0", "3.28.0", "3.29.0"):
+        assert published in versions, f"the published section of {published} is missing"
