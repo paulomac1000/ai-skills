@@ -813,7 +813,10 @@ def _html_tag_tokens(text: str, tag: str) -> list[tuple[str, bool]]:
             continue
         end, self_closing, complete = _scan_html_tag(text, start)
         if not complete:
-            break
+            # A `<` that does not open a tag must not hide the tags that follow
+            # it on the same line.
+            index = start + 1
+            continue
         match = pattern.match(text[start:end])
         if match:
             tokens.append(("close" if match.group(1) else "open", self_closing))
