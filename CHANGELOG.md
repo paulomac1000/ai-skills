@@ -1,5 +1,20 @@
 # Changelog
 
+## 3.29.0 - 2026-10-20
+
+### Added
+
+- The release validator now rejects a repeated category heading inside one release section, and it rejects a change to an already published release section that the release under construction does not declare as a correction.
+
+### Changed
+
+- The refactor-preservation contract now enumerates both residual semantic classes, a separate instruction that restricts the applicability of a pinned obligation and a separate instruction that asserts the opposite of a prohibition the pinned obligation states, and names the enforceable independent semantic review lane that covers them: an independent acceptance authority reviewing provider-backed exact-revision evidence under the repository's independent release evidence profile, plus the candidate-specific semantic review scope owned by the verification owner.
+
+### Fixed
+
+- The refactor-preservation checker no longer treats a raw HTML block whose opening tag spans several lines as operative content, and it no longer removes HTML comments before it parses fenced blocks. A candidate that hid a reviewed requirement in either place was previously certified as structurally preserved, and a review comment marker inside a fenced example could delete the closing fence and expose a later block.
+- Correction: the 3.27.0 section repeated a `Fixed` category and attributed the preservation-checker behavior introduced in 3.28.0 to 3.27.0. The duplicated category and the misattributed entries were removed, so the shipped 3.27.0 section matches the released 3.27.0 content.
+
 ## 3.28.0 - 2026-10-20
 
 ### Added
@@ -39,14 +54,6 @@
 
 - A shutdown-fenced external operation that finished remotely and was reconciled by the host keeps its resolved status and remains publishable through a host-verified recovery transition; superseded, cancelled and unreconciled terminal operations stay rejected.
 - The optional external pressure flag is not required in the adoption assessment, so an assessment written for 3.26.0 stays valid after the upgrade instead of failing on a newly required field.
-
-### Fixed
-
-- Hardened the skill refactor route audit against delayed and optional loads, frontmatter metadata, list-contained code fences, wrapped Markdown and raw HTML example bypasses, noncritical negated safeguards, owner-path suffix spoofing, unrelated deadlines, unreviewed suffixes on a reviewed preload route, candidate-rewritten preload routes, narrowed owner instructions, additional owner-load instructions, and instructions that contradict a preload route; pinned the independently reviewed baseline inventory, exact source-anchor identities, and the complete maintenance-observation obligation; authenticated system-owned Git paths and explicitly labeled unverified candidate versions.
-
-- Dependency-lock installation treats unexpected `pip check` stderr, canonicalized conflicts, and missing lock-pinned packages as blocking errors; verification checks every selected lock pin against the installed name/version inventory even when `pip check` succeeds. Installed versions are compared under PEP 440 canonicalization, and an unavailable `packaging` dependency is reported as an explicit validation error.
-
-- Pin the version-only no-rewrite safeguard in the reviewed inventory; preload lifecycle guidance as workflow step 2 before editing any existing skill; distinguish missing Git main-ref infrastructure from untrusted history or structural preservation failures; reject higher-authority contradictions and reuse lock verification for the complete CI gate.
 
 ### Known limitations
 
