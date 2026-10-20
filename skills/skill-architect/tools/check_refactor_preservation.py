@@ -757,6 +757,9 @@ def _scan_html_tag(text: str, start: int) -> tuple[int, bool, bool]:
     while index < len(text):
         char = text[index]
         if quote:
+            if char == "\\" and index + 1 < len(text):
+                index += 2
+                continue
             if char == quote:
                 quote = ""
         elif char in "\"'":

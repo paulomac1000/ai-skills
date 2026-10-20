@@ -1922,6 +1922,9 @@ def test_operative_text_extraction_matrix():
     # A `>` inside a quoted attribute value does not end the opening tag, so
     # the element stays open and its content stays non-operative.
     assert operative not in text('<div title="a > b">\n' + operative + "\n</div>\n")
+    # A backslash-escaped quote does not end the quoted attribute value, so
+    # the element stays open.
+    assert operative not in text('<div title="a \\" > b">\n' + operative + "\n</div>\n")
     # A fence opener that survives a comment on the same line still opens a
     # fence, so the content after it stays literal.
     assert operative not in text("<!-- note --> ```\n" + operative + "\n```\n")

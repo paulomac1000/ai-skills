@@ -141,7 +141,7 @@ def _category_headings(section: str) -> list[str]:
     """Return the category headings of a section, ignoring fenced examples."""
     return [
         match.group("category")
-        for match in CATEGORY_HEADING.finditer(_without_fenced_examples(_without_html_comments(section)))
+        for match in CATEGORY_HEADING.finditer(_without_html_comments(_without_fenced_examples(section)))
     ]
 
 
@@ -151,8 +151,10 @@ def _declares_correction(section: str, version: str) -> bool:
     The declared version must be the exact version, so a correction for one
     version cannot silence a change to a different one.
     """
-    pattern = re.compile(r"(?<![\w.+-])" + re.escape(version) + r"(?![\w_+-])(?!\.\d)")
-    for line in _without_fenced_examples(_without_html_comments(section)).splitlines():
+    # A complete version identifier: a following dot may end the sentence, but
+    # a dot followed by a word character starts another identifier part.
+    pattern = re.compile(r"(?<![\w.+-])" + re.escape(version) + r"(?![\w_+-])(?!\.[\w])")
+    for line in _without_html_comments(_without_fenced_examples(section)).splitlines():
         content = line.lstrip()
         if content.startswith("- "):
             content = content[2:].lstrip()
