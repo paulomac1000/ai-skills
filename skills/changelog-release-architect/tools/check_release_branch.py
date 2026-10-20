@@ -16,6 +16,8 @@ import yaml
 SEMVER = re.compile(r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z.-]+))?$")
 PY_VERSION = re.compile(r"^\s*__version__\s*=\s*['\"]([^'\"]+)['\"]\s*$", re.MULTILINE)
 HEADING = re.compile(r"^##\s+\[?(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)\]?(?:\s+[-—].*)?\s*$", re.MULTILINE)
+CATEGORY_HEADING = re.compile(r"^###\s+(?P<category>[^\n]+?)\s*$", re.MULTILINE)
+CORRECTION = "Correction:"
 
 
 def _git(root: Path, *args: str, allow_failure: bool = False) -> str | None:
@@ -37,6 +39,27 @@ def _git(root: Path, *args: str, allow_failure: bool = False) -> str | None:
 
 def _show(root: Path, revision: str, path: str) -> str | None:
     return _git(root, "show", f"{revision}:{path}", allow_failure=True)
+
+
+def _release_sections(text: str) -> list[tuple[str, str]]:
+    """Return (version, section_text) pairs in document order."""
+    sections: list[tuple[str, str]] = []
+    matches = list(HEADING.finditer(text))
+    for index, match in enumerate(matches):
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
+        sections.append((match.group(1), text[match.start() : end]))
+    return sections
+
+
+def _declares_correction(section: str, version: str) -> bool:
+    """Report whether the release under construction declares a correction."""
+    for line in section.splitlines():
+        content = line.lstrip()
+        if content.startswith("- "):
+            content = content[2:].lstrip()
+        if content.startswith(CORRECTION) and version in content:
+            return True
+    return False
 
 
 def _parse_version(path: str, text: str) -> str:
@@ -181,7 +204,8 @@ def validate_release_branch(
         current_changelog = root / changelog_path
         if current_changelog.is_file():
             try:
-                current_headings = set(HEADING.findall(current_changelog.read_text(encoding="utf-8")))
+                current_text = current_changelog.read_text(encoding="utf-8")
+                current_headings = set(HEADING.findall(current_text))
                 base_changelog = _show(root, merge_base, changelog_path)
                 base_headings = set(HEADING.findall(base_changelog or ""))
                 introduced = sorted(current_headings - base_headings)
@@ -195,6 +219,34 @@ def validate_release_branch(
                     findings.append(
                         f"VERSION_SOURCE_CONFLICT: changelog introduces {introduced[0]} without a version transition"
                     )
+                current_sections = _release_sections(current_text)
+                for version, section in current_sections:
+                    categories = [match.group("category") for match in CATEGORY_HEADING.finditer(section)]
+                    duplicated = sorted({name for name in categories if categories.count(name) > 1})
+                    for name in duplicated:
+                        findings.append(f"DUPLICATE_CATEGORY_HEADER: {changelog_path} repeats '{name}' in {version}")
+                # A published section is immutable; only the release under
+                # construction may change, and only with a declared correction.
+                # The changelog is ordered newest first, and the release under
+                # construction is the section the base does not contain yet.
+                if current_sections:
+                    construction_version = introduced[0] if introduced else current_sections[0][0]
+                    construction = next(
+                        (section for version, section in current_sections if version == construction_version),
+                        "",
+                    )
+                    base_sections = dict(_release_sections(base_changelog or ""))
+                    for version, section in current_sections:
+                        if version == construction_version:
+                            continue
+                        published = base_sections.get(version)
+                        if published is None or published == section:
+                            continue
+                        if _declares_correction(construction, version):
+                            continue
+                        findings.append(
+                            f"PUBLISHED_SECTION_MODIFIED: {changelog_path} changes the published section of {version}"
+                        )
             except (OSError, UnicodeError) as exc:
                 findings.append(f"CHANGELOG_EVIDENCE_MISSING: cannot read {changelog_path}: {exc}")
 

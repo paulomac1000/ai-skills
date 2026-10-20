@@ -53,6 +53,10 @@ Deduplicate by outcome. Internal refactors, formatting, ordinary test churn, bra
 
 Quantitative claims such as test counts, coverage, latency, tool counts, and package sizes require exact evidence and should appear only when they materially support a release guarantee.
 
+A published release section is immutable. Later work must not change the content of a section a published release already shipped, because that section is the authoritative record consumers read for what that version contains. The release under construction is the only section that may still change. A release that corrects an earlier published section must declare the correction in its own section, on a line that begins with `Correction:` and names the corrected version; the release validator accepts a difference in a published section only when the release under construction declares that correction.
+
+Within one release section a category heading may appear at most once. A repeated category heading is rejected because it splits one outcome set across two blocks and leaves the shipped behavior of that release ambiguous.
+
 ## Semantic version classification
 
 For stable `1.0.0+` releases:
@@ -125,6 +129,8 @@ Stable findings are:
 - `VERSION_SOURCE_CONFLICT`
 - `MULTIPLE_VERSION_TRANSITIONS`
 - `MULTIPLE_RELEASE_HEADINGS`
+- `DUPLICATE_CATEGORY_HEADER`
+- `PUBLISHED_SECTION_MODIFIED`
 - `VERSION_SCOPE_CONFLICT`
 - `SEMVER_CLASSIFICATION_CONFLICT`
 - `CHANGELOG_EVIDENCE_MISSING`
