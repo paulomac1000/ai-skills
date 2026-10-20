@@ -151,7 +151,7 @@ def _declares_correction(section: str, version: str) -> bool:
     The declared version must be the exact version, so a correction for one
     version cannot silence a change to a different one.
     """
-    pattern = re.compile(r"(?<![\w.-])" + re.escape(version) + r"(?![\w-])")
+    pattern = re.compile(r"(?<![\w.+-])" + re.escape(version) + r"(?![\w_+-])(?!\.\d)")
     for line in _without_fenced_examples(_without_html_comments(section)).splitlines():
         content = line.lstrip()
         if content.startswith("- "):

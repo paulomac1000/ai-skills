@@ -1919,6 +1919,15 @@ def test_operative_text_extraction_matrix():
     # A comment marker in a fence info string is literal and opens no comment,
     # so the text after the closed fence stays operative.
     assert operative in text("```html <!--\n```\n" + operative + "\n")
+    # A `>` inside a quoted attribute value does not end the opening tag, so
+    # the element stays open and its content stays non-operative.
+    assert operative not in text('<div title="a > b">\n' + operative + "\n</div>\n")
+    # A fence opener that survives a comment on the same line still opens a
+    # fence, so the content after it stays literal.
+    assert operative not in text("<!-- note --> ```\n" + operative + "\n```\n")
+    # A fence opener that is itself inside a comment is not a fence, so the
+    # text after it is operative, exactly as a Markdown renderer reads it.
+    assert operative in text("<!-- ``` -->\n" + operative + "\n")
     # An instruction inside a nested raw HTML block is not operative.
     assert operative not in text("<div>\n<pre>\n" + operative + "\n</pre>\n</div>\n")
     # A comment marker inside a fenced block is literal and must not delete the

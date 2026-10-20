@@ -841,15 +841,24 @@ def _operative_skill_text(content: bytes) -> str:
         while "<!--" in line:
             before, _, after = line.partition("<!--")
             if "-->" in after:
-                line = before + after.split("-->", 1)[1]
+                # A space keeps the text on both sides of a comment apart, so a
+                # commented-out heading or declaration cannot become live.
+                line = before + " " + after.split("-->", 1)[1]
             else:
                 line = before
                 comment_open = True
                 break
+        # The comment-cleaned line is tested for a fence opener as well: a
+        # comment that hid a fence must not expose the fenced content.
+        cleaned_opener = re.match(r"^[ ]{0,3}(?:(?:[-*+]|\d+[.)])[ \t]+)?(`{3,}|~{3,})", line)
+        if cleaned_opener:
+            fence = cleaned_opener.group(1)
+            continue
         if raw_html_tag:
             if raw_html_opening:
                 raw_html_buffer += "\n" + line
-                if ">" in line:
+                _, _, complete = _scan_html_tag(raw_html_buffer, 0)
+                if complete:
                     raw_html_opening = False
                     raw_html_depth = _html_depth_delta(raw_html_buffer, raw_html_tag)
                     if raw_html_depth <= 0:

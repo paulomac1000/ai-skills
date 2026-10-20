@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import subprocess
+import tempfile
 import sys
 from pathlib import Path
 
@@ -431,3 +432,42 @@ def test_repository_changelog_keeps_every_published_section_intact() -> None:
     assert versions == ordered
     for published in ("3.26.0", "3.27.0", "3.28.0", "3.29.0"):
         assert published in versions, f"the published section of {published} is missing"
+
+
+def test_a_commented_declaration_or_heading_is_not_operative(tmp_path: Path) -> None:
+    """A commented-out declaration must not silence the guard."""
+    tool = _load_tool()
+    root, base = _repo(tmp_path)
+    (root / "manifest.yaml").write_text("version: 1.4.0\n", encoding="utf-8")
+    (root / "CHANGELOG.md").write_text(
+        "# Changelog\n\n"
+        "## 1.4.0 - 2026-08-27\n\n"
+        "<!-- Correction: the 1.3.0 section was corrected. -->\n"
+        "<!-- ### Fixed -->\n\n"
+        "## 1.3.0 - 2026-08-01\n\n- The published 1.3.0 outcome was rewritten.\n",
+        encoding="utf-8",
+    )
+    _commit(root, "claim 1.4.0")
+
+    findings = tool.validate_release_branch(root, base, ["manifest.yaml"])
+    assert any(item.startswith("PUBLISHED_SECTION_MODIFIED:") for item in findings)
+
+
+def test_a_declaration_must_name_the_complete_version(tmp_path: Path) -> None:
+    """A four-part or build-suffixed identifier is not the published version."""
+    tool = _load_tool()
+    for declared in ("1.3.0.4", "1.3.0+build", "1.3.0_rc"):
+        with tempfile.TemporaryDirectory() as directory:
+            root, base = _repo(Path(directory))
+            (root / "manifest.yaml").write_text("version: 1.4.0\n", encoding="utf-8")
+            (root / "CHANGELOG.md").write_text(
+                "# Changelog\n\n"
+                "## 1.4.0 - 2026-08-27\n\n"
+                f"- Correction: the section was corrected in {declared}.\n\n"
+                "## 1.3.0 - 2026-08-01\n\n- The published 1.3.0 outcome was rewritten.\n",
+                encoding="utf-8",
+            )
+            _commit(root, "claim 1.4.0")
+
+            findings = tool.validate_release_branch(root, base, ["manifest.yaml"])
+            assert any(item.startswith("PUBLISHED_SECTION_MODIFIED:") for item in findings), declared
