@@ -1325,6 +1325,86 @@ def _html_depth_delta(text: str, tag: str) -> int:
     return depth
 
 
+def _html_comment_spans(
+    text: str, state: tuple[bool, str, bool]
+) -> tuple[list[tuple[int, int]], tuple[bool, str, bool]]:
+    """Return the real HTML comment spans in `text` and the state after it.
+
+    A comment marker inside a tag, or inside a quoted attribute value that the
+    tag carries, is literal text and never opens a comment. The state carries
+    the tag, the attribute value and the comment that are still open at the
+    end of the text, so a tag, an attribute value or a comment that spans
+    lines keeps protecting its content. A marker that cannot be resolved is
+    reported as a comment, so an ambiguous input fails closed.
+    """
+    in_tag, quote, in_comment = state
+    spans: list[tuple[int, int]] = []
+    index = 0
+    previous = ""
+    while index < len(text):
+        char = text[index]
+        if in_comment:
+            end = text.find("-->", index)
+            if end < 0:
+                spans.append((0, len(text)))
+                return spans, (in_tag, quote, True)
+            spans.append((0, end + 3))
+            in_comment = False
+            index = end + 3
+            previous = ""
+            continue
+        if quote:
+            # A quoted attribute value ends at its matching quote only; HTML
+            # has no backslash escape, so a backslash is ordinary text.
+            if char == quote:
+                quote = ""
+                previous = ""
+            index += 1
+            continue
+        if in_tag:
+            if char in "\"'":
+                # The last non-space character decides whether a quote opens a
+                # value, so whitespace between the equals sign and the quote
+                # is allowed.
+                if previous == "=":
+                    quote = char
+                index += 1
+                continue
+            if text.startswith("<!--", index):
+                # A marker inside a tag is part of the tag, not a comment.
+                end = text.find("-->", index + 4)
+                index = len(text) if end < 0 else end + 3
+                previous = ""
+                continue
+            if char == ">":
+                in_tag = False
+                previous = ""
+                index += 1
+                continue
+            if not char.isspace():
+                previous = char
+            index += 1
+            continue
+        if text.startswith("<!--", index):
+            end = text.find("-->", index + 4)
+            if end < 0:
+                spans.append((index, len(text)))
+                return spans, (in_tag, quote, True)
+            spans.append((index, end + 3))
+            index = end + 3
+            previous = ""
+            continue
+        if char == "<" and _HTML_TAG_START.match(text, index):
+            in_tag = True
+            previous = ""
+            index += 1
+            continue
+        if not char.isspace():
+            previous = char
+        index += 1
+    return spans, (in_tag, quote, in_comment)
+
+
 def _strip_frontmatter(text: str) -> str:
     """Remove a leading YAML frontmatter block; metadata is not an instruction."""
     lines = text.splitlines()
@@ -1347,7 +1427,7 @@ def _operative_skill_text(content: bytes) -> str:
     raw_html_depth = 0
     raw_html_buffer = ""
     raw_html_opening = False
-    raw_html_comment = False
+    raw_html_state: tuple[bool, str, bool] = (False, "", False)
     comment_open = False
     for line in text.splitlines():
         if fence:
@@ -1377,25 +1457,13 @@ def _operative_skill_text(content: bytes) -> str:
                         raw_html_tag = ""
                         kept.append("")
                 continue
-            # The block tracks its own comments, and a line may close one
-            # comment and open another, so the handling repeats until no
-            # comment marker is left.
-            while True:
-                if raw_html_comment:
-                    if "-->" not in line:
-                        break
-                    raw_html_comment = False
-                    line = line.split("-->", 1)[1]
-                    continue
-                if "<!--" not in line:
-                    break
-                before, _, after = line.partition("<!--")
-                if "-->" not in after:
-                    raw_html_comment = True
-                    line = before
-                    break
-                line = before + " " + after.split("-->", 1)[1]
-            if raw_html_comment:
+            # The block tracks its own comments, and a marker inside a tag or
+            # inside a quoted attribute value that the tag carries is literal
+            # text, so the comment state is decided by a quote-aware scan.
+            _, raw_html_state = _html_comment_spans(line, raw_html_state)
+            if raw_html_state[2]:
+                # The line opens or continues a comment, so what follows it
+                # inside the block is comment text.
                 continue
             raw_html_depth += _html_depth_delta(line, raw_html_tag)
             if raw_html_depth <= 0:
@@ -1434,6 +1502,8 @@ def _operative_skill_text(content: bytes) -> str:
             _, _, complete = _scan_html_tag(line, 0)
             raw_html_opening = not complete
             raw_html_depth = 0
+            # A new block starts with no open tag, attribute value or comment.
+            raw_html_state = (False, "", False)
             kept.append("")
             if not raw_html_opening:
                 raw_html_depth = _html_depth_delta(raw_html_buffer, raw_html_tag)

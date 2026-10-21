@@ -3144,3 +3144,44 @@ def test_copular_prohibition_reversal_fails_the_production_pilot(tmp_path):
     assert result["structural"] == "FAILED"
     assert "negative_obligation_reversed:privileged-capabilities-explicit" in result["findings"]
     assert result["semantic_equivalence"] == "NOT_VERIFIED"
+
+
+def test_comment_marker_inside_a_quoted_attribute_value_does_not_open_a_comment():
+    """A marker inside an attribute value is literal text, not a comment opener.
+
+    The block tracks its own comment state, so a marker inside a quoted
+    attribute value used to open a comment and mask the rest of the block.
+    The requirement after the closed block must stay operative.
+    """
+    operative = "Require policy authorization before deployment."
+
+    def text(body: str) -> str:
+        return mod._operative_skill_text(body.encode("utf-8"))
+
+    for attribute in (
+        '<span data-note="<!-- literal"></span>',
+        "<span data-note='<!-- literal'></span>",
+        '<span data-note="<!-- literal\nand more"></span>',
+        '<span\n data-note="<!-- literal"></span>',
+    ):
+        body = "<div>\n" + attribute + "\n</div>\n\n" + operative + "\n"
+        assert operative in text(body), attribute
+
+
+def test_a_real_comment_outside_a_quoted_attribute_is_still_removed():
+    """A real comment still masks the requirement it contains."""
+    operative = "Require policy authorization before deployment."
+
+    def text(body: str) -> str:
+        return mod._operative_skill_text(body.encode("utf-8"))
+
+    # A comment in the prose before the block is removed.
+    after = text("<!-- note --> " + operative + "\n")
+    assert operative in after
+    assert "note" not in after
+    # A comment inside the block masks the requirement inside the block.
+    assert operative not in text("<div>\n<!-- " + operative + "\n-->\n</div>\n")
+    # A marker that only appears in an attribute value does not mask the
+    # requirement that follows the block.
+    body = '<div>\n<span data-note="<!-- literal"></span>\n<!-- real -->\n</div>\n\n' + operative + "\n"
+    assert operative in text(body)
