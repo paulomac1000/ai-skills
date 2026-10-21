@@ -1288,9 +1288,7 @@ class _HtmlState(NamedTuple):
     tag_text: str
 
 
-def _html_scan(
-    text: str, tag: str, state: _HtmlState
-) -> tuple[list[tuple[int, int]], int, _HtmlState]:
+def _html_scan(text: str, tag: str, state: _HtmlState) -> tuple[list[tuple[int, int]], int, _HtmlState]:
     """Return the real comment spans, the net block depth and the state.
 
     One walk decides all three, so the comment bodies, the quoted attribute
@@ -1449,7 +1447,9 @@ def _operative_skill_text(content: bytes) -> str:
                 _, _, complete = _scan_html_tag(raw_html_buffer, 0)
                 if complete:
                     raw_html_opening = False
-                    _, raw_html_depth, _ = _html_scan(raw_html_buffer, raw_html_tag, _HtmlState(False, "", False, False, ""))
+                    _, raw_html_depth, _ = _html_scan(
+                        raw_html_buffer, raw_html_tag, _HtmlState(False, "", False, False, "")
+                    )
                     if raw_html_depth <= 0:
                         # A comment that is still open when the block ends
                         # continues in the surrounding prose, so the text it
@@ -1489,7 +1489,9 @@ def _operative_skill_text(content: bytes) -> str:
             raw_html_depth = 0
             kept.append("")
             if not raw_html_opening:
-                _, raw_html_depth, _ = _html_scan(raw_html_buffer, raw_html_tag, _HtmlState(False, "", False, False, ""))
+                _, raw_html_depth, _ = _html_scan(
+                    raw_html_buffer, raw_html_tag, _HtmlState(False, "", False, False, "")
+                )
                 if raw_html_depth <= 0:
                     # A block that opens and closes on one line can still leave
                     # a comment open, and that comment continues in the
@@ -1540,7 +1542,9 @@ def _operative_skill_text(content: bytes) -> str:
             raw_html_depth = 0
             kept.append("")
             if not raw_html_opening:
-                _, raw_html_depth, _ = _html_scan(raw_html_buffer, raw_html_tag, _HtmlState(False, "", False, False, ""))
+                _, raw_html_depth, _ = _html_scan(
+                    raw_html_buffer, raw_html_tag, _HtmlState(False, "", False, False, "")
+                )
                 if raw_html_depth <= 0:
                     # A block that opens and closes on one line can still leave
                     # a comment open, and that comment continues in the
