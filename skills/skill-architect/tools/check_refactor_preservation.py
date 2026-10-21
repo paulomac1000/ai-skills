@@ -718,22 +718,16 @@ def _backtick_runs(line: str) -> list[tuple[int, int, int]]:
     return runs
 
 
-def _inside_quoted_span(text: str, start: int) -> bool:
-    """Report whether an offset falls inside a closed quoted or code span.
+def _quoted_regions(line: str) -> list[tuple[int, int]]:
+    """Return the closed quoted and code spans of a line.
 
     Only a matched pair delimits a span. Straight quotes pair with
     themselves, a directional opening mark pairs with its closing mark, and
-    a code span is delimited by two backtick runs of equal length. The
-    pairing is read from the claim's logical line alone, because a quoted
-    mention never crosses a line break, so a delimiter in an earlier
-    paragraph cannot silence a later claim.
+    a code span is delimited by two backtick runs of equal length. A
+    delimiter that is never closed is literal text, and the scan continues
+    after it.
     """
-    line_start = text.rfind("\n", 0, start) + 1
-    line_end = text.find("\n", start)
-    if line_end < 0:
-        line_end = len(text)
-    line = text[line_start:line_end]
-    offset = start - line_start
+    regions: list[tuple[int, int]] = []
     for opener, closer in _CLAIM_QUOTES:
         if opener == closer == "`":
             runs = _backtick_runs(line)
@@ -746,9 +740,10 @@ def _inside_quoted_span(text: str, start: int) -> bool:
                         closing = later
                         break
                 if closing is None:
-                    break
-                if run_start < offset <= runs[closing][1]:
-                    return True
+                    # An unmatched run is literal text; the scan continues.
+                    index += 1
+                    continue
+                regions.append((run_start, runs[closing][1]))
                 # The closing delimiter is consumed with its opener, so it
                 # cannot also open the next span.
                 index = closing + 1
@@ -756,18 +751,54 @@ def _inside_quoted_span(text: str, start: int) -> bool:
         if opener == closer:
             positions = [index for index, character in enumerate(line) if character == opener]
             for index in range(0, len(positions) - 1, 2):
-                if positions[index] < offset <= positions[index + 1]:
-                    return True
+                regions.append((positions[index], positions[index + 1]))
             continue
         opened: int | None = None
         for index, character in enumerate(line):
             if character == opener and opened is None:
                 opened = index
             elif character == closer and opened is not None:
-                if opened < offset <= index:
-                    return True
+                regions.append((opened, index))
                 opened = None
-    return False
+    return regions
+
+
+def _inside_quoted_span(text: str, start: int) -> bool:
+    """Report whether an offset falls inside a closed quoted or code span.
+
+    The pairing is read from the claim's logical line alone, because a
+    quoted mention never crosses a line break, so a delimiter in an earlier
+    paragraph cannot silence a later claim.
+    """
+    line_start = text.rfind("\n", 0, start) + 1
+    line_end = text.find("\n", start)
+    if line_end < 0:
+        line_end = len(text)
+    line = text[line_start:line_end]
+    offset = start - line_start
+    return any(begin < offset <= end for begin, end in _quoted_regions(line))
+
+
+def _unquoted_matches(text: str, pattern: re.Pattern[str], end: int) -> list[re.Match[str]]:
+    """Return the matches before `end` that are not inside a quoted span.
+
+    Literal content cannot govern a claim: a hypothetical word inside a code
+    span is a mode name, not a frame.
+    """
+    found: list[re.Match[str]] = []
+    for match in pattern.finditer(text, 0, end):
+        if _inside_quoted_span(text, match.start()):
+            continue
+        found.append(match)
+    return found
+
+
+def _unquoted_negation_before(text: str, pattern: re.Pattern[str], end: int) -> bool:
+    """Report whether an unquoted negator ends the text before `end`."""
+    match = pattern.search(text[:end])
+    if match is None:
+        return False
+    return not _inside_quoted_span(text, match.start())
 
 
 def _copular_claim_is_asserted(text: str, start: int, end: int) -> bool:
@@ -785,7 +816,7 @@ def _copular_claim_is_asserted(text: str, start: int, end: int) -> bool:
     """
     if _inside_quoted_span(text, start):
         return False
-    if _SUBJECT_NEGATION.search(text[:start]):
+    if _unquoted_negation_before(text, _SUBJECT_NEGATION, start):
         return False
     continuation = re.match(r"\s+(?:is|are|was|were)\b", text[end:], re.IGNORECASE)
     if continuation:
@@ -800,17 +831,17 @@ def _copular_claim_is_asserted(text: str, start: int, end: int) -> bool:
         for match in _CLAIM_REJECTION.finditer(topic):
             if not _NEGATED_MARKER.search(topic[: match.start()]):
                 return False
-    hypotheticals = list(_CLAIM_FRAME_HYPOTHETICAL.finditer(text, 0, start))
+    hypotheticals = _unquoted_matches(text, _CLAIM_FRAME_HYPOTHETICAL, start)
     if hypotheticals:
         gap = text[hypotheticals[-1].end() : start]
         if not _CLAUSE_BREAKER_SENTENCE.search(gap):
             return False
-    qualifiers = list(_CLAIM_FRAME_QUALIFIER.finditer(text, 0, start))
+    qualifiers = _unquoted_matches(text, _CLAIM_FRAME_QUALIFIER, start)
     if qualifiers:
         qualifier = qualifiers[-1]
         # A qualifier that the sentence negates does not reject the claim:
         # "It is not false that ..." endorses the claim instead.
-        if not _NEGATED_MARKER.search(text[: qualifier.start()]):
+        if not _unquoted_negation_before(text, _NEGATED_MARKER, qualifier.start()):
             rest = text[qualifier.end() : start]
             if _CLAIM_COMPLEMENTIZER.match(rest.lstrip()):
                 # The complementizer introduces the clause that the qualifier
@@ -820,7 +851,7 @@ def _copular_claim_is_asserted(text: str, start: int, end: int) -> bool:
                     return False
             elif not _CLAUSE_BREAKER.search(rest):
                 return False
-    reports = list(_CLAIM_REPORT.finditer(text, 0, start))
+    reports = _unquoted_matches(text, _CLAIM_REPORT, start)
     if reports:
         gap = text[reports[-1].end() : start]
         if not gap.strip() and "\n" not in gap:
