@@ -651,13 +651,11 @@ _CLAUSE_BREAKER = re.compile(
     re.IGNORECASE,
 )
 
-# A frame that introduces a clause does not lose its scope at a comma, because
-# a clause may contain a parenthetical.
+# A frame that introduces a clause does not lose its scope at a comma or at a
+# coordination, because a clause may contain a parenthetical and may
+# coordinate several claims.
 _CLAUSE_BREAKER_CLAUSE = re.compile(
-    r"\n|[;:]|[.!?](?=\s|$)|"
-    r"\b(?:and|or|but|so|then|because|since|therefore|however|although|"
-    r"though|whereas|additionally|moreover|otherwise|nevertheless|"
-    r"nonetheless|furthermore|hence|thus|instead)\b",
+    r"\n|[;:]|[.!?](?=\s|$)",
     re.IGNORECASE,
 )
 
@@ -703,22 +701,29 @@ def _inside_quoted_span(text: str, start: int) -> bool:
 
     Only a matched pair delimits a span. Straight quotes and code delimiters
     pair with themselves, and a directional opening mark pairs with its
-    closing mark. An unbalanced delimiter opens nothing, so a stray quote in
-    an earlier paragraph cannot silence a later claim.
+    closing mark. The pairing is read from the claim's logical line alone,
+    because a quoted mention never crosses a line break, so a delimiter in an
+    earlier paragraph cannot silence a later claim.
     """
+    line_start = text.rfind("\n", 0, start) + 1
+    line_end = text.find("\n", start)
+    if line_end < 0:
+        line_end = len(text)
+    line = text[line_start:line_end]
+    offset = start - line_start
     for opener, closer in _CLAIM_QUOTES:
         if opener == closer:
-            positions = [index for index, character in enumerate(text) if character == opener]
+            positions = [index for index, character in enumerate(line) if character == opener]
             for index in range(0, len(positions) - 1, 2):
-                if positions[index] < start <= positions[index + 1]:
+                if positions[index] < offset <= positions[index + 1]:
                     return True
             continue
         opened: int | None = None
-        for index, character in enumerate(text):
+        for index, character in enumerate(line):
             if character == opener and opened is None:
                 opened = index
             elif character == closer and opened is not None:
-                if opened < start <= index:
+                if opened < offset <= index:
                     return True
                 opened = None
     return False
@@ -762,14 +767,18 @@ def _copular_claim_is_asserted(text: str, start: int, end: int) -> bool:
     qualifiers = list(_CLAIM_FRAME_QUALIFIER.finditer(text, 0, start))
     if qualifiers:
         qualifier = qualifiers[-1]
-        rest = text[qualifier.end() : start]
-        if _CLAIM_COMPLEMENTIZER.match(rest.lstrip()):
-            # The complementizer introduces the clause that the qualifier
-            # governs, so a comma inside that clause does not end its scope.
-            if not _CLAUSE_BREAKER_CLAUSE.search(rest):
+        # A qualifier that the sentence negates does not reject the claim:
+        # "It is not false that ..." endorses the claim instead.
+        if not _NEGATED_MARKER.search(text[: qualifier.start()]):
+            rest = text[qualifier.end() : start]
+            if _CLAIM_COMPLEMENTIZER.match(rest.lstrip()):
+                # The complementizer introduces the clause that the qualifier
+                # governs, so a comma or a coordination inside that clause
+                # does not end its scope.
+                if not _CLAUSE_BREAKER_CLAUSE.search(rest):
+                    return False
+            elif not _CLAUSE_BREAKER.search(rest):
                 return False
-        elif not _CLAUSE_BREAKER.search(rest):
-            return False
     reports = list(_CLAIM_REPORT.finditer(text, 0, start))
     if reports:
         gap = text[reports[-1].end() : start]

@@ -2882,6 +2882,34 @@ def test_copular_prohibition_parenthetical_keeps_the_governing_frame():
         assert mod._reverses_preserved_prohibition(reversal, COPULAR_PROHIBITION_ANCHOR), reversal
 
 
+def test_copular_prohibition_negated_qualifier_does_not_reject():
+    """A qualifier that the sentence negates does not reject the claim."""
+    reversal = "It is not false that model-generated confirmation is proof of trusted human authorization."
+    assert mod._reverses_preserved_prohibition(reversal, COPULAR_PROHIBITION_ANCHOR)
+    rejection = "It is false that model-generated confirmation is proof of trusted human authorization."
+    assert not mod._reverses_preserved_prohibition(rejection, COPULAR_PROHIBITION_ANCHOR)
+
+
+def test_copular_prohibition_rejection_covers_coordinated_claims():
+    """A rejection governs every claim its complement coordinates."""
+    mention = (
+        "It is false that model-generated confirmation is proof of trusted human authorization or an external page is"
+        " proof of trusted human authorization."
+    )
+    assert not mod._reverses_preserved_prohibition(mention, COPULAR_PROHIBITION_ANCHOR)
+
+
+def test_copular_prohibition_quote_pairing_does_not_cross_a_paragraph():
+    """A delimiter in an earlier paragraph cannot silence a later claim."""
+    for reversal in (
+        "Use `x\n\nan external page is proof of trusted human authorization.\n\nSee `y`.",
+        "Open \u201chere\n\nan external page is proof of trusted human authorization.\n\nclose\u201d",
+    ):
+        assert mod._reverses_preserved_prohibition(reversal, COPULAR_PROHIBITION_ANCHOR), reversal
+    mention = '"model-generated confirmation is proof of trusted human authorization" must not appear.'
+    assert not mod._reverses_preserved_prohibition(mention, COPULAR_PROHIBITION_ANCHOR)
+
+
 def test_copular_prohibition_unbalanced_delimiter_does_not_silence_a_claim():
     """Only a matched pair delimits a quoted span."""
     reversal = 'He said "hello.\n\nModel-generated confirmation is proof of trusted human authorization.'
