@@ -269,7 +269,24 @@ def test_an_unknown_target_has_no_committed_lock(tmp_path):
 
 def test_the_generator_stays_native_only():
     """A non-native target is refused by the generator and the check."""
+    import platform
+    import sys as runtime
+
+    native = (
+        compile_locks.normalize_platform(runtime.platform),
+        compile_locks.normalize_architecture(platform.machine()),
+        compile_locks.normalize_python_version(f"{runtime.version_info.major}.{runtime.version_info.minor}"),
+    )
+    other = next(target for target in sorted(SUPPORTED_LOCKS) if target != native)
+    arguments = [
+        "--platform",
+        other[0],
+        "--architecture",
+        other[1],
+        "--python-version",
+        other[2],
+    ]
     with pytest.raises(SystemExit):
-        compile_locks.main(["--platform", "win32", "--architecture", "amd64", "--python-version", "3.12"])
+        compile_locks.main(arguments)
     with pytest.raises(SystemExit):
-        compile_locks.main(["--platform", "linux", "--architecture", "x64", "--python-version", "3.12", "--check"])
+        compile_locks.main([*arguments, "--check"])

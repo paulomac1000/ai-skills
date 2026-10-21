@@ -136,13 +136,16 @@ def verify_lock_reproducibility(
     identifier: str,
     *,
     compiler: Callable[[Path, str, str], None] | None = None,
+    emit_dir: Path | None = None,
 ) -> list[str]:
     """Return the findings for committed locks that differ from a regeneration.
 
     The regeneration runs in an isolated workspace that mirrors the declared
     layout, so the committed lock files are never written to. A missing lock,
     a missing regeneration and a failed compilation are all findings, so the
-    check fails closed rather than accepting an unproven lock.
+    check fails closed rather than accepting an unproven lock. When
+    `emit_dir` is given, the regenerated locks are copied there, so the same
+    regeneration that produced the verdict is the evidence a repair uses.
     """
     findings: list[str] = []
     with tempfile.TemporaryDirectory(prefix="ai-skills-lock-check-") as temporary:
@@ -165,6 +168,10 @@ def verify_lock_reproducibility(
             if not output.is_file() or output.stat().st_size == 0:
                 findings.append(f"LOCK_OUTPUT_MISSING:{resolved_output}")
                 continue
+            if emit_dir is not None:
+                emitted = emit_dir / resolved_output
+                emitted.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(output, emitted)
             committed = root / resolved_output
             if not committed.is_file():
                 findings.append(f"LOCK_COMMITTED_MISSING:{resolved_output}")
@@ -184,6 +191,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         action="store_true",
         help="verify that the committed locks equal a native regeneration, and write nothing",
     )
+    parser.add_argument(
+        "--emit-dir",
+        type=Path,
+        help="write the regenerated locks to this directory; used with --check",
+    )
     args = parser.parse_args(argv)
 
     requested = (
@@ -201,7 +213,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     identifier = lock_id(*requested)
     if args.check:
-        findings = verify_lock_reproducibility(ROOT, identifier)
+        findings = verify_lock_reproducibility(ROOT, identifier, emit_dir=args.emit_dir)
         for finding in findings:
             print("LOCK_CHECK_FAILED: " + finding, file=sys.stderr)
         if findings:

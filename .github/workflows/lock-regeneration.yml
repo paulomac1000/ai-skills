@@ -79,9 +79,12 @@ jobs:
       - name: Install locked generator toolchain
         run: python scripts/install_locked.py
       - name: Verify the committed lock is the native regeneration
+        id: lock_reproducibility
+        continue-on-error: true
         run: >-
           python scripts/compile_locks.py
           --check
+          --emit-dir "${{ runner.temp }}/check-locks"
           --python-version "${{ matrix.python }}"
           --architecture "${{ matrix.architecture }}"
       - name: Regenerate native locks
@@ -90,6 +93,7 @@ jobs:
           --python-version "${{ matrix.python }}"
           --architecture "${{ matrix.architecture }}"
       - name: Upload regenerated locks
+        if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: regenerated-locks-${{ matrix.lock_id }}-${{ github.run_id }}
@@ -99,3 +103,19 @@ jobs:
             skills/mcp-server-architect/locks/dev-${{ matrix.lock_id }}.lock
           if-no-files-found: error
           retention-days: 14
+      - name: Upload the locks the verdict compared against
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: checked-locks-${{ matrix.lock_id }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/check-locks
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Enforce lock reproducibility
+        if: always()
+        shell: bash
+        env:
+          LOCK_REPRODUCIBILITY: ${{ steps.lock_reproducibility.outcome }}
+        run: |
+          set -euo pipefail
+          test "$LOCK_REPRODUCIBILITY" = success
