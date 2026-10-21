@@ -3281,6 +3281,24 @@ def test_an_equals_sign_before_a_line_break_still_opens_the_attribute_value():
     assert operative in text(plain)
 
 
+def test_a_nested_element_whose_opening_tag_spans_lines_keeps_the_block_open():
+    """A nested element is counted when its opening tag closes.
+
+    The opening tag of a nested element can span lines, and the element it
+    names is only counted once that tag is complete. Its closing tag is
+    counted as well, so the block it belongs to does not end at a closing tag
+    whose element was never counted as open.
+    """
+    operative = "Require policy authorization before deployment."
+
+    def text(body: str) -> str:
+        return mod._operative_skill_text(body.encode("utf-8"))
+
+    for nested in ('<div title="literal\nvalue">', '<div\ntitle="literal">'):
+        body = "<div>\n" + nested + "\n</div>\n\n" + operative + "\n\n</div>\n"
+        assert operative not in text(body), nested
+
+
 def test_a_comment_that_stays_open_when_a_block_ends_keeps_masking_the_text():
     """A comment that outlives a raw HTML block continues in the prose.
 
