@@ -762,24 +762,61 @@ def _quoted_regions(line: str) -> list[tuple[int, int]]:
     def in_code(offset: int) -> bool:
         return any(begin <= offset <= end for begin, end in code_regions)
 
-    quote_regions: list[tuple[int, int]] = []
-    for opener, closer in _CLAIM_QUOTES:
-        if opener == closer == "`":
-            continue
+    def pair(opener: str, closer: str, allowed: Callable[[int], bool]) -> list[tuple[int, int]]:
+        """Return the spans of one delimiter kind."""
         if opener == closer:
-            positions = [index for index, character in enumerate(line) if character == opener and not in_code(index)]
-            for index in range(0, len(positions) - 1, 2):
-                quote_regions.append((positions[index], positions[index + 1]))
-            continue
+            positions = [index for index, character in enumerate(line) if character == opener and allowed(index)]
+            return [(positions[index], positions[index + 1]) for index in range(0, len(positions) - 1, 2)]
         opened: int | None = None
+        spans: list[tuple[int, int]] = []
         for index, character in enumerate(line):
-            if in_code(index):
+            if not allowed(index):
                 continue
             if character == opener and opened is None:
                 opened = index
             elif character == closer and opened is not None:
-                quote_regions.append((opened, index))
+                spans.append((opened, index))
                 opened = None
+        return spans
+
+    kinds = [(opener, closer) for opener, closer in _CLAIM_QUOTES if opener != "`"]
+    independent = {kind: pair(*kind, allowed=lambda index: not in_code(index)) for kind in kinds}
+
+    def enclosing(span: tuple[int, int], own: tuple[str, str]) -> bool:
+        """Report whether a delimiter of a span sits inside a shorter span.
+
+        A literal quotation mark inside an enclosing quoted span is text, so
+        it cannot pair with a mark outside that span. The shorter span is the
+        enclosing one, so a span that reaches across a shorter span of
+        another kind is not a span at all.
+        """
+        begin, end = span
+        for kind, spans in independent.items():
+            if kind == own:
+                continue
+            for other in spans:
+                if other[1] - other[0] >= end - begin:
+                    continue
+                if other[0] < begin <= other[1] or other[0] < end <= other[1]:
+                    return True
+        return False
+
+    valid = {kind: [span for span in spans if not enclosing(span, kind)] for kind, spans in independent.items()}
+
+    def literal(index: int, own: tuple[str, str]) -> bool:
+        """Report whether a delimiter sits inside a valid span of another kind."""
+        for kind, spans in valid.items():
+            if kind == own:
+                continue
+            if any(begin < index <= end for begin, end in spans):
+                return True
+        return False
+
+    quote_regions: list[tuple[int, int]] = []
+    for kind in kinds:
+        quote_regions.extend(
+            pair(*kind, allowed=lambda index, own=kind: not in_code(index) and not literal(index, own))
+        )
     regions.extend(quote_regions)
 
     def in_quote(offset: int) -> bool:

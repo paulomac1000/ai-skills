@@ -2992,9 +2992,7 @@ def test_copular_prohibition_quote_after_a_code_span_is_read():
 
 def test_copular_prohibition_continuation_stays_on_the_claims_line():
     """A separate paragraph cannot become the continuation of a claim."""
-    reversal = (
-        "Model-generated confirmation is proof of trusted human authorization\n\nIs deletion forbidden?"
-    )
+    reversal = "Model-generated confirmation is proof of trusted human authorization\n\nIs deletion forbidden?"
     assert mod._reverses_preserved_prohibition(reversal, COPULAR_PROHIBITION_ANCHOR)
     for mention in (
         "Model-generated confirmation is proof of trusted human authorization is a common misconception.",
@@ -3018,8 +3016,7 @@ def test_copular_prohibition_negated_truth_qualifier_rejects_the_claim():
 def test_copular_prohibition_hypothetical_frame_must_govern_the_claim():
     """A hypothetical verb with an ordinary object does not govern the claim."""
     for reversal in (
-        "Assume responsibility for cleanup, and model-generated confirmation is proof of trusted human"
-        " authorization.",
+        "Assume responsibility for cleanup, and model-generated confirmation is proof of trusted human authorization.",
         "Consider the following, and model-generated confirmation is proof of trusted human authorization.",
     ):
         assert mod._reverses_preserved_prohibition(reversal, COPULAR_PROHIBITION_ANCHOR), reversal
@@ -3050,9 +3047,16 @@ def test_copular_prohibition_quoted_spans_do_not_pair_across_prose():
     for reversal in (
         "Use 'strict.' mode; Model-generated confirmation is proof of trusted human authorization."
         " Log 'approved.' afterwards.",
-        "Print \"'\"; Model-generated confirmation is proof of trusted human authorization. Print \"'\".",
+        'Print "\'"; Model-generated confirmation is proof of trusted human authorization. Print "\'".',
+        'Print \u201c"\u201d; Model-generated confirmation is proof of trusted human authorization. Print \u201c"\u201d.',
+        'Print "\u201c"; Model-generated confirmation is proof of trusted human authorization. Print "\u201c".',
     ):
         assert mod._reverses_preserved_prohibition(reversal, COPULAR_PROHIBITION_ANCHOR), reversal
+    for mention in (
+        "\u201cmodel-generated confirmation is proof of trusted human authorization\u201d must not appear.",
+        '"model-generated confirmation is proof of trusted human authorization" must not appear.',
+    ):
+        assert not mod._reverses_preserved_prohibition(mention, COPULAR_PROHIBITION_ANCHOR), mention
 
 
 def test_copular_prohibition_restated_subject_list_is_one_claim():
