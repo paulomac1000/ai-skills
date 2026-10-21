@@ -1,5 +1,16 @@
 # Changelog
 
+## 3.29.6 - 2026-10-21
+
+### Fixed
+
+- The refactor-preservation checker no longer reads a comment marker inside a quoted attribute value as a comment opener. A `<!--` inside a double-quoted or single-quoted attribute value of a tag inside an active raw HTML block opened a comment, so the rest of the block was masked and a requirement after the correctly closed block was reported as lost. The block now decides its comment state with a quote-aware scan that carries the open tag, the open attribute value and the open comment across lines, so a marker inside an attribute value is literal text while a real comment still masks the requirement it contains.
+- The dependency locks are now verified against the repository's own generator. A merged dependency bump could ship a declared requirement with a stale lock, because nothing compared the committed lock with what the generator produces from the committed requirement, and the lock-regeneration job only uploaded the regenerated locks as an artifact. The check compiles the native lock from the committed requirement, compares the bytes of all three lock families with the committed content, and fails closed on a missing lock, a missing declared requirement, a failed compilation and a difference. The local gate proves the native target and the hosted matrix proves every declared target on its own runner.
+
+### Changed
+
+- The dependency lock contract states that a committed lock is what the canonical generator produces from its committed requirement, that the gate fails closed when it is not, and that the check makes no exact-reproducibility claim against a mutable upstream index. The committed lock is the generator's constraint, so the check keeps the pinned versions instead of re-resolving them; re-resolving every pinned version remains the separate, reviewable refresh operation.
+
 ## 3.29.5 - 2026-10-21
 
 ### Fixed
