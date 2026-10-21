@@ -3299,6 +3299,28 @@ def test_a_nested_element_whose_opening_tag_spans_lines_keeps_the_block_open():
         assert operative not in text(body), nested
 
 
+def test_a_comparison_operator_in_a_block_does_not_hold_the_block_open():
+    """A comparison operator is prose, so the block still closes at its tag.
+
+    A tag name follows the opening angle bracket directly, so "< b" in an
+    example is a comparison and not a tag. It must not be carried as markup,
+    because the closing tag of the block is then counted from the wrong place
+    and the block never ends.
+    """
+    operative = "Require policy authorization before deployment."
+
+    def text(body: str) -> str:
+        return mod._operative_skill_text(body.encode("utf-8"))
+
+    for comparison in ("if (a < b) {", "x < y", "a <b and b > c"):
+        body = "<pre>\n" + comparison + "\n</pre>\n\n" + operative + "\n"
+        assert operative in text(body), comparison
+    # A name that follows the angle bracket directly is a tag, so it swallows
+    # the rest of the block and the requirement stays masked.
+    swallowed = "<pre>\nif (a <b) {\n</pre>\n\n" + operative + "\n"
+    assert operative not in text(swallowed)
+
+
 def test_a_comment_that_stays_open_when_a_block_ends_keeps_masking_the_text():
     """A comment that outlives a raw HTML block continues in the prose.
 

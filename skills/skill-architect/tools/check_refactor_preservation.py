@@ -1252,7 +1252,9 @@ def _scan_html_tag(text: str, start: int) -> tuple[int, bool, bool]:
     return len(text), False, False
 
 
-_HTML_TAG_START = re.compile(r"<\s*/?\s*[A-Za-z]")
+# A tag name follows the opening angle bracket directly, so a comparison
+# operator such as "< b" is prose and never opens a tag.
+_HTML_TAG_START = re.compile(r"</?[A-Za-z]")
 
 
 def _remove_html_comments(text: str) -> str:
