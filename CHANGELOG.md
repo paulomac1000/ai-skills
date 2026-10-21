@@ -1,5 +1,17 @@
 # Changelog
 
+## 3.29.5 - 2026-10-21
+
+### Fixed
+
+- The refactor-preservation checker now rejects a reversal of a preserved prohibition that is stated in copular form. A pinned obligation that states "X is not Y" could be reversed by a separate instruction that deleted the negation token, because the checker recognized only the imperative "do not" and "never" forms; such a candidate was certified as structurally preserved. The copular form is now compared as a whole and per item of a negated subject list, and a claim that is only quoted, hypothetical, rejected or otherwise mentioned is not treated as a reversal.
+- The mention detection of that comparison was narrowed, because an earlier version of it could silence a plain assertion. The bare copulas, the negation words and the plain complementizer "that" are no longer mention frames, a reporting verb governs only the claim it introduces directly on the same line, a line break ends the reach of a frame, and only a matched pair of quote or code delimiters delimits a quoted span. An unbalanced delimiter in an earlier paragraph therefore no longer suppresses a later claim, and a claim that a reporting verb introduces through a complement is reported instead of silently accepted.
+- Correction: the 3.29.0 section stated that no deterministic structure check can separate a separate instruction asserting the opposite of a prohibition from legitimate conditional normative content, and placed both residual classes in the independent semantic review lane. The checker now rejects the mechanical polarity flip of a prohibition stated in the imperative form ("do not X", "never X") or in the copular form ("X is not Y"). The independent semantic review lane still covers a separate instruction that restricts the applicability of a pinned obligation, a separate instruction whose restatement does not reuse the pinned wording, including a different number, spelling or predicate, a separate instruction that reports the claim by introducing it directly, and a separate instruction that states the opposite claim and rejects it afterwards, which the checker reports in the fail-closed direction.
+
+### Changed
+
+- The skill-architect semantic-preserving refactoring contract and its migration playbook now state that narrowed residual. The reviewed baseline inventory, the pinned pilot anchors and the reviewed entrypoint routes are unchanged; only the candidate file bindings of the synthetic pilot ledger were repinned for the edited contract text.
+
 ## 3.29.4 - 2026-10-20
 
 ### Changed

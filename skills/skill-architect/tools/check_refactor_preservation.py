@@ -16,6 +16,7 @@ import os
 import re
 import stat
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -550,8 +551,451 @@ def _contradicts_owner(text: str, anchor: str) -> bool:
     return False
 
 
+# A preserved prohibition can state its negative claim in copular form
+# ("X is not Y"). Deleting the negation token leaves a well-formed sentence
+# that asserts the opposite, so a candidate can reverse the obligation while
+# using no imperative "do not"/"never" construction at all. The subject may not
+# contain a copula, so the captured subject is always the one the negation
+# belongs to.
+_COPULAR_NEGATION = re.compile(
+    r"(?P<subject>(?:(?!\b(?:is|are|was|were)\b)[^.;:!?\n])+?)"
+    r"\s+(?P<copula>is|are|was|were)\s+not\s+"
+    r"(?P<predicate>[^.;:!?\n]+)",
+    re.IGNORECASE,
+)
+
+# A complementizer or a stance word introduces an embedded mention, a
+# quotation or a hypothesis instead of asserting the claim itself. Only a
+# frame that still governs the claim suppresses it, and a clause boundary
+# ends that scope. The bare copulas, the negation words and the plain
+# complementizer "that" are deliberately absent: they are the construction
+# under test, and admitting them let any earlier copula or any inserted
+# "that" silence a plain assertion. A reporting verb that adopts the claim
+# ("states", "says", "writes") belongs to the same class for the same reason.
+# A hypothetical frame takes a clause directly, so it keeps its scope across
+# a comma or a coordination: "Suppose, for the sake of argument, an external
+# page is proof of ..." is still hypothetical, and a hypothetical covers every
+# claim it coordinates.
+_CLAIM_FRAME_HYPOTHETICAL = re.compile(
+    r"\b(?:suppose|supposing|assume|assuming|imagine|imagining|hypothetically)\b",
+    re.IGNORECASE,
+)
+
+# A frame that qualifies the statement that follows loses its scope at a
+# comma or a coordination, unless a complementizer introduces the clause it
+# governs: a stance word in a purpose phrase before a comma describes the
+# purpose of the instruction, while "It is false that, in this context, ..."
+# governs the clause its complementizer introduces, and that clause covers
+# every claim it coordinates.
+_CLAIM_FRAME_QUALIFIER = re.compile(
+    r"\b(?:whether|if|unless|not\s+the\s+case|"
+    r"not\s+(?:true|correct|valid|accurate)|"
+    r"false|incorrect|wrong|forbidden|prohibited|banned|untrue|"
+    r"inaccurate|unfounded|"
+    r"rejects|rejected|denies|denied|refutes|refuted|rebuts|rebutted|"
+    r"disputes|disputed|forbids|forbidden|prohibits|prohibit|prohibited|"
+    r"contradicts|contradiction)\b",
+    re.IGNORECASE,
+)
+
+# A noun qualifier names a topic, and "that" after it starts a relative
+# clause rather than a content clause, so its scope never crosses a
+# coordination.
+_CLAIM_FRAME_NOUN = re.compile(
+    r"\b(?:misconceptions?|myths?|mistakes?|errors?)\b",
+    re.IGNORECASE,
+)
+
+# A complementizer introduces the clause that a qualifying frame governs.
+_CLAIM_COMPLEMENTIZER = re.compile(r"^(?:that|whether|which)\b", re.IGNORECASE)
+
+# A reporting or attitude verb introduces the claim as its own complement.
+# It governs only when it introduces the claim directly, so the same word used
+# as a noun cannot silence a later assertion, and a line break between the
+# verb and the claim ends its reach.
+_CLAIM_REPORT = re.compile(
+    r"\b(?:claims?|claimed|asserts?|asserted|states?|stated|says?|said|"
+    r"argues?|argued|describes?|described|mentions?|mentioned|"
+    r"notes?|noted|reports?|reported|insists?|insisted|"
+    r"proposes?|proposed|suggests?|suggested|assumes?|assumed|"
+    r"believes?|believed|thinks?|thought|writes?|wrote|written|"
+    r"declares?|declared|warns?|warned|"
+    r"doubts?|doubted|fears?|feared|hopes?|hoped|wonders?|wondered|"
+    r"suspects?|suspected|pretends?|pretended|guesses?|guessed|"
+    r"recalls?|recalled|remembers?|remembered)\b",
+    re.IGNORECASE,
+)
+
+# The claim can be the subject of a further predicate. It is then a mention
+# only when that continuation rejects the claim. A topic word alone is not
+# enough, because a continuation that calls the claim the correct statement
+# endorses it, and a continuation that denies the topic negates the
+# rejection: "is not a misconception" states that the claim is true.
+_CLAIM_REJECTION = re.compile(
+    r"\b(?:false|wrong|incorrect|untrue|inaccurate|unfounded|baseless|mistaken|spurious|"
+    r"misconceptions?|myths?|mistakes?|errors?|rejected|denied|refuted|disputed|"
+    r"forbidden|prohibited|banned)\b|not\s+(?:true|correct|valid)\b",
+    re.IGNORECASE,
+)
+
+# A rejection marker that the continuation itself negates does not reject the
+# claim.
+_NEGATED_MARKER = re.compile(r"\b(?:not|no|never|isn't|aren't)\s+(?:a|an|the)?\s*$", re.IGNORECASE)
+
+# A negator in front of the subject denies the claim rather than asserting
+# it: "No model-generated confirmation is proof of trusted human authorization"
+# and "Neither model-generated confirmation nor an external page is proof of
+# trusted human authorization" both reinforce the preserved prohibition.
+_SUBJECT_NEGATION = re.compile(r"\b(?:no|neither|nor)\s+(?:the|a|an|any|either)?\s*$", re.IGNORECASE)
+
+# A clause boundary ends a frame's scope: beyond it the claim is asserted
+# again in its own right. A line break is a boundary too, so a frame in an
+# earlier paragraph cannot reach a claim in a later one. A colon is a
+# boundary as well, because it starts a new statement: a stance word in a
+# purpose phrase before a colon describes the purpose of the instruction and
+# does not govern the claim that the colon introduces.
+_CLAUSE_BREAKER = re.compile(
+    r"\n|[,;:]|[.!?](?=\s|$)|"
+    r"\b(?:and|or|but|so|then|because|since|therefore|however|although|"
+    r"though|whereas|additionally|moreover|otherwise|nevertheless|"
+    r"nonetheless|furthermore|hence|thus|instead)\b",
+    re.IGNORECASE,
+)
+
+# A frame that takes a clause directly does not lose its scope at a comma or
+# at a coordination, because a clause may contain a parenthetical and may
+# coordinate several claims. A coordinating conjunction joins elements inside
+# one clause, so it keeps the scope; an adversative or sequencer conjunction
+# joins independent clauses, so it ends the scope.
+_CLAUSE_BREAKER_SENTENCE = re.compile(
+    r"\n|[;:]|[.!?](?=\s|$)|"
+    r",\s*(?:and|or)\b|"
+    r"\b(?:but|however|although|though|whereas|while|yet|nevertheless|"
+    r"nonetheless|instead|so|then|because|since|therefore|hence|thus)\b",
+    re.IGNORECASE,
+)
+
+# Quote and code delimiters that can enclose a claim without asserting it.
+# Each entry is an opening and a closing delimiter.
+_CLAIM_QUOTES = (('"', '"'), ("\u201c", "\u201d"), ("`", "`"))
+
+
+def _copular_negative_claims(anchor: str) -> list[tuple[str, str, str]]:
+    """Return the (subject, copula, predicate) triples a pinned anchor denies.
+
+    A negated subject list is compared both as a whole and per item, because
+    a candidate can restate the disjunction in either shape. The predicate is
+    also compared without a trailing clause, because a narrowing suffix
+    belongs to the separate applicability residual and not to the polarity of
+    the claim.
+    """
+    claims: list[tuple[str, str, str]] = []
+    for match in _COPULAR_NEGATION.finditer(anchor):
+        copula = match.group("copula").lower()
+        predicate = match.group("predicate").strip()
+        head = predicate.split(",")[0].strip()
+        raw = match.group("subject").strip()
+        parts = [raw]
+        for part in re.split(r",|\bor\b", raw):
+            subject = re.sub(r"^(?:and|or)\s+", "", part.strip(), flags=re.IGNORECASE).strip()
+            if subject and subject not in parts:
+                parts.append(subject)
+        for subject in parts:
+            for candidate in (predicate, head):
+                if candidate and (subject, copula, candidate) not in claims:
+                    claims.append((subject, copula, candidate))
+    return claims
+
+
+def _flexible_literal(text: str) -> str:
+    """Escape a literal for matching, letting its whitespace vary."""
+    return re.escape(text).replace(r"\ ", r"\s+")
+
+
+def _backtick_runs(line: str) -> list[tuple[int, int, int]]:
+    """Return the (start, end, length) of every backtick run in a line."""
+    runs: list[tuple[int, int, int]] = []
+    index = 0
+    while index < len(line):
+        if line[index] != "`":
+            index += 1
+            continue
+        end = index
+        while end < len(line) and line[end] == "`":
+            end += 1
+        runs.append((index, end, end - index))
+        index = end
+    return runs
+
+
+def _quoted_regions(line: str) -> list[tuple[int, int]]:
+    """Return the closed quoted and code spans of a line.
+
+    Only a matched pair delimits a span. Straight quotes pair with
+    themselves, a directional opening mark pairs with its closing mark, and
+    a code span is delimited by two backtick runs of equal length. A
+    delimiter that is never closed is literal text, and the scan continues
+    after it. Code spans are recognised first, so a literal quotation mark
+    inside a code span cannot pair with a mark outside it.
+    """
+    regions: list[tuple[int, int]] = []
+    code_regions: list[tuple[int, int]] = []
+    runs = _backtick_runs(line)
+    index = 0
+    while index < len(runs):
+        run_start, _run_end, length = runs[index]
+        closing = None
+        for later in range(index + 1, len(runs)):
+            if runs[later][2] == length:
+                closing = later
+                break
+        if closing is None:
+            # An unmatched run is literal text; the scan continues.
+            index += 1
+            continue
+        code_regions.append((run_start, runs[closing][1] - 1))
+        # The closing delimiter is consumed with its opener, so it cannot
+        # also open the next span.
+        index = closing + 1
+    regions.extend(code_regions)
+
+    def in_code(offset: int) -> bool:
+        return any(begin <= offset <= end for begin, end in code_regions)
+
+    def pair(opener: str, closer: str, allowed: Callable[[int], bool]) -> list[tuple[int, int]]:
+        """Return the spans of one delimiter kind."""
+        if opener == closer:
+            positions = [index for index, character in enumerate(line) if character == opener and allowed(index)]
+            return [(positions[index], positions[index + 1]) for index in range(0, len(positions) - 1, 2)]
+        opened: int | None = None
+        spans: list[tuple[int, int]] = []
+        for index, character in enumerate(line):
+            if not allowed(index):
+                continue
+            if character == opener and opened is None:
+                opened = index
+            elif character == closer and opened is not None:
+                spans.append((opened, index))
+                opened = None
+        return spans
+
+    kinds = [(opener, closer) for opener, closer in _CLAIM_QUOTES if opener != "`"]
+    independent = {kind: pair(*kind, allowed=lambda index: not in_code(index)) for kind in kinds}
+
+    def enclosing(span: tuple[int, int], own: tuple[str, str]) -> bool:
+        """Report whether a delimiter of a span sits inside a shorter span.
+
+        A literal quotation mark inside an enclosing quoted span is text, so
+        it cannot pair with a mark outside that span. The shorter span is the
+        enclosing one, so a span that reaches across a shorter span of
+        another kind is not a span at all.
+        """
+        begin, end = span
+        for kind, spans in independent.items():
+            if kind == own:
+                continue
+            for other in spans:
+                if other[1] - other[0] >= end - begin:
+                    continue
+                if other[0] < begin <= other[1] or other[0] < end <= other[1]:
+                    return True
+        return False
+
+    valid = {kind: [span for span in spans if not enclosing(span, kind)] for kind, spans in independent.items()}
+
+    def literal(index: int, own: tuple[str, str]) -> bool:
+        """Report whether a delimiter sits inside a valid span of another kind."""
+        for kind, spans in valid.items():
+            if kind == own:
+                continue
+            if any(begin < index <= end for begin, end in spans):
+                return True
+        return False
+
+    quote_regions: list[tuple[int, int]] = []
+    for kind in kinds:
+        quote_regions.extend(
+            pair(*kind, allowed=lambda index, own=kind: not in_code(index) and not literal(index, own))
+        )
+    regions.extend(quote_regions)
+
+    def in_quote(offset: int) -> bool:
+        return in_code(offset) or any(begin <= offset <= end for begin, end in quote_regions)
+
+    # A single quote is paired last, so a literal quote character inside an
+    # enclosing quoted span cannot pair with a mark outside it.
+    regions.extend(_single_quote_regions(line, in_quote))
+    return regions
+
+
+def _is_word_character(character: str) -> bool:
+    """Report whether a character can be part of a word."""
+    return character.isalnum() or character == "_"
+
+
+def _is_followed_by_word(line: str, index: int) -> bool:
+    """Report whether a word follows an offset, ignoring the spaces before it."""
+    rest = line[index + 1 :].lstrip()
+    return bool(rest) and _is_word_character(rest[0])
+
+
+def _single_quote_regions(line: str, excluded: Callable[[int], bool]) -> list[tuple[int, int]]:
+    """Return the single-quoted spans of a line.
+
+    A single quote opens a span when no word character precedes it and closes
+    one when no word character follows it, so an apostrophe inside a word is
+    never a delimiter. A possessive apostrophe inside a quoted span is followed
+    by a word and is not the last mark on the line, so it does not close the
+    span. A matched pair is consumed, so its closing mark cannot also open the
+    next span.
+    """
+    marks = [index for index, character in enumerate(line) if character == "'" and not excluded(index)]
+    openers = [index for index in marks if index == 0 or not _is_word_character(line[index - 1])]
+    closers = [index for index in marks if index == len(line) - 1 or not _is_word_character(line[index + 1])]
+    regions: list[tuple[int, int]] = []
+    used: set[int] = set()
+    for opener in openers:
+        if opener in used:
+            continue
+        for closer in closers:
+            if closer <= opener or closer in used:
+                continue
+            if _is_followed_by_word(line, closer) and not any(later > closer for later in openers):
+                # A possessive apostrophe inside the span, not its closing mark.
+                continue
+            regions.append((opener, closer))
+            used.add(closer)
+            used.add(opener)
+            break
+    return regions
+
+
+def _inside_quoted_span(text: str, start: int) -> bool:
+    """Report whether an offset falls inside a closed quoted or code span.
+
+    The pairing is read from the claim's logical line alone, because a
+    quoted mention never crosses a line break, so a delimiter in an earlier
+    paragraph cannot silence a later claim.
+    """
+    line_start = text.rfind("\n", 0, start) + 1
+    line_end = text.find("\n", start)
+    if line_end < 0:
+        line_end = len(text)
+    line = text[line_start:line_end]
+    offset = start - line_start
+    return any(begin < offset <= end for begin, end in _quoted_regions(line))
+
+
+def _unquoted_matches(text: str, pattern: re.Pattern[str], end: int) -> list[re.Match[str]]:
+    """Return the matches before `end` that are not inside a quoted span.
+
+    Literal content cannot govern a claim: a hypothetical word inside a code
+    span is a mode name, not a frame.
+    """
+    found: list[re.Match[str]] = []
+    for match in pattern.finditer(text, 0, end):
+        if _inside_quoted_span(text, match.start()):
+            continue
+        found.append(match)
+    return found
+
+
+def _unquoted_negation_before(text: str, pattern: re.Pattern[str], end: int) -> bool:
+    """Report whether an unquoted negator ends the text before `end`."""
+    match = pattern.search(text[:end])
+    if match is None:
+        return False
+    return not _inside_quoted_span(text, match.start())
+
+
+def _first_unquoted_boundary(text: str, pattern: re.Pattern[str], start: int, end: int) -> int | None:
+    """Return the offset of the first boundary outside a quoted span.
+
+    A boundary word inside a quoted or code span is literal content, so it
+    cannot end the scope of a frame.
+    """
+    for match in pattern.finditer(text[start:end]):
+        if not _inside_quoted_span(text, start + match.start()):
+            return start + match.start()
+    return None
+
+
+def _copular_claim_is_asserted(text: str, start: int, end: int, scope_start: int | None = None) -> bool:
+    """Decide whether a matched positive claim is asserted, not merely mentioned.
+
+    A claim is denied, not asserted, when a negator governs its subject.
+    Otherwise it is only mentioned when it is quoted, when the predicate that
+    follows it rejects it, or when a frame that introduces an embedded clause
+    still governs it. A frame that introduces a clause keeps its scope across
+    a comma, because the clause may contain a parenthetical. A frame that
+    qualifies the statement stops governing the claim at a clause boundary,
+    unless a complementizer introduces the clause it governs. A reporting or
+    attitude verb governs only the claim it introduces directly on the same
+    line, so the same word used as a noun cannot silence a later assertion.
+
+    The scope starts at the beginning of the longest claim that ends with the
+    same predicate, so a subject list is read as one claim and the list's own
+    coordination is not read as a clause boundary.
+    """
+    origin = start if scope_start is None else scope_start
+    if _inside_quoted_span(text, start):
+        return False
+    if _unquoted_negation_before(text, _SUBJECT_NEGATION, origin):
+        return False
+    # The continuation is read on the claim's own line: a paragraph break
+    # ends the claim, so a separate paragraph cannot become its continuation.
+    continuation = re.match(r"[^\S\n]+(?:is|are|was|were)\b", text[end:], re.IGNORECASE)
+    if continuation:
+        # The claim is the subject of a further predicate. It is a mention
+        # only when that predicate rejects it; an endorsing continuation
+        # leaves the claim asserted. The continuation is read alone, so later
+        # prose cannot suppress the claim.
+        topic_start = end + continuation.end()
+        boundary = _first_unquoted_boundary(text, _CLAUSE_BREAKER, topic_start, len(text))
+        topic = text[topic_start : boundary if boundary is not None else len(text)]
+        for match in _CLAIM_REJECTION.finditer(topic):
+            # A rejection word inside a quoted span names something else.
+            if _inside_quoted_span(text, topic_start + match.start()):
+                continue
+            if not _NEGATED_MARKER.search(topic[: match.start()]):
+                return False
+    hypotheticals = _unquoted_matches(text, _CLAIM_FRAME_HYPOTHETICAL, origin)
+    if hypotheticals:
+        if _first_unquoted_boundary(text, _CLAUSE_BREAKER_SENTENCE, hypotheticals[-1].end(), origin) is None:
+            return False
+    qualifiers = [(match, False) for match in _unquoted_matches(text, _CLAIM_FRAME_QUALIFIER, origin)] + [
+        (match, True) for match in _unquoted_matches(text, _CLAIM_FRAME_NOUN, origin)
+    ]
+    if qualifiers:
+        qualifier, is_noun = max(qualifiers, key=lambda item: item[0].start())
+        # A qualifier that the sentence negates does not reject the claim:
+        # "It is not false that ..." endorses the claim instead.
+        if not _unquoted_negation_before(text, _NEGATED_MARKER, qualifier.start()):
+            rest = text[qualifier.end() : origin]
+            if not is_noun and _CLAIM_COMPLEMENTIZER.match(rest.lstrip()):
+                # The complementizer introduces the clause that the qualifier
+                # governs, so a comma or a coordination inside that clause
+                # does not end its scope.
+                if _first_unquoted_boundary(text, _CLAUSE_BREAKER_SENTENCE, qualifier.end(), origin) is None:
+                    return False
+            elif _first_unquoted_boundary(text, _CLAUSE_BREAKER, qualifier.end(), origin) is None:
+                return False
+    reports = _unquoted_matches(text, _CLAIM_REPORT, origin)
+    if reports:
+        gap = text[reports[-1].end() : origin]
+        if not gap.strip() and "\n" not in gap:
+            return False
+    return True
+
+
 def _reverses_preserved_prohibition(text: str, anchor: str) -> bool:
-    """Detect positive instructions reversing a separately preserved 'do not' obligation."""
+    """Detect positive instructions reversing a separately preserved prohibition.
+
+    A preserved prohibition is stated either imperatively ("do not X",
+    "never X") or copularly ("X is not Y"). Both forms can be reversed by a
+    positive instruction, and the copular form is mechanically reversible
+    because deleting its negation token leaves a well-formed sentence.
+    """
     negative_clauses = re.findall(
         r"\b(?:do\s+not|never)\s+([a-z][a-z0-9 -]{4,100})(?=[.!?]|$)",
         anchor,
@@ -567,6 +1011,27 @@ def _reverses_preserved_prohibition(text: str, anchor: str) -> bool:
                     re.IGNORECASE,
                 ):
                     return True
+    found: list[tuple[int, int]] = []
+    for subject, copula, predicate in _copular_negative_claims(anchor):
+        pattern = re.compile(
+            r"(?<![A-Za-z0-9])"
+            + _flexible_literal(subject)
+            + r"\s+"
+            + re.escape(copula)
+            + r"\s+"
+            + _flexible_literal(predicate)
+            + r"(?![A-Za-z0-9])",
+            re.IGNORECASE,
+        )
+        for match in pattern.finditer(text):
+            found.append((match.start(), match.end()))
+    for start, end in found:
+        # A subject list is one claim, so the scope of a list item starts where
+        # the longest claim with the same predicate starts. The list's own
+        # coordination is part of the claim and not a clause boundary.
+        scope_start = min(other for other, other_end in found if other_end == end)
+        if _copular_claim_is_asserted(text, start, end, scope_start):
+            return True
     return False
 
 
