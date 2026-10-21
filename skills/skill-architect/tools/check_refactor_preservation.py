@@ -725,36 +725,45 @@ def _quoted_regions(line: str) -> list[tuple[int, int]]:
     themselves, a directional opening mark pairs with its closing mark, and
     a code span is delimited by two backtick runs of equal length. A
     delimiter that is never closed is literal text, and the scan continues
-    after it.
+    after it. Code spans are recognised first, so a literal quotation mark
+    inside a code span cannot pair with a mark outside it.
     """
     regions: list[tuple[int, int]] = []
+    code_regions: list[tuple[int, int]] = []
+    runs = _backtick_runs(line)
+    index = 0
+    while index < len(runs):
+        run_start, _run_end, length = runs[index]
+        closing = None
+        for later in range(index + 1, len(runs)):
+            if runs[later][2] == length:
+                closing = later
+                break
+        if closing is None:
+            # An unmatched run is literal text; the scan continues.
+            index += 1
+            continue
+        code_regions.append((run_start, runs[closing][1]))
+        # The closing delimiter is consumed with its opener, so it cannot
+        # also open the next span.
+        index = closing + 1
+    regions.extend(code_regions)
+
+    def in_code(offset: int) -> bool:
+        return any(begin <= offset <= end for begin, end in code_regions)
+
     for opener, closer in _CLAIM_QUOTES:
         if opener == closer == "`":
-            runs = _backtick_runs(line)
-            index = 0
-            while index < len(runs):
-                run_start, _run_end, length = runs[index]
-                closing = None
-                for later in range(index + 1, len(runs)):
-                    if runs[later][2] == length:
-                        closing = later
-                        break
-                if closing is None:
-                    # An unmatched run is literal text; the scan continues.
-                    index += 1
-                    continue
-                regions.append((run_start, runs[closing][1]))
-                # The closing delimiter is consumed with its opener, so it
-                # cannot also open the next span.
-                index = closing + 1
             continue
         if opener == closer:
-            positions = [index for index, character in enumerate(line) if character == opener]
+            positions = [index for index, character in enumerate(line) if character == opener and not in_code(index)]
             for index in range(0, len(positions) - 1, 2):
                 regions.append((positions[index], positions[index + 1]))
             continue
         opened: int | None = None
         for index, character in enumerate(line):
+            if in_code(index):
+                continue
             if character == opener and opened is None:
                 opened = index
             elif character == closer and opened is not None:
@@ -801,6 +810,18 @@ def _unquoted_negation_before(text: str, pattern: re.Pattern[str], end: int) -> 
     return not _inside_quoted_span(text, match.start())
 
 
+def _first_unquoted_boundary(text: str, pattern: re.Pattern[str], start: int, end: int) -> int | None:
+    """Return the offset of the first boundary outside a quoted span.
+
+    A boundary word inside a quoted or code span is literal content, so it
+    cannot end the scope of a frame.
+    """
+    for match in pattern.finditer(text[start:end]):
+        if not _inside_quoted_span(text, start + match.start()):
+            return start + match.start()
+    return None
+
+
 def _copular_claim_is_asserted(text: str, start: int, end: int) -> bool:
     """Decide whether a matched positive claim is asserted, not merely mentioned.
 
@@ -824,17 +845,15 @@ def _copular_claim_is_asserted(text: str, start: int, end: int) -> bool:
         # only when that predicate rejects it; an endorsing continuation
         # leaves the claim asserted. The continuation is read alone, so later
         # prose cannot suppress the claim.
-        topic = text[end + continuation.end() :]
-        boundary = _CLAUSE_BREAKER.search(topic)
-        if boundary:
-            topic = topic[: boundary.start()]
+        topic_start = end + continuation.end()
+        boundary = _first_unquoted_boundary(text, _CLAUSE_BREAKER, topic_start, len(text))
+        topic = text[topic_start : boundary if boundary is not None else len(text)]
         for match in _CLAIM_REJECTION.finditer(topic):
             if not _NEGATED_MARKER.search(topic[: match.start()]):
                 return False
     hypotheticals = _unquoted_matches(text, _CLAIM_FRAME_HYPOTHETICAL, start)
     if hypotheticals:
-        gap = text[hypotheticals[-1].end() : start]
-        if not _CLAUSE_BREAKER_SENTENCE.search(gap):
+        if _first_unquoted_boundary(text, _CLAUSE_BREAKER_SENTENCE, hypotheticals[-1].end(), start) is None:
             return False
     qualifiers = _unquoted_matches(text, _CLAIM_FRAME_QUALIFIER, start)
     if qualifiers:
@@ -847,9 +866,9 @@ def _copular_claim_is_asserted(text: str, start: int, end: int) -> bool:
                 # The complementizer introduces the clause that the qualifier
                 # governs, so a comma or a coordination inside that clause
                 # does not end its scope.
-                if not _CLAUSE_BREAKER_SENTENCE.search(rest):
+                if _first_unquoted_boundary(text, _CLAUSE_BREAKER_SENTENCE, qualifier.end(), start) is None:
                     return False
-            elif not _CLAUSE_BREAKER.search(rest):
+            elif _first_unquoted_boundary(text, _CLAUSE_BREAKER, qualifier.end(), start) is None:
                 return False
     reports = _unquoted_matches(text, _CLAIM_REPORT, start)
     if reports:
