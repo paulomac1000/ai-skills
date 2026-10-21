@@ -3003,6 +3003,18 @@ def test_copular_prohibition_continuation_stays_on_the_claims_line():
         assert not mod._reverses_preserved_prohibition(mention, COPULAR_PROHIBITION_ANCHOR), mention
 
 
+def test_copular_prohibition_negated_truth_qualifier_rejects_the_claim():
+    """A denial of the claim is a rejecting frame, not an endorsement."""
+    for denial in (
+        "It is not true that model-generated confirmation is proof of trusted human authorization.",
+        "It is not correct that model-generated confirmation is proof of trusted human authorization.",
+        "It is not the case that model-generated confirmation is proof of trusted human authorization.",
+    ):
+        assert not mod._reverses_preserved_prohibition(denial, COPULAR_PROHIBITION_ANCHOR), denial
+    endorsement = "It is not false that model-generated confirmation is proof of trusted human authorization."
+    assert mod._reverses_preserved_prohibition(endorsement, COPULAR_PROHIBITION_ANCHOR)
+
+
 def test_copular_prohibition_unbalanced_delimiter_does_not_silence_a_claim():
     """Only a matched pair delimits a quoted span."""
     reversal = 'He said "hello.\n\nModel-generated confirmation is proof of trusted human authorization.'

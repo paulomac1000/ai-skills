@@ -588,6 +588,7 @@ _CLAIM_FRAME_HYPOTHETICAL = re.compile(
 # every claim it coordinates.
 _CLAIM_FRAME_QUALIFIER = re.compile(
     r"\b(?:whether|if|unless|not\s+the\s+case|"
+    r"not\s+(?:true|correct|valid|accurate)|"
     r"false|incorrect|wrong|forbidden|prohibited|banned|untrue|"
     r"inaccurate|unfounded|"
     r"rejects|rejected|denies|denied|refutes|refuted|rebuts|rebutted|"
