@@ -1200,11 +1200,14 @@ def _logical_lines(text: str, *, preserve_blank: bool = False) -> list[str]:
 
 # A raw HTML block starts at a block-level tag. The opening tag may continue
 # on the following lines, so the start is recognised before the tag is
-# complete; the block is then masked through its closing tag.
+# complete; the block is then masked through its closing tag. The tag name
+# must be complete, so only a real delimiter may follow it and an element
+# whose name merely starts with a tracked name, such as "div-other", is
+# another element and does not open a block.
 _RAW_HTML_START = re.compile(
     r"^[ ]{0,3}<(?P<tag>pre|script|style|textarea|details|div|table|"
     r"section|article|figure|blockquote|p|ul|ol|li|template|iframe|object|"
-    r"code|noscript|form|fieldset|canvas|svg|x-[A-Za-z0-9-]+)\b",
+    r"code|noscript|form|fieldset|canvas|svg|x-[A-Za-z0-9-]+)(?=[\s/>]|$)",
     re.IGNORECASE,
 )
 
@@ -1306,7 +1309,10 @@ def _html_scan(text: str, tag: str, state: _HtmlState) -> tuple[list[tuple[int, 
     """
     spans: list[tuple[int, int]] = []
     depth = 0
-    pattern = re.compile(r"<\s*(/?)\s*" + re.escape(tag) + r"\b", re.IGNORECASE)
+    # The tag name must be complete: only a real delimiter may follow it, so
+    # "div-other", "div:other", "div.foo" and "div2" are other elements and
+    # never open or close the block element.
+    pattern = re.compile(r"<\s*(/?)\s*" + re.escape(tag) + r"(?=[\s/>]|$)", re.IGNORECASE)
     in_tag = state.in_tag
     quote = state.quote
     in_comment = state.in_comment
