@@ -3222,3 +3222,23 @@ def test_a_comment_marker_in_the_raw_html_opening_tag_is_literal_text():
     ):
         body = opening + "\n" + closing + "\n\n" + operative + "\n"
         assert operative in text(body), opening
+
+
+def test_a_comment_that_stays_open_when_a_block_ends_keeps_masking_the_text():
+    """A comment that outlives a raw HTML block continues in the prose.
+
+    A comment that starts on the line that closes a block, or on a line that
+    opens and closes it, used to be dropped with the block, so the requirement
+    it masked was certified as operative.
+    """
+    operative = "Require policy authorization before deployment."
+
+    def text(body: str) -> str:
+        return mod._operative_skill_text(body.encode("utf-8"))
+
+    for body in (
+        "<div></div><!--\n\n" + operative + "\n\n-->\n",
+        "<div>\n</div>\n<!--\n\n" + operative + "\n\n-->\n",
+        "<div>\n<!--\n</div>\n\n" + operative + "\n\n-->\n",
+    ):
+        assert operative not in text(body), body

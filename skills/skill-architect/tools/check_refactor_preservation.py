@@ -1455,6 +1455,10 @@ def _operative_skill_text(content: bytes) -> str:
                     raw_html_opening = False
                     raw_html_depth = _html_depth_delta(raw_html_buffer, raw_html_tag)
                     if raw_html_depth <= 0:
+                        # A comment that is still open when the block ends
+                        # continues in the surrounding prose, so the text it
+                        # masks stays masked.
+                        comment_open = comment_open or raw_html_state[2]
                         raw_html_tag = ""
                         kept.append("")
                 continue
@@ -1468,6 +1472,9 @@ def _operative_skill_text(content: bytes) -> str:
                 line = line[:begin] + " " + line[end:]
             raw_html_depth += _html_depth_delta(line, raw_html_tag)
             if raw_html_depth <= 0:
+                # A comment that is still open when the block ends continues in
+                # the surrounding prose, so the text it masks stays masked.
+                comment_open = comment_open or raw_html_state[2]
                 raw_html_tag = ""
                 kept.append("")
             continue
@@ -1490,6 +1497,10 @@ def _operative_skill_text(content: bytes) -> str:
             if not raw_html_opening:
                 raw_html_depth = _html_depth_delta(raw_html_buffer, raw_html_tag)
                 if raw_html_depth <= 0:
+                    # A block that opens and closes on one line can still leave
+                    # a comment open, and that comment continues in the
+                    # surrounding prose, so the text it masks stays masked.
+                    comment_open = comment_open or raw_html_state[2]
                     raw_html_tag = ""
             continue
         # A fence opener is literal content. Its info string may contain any
