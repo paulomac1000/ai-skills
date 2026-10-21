@@ -2827,6 +2827,16 @@ def test_copular_prohibition_directional_quotes_are_paired():
         assert not mod._reverses_preserved_prohibition(mention, COPULAR_PROHIBITION_ANCHOR), mention
 
 
+def test_copular_prohibition_stance_word_before_a_colon_does_not_govern():
+    """A colon starts a new statement, so a stance word before it cannot govern."""
+    for reversal in (
+        "To avoid errors: Model-generated confirmation is proof of trusted human authorization.",
+        "To avoid false claims: Model-generated confirmation is proof of trusted human authorization.",
+        "For the record: Model-generated confirmation is proof of trusted human authorization.",
+    ):
+        assert mod._reverses_preserved_prohibition(reversal, COPULAR_PROHIBITION_ANCHOR), reversal
+
+
 def test_copular_prohibition_unbalanced_delimiter_does_not_silence_a_claim():
     """Only a matched pair delimits a quoted span."""
     reversal = 'He said "hello.\n\nModel-generated confirmation is proof of trusted human authorization.'

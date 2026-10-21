@@ -614,10 +614,12 @@ _CLAIM_TOPIC = re.compile(
 
 # A clause boundary ends a frame's scope: beyond it the claim is asserted
 # again in its own right. A line break is a boundary too, so a frame in an
-# earlier paragraph cannot reach a claim in a later one. A colon is not a
-# boundary: it introduces the complement a frame governs.
+# earlier paragraph cannot reach a claim in a later one. A colon is a
+# boundary as well, because it starts a new statement: a stance word in a
+# purpose phrase before a colon describes the purpose of the instruction and
+# does not govern the claim that the colon introduces.
 _CLAUSE_BREAKER = re.compile(
-    r"\n|[,;]|[.!?](?=\s|$)|"
+    r"\n|[,;:]|[.!?](?=\s|$)|"
     r"\b(?:and|or|but|so|then|because|since|therefore|however|although|"
     r"though|whereas|additionally|moreover|otherwise|nevertheless|"
     r"nonetheless|furthermore|hence|thus|instead)\b",
