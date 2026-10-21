@@ -175,16 +175,18 @@ def verify_lock_reproducibility(
             if not output.is_file() or output.stat().st_size == 0:
                 findings.append(f"LOCK_OUTPUT_MISSING:{resolved_output}")
                 continue
+            committed = root / resolved_output
+            # The verdict is recorded before the regenerated lock is emitted, so
+            # an emission that would overwrite a committed lock cannot decide
+            # the verdict it is evidence for.
+            if not committed.is_file():
+                findings.append(f"LOCK_COMMITTED_MISSING:{resolved_output}")
+            elif committed.read_bytes() != output.read_bytes():
+                findings.append(f"LOCK_REPRODUCIBILITY_DRIFT:{resolved_output}")
             if emit_dir is not None:
                 emitted = emit_dir / resolved_output
                 emitted.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(output, emitted)
-            committed = root / resolved_output
-            if not committed.is_file():
-                findings.append(f"LOCK_COMMITTED_MISSING:{resolved_output}")
-                continue
-            if committed.read_bytes() != output.read_bytes():
-                findings.append(f"LOCK_REPRODUCIBILITY_DRIFT:{resolved_output}")
     return findings
 
 
@@ -219,6 +221,22 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
 
     identifier = lock_id(*requested)
+    if args.emit_dir is not None:
+        # An emission that would write over a committed lock would replace the
+        # evidence the verdict is computed from, so it is refused.
+        emitted = {
+            (args.emit_dir / output_relative.format(identifier=identifier)).resolve()
+            for _source_relative, output_relative in LOCK_SOURCES
+        }
+        committed = {
+            (ROOT / output_relative.format(identifier=identifier)).resolve()
+            for _source_relative, output_relative in LOCK_SOURCES
+        }
+        overlap = sorted(str(path) for path in emitted & committed)
+        if overlap:
+            parser.error(
+                "the emission directory would overwrite a committed lock: " + ", ".join(overlap)
+            )
     if args.check:
         findings = verify_lock_reproducibility(ROOT, identifier, emit_dir=args.emit_dir)
         for finding in findings:

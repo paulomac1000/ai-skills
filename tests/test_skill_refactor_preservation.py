@@ -3224,6 +3224,43 @@ def test_a_comment_marker_in_the_raw_html_opening_tag_is_literal_text():
         assert operative in text(body), opening
 
 
+def test_an_opening_tag_after_a_real_comment_is_recognised_with_its_attributes():
+    """A real comment before an opening tag is removed before the tag is read.
+
+    The comment is removed, and the quoted attributes of the opening tag that
+    follows it are read as part of that tag, so a marker inside an attribute
+    value does not open a comment that masks the requirement after the block.
+    """
+    operative = "Require policy authorization before deployment."
+
+    def text(body: str) -> str:
+        return mod._operative_skill_text(body.encode("utf-8"))
+
+    for prefix in ("<!-- note --> ", "<!-- note --><!-- other --> "):
+        body = prefix + '<div data-note="<!-- literal">\n</div>\n\n' + operative + "\n"
+        assert operative in text(body), prefix
+
+
+def test_a_closing_tag_inside_a_multiline_attribute_value_cannot_end_a_block():
+    """A closing tag inside an attribute value that spans lines is literal text.
+
+    The attribute value is still open when the closing tag appears, so the tag
+    is literal text and the block it belongs to does not end there.
+    """
+    operative = "Require policy authorization before deployment."
+
+    def text(body: str) -> str:
+        return mod._operative_skill_text(body.encode("utf-8"))
+
+    for attribute in ('<span title="<!--', '<span title="a'):
+        body = "<div>\n" + attribute + "\n</div>\">\n\n" + operative + "\n"
+        assert operative not in text(body), attribute
+    # The attribute value ends on its own line, so the closing tag is real
+    # markup and the requirement after the closed block is operative.
+    closed = '<div>\n<span title="a">\n</div>\n\n' + operative + "\n"
+    assert operative in text(closed)
+
+
 def test_a_comment_that_stays_open_when_a_block_ends_keeps_masking_the_text():
     """A comment that outlives a raw HTML block continues in the prose.
 

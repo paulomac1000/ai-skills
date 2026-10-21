@@ -306,3 +306,27 @@ def test_the_generator_stays_native_only():
         compile_locks.main(arguments)
     with pytest.raises(SystemExit):
         compile_locks.main([*arguments, "--check"])
+
+
+def test_an_emission_directory_that_would_overwrite_a_committed_lock_is_refused(monkeypatch):
+    """The check refuses to emit over the evidence its verdict is computed from.
+
+    The regenerated lock is written to the emission directory, so an emission
+    directory that holds a committed lock would replace the committed content
+    with the regenerated content and decide the verdict from its own output.
+    """
+    monkeypatch.setattr(compile_locks, "_native_target", lambda: ("linux", "x64", "3.12"))
+    with pytest.raises(SystemExit):
+        compile_locks.main(
+            [
+                "--platform",
+                "linux",
+                "--architecture",
+                "x64",
+                "--python-version",
+                "3.12",
+                "--check",
+                "--emit-dir",
+                str(compile_locks.ROOT),
+            ]
+        )
