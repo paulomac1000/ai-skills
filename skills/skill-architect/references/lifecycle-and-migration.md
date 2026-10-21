@@ -53,11 +53,15 @@ X", "never X") and in the copular form ("X is not Y"), and reports it as a
 reversed obligation. It does not and cannot detect every other way in which a
 pinned obligation that stays intact at its pinned location can be changed in
 effect by a separate sentence, because the same constructions appear in valid
-normative content. That residual class has two subclasses: a separate sentence
-that restricts the applicability of a pinned obligation, and a separate
-sentence that asserts the opposite of a prohibition whose stated form the
-checker does not model or whose restatement does not reuse the pinned wording.
-Treat both as covered by the independent semantic review lane, which requires an
+normative content. That residual class covers a separate sentence that
+restricts the applicability of a pinned obligation; a separate sentence that
+asserts the opposite of a prohibition whose restatement does not reuse the
+pinned wording, including a different number, spelling or predicate; a
+separate sentence that reports the claim by introducing it directly, which the
+checker reads as a mention; and a separate sentence that states the opposite
+claim and rejects it afterwards, which the checker reports in the fail-closed
+direction. Treat every one of them as covered by the independent semantic
+review lane, which requires an
 independent acceptance authority reviewing provider-backed exact-revision
 evidence under the repository's independent release evidence profile plus the
 candidate-specific semantic review scope owned by the verification owner, and

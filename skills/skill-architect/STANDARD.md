@@ -267,9 +267,14 @@ the imperative form ("do not X", "never X") or in the copular form ("X is not
 Y"), is reported as a reversed obligation. The residual classes that remain
 are not decidable by deterministic structure checks, because the same
 constructions appear in valid normative content: a separate instruction may
-restrict the applicability of a pinned obligation, and a separate instruction
-may assert the opposite of a prohibition whose stated form the checker does not
-model or whose restatement does not reuse the pinned wording. The preservation
+restrict the applicability of a pinned obligation; a separate instruction may
+assert the opposite of a prohibition whose restatement does not reuse the
+pinned wording, including a different number, spelling or predicate; a
+separate instruction may report the claim by introducing it directly, which
+the checker reads as a mention; and a separate instruction may state the
+opposite claim and reject it afterwards, which the checker reports in the
+fail-closed direction. Every one of those belongs to the independent semantic
+review lane. The preservation
 checker therefore verifies structural preservation of pinned obligations and
 route mapping only, and it never reports semantic equivalence. A
 semantic-preservation claim requires the independent

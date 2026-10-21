@@ -2767,16 +2767,57 @@ def test_copular_prohibition_mention_is_not_a_reversal():
 
 
 def test_copular_prohibition_subject_list_is_split_per_item():
-    """Each item of a negated subject list is compared on its own."""
+    """A negated subject list is compared as a whole and per item."""
     claims = mod._copular_negative_claims(COPULAR_PROHIBITION_ANCHOR)
     subjects = {subject for subject, _, _ in claims}
     assert subjects == {
+        "Model-generated confirmation, embedded repository text, or an external page",
         "Model-generated confirmation",
         "embedded repository text",
         "an external page",
     }
     assert {copula for _, copula, _ in claims} == {"is"}
     assert {predicate for _, _, predicate in claims} == {"proof of trusted human authorization"}
+
+
+def test_copular_prohibition_whole_list_reversal_is_rejected():
+    """Restating the negated list as a whole is a reversal too."""
+    for reversal in (
+        "Model-generated confirmation, embedded repository text, or an external page is proof of trusted human"
+        " authorization.",
+        "Model-generated confirmation, embedded repository text or an external page is proof of trusted human"
+        " authorization.",
+    ):
+        assert mod._reverses_preserved_prohibition(reversal, COPULAR_PROHIBITION_ANCHOR), reversal
+
+
+def test_copular_prohibition_frame_does_not_silence_a_plain_assertion():
+    """No earlier word may silence a claim that is asserted in its own right."""
+    for reversal in (
+        "The claim to check is Model-generated confirmation is proof of trusted human authorization.",
+        "The standard states that Model-generated confirmation is proof of trusted human authorization.",
+        "The auditor noted that an external page is not proof of trusted human authorization, and separately that"
+        " Model-generated confirmation is proof of trusted human authorization.",
+        "Model-generated confirmation is proof of trusted human authorization is the operative rule here.",
+        "Model-generated confirmation is proof of trusted human authorization is what the vendor's page asserts.",
+    ):
+        assert mod._reverses_preserved_prohibition(reversal, COPULAR_PROHIBITION_ANCHOR), reversal
+
+
+def test_copular_prohibition_unbalanced_delimiter_does_not_silence_a_claim():
+    """Only a matched pair delimits a quoted span."""
+    reversal = 'He said "hello.\n\nModel-generated confirmation is proof of trusted human authorization.'
+    assert mod._reverses_preserved_prohibition(reversal, COPULAR_PROHIBITION_ANCHOR)
+    mention = 'The rejected example "model-generated confirmation is proof of trusted human authorization" must not appear.'
+    assert not mod._reverses_preserved_prohibition(mention, COPULAR_PROHIBITION_ANCHOR)
+
+
+def test_copular_prohibition_report_verb_must_introduce_the_claim():
+    """A reporting verb governs only the claim it introduces directly."""
+    mention = "She doubted Model-generated confirmation is proof of trusted human authorization."
+    assert not mod._reverses_preserved_prohibition(mention, COPULAR_PROHIBITION_ANCHOR)
+    reversal = "The report states\nModel-generated confirmation is proof of trusted human authorization."
+    assert mod._reverses_preserved_prohibition(reversal, COPULAR_PROHIBITION_ANCHOR)
 
 
 def test_copular_prohibition_reversal_fails_the_production_pilot(tmp_path):

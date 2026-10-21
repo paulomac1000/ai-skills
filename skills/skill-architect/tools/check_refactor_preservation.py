@@ -563,30 +563,61 @@ _COPULAR_NEGATION = re.compile(
     re.IGNORECASE,
 )
 
-# A frame token introduces an embedded mention, quotation or hypothesis
-# instead of asserting the claim itself. Only a frame that still governs the
-# claim suppresses it, and a clause boundary ends that scope.
+# A complementizer or a stance word introduces an embedded mention, a
+# quotation or a hypothesis instead of asserting the claim itself. Only a
+# frame that still governs the claim suppresses it, and a clause boundary
+# ends that scope. The bare copulas, the negation words and the plain
+# complementizer "that" are deliberately absent: they are the construction
+# under test, and admitting them let any earlier copula or any inserted
+# "that" silence a plain assertion. A reporting verb that adopts the claim
+# ("states", "says", "writes") belongs to the same class for the same reason.
 _CLAIM_FRAME = re.compile(
-    r"\b(?:that|whether|if|unless|suppose|supposing|hypothetically|"
-    r"claims?|claimed|asserts?|asserted|states?|stated|says?|said|"
+    r"\b(?:whether|if|unless|suppose|supposing|hypothetically|"
+    r"false|incorrect|wrong|forbidden|prohibited|banned|untrue|"
+    r"inaccurate|unfounded|not\s+the\s+case|"
+    r"rejects?|rejected|denies|denied|refutes|refuted|rebuts?|rebutted|"
+    r"disputes?|disputed|forbids?|forbidden|prohibits?|prohibited|"
+    r"misconceptions?|myths?|mistakes?|errors?|"
+    r"contradicts|contradiction)\b",
+    re.IGNORECASE,
+)
+
+# A reporting or attitude verb introduces the claim as its own complement.
+# It governs only when it introduces the claim directly, so the same word used
+# as a noun cannot silence a later assertion, and a line break between the
+# verb and the claim ends its reach.
+_CLAIM_REPORT = re.compile(
+    r"\b(?:claims?|claimed|asserts?|asserted|states?|stated|says?|said|"
     r"argues?|argued|describes?|described|mentions?|mentioned|"
     r"notes?|noted|reports?|reported|insists?|insisted|"
     r"proposes?|proposed|suggests?|suggested|assumes?|assumed|"
     r"believes?|believed|thinks?|thought|writes?|wrote|written|"
     r"declares?|declared|warns?|warned|"
-    r"is|are|was|were|be|been|being|not|never|"
-    r"rules?|requirements?|polic(?:y|ies)|sentences?|statements?|"
-    r"wording|phrases?|text|lines?|quotes?|quoted|quoting|"
-    r"examples?|hypothes[ei]s|myths?|misconceptions?|"
-    r"false|incorrect|wrong|forbidden|prohibited|rejected|denied|"
-    r"contradicts|contradiction)\b",
+    r"doubts?|doubted|fears?|feared|hopes?|hoped|wonders?|wondered|"
+    r"suspects?|suspected|pretends?|pretended|guesses?|guessed|"
+    r"recalls?|recalled|remembers?|remembered)\b",
+    re.IGNORECASE,
+)
+
+# The claim can be the subject of a further predicate. It is then a mention
+# only when that predicate names the claim as a discussed topic, so an
+# endorsing continuation is not read as a mention.
+_CLAIM_TOPIC = re.compile(
+    r"\b(?:misconceptions?|myths?|mistakes?|errors?|claims?|assertions?|"
+    r"statements?|allegations?|propositions?|presumptions?|assumptions?|"
+    r"rumou?rs?|fallacies|nonsense|absurdity|doctrines?|"
+    r"false|wrong|incorrect|rejected|denied|refuted|disputed|"
+    r"forbidden|prohibited|banned|untrue|inaccurate|unfounded|"
+    r"not\s+true)\b",
     re.IGNORECASE,
 )
 
 # A clause boundary ends a frame's scope: beyond it the claim is asserted
-# again in its own right.
+# again in its own right. A line break is a boundary too, so a frame in an
+# earlier paragraph cannot reach a claim in a later one. A colon is not a
+# boundary: it introduces the complement a frame governs.
 _CLAUSE_BREAKER = re.compile(
-    r"[,;:]|[.!?](?=\s|$)|"
+    r"\n|[,;]|[.!?](?=\s|$)|"
     r"\b(?:and|or|but|so|then|because|since|therefore|however|although|"
     r"though|whereas|additionally|moreover|otherwise|nevertheless|"
     r"nonetheless|furthermore|hence|thus|instead)\b",
@@ -600,48 +631,80 @@ _CLAIM_QUOTES = ('"', "\u201c", "\u201d", "`")
 def _copular_negative_claims(anchor: str) -> list[tuple[str, str, str]]:
     """Return the (subject, copula, predicate) triples a pinned anchor denies.
 
-    A subject list is split on its commas and its "or" disjunction, so each
-    listed item is compared on its own. The predicate is also compared
-    without a trailing clause, because a narrowing suffix belongs to the
-    separate applicability residual and not to the polarity of the claim.
+    A negated subject list is compared both as a whole and per item, because
+    a candidate can restate the disjunction in either shape. The predicate is
+    also compared without a trailing clause, because a narrowing suffix
+    belongs to the separate applicability residual and not to the polarity of
+    the claim.
     """
     claims: list[tuple[str, str, str]] = []
     for match in _COPULAR_NEGATION.finditer(anchor):
         copula = match.group("copula").lower()
         predicate = match.group("predicate").strip()
         head = predicate.split(",")[0].strip()
-        for part in re.split(r",|\bor\b", match.group("subject")):
+        raw = match.group("subject").strip()
+        parts = [raw]
+        for part in re.split(r",|\bor\b", raw):
             subject = re.sub(r"^(?:and|or)\s+", "", part.strip(), flags=re.IGNORECASE).strip()
-            if not subject:
-                continue
+            if subject and subject not in parts:
+                parts.append(subject)
+        for subject in parts:
             for candidate in (predicate, head):
                 if candidate and (subject, copula, candidate) not in claims:
                     claims.append((subject, copula, candidate))
     return claims
 
 
+def _flexible_literal(text: str) -> str:
+    """Escape a literal for matching, letting its whitespace vary."""
+    return re.escape(text).replace(r"\ ", r"\s+")
+
+
 def _inside_quoted_span(text: str, start: int) -> bool:
-    """Report whether an offset falls inside a quoted or code span."""
-    prefix = text[:start]
-    return any(prefix.count(quote) % 2 for quote in _CLAIM_QUOTES)
+    """Report whether an offset falls inside a closed quoted or code span.
+
+    Only a matched pair delimits a span. An unbalanced delimiter opens
+    nothing, so a stray quote in an earlier paragraph cannot silence a later
+    claim.
+    """
+    for quote in _CLAIM_QUOTES:
+        positions = [index for index, character in enumerate(text) if character == quote]
+        for index in range(0, len(positions) - 1, 2):
+            if positions[index] < start <= positions[index + 1]:
+                return True
+    return False
 
 
 def _copular_claim_is_asserted(text: str, start: int, end: int) -> bool:
     """Decide whether a matched positive claim is asserted, not merely mentioned.
 
-    A claim is only mentioned when it is quoted, when it is the subject of a
-    further predicate ("... is a common misconception"), or when a frame token
-    that introduces an embedded clause still governs it. A frame stops
-    governing the claim once a clause boundary separates them.
+    A claim is only mentioned when it is quoted, when it is the topic of a
+    further predicate that names it as a discussed claim ("... is a common
+    misconception"), or when a frame that introduces an embedded clause still
+    governs it. A complementizer or a stance word stops governing the claim
+    once a clause boundary separates them. A reporting or attitude verb
+    governs only the claim it introduces directly on the same line, so the
+    same word used as a noun cannot silence a later assertion.
     """
     if _inside_quoted_span(text, start):
         return False
-    if re.match(r"\s+(?:is|are|was|were)\b", text[end:], re.IGNORECASE):
-        return False
+    continuation = re.match(r"\s+(?:is|are|was|were)\b", text[end:], re.IGNORECASE)
+    if continuation:
+        # The claim is the subject of a further predicate. It is a mention
+        # only when that predicate names it as a topic; an endorsing
+        # continuation leaves the claim asserted.
+        topic = text[end + continuation.end() :]
+        if _CLAIM_TOPIC.search(topic):
+            return False
     frames = list(_CLAIM_FRAME.finditer(text, 0, start))
     if frames:
         gap = text[frames[-1].end() : start]
         if not _CLAUSE_BREAKER.search(gap):
+            return False
+    reports = list(_CLAIM_REPORT.finditer(text, 0, start))
+    if reports:
+        gap = text[reports[-1].end() : start]
+        if not gap.strip() and "\n" not in gap:
             return False
     return True
 
@@ -672,11 +735,11 @@ def _reverses_preserved_prohibition(text: str, anchor: str) -> bool:
     for subject, copula, predicate in _copular_negative_claims(anchor):
         pattern = re.compile(
             r"(?<![A-Za-z0-9])"
-            + re.escape(subject)
+            + _flexible_literal(subject)
             + r"\s+"
             + re.escape(copula)
             + r"\s+"
-            + re.escape(predicate)
+            + _flexible_literal(predicate)
             + r"(?![A-Za-z0-9])",
             re.IGNORECASE,
         )
