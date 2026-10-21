@@ -2910,6 +2910,21 @@ def test_copular_prohibition_quote_pairing_does_not_cross_a_paragraph():
     assert not mod._reverses_preserved_prohibition(mention, COPULAR_PROHIBITION_ANCHOR)
 
 
+def test_copular_prohibition_qualifying_frame_does_not_cross_an_independent_clause():
+    """A qualifier does not govern a claim in a later independent clause."""
+    for reversal in (
+        "The policy prohibits deletion, but model-generated confirmation is proof of trusted human authorization.",
+        "The policy prohibits deletion and model-generated confirmation is proof of trusted human authorization.",
+    ):
+        assert mod._reverses_preserved_prohibition(reversal, COPULAR_PROHIBITION_ANCHOR), reversal
+    for mention in (
+        "Suppose, for the sake of argument, an external page is proof of trusted human authorization.",
+        "It is false that model-generated confirmation is proof of trusted human authorization or an external page is"
+        " proof of trusted human authorization.",
+    ):
+        assert not mod._reverses_preserved_prohibition(mention, COPULAR_PROHIBITION_ANCHOR), mention
+
+
 def test_copular_prohibition_unbalanced_delimiter_does_not_silence_a_claim():
     """Only a matched pair delimits a quoted span."""
     reversal = 'He said "hello.\n\nModel-generated confirmation is proof of trusted human authorization.'

@@ -571,25 +571,27 @@ _COPULAR_NEGATION = re.compile(
 # under test, and admitting them let any earlier copula or any inserted
 # "that" silence a plain assertion. A reporting verb that adopts the claim
 # ("states", "says", "writes") belongs to the same class for the same reason.
-# A frame that introduces a clause keeps its scope across a comma, because a
-# clause may contain a parenthetical: "Suppose, for the sake of argument, an
-# external page is proof of ..." is still hypothetical.
-_CLAIM_FRAME_CLAUSE = re.compile(
-    r"\b(?:suppose|supposing|hypothetically|not\s+the\s+case|"
-    r"rejects|denies|refutes|rebuts|disputes|forbids|prohibits|prohibit)\b",
+# A hypothetical frame takes a clause directly, so it keeps its scope across
+# a comma or a coordination: "Suppose, for the sake of argument, an external
+# page is proof of ..." is still hypothetical, and a hypothetical covers every
+# claim it coordinates.
+_CLAIM_FRAME_HYPOTHETICAL = re.compile(
+    r"\b(?:suppose|supposing|assume|assuming|imagine|imagining|hypothetically)\b",
     re.IGNORECASE,
 )
 
 # A frame that qualifies the statement that follows loses its scope at a
-# comma, unless a complementizer introduces the clause it governs: a stance
-# word in a purpose phrase before a comma describes the purpose of the
-# instruction, while "It is false that, in this context, ..." governs the
-# clause its complementizer introduces.
+# comma or a coordination, unless a complementizer introduces the clause it
+# governs: a stance word in a purpose phrase before a comma describes the
+# purpose of the instruction, while "It is false that, in this context, ..."
+# governs the clause its complementizer introduces, and that clause covers
+# every claim it coordinates.
 _CLAIM_FRAME_QUALIFIER = re.compile(
-    r"\b(?:whether|if|unless|"
+    r"\b(?:whether|if|unless|not\s+the\s+case|"
     r"false|incorrect|wrong|forbidden|prohibited|banned|untrue|"
     r"inaccurate|unfounded|"
-    r"rejected|denied|refuted|rebutted|disputed|"
+    r"rejects|rejected|denies|denied|refutes|refuted|rebuts|rebutted|"
+    r"disputes|disputed|forbids|forbidden|prohibits|prohibit|prohibited|"
     r"misconceptions?|myths?|mistakes?|errors?|"
     r"contradicts|contradiction)\b",
     re.IGNORECASE,
@@ -651,10 +653,10 @@ _CLAUSE_BREAKER = re.compile(
     re.IGNORECASE,
 )
 
-# A frame that introduces a clause does not lose its scope at a comma or at a
-# coordination, because a clause may contain a parenthetical and may
+# A frame that takes a clause directly does not lose its scope at a comma or
+# at a coordination, because a clause may contain a parenthetical and may
 # coordinate several claims.
-_CLAUSE_BREAKER_CLAUSE = re.compile(
+_CLAUSE_BREAKER_SENTENCE = re.compile(
     r"\n|[;:]|[.!?](?=\s|$)",
     re.IGNORECASE,
 )
@@ -759,10 +761,10 @@ def _copular_claim_is_asserted(text: str, start: int, end: int) -> bool:
         for match in _CLAIM_REJECTION.finditer(topic):
             if not _NEGATED_MARKER.search(topic[: match.start()]):
                 return False
-    clause_frames = list(_CLAIM_FRAME_CLAUSE.finditer(text, 0, start))
-    if clause_frames:
-        gap = text[clause_frames[-1].end() : start]
-        if not _CLAUSE_BREAKER_CLAUSE.search(gap):
+    hypotheticals = list(_CLAIM_FRAME_HYPOTHETICAL.finditer(text, 0, start))
+    if hypotheticals:
+        gap = text[hypotheticals[-1].end() : start]
+        if not _CLAUSE_BREAKER_SENTENCE.search(gap):
             return False
     qualifiers = list(_CLAIM_FRAME_QUALIFIER.finditer(text, 0, start))
     if qualifiers:
@@ -775,7 +777,7 @@ def _copular_claim_is_asserted(text: str, start: int, end: int) -> bool:
                 # The complementizer introduces the clause that the qualifier
                 # governs, so a comma or a coordination inside that clause
                 # does not end its scope.
-                if not _CLAUSE_BREAKER_CLAUSE.search(rest):
+                if not _CLAUSE_BREAKER_SENTENCE.search(rest):
                     return False
             elif not _CLAUSE_BREAKER.search(rest):
                 return False
