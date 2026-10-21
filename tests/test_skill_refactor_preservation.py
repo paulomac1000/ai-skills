@@ -3261,6 +3261,26 @@ def test_a_closing_tag_inside_a_multiline_attribute_value_cannot_end_a_block():
     assert operative in text(closed)
 
 
+def test_an_equals_sign_before_a_line_break_still_opens_the_attribute_value():
+    """An equals sign that ends the line opens the value on the next line.
+
+    The value is still open when the closing tag appears, so the tag is
+    literal text and the block it belongs to does not end there.
+    """
+    operative = "Require policy authorization before deployment."
+
+    def text(body: str) -> str:
+        return mod._operative_skill_text(body.encode("utf-8"))
+
+    for attribute in ('<span title=\n"<!--', '<span title=\n"a'):
+        body = "<div>\n" + attribute + "\n>\n</div>\">\n\n" + operative + "\n"
+        assert operative not in text(body), attribute
+    # Without the equals sign the quote is ordinary text, so the closing tag
+    # is real markup and the requirement after the closed block is operative.
+    plain = '<div>\n<span title\n"a">\n</div>\n\n' + operative + "\n"
+    assert operative in text(plain)
+
+
 def test_a_comment_that_stays_open_when_a_block_ends_keeps_masking_the_text():
     """A comment that outlives a raw HTML block continues in the prose.
 

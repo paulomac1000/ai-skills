@@ -1273,21 +1273,22 @@ def _remove_html_comments(text: str) -> str:
 
 
 def _html_scan(
-    text: str, tag: str, state: tuple[bool, str, bool]
-) -> tuple[list[tuple[int, int]], int, tuple[bool, str, bool]]:
+    text: str, tag: str, state: tuple[bool, str, bool, bool]
+) -> tuple[list[tuple[int, int]], int, tuple[bool, str, bool, bool]]:
     """Return the real comment spans, the net block depth and the state.
 
     One walk decides all three, so the comment bodies, the quoted attribute
     values and the block elements are read with the same rules. A marker
     inside a tag, or inside a quoted attribute value that the tag carries, is
     literal text and never opens a comment. The state carries the tag, the
-    attribute value and the comment that are still open at the end of the
-    text, so a tag, an attribute value or a comment that spans lines keeps
-    protecting its content: a closing tag inside such a value is literal text
-    and does not end the block. A marker that cannot be resolved is reported
-    as a comment, so an ambiguous input fails closed.
+    attribute value, the comment and the pending equals sign that are still
+    open at the end of the text, so a tag, an attribute value, an equals sign
+    or a comment that spans lines keeps protecting its content: a closing tag
+    inside such a value is literal text and does not end the block. A marker
+    that cannot be resolved is reported as a comment, so an ambiguous input
+    fails closed.
     """
-    in_tag, quote, in_comment = state
+    in_tag, quote, in_comment, pending = state
     spans: list[tuple[int, int]] = []
     depth = 0
     pattern = re.compile(r"<\s*(/?)\s*" + re.escape(tag) + r"\b", re.IGNORECASE)
@@ -1295,45 +1296,46 @@ def _html_scan(
     # an earlier line, so it protects its content but is not counted here.
     tag_start = -1 if in_tag else 0
     index = 0
-    previous = ""
     while index < len(text):
         char = text[index]
         if in_comment:
             end = text.find("-->", index)
             if end < 0:
                 spans.append((0, len(text)))
-                return spans, depth, (in_tag, quote, True)
+                return spans, depth, (in_tag, quote, True, pending)
             spans.append((0, end + 3))
             in_comment = False
             index = end + 3
-            previous = ""
+            pending = False
             continue
         if quote:
             # A quoted attribute value ends at its matching quote only; HTML
             # has no backslash escape, so a backslash is ordinary text.
             if char == quote:
                 quote = ""
-                previous = ""
+                pending = False
             index += 1
             continue
         if in_tag:
             if char in "\"'":
                 # The last non-space character decides whether a quote opens a
                 # value, so whitespace between the equals sign and the quote
-                # is allowed.
-                if previous == "=":
+                # is allowed, and an equals sign that ends the line still
+                # opens the value on the next line.
+                if pending:
                     quote = char
+                    pending = False
                 index += 1
                 continue
             if text.startswith("<!--", index):
                 # A marker inside a tag is part of the tag, not a comment.
                 end = text.find("-->", index + 4)
                 index = len(text) if end < 0 else end + 3
-                previous = ""
+                pending = False
                 continue
             if char == ">":
                 in_tag = False
-                previous = ""
+                pending = False
                 match = pattern.match(text[tag_start : index + 1]) if tag_start >= 0 else None
                 if match:
                     # A self-closing tag opens and closes at once, so it must
@@ -1346,28 +1348,26 @@ def _html_scan(
                 index += 1
                 continue
             if not char.isspace():
-                previous = char
+                pending = char == "="
             index += 1
             continue
         if text.startswith("<!--", index):
             end = text.find("-->", index + 4)
             if end < 0:
                 spans.append((index, len(text)))
-                return spans, depth, (in_tag, quote, True)
+                return spans, depth, (in_tag, quote, True, pending)
             spans.append((index, end + 3))
             index = end + 3
-            previous = ""
+            pending = False
             continue
         if char == "<" and _HTML_TAG_START.match(text, index):
             in_tag = True
             tag_start = index
-            previous = ""
+            pending = False
             index += 1
             continue
-        if not char.isspace():
-            previous = char
         index += 1
-    return spans, depth, (in_tag, quote, in_comment)
+    return spans, depth, (in_tag, quote, in_comment, pending)
 
 
 def _strip_frontmatter(text: str) -> str:
@@ -1392,7 +1392,7 @@ def _operative_skill_text(content: bytes) -> str:
     raw_html_depth = 0
     raw_html_buffer = ""
     raw_html_opening = False
-    raw_html_state: tuple[bool, str, bool] = (False, "", False)
+    raw_html_state: tuple[bool, str, bool, bool] = (False, "", False, False)
     comment_open = False
     for line in text.splitlines():
         if fence:
@@ -1418,7 +1418,7 @@ def _operative_skill_text(content: bytes) -> str:
                 _, _, complete = _scan_html_tag(raw_html_buffer, 0)
                 if complete:
                     raw_html_opening = False
-                    _, raw_html_depth, _ = _html_scan(raw_html_buffer, raw_html_tag, (False, "", False))
+                    _, raw_html_depth, _ = _html_scan(raw_html_buffer, raw_html_tag, (False, "", False, False))
                     if raw_html_depth <= 0:
                         # A comment that is still open when the block ends
                         # continues in the surrounding prose, so the text it
@@ -1452,13 +1452,13 @@ def _operative_skill_text(content: bytes) -> str:
             # The opening line is scanned with the quote-aware scan, so the
             # comment state of the block starts from the real content of the
             # opening tag and is carried across the following lines.
-            _, _, raw_html_state = _html_scan(line, raw_html_tag, (False, "", False))
+            _, _, raw_html_state = _html_scan(line, raw_html_tag, (False, "", False, False))
             _, _, complete = _scan_html_tag(line, 0)
             raw_html_opening = not complete
             raw_html_depth = 0
             kept.append("")
             if not raw_html_opening:
-                _, raw_html_depth, _ = _html_scan(raw_html_buffer, raw_html_tag, (False, "", False))
+                _, raw_html_depth, _ = _html_scan(raw_html_buffer, raw_html_tag, (False, "", False, False))
                 if raw_html_depth <= 0:
                     # A block that opens and closes on one line can still leave
                     # a comment open, and that comment continues in the
@@ -1503,13 +1503,13 @@ def _operative_skill_text(content: bytes) -> str:
             # The opening line is scanned with the quote-aware scan, so the
             # comment state of the block starts from the real content of the
             # opening tag and is carried across the following lines.
-            _, _, raw_html_state = _html_scan(line, raw_html_tag, (False, "", False))
+            _, _, raw_html_state = _html_scan(line, raw_html_tag, (False, "", False, False))
             _, _, complete = _scan_html_tag(line, 0)
             raw_html_opening = not complete
             raw_html_depth = 0
             kept.append("")
             if not raw_html_opening:
-                _, raw_html_depth, _ = _html_scan(raw_html_buffer, raw_html_tag, (False, "", False))
+                _, raw_html_depth, _ = _html_scan(raw_html_buffer, raw_html_tag, (False, "", False, False))
                 if raw_html_depth <= 0:
                     # A block that opens and closes on one line can still leave
                     # a comment open, and that comment continues in the
