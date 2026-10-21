@@ -592,8 +592,15 @@ _CLAIM_FRAME_QUALIFIER = re.compile(
     r"inaccurate|unfounded|"
     r"rejects|rejected|denies|denied|refutes|refuted|rebuts|rebutted|"
     r"disputes|disputed|forbids|forbidden|prohibits|prohibit|prohibited|"
-    r"misconceptions?|myths?|mistakes?|errors?|"
     r"contradicts|contradiction)\b",
+    re.IGNORECASE,
+)
+
+# A noun qualifier names a topic, and "that" after it starts a relative
+# clause rather than a content clause, so its scope never crosses a
+# coordination.
+_CLAIM_FRAME_NOUN = re.compile(
+    r"\b(?:misconceptions?|myths?|mistakes?|errors?)\b",
     re.IGNORECASE,
 )
 
@@ -743,7 +750,7 @@ def _quoted_regions(line: str) -> list[tuple[int, int]]:
             # An unmatched run is literal text; the scan continues.
             index += 1
             continue
-        code_regions.append((run_start, runs[closing][1]))
+        code_regions.append((run_start, runs[closing][1] - 1))
         # The closing delimiter is consumed with its opener, so it cannot
         # also open the next span.
         index = closing + 1
@@ -849,20 +856,25 @@ def _copular_claim_is_asserted(text: str, start: int, end: int) -> bool:
         boundary = _first_unquoted_boundary(text, _CLAUSE_BREAKER, topic_start, len(text))
         topic = text[topic_start : boundary if boundary is not None else len(text)]
         for match in _CLAIM_REJECTION.finditer(topic):
+            # A rejection word inside a quoted span names something else.
+            if _inside_quoted_span(text, topic_start + match.start()):
+                continue
             if not _NEGATED_MARKER.search(topic[: match.start()]):
                 return False
     hypotheticals = _unquoted_matches(text, _CLAIM_FRAME_HYPOTHETICAL, start)
     if hypotheticals:
         if _first_unquoted_boundary(text, _CLAUSE_BREAKER_SENTENCE, hypotheticals[-1].end(), start) is None:
             return False
-    qualifiers = _unquoted_matches(text, _CLAIM_FRAME_QUALIFIER, start)
+    qualifiers = [(match, False) for match in _unquoted_matches(text, _CLAIM_FRAME_QUALIFIER, start)] + [
+        (match, True) for match in _unquoted_matches(text, _CLAIM_FRAME_NOUN, start)
+    ]
     if qualifiers:
-        qualifier = qualifiers[-1]
+        qualifier, is_noun = max(qualifiers, key=lambda item: item[0].start())
         # A qualifier that the sentence negates does not reject the claim:
         # "It is not false that ..." endorses the claim instead.
         if not _unquoted_negation_before(text, _NEGATED_MARKER, qualifier.start()):
             rest = text[qualifier.end() : start]
-            if _CLAIM_COMPLEMENTIZER.match(rest.lstrip()):
+            if not is_noun and _CLAIM_COMPLEMENTIZER.match(rest.lstrip()):
                 # The complementizer introduces the clause that the qualifier
                 # governs, so a comma or a coordination inside that clause
                 # does not end its scope.

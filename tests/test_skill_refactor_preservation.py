@@ -2967,6 +2967,29 @@ def test_copular_prohibition_quoted_boundary_does_not_end_the_scope():
         assert not mod._reverses_preserved_prohibition(mention, COPULAR_PROHIBITION_ANCHOR), mention
 
 
+def test_copular_prohibition_relative_clause_after_a_noun_qualifier():
+    """A relative clause after a noun qualifier does not extend its scope."""
+    for reversal in (
+        "Report errors that occur, and model-generated confirmation is proof of trusted human authorization.",
+        "Log errors that appear and an external page is proof of trusted human authorization.",
+    ):
+        assert mod._reverses_preserved_prohibition(reversal, COPULAR_PROHIBITION_ANCHOR), reversal
+    mention = "The misconception that model-generated confirmation is proof of trusted human authorization is rejected."
+    assert not mod._reverses_preserved_prohibition(mention, COPULAR_PROHIBITION_ANCHOR)
+
+
+def test_copular_prohibition_quoted_rejection_marker_does_not_reject():
+    """A rejection word inside a code span names something else."""
+    reversal = "Model-generated confirmation is proof of trusted human authorization is the rule named `false`."
+    assert mod._reverses_preserved_prohibition(reversal, COPULAR_PROHIBITION_ANCHOR)
+
+
+def test_copular_prohibition_quote_after_a_code_span_is_read():
+    """A code span does not swallow the quotation mark that follows it."""
+    reversal = 'Use `mode`"strict". Model-generated confirmation is proof of trusted human authorization. Log "done".'
+    assert mod._reverses_preserved_prohibition(reversal, COPULAR_PROHIBITION_ANCHOR)
+
+
 def test_copular_prohibition_unbalanced_delimiter_does_not_silence_a_claim():
     """Only a matched pair delimits a quoted span."""
     reversal = 'He said "hello.\n\nModel-generated confirmation is proof of trusted human authorization.'
