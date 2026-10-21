@@ -737,13 +737,21 @@ def _inside_quoted_span(text: str, start: int) -> bool:
     for opener, closer in _CLAIM_QUOTES:
         if opener == closer == "`":
             runs = _backtick_runs(line)
-            for index, (run_start, _run_end, length) in enumerate(runs):
-                for later in runs[index + 1 :]:
-                    if later[2] != length:
-                        continue
-                    if run_start < offset <= later[1]:
-                        return True
+            index = 0
+            while index < len(runs):
+                run_start, _run_end, length = runs[index]
+                closing = None
+                for later in range(index + 1, len(runs)):
+                    if runs[later][2] == length:
+                        closing = later
+                        break
+                if closing is None:
                     break
+                if run_start < offset <= runs[closing][1]:
+                    return True
+                # The closing delimiter is consumed with its opener, so it
+                # cannot also open the next span.
+                index = closing + 1
             continue
         if opener == closer:
             positions = [index for index, character in enumerate(line) if character == opener]
