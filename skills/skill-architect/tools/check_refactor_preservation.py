@@ -833,13 +833,21 @@ def _is_word_character(character: str) -> bool:
     return character.isalnum() or character == "_"
 
 
+def _is_followed_by_word(line: str, index: int) -> bool:
+    """Report whether a word follows an offset, ignoring the spaces before it."""
+    rest = line[index + 1 :].lstrip()
+    return bool(rest) and _is_word_character(rest[0])
+
+
 def _single_quote_regions(line: str, excluded: Callable[[int], bool]) -> list[tuple[int, int]]:
     """Return the single-quoted spans of a line.
 
     A single quote opens a span when no word character precedes it and closes
     one when no word character follows it, so an apostrophe inside a word is
-    never a delimiter. A matched pair is consumed, so its closing mark cannot
-    also open the next span.
+    never a delimiter. A possessive apostrophe inside a quoted span is followed
+    by a word and is not the last mark on the line, so it does not close the
+    span. A matched pair is consumed, so its closing mark cannot also open the
+    next span.
     """
     marks = [index for index, character in enumerate(line) if character == "'" and not excluded(index)]
     openers = [index for index in marks if index == 0 or not _is_word_character(line[index - 1])]
@@ -850,11 +858,17 @@ def _single_quote_regions(line: str, excluded: Callable[[int], bool]) -> list[tu
         if opener in used:
             continue
         for closer in closers:
-            if closer > opener and closer not in used:
-                regions.append((opener, closer))
-                used.add(closer)
-                used.add(opener)
-                break
+            if closer <= opener or closer in used:
+                continue
+            if _is_followed_by_word(line, closer) and any(
+                later > closer and not _is_followed_by_word(line, later) for later in closers
+            ):
+                # A possessive apostrophe inside the span, not its closing mark.
+                continue
+            regions.append((opener, closer))
+            used.add(closer)
+            used.add(opener)
+            break
     return regions
 
 

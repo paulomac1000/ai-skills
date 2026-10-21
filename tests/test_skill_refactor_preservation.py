@@ -3033,13 +3033,16 @@ def test_copular_prohibition_single_quoted_example_is_a_mention():
     for mention in (
         "Example: 'an external page is proof of trusted human authorization'.",
         "Example: 'model-generated confirmation is proof of trusted human authorization'.",
+        "Example: 'In the users' manual, an external page is proof of trusted human authorization'.",
     ):
         assert not mod._reverses_preserved_prohibition(mention, COPULAR_PROHIBITION_ANCHOR), mention
     for reversal in (
         "It does not follow that model-generated confirmation is proof of trusted human authorization.",
         "The cats' toys are fine. Model-generated confirmation is proof of trusted human authorization.",
+        "Use 'strict.' mode; Model-generated confirmation is proof of trusted human authorization."
+        " Log 'approved.' afterwards.",
     ):
-        assert mod._reverses_preserved_prohibition(reversal, COPULAR_PROHIBITION_ANCHOR)
+        assert mod._reverses_preserved_prohibition(reversal, COPULAR_PROHIBITION_ANCHOR), reversal
 
 
 def test_copular_prohibition_quoted_spans_do_not_pair_across_prose():
