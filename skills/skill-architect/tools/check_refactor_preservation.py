@@ -762,13 +762,14 @@ def _quoted_regions(line: str) -> list[tuple[int, int]]:
     def in_code(offset: int) -> bool:
         return any(begin <= offset <= end for begin, end in code_regions)
 
+    quote_regions: list[tuple[int, int]] = []
     for opener, closer in _CLAIM_QUOTES:
         if opener == closer == "`":
             continue
         if opener == closer:
             positions = [index for index, character in enumerate(line) if character == opener and not in_code(index)]
             for index in range(0, len(positions) - 1, 2):
-                regions.append((positions[index], positions[index + 1]))
+                quote_regions.append((positions[index], positions[index + 1]))
             continue
         opened: int | None = None
         for index, character in enumerate(line):
@@ -777,9 +778,16 @@ def _quoted_regions(line: str) -> list[tuple[int, int]]:
             if character == opener and opened is None:
                 opened = index
             elif character == closer and opened is not None:
-                regions.append((opened, index))
+                quote_regions.append((opened, index))
                 opened = None
-    regions.extend(_single_quote_regions(line, in_code))
+    regions.extend(quote_regions)
+
+    def in_quote(offset: int) -> bool:
+        return in_code(offset) or any(begin <= offset <= end for begin, end in quote_regions)
+
+    # A single quote is paired last, so a literal quote character inside an
+    # enclosing quoted span cannot pair with a mark outside it.
+    regions.extend(_single_quote_regions(line, in_quote))
     return regions
 
 
@@ -788,23 +796,27 @@ def _is_word_character(character: str) -> bool:
     return character.isalnum() or character == "_"
 
 
-def _single_quote_regions(line: str, in_code: Callable[[int], bool]) -> list[tuple[int, int]]:
+def _single_quote_regions(line: str, excluded: Callable[[int], bool]) -> list[tuple[int, int]]:
     """Return the single-quoted spans of a line.
 
     A single quote opens a span when no word character precedes it and closes
     one when no word character follows it, so an apostrophe inside a word is
-    never a delimiter.
+    never a delimiter. A matched pair is consumed, so its closing mark cannot
+    also open the next span.
     """
-    marks = [index for index, character in enumerate(line) if character == "'" and not in_code(index)]
+    marks = [index for index, character in enumerate(line) if character == "'" and not excluded(index)]
     openers = [index for index in marks if index == 0 or not _is_word_character(line[index - 1])]
     closers = [index for index in marks if index == len(line) - 1 or not _is_word_character(line[index + 1])]
     regions: list[tuple[int, int]] = []
     used: set[int] = set()
     for opener in openers:
+        if opener in used:
+            continue
         for closer in closers:
             if closer > opener and closer not in used:
                 regions.append((opener, closer))
                 used.add(closer)
+                used.add(opener)
                 break
     return regions
 
@@ -859,7 +871,7 @@ def _first_unquoted_boundary(text: str, pattern: re.Pattern[str], start: int, en
     return None
 
 
-def _copular_claim_is_asserted(text: str, start: int, end: int) -> bool:
+def _copular_claim_is_asserted(text: str, start: int, end: int, scope_start: int | None = None) -> bool:
     """Decide whether a matched positive claim is asserted, not merely mentioned.
 
     A claim is denied, not asserted, when a negator governs its subject.
@@ -871,10 +883,15 @@ def _copular_claim_is_asserted(text: str, start: int, end: int) -> bool:
     unless a complementizer introduces the clause it governs. A reporting or
     attitude verb governs only the claim it introduces directly on the same
     line, so the same word used as a noun cannot silence a later assertion.
+
+    The scope starts at the beginning of the longest claim that ends with the
+    same predicate, so a subject list is read as one claim and the list's own
+    coordination is not read as a clause boundary.
     """
+    origin = start if scope_start is None else scope_start
     if _inside_quoted_span(text, start):
         return False
-    if _unquoted_negation_before(text, _SUBJECT_NEGATION, start):
+    if _unquoted_negation_before(text, _SUBJECT_NEGATION, origin):
         return False
     # The continuation is read on the claim's own line: a paragraph break
     # ends the claim, so a separate paragraph cannot become its continuation.
@@ -893,30 +910,30 @@ def _copular_claim_is_asserted(text: str, start: int, end: int) -> bool:
                 continue
             if not _NEGATED_MARKER.search(topic[: match.start()]):
                 return False
-    hypotheticals = _unquoted_matches(text, _CLAIM_FRAME_HYPOTHETICAL, start)
+    hypotheticals = _unquoted_matches(text, _CLAIM_FRAME_HYPOTHETICAL, origin)
     if hypotheticals:
-        if _first_unquoted_boundary(text, _CLAUSE_BREAKER_SENTENCE, hypotheticals[-1].end(), start) is None:
+        if _first_unquoted_boundary(text, _CLAUSE_BREAKER_SENTENCE, hypotheticals[-1].end(), origin) is None:
             return False
-    qualifiers = [(match, False) for match in _unquoted_matches(text, _CLAIM_FRAME_QUALIFIER, start)] + [
-        (match, True) for match in _unquoted_matches(text, _CLAIM_FRAME_NOUN, start)
+    qualifiers = [(match, False) for match in _unquoted_matches(text, _CLAIM_FRAME_QUALIFIER, origin)] + [
+        (match, True) for match in _unquoted_matches(text, _CLAIM_FRAME_NOUN, origin)
     ]
     if qualifiers:
         qualifier, is_noun = max(qualifiers, key=lambda item: item[0].start())
         # A qualifier that the sentence negates does not reject the claim:
         # "It is not false that ..." endorses the claim instead.
         if not _unquoted_negation_before(text, _NEGATED_MARKER, qualifier.start()):
-            rest = text[qualifier.end() : start]
+            rest = text[qualifier.end() : origin]
             if not is_noun and _CLAIM_COMPLEMENTIZER.match(rest.lstrip()):
                 # The complementizer introduces the clause that the qualifier
                 # governs, so a comma or a coordination inside that clause
                 # does not end its scope.
-                if _first_unquoted_boundary(text, _CLAUSE_BREAKER_SENTENCE, qualifier.end(), start) is None:
+                if _first_unquoted_boundary(text, _CLAUSE_BREAKER_SENTENCE, qualifier.end(), origin) is None:
                     return False
-            elif _first_unquoted_boundary(text, _CLAUSE_BREAKER, qualifier.end(), start) is None:
+            elif _first_unquoted_boundary(text, _CLAUSE_BREAKER, qualifier.end(), origin) is None:
                 return False
-    reports = _unquoted_matches(text, _CLAIM_REPORT, start)
+    reports = _unquoted_matches(text, _CLAIM_REPORT, origin)
     if reports:
-        gap = text[reports[-1].end() : start]
+        gap = text[reports[-1].end() : origin]
         if not gap.strip() and "\n" not in gap:
             return False
     return True
@@ -945,6 +962,7 @@ def _reverses_preserved_prohibition(text: str, anchor: str) -> bool:
                     re.IGNORECASE,
                 ):
                     return True
+    found: list[tuple[int, int]] = []
     for subject, copula, predicate in _copular_negative_claims(anchor):
         pattern = re.compile(
             r"(?<![A-Za-z0-9])"
@@ -957,8 +975,14 @@ def _reverses_preserved_prohibition(text: str, anchor: str) -> bool:
             re.IGNORECASE,
         )
         for match in pattern.finditer(text):
-            if _copular_claim_is_asserted(text, match.start(), match.end()):
-                return True
+            found.append((match.start(), match.end()))
+    for start, end in found:
+        # A subject list is one claim, so the scope of a list item starts where
+        # the longest claim with the same predicate starts. The list's own
+        # coordination is part of the claim and not a clause boundary.
+        scope_start = min(other for other, other_end in found if other_end == end)
+        if _copular_claim_is_asserted(text, start, end, scope_start):
+            return True
     return False
 
 
