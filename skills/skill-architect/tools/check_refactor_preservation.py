@@ -571,16 +571,32 @@ _COPULAR_NEGATION = re.compile(
 # under test, and admitting them let any earlier copula or any inserted
 # "that" silence a plain assertion. A reporting verb that adopts the claim
 # ("states", "says", "writes") belongs to the same class for the same reason.
-_CLAIM_FRAME = re.compile(
-    r"\b(?:whether|if|unless|suppose|supposing|hypothetically|"
+# A frame that introduces a clause keeps its scope across a comma, because a
+# clause may contain a parenthetical: "Suppose, for the sake of argument, an
+# external page is proof of ..." is still hypothetical.
+_CLAIM_FRAME_CLAUSE = re.compile(
+    r"\b(?:suppose|supposing|hypothetically|not\s+the\s+case|"
+    r"rejects|denies|refutes|rebuts|disputes|forbids|prohibits|prohibit)\b",
+    re.IGNORECASE,
+)
+
+# A frame that qualifies the statement that follows loses its scope at a
+# comma, unless a complementizer introduces the clause it governs: a stance
+# word in a purpose phrase before a comma describes the purpose of the
+# instruction, while "It is false that, in this context, ..." governs the
+# clause its complementizer introduces.
+_CLAIM_FRAME_QUALIFIER = re.compile(
+    r"\b(?:whether|if|unless|"
     r"false|incorrect|wrong|forbidden|prohibited|banned|untrue|"
-    r"inaccurate|unfounded|not\s+the\s+case|"
-    r"rejects?|rejected|denies|denied|refutes|refuted|rebuts?|rebutted|"
-    r"disputes?|disputed|forbids?|forbidden|prohibits?|prohibited|"
+    r"inaccurate|unfounded|"
+    r"rejected|denied|refuted|rebutted|disputed|"
     r"misconceptions?|myths?|mistakes?|errors?|"
     r"contradicts|contradiction)\b",
     re.IGNORECASE,
 )
+
+# A complementizer introduces the clause that a qualifying frame governs.
+_CLAIM_COMPLEMENTIZER = re.compile(r"^(?:that|whether|which)\b", re.IGNORECASE)
 
 # A reporting or attitude verb introduces the claim as its own complement.
 # It governs only when it introduces the claim directly, so the same word used
@@ -629,6 +645,16 @@ _SUBJECT_NEGATION = re.compile(r"\b(?:no|neither|nor)\s+(?:the|a|an|any|either)?
 # does not govern the claim that the colon introduces.
 _CLAUSE_BREAKER = re.compile(
     r"\n|[,;:]|[.!?](?=\s|$)|"
+    r"\b(?:and|or|but|so|then|because|since|therefore|however|although|"
+    r"though|whereas|additionally|moreover|otherwise|nevertheless|"
+    r"nonetheless|furthermore|hence|thus|instead)\b",
+    re.IGNORECASE,
+)
+
+# A frame that introduces a clause does not lose its scope at a comma, because
+# a clause may contain a parenthetical.
+_CLAUSE_BREAKER_CLAUSE = re.compile(
+    r"\n|[;:]|[.!?](?=\s|$)|"
     r"\b(?:and|or|but|so|then|because|since|therefore|however|although|"
     r"though|whereas|additionally|moreover|otherwise|nevertheless|"
     r"nonetheless|furthermore|hence|thus|instead)\b",
@@ -704,10 +730,12 @@ def _copular_claim_is_asserted(text: str, start: int, end: int) -> bool:
     A claim is denied, not asserted, when a negator governs its subject.
     Otherwise it is only mentioned when it is quoted, when the predicate that
     follows it rejects it, or when a frame that introduces an embedded clause
-    still governs it. A complementizer or a stance word stops governing the
-    claim once a clause boundary separates them. A reporting or attitude verb
-    governs only the claim it introduces directly on the same line, so the
-    same word used as a noun cannot silence a later assertion.
+    still governs it. A frame that introduces a clause keeps its scope across
+    a comma, because the clause may contain a parenthetical. A frame that
+    qualifies the statement stops governing the claim at a clause boundary,
+    unless a complementizer introduces the clause it governs. A reporting or
+    attitude verb governs only the claim it introduces directly on the same
+    line, so the same word used as a noun cannot silence a later assertion.
     """
     if _inside_quoted_span(text, start):
         return False
@@ -726,10 +754,21 @@ def _copular_claim_is_asserted(text: str, start: int, end: int) -> bool:
         for match in _CLAIM_REJECTION.finditer(topic):
             if not _NEGATED_MARKER.search(topic[: match.start()]):
                 return False
-    frames = list(_CLAIM_FRAME.finditer(text, 0, start))
-    if frames:
-        gap = text[frames[-1].end() : start]
-        if not _CLAUSE_BREAKER.search(gap):
+    clause_frames = list(_CLAIM_FRAME_CLAUSE.finditer(text, 0, start))
+    if clause_frames:
+        gap = text[clause_frames[-1].end() : start]
+        if not _CLAUSE_BREAKER_CLAUSE.search(gap):
+            return False
+    qualifiers = list(_CLAIM_FRAME_QUALIFIER.finditer(text, 0, start))
+    if qualifiers:
+        qualifier = qualifiers[-1]
+        rest = text[qualifier.end() : start]
+        if _CLAIM_COMPLEMENTIZER.match(rest.lstrip()):
+            # The complementizer introduces the clause that the qualifier
+            # governs, so a comma inside that clause does not end its scope.
+            if not _CLAUSE_BREAKER_CLAUSE.search(rest):
+                return False
+        elif not _CLAUSE_BREAKER.search(rest):
             return False
     reports = list(_CLAIM_REPORT.finditer(text, 0, start))
     if reports:
