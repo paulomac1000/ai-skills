@@ -655,9 +655,13 @@ _CLAUSE_BREAKER = re.compile(
 
 # A frame that takes a clause directly does not lose its scope at a comma or
 # at a coordination, because a clause may contain a parenthetical and may
-# coordinate several claims.
+# coordinate several claims. A coordinating conjunction joins elements inside
+# one clause, so it keeps the scope; an adversative or sequencer conjunction
+# joins independent clauses, so it ends the scope.
 _CLAUSE_BREAKER_SENTENCE = re.compile(
-    r"\n|[;:]|[.!?](?=\s|$)",
+    r"\n|[;:]|[.!?](?=\s|$)|"
+    r"\b(?:but|however|although|though|whereas|while|yet|nevertheless|"
+    r"nonetheless|instead|so|then|because|since|therefore|hence|thus)\b",
     re.IGNORECASE,
 )
 
@@ -698,14 +702,31 @@ def _flexible_literal(text: str) -> str:
     return re.escape(text).replace(r"\ ", r"\s+")
 
 
+def _backtick_runs(line: str) -> list[tuple[int, int, int]]:
+    """Return the (start, end, length) of every backtick run in a line."""
+    runs: list[tuple[int, int, int]] = []
+    index = 0
+    while index < len(line):
+        if line[index] != "`":
+            index += 1
+            continue
+        end = index
+        while end < len(line) and line[end] == "`":
+            end += 1
+        runs.append((index, end, end - index))
+        index = end
+    return runs
+
+
 def _inside_quoted_span(text: str, start: int) -> bool:
     """Report whether an offset falls inside a closed quoted or code span.
 
-    Only a matched pair delimits a span. Straight quotes and code delimiters
-    pair with themselves, and a directional opening mark pairs with its
-    closing mark. The pairing is read from the claim's logical line alone,
-    because a quoted mention never crosses a line break, so a delimiter in an
-    earlier paragraph cannot silence a later claim.
+    Only a matched pair delimits a span. Straight quotes pair with
+    themselves, a directional opening mark pairs with its closing mark, and
+    a code span is delimited by two backtick runs of equal length. The
+    pairing is read from the claim's logical line alone, because a quoted
+    mention never crosses a line break, so a delimiter in an earlier
+    paragraph cannot silence a later claim.
     """
     line_start = text.rfind("\n", 0, start) + 1
     line_end = text.find("\n", start)
@@ -714,6 +735,16 @@ def _inside_quoted_span(text: str, start: int) -> bool:
     line = text[line_start:line_end]
     offset = start - line_start
     for opener, closer in _CLAIM_QUOTES:
+        if opener == closer == "`":
+            runs = _backtick_runs(line)
+            for index, (run_start, _run_end, length) in enumerate(runs):
+                for later in runs[index + 1 :]:
+                    if later[2] != length:
+                        continue
+                    if run_start < offset <= later[1]:
+                        return True
+                    break
+            continue
         if opener == closer:
             positions = [index for index, character in enumerate(line) if character == opener]
             for index in range(0, len(positions) - 1, 2):
