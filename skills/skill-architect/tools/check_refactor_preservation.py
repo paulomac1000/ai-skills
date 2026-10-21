@@ -16,6 +16,7 @@ import os
 import re
 import stat
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -778,6 +779,33 @@ def _quoted_regions(line: str) -> list[tuple[int, int]]:
             elif character == closer and opened is not None:
                 regions.append((opened, index))
                 opened = None
+    regions.extend(_single_quote_regions(line, in_code))
+    return regions
+
+
+def _is_word_character(character: str) -> bool:
+    """Report whether a character can be part of a word."""
+    return character.isalnum() or character == "_"
+
+
+def _single_quote_regions(line: str, in_code: Callable[[int], bool]) -> list[tuple[int, int]]:
+    """Return the single-quoted spans of a line.
+
+    A single quote opens a span when no word character precedes it and closes
+    one when no word character follows it, so an apostrophe inside a word is
+    never a delimiter.
+    """
+    marks = [index for index, character in enumerate(line) if character == "'" and not in_code(index)]
+    openers = [index for index in marks if index == 0 or not _is_word_character(line[index - 1])]
+    closers = [index for index in marks if index == len(line) - 1 or not _is_word_character(line[index + 1])]
+    regions: list[tuple[int, int]] = []
+    used: set[int] = set()
+    for opener in openers:
+        for closer in closers:
+            if closer > opener and closer not in used:
+                regions.append((opener, closer))
+                used.add(closer)
+                break
     return regions
 
 

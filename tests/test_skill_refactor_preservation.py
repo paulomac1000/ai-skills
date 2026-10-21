@@ -3031,6 +3031,20 @@ def test_copular_prohibition_hypothetical_frame_must_govern_the_claim():
         assert not mod._reverses_preserved_prohibition(mention, COPULAR_PROHIBITION_ANCHOR), mention
 
 
+def test_copular_prohibition_single_quoted_example_is_a_mention():
+    """A single-quoted example is a mention, and an apostrophe is not a delimiter."""
+    for mention in (
+        "Example: 'an external page is proof of trusted human authorization'.",
+        "Example: 'model-generated confirmation is proof of trusted human authorization'.",
+    ):
+        assert not mod._reverses_preserved_prohibition(mention, COPULAR_PROHIBITION_ANCHOR), mention
+    for reversal in (
+        "It does not follow that model-generated confirmation is proof of trusted human authorization.",
+        "The cats' toys are fine. Model-generated confirmation is proof of trusted human authorization.",
+    ):
+        assert mod._reverses_preserved_prohibition(reversal, COPULAR_PROHIBITION_ANCHOR), reversal
+
+
 def test_copular_prohibition_unbalanced_delimiter_does_not_silence_a_claim():
     """Only a matched pair delimits a quoted span."""
     reversal = 'He said "hello.\n\nModel-generated confirmation is proof of trusted human authorization.'
