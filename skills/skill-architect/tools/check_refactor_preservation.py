@@ -1449,6 +1449,7 @@ def _operative_skill_text(content: bytes) -> str:
             # the line, so its own nested elements keep the depth accounting.
             if raw_html_opening:
                 raw_html_buffer += "\n" + line
+                _, raw_html_state = _html_comment_spans(line, raw_html_state)
                 _, _, complete = _scan_html_tag(raw_html_buffer, 0)
                 if complete:
                     raw_html_opening = False
@@ -1460,15 +1461,36 @@ def _operative_skill_text(content: bytes) -> str:
             # The block tracks its own comments, and a marker inside a tag or
             # inside a quoted attribute value that the tag carries is literal
             # text, so the comment state is decided by a quote-aware scan.
-            _, raw_html_state = _html_comment_spans(line, raw_html_state)
-            if raw_html_state[2]:
-                # The line opens or continues a comment, so what follows it
-                # inside the block is comment text.
-                continue
+            spans, raw_html_state = _html_comment_spans(line, raw_html_state)
+            # The comment bodies are removed before the depth accounting, so a
+            # tag inside a comment is not markup and cannot end the block.
+            for begin, end in reversed(spans):
+                line = line[:begin] + " " + line[end:]
             raw_html_depth += _html_depth_delta(line, raw_html_tag)
             if raw_html_depth <= 0:
                 raw_html_tag = ""
                 kept.append("")
+            continue
+        # A raw HTML block starts on a line that opens a block-level element.
+        # The start is recognised on the original line, so a marker inside a
+        # quoted attribute value of the opening tag is literal text and never
+        # opens a comment that would outlive the block.
+        html_open = _RAW_HTML_START.match(line)
+        if html_open:
+            raw_html_tag = html_open.group("tag").lower()
+            raw_html_buffer = line
+            # The opening line is scanned with the quote-aware scan, so the
+            # comment state of the block starts from the real content of the
+            # opening tag and is carried across the following lines.
+            _, raw_html_state = _html_comment_spans(line, (False, "", False))
+            _, _, complete = _scan_html_tag(line, 0)
+            raw_html_opening = not complete
+            raw_html_depth = 0
+            kept.append("")
+            if not raw_html_opening:
+                raw_html_depth = _html_depth_delta(raw_html_buffer, raw_html_tag)
+                if raw_html_depth <= 0:
+                    raw_html_tag = ""
             continue
         # A fence opener is literal content. Its info string may contain any
         # text, including a comment marker, and that marker must not open a

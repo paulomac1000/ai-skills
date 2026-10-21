@@ -3185,3 +3185,40 @@ def test_a_real_comment_outside_a_quoted_attribute_is_still_removed():
     # requirement that follows the block.
     body = '<div>\n<span data-note="<!-- literal"></span>\n<!-- real -->\n</div>\n\n' + operative + "\n"
     assert operative in text(body)
+
+
+def test_a_closing_tag_inside_a_comment_cannot_end_a_raw_html_block():
+    """A closing tag inside a comment body is comment text, not markup.
+
+    A closing tag that appears inside a comment used to close the block early,
+    so the requirement that the block was meant to mask became operative and
+    the checker reported a preserved obligation as lost.
+    """
+    operative = "Require policy authorization before deployment."
+
+    def text(body: str) -> str:
+        return mod._operative_skill_text(body.encode("utf-8"))
+
+    for closing in ("<!-- </div> -->", "<!--\n</div> -->", "<!--\n</div>\n-->", "<!-- </div>"):
+        body = "<div>\n" + closing + "\n\n" + operative + "\n\n</div>\n"
+        assert operative not in text(body), closing
+
+
+def test_a_comment_marker_in_the_raw_html_opening_tag_is_literal_text():
+    """The opening line of a block is scanned before the prose comment removal.
+
+    A marker inside a quoted attribute value of the opening tag is literal
+    text, so it must not open a comment that masks the rest of the document.
+    """
+    operative = "Require policy authorization before deployment."
+
+    def text(body: str) -> str:
+        return mod._operative_skill_text(body.encode("utf-8"))
+
+    for opening, closing in (
+        ('<div data-note="<!-- literal">', "</div>"),
+        ("<div data-note='<!-- literal'>", "</div>"),
+        ('<table data-note="<!-- literal">', "</table>"),
+    ):
+        body = opening + "\n" + closing + "\n\n" + operative + "\n"
+        assert operative in text(body), opening

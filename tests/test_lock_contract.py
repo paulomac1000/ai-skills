@@ -180,12 +180,28 @@ def test_a_regeneration_that_differs_from_the_committed_lock_is_reported(tmp_pat
     assert findings == [f"LOCK_REPRODUCIBILITY_DRIFT:{relative}" for relative in _lock_relative_paths(LOCK_IDENTIFIER)]
 
 
+def _bump_first_pin(text: str) -> str:
+    """Return the requirement text with its first pinned version moved.
+
+    The mutation is derived from the text itself, so it stays a real change
+    when the pinned version in the repository moves.
+    """
+    lines = text.splitlines(keepends=True)
+    for index, line in enumerate(lines):
+        name, separator, version = line.partition("==")
+        if not separator or not version.strip():
+            continue
+        lines[index] = f"{name}==0.0.0\n"
+        return "".join(lines)
+    raise AssertionError("the declared requirement carries no pinned version")
+
+
 def test_a_changed_requirement_without_a_regenerated_lock_is_reported(tmp_path):
     """The PR #112 shape: the declared pin moves and the lock does not."""
     root = _lock_repository(tmp_path)
     requirement = root / "requirements-dev.in"
     requirement.write_text(
-        requirement.read_text(encoding="utf-8").replace("ruff==0.16.10", "ruff==0.16.9"),
+        _bump_first_pin(requirement.read_text(encoding="utf-8")),
         encoding="utf-8",
     )
     findings = compile_locks.verify_lock_reproducibility(root, LOCK_IDENTIFIER, compiler=_matching_compiler())

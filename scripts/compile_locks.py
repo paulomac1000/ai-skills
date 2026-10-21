@@ -61,8 +61,8 @@ def _compile_in_workspace(workspace: Path, source_relative: str, output_relative
 
     The relative paths are the ones the generated header records, so the
     output is comparable byte for byte with a committed lock. The compiler
-    output is captured, so a passing check stays quiet and a failing one
-    reports the compiler's own diagnostics.
+    output is captured, so a passing check stays quiet, and a failing one
+    reports the compiler's own diagnostics instead of swallowing them.
     """
     output = workspace / output_relative
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -77,14 +77,21 @@ def _compile_in_workspace(workspace: Path, source_relative: str, output_relative
         f"--output-file={output_relative}",
         source_relative,
     ]
-    subprocess.run(
+    outcome = subprocess.run(
         command,
         cwd=workspace,
-        check=True,
+        check=False,
         timeout=900,
         capture_output=True,
         text=True,
     )
+    if outcome.returncode != 0:
+        # The compiler's diagnostics are the evidence of why the lock could not
+        # be regenerated, so they are reported before the failure.
+        for stream in (outcome.stdout, outcome.stderr):
+            if stream:
+                print(stream, file=sys.stderr, end="" if stream.endswith("\n") else "\n")
+        raise subprocess.CalledProcessError(outcome.returncode, command)
 
 
 def outputs_for_target(identifier: str, *, root: Path = ROOT) -> tuple[Path, Path, Path]:
