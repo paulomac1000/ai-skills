@@ -860,9 +860,7 @@ def _single_quote_regions(line: str, excluded: Callable[[int], bool]) -> list[tu
         for closer in closers:
             if closer <= opener or closer in used:
                 continue
-            if _is_followed_by_word(line, closer) and any(
-                later > closer and not _is_followed_by_word(line, later) for later in closers
-            ):
+            if _is_followed_by_word(line, closer) and not any(later > closer for later in openers):
                 # A possessive apostrophe inside the span, not its closing mark.
                 continue
             regions.append((opener, closer))
