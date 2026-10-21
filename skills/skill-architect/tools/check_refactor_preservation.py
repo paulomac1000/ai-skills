@@ -846,7 +846,9 @@ def _copular_claim_is_asserted(text: str, start: int, end: int) -> bool:
         return False
     if _unquoted_negation_before(text, _SUBJECT_NEGATION, start):
         return False
-    continuation = re.match(r"\s+(?:is|are|was|were)\b", text[end:], re.IGNORECASE)
+    # The continuation is read on the claim's own line: a paragraph break
+    # ends the claim, so a separate paragraph cannot become its continuation.
+    continuation = re.match(r"[^\S\n]+(?:is|are|was|were)\b", text[end:], re.IGNORECASE)
     if continuation:
         # The claim is the subject of a further predicate. It is a mention
         # only when that predicate rejects it; an endorsing continuation

@@ -2990,6 +2990,19 @@ def test_copular_prohibition_quote_after_a_code_span_is_read():
     assert mod._reverses_preserved_prohibition(reversal, COPULAR_PROHIBITION_ANCHOR)
 
 
+def test_copular_prohibition_continuation_stays_on_the_claims_line():
+    """A separate paragraph cannot become the continuation of a claim."""
+    reversal = (
+        "Model-generated confirmation is proof of trusted human authorization\n\nIs deletion forbidden?"
+    )
+    assert mod._reverses_preserved_prohibition(reversal, COPULAR_PROHIBITION_ANCHOR)
+    for mention in (
+        "Model-generated confirmation is proof of trusted human authorization is a common misconception.",
+        "Model-generated confirmation is proof of trusted human authorization is a false claim.",
+    ):
+        assert not mod._reverses_preserved_prohibition(mention, COPULAR_PROHIBITION_ANCHOR), mention
+
+
 def test_copular_prohibition_unbalanced_delimiter_does_not_silence_a_claim():
     """Only a matched pair delimits a quoted span."""
     reversal = 'He said "hello.\n\nModel-generated confirmation is proof of trusted human authorization.'
