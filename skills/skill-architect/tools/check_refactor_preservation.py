@@ -625,7 +625,9 @@ _CLAUSE_BREAKER = re.compile(
 )
 
 # Quote and code delimiters that can enclose a claim without asserting it.
-_CLAIM_QUOTES = ('"', "\u201c", "\u201d", "`")
+# Quote and code delimiters that can enclose a claim without asserting it.
+# Each entry is an opening and a closing delimiter.
+_CLAIM_QUOTES = (('"', '"'), ("\u201c", "\u201d"), ("`", "`"))
 
 
 def _copular_negative_claims(anchor: str) -> list[tuple[str, str, str]]:
@@ -663,15 +665,26 @@ def _flexible_literal(text: str) -> str:
 def _inside_quoted_span(text: str, start: int) -> bool:
     """Report whether an offset falls inside a closed quoted or code span.
 
-    Only a matched pair delimits a span. An unbalanced delimiter opens
-    nothing, so a stray quote in an earlier paragraph cannot silence a later
-    claim.
+    Only a matched pair delimits a span. Straight quotes and code delimiters
+    pair with themselves, and a directional opening mark pairs with its
+    closing mark. An unbalanced delimiter opens nothing, so a stray quote in
+    an earlier paragraph cannot silence a later claim.
     """
-    for quote in _CLAIM_QUOTES:
-        positions = [index for index, character in enumerate(text) if character == quote]
-        for index in range(0, len(positions) - 1, 2):
-            if positions[index] < start <= positions[index + 1]:
-                return True
+    for opener, closer in _CLAIM_QUOTES:
+        if opener == closer:
+            positions = [index for index, character in enumerate(text) if character == opener]
+            for index in range(0, len(positions) - 1, 2):
+                if positions[index] < start <= positions[index + 1]:
+                    return True
+            continue
+        opened: int | None = None
+        for index, character in enumerate(text):
+            if character == opener and opened is None:
+                opened = index
+            elif character == closer and opened is not None:
+                if opened < start <= index:
+                    return True
+                opened = None
     return False
 
 
@@ -692,8 +705,12 @@ def _copular_claim_is_asserted(text: str, start: int, end: int) -> bool:
     if continuation:
         # The claim is the subject of a further predicate. It is a mention
         # only when that predicate names it as a topic; an endorsing
-        # continuation leaves the claim asserted.
+        # continuation leaves the claim asserted. The topic is read from the
+        # continuation alone, so later prose cannot suppress the claim.
         topic = text[end + continuation.end() :]
+        boundary = _CLAUSE_BREAKER.search(topic)
+        if boundary:
+            topic = topic[: boundary.start()]
         if _CLAIM_TOPIC.search(topic):
             return False
     frames = list(_CLAIM_FRAME.finditer(text, 0, start))

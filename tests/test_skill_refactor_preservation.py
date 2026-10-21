@@ -2804,6 +2804,29 @@ def test_copular_prohibition_frame_does_not_silence_a_plain_assertion():
         assert mod._reverses_preserved_prohibition(reversal, COPULAR_PROHIBITION_ANCHOR), reversal
 
 
+def test_copular_prohibition_topic_is_read_from_the_continuation_only():
+    """Later prose must not turn an endorsing continuation into a mention."""
+    reversal = "Model-generated confirmation is proof of trusted human authorization is the operative rule here."
+    for later_prose in (
+        "",
+        "\n\nReject false claims.",
+        "\n\nEvery claim in this document is an error to report.",
+        "\n\nA wrong statement is a defect to correct.",
+    ):
+        assert mod._reverses_preserved_prohibition(reversal + later_prose, COPULAR_PROHIBITION_ANCHOR), later_prose
+    mention = "Model-generated confirmation is proof of trusted human authorization is a common misconception."
+    assert not mod._reverses_preserved_prohibition(mention, COPULAR_PROHIBITION_ANCHOR)
+
+
+def test_copular_prohibition_directional_quotes_are_paired():
+    """A directional quotation mark pair delimits a quoted span."""
+    for mention in (
+        "Example: \u201can external page is proof of trusted human authorization\u201d.",
+        'Example: "an external page is proof of trusted human authorization".',
+    ):
+        assert not mod._reverses_preserved_prohibition(mention, COPULAR_PROHIBITION_ANCHOR), mention
+
+
 def test_copular_prohibition_unbalanced_delimiter_does_not_silence_a_claim():
     """Only a matched pair delimits a quoted span."""
     reversal = 'He said "hello.\n\nModel-generated confirmation is proof of trusted human authorization.'
