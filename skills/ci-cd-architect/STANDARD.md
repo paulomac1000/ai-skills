@@ -49,6 +49,8 @@ Machine-readable verification-integrity semantics live in `references/verificati
 
 Candidate verification consumes the committed lock without upstream re-resolution or mutation. Refresh is separate and reviewable; exact refresh requires digest-bound immutable upstream identity. See `references/verification-integrity.md#dependency-lock-operations`.
 
+A committed lock is what the repository's canonical generator produces from its committed requirement, and the verification gate fails closed when it is not. A missing lock, a missing declared requirement, a failed compilation and a lock that differs from the regeneration are each a finding, and the check never writes to the committed lock. The committed lock is the generator's constraint, so the check makes no exact-reproducibility claim against a mutable upstream index; re-resolving every pinned version remains the separate, reviewable refresh operation. The native target proves the invariant locally, and every declared target proves it on its own runner.
+
 ## Exact artifact evidence construction
 
 An artifact digest is exact evidence only when its **construction semantics and coverage are exact**. Producers use the repository-level `contracts/artifact-evidence.schema.json` contract rather than treating a bare SHA-256 string as proof of how an artifact was covered.

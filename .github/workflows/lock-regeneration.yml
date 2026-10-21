@@ -7,20 +7,26 @@ on:
       - .github/workflows/lock-regeneration.yml
       - .github/workflow-policy.yaml
       - requirements-dev.in
+      - requirements-dev-*.lock
       - scripts/compile_locks.py
       - scripts/install_locked.py
       - scripts/select_lock.py
+      - skills/mcp-server-architect/locks/dev-*.lock
       - skills/mcp-server-architect/locks/python-dev.in
       - skills/mcp-server-architect/locks/python-runtime.in
+      - skills/mcp-server-architect/locks/runtime-*.lock
   push:
     branches: [main]
     paths:
       - requirements-dev.in
+      - requirements-dev-*.lock
       - scripts/compile_locks.py
       - scripts/install_locked.py
       - scripts/select_lock.py
+      - skills/mcp-server-architect/locks/dev-*.lock
       - skills/mcp-server-architect/locks/python-dev.in
       - skills/mcp-server-architect/locks/python-runtime.in
+      - skills/mcp-server-architect/locks/runtime-*.lock
 
 permissions:
   contents: read
@@ -72,6 +78,12 @@ jobs:
           cache-dependency-path: requirements-dev-${{ matrix.lock_id }}.lock
       - name: Install locked generator toolchain
         run: python scripts/install_locked.py
+      - name: Verify the committed lock is the native regeneration
+        run: >-
+          python scripts/compile_locks.py
+          --check
+          --python-version "${{ matrix.python }}"
+          --architecture "${{ matrix.architecture }}"
       - name: Regenerate native locks
         run: >-
           python scripts/compile_locks.py
