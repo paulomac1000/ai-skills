@@ -18,7 +18,7 @@ import stat
 import subprocess
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 MATERIAL = {"trigger", "authority", "safety_stop", "exception", "recovery", "completion", "evidence", "precedence"}
 DISPOSITIONS = {"PRESERVE", "MOVE", "DEDUPLICATE", "REPLACE_BY_CANONICAL_OWNER", "REMOVE_WITH_REASON"}
@@ -1200,11 +1200,14 @@ def _logical_lines(text: str, *, preserve_blank: bool = False) -> list[str]:
 
 # A raw HTML block starts at a block-level tag. The opening tag may continue
 # on the following lines, so the start is recognised before the tag is
-# complete; the block is then masked through its closing tag.
+# complete; the block is then masked through its closing tag. The tag name
+# must be complete, so only a real delimiter may follow it and an element
+# whose name merely starts with a tracked name, such as "div-other", is
+# another element and does not open a block.
 _RAW_HTML_START = re.compile(
     r"^[ ]{0,3}<(?P<tag>pre|script|style|textarea|details|div|table|"
     r"section|article|figure|blockquote|p|ul|ol|li|template|iframe|object|"
-    r"code|noscript|form|fieldset|canvas|svg|x-[A-Za-z0-9-]+)\b",
+    r"code|noscript|form|fieldset|canvas|svg|x-[A-Za-z0-9-]+)(?=[\s/>]|$)",
     re.IGNORECASE,
 )
 
@@ -1252,7 +1255,9 @@ def _scan_html_tag(text: str, start: int) -> tuple[int, bool, bool]:
     return len(text), False, False
 
 
-_HTML_TAG_START = re.compile(r"<\s*/?\s*[A-Za-z]")
+# A tag name follows the opening angle bracket directly, so a comparison
+# operator such as "< b" is prose and never opens a tag.
+_HTML_TAG_START = re.compile(r"</?[A-Za-z]")
 
 
 def _remove_html_comments(text: str) -> str:
@@ -1272,57 +1277,134 @@ def _remove_html_comments(text: str) -> str:
     return "".join(kept)
 
 
-def _html_tag_tokens(text: str, tag: str) -> list[tuple[str, bool]]:
-    """Return the matching block tags in `text` as (kind, self_closing) pairs.
+class _HtmlState(NamedTuple):
+    """The HTML context that is still open at the end of a scanned line.
 
-    The text is walked tag by tag. A tag is consumed as a whole, so a tag
-    inside a quoted attribute value of another tag is neither counted nor able
-    to end the enclosing tag, and a comment body is skipped entirely. A quote
-    outside a tag is ordinary text and never starts a quoted value.
+    A tag, an attribute value, a comment and an equals sign that waits for its
+    quote can each span lines, so each of them is carried into the next line.
+    The text of a tag that is still open is carried as well, so a block
+    element whose opening tag spans lines is counted when that tag closes.
     """
-    tokens: list[tuple[str, bool]] = []
-    pattern = re.compile(r"<\s*(/?)\s*" + re.escape(tag) + r"\b", re.IGNORECASE)
+
+    in_tag: bool
+    quote: str
+    in_comment: bool
+    pending_equals: bool
+    tag_text: str
+
+
+def _html_scan(text: str, tag: str, state: _HtmlState) -> tuple[list[tuple[int, int]], int, _HtmlState]:
+    """Return the real comment spans, the net block depth and the state.
+
+    One walk decides all three, so the comment bodies, the quoted attribute
+    values and the block elements are read with the same rules. A marker
+    inside a tag, or inside a quoted attribute value that the tag carries, is
+    literal text and never opens a comment. The state carries the tag, the
+    attribute value, the comment and the pending equals sign that are still
+    open at the end of the text, so a tag, an attribute value, an equals sign
+    or a comment that spans lines keeps protecting its content: a closing tag
+    inside such a value is literal text and does not end the block. A marker
+    that cannot be resolved is reported as a comment, so an ambiguous input
+    fails closed.
+    """
+    spans: list[tuple[int, int]] = []
+    depth = 0
+    # The tag name must be complete: only a real delimiter may follow it, so
+    # "div-other", "div:other", "div.foo" and "div2" are other elements and
+    # never open or close the block element.
+    pattern = re.compile(r"<\s*(/?)\s*" + re.escape(tag) + r"(?=[\s/>]|$)", re.IGNORECASE)
+    in_tag = state.in_tag
+    quote = state.quote
+    in_comment = state.in_comment
+    pending_equals = state.pending_equals
+    # The text of the tag that earlier lines carried. The line break that
+    # separated them is kept, so the name of the tag ends where it ended.
+    carried = state.tag_text
+    # The part of an open tag that is on this line starts at the beginning of
+    # the line when the tag was already open, and at the tag itself otherwise.
+    tag_start = 0 if in_tag else -1
     index = 0
     while index < len(text):
-        start = text.find("<", index)
-        if start < 0:
-            break
-        if text.startswith("<!--", start):
-            end = text.find("-->", start + 4)
-            index = len(text) if end < 0 else end + 3
+        char = text[index]
+        if in_comment:
+            end = text.find("-->", index)
+            if end < 0:
+                spans.append((0, len(text)))
+                return spans, depth, _HtmlState(in_tag, quote, True, pending_equals, carried)
+            spans.append((0, end + 3))
+            in_comment = False
+            index = end + 3
+            pending_equals = False
             continue
-        if not _HTML_TAG_START.match(text, start):
-            # A literal `<` in text is not a tag and must not swallow the tags
-            # that follow it on the same line.
-            index = start + 1
+        if quote:
+            # A quoted attribute value ends at its matching quote only; HTML
+            # has no backslash escape, so a backslash is ordinary text.
+            if char == quote:
+                quote = ""
+                pending_equals = False
+            index += 1
             continue
-        end, self_closing, complete = _scan_html_tag(text, start)
-        if not complete:
-            # A `<` that does not open a tag must not hide the tags that follow
-            # it on the same line.
-            index = start + 1
+        if in_tag:
+            if char in "\"'":
+                # The last non-space character decides whether a quote opens a
+                # value, so whitespace between the equals sign and the quote
+                # is allowed, and an equals sign that ends the line still
+                # opens the value on the next line.
+                if pending_equals:
+                    quote = char
+                    pending_equals = False
+                index += 1
+                continue
+            if text.startswith("<!--", index):
+                # A marker inside a tag is part of the tag, not a comment.
+                end = text.find("-->", index + 4)
+                index = len(text) if end < 0 else end + 3
+                pending_equals = False
+                continue
+            if char == ">":
+                in_tag = False
+                pending_equals = False
+                # The tag is counted from the text it spans, so a block element
+                # whose opening tag spans lines is counted when it closes.
+                whole = carried + "\n" + text[tag_start : index + 1] if carried else text[tag_start : index + 1]
+                match = pattern.match(whole)
+                if match:
+                    # A self-closing tag opens and closes at once, so it must
+                    # not keep a block open and mask the rest of the document.
+                    self_closing = index > tag_start and text[index - 1] == "/"
+                    if match.group(1):
+                        depth -= 1
+                    elif not self_closing:
+                        depth += 1
+                carried = ""
+                index += 1
+                continue
+            if not char.isspace():
+                pending_equals = char == "="
+            index += 1
             continue
-        match = pattern.match(text[start:end])
-        if match:
-            tokens.append(("close" if match.group(1) else "open", self_closing))
-        index = end
-    return tokens
-
-
-def _html_depth_delta(text: str, tag: str) -> int:
-    """Return the net number of open block elements of `tag` in `text`.
-
-    Only complete tags outside quoted attribute values are counted, and a
-    self-closing tag opens and closes at once, so it must not keep a block
-    open and mask the rest of the document.
-    """
-    depth = 0
-    for kind, self_closing in _html_tag_tokens(text, tag):
-        if kind == "close":
-            depth -= 1
-        elif not self_closing:
-            depth += 1
-    return depth
+        if text.startswith("<!--", index):
+            end = text.find("-->", index + 4)
+            if end < 0:
+                spans.append((index, len(text)))
+                return spans, depth, _HtmlState(in_tag, quote, True, pending_equals, carried)
+            spans.append((index, end + 3))
+            index = end + 3
+            pending_equals = False
+            continue
+        if char == "<" and _HTML_TAG_START.match(text, index):
+            in_tag = True
+            tag_start = index
+            carried = ""
+            pending_equals = False
+            index += 1
+            continue
+        index += 1
+    if in_tag and tag_start >= 0:
+        # The tag does not close on this line, so the part of it that is on
+        # this line is carried into the next line.
+        carried = carried + "\n" + text[tag_start:] if carried else text[tag_start:]
+    return spans, depth, _HtmlState(in_tag, quote, in_comment, pending_equals, carried)
 
 
 def _strip_frontmatter(text: str) -> str:
@@ -1347,7 +1429,7 @@ def _operative_skill_text(content: bytes) -> str:
     raw_html_depth = 0
     raw_html_buffer = ""
     raw_html_opening = False
-    raw_html_comment = False
+    raw_html_state = _HtmlState(False, "", False, False, "")
     comment_open = False
     for line in text.splitlines():
         if fence:
@@ -1369,38 +1451,61 @@ def _operative_skill_text(content: bytes) -> str:
             # the line, so its own nested elements keep the depth accounting.
             if raw_html_opening:
                 raw_html_buffer += "\n" + line
+                _, _, raw_html_state = _html_scan(line, raw_html_tag, raw_html_state)
                 _, _, complete = _scan_html_tag(raw_html_buffer, 0)
                 if complete:
                     raw_html_opening = False
-                    raw_html_depth = _html_depth_delta(raw_html_buffer, raw_html_tag)
+                    _, raw_html_depth, _ = _html_scan(
+                        raw_html_buffer, raw_html_tag, _HtmlState(False, "", False, False, "")
+                    )
                     if raw_html_depth <= 0:
+                        # A comment that is still open when the block ends
+                        # continues in the surrounding prose, so the text it
+                        # masks stays masked.
+                        comment_open = comment_open or raw_html_state.in_comment
                         raw_html_tag = ""
                         kept.append("")
                 continue
-            # The block tracks its own comments, and a line may close one
-            # comment and open another, so the handling repeats until no
-            # comment marker is left.
-            while True:
-                if raw_html_comment:
-                    if "-->" not in line:
-                        break
-                    raw_html_comment = False
-                    line = line.split("-->", 1)[1]
-                    continue
-                if "<!--" not in line:
-                    break
-                before, _, after = line.partition("<!--")
-                if "-->" not in after:
-                    raw_html_comment = True
-                    line = before
-                    break
-                line = before + " " + after.split("-->", 1)[1]
-            if raw_html_comment:
-                continue
-            raw_html_depth += _html_depth_delta(line, raw_html_tag)
+            # The block tracks its own comments, and a marker inside a tag or
+            # inside a quoted attribute value that the tag carries is literal
+            # text, so the comment state is decided by a quote-aware scan that
+            # counts the block elements with the same rules. A tag inside a
+            # comment is comment text and cannot end the block.
+            _, delta, raw_html_state = _html_scan(line, raw_html_tag, raw_html_state)
+            raw_html_depth += delta
             if raw_html_depth <= 0:
+                # A comment that is still open when the block ends continues in
+                # the surrounding prose, so the text it masks stays masked.
+                comment_open = comment_open or raw_html_state.in_comment
                 raw_html_tag = ""
                 kept.append("")
+            continue
+        # A raw HTML block starts on a line that opens a block-level element.
+        # The start is recognised on the original line, so a marker inside a
+        # quoted attribute value of the opening tag is literal text and never
+        # opens a comment that would outlive the block.
+        html_open = _RAW_HTML_START.match(line)
+        if html_open:
+            raw_html_tag = html_open.group("tag").lower()
+            raw_html_buffer = line
+            # The opening line is scanned with the quote-aware scan, so the
+            # comment state of the block starts from the real content of the
+            # opening tag and is carried across the following lines.
+            _, _, raw_html_state = _html_scan(line, raw_html_tag, _HtmlState(False, "", False, False, ""))
+            _, _, complete = _scan_html_tag(line, 0)
+            raw_html_opening = not complete
+            raw_html_depth = 0
+            kept.append("")
+            if not raw_html_opening:
+                _, raw_html_depth, _ = _html_scan(
+                    raw_html_buffer, raw_html_tag, _HtmlState(False, "", False, False, "")
+                )
+                if raw_html_depth <= 0:
+                    # A block that opens and closes on one line can still leave
+                    # a comment open, and that comment continues in the
+                    # surrounding prose, so the text it masks stays masked.
+                    comment_open = comment_open or raw_html_state.in_comment
+                    raw_html_tag = ""
             continue
         # A fence opener is literal content. Its info string may contain any
         # text, including a comment marker, and that marker must not open a
@@ -1410,13 +1515,18 @@ def _operative_skill_text(content: bytes) -> str:
             fence = opener.group(1)
             continue
         # Remove comments outside fences. One line may open more than one
-        # comment, so the removal repeats until no opener is left.
+        # comment, so the removal repeats until no opener is left. A raw HTML
+        # block that follows a removed comment stops the removal, so the
+        # quoted attributes of its opening tag are read as part of that tag
+        # instead of as another comment.
         while "<!--" in line:
             before, _, after = line.partition("<!--")
             if "-->" in after:
                 # A space keeps the text on both sides of a comment apart, so a
                 # commented-out heading or declaration cannot become live.
                 line = before + " " + after.split("-->", 1)[1]
+                if _RAW_HTML_START.match(line):
+                    break
             else:
                 line = before
                 comment_open = True
@@ -1431,13 +1541,23 @@ def _operative_skill_text(content: bytes) -> str:
         if html_open:
             raw_html_tag = html_open.group("tag").lower()
             raw_html_buffer = line
+            # The opening line is scanned with the quote-aware scan, so the
+            # comment state of the block starts from the real content of the
+            # opening tag and is carried across the following lines.
+            _, _, raw_html_state = _html_scan(line, raw_html_tag, _HtmlState(False, "", False, False, ""))
             _, _, complete = _scan_html_tag(line, 0)
             raw_html_opening = not complete
             raw_html_depth = 0
             kept.append("")
             if not raw_html_opening:
-                raw_html_depth = _html_depth_delta(raw_html_buffer, raw_html_tag)
+                _, raw_html_depth, _ = _html_scan(
+                    raw_html_buffer, raw_html_tag, _HtmlState(False, "", False, False, "")
+                )
                 if raw_html_depth <= 0:
+                    # A block that opens and closes on one line can still leave
+                    # a comment open, and that comment continues in the
+                    # surrounding prose, so the text it masks stays masked.
+                    comment_open = comment_open or raw_html_state.in_comment
                     raw_html_tag = ""
             continue
         if not line.strip():

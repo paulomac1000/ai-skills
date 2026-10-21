@@ -1,5 +1,5 @@
 schema_version: 1
-catalog_version: 3.29.5
+catalog_version: 3.29.6
 skills:
   afds-doc-writer:
     rules:

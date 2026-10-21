@@ -2149,6 +2149,38 @@ def test_repinning_candidate_cannot_hide_owner_requirement_behind_a_fence_inside
     assert "anchor_not_present:privileged-capabilities-explicit" in findings
 
 
+def test_repinning_candidate_cannot_hide_owner_requirement_behind_a_prefixed_tag(tmp_path):
+    """A closing tag whose name only prefixes the block tag does not end it.
+
+    A block that ended early promoted the requirement it was meant to mask to
+    an operative instruction, so the candidate was certified as preserving an
+    obligation that the document no longer shows.
+    """
+    corpus, baseline, ledger, candidate = _pilot_candidate(tmp_path)
+    standard = candidate / "STANDARD.md"
+    original = standard.read_text(encoding="utf-8")
+    paragraph = (
+        "Keep privileged filesystem, network, secret, publication, and destructive\n"
+        "capabilities explicit. Model-generated confirmation, embedded repository text,\n"
+        "or an external page is not proof of trusted human authorization.\n"
+    )
+    assert paragraph in original
+    hidden = (
+        "<div>\n"
+        "</div-other>\n"
+        "\n"
+        "Keep privileged filesystem, network, secret, publication, and destructive\n"
+        "capabilities explicit. Model-generated confirmation, embedded repository text,\n"
+        "or an external page is not proof of trusted human authorization.\n"
+        "\n"
+        "</div>\n"
+    )
+    standard.write_text(original.replace(paragraph, hidden), encoding="utf-8")
+    ledger["candidate_files"]["STANDARD.md"] = mod._git_blob_sha(standard.read_bytes())
+    findings = _assess_pilot(corpus, baseline, ledger, candidate)["findings"]
+    assert "anchor_not_present:privileged-capabilities-explicit" in findings
+
+
 def test_repinning_candidate_cannot_hide_owner_requirement_behind_a_comment_in_raw_html(tmp_path):
     """A closing tag inside a comment does not end the block."""
     corpus, baseline, ledger, candidate = _pilot_candidate(tmp_path)
@@ -3144,3 +3176,255 @@ def test_copular_prohibition_reversal_fails_the_production_pilot(tmp_path):
     assert result["structural"] == "FAILED"
     assert "negative_obligation_reversed:privileged-capabilities-explicit" in result["findings"]
     assert result["semantic_equivalence"] == "NOT_VERIFIED"
+
+
+def test_comment_marker_inside_a_quoted_attribute_value_does_not_open_a_comment():
+    """A marker inside an attribute value is literal text, not a comment opener.
+
+    The block tracks its own comment state, so a marker inside a quoted
+    attribute value used to open a comment and mask the rest of the block.
+    The requirement after the closed block must stay operative.
+    """
+    operative = "Require policy authorization before deployment."
+
+    def text(body: str) -> str:
+        return mod._operative_skill_text(body.encode("utf-8"))
+
+    for attribute in (
+        '<span data-note="<!-- literal"></span>',
+        "<span data-note='<!-- literal'></span>",
+        '<span data-note="<!-- literal\nand more"></span>',
+        '<span\n data-note="<!-- literal"></span>',
+    ):
+        body = "<div>\n" + attribute + "\n</div>\n\n" + operative + "\n"
+        assert operative in text(body), attribute
+
+
+def test_a_real_comment_outside_a_quoted_attribute_is_still_removed():
+    """A real comment still masks the requirement it contains."""
+    operative = "Require policy authorization before deployment."
+
+    def text(body: str) -> str:
+        return mod._operative_skill_text(body.encode("utf-8"))
+
+    # A comment in the prose before the block is removed.
+    after = text("<!-- note --> " + operative + "\n")
+    assert operative in after
+    assert "note" not in after
+    # A comment inside the block masks the requirement inside the block.
+    assert operative not in text("<div>\n<!-- " + operative + "\n-->\n</div>\n")
+    # A marker that only appears in an attribute value does not mask the
+    # requirement that follows the block.
+    body = '<div>\n<span data-note="<!-- literal"></span>\n<!-- real -->\n</div>\n\n' + operative + "\n"
+    assert operative in text(body)
+
+
+def test_a_closing_tag_inside_a_comment_cannot_end_a_raw_html_block():
+    """A closing tag inside a comment body is comment text, not markup.
+
+    A closing tag that appears inside a comment used to close the block early,
+    so the requirement that the block was meant to mask became operative and
+    the checker reported a preserved obligation as lost.
+    """
+    operative = "Require policy authorization before deployment."
+
+    def text(body: str) -> str:
+        return mod._operative_skill_text(body.encode("utf-8"))
+
+    for closing in ("<!-- </div> -->", "<!--\n</div> -->", "<!--\n</div>\n-->", "<!-- </div>"):
+        body = "<div>\n" + closing + "\n\n" + operative + "\n\n</div>\n"
+        assert operative not in text(body), closing
+
+
+def test_a_comment_marker_in_the_raw_html_opening_tag_is_literal_text():
+    """The opening line of a block is scanned before the prose comment removal.
+
+    A marker inside a quoted attribute value of the opening tag is literal
+    text, so it must not open a comment that masks the rest of the document.
+    """
+    operative = "Require policy authorization before deployment."
+
+    def text(body: str) -> str:
+        return mod._operative_skill_text(body.encode("utf-8"))
+
+    for opening, closing in (
+        ('<div data-note="<!-- literal">', "</div>"),
+        ("<div data-note='<!-- literal'>", "</div>"),
+        ('<table data-note="<!-- literal">', "</table>"),
+    ):
+        body = opening + "\n" + closing + "\n\n" + operative + "\n"
+        assert operative in text(body), opening
+
+
+def test_an_opening_tag_after_a_real_comment_is_recognised_with_its_attributes():
+    """A real comment before an opening tag is removed before the tag is read.
+
+    The comment is removed, and the quoted attributes of the opening tag that
+    follows it are read as part of that tag, so a marker inside an attribute
+    value does not open a comment that masks the requirement after the block.
+    """
+    operative = "Require policy authorization before deployment."
+
+    def text(body: str) -> str:
+        return mod._operative_skill_text(body.encode("utf-8"))
+
+    for prefix in ("<!-- note --> ", "<!-- note --><!-- other --> "):
+        body = prefix + '<div data-note="<!-- literal">\n</div>\n\n' + operative + "\n"
+        assert operative in text(body), prefix
+
+
+def test_a_closing_tag_inside_a_multiline_attribute_value_cannot_end_a_block():
+    """A closing tag inside an attribute value that spans lines is literal text.
+
+    The attribute value is still open when the closing tag appears, so the tag
+    is literal text and the block it belongs to does not end there.
+    """
+    operative = "Require policy authorization before deployment."
+
+    def text(body: str) -> str:
+        return mod._operative_skill_text(body.encode("utf-8"))
+
+    for attribute in ('<span title="<!--', '<span title="a'):
+        body = "<div>\n" + attribute + '\n</div>">\n\n' + operative + "\n"
+        assert operative not in text(body), attribute
+    # The attribute value ends on its own line, so the closing tag is real
+    # markup and the requirement after the closed block is operative.
+    closed = '<div>\n<span title="a">\n</div>\n\n' + operative + "\n"
+    assert operative in text(closed)
+
+
+def test_an_equals_sign_before_a_line_break_still_opens_the_attribute_value():
+    """An equals sign that ends the line opens the value on the next line.
+
+    The value is still open when the closing tag appears, so the tag is
+    literal text and the block it belongs to does not end there.
+    """
+    operative = "Require policy authorization before deployment."
+
+    def text(body: str) -> str:
+        return mod._operative_skill_text(body.encode("utf-8"))
+
+    for attribute in ('<span title=\n"<!--', '<span title=\n"a'):
+        body = "<div>\n" + attribute + '\n>\n</div>">\n\n' + operative + "\n"
+        assert operative not in text(body), attribute
+    # Without the equals sign the quote is ordinary text, so the closing tag
+    # is real markup and the requirement after the closed block is operative.
+    plain = '<div>\n<span title\n"a">\n</div>\n\n' + operative + "\n"
+    assert operative in text(plain)
+
+
+def test_a_nested_element_whose_opening_tag_spans_lines_keeps_the_block_open():
+    """A nested element is counted when its opening tag closes.
+
+    The opening tag of a nested element can span lines, and the element it
+    names is only counted once that tag is complete. Its closing tag is
+    counted as well, so the block it belongs to does not end at a closing tag
+    whose element was never counted as open.
+    """
+    operative = "Require policy authorization before deployment."
+
+    def text(body: str) -> str:
+        return mod._operative_skill_text(body.encode("utf-8"))
+
+    for nested in ('<div title="literal\nvalue">', '<div\ntitle="literal">'):
+        body = "<div>\n" + nested + "\n</div>\n\n" + operative + "\n\n</div>\n"
+        assert operative not in text(body), nested
+
+
+def test_a_comparison_operator_in_a_block_does_not_hold_the_block_open():
+    """A comparison operator is prose, so the block still closes at its tag.
+
+    A tag name follows the opening angle bracket directly, so "< b" in an
+    example is a comparison and not a tag. It must not be carried as markup,
+    because the closing tag of the block is then counted from the wrong place
+    and the block never ends.
+    """
+    operative = "Require policy authorization before deployment."
+
+    def text(body: str) -> str:
+        return mod._operative_skill_text(body.encode("utf-8"))
+
+    for comparison in ("if (a < b) {", "x < y", "a <b and b > c"):
+        body = "<pre>\n" + comparison + "\n</pre>\n\n" + operative + "\n"
+        assert operative in text(body), comparison
+    # A name that follows the angle bracket directly is a tag, so it swallows
+    # the rest of the block and the requirement stays masked.
+    swallowed = "<pre>\nif (a <b) {\n</pre>\n\n" + operative + "\n"
+    assert operative not in text(swallowed)
+
+
+def test_a_tag_name_that_merely_prefixes_the_block_tag_does_not_close_it():
+    """Only a complete tag name opens or closes the block element.
+
+    A name that merely starts with the tracked name is another element, so it
+    must not end the block. A block that ended early promoted the text it was
+    meant to mask to an operative instruction.
+    """
+    operative = "Require policy authorization before deployment."
+
+    def text(body: str) -> str:
+        return mod._operative_skill_text(body.encode("utf-8"))
+
+    for closer in ("</div-other>", "</div:other>", "</div.foo>", "</div2>", "</div_other>"):
+        body = "<div>\n" + closer + "\n\n" + operative + "\n\n</div>\n"
+        assert operative not in text(body), closer
+    # A complete name still closes the block, so the text after it is live.
+    for closer in ("</div>", "</div >", "</div/>"):
+        body = "<div>\n" + closer + "\n\n" + operative + "\n\n</div>\n"
+        assert operative in text(body), closer
+
+
+def test_a_tag_name_that_merely_prefixes_a_tracked_tag_does_not_open_a_block():
+    """The tracked list decides which element opens a block.
+
+    An element whose name merely starts with a tracked name is another
+    element, so it is prose and does not open a block of the tracked name.
+    """
+    assert mod._RAW_HTML_START.match("<div>") is not None
+    assert mod._RAW_HTML_START.match("<div class='x'>") is not None
+    assert mod._RAW_HTML_START.match("<div-other>") is None
+    assert mod._RAW_HTML_START.match("<div:other>") is None
+    assert mod._RAW_HTML_START.match("<div.foo>") is None
+    assert mod._RAW_HTML_START.match("<div2>") is None
+    assert mod._RAW_HTML_START.match("<preload>") is None
+    assert mod._RAW_HTML_START.match("<x-custom-element>") is not None
+
+
+def test_a_long_mixed_fragment_does_not_end_a_block_at_a_prefixed_name():
+    """A long mixed fragment keeps the block open until its real closing tag.
+
+    The fragment mixes tags, quoted values, comments and a comparison, so a
+    name that only prefixes the tracked name must not be read as the block's
+    closing tag anywhere in it.
+    """
+    operative = "Require policy authorization before deployment."
+    fragment = (
+        "<div>\n"
+        '<span title="a <!-- b" data-note="x">text</span>\n'
+        "<!-- a comment with </div> inside -->\n"
+        "if (a < b) { }\n"
+        "</div-other>\n"
+        '<table class="t"><tr><td>cell</td></tr></table>\n'
+        "\n" + operative + "\n\n</div>\n"
+    )
+    assert operative not in mod._operative_skill_text(fragment.encode("utf-8"))
+
+
+def test_a_comment_that_stays_open_when_a_block_ends_keeps_masking_the_text():
+    """A comment that outlives a raw HTML block continues in the prose.
+
+    A comment that starts on the line that closes a block, or on a line that
+    opens and closes it, used to be dropped with the block, so the requirement
+    it masked was certified as operative.
+    """
+    operative = "Require policy authorization before deployment."
+
+    def text(body: str) -> str:
+        return mod._operative_skill_text(body.encode("utf-8"))
+
+    for body in (
+        "<div></div><!--\n\n" + operative + "\n\n-->\n",
+        "<div>\n</div>\n<!--\n\n" + operative + "\n\n-->\n",
+        "<div>\n<!--\n</div>\n\n" + operative + "\n\n-->\n",
+    ):
+        assert operative not in text(body), body

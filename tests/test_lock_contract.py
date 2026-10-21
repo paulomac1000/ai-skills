@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import re
+import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
 
+from scripts import compile_locks
 from scripts.select_lock import SUPPORTED_LOCKS, lock_id, selected_lock
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -99,3 +102,231 @@ def test_legacy_os_only_locks_are_not_published() -> None:
         for platform in ("linux", "macos", "windows")
     }
     assert not any(path.exists() for path in legacy)
+
+
+# --- Lock reproducibility: the committed lock must equal the native regeneration.
+
+LOCK_IDENTIFIER = "linux-x64-py312"
+
+
+def _lock_relative_paths(identifier):
+    """Return the committed lock path of every family for one target."""
+    return [
+        output_relative.format(identifier=identifier)
+        for _source_relative, output_relative in compile_locks.LOCK_SOURCES
+    ]
+
+
+def _lock_repository(tmp_path):
+    """Return a repository copy holding the declared lock inputs and locks."""
+    root = tmp_path / "repo"
+    (root / "skills/mcp-server-architect/locks").mkdir(parents=True)
+    for source_relative, output_relative in compile_locks.LOCK_SOURCES:
+        destination = root / source_relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(ROOT / source_relative, destination)
+        relative = output_relative.format(identifier=LOCK_IDENTIFIER)
+        committed = root / relative
+        committed.parent.mkdir(parents=True, exist_ok=True)
+        # The committed lock carries exactly what its declared input produced.
+        committed.write_bytes(destination.read_bytes())
+    return root
+
+
+def _matching_compiler():
+    """Return a compiler that reproduces the committed lock bytes."""
+
+    def compile_lock(workspace: Path, source_relative: str, output_relative: str) -> None:
+        output = workspace / output_relative
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_bytes((workspace / source_relative).read_bytes())
+
+    return compile_lock
+
+
+def _drifting_compiler(marker: str):
+    """Return a compiler that produces a lock with a different pin."""
+
+    def compile_lock(workspace: Path, source_relative: str, output_relative: str) -> None:
+        output = workspace / output_relative
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(f"{marker}\n", encoding="utf-8")
+
+    return compile_lock
+
+
+def test_committed_locks_match_the_native_regeneration(tmp_path):
+    """The positive path: committed locks equal the regeneration, so no finding."""
+    root = _lock_repository(tmp_path)
+    findings = compile_locks.verify_lock_reproducibility(root, LOCK_IDENTIFIER, compiler=_matching_compiler())
+    assert findings == []
+
+
+def test_a_stale_lock_is_reported_for_every_family(tmp_path):
+    """A declared requirement that ships with a stale lock is a finding."""
+    for index, relative in enumerate(_lock_relative_paths(LOCK_IDENTIFIER)):
+        root = _lock_repository(tmp_path / f"family-{index}")
+        (root / relative).write_text("ruff==0.16.3\n", encoding="utf-8")
+        findings = compile_locks.verify_lock_reproducibility(root, LOCK_IDENTIFIER, compiler=_matching_compiler())
+        assert findings == [f"LOCK_REPRODUCIBILITY_DRIFT:{relative}"], relative
+
+
+def test_a_regeneration_that_differs_from_the_committed_lock_is_reported(tmp_path):
+    """A lock that the generator no longer produces is a finding."""
+    root = _lock_repository(tmp_path)
+    findings = compile_locks.verify_lock_reproducibility(
+        root, LOCK_IDENTIFIER, compiler=_drifting_compiler("ruff==0.16.9")
+    )
+    assert findings == [f"LOCK_REPRODUCIBILITY_DRIFT:{relative}" for relative in _lock_relative_paths(LOCK_IDENTIFIER)]
+
+
+def _bump_first_pin(text: str) -> str:
+    """Return the requirement text with its first pinned version moved.
+
+    The mutation is derived from the text itself, so it stays a real change
+    when the pinned version in the repository moves.
+    """
+    lines = text.splitlines(keepends=True)
+    for index, line in enumerate(lines):
+        name, separator, version = line.partition("==")
+        if not separator or not version.strip():
+            continue
+        lines[index] = f"{name}==0.0.0\n"
+        return "".join(lines)
+    raise AssertionError("the declared requirement carries no pinned version")
+
+
+def test_a_changed_requirement_without_a_regenerated_lock_is_reported(tmp_path):
+    """The PR #112 shape: the declared pin moves and the lock does not."""
+    root = _lock_repository(tmp_path)
+    requirement = root / "requirements-dev.in"
+    requirement.write_text(
+        _bump_first_pin(requirement.read_text(encoding="utf-8")),
+        encoding="utf-8",
+    )
+    findings = compile_locks.verify_lock_reproducibility(root, LOCK_IDENTIFIER, compiler=_matching_compiler())
+    assert findings == [f"LOCK_REPRODUCIBILITY_DRIFT:requirements-dev-{LOCK_IDENTIFIER}.lock"]
+
+
+def test_a_missing_committed_lock_is_reported(tmp_path):
+    """A lock that was never committed is a finding, not a silent pass."""
+    root = _lock_repository(tmp_path)
+    relative = f"requirements-dev-{LOCK_IDENTIFIER}.lock"
+    (root / relative).unlink()
+    findings = compile_locks.verify_lock_reproducibility(root, LOCK_IDENTIFIER, compiler=_matching_compiler())
+    assert findings == [f"LOCK_COMMITTED_MISSING:{relative}"]
+
+
+def test_a_missing_declared_requirement_is_reported(tmp_path):
+    """A lock whose declared input is missing is a finding."""
+    root = _lock_repository(tmp_path)
+    (root / "requirements-dev.in").unlink()
+    findings = compile_locks.verify_lock_reproducibility(root, LOCK_IDENTIFIER, compiler=_matching_compiler())
+    assert findings == ["LOCK_INPUT_MISSING:requirements-dev.in"]
+
+
+def test_a_failed_compilation_is_reported(tmp_path):
+    """A compiler that fails is a finding, so the check fails closed."""
+    root = _lock_repository(tmp_path)
+
+    def failing(workspace: Path, source_relative: str, output_relative: str) -> None:
+        raise subprocess.CalledProcessError(1, ["pip-compile"])
+
+    findings = compile_locks.verify_lock_reproducibility(root, LOCK_IDENTIFIER, compiler=failing)
+    assert findings == [f"LOCK_COMPILE_FAILED:{relative}" for relative in _lock_relative_paths(LOCK_IDENTIFIER)]
+
+
+def test_an_incomplete_regeneration_is_reported(tmp_path):
+    """A compiler that produces nothing is a finding, not an empty lock."""
+    root = _lock_repository(tmp_path)
+
+    def empty(workspace: Path, source_relative: str, output_relative: str) -> None:
+        output = workspace / output_relative
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text("", encoding="utf-8")
+
+    findings = compile_locks.verify_lock_reproducibility(root, LOCK_IDENTIFIER, compiler=empty)
+    assert findings == [f"LOCK_OUTPUT_MISSING:{relative}" for relative in _lock_relative_paths(LOCK_IDENTIFIER)]
+
+
+def test_the_check_writes_nothing_to_the_committed_locks(tmp_path):
+    """A local check leaves the tracked locks exactly as they were."""
+    root = _lock_repository(tmp_path)
+    before = {relative: (root / relative).read_bytes() for relative in _lock_relative_paths(LOCK_IDENTIFIER)}
+    findings = compile_locks.verify_lock_reproducibility(root, LOCK_IDENTIFIER, compiler=_matching_compiler())
+    assert findings == []
+    after = {relative: (root / relative).read_bytes() for relative in _lock_relative_paths(LOCK_IDENTIFIER)}
+    assert after == before
+
+
+def test_the_check_never_writes_into_the_repository_under_test(tmp_path):
+    """The regeneration runs outside the repository, so no lock is rewritten."""
+    root = _lock_repository(tmp_path)
+    observed: list[Path] = []
+
+    def inspect(workspace: Path, source_relative: str, output_relative: str) -> None:
+        output = workspace / output_relative
+        observed.append(output)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text("x\n", encoding="utf-8")
+
+    compile_locks.verify_lock_reproducibility(root, LOCK_IDENTIFIER, compiler=inspect)
+    assert observed
+    for output in observed:
+        assert root not in output.parents
+
+
+def test_an_unknown_target_has_no_committed_lock(tmp_path):
+    """A target without a committed lock cannot pass the check."""
+    root = _lock_repository(tmp_path)
+    findings = compile_locks.verify_lock_reproducibility(root, "linux-x64-py313", compiler=_matching_compiler())
+    assert findings == [f"LOCK_COMMITTED_MISSING:{relative}" for relative in _lock_relative_paths("linux-x64-py313")]
+
+
+def test_the_generator_stays_native_only():
+    """A non-native target is refused by the generator and the check."""
+    import platform
+    import sys as runtime
+
+    native = (
+        compile_locks.normalize_platform(runtime.platform),
+        compile_locks.normalize_architecture(platform.machine()),
+        compile_locks.normalize_python_version(f"{runtime.version_info.major}.{runtime.version_info.minor}"),
+    )
+    other = next(target for target in sorted(SUPPORTED_LOCKS) if target != native)
+    arguments = [
+        "--platform",
+        other[0],
+        "--architecture",
+        other[1],
+        "--python-version",
+        other[2],
+    ]
+    with pytest.raises(SystemExit):
+        compile_locks.main(arguments)
+    with pytest.raises(SystemExit):
+        compile_locks.main([*arguments, "--check"])
+
+
+def test_an_emission_directory_that_would_overwrite_a_committed_lock_is_refused(monkeypatch):
+    """The check refuses to emit over the evidence its verdict is computed from.
+
+    The regenerated lock is written to the emission directory, so an emission
+    directory that holds a committed lock would replace the committed content
+    with the regenerated content and decide the verdict from its own output.
+    """
+    monkeypatch.setattr(compile_locks, "_native_target", lambda: ("linux", "x64", "3.12"))
+    with pytest.raises(SystemExit):
+        compile_locks.main(
+            [
+                "--platform",
+                "linux",
+                "--architecture",
+                "x64",
+                "--python-version",
+                "3.12",
+                "--check",
+                "--emit-dir",
+                str(compile_locks.ROOT),
+            ]
+        )

@@ -77,6 +77,11 @@ def main() -> int:
 
     # Reuse the locked installer's fail-closed host-conflict classification.
     run(sys.executable, "scripts/install_locked.py", "--verify-only")
+    # The committed lock must be what the canonical generator produces from
+    # the committed requirement, so a declared pin can never ship with a stale
+    # lock. This is the native target; the hosted matrix proves the same
+    # invariant for every declared target on its own runner.
+    run(sys.executable, "scripts/compile_locks.py", "--check")
     run(sys.executable, "-m", "ruff", "check", *QUALITY_PATHS)
     run(sys.executable, "-m", "ruff", "format", "--check", *QUALITY_PATHS)
     run(sys.executable, "-m", "mypy", *TYPE_PATHS)
