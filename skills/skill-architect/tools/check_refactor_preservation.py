@@ -668,6 +668,7 @@ _CLAUSE_BREAKER = re.compile(
 # joins independent clauses, so it ends the scope.
 _CLAUSE_BREAKER_SENTENCE = re.compile(
     r"\n|[;:]|[.!?](?=\s|$)|"
+    r",\s*(?:and|or)\b|"
     r"\b(?:but|however|although|though|whereas|while|yet|nevertheless|"
     r"nonetheless|instead|so|then|because|since|therefore|hence|thus)\b",
     re.IGNORECASE,
