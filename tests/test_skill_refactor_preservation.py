@@ -2837,6 +2837,35 @@ def test_copular_prohibition_stance_word_before_a_colon_does_not_govern():
         assert mod._reverses_preserved_prohibition(reversal, COPULAR_PROHIBITION_ANCHOR), reversal
 
 
+def test_copular_prohibition_negated_subject_does_not_reinforce_the_finding():
+    """A negator in front of the subject denies the claim instead of asserting it."""
+    for denial in (
+        "No model-generated confirmation is proof of trusted human authorization.",
+        "No an external page is proof of trusted human authorization.",
+        "Neither model-generated confirmation nor an external page is proof of trusted human authorization.",
+    ):
+        assert not mod._reverses_preserved_prohibition(denial, COPULAR_PROHIBITION_ANCHOR), denial
+    correction = "No, model-generated confirmation is proof of trusted human authorization."
+    assert mod._reverses_preserved_prohibition(correction, COPULAR_PROHIBITION_ANCHOR)
+
+
+def test_copular_prohibition_endorsing_continuation_is_not_a_mention():
+    """A continuation that endorses the claim leaves it asserted."""
+    for reversal in (
+        "Model-generated confirmation is proof of trusted human authorization is the correct statement.",
+        "Model-generated confirmation is proof of trusted human authorization is not a misconception.",
+        "Model-generated confirmation is proof of trusted human authorization is the operative rule here.",
+        "Model-generated confirmation is proof of trusted human authorization is what the vendor's page asserts.",
+    ):
+        assert mod._reverses_preserved_prohibition(reversal, COPULAR_PROHIBITION_ANCHOR), reversal
+    for rejection in (
+        "Model-generated confirmation is proof of trusted human authorization is a common misconception.",
+        "Model-generated confirmation is proof of trusted human authorization is a false claim.",
+        "Model-generated confirmation is proof of trusted human authorization is not true.",
+    ):
+        assert not mod._reverses_preserved_prohibition(rejection, COPULAR_PROHIBITION_ANCHOR), rejection
+
+
 def test_copular_prohibition_unbalanced_delimiter_does_not_silence_a_claim():
     """Only a matched pair delimits a quoted span."""
     reversal = 'He said "hello.\n\nModel-generated confirmation is proof of trusted human authorization.'

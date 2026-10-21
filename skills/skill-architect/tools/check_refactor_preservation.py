@@ -600,17 +600,26 @@ _CLAIM_REPORT = re.compile(
 )
 
 # The claim can be the subject of a further predicate. It is then a mention
-# only when that predicate names the claim as a discussed topic, so an
-# endorsing continuation is not read as a mention.
-_CLAIM_TOPIC = re.compile(
-    r"\b(?:misconceptions?|myths?|mistakes?|errors?|claims?|assertions?|"
-    r"statements?|allegations?|propositions?|presumptions?|assumptions?|"
-    r"rumou?rs?|fallacies|nonsense|absurdity|doctrines?|"
-    r"false|wrong|incorrect|rejected|denied|refuted|disputed|"
-    r"forbidden|prohibited|banned|untrue|inaccurate|unfounded|"
-    r"not\s+true)\b",
+# only when that continuation rejects the claim. A topic word alone is not
+# enough, because a continuation that calls the claim the correct statement
+# endorses it, and a continuation that denies the topic negates the
+# rejection: "is not a misconception" states that the claim is true.
+_CLAIM_REJECTION = re.compile(
+    r"\b(?:false|wrong|incorrect|untrue|inaccurate|unfounded|baseless|mistaken|spurious|"
+    r"misconceptions?|myths?|mistakes?|errors?|rejected|denied|refuted|disputed|"
+    r"forbidden|prohibited|banned)\b|not\s+(?:true|correct|valid)\b",
     re.IGNORECASE,
 )
+
+# A rejection marker that the continuation itself negates does not reject the
+# claim.
+_NEGATED_MARKER = re.compile(r"\b(?:not|no|never|isn't|aren't)\s+(?:a|an|the)?\s*$", re.IGNORECASE)
+
+# A negator in front of the subject denies the claim rather than asserting
+# it: "No model-generated confirmation is proof of trusted human authorization"
+# and "Neither model-generated confirmation nor an external page is proof of
+# trusted human authorization" both reinforce the preserved prohibition.
+_SUBJECT_NEGATION = re.compile(r"\b(?:no|neither|nor)\s+(?:the|a|an|any|either)?\s*$", re.IGNORECASE)
 
 # A clause boundary ends a frame's scope: beyond it the claim is asserted
 # again in its own right. A line break is a boundary too, so a frame in an
@@ -626,7 +635,6 @@ _CLAUSE_BREAKER = re.compile(
     re.IGNORECASE,
 )
 
-# Quote and code delimiters that can enclose a claim without asserting it.
 # Quote and code delimiters that can enclose a claim without asserting it.
 # Each entry is an opening and a closing delimiter.
 _CLAIM_QUOTES = (('"', '"'), ("\u201c", "\u201d"), ("`", "`"))
@@ -693,28 +701,31 @@ def _inside_quoted_span(text: str, start: int) -> bool:
 def _copular_claim_is_asserted(text: str, start: int, end: int) -> bool:
     """Decide whether a matched positive claim is asserted, not merely mentioned.
 
-    A claim is only mentioned when it is quoted, when it is the topic of a
-    further predicate that names it as a discussed claim ("... is a common
-    misconception"), or when a frame that introduces an embedded clause still
-    governs it. A complementizer or a stance word stops governing the claim
-    once a clause boundary separates them. A reporting or attitude verb
+    A claim is denied, not asserted, when a negator governs its subject.
+    Otherwise it is only mentioned when it is quoted, when the predicate that
+    follows it rejects it, or when a frame that introduces an embedded clause
+    still governs it. A complementizer or a stance word stops governing the
+    claim once a clause boundary separates them. A reporting or attitude verb
     governs only the claim it introduces directly on the same line, so the
     same word used as a noun cannot silence a later assertion.
     """
     if _inside_quoted_span(text, start):
         return False
+    if _SUBJECT_NEGATION.search(text[:start]):
+        return False
     continuation = re.match(r"\s+(?:is|are|was|were)\b", text[end:], re.IGNORECASE)
     if continuation:
         # The claim is the subject of a further predicate. It is a mention
-        # only when that predicate names it as a topic; an endorsing
-        # continuation leaves the claim asserted. The topic is read from the
-        # continuation alone, so later prose cannot suppress the claim.
+        # only when that predicate rejects it; an endorsing continuation
+        # leaves the claim asserted. The continuation is read alone, so later
+        # prose cannot suppress the claim.
         topic = text[end + continuation.end() :]
         boundary = _CLAUSE_BREAKER.search(topic)
         if boundary:
             topic = topic[: boundary.start()]
-        if _CLAIM_TOPIC.search(topic):
-            return False
+        for match in _CLAIM_REJECTION.finditer(topic):
+            if not _NEGATED_MARKER.search(topic[: match.start()]):
+                return False
     frames = list(_CLAIM_FRAME.finditer(text, 0, start))
     if frames:
         gap = text[frames[-1].end() : start]
