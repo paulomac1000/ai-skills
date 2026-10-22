@@ -217,7 +217,7 @@ def test_real_pilot_tracks_live_normative_sources():
     )
     assert result["structural"] == "PASS", result["findings"]
     assert result["behavior"] == "BEHAVIOR_NOT_VERIFIED"
-    assert result["baseline_revision"] == "003a13832a36160ddd464b04f2c50ae5b9be3420"
+    assert result["baseline_revision"] == "5c656ac0602e35f51cb0ba9b576f8e5af10a54ba"
     assert result["candidate_revision"] == "NOT_VERIFIED"
     assert result["declared_candidate_version"] == "3.30.0"
 
