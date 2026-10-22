@@ -1,5 +1,18 @@
 # Changelog
 
+## 3.30.1 - 2026-10-22
+
+### Fixed
+
+- The verification scheduler no longer reuses evidence whose contract identity or expiry it could not check. A receipt bound to an acceptance contract qualified as reusable when the caller supplied no current contract digest, and a receipt carrying an expiry qualified when no current time was supplied, so evidence produced under another or unknown contract and evidence whose freshness was unverifiable entered the reuse path. Missing identity now fails closed: both shapes are stale and the node is re-run, while properly qualified reusable receipts are preserved.
+- The verification scheduler no longer charges the admitted execution window for nodes it cannot legally dispatch. The admission loop consumed budget while walking the candidate order before prerequisite parking was propagated, so a deferred dependent spent budget behind a parked prerequisite and an independent sibling could be parked after it. Admission now skips nodes whose prerequisites are parked, pending, or deferred, charges only executable admitted nodes, and re-propagates deferrals after parking.
+- The verification scheduler no longer raises on malformed typed input. The validator dereferenced `discriminates_between`, `required_before`, `invalidates_on`, and `exclusive_resource_class` before recording their input-shape findings, and graph traversal iterated raw `depends_on`, so a non-sequence field produced an uncaught exception instead of bounded typed findings with zero dispatch. Shape validation now precedes every dereference and traversal consumes only validated strings.
+- The dependency locks for the four non-native targets now select `opentelemetry-api` 1.45.1, matching the constraint the 3.30.0 requirement declared, so the published vulnerability fix is effective on every supported target instead of only the target whose lock was regenerated locally. The generated MCP server runtime lock input carries the same constraint, so every committed lock family selects a non-vulnerable OpenTelemetry version.
+
+### Changed
+
+- Correction: the 3.30.0 section described the scheduler regression matrix as covering twelve scenarios; the shipped suite covers the twelve required counterexamples plus input-shape and evidence-identity regressions added by this release.
+
 ## 3.30.0 - 2026-10-22
 
 ### Added
