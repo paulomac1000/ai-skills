@@ -98,15 +98,8 @@
   },
   "baseline_source_tree_sha": "7dc12c94da13c88ddf4eb7371ab106563d7f450e",
   "baseline_source_blobs": {
-    "SKILL.md": "42ca23c9b92381897e55b9f5ef159fd4b6f90ab3",
-    "STANDARD.md": "c0b29979657ebfc84c34acf0f5348e4c0cd2b28f",
-    "manifest.yaml": "3dddf7ac235bc968d12ec2223e7b5a41f73c569e",
-    "references/admission-and-scope.md": "2f97350f543b0e99292a9a714bff219dbe9affda",
-    "references/behavioral-evaluation.md": "d1f079059f015a0c67d91b7ef9d8dc4f34f7f059",
-    "references/lifecycle-and-migration.md": "8739ec3a8fc3a61d63d820c84c537a8fa3307434",
-    "references/portability-and-trust.md": "79008594d4527004175faf2c6221af27787b7dff",
-    "references/resources-and-composition.md": "95bf1a9a0ca4867a4a5b35bbfa1761ca47509e46",
-    "references/routing-and-context.md": "d987a280f3f5aaeca4e037c4c3ef2ec5e50649a2",
-    "references/upstream-agent-skills-compatibility.md": "fecd8359806f991e555dcaf71b33ec9a3e73f459"
+    "SKILL.md": "6b5c463800d28b6aa927921359a68820d78fecf5",
+    "references/lifecycle-and-migration.md": "d4b57d923f825a338421b0e29216909627176d92",
+    "STANDARD.md": "56bc30c01cf8da14a13f6bcaa8bc8b0879235c56"
   }
 }
