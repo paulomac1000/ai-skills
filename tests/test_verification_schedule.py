@@ -1297,3 +1297,115 @@ def test_plan_rejects_malformed_input_with_zero_dispatch() -> None:
     assert result.decisions == ()
     assert result.order == ()
     assert any("depends_on must be an array of strings" in finding for finding in result.findings)
+
+
+def test_unhashable_duration_profile_ref_fails_closed() -> None:
+    """Reviewer finding 1: a non-string duration reference must not raise."""
+    malformed = node("bad", duration_profile_ref=[])  # type: ignore[arg-type]
+    findings = schedule.validate_verification_schedule([malformed], policy())
+    assert any("duration_profile_ref" in finding for finding in findings)
+
+    result = schedule.plan_verification_schedule(
+        [malformed],
+        policy=policy(),
+        trusted_evidence=snapshot(),
+        current_candidate_revision=CANDIDATE_A,
+        current_base_revision=BASE_X,
+        current_contract_digest=CONTRACT,
+    )
+    assert result.accepted is False
+    assert result.decisions == ()
+    assert any("duration_profile_ref" in finding for finding in result.findings)
+
+
+def test_both_missing_contract_identity_never_qualifies_reuse() -> None:
+    """Reviewer finding 2: neither side naming a contract is not a match."""
+    unit = node(
+        "unit-check",
+        evidence_kind=EvidenceKind.UNIT,
+        cost_class=CostClass.CHEAP,
+        invalidates_on=("source",),
+    )
+    result = schedule.plan_verification_schedule(
+        [unit],
+        policy=policy(),
+        trusted_evidence=snapshot(
+            receipt("ev-unit", "unit-check", contract_digest=None, subject_refs=("source:skills/a.py",))
+        ),
+        current_candidate_revision=CANDIDATE_A,
+        current_base_revision=BASE_X,
+        current_contract_digest=None,
+    )
+    indexed = decisions_by_id(result)
+    assert indexed["unit-check"].decision is ScheduleDecision.RUN
+    assert indexed["unit-check"].reason is ScheduleReason.EVIDENCE_CONTRACT_MISMATCH
+
+
+def test_unhashable_external_gate_status_fails_closed() -> None:
+    """Same family: an unhashable gate status must produce a finding, not a raise."""
+    unit = node("unit-check", evidence_kind=EvidenceKind.UNIT, cost_class=CostClass.CHEAP)
+    result = schedule.plan_verification_schedule(
+        [unit],
+        policy=policy(),
+        trusted_evidence=snapshot(),
+        external_gate_status={"unit-check": ["AVAILABLE"]},  # type: ignore[dict-item]
+        current_candidate_revision=CANDIDATE_A,
+        current_base_revision=BASE_X,
+        current_contract_digest=CONTRACT,
+    )
+    assert result.accepted is False
+    assert any("status must be a string" in finding for finding in result.findings)
+
+
+def test_unhashable_probe_validity_fails_closed() -> None:
+    """Same family: an unhashable probe validity must produce a finding, not a raise."""
+    findings = schedule.validate_verification_schedule(
+        [node("bad", probe_validity=ProbeValidity(validity=["INVALID"]))],  # type: ignore[arg-type]
+        policy(),
+    )
+    assert any("probe validity" in finding for finding in findings)
+
+
+def test_malformed_receipt_fields_fail_closed() -> None:
+    """Same family: malformed receipt identities are findings, never crashes."""
+    unit = node("unit-check", evidence_kind=EvidenceKind.UNIT, cost_class=CostClass.CHEAP)
+    result = schedule.plan_verification_schedule(
+        [unit],
+        policy=policy(),
+        trusted_evidence=snapshot(
+            EvidenceReceipt(
+                evidence_ref="ev-bad",
+                node_id=["unit-check"],  # type: ignore[list-item]
+                status=["PASS"],  # type: ignore[list-item]
+                candidate_revision=CANDIDATE_A,
+                subject_refs=(1,),  # type: ignore[list-item]
+                expires_at_epoch="soon",  # type: ignore[assignment]
+            )
+        ),
+        current_candidate_revision=CANDIDATE_A,
+        current_base_revision=BASE_X,
+        current_contract_digest=CONTRACT,
+    )
+    assert result.accepted is False
+    assert result.decisions == ()
+
+
+def test_malformed_policy_fields_fail_closed() -> None:
+    """Same family: malformed policy shapes are findings, never crashes."""
+    unit = node("unit-check", evidence_kind=EvidenceKind.UNIT, cost_class=CostClass.CHEAP)
+    malformed_policy = SchedulePolicy(
+        policy_revision=POLICY_REVISION,
+        hard_window_seconds="soon",  # type: ignore[assignment]
+        reconciliation_reserve_seconds="ten",  # type: ignore[assignment]
+        duration_profiles=[("profile-x", DurationProfile(ref="profile-x"))],  # type: ignore[arg-type]
+    )
+    result = schedule.plan_verification_schedule(
+        [unit],
+        policy=malformed_policy,
+        trusted_evidence=snapshot(),
+        current_candidate_revision=CANDIDATE_A,
+        current_base_revision=BASE_X,
+        current_contract_digest=CONTRACT,
+    )
+    assert result.accepted is False
+    assert result.decisions == ()
