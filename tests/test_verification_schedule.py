@@ -53,6 +53,13 @@ def _load(name: str, path: Path) -> ModuleType:
     return loaded
 
 
+def _as_field(value: object) -> object:
+    """Pass malformed scalars through unchanged; wrap real sequences in a tuple."""
+    if isinstance(value, (str, bytes, bytearray)) or not isinstance(value, Sequence):
+        return value
+    return tuple(value)
+
+
 def node(
     identifier: str,
     *,
@@ -78,20 +85,20 @@ def node(
     """Build one bounded verification node for the scheduling fixtures."""
     return VerificationNode(
         id=identifier,
-        criterion_refs=tuple(criterion_refs),
+        criterion_refs=_as_field(criterion_refs),  # type: ignore[arg-type]
         evidence_kind=evidence_kind,
-        depends_on=tuple(depends_on),
+        depends_on=_as_field(depends_on),  # type: ignore[arg-type]
         cost_class=cost_class,
         duration_profile_ref=duration_profile_ref,
         validation_environment_ref=validation_environment_ref,
-        invalidates_on=tuple(invalidates_on),
-        required_before=tuple(required_before),
+        invalidates_on=_as_field(invalidates_on),  # type: ignore[arg-type]
+        required_before=_as_field(required_before),  # type: ignore[arg-type]
         reusable_evidence_ref=reusable_evidence_ref,
         required=required,
         candidate_bound=candidate_bound,
         base_bound=base_bound,
         discrimination_class=discrimination_class,
-        discriminates_between=tuple(discriminates_between),
+        discriminates_between=_as_field(discriminates_between),  # type: ignore[arg-type]
         exclusive_resource_class=exclusive_resource_class,
         failure_subject=failure_subject,
         probe_validity=probe_validity,
@@ -235,9 +242,7 @@ def test_focused_failure_defers_the_full_gate_and_repair_restores_mandatory_exec
         invalidates_on=("candidateRevision", "source"),
         candidate_bound=True,
     )
-    failing = snapshot(
-        receipt("ev-focused", "focused-unit", status="FAIL", subject_refs=("source:skills/a.py",))
-    )
+    failing = snapshot(receipt("ev-focused", "focused-unit", status="FAIL", subject_refs=("source:skills/a.py",)))
 
     deferred = schedule.plan_verification_schedule(
         [focused, full_gate],
@@ -256,9 +261,7 @@ def test_focused_failure_defers_the_full_gate_and_repair_restores_mandatory_exec
     repaired = schedule.plan_verification_schedule(
         [focused, full_gate],
         policy=policy(),
-        trusted_evidence=snapshot(
-            receipt("ev-focused", "focused-unit", subject_refs=("source:skills/a.py",))
-        ),
+        trusted_evidence=snapshot(receipt("ev-focused", "focused-unit", subject_refs=("source:skills/a.py",))),
         current_candidate_revision=CANDIDATE_A,
         current_base_revision=BASE_X,
         current_contract_digest=CONTRACT,
@@ -562,10 +565,7 @@ def test_release_worktree_head_mismatch_precedes_the_full_gate() -> None:
     )
     dirty_indexed = decisions_by_id(dirty)
     assert dirty_indexed["release-worktree-preflight"].decision is ScheduleDecision.NON_DISPATCH
-    assert (
-        dirty_indexed["release-worktree-preflight"].reason
-        is ScheduleReason.RELEASE_WORKTREE_HEAD_MISMATCH
-    )
+    assert dirty_indexed["release-worktree-preflight"].reason is ScheduleReason.RELEASE_WORKTREE_HEAD_MISMATCH
     assert dirty_indexed["full-gate"].decision is ScheduleDecision.NON_DISPATCH
     assert dirty_indexed["full-gate"].reason is ScheduleReason.PREREQUISITE_FAILED
     # An unrelated genuine defect still runs and fails correctly.
@@ -1044,7 +1044,7 @@ def test_malformed_node_shapes_fail_closed_with_typed_findings() -> None:
     assert any("unknown dependency" in finding for finding in findings)
     assert any("criterion_refs must be an array" in finding for finding in findings)
     assert any("unknown required_before boundary" in finding for finding in findings)
-    assert any("invalid invalidation kind" in finding for finding in findings)
+    assert any("invalidates_on must be an array of strings" in finding for finding in findings)
     assert any("invalid exclusive resource class" in finding for finding in findings)
     assert any("unknown probe validity class" in finding for finding in findings)
     assert any("invalid failure subject precondition" in finding for finding in findings)
@@ -1126,3 +1126,174 @@ def test_self_dependency_and_duplicate_dependencies_are_rejected() -> None:
     )
     assert any("depends on itself" in finding for finding in findings)
     assert any("depends_on must be unique" in finding for finding in findings)
+
+
+def test_missing_contract_digest_does_not_qualify_evidence() -> None:
+    """F1: Missing contract identity must not qualify evidence under another contract."""
+    unit = node(
+        "unit-check",
+        evidence_kind=EvidenceKind.UNIT,
+        cost_class=CostClass.CHEAP,
+        invalidates_on=("source",),
+    )
+    # Receipt has a contract digest, but current_contract_digest is None
+    # This should NOT qualify as reusable (fail-open bug in v3.30.0)
+    result = schedule.plan_verification_schedule(
+        [unit],
+        policy=policy(),
+        trusted_evidence=snapshot(
+            receipt("ev-unit", "unit-check", contract_digest=CONTRACT, subject_refs=("source:skills/a.py",))
+        ),
+        current_candidate_revision=CANDIDATE_A,
+        current_base_revision=BASE_X,
+        current_contract_digest=None,  # Missing contract identity
+    )
+    indexed = decisions_by_id(result)
+    # Should NOT reuse - missing contract identity is a mismatch
+    assert indexed["unit-check"].decision is ScheduleDecision.RUN
+    assert indexed["unit-check"].reason is ScheduleReason.EVIDENCE_CONTRACT_MISMATCH
+
+
+def test_missing_now_epoch_does_not_qualify_expiring_evidence() -> None:
+    """F1: Missing current time must not qualify expiring evidence."""
+    unit = node(
+        "unit-check",
+        evidence_kind=EvidenceKind.UNIT,
+        cost_class=CostClass.CHEAP,
+        invalidates_on=("source",),
+    )
+    # Receipt expires in the past, but now_epoch is None
+    # This should NOT qualify as reusable (fail-open bug in v3.30.0)
+    result = schedule.plan_verification_schedule(
+        [unit],
+        policy=policy(),
+        trusted_evidence=snapshot(
+            receipt("ev-unit", "unit-check", subject_refs=("source:skills/a.py",), expires_at_epoch=1000)
+        ),
+        current_candidate_revision=CANDIDATE_A,
+        current_base_revision=BASE_X,
+        current_contract_digest=CONTRACT,
+        now_epoch=None,  # Missing current time
+    )
+    indexed = decisions_by_id(result)
+    # Should NOT reuse - can't verify expiry without current time
+    assert indexed["unit-check"].decision is ScheduleDecision.RUN
+    assert indexed["unit-check"].reason is ScheduleReason.EVIDENCE_EXPIRED
+
+
+def test_hard_window_charges_only_executable_nodes() -> None:
+    """F2: Hard window should only charge budget for nodes that actually RUN."""
+    # P: 600s (expensive, doesn't fit in 100s window)
+    # C: depends on P, 60s (cheap)
+    # I: independent, 60s (cheap)
+    # Hard window: 100s
+    # Expected: P parked, C deferred (depends on P), I eligible to RUN
+    p = node(
+        "P",
+        evidence_kind=EvidenceKind.FULL_GATE,
+        cost_class=CostClass.EXPENSIVE,
+        duration_profile_ref="profile-p",
+    )
+    c = node(
+        "C",
+        evidence_kind=EvidenceKind.UNIT,
+        cost_class=CostClass.CHEAP,
+        depends_on=("P",),
+        duration_profile_ref="profile-c",
+    )
+    i = node(
+        "I",
+        evidence_kind=EvidenceKind.UNIT,
+        cost_class=CostClass.CHEAP,
+        duration_profile_ref="profile-i",
+    )
+    bounded = policy(
+        hard_window_seconds=100,
+        reconciliation_reserve_seconds=10,
+        duration_profiles={
+            "profile-p": DurationProfile(ref="profile-p", expected_seconds=600, measured=True),
+            "profile-c": DurationProfile(ref="profile-c", expected_seconds=60, measured=True),
+            "profile-i": DurationProfile(ref="profile-i", expected_seconds=60, measured=True),
+        },
+    )
+
+    result = schedule.plan_verification_schedule(
+        [p, c, i],
+        policy=bounded,
+        trusted_evidence=snapshot(),
+        current_candidate_revision=CANDIDATE_A,
+        current_base_revision=BASE_X,
+        current_contract_digest=CONTRACT,
+    )
+    indexed = decisions_by_id(result)
+    # P should be PARKED (doesn't fit)
+    assert indexed["P"].decision is ScheduleDecision.NON_DISPATCH
+    assert indexed["P"].reason is ScheduleReason.INSUFFICIENT_EXECUTION_WINDOW
+    # C should be DEFER (depends on P which is parked)
+    assert indexed["C"].decision is ScheduleDecision.DEFER_UNTIL_DEPENDENCY
+    assert indexed["C"].reason is ScheduleReason.PREREQUISITE_PENDING
+    # I should RUN (independent, fits in window)
+    assert indexed["I"].decision is ScheduleDecision.RUN
+    # Window should only charge for I (60s), not for P (600s) or C (deferred)
+    assert result.order == ("I",)
+
+
+def test_malformed_depends_on_fails_closed() -> None:
+    """F3: depends_on=5 (non-sequence) fails closed with typed finding."""
+    findings = schedule.validate_verification_schedule(
+        [node("bad", depends_on=5)],  # type: ignore[arg-type]
+        policy(),
+    )
+    assert any("depends_on must be an array of strings" in finding for finding in findings)
+
+
+def test_malformed_discriminates_between_fails_closed() -> None:
+    """F3: non-sequence discriminates_between fails closed."""
+    findings = schedule.validate_verification_schedule(
+        [node("bad", discriminates_between="not-a-sequence")],  # type: ignore[arg-type]
+        policy(),
+    )
+    assert any("discriminates_between must be an array of strings" in finding for finding in findings)
+
+
+def test_malformed_required_before_fails_closed() -> None:
+    """F3: malformed required_before fails closed."""
+    findings = schedule.validate_verification_schedule(
+        [node("bad", required_before=5)],  # type: ignore[arg-type]
+        policy(),
+    )
+    assert any("required_before must be an array of strings" in finding for finding in findings)
+
+
+def test_malformed_invalidates_on_fails_closed() -> None:
+    """F3: malformed invalidates_on fails closed."""
+    findings = schedule.validate_verification_schedule(
+        [node("bad", invalidates_on=5)],  # type: ignore[arg-type]
+        policy(),
+    )
+    assert any("invalidates_on must be an array of strings" in finding for finding in findings)
+
+
+def test_non_string_exclusive_resource_class_fails_closed() -> None:
+    """F3: non-string exclusive_resource_class fails closed."""
+    findings = schedule.validate_verification_schedule(
+        [node("bad", exclusive_resource_class=5)],  # type: ignore[arg-type]
+        policy(),
+    )
+    assert any("exclusive resource class" in finding for finding in findings)
+
+
+def test_plan_rejects_malformed_input_with_zero_dispatch() -> None:
+    """F3: Malformed input produces zero dispatch, no uncaught exception."""
+    result = schedule.plan_verification_schedule(
+        [node("bad", depends_on=5)],  # type: ignore[arg-type]
+        policy=policy(),
+        trusted_evidence=snapshot(),
+        current_candidate_revision=CANDIDATE_A,
+        current_base_revision=BASE_X,
+        current_contract_digest=CONTRACT,
+    )
+    assert result.accepted is False
+    assert result.decisions == ()
+    assert result.order == ()
+    assert any("depends_on must be an array of strings" in finding for finding in result.findings)

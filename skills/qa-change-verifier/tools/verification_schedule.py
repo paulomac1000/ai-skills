@@ -407,21 +407,38 @@ def validate_verification_schedule(
             findings.append(f"verification node {identifier} has an invalid discrimination class")  # type: ignore[unreachable]
         if item.discrimination_class is DiscriminationClass.MATERIAL and not item.discriminates_between:
             findings.append(f"verification node {identifier} declares material discrimination without alternatives")
-        if len(item.discriminates_between) > MAX_DISCRIMINATIONS:
+        discriminates_between = _strings(item.discriminates_between)
+        if discriminates_between is None:
+            findings.append(f"verification node {identifier} discriminates_between must be an array of strings")
+        elif len(discriminates_between) > MAX_DISCRIMINATIONS:
             findings.append(f"verification node {identifier} discriminates_between exceeds the bounded count")
+        elif any(len(ref) > MAX_REFERENCE_LENGTH for ref in discriminates_between):
+            findings.append(f"verification node {identifier} discriminates_between exceeds the bounded length")
 
-        for boundary in item.required_before:
-            if boundary not in REQUIRED_BEFORE_BOUNDARIES:
-                findings.append(f"verification node {identifier} has an unknown required_before boundary: {boundary}")
-        for kind in item.invalidates_on:
-            if not isinstance(kind, str) or not kind.strip() or len(kind) > MAX_REFERENCE_LENGTH:
-                findings.append(f"verification node {identifier} has an invalid invalidation kind")
+        required_before = _strings(item.required_before)
+        if required_before is None:
+            findings.append(f"verification node {identifier} required_before must be an array of strings")
+        else:
+            for boundary in required_before:
+                if boundary not in REQUIRED_BEFORE_BOUNDARIES:
+                    findings.append(
+                        f"verification node {identifier} has an unknown required_before boundary: {boundary}"
+                    )
+
+        invalidates_on = _strings(item.invalidates_on)
+        if invalidates_on is None:
+            findings.append(f"verification node {identifier} invalidates_on must be an array of strings")
+        else:
+            for kind in invalidates_on:
+                if not isinstance(kind, str) or not kind.strip() or len(kind) > MAX_REFERENCE_LENGTH:
+                    findings.append(f"verification node {identifier} has an invalid invalidation kind")
         if item.duration_profile_ref is not None and item.duration_profile_ref not in policy.duration_profiles:
             findings.append(
                 f"verification node {identifier} references an unknown duration profile: {item.duration_profile_ref}"
             )
-        if item.exclusive_resource_class is not None and not item.exclusive_resource_class.strip():
-            findings.append(f"verification node {identifier} has an invalid exclusive resource class")
+        if item.exclusive_resource_class is not None:
+            if not isinstance(item.exclusive_resource_class, str) or not item.exclusive_resource_class.strip():
+                findings.append(f"verification node {identifier} has an invalid exclusive resource class")
         if item.failure_subject is not None and not isinstance(item.failure_subject, FailureSubject):
             findings.append(f"verification node {identifier} has an invalid failure subject precondition")  # type: ignore[unreachable]
         if item.probe_validity is not None:
@@ -467,7 +484,7 @@ def _find_cycle(nodes: Sequence[VerificationNode]) -> tuple[str, ...]:
         stack.append(identifier)
         item = by_id.get(identifier)
         if item is not None:
-            for reference in item.depends_on:
+            for reference in _strings(item.depends_on) or ():
                 found = visit(reference)
                 if found:
                     return found
@@ -493,7 +510,7 @@ def _maximum_depth(nodes: Sequence[VerificationNode]) -> int:
         item = by_id.get(identifier)
         value = 0
         if item is not None:
-            for reference in item.depends_on:
+            for reference in _strings(item.depends_on) or ():
                 value = max(value, depth(reference) + 1)
         memo[identifier] = value
         return value
@@ -559,14 +576,20 @@ def _qualify(
         return ("STALE", ScheduleReason.EVIDENCE_CANDIDATE_MISMATCH, ())
     if node.base_bound and receipt.base_revision != current_base_revision:
         return ("STALE", ScheduleReason.EVIDENCE_BASE_MISMATCH, ())
-    if current_contract_digest is not None and receipt.contract_digest != current_contract_digest:
+    if current_contract_digest is not None:
+        if receipt.contract_digest != current_contract_digest:
+            return ("STALE", ScheduleReason.EVIDENCE_CONTRACT_MISMATCH, ())
+    elif receipt.contract_digest is not None:
         return ("STALE", ScheduleReason.EVIDENCE_CONTRACT_MISMATCH, ())
     if receipt.policy_revision != policy.policy_revision:
         return ("STALE", ScheduleReason.EVIDENCE_POLICY_MISMATCH, ())
     if node.validation_environment_ref is not None and receipt.environment_ref != node.validation_environment_ref:
         return ("STALE", ScheduleReason.EVIDENCE_ENVIRONMENT_MISMATCH, ())
-    if receipt.expires_at_epoch is not None and now_epoch is not None and receipt.expires_at_epoch <= now_epoch:
-        return ("STALE", ScheduleReason.EVIDENCE_EXPIRED, ())
+    if receipt.expires_at_epoch is not None:
+        if now_epoch is None:
+            return ("STALE", ScheduleReason.EVIDENCE_EXPIRED, ())
+        if receipt.expires_at_epoch <= now_epoch:
+            return ("STALE", ScheduleReason.EVIDENCE_EXPIRED, ())
     if node.reusable_evidence_ref is not None and receipt.evidence_ref != node.reusable_evidence_ref:
         return ("STALE", ScheduleReason.DECLARED_EVIDENCE_MISMATCH, ())
 
@@ -702,11 +725,43 @@ def plan_verification_schedule(
         resolve(item.id)
 
     candidate_order = _order_nodes(items, memo, policy)
+
+    # First, propagate DEFER for external/pending dependencies (no window accounting yet)
+    progressing = True
+    while progressing:
+        progressing = False
+        for item in items:
+            if memo[item.id].state is not _State.RUN:
+                continue
+            blocking_dependencies = tuple(
+                reference
+                for reference in item.depends_on
+                if memo[reference].state in {_State.EXTERNAL_PENDING, _State.DEFER}
+            )
+            if blocking_dependencies:
+                memo[item.id] = _Resolution(
+                    _State.DEFER,
+                    ScheduleReason.PREREQUISITE_PENDING,
+                    blocked_by=blocking_dependencies,
+                    invalidated_by=invalidated_by[item.id],
+                )
+                progressing = True
+
+    # Now apply window accounting ONLY to nodes that are still RUN and whose
+    # dependencies are all satisfied, so a parked prerequisite never makes its
+    # dependents consume window budget they cannot legally spend.
     remaining_window = policy.hard_window_seconds
     for identifier in candidate_order:
-        item = by_id[identifier]
+        if memo[identifier].state is not _State.RUN:
+            continue
+        if any(
+            memo[reference].state in {_State.PARKED, _State.EXTERNAL_PENDING, _State.DEFER}
+            for reference in by_id[identifier].depends_on
+        ):
+            continue
         if remaining_window is None:
             continue
+        item = by_id[identifier]
         profile = policy.duration_profiles.get(item.duration_profile_ref) if item.duration_profile_ref else None
         if profile is None or profile.expected_seconds is None:
             continue
@@ -720,6 +775,7 @@ def plan_verification_schedule(
             continue
         remaining_window -= profile.expected_seconds
 
+    # Re-propagate DEFER for nodes whose dependencies were PARKED
     progressing = True
     while progressing:
         progressing = False
