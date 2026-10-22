@@ -83,18 +83,18 @@
       "entrypoint_route": "Read STANDARD.md before making normative decisions"
     }
   ],
-  "baseline_sha256": "sha256:b684ff47669e147e8196c3d1923f4e1a642e77ddfc662a2e6d4fe846086d432d",
+  "baseline_sha256": "sha256:0a4a07bfacf53bec8a3dff1de888f417e81e6d0d51d468bfa237fd480d3b6831",
   "candidate_files": {
-    "SKILL.md": "eb58802c05bb4fdbbcb46eb7a20c8f0f9b29a1f11be2e6dcbc025e7482651448",
-    "STANDARD.md": "68fdde22a949ab15a29a0993f8fe2515d4542f894dd0ae2e8746bca390d0cbaf",
-    "manifest.yaml": "f246ac97cf1369fb7eb6ee4fe71caeb404381191bc360f8bdacf278df5a8b207",
-    "references/admission-and-scope.md": "0acc71df3e665567a243bf1d34d58ad06b58facbb1730bf1c0a379e8ec9005f0",
-    "references/behavioral-evaluation.md": "1ac68d8a32165b6a9d0b972d1a17d8371c80b5568a98311152bedc261845907a",
-    "references/lifecycle-and-migration.md": "030ce308fa9201fdc621d1a68fdeebe767a974c2ea2f2fd87abc82a5bea04849",
-    "references/portability-and-trust.md": "f01fb07d09595dbb57b1e20f3189af76502464080c7ca4e6e2cb9db485752e57",
-    "references/resources-and-composition.md": "339a86bb9fcea4ff4aebfadd83f15a3691bd0ea5624f9b03fa5be749f4aaf97a",
-    "references/routing-and-context.md": "ec55d6beb06ca7bcc368ce40e9368d5d5d5396f9736613aeda04795e6ade6b89",
-    "references/upstream-agent-skills-compatibility.md": "db11c33acc89016c9f2161c5f50bcffc6a5c2d1ee383459c6a934b7312e244ed"
+    "SKILL.md": "42ca23c9b92381897e55b9f5ef159fd4b6f90ab3",
+    "STANDARD.md": "c0b29979657ebfc84c34acf0f5348e4c0cd2b28f",
+    "manifest.yaml": "3d167910c66cb5141d4bfb8a1d93d0406c3e671f",
+    "references/admission-and-scope.md": "2f97350f543b0e99292a9a714bff219dbe9affda",
+    "references/behavioral-evaluation.md": "d1f079059f015a0c67d91b7ef9d8dc4f34f7f059",
+    "references/lifecycle-and-migration.md": "8739ec3a8fc3a61d63d820c84c537a8fa3307434",
+    "references/portability-and-trust.md": "79008594d4527004175faf2c6221af27787b7dff",
+    "references/resources-and-composition.md": "95bf1a9a0ca4867a4a5b35bbfa1761ca47509e46",
+    "references/routing-and-context.md": "d987a280f3f5aaeca4e037c4c3ef2ec5e50649a2",
+    "references/upstream-agent-skills-compatibility.md": "fecd8359806f991e555dcaf71b33ec9a3e73f459"
   },
   "baseline_source_tree_sha": "7dc12c94da13c88ddf4eb7371ab106563d7f450e",
   "baseline_source_blobs": {
