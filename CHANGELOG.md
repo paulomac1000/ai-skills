@@ -1,5 +1,20 @@
 # Changelog
 
+## 3.30.0 - 2026-10-22
+
+### Added
+
+- `qa-change-verifier` now provides a deterministic, dependency-aware cost-ordered verification scheduler and minimum rerun planner in `tools/verification_schedule.py`. The planner composes with the existing risk planner and composes with `ci-cd-architect` gate integrity to derive execution order and the minimum rerun set from declared evidence dependencies rather than a fixed checklist.
+- New normative section "Verification scheduling and minimum rerun" in `qa-change-verifier/STANDARD.md` with typed scheduling decisions (`RUN`, `REUSE_CURRENT`, `DEFER_UNTIL_DEPENDENCY`, `NON_DISPATCH`, `BLOCKED_UNKNOWN`), evidence reuse rules, invalidation propagation, provider-availability separation, operation admission with trusted duration profiles, and release-worktree preflight.
+- `ci-cd-architect/STANDARD.md` and `references/verification-integrity.md` extended with local/hosted gate roles, worktree/committed evidence identity, preflight versus immutable final proof, and the composition with the qa-change-verifier scheduler.
+- Comprehensive regression test matrix in `tests/test_verification_schedule.py` covering 12 required scenarios including cheap prerequisite failure blocking expensive gates, focused failure deferring full gates, exact-candidate final gate invalidation on candidate change, provider outage preserving current evidence, minimal invalidation closure, stale base detection, window admission with unknown duration, malformed input rejection, release-worktree preflight, environment/contract/expiry reuse guards, caller-supplied pass text rejection, stable ordering under permutation, and provider status changes without redundant validation.
+
+### Changed
+
+- `qa-change-verifier` skill description and routing updated to include cost-ordered scheduling and minimum rerun planning.
+- `qa-change-verifier` manifest now requires `tools/verification_schedule.py`.
+- `scripts/quality_targets.py` includes the new module in type-checking and policy coverage targets.
+
 ## 3.29.6 - 2026-10-21
 
 ### Fixed

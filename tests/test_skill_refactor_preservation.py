@@ -217,9 +217,9 @@ def test_real_pilot_tracks_live_normative_sources():
     )
     assert result["structural"] == "PASS", result["findings"]
     assert result["behavior"] == "BEHAVIOR_NOT_VERIFIED"
-    assert result["baseline_revision"] == "5c656ac0602e35f51cb0ba9b576f8e5af10a54ba"
+    assert result["baseline_revision"] == "003a13832a36160ddd464b04f2c50ae5b9be3420"
     assert result["candidate_revision"] == "NOT_VERIFIED"
-    assert result["declared_candidate_version"] == "3.26.0"
+    assert result["declared_candidate_version"] == "3.30.0"
 
 
 def test_content_drift_cannot_pass_a_pinned_pilot(tmp_path):
@@ -962,10 +962,10 @@ def test_untrusted_candidate_revision_is_not_reported_as_verified(tmp_path):
         assert result["structural"] == "PASS"
         assert result["candidate_revision"] == "NOT_VERIFIED"
         assert result["declared_candidate_version"] is None
-    ledger["candidate_revision"] = "3.26.0"
+    ledger["candidate_revision"] = "3.30.0"
     result = assess(baseline, ledger, path)
     assert result["candidate_revision"] == "NOT_VERIFIED"
-    assert result["declared_candidate_version"] == "3.26.0"
+    assert result["declared_candidate_version"] == "3.30.0"
 
 
 def test_moved_critical_owner_must_contain_affirmative_rule(tmp_path):

@@ -1,6 +1,6 @@
 ---
 name: qa-change-verifier
-description: Plan risk-based verification, bind software-change acceptance to immutable obligations and exact evidence, and define candidate-specific semantic review scope for high-risk changes.
+description: Plan risk-based verification, schedule dependency-aware cost-ordered proof and minimum rerun sets, bind software-change acceptance to immutable obligations and exact evidence, and define candidate-specific semantic review scope for high-risk changes.
 ---
 
 # QA Change Verifier
@@ -16,3 +16,5 @@ When semantic review is required, define the exact candidate/base scope with `co
 For persistent-schema or storage migrations, use `tools/migration_acceptance.py` to prove the declared fresh/legacy/unsupported input matrix, the pre-migration state before any current bootstrap can run, the exact production migrator identity/revision, representative data survival, and required interruption/recovery behavior. A green migration test that started from an already-current fixture or invoked another migrator is harness failure, not compatibility evidence.
 
 Risk-only callers remain supported. Low-risk changes may stay on static/unit layers; medium and high risk progressively require integration, exact-artifact, real-transport, external E2E, security review, and post-deploy evidence as specified by the planner.
+
+When one change needs several verification layers, use `tools/verification_schedule.py` to derive the execution order and the minimum rerun set from declared evidence dependencies instead of a fixed checklist. The planner reuses qualified current evidence, derives the invalidated subset after a change, keeps a failing cheap prerequisite from buying an expensive gate, keeps a policy-required exact-candidate final gate mandatory, and parks a node whose trusted duration does not fit the admitted window. It returns typed decisions and reasons only; it never produces a pass, a waiver, a reviewer verdict, or a release approval.

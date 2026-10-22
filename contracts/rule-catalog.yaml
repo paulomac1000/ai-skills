@@ -1,5 +1,5 @@
 schema_version: 1
-catalog_version: 3.29.6
+catalog_version: 3.30.0
 skills:
   afds-doc-writer:
     rules:
@@ -517,6 +517,9 @@ skills:
     - id: qa.review.negative-space
       source: STANDARD.md#negative-space-and-invariant-families
       description: Applicable invariant families review negative-space and analogous paths so happy-path fixes cannot hide boundary or analogue drift.
+    - id: qa.schedule.cost-ordered
+      source: STANDARD.md#verification-scheduling-and-minimum-rerun
+      description: Verification order and the minimum rerun set derive from declared evidence dependencies and policy so cheap discriminators precede expensive gates, only invalidated evidence is rerun, and mandatory exact-candidate final gates stay required.
     - id: qa.failure.attributed
       source: STANDARD.md#failure-attribution
       description: Harness failures and product failures remain distinct evidence classes.

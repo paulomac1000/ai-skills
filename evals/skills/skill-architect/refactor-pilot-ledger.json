@@ -1,5 +1,5 @@
 {
-  "candidate_revision": "3.26.0",
+  "candidate_revision": "3.30.0",
   "decisions": [
     {
       "id": "existing-skill-route",
@@ -26,7 +26,7 @@
       "source_path": "references/lifecycle-and-migration.md",
       "source_anchor": "Preserve compliant repository-specific behavior",
       "positive_case": "compatible-consumer-preserved",
-      "entrypoint_route": "For an existing skill (including refactor, split, migration, rename, model upgrade, or deprecation), consult references/lifecycle-and-migration.md before any change; before deleting rules, preserve permissions, safety, exceptions, proof, recovery and DoD via a bounded old→new ledger. Static PASS is BEHAVIOR_NOT_VERIFIED"
+      "entrypoint_route": "For an existing skill (including refactor, split, migration, rename, model upgrade, or deprecation), consult references/lifecycle-and-migration.md before any change; before deleting rules, preserve permissions, safety, exceptions, proof, recovery and DoD via a bounded old\u2192new ledger. Static PASS is BEHAVIOR_NOT_VERIFIED"
     },
     {
       "id": "observed-maintenance",
@@ -39,7 +39,7 @@
       "source_anchor": "Inspect representative runs for unexpected skill selection, references always or never opened, repeated unnecessary reads, bypassed deterministic tools, and recurring failure modes",
       "positive_case": "observed-route-result",
       "pre_load_trigger": "For an existing skill",
-      "entrypoint_route": "For an existing skill (including refactor, split, migration, rename, model upgrade, or deprecation), consult references/lifecycle-and-migration.md before any change; before deleting rules, preserve permissions, safety, exceptions, proof, recovery and DoD via a bounded old→new ledger. Static PASS is BEHAVIOR_NOT_VERIFIED"
+      "entrypoint_route": "For an existing skill (including refactor, split, migration, rename, model upgrade, or deprecation), consult references/lifecycle-and-migration.md before any change; before deleting rules, preserve permissions, safety, exceptions, proof, recovery and DoD via a bounded old\u2192new ledger. Static PASS is BEHAVIOR_NOT_VERIFIED"
     },
     {
       "id": "deprecation-boundary",
@@ -52,7 +52,7 @@
       "source_anchor": "A split, rename, or removal identifies the replacement, compatibility impact, notice window, and removal condition. Do not maintain parallel current owners",
       "positive_case": "deprecation-with-notice",
       "pre_load_trigger": "For an existing skill",
-      "entrypoint_route": "For an existing skill (including refactor, split, migration, rename, model upgrade, or deprecation), consult references/lifecycle-and-migration.md before any change; before deleting rules, preserve permissions, safety, exceptions, proof, recovery and DoD via a bounded old→new ledger. Static PASS is BEHAVIOR_NOT_VERIFIED"
+      "entrypoint_route": "For an existing skill (including refactor, split, migration, rename, model upgrade, or deprecation), consult references/lifecycle-and-migration.md before any change; before deleting rules, preserve permissions, safety, exceptions, proof, recovery and DoD via a bounded old\u2192new ledger. Static PASS is BEHAVIOR_NOT_VERIFIED"
     },
     {
       "id": "version-change-alone-no-rewrite",
@@ -65,7 +65,7 @@
       "source_anchor": "A version change alone does not justify a rewrite.",
       "positive_case": "normative_delta_required_before_rewrite",
       "pre_load_trigger": "For an existing skill",
-      "entrypoint_route": "For an existing skill (including refactor, split, migration, rename, model upgrade, or deprecation), consult references/lifecycle-and-migration.md before any change; before deleting rules, preserve permissions, safety, exceptions, proof, recovery and DoD via a bounded old→new ledger. Static PASS is BEHAVIOR_NOT_VERIFIED",
+      "entrypoint_route": "For an existing skill (including refactor, split, migration, rename, model upgrade, or deprecation), consult references/lifecycle-and-migration.md before any change; before deleting rules, preserve permissions, safety, exceptions, proof, recovery and DoD via a bounded old\u2192new ledger. Static PASS is BEHAVIOR_NOT_VERIFIED",
       "pre_load_path": "SKILL.md"
     },
     {
@@ -83,18 +83,18 @@
       "entrypoint_route": "Read STANDARD.md before making normative decisions"
     }
   ],
-  "baseline_sha256": "sha256:516744337a0570b8a6e096a3d48e91db65095e1a5f19b243124585acdc0f0e5d",
+  "baseline_sha256": "sha256:b684ff47669e147e8196c3d1923f4e1a642e77ddfc662a2e6d4fe846086d432d",
   "candidate_files": {
-    "SKILL.md": "42ca23c9b92381897e55b9f5ef159fd4b6f90ab3",
-    "STANDARD.md": "c0b29979657ebfc84c34acf0f5348e4c0cd2b28f",
-    "manifest.yaml": "3dddf7ac235bc968d12ec2223e7b5a41f73c569e",
-    "references/admission-and-scope.md": "2f97350f543b0e99292a9a714bff219dbe9affda",
-    "references/behavioral-evaluation.md": "d1f079059f015a0c67d91b7ef9d8dc4f34f7f059",
-    "references/lifecycle-and-migration.md": "8739ec3a8fc3a61d63d820c84c537a8fa3307434",
-    "references/portability-and-trust.md": "79008594d4527004175faf2c6221af27787b7dff",
-    "references/resources-and-composition.md": "95bf1a9a0ca4867a4a5b35bbfa1761ca47509e46",
-    "references/routing-and-context.md": "d987a280f3f5aaeca4e037c4c3ef2ec5e50649a2",
-    "references/upstream-agent-skills-compatibility.md": "fecd8359806f991e555dcaf71b33ec9a3e73f459"
+    "SKILL.md": "eb58802c05bb4fdbbcb46eb7a20c8f0f9b29a1f11be2e6dcbc025e7482651448",
+    "STANDARD.md": "68fdde22a949ab15a29a0993f8fe2515d4542f894dd0ae2e8746bca390d0cbaf",
+    "manifest.yaml": "f246ac97cf1369fb7eb6ee4fe71caeb404381191bc360f8bdacf278df5a8b207",
+    "references/admission-and-scope.md": "0acc71df3e665567a243bf1d34d58ad06b58facbb1730bf1c0a379e8ec9005f0",
+    "references/behavioral-evaluation.md": "1ac68d8a32165b6a9d0b972d1a17d8371c80b5568a98311152bedc261845907a",
+    "references/lifecycle-and-migration.md": "030ce308fa9201fdc621d1a68fdeebe767a974c2ea2f2fd87abc82a5bea04849",
+    "references/portability-and-trust.md": "f01fb07d09595dbb57b1e20f3189af76502464080c7ca4e6e2cb9db485752e57",
+    "references/resources-and-composition.md": "339a86bb9fcea4ff4aebfadd83f15a3691bd0ea5624f9b03fa5be749f4aaf97a",
+    "references/routing-and-context.md": "ec55d6beb06ca7bcc368ce40e9368d5d5d5396f9736613aeda04795e6ade6b89",
+    "references/upstream-agent-skills-compatibility.md": "db11c33acc89016c9f2161c5f50bcffc6a5c2d1ee383459c6a934b7312e244ed"
   },
   "baseline_source_tree_sha": "7dc12c94da13c88ddf4eb7371ab106563d7f450e",
   "baseline_source_blobs": {
