@@ -97,6 +97,23 @@ Ordinary validation is read-only with respect to production-effective state. Bef
 
 Use `tools/verify_state_isolation.py`. Deployment and migrations are separate transactions and use `contracts/deployment-lease.schema.json` plus the applicable deployment authority.
 
+## Scheduled verification order and minimum rerun
+
+When one change needs several gates, the execution order and the minimum rerun set are derived from declared evidence dependencies. The `qa-change-verifier` scheduler owns that contract; this reference records how it composes with gate integrity rather than redefining it.
+
+A verification node carries its evidence kind, its cost class, its dependencies, its invalidation subjects, its duration reference, and the boundary before which it is required. The scheduler answers only two questions per node: what is the next legal action, and why. It never answers whether the change is acceptable.
+
+The interaction with gate integrity is narrow and mechanical:
+
+- a cheap preflight node that can detect a release-worktree and HEAD divergence, a schema or contract parity break, or a failed dependency bootstrap belongs before the expensive gate it protects, so the expensive gate is not bought on a candidate that already violates a cheaper required invariant;
+- a node's receipt is reusable only while its candidate revision, base revision, acceptance-contract digest, policy revision, validation environment, expiry, and declared subject coverage stay current; a receipt without declared subject coverage has unknown dependency coverage and is not reusable;
+- a changed subject invalidates the directly bound receipt and, through declared dependencies, only its dependents, so unaffected current evidence is not rerun;
+- a candidate-bound node's receipt does not survive a candidate change, so the policy-required exact-candidate final gate and the exact-head independent review are re-required after any source change, and a reviewed candidate revision is not the squash or integration revision;
+- an external gate that is `NOT_EXECUTED` or unavailable leaves that node non-green and its dependents deferred without invalidating unrelated current local evidence, and it never justifies rerunning an unchanged current gate;
+- admission uses a trusted measured or declared duration plus a reconciliation reserve; a node that cannot fit the remaining admitted window is parked with a typed non-dispatch result, while an unknown duration stays unknown instead of becoming a fabricated blocker.
+
+A scheduler decision is an execution instruction, not a verdict. `RUN`, `REUSE_CURRENT`, `DEFER_UNTIL_DEPENDENCY`, `NON_DISPATCH`, and `BLOCKED_UNKNOWN` never become a pass, a waiver, a reviewer verdict, a mutation authorization, or a release decision, and the scheduler never executes a candidate command taken from schedule data.
+
 ## Receipt semantics
 
 `contracts/verification-receipt.schema.json` owns the combined result. New producers set `test_corpus.accounting_profile: governed-validation-corpus`, which requires all subject-accounting fields. `legacy-test-files` and unprofiled schema-v1 receipts retain old file-count compatibility but do not prove governed required-subject claims.

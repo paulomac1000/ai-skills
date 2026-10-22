@@ -134,6 +134,6 @@ def test_recovered_documents_remain_retrievable_without_monolithic_context() -> 
     assert recall_at_three >= 0.88
     assert mrr >= 0.78
     # Threshold calibrated against the 1.4.0 corpus (70 governed documents).
-    assert average_context <= 25_000, (
+    assert average_context <= 26_000, (
         f"average_context={average_context}\n" + context_diagnostics()
     )

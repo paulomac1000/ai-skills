@@ -105,6 +105,44 @@ Use `tools/migration_acceptance.py` to compose a bounded receipt that names the 
 
 Verification MUST distinguish harness failure from product failure. A broken harness blocks the affected verification claim but is not evidence that the product failed; a product failure remains product evidence even when the harness also has faults. Mixed conditions stay explicit until separated.
 
+## Verification scheduling and minimum rerun
+
+A verification plan MAY declare dependency-aware verification nodes so that execution order and the minimum rerun set are derived from evidence dependencies and policy instead of one fixed global checklist. `tools/verification_schedule.py` is the deterministic planner; it composes with the risk planner in `tools/plan_verification.py` and never replaces it.
+
+One node declares its identity, the criteria it covers, its evidence kind, its dependencies, its relative cost class, an optional trusted duration profile, an optional validation-environment identity, the subjects whose change invalidates its evidence, the boundaries before which it is required, and whether it is required at all. The representation is indicative; the invariants below are not.
+
+```text
+bounded, typed plan input
+  -> unique node identities, existing dependencies, no self-edge, no cycle, bounded size
+  -> deterministic order: dependency topology, then material discrimination, then cost and known duration
+cheap independent discriminator before an expensive dependent gate
+  -> a failed prerequisite blocks the dependent gate instead of buying it
+current exact-subject evidence
+  -> reused only while candidate, base, contract, policy, environment, expiry, and declared subject coverage stay current
+changed subject
+  -> invalidates the directly bound receipt and only its declared dependents
+required exact-candidate final gate
+  -> mandatory regardless of cheaper focused success, and stale after any source change
+unknown coverage, unknown identity, or unknown duration
+  -> conservative non-green, never optimistic reuse and never a fabricated blocker
+```
+
+The planner returns one typed decision per node — `RUN`, `REUSE_CURRENT`, `DEFER_UNTIL_DEPENDENCY`, `NON_DISPATCH`, or `BLOCKED_UNKNOWN` — each with a typed reason and the required next action. A scheduling recommendation is never a pass, a waiver, a reviewer verdict, a mutation authorization, or a release decision. The planner executes nothing and never runs a candidate command taken from schedule data.
+
+Ordering is a preference inside proof dependencies, not permission to reorder across a correctness dependency. Where dependencies permit, cheap structural and schema discriminators run before focused tests, focused tests run before broader and full gates, and the policy-required exact-candidate final gate runs at the freeze or integration boundary. A node whose outcome cannot change the next verification action and that nothing depends on MAY be deferred when it is not required; a mandatory node is never deferred for that reason, and a mandatory node with no branching value still runs.
+
+Reuse is a property of qualified evidence, not of a caller's claim. Only a complete trusted evidence snapshot authorizes reuse, and each receipt binds its node, candidate revision, optional base revision, acceptance-contract digest, policy revision, validation environment, expiry, and the concrete subjects its evidence depends on. A receipt that does not declare coverage for every declared invalidation kind has unknown dependency coverage and is not reusable. Caller-supplied pass text, a file name, or a green status badge is not evidence.
+
+A changed subject invalidates the directly bound receipt and, through declared dependencies, only its dependents. Unaffected current evidence stays reusable. A candidate-bound node's evidence does not survive a candidate change, so the final exact-candidate gate and the exact-head review are re-required after any source change. Content-tree equality does not transfer reviewer approval, and a squash or integration commit is not the reviewed candidate revision.
+
+Provider availability is separate from product outcome. A `NOT_EXECUTED` or unavailable external gate leaves that node non-green and its dependents deferred; it does not invalidate unrelated current local evidence and it never justifies rerunning an unchanged current gate. `UNKNOWN` provenance never normalizes to a match.
+
+Operation admission uses a trusted measured or declared duration profile plus a reconciliation reserve. A node whose trusted duration plus reserve exceeds the remaining admitted window is parked with a typed non-dispatch result instead of a predictable timeout. An unknown duration stays unknown and never becomes a fabricated blocker.
+
+A cheap prerequisite that can detect a release-worktree divergence belongs before the expensive gate it protects. When the committed release artifact and the working-tree artifact disagree, the release worktree head mismatch is reported and the dependent gate is not dispatched until the state is corrected and the candidate is committed.
+
+Scheduling composes with the existing owners. Evidence truth and freshness remain owned by the execution-evidence lineage, review verdicts by the review-receipt owner, environment identity by the validation-environment owner, waiver authority by the delivery policy, and artifact closure by the artifact-closure contract. This skill owns ordering and the minimum rerun set; it does not define a second evidence identity, a second assessment evaluator, or a runtime queue.
+
 ## Composition boundaries
 
 This skill owns software-change acceptance semantics and semantic-review scope planning. It does not own task/session memory, Steward workflow state, ReviewReceipt verdict/independence semantics, cross-system evidence lineage, or delivery-policy selection of when these contracts are mandatory. Those owners consume stable contract/plan identities rather than copying these schemas.

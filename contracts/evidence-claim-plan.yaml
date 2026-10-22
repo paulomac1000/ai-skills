@@ -654,6 +654,15 @@ profiles:
     - repository-junit.xml
     execution_id: repository
   - kind: rule
+    subject: qa.schedule.cost-ordered
+    selectors:
+    - '*test_verification_schedule*'
+    - '*test_qa_acceptance_review_contracts*'
+    - '*test_wave3_qa_change_verifier*'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
     subject: qa.failure.attributed
     selectors:
     - '*test_qa_acceptance_review_contracts*'

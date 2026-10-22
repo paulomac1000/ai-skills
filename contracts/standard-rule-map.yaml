@@ -140,6 +140,7 @@ skills:
       known-gaps-and-waiver-authority: {rule_id: qa.gaps.authorized, primary: true}
       semantic-review-plan: {rule_id: qa.review.scoped, primary: true}
       negative-space-and-invariant-families: {rule_id: qa.review.negative-space, primary: true}
+      verification-scheduling-and-minimum-rerun: {rule_id: qa.schedule.cost-ordered, primary: true}
       failure-attribution: {rule_id: qa.failure.attributed, primary: true}
       composition-boundaries: {rule_id: qa.composition.bounded, primary: true}
       definition-of-done: {rule_id: qa.completion.evidenced, primary: true}
