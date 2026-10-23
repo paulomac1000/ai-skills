@@ -779,12 +779,19 @@ def plan_verification_schedule(
             blocking.append("external gate status must be a mapping of node id to status")  # type: ignore[unreachable]
         else:
             for identifier, status in external_gate_status.items():
+                # Bounded label: the repr or full text of malformed input
+                # never enters a finding, whatever its length.
+                label = identifier[:32] if isinstance(identifier, str) else "<external gate>"
                 if not isinstance(identifier, str) or not identifier.strip():
                     blocking.append("external gate status keys must be non-empty node identifiers")
+                elif len(identifier) > MAX_IDENTIFIER_LENGTH:
+                    blocking.append("external gate status keys exceed the bounded length")
                 elif not isinstance(status, str):
-                    blocking.append(f"external gate {identifier} status must be a string")  # type: ignore[unreachable]
+                    blocking.append(f"external gate {label} status must be a string")  # type: ignore[unreachable]
+                elif len(status) > MAX_REFERENCE_LENGTH:
+                    blocking.append(f"external gate {label} status exceed the bounded length")
                 elif status not in EXTERNAL_GATE_STATUSES:
-                    blocking.append(f"external gate {identifier} has an unknown status: {status}")
+                    blocking.append(f"external gate {label} has an unknown status: {status[:32]}")
     if blocking:
         return _rejected(tuple(sorted(set(blocking))))
 

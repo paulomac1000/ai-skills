@@ -1761,3 +1761,40 @@ def test_oversized_receipt_optional_fields_fail_closed() -> None:
     assert result.accepted is False
     assert result.decisions == ()
     assert any("exceed the bounded length" in finding for finding in result.findings)
+
+
+def test_external_gate_diagnostics_are_bounded() -> None:
+    """Independent review: external-gate identifiers and statuses never enter findings unbounded."""
+    oversized_id = "gate-" + "X" * 100_000
+    oversized_status = "U" * 100_000
+    unit = node("unit-check", evidence_kind=EvidenceKind.UNIT, cost_class=CostClass.CHEAP)
+
+    oversized_key = schedule.plan_verification_schedule(
+        [unit],
+        policy=policy(),
+        trusted_evidence=snapshot(),
+        external_gate_status={oversized_id: "UNKNOWN"},
+        current_candidate_revision=CANDIDATE_A,
+        current_base_revision=BASE_X,
+        current_contract_digest=CONTRACT,
+    )
+    assert oversized_key.accepted is False
+    assert oversized_key.decisions == ()
+    assert any("exceed the bounded length" in finding for finding in oversized_key.findings)
+    assert all(len(finding) < 400 for finding in oversized_key.findings)
+    assert all(oversized_id not in finding for finding in oversized_key.findings)
+
+    oversized_value = schedule.plan_verification_schedule(
+        [unit],
+        policy=policy(),
+        trusted_evidence=snapshot(),
+        external_gate_status={"unit-check": oversized_status},
+        current_candidate_revision=CANDIDATE_A,
+        current_base_revision=BASE_X,
+        current_contract_digest=CONTRACT,
+    )
+    assert oversized_value.accepted is False
+    assert oversized_value.decisions == ()
+    assert any("exceed the bounded length" in finding for finding in oversized_value.findings)
+    assert all(len(finding) < 400 for finding in oversized_value.findings)
+    assert all(oversized_status not in finding for finding in oversized_value.findings)
