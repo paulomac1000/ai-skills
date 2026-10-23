@@ -1409,3 +1409,94 @@ def test_malformed_policy_fields_fail_closed() -> None:
     )
     assert result.accepted is False
     assert result.decisions == ()
+
+
+def test_grandchild_cannot_consume_window_behind_a_parked_prerequisite() -> None:
+    """CodeRabbit #196: a parked node's child must defer before its grandchild runs."""
+    parked = node(
+        "P",
+        evidence_kind=EvidenceKind.FULL_GATE,
+        cost_class=CostClass.EXPENSIVE,
+        duration_profile_ref="profile-p",
+    )
+    child = node(
+        "B",
+        evidence_kind=EvidenceKind.UNIT,
+        cost_class=CostClass.CHEAP,
+        depends_on=("P",),
+        duration_profile_ref="profile-b",
+    )
+    grandchild = node(
+        "C",
+        evidence_kind=EvidenceKind.UNIT,
+        cost_class=CostClass.CHEAP,
+        depends_on=("B",),
+        duration_profile_ref="profile-c",
+    )
+    independent = node(
+        "I",
+        evidence_kind=EvidenceKind.UNIT,
+        cost_class=CostClass.CHEAP,
+        duration_profile_ref="profile-i",
+    )
+    bounded = policy(
+        hard_window_seconds=100,
+        reconciliation_reserve_seconds=10,
+        duration_profiles={
+            "profile-p": DurationProfile(ref="profile-p", expected_seconds=600, measured=True),
+            "profile-b": DurationProfile(ref="profile-b", expected_seconds=60, measured=True),
+            "profile-c": DurationProfile(ref="profile-c", expected_seconds=60, measured=True),
+            "profile-i": DurationProfile(ref="profile-i", expected_seconds=60, measured=True),
+        },
+    )
+
+    result = schedule.plan_verification_schedule(
+        [parked, child, grandchild, independent],
+        policy=bounded,
+        trusted_evidence=snapshot(),
+        current_candidate_revision=CANDIDATE_A,
+        current_base_revision=BASE_X,
+        current_contract_digest=CONTRACT,
+    )
+    indexed = decisions_by_id(result)
+    assert indexed["P"].decision is ScheduleDecision.NON_DISPATCH
+    assert indexed["P"].reason is ScheduleReason.INSUFFICIENT_EXECUTION_WINDOW
+    assert indexed["B"].decision is ScheduleDecision.DEFER_UNTIL_DEPENDENCY
+    assert indexed["C"].decision is ScheduleDecision.DEFER_UNTIL_DEPENDENCY
+    # The independent sibling keeps the budget the deferred chain must not spend.
+    assert indexed["I"].decision is ScheduleDecision.RUN
+    assert result.order == ("I",)
+
+
+def test_oversized_duration_profile_mapping_is_rejected_without_iteration() -> None:
+    """CodeRabbit #196: an oversized profile mapping yields one bounded finding."""
+    oversized = policy(
+        duration_profiles={
+            f"profile-{index}": DurationProfile(ref=f"profile-{index}", expected_seconds=1) for index in range(400)
+        }
+    )
+    findings = schedule.validate_verification_schedule([node("a")], oversized)
+    assert any("too many duration profiles" in finding for finding in findings)
+    assert sum(1 for finding in findings if "duration profile" in finding) == 1
+
+
+def test_non_mapping_duration_profiles_fail_closed_before_membership() -> None:
+    """CodeRabbit #196: a non-mapping profiles value must not raise on lookup."""
+    malformed_policy = SchedulePolicy(
+        policy_revision=POLICY_REVISION,
+        duration_profiles=5,  # type: ignore[dict-item]
+    )
+    probe = node("probe", duration_profile_ref="profile-x")
+    findings = schedule.validate_verification_schedule([probe], malformed_policy)
+    assert any("duration_profiles must be a mapping" in finding for finding in findings)
+
+    result = schedule.plan_verification_schedule(
+        [probe],
+        policy=malformed_policy,
+        trusted_evidence=snapshot(),
+        current_candidate_revision=CANDIDATE_A,
+        current_base_revision=BASE_X,
+        current_contract_digest=CONTRACT,
+    )
+    assert result.accepted is False
+    assert result.decisions == ()

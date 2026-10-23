@@ -359,6 +359,10 @@ def _validate_policy(policy: SchedulePolicy) -> tuple[str, ...]:
     profiles = policy.duration_profiles
     if not isinstance(profiles, Mapping):
         findings.append("schedule policy duration_profiles must be a mapping")  # type: ignore[unreachable]
+    elif len(profiles) > MAX_NODES:
+        findings.append(
+            f"schedule policy has too many duration profiles: {len(profiles)} exceeds the bound {MAX_NODES}"
+        )
     else:
         for reference, profile in profiles.items():
             if not isinstance(reference, str) or not reference.strip():
@@ -472,6 +476,13 @@ def validate_verification_schedule(
                 findings.append(f"verification node {identifier} duration_profile_ref must be a non-empty string")
             elif len(duration_profile_ref) > MAX_REFERENCE_LENGTH:
                 findings.append(f"verification node {identifier} duration_profile_ref exceeds the bounded length")
+            elif not isinstance(policy.duration_profiles, Mapping):
+                # The malformed-profiles finding is already recorded by the
+                # policy validation above; never probe a non-mapping here.
+                # Runtime defense: frozen dataclasses do not enforce types.
+                findings.append(  # type: ignore[unreachable]
+                    f"verification node {identifier} duration profile lookup skipped: policy profiles are malformed"
+                )
             elif duration_profile_ref not in policy.duration_profiles:
                 findings.append(
                     f"verification node {identifier} references an unknown duration profile: {duration_profile_ref}"
@@ -830,15 +841,25 @@ def plan_verification_schedule(
 
     # Now apply window accounting ONLY to nodes that are still RUN and whose
     # dependencies are all satisfied, so a parked prerequisite never makes its
-    # dependents consume window budget they cannot legally spend.
+    # dependents consume window budget they cannot legally spend. A skipped
+    # dependent is deferred immediately, so its own dependents see the blocked
+    # state instead of probing budget behind it.
     remaining_window = policy.hard_window_seconds
     for identifier in candidate_order:
         if memo[identifier].state is not _State.RUN:
             continue
-        if any(
-            memo[reference].state in {_State.PARKED, _State.EXTERNAL_PENDING, _State.DEFER}
+        blocking_dependencies = tuple(
+            reference
             for reference in by_id[identifier].depends_on
-        ):
+            if memo[reference].state in {_State.PARKED, _State.EXTERNAL_PENDING, _State.DEFER}
+        )
+        if blocking_dependencies:
+            memo[identifier] = _Resolution(
+                _State.DEFER,
+                ScheduleReason.PREREQUISITE_PENDING,
+                blocked_by=blocking_dependencies,
+                invalidated_by=invalidated_by[identifier],
+            )
             continue
         if remaining_window is None:
             continue
