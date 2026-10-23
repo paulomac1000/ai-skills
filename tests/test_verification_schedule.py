@@ -1682,3 +1682,82 @@ def test_oversized_duration_profile_key_is_rejected_with_bounded_finding() -> No
     )
     assert any("keys exceed the bounded length" in finding for finding in findings)
     assert all(len(finding) < 400 for finding in findings)
+
+
+def test_non_string_profile_key_yields_bounded_diagnostics() -> None:
+    """Independent review: repr() of malformed keys never enters a finding."""
+    oversized = "X" * 100_000
+    malformed_policy = SchedulePolicy(
+        policy_revision=POLICY_REVISION,
+        duration_profiles={(oversized,): object()},  # type: ignore[dict-item]
+    )
+    findings = schedule.validate_verification_schedule([node("a")], malformed_policy)
+    assert findings
+    assert all(len(finding) < 400 for finding in findings)
+    assert all(oversized not in finding for finding in findings)
+
+    result = schedule.plan_verification_schedule(
+        [node("a")],
+        policy=malformed_policy,
+        trusted_evidence=snapshot(),
+        current_candidate_revision=CANDIDATE_A,
+        current_base_revision=BASE_X,
+        current_contract_digest=CONTRACT,
+    )
+    assert result.accepted is False
+    assert result.decisions == ()
+    assert all(len(finding) < 400 for finding in result.findings)
+
+
+def test_oversized_receipt_identities_fail_closed_with_bounded_findings() -> None:
+    """Independent review: receipt identity fields carry the reference-length bound."""
+    oversized_ref = "e" * 100_000
+    unit = node("unit-check", evidence_kind=EvidenceKind.UNIT, cost_class=CostClass.CHEAP)
+    malformed_receipt = EvidenceReceipt(
+        evidence_ref=oversized_ref,
+        node_id="unit-check",
+        status="PASS",
+        candidate_revision=CANDIDATE_A,
+        subject_refs=("source:skills/a.py",),
+        policy_revision=POLICY_REVISION,
+        contract_digest=CONTRACT,
+    )
+    result = schedule.plan_verification_schedule(
+        [unit],
+        policy=policy(),
+        trusted_evidence=snapshot(malformed_receipt),
+        current_candidate_revision=CANDIDATE_A,
+        current_base_revision=BASE_X,
+        current_contract_digest=CONTRACT,
+    )
+    assert result.accepted is False
+    assert result.decisions == ()
+    assert any("exceed the bounded length" in finding for finding in result.findings)
+    assert all(len(finding) < 400 for finding in result.findings)
+    assert all(oversized_ref not in finding for finding in result.findings)
+
+
+def test_oversized_receipt_optional_fields_fail_closed() -> None:
+    """Same family: optional receipt references carry the same bound."""
+    oversized_digest = "sha256:" + "c" * 100_000
+    unit = node("unit-check", evidence_kind=EvidenceKind.UNIT, cost_class=CostClass.CHEAP)
+    malformed_receipt = EvidenceReceipt(
+        evidence_ref="ev-unit",
+        node_id="unit-check",
+        status="PASS",
+        candidate_revision=CANDIDATE_A,
+        subject_refs=("source:skills/a.py",),
+        policy_revision=POLICY_REVISION,
+        contract_digest=oversized_digest,
+    )
+    result = schedule.plan_verification_schedule(
+        [unit],
+        policy=policy(),
+        trusted_evidence=snapshot(malformed_receipt),
+        current_candidate_revision=CANDIDATE_A,
+        current_base_revision=BASE_X,
+        current_contract_digest=CONTRACT,
+    )
+    assert result.accepted is False
+    assert result.decisions == ()
+    assert any("exceed the bounded length" in finding for finding in result.findings)

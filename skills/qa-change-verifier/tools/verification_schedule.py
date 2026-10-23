@@ -365,14 +365,21 @@ def _validate_policy(policy: SchedulePolicy) -> tuple[str, ...]:
         )
     else:
         for reference, profile in profiles.items():
+            # Bounded label for every key type: the repr of malformed input
+            # never enters a finding, whatever its length.
+            if isinstance(reference, str):
+                label = reference[:32]
+            else:
+                # Runtime defense: frozen dataclasses and caller mappings do
+                # not enforce key types; repr of malformed input is unbounded.
+                label = f"<non-string {type(reference).__name__} key>"  # type: ignore[unreachable]
             if not isinstance(reference, str) or not reference.strip():
                 findings.append("schedule policy duration profile keys must be non-empty strings")
             elif len(reference) > MAX_REFERENCE_LENGTH:
                 findings.append("schedule policy duration profile keys exceed the bounded length")
             if not isinstance(profile, DurationProfile):
-                findings.append(f"schedule policy duration profile {reference!r} must be a DurationProfile record")  # type: ignore[unreachable]
+                findings.append(f"schedule policy duration profile {label} must be a DurationProfile record")  # type: ignore[unreachable]
                 continue
-            label = reference[:32] if isinstance(reference, str) else repr(reference)
             if not isinstance(profile.ref, str) or not profile.ref.strip():
                 findings.append(f"schedule policy duration profile {label} ref must be a non-empty string")
             elif len(profile.ref) > MAX_REFERENCE_LENGTH:
@@ -628,6 +635,9 @@ def _index_receipts(
             findings.append("trusted evidence receipts must be EvidenceReceipt records")
             continue
         shape_findings: list[str] = []
+        # Bounded diagnostic label: the receipt's own reference text never
+        # enters a finding, whatever its length.
+        label = receipt.evidence_ref[:32] if isinstance(receipt.evidence_ref, str) else "<receipt>"
         for field_name, value in (
             ("evidence_ref", receipt.evidence_ref),
             ("node_id", receipt.node_id),
@@ -637,13 +647,15 @@ def _index_receipts(
         ):
             if not isinstance(value, str) or not value.strip():
                 shape_findings.append(f"trusted evidence {field_name} must be a non-empty string")
+            elif len(value) > MAX_REFERENCE_LENGTH:
+                shape_findings.append(f"trusted evidence {field_name} exceed the bounded length")
         subject_refs = _strings(receipt.subject_refs)
         if subject_refs is None:
-            shape_findings.append(f"trusted evidence {receipt.evidence_ref} subject_refs must be an array of strings")
+            shape_findings.append(f"trusted evidence {label} subject_refs must be an array of strings")
         elif len(subject_refs) > MAX_SUBJECT_REFS:
-            shape_findings.append(f"trusted evidence {receipt.evidence_ref} subject_refs exceed the bounded count")
+            shape_findings.append(f"trusted evidence {label} subject_refs exceed the bounded count")
         elif any(len(reference) > MAX_REFERENCE_LENGTH for reference in subject_refs):
-            shape_findings.append(f"trusted evidence {receipt.evidence_ref} subject_refs exceed the bounded length")
+            shape_findings.append(f"trusted evidence {label} subject_refs exceed the bounded length")
         for optional_field, optional_value in (
             ("base_revision", receipt.base_revision),
             ("contract_digest", receipt.contract_digest),
@@ -651,23 +663,23 @@ def _index_receipts(
         ):
             if optional_value is not None and (not isinstance(optional_value, str) or not optional_value.strip()):
                 shape_findings.append(f"trusted evidence {optional_field} must be a non-empty string or null")
+            elif optional_value is not None and len(optional_value) > MAX_REFERENCE_LENGTH:
+                shape_findings.append(f"trusted evidence {optional_field} exceed the bounded length")
         expires_at = receipt.expires_at_epoch
         if expires_at is not None and type(expires_at) is not int:
-            shape_findings.append(
-                f"trusted evidence {receipt.evidence_ref} expires_at_epoch must be an integer or null"
-            )
+            shape_findings.append(f"trusted evidence {label} expires_at_epoch must be an integer or null")
         if shape_findings:
             findings.extend(shape_findings)
             continue
         assert isinstance(receipt.node_id, str) and isinstance(receipt.status, str)
         if receipt.node_id not in known:
-            findings.append(f"trusted evidence {receipt.evidence_ref} targets an unknown node: {receipt.node_id}")
+            findings.append(f"trusted evidence {label} targets an unknown node: {receipt.node_id}")
             continue
         if receipt.node_id in receipts:
             findings.append(f"duplicate evidence receipts for node: {receipt.node_id}")
             continue
         if receipt.status not in EVIDENCE_STATUSES:
-            findings.append(f"trusted evidence {receipt.evidence_ref} has an unknown status: {receipt.status}")
+            findings.append(f"trusted evidence {label} has an unknown status: {receipt.status}")
             continue
         receipts[receipt.node_id] = receipt
     return receipts, findings
