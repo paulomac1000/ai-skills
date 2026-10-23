@@ -1625,3 +1625,60 @@ def test_properly_typed_positive_control_still_schedules() -> None:
     assert indexed["full-gate"].decision is ScheduleDecision.RUN
     assert result.order == ("static-schema", "full-gate")
     assert result.closure.complete is True
+
+
+def test_malformed_duration_profile_record_fails_closed() -> None:
+    """Independent review: profile ref and measured are part of the typed boundary."""
+    malformed_policy = SchedulePolicy(
+        policy_revision=POLICY_REVISION,
+        duration_profiles={
+            "profile-x": DurationProfile(ref=[], expected_seconds=60, measured="yes"),  # type: ignore[arg-type]
+        },
+    )
+    probe = node("probe", duration_profile_ref="profile-x")
+    findings = schedule.validate_verification_schedule([probe], malformed_policy)
+    assert any("ref must be a non-empty string" in finding for finding in findings)
+    assert any("measured must be boolean" in finding for finding in findings)
+
+    result = schedule.plan_verification_schedule(
+        [probe],
+        policy=malformed_policy,
+        trusted_evidence=snapshot(),
+        current_candidate_revision=CANDIDATE_A,
+        current_base_revision=BASE_X,
+        current_contract_digest=CONTRACT,
+    )
+    assert result.accepted is False
+    assert result.decisions == ()
+
+
+def test_duration_profile_ref_must_match_its_mapping_key() -> None:
+    """Independent review: a profile bound under one key cannot claim another identity."""
+    malformed_policy = SchedulePolicy(
+        policy_revision=POLICY_REVISION,
+        duration_profiles={
+            "profile-x": DurationProfile(ref="profile-y", expected_seconds=60, measured=True),
+        },
+    )
+    findings = schedule.validate_verification_schedule(
+        [node("probe", duration_profile_ref="profile-x")],
+        malformed_policy,
+    )
+    assert any("ref must match" in finding for finding in findings)
+
+
+def test_oversized_duration_profile_key_is_rejected_with_bounded_finding() -> None:
+    """Independent review: profile keys carry the reference-length bound."""
+    oversized_key = "k" * 600
+    malformed_policy = SchedulePolicy(
+        policy_revision=POLICY_REVISION,
+        duration_profiles={
+            oversized_key: DurationProfile(ref=oversized_key, expected_seconds=60, measured=True),
+        },
+    )
+    findings = schedule.validate_verification_schedule(
+        [node("probe", duration_profile_ref=oversized_key)],
+        malformed_policy,
+    )
+    assert any("keys exceed the bounded length" in finding for finding in findings)
+    assert all(len(finding) < 400 for finding in findings)

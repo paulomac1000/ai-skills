@@ -367,13 +367,26 @@ def _validate_policy(policy: SchedulePolicy) -> tuple[str, ...]:
         for reference, profile in profiles.items():
             if not isinstance(reference, str) or not reference.strip():
                 findings.append("schedule policy duration profile keys must be non-empty strings")
+            elif len(reference) > MAX_REFERENCE_LENGTH:
+                findings.append("schedule policy duration profile keys exceed the bounded length")
             if not isinstance(profile, DurationProfile):
                 findings.append(f"schedule policy duration profile {reference!r} must be a DurationProfile record")  # type: ignore[unreachable]
-            elif profile.expected_seconds is not None and (
+                continue
+            label = reference[:32] if isinstance(reference, str) else repr(reference)
+            if not isinstance(profile.ref, str) or not profile.ref.strip():
+                findings.append(f"schedule policy duration profile {label} ref must be a non-empty string")
+            elif len(profile.ref) > MAX_REFERENCE_LENGTH:
+                findings.append(f"schedule policy duration profile {label} ref exceeds the bounded length")
+            elif profile.ref != reference:
+                findings.append(f"schedule policy duration profile {label} ref must match its mapping key")
+            if type(profile.measured) is not bool:
+                # Runtime defense: frozen dataclasses do not enforce field types.
+                findings.append(f"schedule policy duration profile {label} measured must be boolean")  # type: ignore[unreachable]
+            if profile.expected_seconds is not None and (
                 type(profile.expected_seconds) is not int or profile.expected_seconds < 0
             ):
                 findings.append(
-                    f"schedule policy duration profile {reference!r} expected_seconds must be a non-negative integer or null"
+                    f"schedule policy duration profile {label} expected_seconds must be a non-negative integer or null"
                 )
     if type(policy.allow_subject_bound_reuse) is not bool:
         findings.append("schedule policy allow_subject_bound_reuse must be boolean")  # type: ignore[unreachable]
