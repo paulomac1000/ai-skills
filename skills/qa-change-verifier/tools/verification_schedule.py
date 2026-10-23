@@ -343,6 +343,64 @@ def _sort_key(node: VerificationNode, policy: SchedulePolicy) -> tuple[int, int,
     return (discrimination, cost, _duration_rank(node, policy), node.id)
 
 
+def _validate_policy(policy: SchedulePolicy) -> tuple[str, ...]:
+    """Return bounded typed findings for a malformed policy record."""
+    findings: list[str] = []
+    if not isinstance(policy.policy_revision, str) or not policy.policy_revision.strip():
+        findings.append("schedule policy policy_revision must be a non-empty string")
+    elif len(policy.policy_revision) > MAX_REFERENCE_LENGTH:
+        findings.append("schedule policy policy_revision exceeds the bounded length")
+    window = policy.hard_window_seconds
+    if window is not None and (type(window) is not int or window < 0):
+        findings.append("schedule policy hard_window_seconds must be a non-negative integer or null")
+    reserve = policy.reconciliation_reserve_seconds
+    if type(reserve) is not int or reserve < 0:
+        findings.append("schedule policy reconciliation_reserve_seconds must be a non-negative integer")
+    profiles = policy.duration_profiles
+    if not isinstance(profiles, Mapping):
+        findings.append("schedule policy duration_profiles must be a mapping")  # type: ignore[unreachable]
+    elif len(profiles) > MAX_NODES:
+        findings.append(
+            f"schedule policy has too many duration profiles: {len(profiles)} exceeds the bound {MAX_NODES}"
+        )
+    else:
+        for reference, profile in profiles.items():
+            # Bounded label for every key type: the repr of malformed input
+            # never enters a finding, whatever its length.
+            if isinstance(reference, str):
+                label = reference[:32]
+            else:
+                # Runtime defense: frozen dataclasses and caller mappings do
+                # not enforce key types. Neither repr nor a dynamic type name
+                # is length-bounded, so the label is a fixed literal.
+                label = "<non-string key>"  # type: ignore[unreachable]
+            if not isinstance(reference, str) or not reference.strip():
+                findings.append("schedule policy duration profile keys must be non-empty strings")
+            elif len(reference) > MAX_REFERENCE_LENGTH:
+                findings.append("schedule policy duration profile keys exceed the bounded length")
+            if not isinstance(profile, DurationProfile):
+                findings.append(f"schedule policy duration profile {label} must be a DurationProfile record")  # type: ignore[unreachable]
+                continue
+            if not isinstance(profile.ref, str) or not profile.ref.strip():
+                findings.append(f"schedule policy duration profile {label} ref must be a non-empty string")
+            elif len(profile.ref) > MAX_REFERENCE_LENGTH:
+                findings.append(f"schedule policy duration profile {label} ref exceeds the bounded length")
+            elif profile.ref != reference:
+                findings.append(f"schedule policy duration profile {label} ref must match its mapping key")
+            if type(profile.measured) is not bool:
+                # Runtime defense: frozen dataclasses do not enforce field types.
+                findings.append(f"schedule policy duration profile {label} measured must be boolean")  # type: ignore[unreachable]
+            if profile.expected_seconds is not None and (
+                type(profile.expected_seconds) is not int or profile.expected_seconds < 0
+            ):
+                findings.append(
+                    f"schedule policy duration profile {label} expected_seconds must be a non-negative integer or null"
+                )
+    if type(policy.allow_subject_bound_reuse) is not bool:
+        findings.append("schedule policy allow_subject_bound_reuse must be boolean")  # type: ignore[unreachable]
+    return tuple(findings)
+
+
 def validate_verification_schedule(
     nodes: Sequence[VerificationNode],
     policy: SchedulePolicy,
@@ -357,6 +415,7 @@ def validate_verification_schedule(
         return (f"verification plan has too many nodes: {len(items)} exceeds the bound {MAX_NODES}",)
     if not isinstance(policy, SchedulePolicy):
         return ("schedule policy must be a SchedulePolicy record",)  # type: ignore[unreachable]
+    findings.extend(_validate_policy(policy))
 
     identifiers: set[str] = set()
     edge_count = 0
@@ -407,26 +466,67 @@ def validate_verification_schedule(
             findings.append(f"verification node {identifier} has an invalid discrimination class")  # type: ignore[unreachable]
         if item.discrimination_class is DiscriminationClass.MATERIAL and not item.discriminates_between:
             findings.append(f"verification node {identifier} declares material discrimination without alternatives")
-        if len(item.discriminates_between) > MAX_DISCRIMINATIONS:
+        discriminates_between = _strings(item.discriminates_between)
+        if discriminates_between is None:
+            findings.append(f"verification node {identifier} discriminates_between must be an array of strings")
+        elif len(discriminates_between) > MAX_DISCRIMINATIONS:
             findings.append(f"verification node {identifier} discriminates_between exceeds the bounded count")
+        elif any(len(ref) > MAX_REFERENCE_LENGTH for ref in discriminates_between):
+            findings.append(f"verification node {identifier} discriminates_between exceeds the bounded length")
 
-        for boundary in item.required_before:
-            if boundary not in REQUIRED_BEFORE_BOUNDARIES:
-                findings.append(f"verification node {identifier} has an unknown required_before boundary: {boundary}")
-        for kind in item.invalidates_on:
-            if not isinstance(kind, str) or not kind.strip() or len(kind) > MAX_REFERENCE_LENGTH:
-                findings.append(f"verification node {identifier} has an invalid invalidation kind")
-        if item.duration_profile_ref is not None and item.duration_profile_ref not in policy.duration_profiles:
-            findings.append(
-                f"verification node {identifier} references an unknown duration profile: {item.duration_profile_ref}"
-            )
-        if item.exclusive_resource_class is not None and not item.exclusive_resource_class.strip():
-            findings.append(f"verification node {identifier} has an invalid exclusive resource class")
+        required_before = _strings(item.required_before)
+        if required_before is None:
+            findings.append(f"verification node {identifier} required_before must be an array of strings")
+        else:
+            for boundary in required_before:
+                if len(boundary) > MAX_REFERENCE_LENGTH:
+                    findings.append(f"verification node {identifier} required_before exceeds the bounded length")
+                elif boundary not in REQUIRED_BEFORE_BOUNDARIES:
+                    findings.append(
+                        f"verification node {identifier} has an unknown required_before boundary: {boundary[:32]}"
+                    )
+
+        invalidates_on = _strings(item.invalidates_on)
+        if invalidates_on is None:
+            findings.append(f"verification node {identifier} invalidates_on must be an array of strings")
+        else:
+            for kind in invalidates_on:
+                if not isinstance(kind, str) or not kind.strip() or len(kind) > MAX_REFERENCE_LENGTH:
+                    findings.append(f"verification node {identifier} has an invalid invalidation kind")
+        duration_profile_ref = item.duration_profile_ref
+        if duration_profile_ref is not None:
+            if not isinstance(duration_profile_ref, str) or not duration_profile_ref.strip():
+                findings.append(f"verification node {identifier} duration_profile_ref must be a non-empty string")
+            elif len(duration_profile_ref) > MAX_REFERENCE_LENGTH:
+                findings.append(f"verification node {identifier} duration_profile_ref exceeds the bounded length")
+            elif not isinstance(policy.duration_profiles, Mapping):
+                # The malformed-profiles finding is already recorded by the
+                # policy validation above; never probe a non-mapping here.
+                # Runtime defense: frozen dataclasses do not enforce types.
+                findings.append(  # type: ignore[unreachable]
+                    f"verification node {identifier} duration profile lookup skipped: policy profiles are malformed"
+                )
+            elif duration_profile_ref not in policy.duration_profiles:
+                findings.append(
+                    f"verification node {identifier} references an unknown duration profile: {duration_profile_ref}"
+                )
+        if not isinstance(item.required, bool):
+            # Runtime defense: frozen dataclasses do not enforce field types.
+            findings.append(f"verification node {identifier} required must be boolean")  # type: ignore[unreachable]
+        if not isinstance(item.candidate_bound, bool):
+            findings.append(f"verification node {identifier} candidate_bound must be boolean")  # type: ignore[unreachable]
+        if not isinstance(item.base_bound, bool):
+            findings.append(f"verification node {identifier} base_bound must be boolean")  # type: ignore[unreachable]
+        if item.exclusive_resource_class is not None:
+            if not isinstance(item.exclusive_resource_class, str) or not item.exclusive_resource_class.strip():
+                findings.append(f"verification node {identifier} has an invalid exclusive resource class")
         if item.failure_subject is not None and not isinstance(item.failure_subject, FailureSubject):
             findings.append(f"verification node {identifier} has an invalid failure subject precondition")  # type: ignore[unreachable]
         if item.probe_validity is not None:
             if not isinstance(item.probe_validity, ProbeValidity):
                 findings.append(f"verification node {identifier} has an invalid probe validity precondition")  # type: ignore[unreachable]
+            elif not isinstance(item.probe_validity.validity, str):
+                findings.append(f"verification node {identifier} has an invalid probe validity class")  # type: ignore[unreachable]
             elif item.probe_validity.validity not in PROBE_VALIDITIES:
                 findings.append(f"verification node {identifier} has an unknown probe validity class")
         if item.release_worktree is not None and not isinstance(item.release_worktree, ReleaseWorktreeState):
@@ -440,7 +540,7 @@ def validate_verification_schedule(
             continue
         for reference in _strings(item.depends_on) or ():
             if reference not in identifiers:
-                findings.append(f"verification node {item.id} references an unknown dependency: {reference}")
+                findings.append(f"verification node {item.id} references an unknown dependency: {reference[:32]}")
 
     cycle = _find_cycle(items)
     if cycle:
@@ -452,8 +552,13 @@ def validate_verification_schedule(
 
 
 def _find_cycle(nodes: Sequence[VerificationNode]) -> tuple[str, ...]:
-    """Return one dependency cycle, or an empty tuple when the graph is acyclic."""
-    by_id = {item.id: item for item in nodes if isinstance(item, VerificationNode)}
+    """Return one dependency cycle, or an empty tuple when the graph is acyclic.
+
+    Only nodes with valid string identifiers enter the graph; the validator
+    has already recorded a finding for every malformed identifier, so a
+    non-string id can never reach the membership test here.
+    """
+    by_id = {item.id: item for item in nodes if isinstance(item, VerificationNode) and isinstance(item.id, str)}
     visited: set[str] = set()
     stack: list[str] = []
 
@@ -467,7 +572,7 @@ def _find_cycle(nodes: Sequence[VerificationNode]) -> tuple[str, ...]:
         stack.append(identifier)
         item = by_id.get(identifier)
         if item is not None:
-            for reference in item.depends_on:
+            for reference in _strings(item.depends_on) or ():
                 found = visit(reference)
                 if found:
                     return found
@@ -482,8 +587,12 @@ def _find_cycle(nodes: Sequence[VerificationNode]) -> tuple[str, ...]:
 
 
 def _maximum_depth(nodes: Sequence[VerificationNode]) -> int:
-    """Return the longest dependency chain length in the plan."""
-    by_id = {item.id: item for item in nodes if isinstance(item, VerificationNode)}
+    """Return the longest dependency chain length in the plan.
+
+    Mirrors the cycle finder's identifier guard: malformed identifiers are
+    already validator findings and never enter the graph.
+    """
+    by_id = {item.id: item for item in nodes if isinstance(item, VerificationNode) and isinstance(item.id, str)}
     memo: dict[str, int] = {}
 
     def depth(identifier: str) -> int:
@@ -493,7 +602,7 @@ def _maximum_depth(nodes: Sequence[VerificationNode]) -> int:
         item = by_id.get(identifier)
         value = 0
         if item is not None:
-            for reference in item.depends_on:
+            for reference in _strings(item.depends_on) or ():
                 value = max(value, depth(reference) + 1)
         memo[identifier] = value
         return value
@@ -514,19 +623,66 @@ def _index_receipts(
         return receipts, ["trusted evidence must be a TrustedEvidenceSnapshot record"]  # type: ignore[unreachable]
     if not isinstance(trusted_evidence.complete, bool):
         return receipts, ["trusted evidence snapshot completeness must be boolean"]  # type: ignore[unreachable]
-    known = {item.id for item in nodes if isinstance(item, VerificationNode)}
-    for receipt in trusted_evidence.receipts:
+    if not isinstance(trusted_evidence.snapshot_ref, str) or not trusted_evidence.snapshot_ref.strip():
+        return receipts, ["trusted evidence snapshot_ref must be a non-empty string"]
+    if len(trusted_evidence.snapshot_ref) > MAX_REFERENCE_LENGTH:
+        return receipts, ["trusted evidence snapshot_ref exceeds the bounded length"]
+    raw_receipts: object = trusted_evidence.receipts
+    if not isinstance(raw_receipts, Sequence) or isinstance(raw_receipts, (str, bytes, bytearray)):
+        return receipts, ["trusted evidence receipts must be an array of EvidenceReceipt records"]
+    # Malformed identifiers are validator findings; they never enter this set,
+    # so an unhashable id cannot crash receipt indexing.
+    known = {item.id for item in nodes if isinstance(item, VerificationNode) and isinstance(item.id, str)}
+    for receipt in raw_receipts:
         if not isinstance(receipt, EvidenceReceipt):
-            findings.append("trusted evidence receipts must be EvidenceReceipt records")  # type: ignore[unreachable]
+            findings.append("trusted evidence receipts must be EvidenceReceipt records")
             continue
+        shape_findings: list[str] = []
+        # Bounded diagnostic label: the receipt's own reference text never
+        # enters a finding, whatever its length.
+        label = receipt.evidence_ref[:32] if isinstance(receipt.evidence_ref, str) else "<receipt>"
+        for field_name, value in (
+            ("evidence_ref", receipt.evidence_ref),
+            ("node_id", receipt.node_id),
+            ("status", receipt.status),
+            ("candidate_revision", receipt.candidate_revision),
+            ("policy_revision", receipt.policy_revision),
+        ):
+            if not isinstance(value, str) or not value.strip():
+                shape_findings.append(f"trusted evidence {field_name} must be a non-empty string")
+            elif len(value) > MAX_REFERENCE_LENGTH:
+                shape_findings.append(f"trusted evidence {field_name} exceed the bounded length")
+        subject_refs = _strings(receipt.subject_refs)
+        if subject_refs is None:
+            shape_findings.append(f"trusted evidence {label} subject_refs must be an array of strings")
+        elif len(subject_refs) > MAX_SUBJECT_REFS:
+            shape_findings.append(f"trusted evidence {label} subject_refs exceed the bounded count")
+        elif any(len(reference) > MAX_REFERENCE_LENGTH for reference in subject_refs):
+            shape_findings.append(f"trusted evidence {label} subject_refs exceed the bounded length")
+        for optional_field, optional_value in (
+            ("base_revision", receipt.base_revision),
+            ("contract_digest", receipt.contract_digest),
+            ("environment_ref", receipt.environment_ref),
+        ):
+            if optional_value is not None and (not isinstance(optional_value, str) or not optional_value.strip()):
+                shape_findings.append(f"trusted evidence {optional_field} must be a non-empty string or null")
+            elif optional_value is not None and len(optional_value) > MAX_REFERENCE_LENGTH:
+                shape_findings.append(f"trusted evidence {optional_field} exceed the bounded length")
+        expires_at = receipt.expires_at_epoch
+        if expires_at is not None and type(expires_at) is not int:
+            shape_findings.append(f"trusted evidence {label} expires_at_epoch must be an integer or null")
+        if shape_findings:
+            findings.extend(shape_findings)
+            continue
+        assert isinstance(receipt.node_id, str) and isinstance(receipt.status, str)
         if receipt.node_id not in known:
-            findings.append(f"trusted evidence {receipt.evidence_ref} targets an unknown node: {receipt.node_id}")
+            findings.append(f"trusted evidence {label} targets an unknown node: {receipt.node_id}")
             continue
         if receipt.node_id in receipts:
             findings.append(f"duplicate evidence receipts for node: {receipt.node_id}")
             continue
         if receipt.status not in EVIDENCE_STATUSES:
-            findings.append(f"trusted evidence {receipt.evidence_ref} has an unknown status: {receipt.status}")
+            findings.append(f"trusted evidence {label} has an unknown status: {receipt.status}")
             continue
         receipts[receipt.node_id] = receipt
     return receipts, findings
@@ -559,14 +715,19 @@ def _qualify(
         return ("STALE", ScheduleReason.EVIDENCE_CANDIDATE_MISMATCH, ())
     if node.base_bound and receipt.base_revision != current_base_revision:
         return ("STALE", ScheduleReason.EVIDENCE_BASE_MISMATCH, ())
-    if current_contract_digest is not None and receipt.contract_digest != current_contract_digest:
+    if current_contract_digest is None or receipt.contract_digest != current_contract_digest:
+        # Evidence qualifies only under the exact current acceptance-contract
+        # identity: a missing digest on either side is never a match.
         return ("STALE", ScheduleReason.EVIDENCE_CONTRACT_MISMATCH, ())
     if receipt.policy_revision != policy.policy_revision:
         return ("STALE", ScheduleReason.EVIDENCE_POLICY_MISMATCH, ())
     if node.validation_environment_ref is not None and receipt.environment_ref != node.validation_environment_ref:
         return ("STALE", ScheduleReason.EVIDENCE_ENVIRONMENT_MISMATCH, ())
-    if receipt.expires_at_epoch is not None and now_epoch is not None and receipt.expires_at_epoch <= now_epoch:
-        return ("STALE", ScheduleReason.EVIDENCE_EXPIRED, ())
+    if receipt.expires_at_epoch is not None:
+        if now_epoch is None:
+            return ("STALE", ScheduleReason.EVIDENCE_EXPIRED, ())
+        if receipt.expires_at_epoch <= now_epoch:
+            return ("STALE", ScheduleReason.EVIDENCE_EXPIRED, ())
     if node.reusable_evidence_ref is not None and receipt.evidence_ref != node.reusable_evidence_ref:
         return ("STALE", ScheduleReason.DECLARED_EVIDENCE_MISMATCH, ())
 
@@ -617,9 +778,23 @@ def plan_verification_schedule(
         if not trusted_evidence.complete:
             notes.append("trusted evidence snapshot is incomplete; reuse is not available")
     if external_gate_status is not None:
-        for identifier, status in external_gate_status.items():
-            if status not in EXTERNAL_GATE_STATUSES:
-                blocking.append(f"external gate {identifier} has an unknown status: {status}")
+        if not isinstance(external_gate_status, Mapping):
+            blocking.append("external gate status must be a mapping of node id to status")  # type: ignore[unreachable]
+        else:
+            for identifier, status in external_gate_status.items():
+                # Bounded label: the repr or full text of malformed input
+                # never enters a finding, whatever its length.
+                label = identifier[:32] if isinstance(identifier, str) else "<external gate>"
+                if not isinstance(identifier, str) or not identifier.strip():
+                    blocking.append("external gate status keys must be non-empty node identifiers")
+                elif len(identifier) > MAX_IDENTIFIER_LENGTH:
+                    blocking.append("external gate status keys exceed the bounded length")
+                elif not isinstance(status, str):
+                    blocking.append(f"external gate {label} status must be a string")  # type: ignore[unreachable]
+                elif len(status) > MAX_REFERENCE_LENGTH:
+                    blocking.append(f"external gate {label} status exceed the bounded length")
+                elif status not in EXTERNAL_GATE_STATUSES:
+                    blocking.append(f"external gate {label} has an unknown status: {status[:32]}")
     if blocking:
         return _rejected(tuple(sorted(set(blocking))))
 
@@ -702,11 +877,53 @@ def plan_verification_schedule(
         resolve(item.id)
 
     candidate_order = _order_nodes(items, memo, policy)
+
+    # First, propagate DEFER for external/pending dependencies (no window accounting yet)
+    progressing = True
+    while progressing:
+        progressing = False
+        for item in items:
+            if memo[item.id].state is not _State.RUN:
+                continue
+            blocking_dependencies = tuple(
+                reference
+                for reference in item.depends_on
+                if memo[reference].state in {_State.EXTERNAL_PENDING, _State.DEFER}
+            )
+            if blocking_dependencies:
+                memo[item.id] = _Resolution(
+                    _State.DEFER,
+                    ScheduleReason.PREREQUISITE_PENDING,
+                    blocked_by=blocking_dependencies,
+                    invalidated_by=invalidated_by[item.id],
+                )
+                progressing = True
+
+    # Now apply window accounting ONLY to nodes that are still RUN and whose
+    # dependencies are all satisfied, so a parked prerequisite never makes its
+    # dependents consume window budget they cannot legally spend. A skipped
+    # dependent is deferred immediately, so its own dependents see the blocked
+    # state instead of probing budget behind it.
     remaining_window = policy.hard_window_seconds
     for identifier in candidate_order:
-        item = by_id[identifier]
+        if memo[identifier].state is not _State.RUN:
+            continue
+        blocking_dependencies = tuple(
+            reference
+            for reference in by_id[identifier].depends_on
+            if memo[reference].state in {_State.PARKED, _State.EXTERNAL_PENDING, _State.DEFER}
+        )
+        if blocking_dependencies:
+            memo[identifier] = _Resolution(
+                _State.DEFER,
+                ScheduleReason.PREREQUISITE_PENDING,
+                blocked_by=blocking_dependencies,
+                invalidated_by=invalidated_by[identifier],
+            )
+            continue
         if remaining_window is None:
             continue
+        item = by_id[identifier]
         profile = policy.duration_profiles.get(item.duration_profile_ref) if item.duration_profile_ref else None
         if profile is None or profile.expected_seconds is None:
             continue
@@ -720,6 +937,7 @@ def plan_verification_schedule(
             continue
         remaining_window -= profile.expected_seconds
 
+    # Re-propagate DEFER for nodes whose dependencies were PARKED
     progressing = True
     while progressing:
         progressing = False
