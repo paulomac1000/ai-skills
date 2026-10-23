@@ -487,6 +487,13 @@ def validate_verification_schedule(
                 findings.append(
                     f"verification node {identifier} references an unknown duration profile: {duration_profile_ref}"
                 )
+        if not isinstance(item.required, bool):
+            # Runtime defense: frozen dataclasses do not enforce field types.
+            findings.append(f"verification node {identifier} required must be boolean")  # type: ignore[unreachable]
+        if not isinstance(item.candidate_bound, bool):
+            findings.append(f"verification node {identifier} candidate_bound must be boolean")  # type: ignore[unreachable]
+        if not isinstance(item.base_bound, bool):
+            findings.append(f"verification node {identifier} base_bound must be boolean")  # type: ignore[unreachable]
         if item.exclusive_resource_class is not None:
             if not isinstance(item.exclusive_resource_class, str) or not item.exclusive_resource_class.strip():
                 findings.append(f"verification node {identifier} has an invalid exclusive resource class")
@@ -522,8 +529,13 @@ def validate_verification_schedule(
 
 
 def _find_cycle(nodes: Sequence[VerificationNode]) -> tuple[str, ...]:
-    """Return one dependency cycle, or an empty tuple when the graph is acyclic."""
-    by_id = {item.id: item for item in nodes if isinstance(item, VerificationNode)}
+    """Return one dependency cycle, or an empty tuple when the graph is acyclic.
+
+    Only nodes with valid string identifiers enter the graph; the validator
+    has already recorded a finding for every malformed identifier, so a
+    non-string id can never reach the membership test here.
+    """
+    by_id = {item.id: item for item in nodes if isinstance(item, VerificationNode) and isinstance(item.id, str)}
     visited: set[str] = set()
     stack: list[str] = []
 
@@ -552,8 +564,12 @@ def _find_cycle(nodes: Sequence[VerificationNode]) -> tuple[str, ...]:
 
 
 def _maximum_depth(nodes: Sequence[VerificationNode]) -> int:
-    """Return the longest dependency chain length in the plan."""
-    by_id = {item.id: item for item in nodes if isinstance(item, VerificationNode)}
+    """Return the longest dependency chain length in the plan.
+
+    Mirrors the cycle finder's identifier guard: malformed identifiers are
+    already validator findings and never enter the graph.
+    """
+    by_id = {item.id: item for item in nodes if isinstance(item, VerificationNode) and isinstance(item.id, str)}
     memo: dict[str, int] = {}
 
     def depth(identifier: str) -> int:
@@ -584,10 +600,19 @@ def _index_receipts(
         return receipts, ["trusted evidence must be a TrustedEvidenceSnapshot record"]  # type: ignore[unreachable]
     if not isinstance(trusted_evidence.complete, bool):
         return receipts, ["trusted evidence snapshot completeness must be boolean"]  # type: ignore[unreachable]
-    known = {item.id for item in nodes if isinstance(item, VerificationNode)}
-    for receipt in trusted_evidence.receipts:
+    if not isinstance(trusted_evidence.snapshot_ref, str) or not trusted_evidence.snapshot_ref.strip():
+        return receipts, ["trusted evidence snapshot_ref must be a non-empty string"]
+    if len(trusted_evidence.snapshot_ref) > MAX_REFERENCE_LENGTH:
+        return receipts, ["trusted evidence snapshot_ref exceeds the bounded length"]
+    raw_receipts: object = trusted_evidence.receipts
+    if not isinstance(raw_receipts, Sequence) or isinstance(raw_receipts, (str, bytes, bytearray)):
+        return receipts, ["trusted evidence receipts must be an array of EvidenceReceipt records"]
+    # Malformed identifiers are validator findings; they never enter this set,
+    # so an unhashable id cannot crash receipt indexing.
+    known = {item.id for item in nodes if isinstance(item, VerificationNode) and isinstance(item.id, str)}
+    for receipt in raw_receipts:
         if not isinstance(receipt, EvidenceReceipt):
-            findings.append("trusted evidence receipts must be EvidenceReceipt records")  # type: ignore[unreachable]
+            findings.append("trusted evidence receipts must be EvidenceReceipt records")
             continue
         shape_findings: list[str] = []
         for field_name, value in (

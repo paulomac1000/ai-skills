@@ -1500,3 +1500,128 @@ def test_non_mapping_duration_profiles_fail_closed_before_membership() -> None:
     )
     assert result.accepted is False
     assert result.decisions == ()
+
+
+def test_unhashable_node_id_fails_closed_without_raising() -> None:
+    """Supervisory inspection: a non-string id must not crash graph construction."""
+    malformed = node([])  # type: ignore[arg-type]
+    findings = schedule.validate_verification_schedule([malformed], policy())
+    assert any("node id must be a non-empty string" in finding for finding in findings)
+
+    result = schedule.plan_verification_schedule(
+        [malformed],
+        policy=policy(),
+        trusted_evidence=snapshot(),
+        current_candidate_revision=CANDIDATE_A,
+        current_base_revision=BASE_X,
+        current_contract_digest=CONTRACT,
+    )
+    assert result.accepted is False
+    assert result.decisions == ()
+    assert any("node id must be a non-empty string" in finding for finding in result.findings)
+
+
+def test_mixed_string_and_nonstring_node_ids_fail_closed() -> None:
+    """Supervisory inspection: one malformed id poisons nothing and raises nothing."""
+    mixed = [node("valid"), node(["bad"])]  # type: ignore[list-item]
+    findings = schedule.validate_verification_schedule(mixed, policy())
+    assert any("node id must be a non-empty string" in finding for finding in findings)
+    assert any("unknown dependency" not in finding for finding in findings)
+
+    result = schedule.plan_verification_schedule(
+        mixed,
+        policy=policy(),
+        trusted_evidence=snapshot(),
+        current_candidate_revision=CANDIDATE_A,
+        current_base_revision=BASE_X,
+        current_contract_digest=CONTRACT,
+    )
+    assert result.accepted is False
+    assert result.decisions == ()
+
+
+def test_non_sequence_receipts_fail_closed() -> None:
+    """Supervisory inspection: a non-container receipts field must not raise."""
+    unit = node("unit-check", evidence_kind=EvidenceKind.UNIT, cost_class=CostClass.CHEAP)
+    malformed_snapshot = TrustedEvidenceSnapshot(snapshot_ref="snapshot-1", complete=True, receipts=5)  # type: ignore[arg-type]
+    result = schedule.plan_verification_schedule(
+        [unit],
+        policy=policy(),
+        trusted_evidence=malformed_snapshot,
+        current_candidate_revision=CANDIDATE_A,
+        current_base_revision=BASE_X,
+        current_contract_digest=CONTRACT,
+    )
+    assert result.accepted is False
+    assert result.decisions == ()
+    assert any("receipts" in finding for finding in result.findings)
+
+
+def test_non_boolean_required_cannot_elide_a_node() -> None:
+    """Supervisory inspection: an invalid required shape is a finding, never silent optionality."""
+    probe = VerificationNode(
+        id="probe",
+        criterion_refs=("C1",),
+        evidence_kind=EvidenceKind.STATIC,
+        cost_class=CostClass.CHEAP,
+        required=0,  # type: ignore[arg-type]
+    )
+    findings = schedule.validate_verification_schedule([probe], policy())
+    assert any("required must be boolean" in finding for finding in findings)
+
+    result = schedule.plan_verification_schedule(
+        [probe],
+        policy=policy(),
+        trusted_evidence=snapshot(),
+        current_candidate_revision=CANDIDATE_A,
+        current_base_revision=BASE_X,
+        current_contract_digest=CONTRACT,
+    )
+    assert result.accepted is False
+    assert result.decisions == ()
+
+
+def test_non_boolean_binding_flags_are_rejected() -> None:
+    """Same family: candidate_bound and base_bound must be boolean or rejected."""
+    findings = schedule.validate_verification_schedule(
+        [
+            node("a", candidate_bound=1),  # type: ignore[arg-type]
+            node("b", base_bound="yes"),  # type: ignore[arg-type]
+        ],
+        policy(),
+    )
+    assert any("candidate_bound must be boolean" in finding for finding in findings)
+    assert any("base_bound must be boolean" in finding for finding in findings)
+
+
+def test_properly_typed_positive_control_still_schedules() -> None:
+    """Positive control: the repairs keep a well-formed plan fully dispatchable."""
+    cheap = node(
+        "static-schema",
+        evidence_kind=EvidenceKind.SCHEMA,
+        cost_class=CostClass.CHEAP,
+        invalidates_on=("source",),
+    )
+    gate = node(
+        "full-gate",
+        evidence_kind=EvidenceKind.FULL_GATE,
+        cost_class=CostClass.EXPENSIVE,
+        depends_on=("static-schema",),
+        required_before=("candidate_freeze",),
+        invalidates_on=("candidateRevision", "source"),
+        candidate_bound=True,
+    )
+    result = schedule.plan_verification_schedule(
+        [cheap, gate],
+        policy=policy(),
+        trusted_evidence=snapshot(),
+        current_candidate_revision=CANDIDATE_A,
+        current_base_revision=BASE_X,
+        current_contract_digest=CONTRACT,
+    )
+    assert result.accepted is True
+    indexed = decisions_by_id(result)
+    assert indexed["static-schema"].decision is ScheduleDecision.RUN
+    assert indexed["full-gate"].decision is ScheduleDecision.RUN
+    assert result.order == ("static-schema", "full-gate")
+    assert result.closure.complete is True
