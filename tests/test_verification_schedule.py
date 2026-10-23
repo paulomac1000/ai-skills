@@ -1830,3 +1830,27 @@ def test_oversized_unknown_dependency_reference_is_bounded() -> None:
     assert any("unknown dependency" in finding for finding in findings)
     assert all(len(finding) < 400 for finding in findings)
     assert all(oversized not in finding for finding in findings)
+
+
+def test_dynamic_type_name_in_profile_key_yields_bounded_label() -> None:
+    """Independent review: even a dynamic class name cannot unbound a diagnostic."""
+    long_name = type("X" * 100_000, (), {})
+    malformed_policy = SchedulePolicy(
+        policy_revision=POLICY_REVISION,
+        duration_profiles={long_name(): object()},  # type: ignore[dict-item]
+    )
+    findings = schedule.validate_verification_schedule([node("probe")], malformed_policy)
+    assert findings
+    assert all(len(finding) < 400 for finding in findings)
+
+    result = schedule.plan_verification_schedule(
+        [node("probe")],
+        policy=malformed_policy,
+        trusted_evidence=snapshot(),
+        current_candidate_revision=CANDIDATE_A,
+        current_base_revision=BASE_X,
+        current_contract_digest=CONTRACT,
+    )
+    assert result.accepted is False
+    assert result.decisions == ()
+    assert all(len(finding) < 400 for finding in result.findings)

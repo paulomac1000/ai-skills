@@ -371,8 +371,9 @@ def _validate_policy(policy: SchedulePolicy) -> tuple[str, ...]:
                 label = reference[:32]
             else:
                 # Runtime defense: frozen dataclasses and caller mappings do
-                # not enforce key types; repr of malformed input is unbounded.
-                label = f"<non-string {type(reference).__name__} key>"  # type: ignore[unreachable]
+                # not enforce key types. Neither repr nor a dynamic type name
+                # is length-bounded, so the label is a fixed literal.
+                label = "<non-string key>"  # type: ignore[unreachable]
             if not isinstance(reference, str) or not reference.strip():
                 findings.append("schedule policy duration profile keys must be non-empty strings")
             elif len(reference) > MAX_REFERENCE_LENGTH:
