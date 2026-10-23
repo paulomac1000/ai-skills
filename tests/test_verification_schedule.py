@@ -1798,3 +1798,35 @@ def test_external_gate_diagnostics_are_bounded() -> None:
     assert any("exceed the bounded length" in finding for finding in oversized_value.findings)
     assert all(len(finding) < 400 for finding in oversized_value.findings)
     assert all(oversized_status not in finding for finding in oversized_value.findings)
+
+
+def test_oversized_required_before_boundary_is_bounded() -> None:
+    """Independent review: unknown required_before values never enter findings unbounded."""
+    oversized = "X" * 100_000
+    malformed = node("bad", required_before=(oversized,))  # type: ignore[list-item]
+    findings = schedule.validate_verification_schedule([malformed], policy())
+    assert any("required_before" in finding for finding in findings)
+    assert all(len(finding) < 400 for finding in findings)
+    assert all(oversized not in finding for finding in findings)
+
+    result = schedule.plan_verification_schedule(
+        [malformed],
+        policy=policy(),
+        trusted_evidence=snapshot(),
+        current_candidate_revision=CANDIDATE_A,
+        current_base_revision=BASE_X,
+        current_contract_digest=CONTRACT,
+    )
+    assert result.accepted is False
+    assert result.decisions == ()
+    assert all(len(finding) < 400 for finding in result.findings)
+
+
+def test_oversized_unknown_dependency_reference_is_bounded() -> None:
+    """Same family: unknown dependency references never enter findings unbounded."""
+    oversized = "d" * 100_000
+    malformed = node("bad", depends_on=(oversized,))  # type: ignore[list-item]
+    findings = schedule.validate_verification_schedule([malformed], policy())
+    assert any("unknown dependency" in finding for finding in findings)
+    assert all(len(finding) < 400 for finding in findings)
+    assert all(oversized not in finding for finding in findings)

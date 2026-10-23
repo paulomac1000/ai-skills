@@ -478,9 +478,11 @@ def validate_verification_schedule(
             findings.append(f"verification node {identifier} required_before must be an array of strings")
         else:
             for boundary in required_before:
-                if boundary not in REQUIRED_BEFORE_BOUNDARIES:
+                if len(boundary) > MAX_REFERENCE_LENGTH:
+                    findings.append(f"verification node {identifier} required_before exceeds the bounded length")
+                elif boundary not in REQUIRED_BEFORE_BOUNDARIES:
                     findings.append(
-                        f"verification node {identifier} has an unknown required_before boundary: {boundary}"
+                        f"verification node {identifier} has an unknown required_before boundary: {boundary[:32]}"
                     )
 
         invalidates_on = _strings(item.invalidates_on)
@@ -537,7 +539,7 @@ def validate_verification_schedule(
             continue
         for reference in _strings(item.depends_on) or ():
             if reference not in identifiers:
-                findings.append(f"verification node {item.id} references an unknown dependency: {reference}")
+                findings.append(f"verification node {item.id} references an unknown dependency: {reference[:32]}")
 
     cycle = _find_cycle(items)
     if cycle:
