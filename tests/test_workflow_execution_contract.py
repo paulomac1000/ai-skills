@@ -81,6 +81,18 @@ def _step(steps: list[dict[str, object]], name: str) -> dict[str, object]:
     raise AssertionError(f"step {name!r} is missing")
 
 
+def _failure_masking_enabled(step: dict[str, object]) -> bool:
+    """Whether the step tolerates its own failure under any spelling.
+
+    Fail closed: any present continue-on-error value that is not an explicit
+    false is treated as failure masking, because GitHub Actions expressions
+    such as ${{ true }} or ${{ always() }} evaluate truthy at runtime while
+    carrying no literal the validator could trust.
+    """
+    value = step.get("continue-on-error", False)
+    return value is not False and str(value).casefold() != "false"
+
+
 def _exact_head_violations(workflow: dict[str, object]) -> list[str]:
     """Return every way the audit job could execute less than it declares."""
     violations: list[str] = []
@@ -90,7 +102,7 @@ def _exact_head_violations(workflow: dict[str, object]) -> list[str]:
         label = str(step.get("name") or step.get("uses") or step.get("run"))[:60]
         if step.get("if") is not None:
             violations.append(f"conditional audit step can be skipped: {label}")
-        if step.get("continue-on-error") in ("true", "True", True):
+        if _failure_masking_enabled(step):
             violations.append(f"failure-masking audit step can fail without failing the job: {label}")
     positions: list[int] = []
     for required in MANDATORY_AUDIT_STEPS:
@@ -127,7 +139,7 @@ def _release_admission_violations(workflow: dict[str, object]) -> list[str]:
     admission = _step(steps, ADMISSION_STEP)
     if admission.get("if") is not None:
         violations.append("the admission step is conditional and can be skipped")
-    if admission.get("continue-on-error") in ("true", "True", True):
+    if _failure_masking_enabled(admission):
         violations.append("the admission step can fail without failing preparation")
     if UPLOAD_STEP in names and names.index(ADMISSION_STEP) > names.index(UPLOAD_STEP):
         violations.append("the admission step does not gate release preparation")
@@ -167,12 +179,32 @@ def test_failure_masking_the_authorship_step_is_rejected() -> None:
     assert any("failure-masking audit step" in violation for violation in violations)
 
 
+def test_expression_failure_masking_is_rejected() -> None:
+    """R4-F1: an expression that evaluates truthy at runtime is masking."""
+    for spelling in ("${{ true }}", "${{ always() }}", "${{ !cancelled() }}"):
+        workflow = _load(CI)
+        mutated = copy.deepcopy(workflow)
+        steps = _steps(mutated, AUDIT_JOB)
+        _step(steps, AUTHORSHIP_STEP)["continue-on-error"] = spelling
+        violations = _exact_head_violations(mutated)
+        assert any("failure-masking audit step" in violation for violation in violations), spelling
+
+
+def test_an_explicit_false_continue_on_error_is_not_masking() -> None:
+    """The negative control: an explicit false is the only tolerated spelling."""
+    workflow = _load(CI)
+    mutated = copy.deepcopy(workflow)
+    steps = _steps(mutated, AUDIT_JOB)
+    _step(steps, AUTHORSHIP_STEP)["continue-on-error"] = "false"
+    assert _exact_head_violations(mutated) == []
+
+
 def test_failure_masking_the_admission_step_is_rejected() -> None:
     """A failed admission step must not be allowed to continue preparation."""
     workflow = _load(RELEASE)
     mutated = copy.deepcopy(workflow)
     steps = _steps(mutated, "prepare")
-    _step(steps, ADMISSION_STEP)["continue-on-error"] = "true"
+    _step(steps, ADMISSION_STEP)["continue-on-error"] = "${{ true }}"
     violations = _release_admission_violations(mutated)
     assert any("admission step can fail" in violation for violation in violations)
 
