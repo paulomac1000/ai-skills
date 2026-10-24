@@ -20,7 +20,25 @@ import stat
 import subprocess
 from pathlib import Path
 
+import pytest
 import yaml
+
+
+def _bash_works() -> bool:
+    """Whether this environment can execute the workflow steps' bash scripts."""
+    try:
+        probe = subprocess.run(
+            ["bash", "-c", "echo ok"],
+            capture_output=True,
+            timeout=30,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return probe.returncode == 0 and b"ok" in probe.stdout
+
+
+BASH_AVAILABLE = _bash_works()
 
 ROOT = Path(__file__).resolve().parents[1]
 CI = ROOT / ".github/workflows/ci.yml"
@@ -211,6 +229,7 @@ def _venv_env(extra: dict[str, str]) -> dict[str, str]:
     return env
 
 
+@pytest.mark.skipif(not BASH_AVAILABLE, reason="workflow steps execute through bash")
 def test_the_embedded_base_resolution_step_selects_each_event_base(tmp_path: Path) -> None:
     """The step script embedded in the real workflow resolves both event shapes."""
     workflow = _load(CI)
@@ -255,6 +274,7 @@ def _gh_shim(directory: Path, fixtures: dict[str, Path]) -> Path:
     return directory
 
 
+@pytest.mark.skipif(not BASH_AVAILABLE, reason="workflow steps execute through bash")
 def test_the_embedded_admission_step_blocks_publication_without_a_real_audit(tmp_path: Path) -> None:
     """F2 behavioral: the workflow's own admission step, executed against
     synthetic provider records, refuses skipped, failed, absent, and
@@ -336,6 +356,7 @@ def test_the_embedded_admission_step_blocks_publication_without_a_real_audit(tmp
             assert "ERROR: RELEASE_ADMISSION" in result.stdout
 
 
+@pytest.mark.skipif(not BASH_AVAILABLE, reason="workflow steps execute through bash")
 def test_the_embedded_admission_step_rejects_an_absent_audit(tmp_path: Path) -> None:
     workflow = _load(RELEASE)
     step = _step(_steps(workflow, "prepare"), ADMISSION_STEP)
