@@ -89,6 +89,8 @@ def _exact_head_violations(workflow: dict[str, object]) -> list[str]:
         label = str(step.get("name") or step.get("uses") or step.get("run"))[:60]
         if step.get("if") is not None:
             violations.append(f"conditional audit step can be skipped: {label}")
+        if step.get("continue-on-error") in ("true", "True", True):
+            violations.append(f"failure-masking audit step can fail without failing the job: {label}")
     positions: list[int] = []
     for required in MANDATORY_AUDIT_STEPS:
         if required not in names:
@@ -124,6 +126,8 @@ def _release_admission_violations(workflow: dict[str, object]) -> list[str]:
     admission = _step(steps, ADMISSION_STEP)
     if admission.get("if") is not None:
         violations.append("the admission step is conditional and can be skipped")
+    if admission.get("continue-on-error") in ("true", "True", True):
+        violations.append("the admission step can fail without failing preparation")
     if UPLOAD_STEP in names and names.index(ADMISSION_STEP) > names.index(UPLOAD_STEP):
         violations.append("the admission step does not gate release preparation")
     run = str(admission.get("run"))
@@ -150,6 +154,26 @@ def test_conditioning_the_authorship_step_away_is_rejected() -> None:
     _step(steps, AUTHORSHIP_STEP)["if"] = "false"
     violations = _exact_head_violations(mutated)
     assert any("conditional audit step" in violation for violation in violations)
+
+
+def test_failure_masking_the_authorship_step_is_rejected() -> None:
+    """A failed mandatory step must not be allowed to leave the job green."""
+    workflow = _load(CI)
+    mutated = copy.deepcopy(workflow)
+    steps = _steps(mutated, AUDIT_JOB)
+    _step(steps, AUTHORSHIP_STEP)["continue-on-error"] = "true"
+    violations = _exact_head_violations(mutated)
+    assert any("failure-masking audit step" in violation for violation in violations)
+
+
+def test_failure_masking_the_admission_step_is_rejected() -> None:
+    """A failed admission step must not be allowed to continue preparation."""
+    workflow = _load(RELEASE)
+    mutated = copy.deepcopy(workflow)
+    steps = _steps(mutated, "prepare")
+    _step(steps, ADMISSION_STEP)["continue-on-error"] = "true"
+    violations = _release_admission_violations(mutated)
+    assert any("admission step can fail" in violation for violation in violations)
 
 
 def test_removing_the_authorship_step_is_rejected() -> None:
@@ -275,6 +299,17 @@ def _gh_shim(directory: Path, fixtures: dict[str, Path]) -> Path:
 
 
 @pytest.mark.skipif(not BASH_AVAILABLE, reason="workflow steps execute through bash")
+def _isolated_step_workspace(tmp_path: Path) -> Path:
+    """A workspace where the step's relative script path resolves but its
+    redirects stay out of the repository checkout."""
+    workspace = tmp_path / "step-workspace"
+    workspace.mkdir(exist_ok=True)
+    link = workspace / "scripts"
+    if not link.exists():
+        link.symlink_to(ROOT / "scripts")
+    return workspace
+
+
 def test_the_embedded_admission_step_blocks_publication_without_a_real_audit(tmp_path: Path) -> None:
     """F2 behavioral: the workflow's own admission step, executed against
     synthetic provider records, refuses skipped, failed, absent, and
@@ -348,7 +383,7 @@ def test_the_embedded_admission_step_blocks_publication_without_a_real_audit(tmp
                 "GH_REPO": "paulomac1000/ai-skills",
             }
         )
-        result = _run_workflow_step(step, env, ROOT)
+        result = _run_workflow_step(step, env, _isolated_step_workspace(tmp_path))
         assert result.returncode == expected, (label, result.stdout, result.stderr)
         if expected == 0:
             assert "release admission: PASS" in result.stdout
@@ -389,6 +424,6 @@ def test_the_embedded_admission_step_rejects_an_absent_audit(tmp_path: Path) -> 
             "GH_REPO": "paulomac1000/ai-skills",
         }
     )
-    result = _run_workflow_step(step, env, ROOT)
+    result = _run_workflow_step(step, env, _isolated_step_workspace(tmp_path))
     assert result.returncode == 1
     assert "RELEASE_ADMISSION_AUDIT_ABSENT" in result.stdout
