@@ -23,6 +23,7 @@ from typing import Any
 FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
 DEFAULT_WORKFLOW = "CI"
 DEFAULT_AUDIT_JOB = "exact-head"
+DEFAULT_BRANCH = "main"
 
 
 @dataclass(frozen=True)
@@ -47,6 +48,8 @@ def verify_admission(
     *,
     expected_sha: str,
     expected_workflow: str = DEFAULT_WORKFLOW,
+    expected_branch: str = DEFAULT_BRANCH,
+    expected_run_id: str | int | None = None,
     audit_job: str = DEFAULT_AUDIT_JOB,
 ) -> AdmissionDecision:
     """Decide whether the run record proves the audit executed on this SHA."""
@@ -69,12 +72,28 @@ def verify_admission(
             f"run event {event!r} is not a push to the integration branch",
         )
 
+    head_branch = _required_text(run, "head_branch")
+    if head_branch != expected_branch:
+        return AdmissionDecision(
+            False,
+            "RELEASE_ADMISSION_BRANCH_MISMATCH",
+            f"run head branch {head_branch!r} is not the integration branch {expected_branch!r}",
+        )
+
     head_sha = _required_text(run, "head_sha")
     if head_sha != expected_sha:
         return AdmissionDecision(
             False,
             "RELEASE_ADMISSION_SHA_MISMATCH",
             f"run head {head_sha} is not the published revision {expected_sha}",
+        )
+
+    run_id = run.get("id")
+    if expected_run_id is not None and str(run_id) != str(expected_run_id):
+        return AdmissionDecision(
+            False,
+            "RELEASE_ADMISSION_RUN_ID_MISMATCH",
+            f"run record id {run_id!r} is not the triggering run {expected_run_id!r}",
         )
 
     conclusion = _required_text(run, "conclusion")
@@ -133,6 +152,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--jobs-json", required=True, help="Job page documents ('-' shares the stdin stream).")
     parser.add_argument("--expected-sha", required=True, help="The exact revision being published.")
     parser.add_argument("--expected-workflow", default=DEFAULT_WORKFLOW)
+    parser.add_argument("--expected-branch", default=DEFAULT_BRANCH)
+    parser.add_argument(
+        "--expected-run-id",
+        default=None,
+        help="The triggering workflow run id; when given, the run record must carry it.",
+    )
     parser.add_argument("--audit-job", default=DEFAULT_AUDIT_JOB)
     args = parser.parse_args(argv)
 
@@ -145,11 +170,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         else:
             run = _json_documents(Path(args.run_json).read_text(encoding="utf-8"))[0]
             job_pages = _json_documents(Path(args.jobs_json).read_text(encoding="utf-8"))
+        expected_run_id: str | int | None = None
+        if args.expected_run_id is not None:
+            expected_run_id = int(args.expected_run_id) if str(args.expected_run_id).isdigit() else args.expected_run_id
         decision = verify_admission(
             run,
             job_pages,
             expected_sha=args.expected_sha,
             expected_workflow=args.expected_workflow,
+            expected_branch=args.expected_branch,
+            expected_run_id=expected_run_id,
             audit_job=args.audit_job,
         )
     except (OSError, ValueError, json.JSONDecodeError) as error:

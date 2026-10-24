@@ -37,13 +37,14 @@ def _run_document(
     name: str = "CI",
     event: str = "push",
     conclusion: str = "success",
+    head_branch: str = "main",
 ) -> dict[str, object]:
     return {
         "id": 1234,
         "name": name,
         "event": event,
         "head_sha": head_sha,
-        "head_branch": "main",
+        "head_branch": head_branch,
         "conclusion": conclusion,
     }
 
@@ -148,6 +149,38 @@ def test_a_run_from_another_workflow_is_rejected() -> None:
     assert "RELEASE_ADMISSION_RUN_NOT_CI" in completed.stdout
 
 
+def test_a_run_from_another_branch_is_rejected() -> None:
+    completed = _invoke(
+        _run_document(head_branch="feature"),
+        [_jobs_page([_job("exact-head", "success")])],
+    )
+    assert completed.returncode == 1
+    assert "RELEASE_ADMISSION_BRANCH_MISMATCH" in completed.stdout
+
+
+def test_a_run_record_from_another_run_id_is_rejected() -> None:
+    module = _load_script()
+    decision = module.verify_admission(
+        _run_document(),
+        [_jobs_page([_job("exact-head", "success")])],
+        expected_sha=RELEASE_SHA,
+        expected_run_id=9999,
+    )
+    assert decision.accepted is False
+    assert decision.reason == "RELEASE_ADMISSION_RUN_ID_MISMATCH"
+
+
+def test_the_matching_run_id_is_accepted() -> None:
+    module = _load_script()
+    decision = module.verify_admission(
+        _run_document(),
+        [_jobs_page([_job("exact-head", "success")])],
+        expected_sha=RELEASE_SHA,
+        expected_run_id=1234,
+    )
+    assert decision.accepted is True
+
+
 def test_a_run_that_is_not_a_push_is_rejected() -> None:
     completed = _invoke(
         _run_document(event="pull_request"),
@@ -188,3 +221,60 @@ def test_the_verifier_exposes_a_typed_decision_surface() -> None:
     )
     assert decision.accepted is False
     assert decision.reason == "RELEASE_ADMISSION_AUDIT_NOT_SUCCESSFUL"
+
+
+def test_the_stream_parser_reads_concatenated_provider_pages() -> None:
+    module = _load_script()
+    stream = json.dumps(_run_document()) + "\n" + json.dumps(_jobs_page([])) + json.dumps(_jobs_page([]))
+    documents = module._json_documents(stream)
+    assert len(documents) == 3
+
+
+def test_the_stream_parser_rejects_non_object_documents() -> None:
+    module = _load_script()
+    try:
+        module._json_documents("[1, 2]")
+    except ValueError as error:
+        assert "non-object" in str(error)
+    else:
+        raise AssertionError("a non-object document must fail the admission input")
+
+
+def test_the_stream_parser_rejects_malformed_json() -> None:
+    module = _load_script()
+    import pytest
+
+    with pytest.raises((ValueError, json.JSONDecodeError)):
+        module._json_documents('{"id": 1')
+
+
+def _invoke_main(monkeypatch, stdin_text: str) -> tuple[int, str]:
+    import contextlib
+    import io
+
+    module = _load_script()
+    monkeypatch.setattr("sys.stdin", io.StringIO(stdin_text))
+    buffer = io.StringIO()
+    with contextlib.redirect_stdout(buffer):
+        code = module.main(["--run-json", "-", "--jobs-json", "-", "--expected-sha", RELEASE_SHA])
+    return code, buffer.getvalue()
+
+
+def test_the_cli_accepts_a_proven_run_over_shared_stdin(monkeypatch) -> None:
+    stream = json.dumps(_run_document()) + "\n" + json.dumps(_jobs_page([_job("exact-head", "success")])) + "\n"
+    code, output = _invoke_main(monkeypatch, stream)
+    assert code == 0
+    assert "release admission: PASS" in output
+
+
+def test_the_cli_rejects_a_stream_without_job_records(monkeypatch) -> None:
+    code, output = _invoke_main(monkeypatch, json.dumps(_run_document()) + "\n")
+    assert code == 1
+    assert "RELEASE_ADMISSION_INPUT_INVALID" in output
+
+
+def test_the_cli_rejects_a_skipped_audit_over_shared_stdin(monkeypatch) -> None:
+    stream = json.dumps(_run_document()) + "\n" + json.dumps(_jobs_page([_job("exact-head", "skipped")])) + "\n"
+    code, output = _invoke_main(monkeypatch, stream)
+    assert code == 1
+    assert "RELEASE_ADMISSION_AUDIT_NOT_SUCCESSFUL" in output

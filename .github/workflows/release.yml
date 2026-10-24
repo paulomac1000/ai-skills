@@ -64,7 +64,8 @@ jobs:
           python scripts/verify_release_admission.py \
             --run-json admission-run.json \
             --jobs-json admission-jobs.json \
-            --expected-sha "$RELEASE_SHA"
+            --expected-sha "$RELEASE_SHA" \
+            --expected-run-id "$RUN_ID"
       - name: Resolve repository release transition
         id: release
         shell: bash
