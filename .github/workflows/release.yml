@@ -9,6 +9,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: release-${{ github.event.workflow_run.head_sha }}
@@ -45,6 +46,25 @@ jobs:
           [[ "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]]
           test "$(git rev-parse HEAD)" = "$RELEASE_SHA"
           git merge-base --is-ancestor "$RELEASE_SHA" origin/main
+      - name: Verify the mandatory integration audit executed on this revision
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          RELEASE_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          # A concluded CI run is not proof that the mandatory exact-head audit
+          # executed: a skipped, neutral, failed, or absent job also lets the
+          # run conclude. Read the provider's own record of the triggering run
+          # and demand positive evidence for exactly this revision.
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID" > admission-run.json
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/jobs?per_page=100" --paginate > admission-jobs.json
+          python scripts/verify_release_admission.py \
+            --run-json admission-run.json \
+            --jobs-json admission-jobs.json \
+            --expected-sha "$RELEASE_SHA"
       - name: Resolve repository release transition
         id: release
         shell: bash

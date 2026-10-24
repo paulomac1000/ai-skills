@@ -1,6 +1,7 @@
 bandit==1.9.4
 build==1.6.1
 certifi==2026.10.19
+filelock==4.2.1
 httpx2==2.13.1
 jsonschema==4.26.0
 mcp==2.3.0
@@ -12,7 +13,7 @@ pytest==9.1.1
 pytest-cov==7.1.0
 PyYAML==6.0.3
 ruff==0.16.10
-setuptools==84.0.0
+setuptools==84.1.0
 types-jsonschema==4.26.0.20260518
 types-PyYAML==6.0.12.20260906
 urllib3==2.8.0

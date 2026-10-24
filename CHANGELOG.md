@@ -1,5 +1,16 @@
 # Changelog
 
+## 3.30.2 - 2026-10-24
+
+### Fixed
+
+- The commit-authorship audit and the complete local gate now execute on the publication path. The `exact-head` job ran only for `pull_request` events, so a push to `main` concluded CI with the audit skipped, and the automatic release accepted that concluded run as a successful validation of a revision whose commit identities were never checked. The job now runs for both events: a pull request is audited against its recorded base, and a push is audited against the branch state the provider recorded before the push. A base that is missing, malformed, or the zero SHA of a branch creation fails closed instead of silently auditing nothing, and a merge commit in a pushed range fails closed because the integration policy is squash-only linear history. The audited base is still fetched from the provider, so a base the provider cannot serve cannot be audited.
+- Release admission now proves the mandatory audit executed. The release workflow accepted `workflow_run.conclusion == 'success'`, which a skipped audit job also produces, so a revision whose integration audit never ran could be published. The release prepare job now reads the provider's own record of the triggering run and requires that the run is the `CI` workflow, is a push, carries exactly the published revision, and that the `exact-head` job concluded `success`. A skipped or neutral audit blocks publication instead of being promoted to an executed check.
+
+### Changed
+
+- `check_commit_authorship.py` gained `--forbid-merge-commits` for the push path, where the audited range is the integration branch's own history. The pull-request path keeps excluding merge commits from the identity listing, because a squash merge never carries the pull request's internal topology onto the integration branch; commits hidden behind a merge remain audited on both paths.
+
 ## 3.30.1 - 2026-10-22
 
 ### Fixed
