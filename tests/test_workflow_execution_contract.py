@@ -248,7 +248,7 @@ def _run_workflow_step(step: dict[str, object], env: dict[str, str], cwd: Path) 
 
 def _venv_env(extra: dict[str, str]) -> dict[str, str]:
     env = dict(os.environ)
-    env["PATH"] = f"{ROOT / '.venv' / 'bin'}:{env.get('PATH', '')}"
+    env["PATH"] = f"{ROOT / '.venv' / 'bin'}{os.pathsep}{env.get('PATH', '')}"
     env.update(extra)
     return env
 
@@ -375,7 +375,7 @@ def test_the_embedded_admission_step_blocks_publication_without_a_real_audit(tmp
         )
         env = _venv_env(
             {
-                "PATH": f"{shim_dir}:{ROOT / '.venv' / 'bin'}:{os.environ.get('PATH', '')}",
+                "PATH": os.pathsep.join((str(shim_dir), str(ROOT / ".venv" / "bin"), os.environ.get("PATH", ""))),
                 "GITHUB_REPOSITORY": "paulomac1000/ai-skills",
                 "RUN_ID": "1234",
                 "RELEASE_SHA": release_sha,
@@ -416,7 +416,7 @@ def test_the_embedded_admission_step_rejects_an_absent_audit(tmp_path: Path) -> 
     _gh_shim(shim_dir, {"/actions/runs/1234/jobs": jobs_file, "/actions/runs/1234": run_file})
     env = _venv_env(
         {
-            "PATH": f"{shim_dir}:{ROOT / '.venv' / 'bin'}:{os.environ.get('PATH', '')}",
+            "PATH": os.pathsep.join((str(shim_dir), str(ROOT / ".venv" / "bin"), os.environ.get("PATH", ""))),
             "GITHUB_REPOSITORY": "paulomac1000/ai-skills",
             "RUN_ID": "1234",
             "RELEASE_SHA": release_sha,
