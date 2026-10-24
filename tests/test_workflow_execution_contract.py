@@ -299,7 +299,6 @@ def _gh_shim(directory: Path, fixtures: dict[str, Path]) -> Path:
     return directory
 
 
-@pytest.mark.skipif(sys.platform == "win32" or not BASH_AVAILABLE, reason="workflow steps execute through a POSIX bash")
 def _isolated_step_workspace(tmp_path: Path) -> Path:
     """A workspace where the step's relative script path resolves but its
     redirects stay out of the repository checkout."""
@@ -311,6 +310,7 @@ def _isolated_step_workspace(tmp_path: Path) -> Path:
     return workspace
 
 
+@pytest.mark.skipif(sys.platform == "win32" or not BASH_AVAILABLE, reason="workflow steps execute through a POSIX bash")
 def test_the_embedded_admission_step_blocks_publication_without_a_real_audit(tmp_path: Path) -> None:
     """F2 behavioral: the workflow's own admission step, executed against
     synthetic provider records, refuses skipped, failed, absent, and
