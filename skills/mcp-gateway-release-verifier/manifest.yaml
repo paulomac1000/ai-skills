@@ -1,6 +1,6 @@
 schema_version: 1
 name: mcp-gateway-release-verifier
-version: 3.30.2
+version: 3.31.0
 maturity: stable
 skill_format: ai-skills/v1
 normative_entrypoint: STANDARD.md
@@ -55,6 +55,53 @@ required:
 - STANDARD.md
 - tools/compose_release_verdict.py
 - tools/local_candidate_lane.py
+executable_resources:
+- id: compose-release-verdict
+  resource: tools/compose_release_verdict.py
+  kind: library_helper
+  canonical_invocation:
+    mode: library_api
+    entrypoint: compose_release_verdict (compose_release_receipt, compose_release_acceptance)
+  input_contract_ref: null
+  outcome_contract:
+    mode: structured
+    schema_ref: null
+  process_semantics:
+    exit_code_mapping: null
+    timeout: policy
+    cancellation: not_applicable
+    safe_stop: unsupported
+  effects:
+    class: read_only
+    replay_safety: idempotent
+    network: none
+    credential_class: none
+  diagnostics:
+    bounded: true
+    safe_egress_profile_ref: null
+- id: local-candidate-lane
+  resource: tools/local_candidate_lane.py
+  kind: library_helper
+  canonical_invocation:
+    mode: library_api
+    entrypoint: local_candidate_lane.compose_local_lane_receipt
+  input_contract_ref: null
+  outcome_contract:
+    mode: structured
+    schema_ref: null
+  process_semantics:
+    exit_code_mapping: null
+    timeout: policy
+    cancellation: not_applicable
+    safe_stop: unsupported
+  effects:
+    class: read_only
+    replay_safety: idempotent
+    network: none
+    credential_class: none
+  diagnostics:
+    bounded: true
+    safe_egress_profile_ref: null
 categories:
 - core
 - tools

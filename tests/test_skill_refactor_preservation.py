@@ -219,7 +219,7 @@ def test_real_pilot_tracks_live_normative_sources():
     assert result["behavior"] == "BEHAVIOR_NOT_VERIFIED"
     assert result["baseline_revision"] == "5c656ac0602e35f51cb0ba9b576f8e5af10a54ba"
     assert result["candidate_revision"] == "NOT_VERIFIED"
-    assert result["declared_candidate_version"] == "3.30.2"
+    assert result["declared_candidate_version"] == "3.31.0"
 
 
 def test_content_drift_cannot_pass_a_pinned_pilot(tmp_path):
