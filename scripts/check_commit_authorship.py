@@ -9,8 +9,9 @@ candidate. The authoritative attribution is the provider's own record of the
 commit, and the repository's protection rules and required reviews remain the
 authorization boundary.
 
-Only identities the repository trusts may appear in the commits a pull request
-proposes for integration. The owner is identified by the verified address
+Only identities the repository trusts may appear in the commits a candidate
+proposes for integration, whether that candidate is a pull request or a push
+to the integration branch. The owner is identified by the verified address
 published on the GitHub account, not by a display name, because a name can be
 chosen by anyone.
 
@@ -25,7 +26,6 @@ from __future__ import annotations
 
 import argparse
 import subprocess
-import sys
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -112,6 +112,32 @@ def _commits(base: str, head: str, root: Path = ROOT) -> list[tuple[str, str, st
     return _parse_commits(output, base, head)
 
 
+def _merge_commits(base: str, head: str, root: Path = ROOT) -> list[tuple[str, str]]:
+    """Return (sha, subject) for every merge commit in the range.
+
+    The integration policy is squash-only linear history, so a merge commit in
+    a pushed main range is a policy violation rather than an auditable skip:
+    the identity listing excludes merge commits, which would otherwise let a
+    merge topology carry an unaudited identity onto the integration branch.
+    """
+    output = _git(
+        "log",
+        "--merges",
+        f"--format=%H{SEPARATOR}%s",
+        f"{base}..{head}",
+        root=root,
+    )
+    records: list[tuple[str, str]] = []
+    for line in output.splitlines():
+        if not line.strip():
+            continue
+        sha, separator, subject = line.partition(SEPARATOR)
+        if not separator:
+            raise AuditError(f"merge commit record in {base}..{head} cannot be parsed")
+        records.append((sha, subject))
+    return records
+
+
 def _parse_commits(output: str, base: str = "", head: str = "") -> list[tuple[str, str, str, str]]:
     """Parse the commit records, refusing a record that cannot be read.
 
@@ -158,10 +184,25 @@ def main(argv: Sequence[str] | None = None, root: Path = ROOT) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--base", required=True, help="The base ref the candidate is compared against.")
     parser.add_argument("--head", default="HEAD", help="The candidate ref to check.")
+    parser.add_argument(
+        "--forbid-merge-commits",
+        action="store_true",
+        help=(
+            "Fail when the range contains merge commits. Use this on the push path, "
+            "where the audited range is the integration branch's own history and the "
+            "policy is squash-only linear history."
+        ),
+    )
     args = parser.parse_args(argv)
 
     try:
         _require_ancestor(args.base, args.head, root)
+        if args.forbid_merge_commits:
+            merges = _merge_commits(args.base, args.head, root)
+            if merges:
+                for sha, subject in merges:
+                    print(f"ERROR: MERGE_COMMIT_IN_RANGE: {sha} {subject}")
+                return 1
         commits = _commits(args.base, args.head, root)
     except (AuditError, OSError, subprocess.SubprocessError) as error:
         print(f"ERROR: AUTHORSHIP_AUDIT_INCOMPLETE: {error}")

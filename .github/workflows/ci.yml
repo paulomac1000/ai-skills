@@ -214,13 +214,12 @@ jobs:
           retention-days: 90
 
   exact-head:
-    if: github.event_name == 'pull_request'
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
@@ -232,25 +231,45 @@ jobs:
         with:
           dotnet-version: "10.0.302"
       - run: python scripts/install_locked.py
+      - name: Resolve the integration base for the event
+        shell: bash
+        env:
+          EVENT_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          set -euo pipefail
+          # A pull request proposes the range against its recorded base; a push
+          # proposes the range against the branch state the provider recorded
+          # before the push. A base that cannot be audited fails closed.
+          BASE_SHA="$(python scripts/resolve_integration_base.py --base "$EVENT_BASE")"
+          echo "BASE_SHA=$BASE_SHA" >> "$GITHUB_ENV"
+      - name: Fetch the integration base from the provider
+        shell: bash
+        env:
+          BASE_SHA: ${{ env.BASE_SHA }}
+        run: |
+          set -euo pipefail
+          # Trust-boundary: the audited base must come from the provider, not
+          # from local state; a base the provider cannot serve cannot be audited.
+          git fetch --no-tags --depth=1 origin "$BASE_SHA"
+          # Full history is needed for ancestry of older refactor baselines.
+          git fetch --no-tags --unshallow origin +refs/heads/main:refs/remotes/origin/main
       - name: Verify exact branch head
         shell: bash
         env:
-          EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
       - name: Verify stable release versions changed with shipped contracts
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-        run: |
-          git fetch --no-tags --depth=1 origin "$BASE_SHA"
-          # Trust-boundary: fetch the base branch from the provider, not the PR.
-          # Full history is needed for ancestry of older refactor baselines.
-          git fetch --no-tags --unshallow origin +refs/heads/main:refs/remotes/origin/main
-          python scripts/check_release_version.py --base "$BASE_SHA"
+          BASE_SHA: ${{ env.BASE_SHA }}
+        run: python scripts/check_release_version.py --base "$BASE_SHA"
       - name: Verify commit authorship of the integration range
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: python scripts/check_commit_authorship.py --base "$BASE_SHA" --head "$HEAD_SHA"
+          BASE_SHA: ${{ env.BASE_SHA }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: >-
+          python scripts/check_commit_authorship.py
+          --base "$BASE_SHA" --head "$HEAD_SHA"
+          ${{ github.event_name == 'push' && '--forbid-merge-commits' || '' }}
       - name: Execute complete local gate on exact head
         run: python scripts/ci.py
 

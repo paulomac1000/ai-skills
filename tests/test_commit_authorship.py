@@ -185,3 +185,72 @@ def test_the_audited_head_is_taken_from_the_invocation(tmp_path: Path) -> None:
     other = _commit(root, "third", email="sisyphus-lab@example.invalid")
     exit_code = module.main(["--base", base, "--head", other], root=root)
     assert exit_code == 1
+
+
+def _merge_branch(root: Path, message: str, *, email: str) -> str:
+    """Create a real merge commit so topology behavior is exercised, not faked."""
+    subprocess.run(["git", "checkout", "--quiet", "-b", "side"], cwd=root, check=True)
+    _commit(root, "side", email=email)
+    subprocess.run(["git", "checkout", "--quiet", "-"], cwd=root, check=True)
+    environment = {
+        "GIT_AUTHOR_NAME": "Pawel",
+        "GIT_AUTHOR_EMAIL": email,
+        "GIT_COMMITTER_NAME": "Pawel",
+        "GIT_COMMITTER_EMAIL": email,
+        "PATH": "/usr/bin:/bin:/usr/local/bin",
+        "HOME": str(root),
+    }
+    subprocess.run(
+        ["git", "merge", "--quiet", "--no-ff", "--no-edit", "-m", message, "side"],
+        cwd=root,
+        check=True,
+        capture_output=True,
+        env=environment,
+    )
+    return subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=root, check=True, capture_output=True, text=True
+    ).stdout.strip()
+
+
+def test_a_foreign_commit_hidden_behind_a_merge_is_still_audited(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    """Excluding merge commits from the identity listing must not hide identities."""
+    module = _load_script()
+    root = _repository(tmp_path)
+    base = _commit(root, "base", email="pawel.maciejewski95@gmail.com")
+    _merge_branch(root, "merge", email="sisyphus-lab@example.invalid")
+    exit_code = module.main(["--base", base, "--head", "HEAD"], root=root)
+    assert exit_code == 1
+    output = capsys.readouterr().out
+    assert "UNAUTHORIZED_AUTHOR_IDENTITY" in output
+    assert "sisyphus-lab" in output
+
+
+def test_a_push_range_with_a_merge_commit_fails_closed(tmp_path: Path, capsys) -> None:
+    """T11: the integration policy is squash-only linear history, so a merge
+    commit in a pushed main range is a policy violation, not an audited skip."""
+    module = _load_script()
+    root = _repository(tmp_path)
+    base = _commit(root, "base", email="pawel.maciejewski95@gmail.com")
+    _merge_branch(root, "merge", email="pawel.maciejewski95@gmail.com")
+    exit_code = module.main(
+        ["--base", base, "--head", "HEAD", "--forbid-merge-commits"],
+        root=root,
+    )
+    assert exit_code == 1
+    output = capsys.readouterr().out
+    assert "MERGE_COMMIT_IN_RANGE" in output
+
+
+def test_a_squash_shaped_push_range_passes_the_merge_topology_check(tmp_path: Path) -> None:
+    module = _load_script()
+    root = _repository(tmp_path)
+    base = _commit(root, "base", email="pawel.maciejewski95@gmail.com")
+    _commit(root, "integrated", email="pawel.maciejewski95@gmail.com")
+    exit_code = module.main(
+        ["--base", base, "--head", "HEAD", "--forbid-merge-commits"],
+        root=root,
+    )
+    assert exit_code == 0

@@ -95,3 +95,41 @@ def test_release_retry_fails_closed_on_existing_asset_digest_conflict() -> None:
     assert 'if [[ "$archive_count" == "0" ]]' in text
     assert 'if [[ "$checksum_count" == "0" ]]' in text
     assert "--clobber" not in text
+
+
+def test_exact_head_audit_executes_on_every_ci_event() -> None:
+    """The authorship audit must run on the publication path, not only on PRs."""
+    workflow = _load(CI)
+    jobs = workflow["jobs"]
+    assert isinstance(jobs, dict)
+    exact_head = jobs["exact-head"]
+    assert isinstance(exact_head, dict)
+    assert exact_head.get("if") is None, "exact-head must not be skipped for any CI event"
+    steps = exact_head["steps"]
+    rendered = "\n".join(str(step) for step in steps)
+    # The integration base must come from the event for both the PR and push paths.
+    assert "github.event.pull_request.base.sha" in rendered
+    assert "github.event.before" in rendered
+    # A base the gate cannot audit must fail closed, not silently audit nothing.
+    assert "resolve_integration_base.py" in rendered
+    # A pushed main range must obey the squash-only linear-history policy.
+    assert "--forbid-merge-commits" in rendered
+    assert "check_commit_authorship.py" in rendered
+    assert "scripts/ci.py" in rendered
+
+
+def test_release_admission_proves_the_mandatory_audit_executed() -> None:
+    """A concluded CI run is not proof the audit ran; admission must verify it."""
+    workflow = _load(RELEASE)
+    permissions = workflow["permissions"]
+    assert isinstance(permissions, dict)
+    assert permissions.get("actions") == "read"
+    jobs = workflow["jobs"]
+    assert isinstance(jobs, dict)
+    prepare = jobs["prepare"]
+    assert isinstance(prepare, dict)
+    steps = prepare["steps"]
+    rendered = "\n".join(str(step) for step in steps)
+    assert "verify_release_admission.py" in rendered
+    assert "github.event.workflow_run.id" in rendered
+    assert "github.event.workflow_run.head_sha" in rendered
