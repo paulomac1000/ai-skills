@@ -18,6 +18,7 @@ import json
 import os
 import stat
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -253,7 +254,7 @@ def _venv_env(extra: dict[str, str]) -> dict[str, str]:
     return env
 
 
-@pytest.mark.skipif(not BASH_AVAILABLE, reason="workflow steps execute through bash")
+@pytest.mark.skipif(sys.platform == "win32" or not BASH_AVAILABLE, reason="workflow steps execute through a POSIX bash")
 def test_the_embedded_base_resolution_step_selects_each_event_base(tmp_path: Path) -> None:
     """The step script embedded in the real workflow resolves both event shapes."""
     workflow = _load(CI)
@@ -298,7 +299,7 @@ def _gh_shim(directory: Path, fixtures: dict[str, Path]) -> Path:
     return directory
 
 
-@pytest.mark.skipif(not BASH_AVAILABLE, reason="workflow steps execute through bash")
+@pytest.mark.skipif(sys.platform == "win32" or not BASH_AVAILABLE, reason="workflow steps execute through a POSIX bash")
 def _isolated_step_workspace(tmp_path: Path) -> Path:
     """A workspace where the step's relative script path resolves but its
     redirects stay out of the repository checkout."""
@@ -391,7 +392,7 @@ def test_the_embedded_admission_step_blocks_publication_without_a_real_audit(tmp
             assert "ERROR: RELEASE_ADMISSION" in result.stdout
 
 
-@pytest.mark.skipif(not BASH_AVAILABLE, reason="workflow steps execute through bash")
+@pytest.mark.skipif(sys.platform == "win32" or not BASH_AVAILABLE, reason="workflow steps execute through a POSIX bash")
 def test_the_embedded_admission_step_rejects_an_absent_audit(tmp_path: Path) -> None:
     workflow = _load(RELEASE)
     step = _step(_steps(workflow, "prepare"), ADMISSION_STEP)
