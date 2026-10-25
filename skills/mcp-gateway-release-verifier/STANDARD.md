@@ -26,6 +26,8 @@ The composer produces two distinct outcomes that consumers must never confuse:
 
 The trust root is independent of the candidate and its author: provider-backed execution records (for example GitHub Actions run/job records) resolved through the provider's own API by an authority outside candidate control. Caller-supplied status strings, recomputed checksums of caller-controlled fields, wrapper type names, `trusted=True` flags, and textual assurances never mint authority. The canonical production implementation is the provider-backed verifier family in the repository `contracts/evidence.py`; unit tests may use an explicitly isolated test trust root.
 
+The composer derives the expected evidence claim for every accepted phase from the binding itself — phase, owning contract, exact artifact digest, evidence digest, policy revision, and producer — and passes it to the authority separately from the caller-supplied execution reference. A caller-supplied expected claim is rejected. The authority must verify that the provider-resolved evidence contains exactly that composer-derived claim, bound to verified executions, so one genuinely verified execution cannot authorize a phase whose claim it does not carry, and one execution reference cannot be replayed across phases whose claims it does not contain.
+
 Required invariants:
 
 - Syntactically valid evidence suffices for diagnostics, never for authoritative acceptance.

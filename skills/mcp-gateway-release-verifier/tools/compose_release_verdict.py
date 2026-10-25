@@ -76,8 +76,13 @@ class ReleaseEvidenceAuthority(Protocol):
     Implementations must resolve the referenced execution record from the
     provider's own API — never from caller-supplied status strings — and
     return violations when the record does not bind the expected revision.
-    The canonical production implementation is the provider-backed GitHub
-    Actions verifier family in the repository ``contracts/evidence.py``.
+    The composer derives ``reference["_expected_claim"]`` from the phase
+    binding itself (phase, contract, artifact digest, evidence digest,
+    policy revision, producer); implementations must verify that the
+    provider-resolved evidence contains exactly that claim, bound to
+    verified executions, before accepting the phase. The canonical
+    production implementation is the provider-backed GitHub Actions
+    verifier family in the repository ``contracts/evidence.py``.
     """
 
     def verify_action(self, reference: Mapping[str, Any], expected_revision: str) -> Sequence[str]:
@@ -144,16 +149,38 @@ def _validate_binding_identity(binding: PhaseEvidenceBinding, phase: PhaseResult
     if binding.phase != phase.name:
         failures.append(f"evidence_binding_phase_mismatch:{phase.name}")
     if binding.receipt_kind not in _SUPPORTED_RECEIPT_KINDS:
-        failures.append(f"evidence_binding_unsupported_receipt_kind:{phase.name}:{binding.receipt_kind}")
+        failures.append(
+            f"evidence_binding_unsupported_receipt_kind:{phase.name}:{str(binding.receipt_kind)[:MAX_SUMMARY_CHARS]}"
+        )
     if binding.authority_class not in _SUPPORTED_AUTHORITY_CLASSES:
-        failures.append(f"evidence_binding_unsupported_authority_class:{phase.name}:{binding.authority_class}")
+        failures.append(
+            f"evidence_binding_unsupported_authority_class:{phase.name}:"
+            f"{str(binding.authority_class)[:MAX_SUMMARY_CHARS]}"
+        )
     if not binding.producer or len(binding.producer) > MAX_IDENTITY_CHARS:
         failures.append(f"evidence_binding_producer_missing_or_unbounded:{phase.name}")
     if not binding.execution_reference:
         failures.append(f"evidence_binding_execution_reference_missing:{phase.name}")
+    elif "_expected_claim" in binding.execution_reference:
+        failures.append(f"evidence_binding_caller_claim_rejected:{phase.name}")
     if binding.evidence_ref != phase.evidence_ref:
         failures.append(f"evidence_binding_ref_mismatch:{phase.name}")
     return failures
+
+
+def _expected_phase_claim(
+    binding: PhaseEvidenceBinding, phase: PhaseResult, *, artifact_digest: str, policy_revision: str
+) -> dict[str, str]:
+    """Derive the composer-owned claim the provider evidence must contain."""
+    return {
+        "kind": "release-phase",
+        "phase": phase.name,
+        "contract_ref": phase.contract_ref,
+        "artifact_digest": artifact_digest,
+        "evidence_digest": binding.evidence_digest,
+        "policy_revision": policy_revision,
+        "producer": binding.producer,
+    }
 
 
 def _validate_phase(phase: PhaseResult) -> None:
@@ -304,10 +331,22 @@ def compose_release_acceptance(
             failures.append(f"evidence_binding_artifact_digest_mismatch:{phase.name}")
         if binding.policy_revision != policy_revision:
             failures.append(f"evidence_binding_policy_revision_mismatch:{phase.name}")
-        _validate_digest_field(binding.evidence_digest, "evidence_digest")
+        try:
+            _validate_digest_field(binding.evidence_digest, "evidence_digest")
+        except ReleaseCompositionError:
+            failures.append(f"evidence_binding_evidence_digest_invalid:{phase.name}")
         if not failures:
-            violations = list(evidence_authority.verify_action(binding.execution_reference, source_revision))
-            failures.extend(f"evidence_authority_rejected:{phase.name}:{item}" for item in violations)
+            reference = dict(binding.execution_reference)
+            reference["_expected_claim"] = _expected_phase_claim(
+                binding, phase, artifact_digest=artifact_digest, policy_revision=policy_revision
+            )
+            try:
+                violations = list(evidence_authority.verify_action(reference, source_revision))
+            except Exception:  # noqa: BLE001 - trust failures are decisions, not crashes
+                violations = ["authority could not resolve the referenced provider record"]
+            failures.extend(
+                f"evidence_authority_rejected:{phase.name}:{str(item)[:MAX_SUMMARY_CHARS]}" for item in violations
+            )
         if failures:
             authority_failures.extend(failures)
         else:
@@ -332,6 +371,12 @@ def compose_release_acceptance(
         "authority_failures": authority_failures,
         "verdict": verdict,
     }
-    if len(json.dumps(receipt, sort_keys=True).encode("utf-8")) > MAX_RECEIPT_BYTES:
-        raise ReleaseCompositionError("release receipt exceeds byte bound")
+    encoded = json.dumps(receipt, sort_keys=True).encode("utf-8")
+    if len(encoded) > MAX_RECEIPT_BYTES:
+        capped = dict(receipt)
+        capped["authority_failures"] = [failure[:MAX_SUMMARY_CHARS] for failure in authority_failures[:MAX_PHASES]]
+        capped["authority_failures_truncated"] = True
+        if len(json.dumps(capped, sort_keys=True).encode("utf-8")) > MAX_RECEIPT_BYTES:
+            raise ReleaseCompositionError("release receipt exceeds byte bound")
+        return capped
     return receipt

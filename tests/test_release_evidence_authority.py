@@ -216,6 +216,181 @@ def test_authoritative_pass_requires_verified_bindings_for_every_accepted_phase(
         assert expected_revision == "a" * 40
 
 
+def test_authority_receives_composer_derived_phase_claim() -> None:
+    module = _load("evidence_authority_claim_derivation", VERIFIER)
+    digest = "sha256:" + "b" * 64
+    phases = _phases(module)
+    authority = _RecordingAuthority()
+    module.compose_release_acceptance(
+        source_revision="a" * 40,
+        artifact_digest=digest,
+        phases=phases,
+        probe_client_receipt=_probe_receipt(digest),
+        evidence_bindings=_bindings(module, phases),
+        evidence_authority=authority,
+        policy_revision="release-profile-v1",
+    )
+    claims = {reference["_expected_claim"]["phase"]: reference["_expected_claim"] for reference, _ in authority.calls}
+    assert set(claims) == set(module.REQUIRED_PHASES)
+    schema_claim = claims["schema"]
+    assert schema_claim["kind"] == "release-phase"
+    assert schema_claim["contract_ref"] == module.COMPOSED_CONTRACTS["schema"]
+    assert schema_claim["artifact_digest"] == digest
+    assert schema_claim["policy_revision"] == "release-profile-v1"
+    assert schema_claim["producer"] == "github-actions"
+    assert schema_claim["evidence_digest"].startswith("sha256:")
+
+
+def test_caller_supplied_expected_claim_is_rejected() -> None:
+    module = _load("evidence_authority_caller_claim", VERIFIER)
+    digest = "sha256:" + "b" * 64
+    phases = _phases(module)
+    authority = _RecordingAuthority()
+    bindings = _bindings(module, phases)
+    forged = dict(bindings["schema"].execution_reference)  # type: ignore[attr-defined]
+    forged["_expected_claim"] = {"kind": "release-phase", "phase": "schema"}
+    bindings["schema"] = module.PhaseEvidenceBinding(
+        phase="schema",
+        receipt_kind="github-actions-run",
+        producer="github-actions",
+        authority_class="provider-backed",
+        source_sha="a" * 40,
+        artifact_digest=digest,
+        policy_revision="release-profile-v1",
+        evidence_ref="evidence://schema",
+        evidence_digest="sha256:" + hashlib.sha256(b"evidence-schema").hexdigest(),
+        execution_reference=forged,
+    )
+    receipt = module.compose_release_acceptance(
+        source_revision="a" * 40,
+        artifact_digest=digest,
+        phases=phases,
+        probe_client_receipt=_probe_receipt(digest),
+        evidence_bindings=bindings,
+        evidence_authority=authority,
+        policy_revision="release-profile-v1",
+    )
+    assert receipt["verdict"] == "fail"
+    assert any("caller_claim_rejected" in failure for failure in receipt["authority_failures"])
+    assert len(authority.calls) == len(module.REQUIRED_PHASES) - 1
+    assert all(reference["_expected_claim"]["phase"] != "schema" for reference, _ in authority.calls)
+
+
+def test_reused_execution_reference_cannot_authorize_other_phases() -> None:
+    module = _load("evidence_authority_claim_binding", VERIFIER)
+    digest = "sha256:" + "b" * 64
+    phases = _phases(module)
+
+    class _ClaimCheckingAuthority:
+        """Simulates a provider-backed authority that resolves one real report."""
+
+        def __init__(self, recorded_claims: set[str]) -> None:
+            self.recorded_claims = recorded_claims
+            self.calls = 0
+
+        def verify_action(self, reference: object, expected_revision: str) -> list[str]:
+            self.calls += 1
+            claim = reference["_expected_claim"]  # type: ignore[index]
+            if claim["phase"] in self.recorded_claims:
+                return []
+            return ["evidence report does not contain the exact assessed claim"]
+
+    # One genuinely verified job whose report only carries the preflight claim.
+    authority = _ClaimCheckingAuthority(recorded_claims={"preflight"})
+    receipt = module.compose_release_acceptance(
+        source_revision="a" * 40,
+        artifact_digest=digest,
+        phases=phases,
+        probe_client_receipt=_probe_receipt(digest),
+        evidence_bindings=_bindings(module, phases),
+        evidence_authority=authority,
+        policy_revision="release-profile-v1",
+    )
+    assert receipt["verdict"] == "fail"
+    rejected = [failure for failure in receipt["authority_failures"] if "does not contain the exact assessed claim" in failure]
+    assert len(rejected) == len(module.REQUIRED_PHASES) - 1
+    assert all("schema" in failure or "preflight" not in failure for failure in rejected)
+
+
+def test_malformed_evidence_digest_is_typed_failure_not_raise() -> None:
+    module = _load("evidence_authority_digest_typed", VERIFIER)
+    digest = "sha256:" + "b" * 64
+    phases = _phases(module)
+    authority = _RecordingAuthority()
+    bindings = _bindings(module, phases)
+    broken = module.PhaseEvidenceBinding(
+        phase="preflight",
+        receipt_kind="github-actions-run",
+        producer="github-actions",
+        authority_class="provider-backed",
+        source_sha="a" * 40,
+        artifact_digest=digest,
+        policy_revision="release-profile-v1",
+        evidence_ref="evidence://preflight",
+        evidence_digest="not-a-digest",
+        execution_reference=_execution_reference(),
+    )
+    bindings["preflight"] = broken
+    receipt = module.compose_release_acceptance(
+        source_revision="a" * 40,
+        artifact_digest=digest,
+        phases=phases,
+        probe_client_receipt=_probe_receipt(digest),
+        evidence_bindings=bindings,
+        evidence_authority=authority,
+        policy_revision="release-profile-v1",
+    )
+    assert receipt["verdict"] == "fail"
+    assert any("evidence_digest_invalid" in failure for failure in receipt["authority_failures"])
+    assert len(authority.calls) == len(module.REQUIRED_PHASES) - 1
+    assert all(reference["_expected_claim"]["phase"] != "preflight" for reference, _ in authority.calls)
+
+
+def test_authority_exception_is_typed_failure_not_raise() -> None:
+    module = _load("evidence_authority_exception_typed", VERIFIER)
+    digest = "sha256:" + "b" * 64
+    phases = _phases(module)
+
+    class _ExplodingAuthority:
+        def verify_action(self, reference: object, expected_revision: str) -> list[str]:
+            raise RuntimeError("provider API unreachable")
+
+    receipt = module.compose_release_acceptance(
+        source_revision="a" * 40,
+        artifact_digest=digest,
+        phases=phases,
+        probe_client_receipt=_probe_receipt(digest),
+        evidence_bindings=_bindings(module, phases),
+        evidence_authority=_ExplodingAuthority(),
+        policy_revision="release-profile-v1",
+    )
+    assert receipt["verdict"] == "fail"
+    assert len(receipt["authority_failures"]) == len(module.REQUIRED_PHASES)
+    assert all("could not resolve" in failure for failure in receipt["authority_failures"])
+
+
+def test_unbounded_violation_text_is_bounded_in_receipt() -> None:
+    module = _load("evidence_authority_bounded_text", VERIFIER)
+    digest = "sha256:" + "b" * 64
+    phases = _phases(module)
+
+    class _VerboseAuthority:
+        def verify_action(self, reference: object, expected_revision: str) -> list[str]:
+            return ["x" * 10000]
+
+    receipt = module.compose_release_acceptance(
+        source_revision="a" * 40,
+        artifact_digest=digest,
+        phases=phases,
+        probe_client_receipt=_probe_receipt(digest),
+        evidence_bindings=_bindings(module, phases),
+        evidence_authority=_VerboseAuthority(),
+        policy_revision="release-profile-v1",
+    )
+    assert receipt["verdict"] == "fail"
+    assert len(json.dumps(receipt, sort_keys=True)) < module.MAX_RECEIPT_BYTES
+
+
 # ---------------------------------------------------------------------------
 # RED-02: synthetic official-client provenance without trusted execution
 # ---------------------------------------------------------------------------
