@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import re
 import shutil
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Protocol
 
 OWNER_MARKER = ".mcp-acceptance-owner"
 _DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
@@ -20,6 +22,28 @@ _REQUIRED_PASS_FIELDS = (
     "durable_polling_verdict",
     "migration_invariants_verdict",
 )
+
+
+class AdmissionScopeAuthority(Protocol):
+    """Structural protocol for independently verifying admission records.
+
+    Implementations must resolve the admission record identified by
+    ``source`` from an authority outside the candidate's control — never
+    from caller-supplied status strings — and return violations unless the
+    record binds exactly the declared candidate revision, acceptance
+    contract digest, and policy revision.
+    """
+
+    def resolve_admission(
+        self,
+        source: str,
+        *,
+        candidate_revision: str,
+        acceptance_contract_digest: str,
+        policy_revision: str,
+    ) -> Sequence[str]:
+        """Return violations; an empty sequence proves the admission."""
+        ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -38,16 +62,25 @@ class CandidateScopeIdentity:
 
 @dataclass(frozen=True, slots=True)
 class TrustedCandidateScopeBinding:
-    """Policy/admission-owned provenance reviewed against one exact candidate scope."""
+    """Policy/admission-owned provenance reviewed against one exact candidate scope.
+
+    The binding is a *claim* about admission provenance. It becomes trusted
+    only when an :class:`AdmissionScopeAuthority` independently resolves the
+    admission record identified by ``source`` and confirms the exact
+    candidate, contract, and policy bindings.
+    """
 
     identity: CandidateScopeIdentity
     source: str
+    policy_revision: str = ""
 
     def __post_init__(self) -> None:
         if not isinstance(self.identity, CandidateScopeIdentity):
             raise TypeError("identity must be CandidateScopeIdentity")
         if not _TRUST_SOURCE.fullmatch(self.source):
             raise ValueError("source must be an immutable '<kind>:sha256:<64 lowercase hex>' identity")
+        if not isinstance(self.policy_revision, str):
+            raise TypeError("policy_revision must be a string")
 
 
 @dataclass(frozen=True, slots=True)
@@ -90,12 +123,21 @@ def compose_local_lane_receipt(
     evidence: LocalCandidateEvidence,
     *,
     trusted_candidate_scope: TrustedCandidateScopeEvidence | None = None,
+    admission_authority: AdmissionScopeAuthority | None = None,
+    policy_revision: str = "",
 ) -> dict[str, object]:
     """Return a deterministic fail-closed local candidate lane receipt.
 
     A passing lane requires a canonical probe client receipt: the candidate
     must have been launched through the pinned official MCP client, not
     evaluated from caller-asserted phase verdicts alone.
+
+    Migration scope is derived from a *verified* admission authority: a
+    caller-constructed :class:`TrustedCandidateScopeEvidence` is only a
+    claim. When ``admission_authority`` is absent, cannot resolve the
+    admission record, or the binding's policy revision does not match the
+    lane's declared ``policy_revision``, the scope is unresolved and the
+    lane is non-green.
     """
     failures: list[str] = []
     if not evidence.clean_candidate:
@@ -167,6 +209,28 @@ def compose_local_lane_receipt(
             if identity.candidate_revision != evidence.candidate_revision:
                 failures.append("candidate_scope_candidate_mismatch")
 
+            if not policy_revision:
+                failures.append("candidate_scope_policy_revision_missing")
+            elif binding.policy_revision != policy_revision:
+                failures.append("candidate_scope_policy_revision_mismatch")
+
+            admission_verified = False
+            if admission_authority is None:
+                failures.append("candidate_scope_admission_unresolved")
+            else:
+                violations = list(
+                    admission_authority.resolve_admission(
+                        binding.source,
+                        candidate_revision=identity.candidate_revision,
+                        acceptance_contract_digest=identity.acceptance_contract_digest,
+                        policy_revision=binding.policy_revision,
+                    )
+                )
+                if violations:
+                    failures.extend(f"candidate_scope_admission_rejected:{item}" for item in violations)
+                else:
+                    admission_verified = True
+
             scope_path = Path(__file__).resolve().parents[2] / "qa-change-verifier" / "tools" / "plan_verification.py"
             scope_spec = importlib.util.spec_from_file_location("local_lane_candidate_scope", scope_path)
             assert scope_spec is not None and scope_spec.loader is not None
@@ -182,7 +246,7 @@ def compose_local_lane_receipt(
                     failures.extend(f"candidate_scope_contract_rejected:{item}" for item in contract_findings)
                 elif contract.get("digest") != identity.acceptance_contract_digest:
                     failures.append("candidate_scope_contract_digest_mismatch")
-                elif identity.candidate_revision == evidence.candidate_revision:
+                elif identity.candidate_revision == evidence.candidate_revision and admission_verified:
                     obligations = contract.get("obligations")
                     assert isinstance(obligations, list)
                     migration_required = any(
@@ -194,6 +258,8 @@ def compose_local_lane_receipt(
                         "source": binding.source,
                         "candidate_revision": identity.candidate_revision,
                         "acceptance_contract_digest": identity.acceptance_contract_digest,
+                        "policy_revision": binding.policy_revision,
+                        "admission_verified": admission_verified,
                         "migration_required": migration_required,
                         "require_current_rerun": scope.require_current_rerun,
                     }

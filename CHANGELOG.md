@@ -1,5 +1,18 @@
 # Changelog
 
+## 3.31.0 - 2026-10-24
+
+### Added
+
+- `mcp-gateway-release-verifier` now separates diagnostic composition from authoritative release acceptance. `compose_release_receipt` keeps composing caller-supplied phase results and marks its receipt `authority: "diagnostic"`: a `pass` verdict there means the aggregate is well formed and bounded, never that release authority was proven. The new `compose_release_acceptance` requires every phase accepted as `pass` — required and extension — to carry a typed `PhaseEvidenceBinding` whose provider-backed execution record an injected authority independently resolves against the exact candidate revision. Missing, unknown, unsupported, cross-candidate, stale, policy-mismatched, or unresolvable provenance yields a non-green receipt with typed failure reasons instead of a trusted PASS. The probe client receipt is now validated through the owning `mcp-server-architect` exact-candidate acceptance contract, removing the weaker second interpretation that accepted a checksum of caller-controlled fields as proof of a real client session.
+- The local candidate lane now derives migration scope from a verified admission authority. A caller-constructed `TrustedCandidateScopeBinding` is only a claim: the lane requires an injected admission authority to independently resolve the admission record identified by the binding source and confirm the exact candidate revision, acceptance-contract digest, and policy revision. An absent authority, an unresolvable record, or a policy-revision mismatch between the lane and the binding is non-green, so a syntactically valid `:sha256:...` source string can no longer waive migration or current-rerun obligations. The canonical `qa-change-verifier` migration evaluator and its in-process receipt issuance are unchanged.
+- `mcp-server-architect/SKILL.md` gained an explicit conditional handoff: release acceptance requested or required by policy loads `mcp-gateway-release-verifier` after the owning canonical probes run; routine implementation and exploratory inspection do not preload verifier references. The dependency direction stays acyclic — the verifier consumes architect outputs and never redefines them.
+- The release-verifier manifest now declares both tools as `library_helper` executable resources, matching the real execution surface: they are reached through the owning workflow, and no command-line entry point is advertised.
+
+### Changed
+
+- `mcp-gateway-release-verifier/STANDARD.md` states the trust-root invariants for release evidence: the trust root is independent of the candidate and its author, every accepted phase binds the same exact candidate and artifact identity, evidence carries typed producer/authority/execution/policy identity, missing or unresolvable provenance is non-green, a local agent cannot issue its own trusted validation receipt, and a PASS receipt grants no merge, publication, or deployment authority.
+
 ## 3.30.2 - 2026-10-24
 
 ### Fixed

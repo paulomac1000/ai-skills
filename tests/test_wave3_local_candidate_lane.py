@@ -117,12 +117,27 @@ def _candidate_scope(
     binding = module.TrustedCandidateScopeBinding(
         identity=identity,
         source=f"admission:sha256:{source_digest}",
+        policy_revision="admission-policy-v1",
     )
     return module.TrustedCandidateScopeEvidence(
         acceptance_contract=contract,
         binding=binding,
         require_current_rerun=require_current_rerun,
     )
+
+
+class _VerifiedAdmissionAuthority:
+    """Isolated test trust root: resolves every admission record as verified."""
+
+    def resolve_admission(
+        self,
+        source: str,
+        *,
+        candidate_revision: str,
+        acceptance_contract_digest: str,
+        policy_revision: str,
+    ) -> list[str]:
+        return []
 
 
 def _compose(
@@ -136,6 +151,8 @@ def _compose(
     return module.compose_local_lane_receipt(
         _evidence(module, **changes),
         trusted_candidate_scope=trusted_scope,
+        admission_authority=_VerifiedAdmissionAuthority(),
+        policy_revision="admission-policy-v1",
     )
 
 
@@ -349,6 +366,8 @@ def test_migration_candidate_rejects_stale_or_non_green_migration_payload() -> N
             migration_acceptance_payload=_migration_payload(candidate_revision="candidate-1"),
         ),
         trusted_candidate_scope=stale_scope,
+        admission_authority=_VerifiedAdmissionAuthority(),
+        policy_revision="admission-policy-v1",
     )
     assert stale["verdict"] == "fail"
     assert "migration_acceptance_receipt_candidate_mismatch" in stale["failures"]
@@ -405,6 +424,8 @@ def test_candidate_scope_is_mandatory_exact_candidate_bound_and_cannot_be_suppre
     stale = module.compose_local_lane_receipt(
         _evidence(module, candidate_revision="candidate-1"),
         trusted_candidate_scope=stale_scope,
+        admission_authority=_VerifiedAdmissionAuthority(),
+        policy_revision="admission-policy-v1",
     )
     assert stale["verdict"] == "fail"
     assert "candidate_scope_candidate_mismatch" in stale["failures"]
@@ -417,6 +438,8 @@ def test_invalid_admitted_scope_contract_fails_closed() -> None:
     receipt = module.compose_local_lane_receipt(
         _evidence(module),
         trusted_candidate_scope=invalid_scope,
+        admission_authority=_VerifiedAdmissionAuthority(),
+        policy_revision="admission-policy-v1",
     )
     assert receipt["verdict"] == "fail"
     assert any(item.startswith("candidate_scope_contract_rejected:") for item in receipt["failures"])
@@ -461,6 +484,8 @@ def test_candidate_scope_requires_identity_bound_immutable_provenance() -> None:
     receipt = module.compose_local_lane_receipt(
         _evidence(module),
         trusted_candidate_scope=wrong_scope,
+        admission_authority=_VerifiedAdmissionAuthority(),
+        policy_revision="admission-policy-v1",
     )
     assert receipt["verdict"] == "fail"
     assert "candidate_scope_contract_digest_mismatch" in receipt["failures"]
@@ -496,6 +521,8 @@ def test_current_rerun_policy_comes_from_trusted_candidate_scope() -> None:
     receipt = module.compose_local_lane_receipt(
         _evidence(module, migration_acceptance_payload=payload),
         trusted_candidate_scope=scope,
+        admission_authority=_VerifiedAdmissionAuthority(),
+        policy_revision="admission-policy-v1",
     )
     assert receipt["verdict"] == "fail"
     assert any("supported migration input not exercised: current" in item for item in receipt["failures"])

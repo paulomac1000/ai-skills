@@ -34,6 +34,22 @@ Use this skill for new MCP servers, transport migrations, SDK upgrades, security
 
 Read `STANDARD.md`, `references/testing-strategy.md`, and the SDK profile selected by package identity first. Add `references/upstream-contract-discovery.md` when an external upstream is present, and load other references only when the inspector or an applicable rule routes to them. Python consumers do not need the .NET migration simulation, and .NET consumers do not need the Python simulation; both simulations remain mandatory for ai-skills self-validation.
 
+## Release acceptance handoff
+
+```text
+MCP implementation and canonical probes
+    ↓
+Release acceptance requested or required by policy?
+    ├─ NO  → remain in architect workflow
+    └─ YES → load mcp-gateway-release-verifier
+                ↓
+              resolve trusted evidence
+                ↓
+              compose release acceptance
+```
+
+Load `mcp-gateway-release-verifier` only on the release-acceptance route, after building and running the owning canonical probes. Routine implementation and exploratory inspection do not preload verifier references. The verifier consumes architect outputs; it never redefines them.
+
 ## SDK and generated-baseline evidence
 
 Record stable profile entries such as `sdk:python-official-mcp@2.0.0`, `sdk:python-fastmcp@<exact-version>`, `protocol:2026-07-28`, and the advertised transport. `upstream-supported`, `repository-tested`, and `project-claimed` are distinct states; only exact-package and exact-artifact official-client evidence advances a claim beyond upstream support. A declared SDK range wider than an exact tested pin requires compatibility lanes covering that range; the adoption planner reports the unresolved claim instead of treating it as proven.
