@@ -104,14 +104,21 @@ def proof(
     status: ProofStatus = ProofStatus.PROVEN,
     authority: EvidenceAuthority = EvidenceAuthority.INDEPENDENT_OBSERVER,
     evidence: str | None = "evidence:1",
+    runtime_generation: str | None = "generation-42",
 ) -> ProofResult:
-    return ProofResult(kind=kind, status=status, authority=authority, evidence_ref=evidence)
+    return ProofResult(
+        kind=kind, status=status, authority=authority, evidence_ref=evidence, runtime_generation=runtime_generation
+    )
 
 
-def skill_proofs() -> list[ProofResult]:
+def skill_proofs(runtime_generation: str | None = "generation-42") -> list[ProofResult]:
     return [
-        proof("installed_files"),
-        proof("deterministic_helper_test", authority=EvidenceAuthority.QA_DETERMINISTIC),
+        proof("installed_files", runtime_generation=runtime_generation),
+        proof(
+            "deterministic_helper_test",
+            authority=EvidenceAuthority.QA_DETERMINISTIC,
+            runtime_generation=runtime_generation,
+        ),
     ]
 
 
@@ -566,3 +573,78 @@ def test_naive_observed_at_without_timezone_is_detected() -> None:
 def test_dependency_snapshot_roundtrip() -> None:
     snapshot = dependency_snapshot(SKILL_PROFILE, observed())
     assert snapshot == dependencies()
+
+
+# --- Review round 1 blockers -------------------------------------------------
+
+
+def test_forged_accepted_verdict_is_detected_by_verify() -> None:
+    document = composed_document()
+    document["verdict"] = "accepted"
+    document["payload_digest"] = payload_digest(document)
+    forged = dict(document)
+    proofs_block = forged["proofs"]
+    assert isinstance(proofs_block, list)
+    proofs_block[1]["status"] = "failed"
+    forged["payload_digest"] = payload_digest(forged)
+    findings = verify_receipt(forged, schema_path=SCHEMA_PATH, profile=SKILL_PROFILE)
+    assert any("verdict" in finding for finding in findings)
+
+
+def test_verify_rejects_snapshot_disagreeing_with_observed() -> None:
+    document = composed_document()
+    snapshot = document["dependency_snapshot"]
+    assert isinstance(snapshot, dict)
+    snapshot["instance_generation"] = "generation-999"
+    document["payload_digest"] = payload_digest(document)
+    findings = verify_receipt(document, schema_path=SCHEMA_PATH, profile=SKILL_PROFILE)
+    assert any("dependency_snapshot" in finding for finding in findings)
+
+
+def test_old_generation_proof_cannot_accept_new_generation() -> None:
+    proofs = [
+        proof("installed_files", runtime_generation="generation-41"),
+        proof(
+            "deterministic_helper_test",
+            runtime_generation="generation-41",
+            authority=EvidenceAuthority.QA_DETERMINISTIC,
+        ),
+    ]
+    decision = evaluate_acceptance(SKILL_PROFILE, expected(), observed(), proofs)
+    assert decision.verdict is AcceptanceVerdict.REJECTED
+    assert "required-proof-installed_files-generation-mismatch" in decision.reason_codes
+
+
+def test_unbound_proof_is_rejected_for_generation_bound_profile() -> None:
+    proofs = [
+        proof("installed_files", runtime_generation=None),
+        proof("deterministic_helper_test", authority=EvidenceAuthority.QA_DETERMINISTIC),
+    ]
+    decision = evaluate_acceptance(SKILL_PROFILE, expected(), observed(), proofs)
+    assert decision.verdict is AcceptanceVerdict.REJECTED
+    assert "required-proof-installed_files-generation-unbound" in decision.reason_codes
+
+
+def test_receipt_target_disagreeing_with_evaluated_target_is_rejected() -> None:
+    with pytest.raises(ValueError, match="target deployment identity"):
+        compose_receipt(
+            acceptance_id="acceptance-cross-target",
+            profile=SKILL_PROFILE,
+            target_environment_class="production",
+            target_deployment_identity="deployment-production-9",
+            target_identity="host:other",
+            expected=expected(),
+            observed=observed(),
+            proofs=skill_proofs(runtime_generation="generation-42"),
+            evidence_refs=["evidence:1", "evidence:2"],
+        )
+
+
+def test_proof_evidence_outside_evidence_set_is_detected() -> None:
+    document = composed_document()
+    proofs_block = document["proofs"]
+    assert isinstance(proofs_block, list)
+    proofs_block[0]["evidence_ref"] = "evidence:rogue"
+    document["payload_digest"] = payload_digest(document)
+    findings = verify_receipt(document, schema_path=SCHEMA_PATH)
+    assert any("evidence:rogue" in finding for finding in findings)

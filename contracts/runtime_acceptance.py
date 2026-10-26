@@ -116,6 +116,7 @@ class AcceptanceProfile:
     required_proof_kinds: tuple[str, ...] = ()
     minimum_authority: Mapping[str, EvidenceAuthority] = field(default_factory=dict)
     require_target_binding: bool = True
+    bind_proofs_to_generation: bool = True
 
     def __post_init__(self) -> None:
         _require_ref(self.profile_id, "profile id")
@@ -184,10 +185,12 @@ class ProofResult:
     status: ProofStatus
     authority: EvidenceAuthority
     evidence_ref: str | None = None
+    runtime_generation: str | None = None
 
     def __post_init__(self) -> None:
         _require_ref(self.kind, "proof kind")
         _optional_ref(self.evidence_ref, "proof evidence ref")
+        _optional_ref(self.runtime_generation, "proof runtime generation")
 
 
 @dataclass(frozen=True)
@@ -265,6 +268,15 @@ def evaluate_acceptance(
             reasons.append(f"required-proof-{kind}-missing")
             unresolved = True
             continue
+        if profile.bind_proofs_to_generation:
+            if item.runtime_generation is None:
+                reasons.append(f"required-proof-{kind}-generation-unbound")
+                hard_failure = True
+                continue
+            if item.runtime_generation != observed.instance_generation:
+                reasons.append(f"required-proof-{kind}-generation-mismatch")
+                hard_failure = True
+                continue
         floor = profile.minimum_authority.get(kind)
         if item.status is ProofStatus.PROVEN and floor is not None and item.authority.rank < floor.rank:
             reasons.append(f"required-proof-{kind}-authority-insufficient")
@@ -442,6 +454,17 @@ def compose_receipt(
     _require_ref(acceptance_id, "acceptance id")
     _require_ref(target_environment_class, "target environment class")
     _require_ref(target_deployment_identity, "target deployment identity")
+    if profile.require_target_binding:
+        if observed.deployment_identity is not None and observed.deployment_identity != target_deployment_identity:
+            raise ValueError(
+                f"observed deployment identity {observed.deployment_identity!r} disagrees with the receipt "
+                f"target deployment identity {target_deployment_identity!r}"
+            )
+        if expected.deployment_identity is not None and expected.deployment_identity != target_deployment_identity:
+            raise ValueError(
+                f"expected deployment identity {expected.deployment_identity!r} disagrees with the receipt "
+                f"target deployment identity {target_deployment_identity!r}"
+            )
     if len(proofs) > _MAX_PROOFS:
         raise ValueError(f"receipts must contain at most {_MAX_PROOFS} proofs")
     decision = evaluate_acceptance(profile, expected, observed, proofs)
@@ -465,6 +488,7 @@ def compose_receipt(
             "artifact_identity": expected.artifact_identity,
             "config_revision": expected.config_revision,
             "deployment_operation_ref": expected.deployment_operation_ref,
+            "deployment_identity": expected.deployment_identity,
         },
         "observed": {
             "runtime_identity_ref": observed.runtime_identity_ref,
@@ -489,6 +513,7 @@ def compose_receipt(
                 "status": item.status.value,
                 "authority": item.authority.value,
                 "evidence_ref": item.evidence_ref,
+                "runtime_generation": item.runtime_generation,
             }
             for item in proofs
         ],
@@ -512,8 +537,50 @@ def compose_receipt(
     return document
 
 
-def verify_receipt(document: object, *, schema_path: Path | None = None) -> list[str]:
-    """Validate one receipt structurally and semantically; return bounded typed findings."""
+def _receipt_proofs(document: Mapping[str, object]) -> list[ProofResult]:
+    """Re-derive typed proof results from a receipt document; unparseable entries yield [] via caller check."""
+    proofs: list[ProofResult] = []
+    raw = document.get("proofs")
+    if not isinstance(raw, list):
+        return proofs
+    for item in raw:
+        if not isinstance(item, Mapping):
+            continue
+        kind = item.get("kind")
+        status = item.get("status")
+        authority = item.get("authority")
+        if not isinstance(kind, str) or not isinstance(status, str) or not isinstance(authority, str):
+            continue
+        evidence = item.get("evidence_ref")
+        generation = item.get("runtime_generation")
+        try:
+            proofs.append(
+                ProofResult(
+                    kind=kind,
+                    status=ProofStatus(status),
+                    authority=EvidenceAuthority(authority),
+                    evidence_ref=evidence if isinstance(evidence, str) else None,
+                    runtime_generation=generation if isinstance(generation, str) else None,
+                )
+            )
+        except ValueError:
+            continue
+    return proofs
+
+
+def verify_receipt(
+    document: object,
+    *,
+    schema_path: Path | None = None,
+    profile: AcceptanceProfile | None = None,
+) -> list[str]:
+    """Validate one receipt structurally and semantically; return bounded typed findings.
+
+    When a trusted acceptance profile is supplied, the issued verdict is
+    re-derived from the receipt's own identities and proofs under that profile
+    and any disagreement is a finding: the payload digest binds content, but
+    never authenticates the acceptance decision itself.
+    """
     findings: list[str] = []
     if schema_path is not None:
         from jsonschema import Draft202012Validator, FormatChecker
@@ -576,6 +643,74 @@ def verify_receipt(document: object, *, schema_path: Path | None = None) -> list
             _parse_utc(expires_at)
         except ValueError as exc:
             findings.append(f"expires_at: {exc}")
+
+    refs_block = document.get("inputs")
+    declared_refs: set[str] = set()
+    if isinstance(refs_block, Mapping) and isinstance(refs_block.get("evidence_refs"), list):
+        declared_refs = {str(ref) for ref in refs_block["evidence_refs"] if isinstance(ref, str)}
+    for item in _receipt_proofs(document):
+        if item.evidence_ref is not None and item.evidence_ref not in declared_refs:
+            findings.append(f"proofs[{item.kind}].evidence_ref {item.evidence_ref} is outside inputs.evidence_refs")
+
+    if profile is not None:
+        expected_block = document.get("expected")
+        observed_block = document.get("observed")
+        if not isinstance(expected_block, Mapping) or not isinstance(observed_block, Mapping):
+            findings.append("verdict re-evaluation requires expected and observed blocks")
+            return findings
+        observed_generation = observed_block.get("instance_generation")
+        observed_deployment = observed_block.get("deployment_identity")
+        if not isinstance(observed_generation, str) or not isinstance(observed_deployment, str):
+            findings.append("verdict re-evaluation requires typed observed generation and deployment identity")
+            return findings
+        expected_digest = expected_block.get("artifact_digest")
+        if not isinstance(expected_digest, str):
+            findings.append("verdict re-evaluation requires a typed expected artifact digest")
+            return findings
+        observed_digest = observed_block.get("artifact_digest")
+        observed_source = observed_block.get("source_revision")
+        observed_config = observed_block.get("config_revision")
+        expected_deployment = expected_block.get("deployment_identity")
+        try:
+            reobserved = ObservedRuntime(
+                runtime_identity_ref=str(observed_block.get("runtime_identity_ref", "")),
+                runtime_id=str(observed_block.get("runtime_id", "")),
+                instance_generation=observed_generation,
+                observed_at=str(observed_block.get("observed_at", "")),
+                artifact_digest=observed_digest if isinstance(observed_digest, str) else None,
+                source_revision=observed_source if isinstance(observed_source, str) else None,
+                config_revision=observed_config if isinstance(observed_config, str) else None,
+                deployment_identity=observed_deployment,
+            )
+            reexpected = ExpectedRuntime(
+                artifact_digest=expected_digest,
+                deployment_identity=expected_deployment if isinstance(expected_deployment, str) else None,
+            )
+            decision = evaluate_acceptance(profile, reexpected, reobserved, _receipt_proofs(document))
+        except ValueError as exc:
+            findings.append(f"verdict re-evaluation failed: {exc}")
+            return findings
+        issued = document.get("verdict")
+        if issued != decision.verdict.value:
+            findings.append(
+                f"verdict mismatch: issued {issued!r}, profile re-evaluation {decision.verdict.value} "
+                f"({', '.join(decision.reason_codes) if decision.reason_codes else 'no reasons'})"
+            )
+        snapshot = document.get("dependency_snapshot")
+        if isinstance(snapshot, Mapping):
+            expected_snapshot = {
+                "artifact_digest": reobserved.artifact_digest,
+                "source_revision": reobserved.source_revision,
+                "config_revision": reobserved.config_revision,
+                "instance_generation": reobserved.instance_generation,
+                "acceptance_profile_revision": profile.profile_revision,
+                "policy_revision": profile.policy_revision,
+            }
+            for key, value in expected_snapshot.items():
+                if snapshot.get(key) != value:
+                    findings.append(
+                        f"dependency_snapshot.{key} disagrees with observed identity: {snapshot.get(key)!r}"
+                    )
     return findings
 
 

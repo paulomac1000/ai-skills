@@ -56,7 +56,8 @@
         "artifact_digest": {"type": "string", "pattern": "^sha256:[0-9a-fA-F]{64}$"},
         "artifact_identity": {"type": ["string", "null"], "minLength": 1, "maxLength": 512},
         "config_revision": {"type": ["string", "null"], "minLength": 1, "maxLength": 256},
-        "deployment_operation_ref": {"type": ["string", "null"], "minLength": 1, "maxLength": 2048}
+        "deployment_operation_ref": {"type": ["string", "null"], "minLength": 1, "maxLength": 2048},
+        "deployment_identity": {"type": ["string", "null"], "minLength": 1, "maxLength": 256}
       }
     },
     "observed": {
@@ -99,7 +100,8 @@
           "required": {"type": "boolean"},
           "status": {"enum": ["proven", "failed", "unknown", "unsupported"]},
           "authority": {"type": "string", "minLength": 1, "maxLength": 256},
-          "evidence_ref": {"type": ["string", "null"], "minLength": 1, "maxLength": 2048}
+          "evidence_ref": {"type": ["string", "null"], "minLength": 1, "maxLength": 2048},
+          "runtime_generation": {"type": ["string", "null"], "minLength": 1, "maxLength": 256}
         },
         "allOf": [
           {
