@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -21,6 +22,8 @@ from pathlib import Path
 _MAX_REF = 2048
 _MAX_REFS = 64
 _MAX_PROOFS = 64
+_MAX_FINDINGS = 200
+_MAX_INPUT_BYTES = 1024 * 1024
 _ALLOWED_IDENTITY_FIELDS = frozenset({"artifact_digest", "source_revision", "config_revision"})
 RECEIPT_FORMAT = "ai-skills-runtime-acceptance"
 RECEIPT_KIND = "runtime_acceptance"
@@ -47,7 +50,13 @@ class AcceptanceCurrentness(StrEnum):
 
 
 class EvidenceAuthority(StrEnum):
-    """Independent evidence authority classes; composition never upgrades them."""
+    """Independent evidence authority classes; composition never upgrades them.
+
+    Satisfaction of a minimum-authority floor is an explicit compatibility
+    relation, not a scalar rank: a model review can never stand in for
+    deterministic QA execution, and only an independent observer satisfies an
+    independent-observer floor.
+    """
 
     CALLER_CLAIM = "caller_claim"
     WORKER_REPORT = "worker_report"
@@ -56,19 +65,29 @@ class EvidenceAuthority(StrEnum):
     MODEL_REVIEW = "model_review"
     INDEPENDENT_OBSERVER = "independent_observer"
 
-    @property
-    def rank(self) -> int:
-        return _AUTHORITY_RANK[self]
 
-
-_AUTHORITY_RANK: dict[EvidenceAuthority, int] = {
-    EvidenceAuthority.CALLER_CLAIM: 0,
-    EvidenceAuthority.WORKER_REPORT: 1,
-    EvidenceAuthority.PROVIDER_ACK: 2,
-    EvidenceAuthority.QA_DETERMINISTIC: 3,
-    EvidenceAuthority.MODEL_REVIEW: 3,
-    EvidenceAuthority.INDEPENDENT_OBSERVER: 4,
+_AUTHORITY_SUBSTITUTIONS: dict[EvidenceAuthority, frozenset[EvidenceAuthority]] = {
+    EvidenceAuthority.CALLER_CLAIM: frozenset(EvidenceAuthority),
+    EvidenceAuthority.WORKER_REPORT: frozenset(EvidenceAuthority) - {EvidenceAuthority.CALLER_CLAIM},
+    EvidenceAuthority.PROVIDER_ACK: frozenset(
+        {
+            EvidenceAuthority.PROVIDER_ACK,
+            EvidenceAuthority.QA_DETERMINISTIC,
+            EvidenceAuthority.MODEL_REVIEW,
+            EvidenceAuthority.INDEPENDENT_OBSERVER,
+        }
+    ),
+    EvidenceAuthority.QA_DETERMINISTIC: frozenset(
+        {EvidenceAuthority.QA_DETERMINISTIC, EvidenceAuthority.INDEPENDENT_OBSERVER}
+    ),
+    EvidenceAuthority.MODEL_REVIEW: frozenset({EvidenceAuthority.MODEL_REVIEW, EvidenceAuthority.INDEPENDENT_OBSERVER}),
+    EvidenceAuthority.INDEPENDENT_OBSERVER: frozenset({EvidenceAuthority.INDEPENDENT_OBSERVER}),
 }
+
+
+def authority_satisfies(observed: EvidenceAuthority, floor: EvidenceAuthority) -> bool:
+    """Return whether the observed authority class may satisfy the declared floor."""
+    return observed in _AUTHORITY_SUBSTITUTIONS[floor]
 
 
 @dataclass(frozen=True)
@@ -85,8 +104,10 @@ class ClockProvenance:
         _require_ref(self.source_clock, "clock source identity")
         if self.normalization not in {"exact", "derived", "unknown"}:
             raise ValueError("clock normalization must be exact, derived, or unknown")
-        if self.normalization == "exact" and self.source_offset is None:
-            raise ValueError("exact normalization requires the preserved source offset")
+        if self.normalization == "exact" and (
+            self.source_offset is None or not _CLOCK_OFFSET.match(self.source_offset)
+        ):
+            raise ValueError("exact normalization requires a preserved valid source offset")
 
     def as_document(self) -> dict[str, str | None]:
         return {
@@ -98,13 +119,53 @@ class ClockProvenance:
 
 
 def _require_ref(value: str, name: str) -> None:
-    if not value.strip() or len(value) > _MAX_REF:
-        raise ValueError(f"{name} must be non-empty and at most {_MAX_REF} characters")
+    if not isinstance(value, str) or not value.strip() or len(value) > _MAX_REF:
+        raise ValueError(f"{name} must be a non-empty string of at most {_MAX_REF} characters")
 
 
-def _optional_ref(value: str | None, name: str) -> None:
+def _require_bounded(value: str, name: str, max_length: int) -> None:
+    if not isinstance(value, str) or not value.strip() or len(value) > max_length:
+        raise ValueError(f"{name} must be a non-empty string of at most {max_length} characters")
+
+
+_SHA256_DIGEST = re.compile(r"^sha256:[0-9a-fA-F]{64}$")
+_SOURCE_REVISION = re.compile(r"^[0-9a-fA-F]{40}$")
+_CLOCK_OFFSET = re.compile(r"^Z$|^[+-](?:0[0-9]|1[0-4]):[0-5][0-9]$")
+
+
+def _require_digest(value: str, name: str) -> None:
+    _require_bounded(value, name, 71)
+    if not _SHA256_DIGEST.match(value):
+        raise ValueError(f"{name} must match sha256:<64 hex characters>")
+
+
+def _optional_digest(value: str | None, name: str) -> None:
     if value is not None:
-        _require_ref(value, name)
+        _require_digest(value, name)
+
+
+def _require_source_revision(value: str, name: str) -> None:
+    _require_bounded(value, name, 40)
+    if not _SOURCE_REVISION.match(value):
+        raise ValueError(f"{name} must be a 40-character hex source revision")
+
+
+def _optional_source_revision(value: str | None, name: str) -> None:
+    if value is not None:
+        _require_source_revision(value, name)
+
+
+def _optional_bounded(value: str | None, name: str, max_length: int) -> None:
+    if value is not None:
+        _require_bounded(value, name, max_length)
+
+
+def _optional_offset(value: str | None, name: str) -> None:
+    if value is None:
+        return
+    _require_bounded(value, name, 6)
+    if not _CLOCK_OFFSET.match(value):
+        raise ValueError(f"{name} must be Z or a +/-HH:MM UTC offset")
 
 
 @dataclass(frozen=True)
@@ -146,12 +207,12 @@ class ExpectedRuntime:
     deployment_identity: str | None = None
 
     def __post_init__(self) -> None:
-        _require_ref(self.artifact_digest, "expected artifact digest")
-        _optional_ref(self.source_revision, "expected source revision")
-        _optional_ref(self.config_revision, "expected config revision")
-        _optional_ref(self.artifact_identity, "expected artifact identity")
-        _optional_ref(self.deployment_operation_ref, "deployment operation ref")
-        _optional_ref(self.deployment_identity, "expected deployment identity")
+        _require_digest(self.artifact_digest, "expected artifact digest")
+        _optional_source_revision(self.source_revision, "expected source revision")
+        _optional_bounded(self.config_revision, "expected config revision", 256)
+        _optional_bounded(self.artifact_identity, "expected artifact identity", 512)
+        _optional_bounded(self.deployment_operation_ref, "deployment operation ref", 2048)
+        _optional_bounded(self.deployment_identity, "expected deployment identity", 256)
 
 
 @dataclass(frozen=True)
@@ -166,17 +227,22 @@ class ObservedRuntime:
     config_revision: str | None = None
     deployment_identity: str | None = None
     clock_provenance: ClockProvenance | None = None
+    provenance_refs: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         _require_ref(self.runtime_identity_ref, "runtime identity ref")
-        _require_ref(self.runtime_id, "runtime id")
-        _require_ref(self.instance_generation, "instance generation")
+        _require_bounded(self.runtime_id, "runtime id", 256)
+        _require_bounded(self.instance_generation, "instance generation", 256)
         _require_ref(self.observed_at, "observed at")
-        _optional_ref(self.artifact_digest, "observed artifact digest")
-        _optional_ref(self.source_revision, "observed source revision")
-        _optional_ref(self.artifact_version, "observed artifact version")
-        _optional_ref(self.config_revision, "observed config revision")
-        _optional_ref(self.deployment_identity, "observed deployment identity")
+        _optional_digest(self.artifact_digest, "observed artifact digest")
+        _optional_source_revision(self.source_revision, "observed source revision")
+        _optional_bounded(self.artifact_version, "observed artifact version", 128)
+        _optional_bounded(self.config_revision, "observed config revision", 256)
+        _optional_bounded(self.deployment_identity, "observed deployment identity", 256)
+        if len(self.provenance_refs) > _MAX_REFS:
+            raise ValueError(f"provenance refs must contain at most {_MAX_REFS} items")
+        for ref in self.provenance_refs:
+            _require_ref(ref, "provenance ref")
 
 
 @dataclass(frozen=True)
@@ -189,8 +255,8 @@ class ProofResult:
 
     def __post_init__(self) -> None:
         _require_ref(self.kind, "proof kind")
-        _optional_ref(self.evidence_ref, "proof evidence ref")
-        _optional_ref(self.runtime_generation, "proof runtime generation")
+        _optional_bounded(self.evidence_ref, "proof evidence ref", _MAX_REF)
+        _optional_bounded(self.runtime_generation, "proof runtime generation", 256)
 
 
 @dataclass(frozen=True)
@@ -209,12 +275,28 @@ class RuntimeAcceptanceDependencies:
     policy_revision: str
 
     def __post_init__(self) -> None:
-        _optional_ref(self.artifact_digest, "dependency artifact digest")
-        _optional_ref(self.source_revision, "dependency source revision")
-        _optional_ref(self.config_revision, "dependency config revision")
-        _require_ref(self.instance_generation, "dependency instance generation")
-        _require_ref(self.profile_revision, "dependency profile revision")
-        _require_ref(self.policy_revision, "dependency policy revision")
+        _optional_digest(self.artifact_digest, "dependency artifact digest")
+        _optional_source_revision(self.source_revision, "dependency source revision")
+        _optional_bounded(self.config_revision, "dependency config revision", 256)
+        _require_bounded(self.instance_generation, "dependency instance generation", 256)
+        _require_bounded(self.profile_revision, "dependency profile revision", 256)
+        _require_bounded(self.policy_revision, "dependency policy revision", 256)
+
+
+def profile_digest(profile: AcceptanceProfile) -> str:
+    """Canonical digest of the complete acceptance policy that produced a verdict."""
+    body = {
+        "id": profile.profile_id,
+        "revision": profile.profile_revision,
+        "policy_revision": profile.policy_revision,
+        "required_identity_fields": list(profile.required_identity_fields),
+        "required_proof_kinds": list(profile.required_proof_kinds),
+        "minimum_authority": {kind: floor.value for kind, floor in sorted(profile.minimum_authority.items())},
+        "require_target_binding": profile.require_target_binding,
+        "bind_proofs_to_generation": profile.bind_proofs_to_generation,
+    }
+    encoded = json.dumps(body, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    return "sha256:" + hashlib.sha256(encoded).hexdigest()
 
 
 def evaluate_acceptance(
@@ -278,7 +360,7 @@ def evaluate_acceptance(
                 hard_failure = True
                 continue
         floor = profile.minimum_authority.get(kind)
-        if item.status is ProofStatus.PROVEN and floor is not None and item.authority.rank < floor.rank:
+        if item.status is ProofStatus.PROVEN and floor is not None and not authority_satisfies(item.authority, floor):
             reasons.append(f"required-proof-{kind}-authority-insufficient")
             hard_failure = True
             continue
@@ -313,6 +395,9 @@ def compose_observations(observations: Sequence[ObservedRuntime]) -> ObservedRun
     config_revision = first.config_revision
     deployment_identity = first.deployment_identity
     clock_provenance = first.clock_provenance
+    provenance: dict[str, None] = {}
+    for ref in first.provenance_refs:
+        provenance.setdefault(ref)
     latest_at = _parse_utc(first.observed_at)
 
     def _merge(current: str | None, incoming: str | None, name: str) -> str | None:
@@ -340,6 +425,8 @@ def compose_observations(observations: Sequence[ObservedRuntime]) -> ObservedRun
         ):
             raise ValueError("conflicting observation clock_provenance")
         clock_provenance = clock_provenance if clock_provenance is not None else other.clock_provenance
+        for ref in other.provenance_refs:
+            provenance.setdefault(ref)
 
     return ObservedRuntime(
         runtime_identity_ref=first.runtime_identity_ref,
@@ -352,6 +439,7 @@ def compose_observations(observations: Sequence[ObservedRuntime]) -> ObservedRun
         config_revision=config_revision,
         deployment_identity=deployment_identity,
         clock_provenance=clock_provenance,
+        provenance_refs=tuple(sorted(provenance)),
     )
 
 
@@ -405,12 +493,33 @@ def adjudicate(
     *,
     expires_at: str | None,
     now: datetime,
+    current_observation: ObservedRuntime | None = None,
+    max_age_seconds: float | None = None,
 ) -> AcceptanceVerdict:
-    """Combine the issued verdict with currentness and expiry into one bounded outcome."""
+    """Combine the issued verdict with currentness and expiry into one bounded outcome.
+
+    The current dependencies are caller-trusted values; when
+    ``current_observation`` is supplied they must be bound to it — the
+    observation's generation and known identity fields must agree, and with
+    ``max_age_seconds`` an observation older than the freshness window yields
+    STALE instead of a replayed acceptance.
+    """
+    if now.tzinfo is None:
+        raise ValueError("adjudicate now must be timezone-aware")
+    if current_observation is not None:
+        if current_observation.instance_generation != current_dependencies.instance_generation:
+            raise ValueError("current observation generation disagrees with the supplied current dependencies")
+        for field_name in ("artifact_digest", "source_revision", "config_revision"):
+            if getattr(current_observation, field_name) != getattr(current_dependencies, field_name):
+                raise ValueError(f"current observation {field_name} disagrees with the supplied current dependencies")
     if issued_verdict is not AcceptanceVerdict.ACCEPTED:
         return issued_verdict
     if expires_at is not None and now >= _parse_utc(expires_at):
         return AcceptanceVerdict.STALE
+    if current_observation is not None and max_age_seconds is not None:
+        observed = _parse_utc(current_observation.observed_at)
+        if (now - observed).total_seconds() > max_age_seconds:
+            return AcceptanceVerdict.STALE
     currentness = derive_currentness(receipt_dependencies, current_dependencies)
     if currentness is AcceptanceCurrentness.STALE:
         return AcceptanceVerdict.STALE
@@ -420,12 +529,18 @@ def adjudicate(
 
 
 def evidence_set_digest(evidence_refs: Iterable[str]) -> str:
-    """Create a stable digest for the exact bounded set of evidence references."""
-    refs = tuple(sorted(set(evidence_refs)))
-    if len(refs) > _MAX_REFS:
-        raise ValueError(f"evidence refs must contain at most {_MAX_REFS} items")
-    for ref in refs:
+    """Create a stable digest for the exact bounded set of evidence references.
+
+    Consumption is bounded: the reference-count limit is enforced while
+    iterating, before any unbounded set materialises.
+    """
+    unique: dict[str, None] = {}
+    for ref in evidence_refs:
         _require_ref(ref, "evidence ref")
+        unique.setdefault(ref)
+        if len(unique) > _MAX_REFS:
+            raise ValueError(f"evidence refs must contain at most {_MAX_REFS} items")
+    refs = tuple(sorted(unique))
     encoded = json.dumps(refs, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
     return "sha256:" + hashlib.sha256(encoded).hexdigest()
 
@@ -450,10 +565,18 @@ def compose_receipt(
     evidence_refs: Sequence[str],
     expires_at: str | None = None,
 ) -> dict[str, object]:
-    """Compose a schema-conformant receipt; issued verdicts are never stale at issue time."""
-    _require_ref(acceptance_id, "acceptance id")
-    _require_ref(target_environment_class, "target environment class")
-    _require_ref(target_deployment_identity, "target deployment identity")
+    """Compose a schema-conformant receipt; issued verdicts are never stale at issue time.
+
+    Composition validates its own output: any input that would violate the
+    published schema or the bounded integrity rules raises ValueError instead
+    of returning a document the schema would reject.
+    """
+    _require_bounded(acceptance_id, "acceptance id", 256)
+    _require_bounded(target_environment_class, "target environment class", 128)
+    _require_bounded(target_deployment_identity, "target deployment identity", 256)
+    _optional_bounded(target_identity, "target identity", 256)
+    if expires_at is not None:
+        _parse_utc(expires_at)
     if profile.require_target_binding:
         if observed.deployment_identity is not None and observed.deployment_identity != target_deployment_identity:
             raise ValueError(
@@ -465,6 +588,8 @@ def compose_receipt(
                 f"expected deployment identity {expected.deployment_identity!r} disagrees with the receipt "
                 f"target deployment identity {target_deployment_identity!r}"
             )
+    if not proofs:
+        raise ValueError("receipts must contain at least one proof")
     if len(proofs) > _MAX_PROOFS:
         raise ValueError(f"receipts must contain at most {_MAX_PROOFS} proofs")
     decision = evaluate_acceptance(profile, expected, observed, proofs)
@@ -475,7 +600,11 @@ def compose_receipt(
         "schema_version": 1,
         "receipt_kind": RECEIPT_KIND,
         "acceptance_id": acceptance_id,
-        "acceptance_profile": {"id": profile.profile_id, "revision": profile.profile_revision},
+        "acceptance_profile": {
+            "id": profile.profile_id,
+            "revision": profile.profile_revision,
+            "digest": profile_digest(profile),
+        },
         "policy_revision": profile.policy_revision,
         "target": {
             "environment_class": target_environment_class,
@@ -530,10 +659,14 @@ def compose_receipt(
             "policy_revision": snapshot.policy_revision,
         },
         "verdict": issued.value,
+        "reason_codes": list(decision.reason_codes)[:_MAX_REFS],
         "currentness_at_issue": AcceptanceCurrentness.CURRENT.value,
         "expires_at": expires_at,
     }
     document["payload_digest"] = payload_digest(document)
+    integrity = verify_receipt(document)
+    if integrity:
+        raise ValueError(f"composed receipt failed integrity verification: {'; '.join(integrity)}")
     return document
 
 
@@ -595,8 +728,10 @@ def verify_receipt(
             for error in sorted(
                 validator.iter_errors(document),
                 key=lambda item: tuple(str(part) for part in item.absolute_path),
-            )
+            )[:_MAX_FINDINGS]
         )
+        if len(findings) >= _MAX_FINDINGS:
+            findings.append(f"schema findings truncated at {_MAX_FINDINGS}")
         if findings:
             return findings
     if not isinstance(document, Mapping):
@@ -634,8 +769,10 @@ def verify_receipt(
         clock = observed_block.get("clock_provenance")
         if isinstance(clock, Mapping):
             normalization = clock.get("normalization")
-            if normalization == "exact" and clock.get("source_offset") is None:
-                findings.append("observed.clock_provenance: unknown source clock cannot claim exact normalization")
+            if normalization == "exact" and (
+                not isinstance(clock.get("source_offset"), str) or not _CLOCK_OFFSET.match(clock["source_offset"])
+            ):
+                findings.append("observed.clock_provenance: exact normalization requires a valid source offset")
 
     expires_at = document.get("expires_at")
     if isinstance(expires_at, str):
@@ -657,6 +794,14 @@ def verify_receipt(
         observed_block = document.get("observed")
         if not isinstance(expected_block, Mapping) or not isinstance(observed_block, Mapping):
             findings.append("verdict re-evaluation requires expected and observed blocks")
+            return findings
+        profile_block = document.get("acceptance_profile")
+        if not isinstance(profile_block, Mapping) or profile_block.get("digest") != profile_digest(profile):
+            declared_digest = profile_block.get("digest") if isinstance(profile_block, Mapping) else None
+            findings.append(
+                f"acceptance_profile.digest mismatch: declared {declared_digest!r}, "
+                f"trusted profile {profile_digest(profile)}"
+            )
             return findings
         observed_generation = observed_block.get("instance_generation")
         observed_deployment = observed_block.get("deployment_identity")
@@ -696,6 +841,13 @@ def verify_receipt(
                 f"verdict mismatch: issued {issued!r}, profile re-evaluation {decision.verdict.value} "
                 f"({', '.join(decision.reason_codes) if decision.reason_codes else 'no reasons'})"
             )
+        issued_reasons = document.get("reason_codes")
+        if issued != decision.verdict.value or issued_reasons != list(decision.reason_codes):
+            if issued == decision.verdict.value:
+                findings.append(
+                    f"reason_codes mismatch: issued {issued_reasons!r}, "
+                    f"profile re-evaluation {list(decision.reason_codes)!r}"
+                )
         snapshot = document.get("dependency_snapshot")
         if isinstance(snapshot, Mapping):
             expected_snapshot = {
@@ -715,7 +867,12 @@ def verify_receipt(
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Validate one receipt file given as the only argument."""
+    """Validate one receipt file: structural, integrity, and (CLI) full schema verification.
+
+    The CLI always verifies against the published schema. Structural-only
+    library use (``schema_path=None``) never constitutes acceptance evidence;
+    authoritative acceptance verification requires a trusted profile.
+    """
     import argparse
 
     parser = argparse.ArgumentParser(description=__doc__)
@@ -725,6 +882,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
     try:
+        if args.receipt.stat().st_size > _MAX_INPUT_BYTES:
+            print(f"ERROR: receipt exceeds {_MAX_INPUT_BYTES} bytes")
+            return 1
         document = json.loads(args.receipt.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         print(f"ERROR: cannot load receipt: {exc}")

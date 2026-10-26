@@ -19,6 +19,7 @@
     "inputs",
     "dependency_snapshot",
     "verdict",
+    "reason_codes",
     "currentness_at_issue",
     "payload_digest"
   ],
@@ -30,10 +31,11 @@
     "acceptance_profile": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "revision"],
+      "required": ["id", "revision", "digest"],
       "properties": {
         "id": {"type": "string", "minLength": 1, "maxLength": 256},
-        "revision": {"type": "string", "minLength": 1, "maxLength": 256}
+        "revision": {"type": "string", "minLength": 1, "maxLength": 256},
+        "digest": {"type": "string", "pattern": "^sha256:[0-9a-fA-F]{64}$"}
       }
     },
     "policy_revision": {"type": "string", "minLength": 1, "maxLength": 256},
@@ -80,7 +82,7 @@
           "required": ["source_timestamp", "source_offset", "source_clock", "normalization"],
           "properties": {
             "source_timestamp": {"type": "string", "minLength": 1, "maxLength": 64},
-            "source_offset": {"type": ["string", "null"], "minLength": 1, "maxLength": 8},
+            "source_offset": {"type": ["string", "null"], "minLength": 1, "maxLength": 6, "pattern": "^Z$|^[+-](?:0[0-9]|1[0-4]):[0-5][0-9]$"},
             "source_clock": {"type": "string", "minLength": 1, "maxLength": 64},
             "normalization": {"enum": ["exact", "derived", "unknown"]}
           }
@@ -149,6 +151,12 @@
       }
     },
     "verdict": {"enum": ["accepted", "rejected", "inconclusive"]},
+    "reason_codes": {
+      "type": "array",
+      "maxItems": 64,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1, "maxLength": 256}
+    },
     "currentness_at_issue": {"const": "CURRENT"},
     "expires_at": {"type": ["string", "null"], "format": "date-time"},
     "payload_digest": {"type": "string", "pattern": "^sha256:[0-9a-fA-F]{64}$"}

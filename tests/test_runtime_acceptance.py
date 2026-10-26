@@ -7,8 +7,9 @@ because an expected value was silently copied into the observed evidence.
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
+from typing import cast
 
 import pytest
 from jsonschema import Draft202012Validator
@@ -25,6 +26,7 @@ from contracts.runtime_acceptance import (
     ProofStatus,
     RuntimeAcceptanceDependencies,
     adjudicate,
+    authority_satisfies,
     compose_observations,
     compose_receipt,
     dependency_snapshot,
@@ -32,6 +34,7 @@ from contracts.runtime_acceptance import (
     evaluate_acceptance,
     evidence_set_digest,
     payload_digest,
+    profile_digest,
     verify_receipt,
 )
 
@@ -648,3 +651,196 @@ def test_proof_evidence_outside_evidence_set_is_detected() -> None:
     document["payload_digest"] = payload_digest(document)
     findings = verify_receipt(document, schema_path=SCHEMA_PATH)
     assert any("evidence:rogue" in finding for finding in findings)
+
+
+# --- Review round 2/3: majors ------------------------------------------------
+
+
+def test_model_review_cannot_satisfy_deterministic_qa_floor() -> None:
+    assert not authority_satisfies(EvidenceAuthority.MODEL_REVIEW, EvidenceAuthority.QA_DETERMINISTIC)
+    assert authority_satisfies(EvidenceAuthority.QA_DETERMINISTIC, EvidenceAuthority.QA_DETERMINISTIC)
+    assert authority_satisfies(EvidenceAuthority.INDEPENDENT_OBSERVER, EvidenceAuthority.QA_DETERMINISTIC)
+    proofs = [
+        proof("installed_files"),
+        proof("deterministic_helper_test", authority=EvidenceAuthority.MODEL_REVIEW),
+    ]
+    decision = evaluate_acceptance(SKILL_PROFILE, expected(), observed(), proofs)
+    assert decision.verdict is AcceptanceVerdict.REJECTED
+    assert "required-proof-deterministic_helper_test-authority-insufficient" in decision.reason_codes
+
+
+def test_receipt_binds_the_complete_acceptance_profile_digest() -> None:
+    document = composed_document()
+    profile_block = document["acceptance_profile"]
+    assert isinstance(profile_block, dict)
+    assert profile_block["digest"] == profile_digest(SKILL_PROFILE)
+    assert verify_receipt(document, schema_path=SCHEMA_PATH, profile=SKILL_PROFILE) == []
+    drifted = AcceptanceProfile(
+        profile_id=SKILL_PROFILE.profile_id,
+        profile_revision=SKILL_PROFILE.profile_revision,
+        policy_revision="policy-v2",
+        required_identity_fields=SKILL_PROFILE.required_identity_fields,
+        required_proof_kinds=SKILL_PROFILE.required_proof_kinds,
+        minimum_authority=SKILL_PROFILE.minimum_authority,
+    )
+    findings = verify_receipt(document, schema_path=SCHEMA_PATH, profile=drifted)
+    assert any("acceptance_profile.digest" in finding for finding in findings)
+
+
+def test_rejected_receipt_keeps_typed_reason_codes() -> None:
+    document = compose_receipt(
+        acceptance_id="acceptance-rejected-1",
+        profile=SKILL_PROFILE,
+        target_environment_class="workstation",
+        target_deployment_identity="deployment-fedora-1",
+        target_identity="host:fedora",
+        expected=expected(),
+        observed=observed(artifact_digest=DIGEST_B),
+        proofs=skill_proofs(),
+        evidence_refs=["evidence:1", "evidence:2"],
+    )
+    assert document["verdict"] == "rejected"
+    reasons = document["reason_codes"]
+    assert isinstance(reasons, list)
+    assert "required-artifact_digest-mismatch" in reasons
+    findings = verify_receipt(document, schema_path=SCHEMA_PATH, profile=SKILL_PROFILE)
+    assert findings == []
+
+
+def test_verify_detects_tampered_reason_codes() -> None:
+    document = compose_receipt(
+        acceptance_id="acceptance-rejected-2",
+        profile=SKILL_PROFILE,
+        target_environment_class="workstation",
+        target_deployment_identity="deployment-fedora-1",
+        target_identity="host:fedora",
+        expected=expected(),
+        observed=observed(artifact_digest=DIGEST_B),
+        proofs=skill_proofs(),
+        evidence_refs=["evidence:1", "evidence:2"],
+    )
+    document["reason_codes"] = []
+    document["payload_digest"] = payload_digest(document)
+    findings = verify_receipt(document, schema_path=SCHEMA_PATH, profile=SKILL_PROFILE)
+    assert any("reason_codes mismatch" in finding for finding in findings)
+
+
+def test_compose_observations_preserves_provenance_refs() -> None:
+    first = observed(provenance_refs=("obs:a",))
+    second = observed(artifact_digest=None, observed_at=LATER_AT, provenance_refs=("obs:b",))
+    merged = compose_observations([first, second])
+    assert set(merged.provenance_refs) == {"obs:a", "obs:b"}
+
+
+def test_adjudicate_requires_timezone_aware_now() -> None:
+    with pytest.raises(ValueError, match="timezone-aware"):
+        adjudicate(
+            AcceptanceVerdict.ACCEPTED,
+            dependencies(),
+            dependencies(),
+            expires_at=None,
+            now=datetime(2026, 10, 26, 12, 0, 0),
+        )
+
+
+def test_adjudicate_detects_replayed_stale_observation() -> None:
+    outcome = adjudicate(
+        AcceptanceVerdict.ACCEPTED,
+        dependencies(),
+        dependencies(),
+        expires_at=None,
+        now=datetime.fromisoformat("2026-10-26T12:00:00+00:00"),
+        current_observation=observed(observed_at="2026-10-20T12:00:00Z"),
+        max_age_seconds=3600,
+    )
+    assert outcome is AcceptanceVerdict.STALE
+
+
+def test_stale_current_observation_adjudicates_stale() -> None:
+    outcome = adjudicate(
+        AcceptanceVerdict.ACCEPTED,
+        dependencies(),
+        dependencies(),
+        expires_at=None,
+        now=datetime.fromisoformat("2026-10-26T12:00:00+00:00"),
+        current_observation=observed(observed_at="2026-10-20T12:00:00Z"),
+        max_age_seconds=3600,
+    )
+    assert outcome is AcceptanceVerdict.STALE
+
+
+def test_fresh_current_observation_adjudicates_accepted() -> None:
+    outcome = adjudicate(
+        AcceptanceVerdict.ACCEPTED,
+        dependencies(),
+        dependencies(),
+        expires_at=None,
+        now=datetime.fromisoformat("2026-10-25T12:30:00+00:00"),
+        current_observation=observed(),
+        max_age_seconds=3600,
+    )
+    assert outcome is AcceptanceVerdict.ACCEPTED
+
+
+def test_compose_rejects_schema_invalid_inputs() -> None:
+    with pytest.raises(ValueError, match="at least one proof"):
+        compose_receipt(
+            acceptance_id="acceptance-empty",
+            profile=SKILL_PROFILE,
+            target_environment_class="workstation",
+            target_deployment_identity="deployment-fedora-1",
+            target_identity=None,
+            expected=expected(),
+            observed=observed(),
+            proofs=[],
+            evidence_refs=["evidence:1"],
+        )
+    with pytest.raises(ValueError, match="acceptance id"):
+        compose_receipt(
+            acceptance_id="x" * 257,
+            profile=SKILL_PROFILE,
+            target_environment_class="workstation",
+            target_deployment_identity="deployment-fedora-1",
+            target_identity=None,
+            expected=expected(),
+            observed=observed(),
+            proofs=skill_proofs(),
+            evidence_refs=["evidence:1"],
+        )
+    with pytest.raises(ValueError, match="sha256"):
+        compose_receipt(
+            acceptance_id="acceptance-bad-digest",
+            profile=SKILL_PROFILE,
+            target_environment_class="workstation",
+            target_deployment_identity="deployment-fedora-1",
+            target_identity=None,
+            expected=expected(artifact_digest="not-a-digest"),
+            observed=observed(),
+            proofs=skill_proofs(),
+            evidence_refs=["evidence:1"],
+        )
+    with pytest.raises(ValueError, match="ISO 8601"):
+        compose_receipt(
+            acceptance_id="acceptance-bad-expiry",
+            profile=SKILL_PROFILE,
+            target_environment_class="workstation",
+            target_deployment_identity="deployment-fedora-1",
+            target_identity=None,
+            expected=expected(),
+            observed=observed(),
+            proofs=skill_proofs(),
+            evidence_refs=["evidence:1"],
+            expires_at="yesterday",
+        )
+
+
+def test_composed_receipt_passes_full_schema_validation() -> None:
+    document = composed_document()
+    assert verify_receipt(document, schema_path=SCHEMA_PATH, profile=SKILL_PROFILE) == []
+
+
+def test_evidence_set_digest_is_bounded_and_typed() -> None:
+    with pytest.raises(ValueError, match="at most 64"):
+        evidence_set_digest([f"evidence:{index}" for index in range(65)])
+    with pytest.raises(ValueError, match="non-empty string"):
+        evidence_set_digest(cast("list[str]", [None]))
