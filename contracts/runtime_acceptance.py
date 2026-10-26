@@ -15,7 +15,7 @@ import json
 import re
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
 
@@ -267,6 +267,7 @@ class AcceptanceDecision:
 
 @dataclass(frozen=True)
 class RuntimeAcceptanceDependencies:
+    runtime_id: str
     artifact_digest: str | None
     source_revision: str | None
     config_revision: str | None
@@ -275,6 +276,7 @@ class RuntimeAcceptanceDependencies:
     policy_revision: str
 
     def __post_init__(self) -> None:
+        _require_bounded(self.runtime_id, "dependency runtime id", 256)
         _optional_digest(self.artifact_digest, "dependency artifact digest")
         _optional_source_revision(self.source_revision, "dependency source revision")
         _optional_bounded(self.config_revision, "dependency config revision", 256)
@@ -350,7 +352,7 @@ def evaluate_acceptance(
             reasons.append(f"required-proof-{kind}-missing")
             unresolved = True
             continue
-        if profile.bind_proofs_to_generation:
+        if item.status is ProofStatus.PROVEN and profile.bind_proofs_to_generation:
             if item.runtime_generation is None:
                 reasons.append(f"required-proof-{kind}-generation-unbound")
                 hard_failure = True
@@ -435,7 +437,7 @@ def compose_observations(observations: Sequence[ObservedRuntime]) -> ObservedRun
         runtime_identity_ref=first.runtime_identity_ref,
         runtime_id=runtime_id,
         instance_generation=instance_generation,
-        observed_at=latest_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        observed_at=latest_at.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
         artifact_digest=artifact_digest,
         source_revision=source_revision,
         artifact_version=artifact_version,
@@ -460,6 +462,7 @@ def _parse_utc(value: str) -> datetime:
 def dependency_snapshot(profile: AcceptanceProfile, observed: ObservedRuntime) -> RuntimeAcceptanceDependencies:
     """Capture the load-bearing runtime/profile identity for later currentness checks."""
     return RuntimeAcceptanceDependencies(
+        runtime_id=observed.runtime_id,
         artifact_digest=observed.artifact_digest,
         source_revision=observed.source_revision,
         config_revision=observed.config_revision,
@@ -472,20 +475,28 @@ def dependency_snapshot(profile: AcceptanceProfile, observed: ObservedRuntime) -
 def derive_currentness(
     receipt: RuntimeAcceptanceDependencies, current: RuntimeAcceptanceDependencies
 ) -> AcceptanceCurrentness:
-    """Return STALE for changed known dependencies and UNKNOWN for missing observations."""
+    """Return STALE for changed known dependencies and UNKNOWN for missing observations.
+
+    Every dependency field is examined before deciding: a demonstrable change
+    is STALE even when another field's current value is unavailable, because
+    UNKNOWN must never mask a known invalidation.
+    """
     if receipt.profile_revision != current.profile_revision or receipt.policy_revision != current.policy_revision:
         return AcceptanceCurrentness.STALE
-    if receipt.instance_generation != current.instance_generation:
+    if receipt.runtime_id != current.runtime_id or receipt.instance_generation != current.instance_generation:
         return AcceptanceCurrentness.STALE
+    saw_unknown = False
     for field_name in ("artifact_digest", "source_revision", "config_revision"):
         prior = getattr(receipt, field_name)
         now = getattr(current, field_name)
         if prior is None:
             continue
         if now is None:
-            return AcceptanceCurrentness.UNKNOWN
-        if prior != now:
+            saw_unknown = True
+        elif prior != now:
             return AcceptanceCurrentness.STALE
+    if saw_unknown:
+        return AcceptanceCurrentness.UNKNOWN
     return AcceptanceCurrentness.CURRENT
 
 
@@ -564,6 +575,8 @@ def _require_observation_binding(
     current_observation: ObservedRuntime,
     current_dependencies: RuntimeAcceptanceDependencies,
 ) -> None:
+    if current_observation.runtime_id != current_dependencies.runtime_id:
+        raise ValueError("current observation runtime id disagrees with the supplied current dependencies")
     if current_observation.instance_generation != current_dependencies.instance_generation:
         raise ValueError("current observation generation disagrees with the supplied current dependencies")
     for field_name in ("artifact_digest", "source_revision", "config_revision"):
@@ -605,6 +618,13 @@ def payload_digest(document: Mapping[str, object]) -> str:
     body = {key: value for key, value in document.items() if key != "payload_digest"}
     encoded = json.dumps(body, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
     return "sha256:" + hashlib.sha256(encoded).hexdigest()
+
+
+def _bounded_reasons(reasons: tuple[str, ...]) -> list[str]:
+    """Return the typed reasons without silent truncation; overflow is a composition error."""
+    if len(reasons) > _MAX_REFS:
+        raise ValueError(f"a decision may carry at most {_MAX_REFS} reason codes")
+    return list(reasons)
 
 
 def compose_receipt(
@@ -684,6 +704,7 @@ def compose_receipt(
             "instance_generation": observed.instance_generation,
             "observed_at": observed.observed_at,
             "deployment_identity": observed.deployment_identity,
+            "provenance_refs": list(observed.provenance_refs),
             **(
                 {"clock_provenance": observed.clock_provenance.as_document()}
                 if observed.clock_provenance is not None
@@ -706,6 +727,7 @@ def compose_receipt(
             "evidence_set_digest": evidence_set_digest(evidence_refs),
         },
         "dependency_snapshot": {
+            "runtime_id": snapshot.runtime_id,
             "artifact_digest": snapshot.artifact_digest,
             "source_revision": snapshot.source_revision,
             "config_revision": snapshot.config_revision,
@@ -714,14 +736,14 @@ def compose_receipt(
             "policy_revision": snapshot.policy_revision,
         },
         "verdict": issued.value,
-        "reason_codes": list(decision.reason_codes)[:_MAX_REFS],
+        "reason_codes": _bounded_reasons(decision.reason_codes),
         "currentness_at_issue": AcceptanceCurrentness.CURRENT.value,
         "expires_at": expires_at,
     }
     document["payload_digest"] = payload_digest(document)
-    integrity = verify_receipt(document)
+    integrity = verify_receipt(document, schema_path=Path(__file__).with_name("runtime-acceptance-receipt.schema.json"))
     if integrity:
-        raise ValueError(f"composed receipt failed integrity verification: {'; '.join(integrity)}")
+        raise ValueError(f"composed receipt failed schema or integrity verification: {'; '.join(integrity)}")
     return document
 
 
@@ -935,6 +957,17 @@ def verify_receipt(
                         f"target.deployment_identity mismatch: declared {declared_target!r}, "
                         f"{label} deployment identity {value!r}"
                     )
+        if (
+            profile_block.get("id") != profile.profile_id
+            or profile_block.get("revision") != profile.profile_revision
+            or document.get("policy_revision") != profile.policy_revision
+        ):
+            findings.append(
+                "acceptance_profile identity mismatch: declared "
+                f"({profile_block.get('id')!r}, {profile_block.get('revision')!r}, "
+                f"policy {document.get('policy_revision')!r}) disagrees with the trusted profile "
+                f"({profile.profile_id!r}, {profile.profile_revision!r}, policy {profile.policy_revision!r})"
+            )
         issued = document.get("verdict")
         if issued != decision.verdict.value:
             findings.append(
@@ -951,6 +984,7 @@ def verify_receipt(
         snapshot = document.get("dependency_snapshot")
         if isinstance(snapshot, Mapping):
             expected_snapshot = {
+                "runtime_id": reobserved.runtime_id,
                 "artifact_digest": reobserved.artifact_digest,
                 "source_revision": reobserved.source_revision,
                 "config_revision": reobserved.config_revision,

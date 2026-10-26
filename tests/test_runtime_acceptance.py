@@ -273,8 +273,9 @@ def test_duplicate_proof_kind_is_rejected() -> None:
 # --- Currentness / staleness -------------------------------------------------
 
 
-def dependencies(generation: str = "generation-42", config: str = "config-7") -> RuntimeAcceptanceDependencies:
+def dependencies(runtime_id: str = "runtime-fedora-1", generation: str = "generation-42", config: str = "config-7") -> RuntimeAcceptanceDependencies:
     return RuntimeAcceptanceDependencies(
+        runtime_id=runtime_id,
         artifact_digest=DIGEST_A,
         source_revision=SOURCE_A,
         config_revision=config,
@@ -296,6 +297,7 @@ def test_config_revision_change_is_stale() -> None:
 def test_policy_revision_change_is_stale() -> None:
     current = dependencies()
     current = RuntimeAcceptanceDependencies(
+        runtime_id="runtime-fedora-1",
         artifact_digest=DIGEST_A,
         source_revision=SOURCE_A,
         config_revision="config-7",
@@ -308,6 +310,7 @@ def test_policy_revision_change_is_stale() -> None:
 
 def test_profile_revision_change_is_stale() -> None:
     current = RuntimeAcceptanceDependencies(
+        runtime_id="runtime-fedora-1",
         artifact_digest=DIGEST_A,
         source_revision=SOURCE_A,
         config_revision="config-7",
@@ -320,6 +323,7 @@ def test_profile_revision_change_is_stale() -> None:
 
 def test_missing_current_observation_is_unknown() -> None:
     current = RuntimeAcceptanceDependencies(
+        runtime_id="runtime-fedora-1",
         artifact_digest=None,
         source_revision=SOURCE_A,
         config_revision="config-7",
@@ -982,6 +986,97 @@ def test_verify_tolerates_missing_deployment_identity_for_unbinding_profiles() -
     )
     assert document["verdict"] == "accepted"
     assert verify_receipt(document, schema_path=SCHEMA_PATH, profile=profile) == []
+
+
+# --- Bot review threads (round 6.5) ------------------------------------------
+
+
+def test_merged_observed_at_is_converted_to_utc() -> None:
+    merged = compose_observations(
+        [observed(observed_at="2026-10-25T14:00:00+02:00")],
+    )
+    assert merged.observed_at == "2026-10-25T12:00:00Z"
+
+
+def test_known_stale_dependency_is_not_masked_by_unknown() -> None:
+    receipt_deps = dependencies()
+    current = RuntimeAcceptanceDependencies(
+        runtime_id="runtime-fedora-1",
+        artifact_digest=None,
+        source_revision=SOURCE_A,
+        config_revision="config-9",
+        instance_generation="generation-42",
+        profile_revision="prof-skill-v1",
+        policy_revision="policy-v1",
+    )
+    assert derive_currentness(receipt_deps, current) is AcceptanceCurrentness.STALE
+
+
+def test_runtime_id_change_is_stale() -> None:
+    current = dependencies(runtime_id="runtime-fedora-2")
+    assert derive_currentness(dependencies(), current) is AcceptanceCurrentness.STALE
+
+
+def test_generation_binding_applies_only_to_proven_proofs() -> None:
+    proofs = [
+        proof("installed_files"),
+        proof("deterministic_helper_test", status=ProofStatus.UNKNOWN, runtime_generation=None),
+    ]
+    decision = evaluate_acceptance(SKILL_PROFILE, expected(), observed(), proofs)
+    assert decision.verdict is AcceptanceVerdict.INCONCLUSIVE
+    assert "required-proof-deterministic_helper_test-unknown" in decision.reason_codes
+    assert not any("generation-unbound" in reason for reason in decision.reason_codes)
+
+
+def test_verify_detects_declared_profile_identity_drift() -> None:
+    document = composed_document()
+    profile_block = document["acceptance_profile"]
+    assert isinstance(profile_block, dict)
+    profile_block["id"] = "imitation-profile"
+    document["payload_digest"] = payload_digest(document)
+    findings = verify_receipt(document, schema_path=SCHEMA_PATH, profile=SKILL_PROFILE)
+    assert any("acceptance_profile identity mismatch" in finding for finding in findings)
+
+
+def test_receipt_serializes_observation_provenance_refs() -> None:
+    document = compose_receipt(
+        acceptance_id="acceptance-provenance-1",
+        profile=SKILL_PROFILE,
+        target_environment_class="workstation",
+        target_deployment_identity="deployment-fedora-1",
+        target_identity="host:fedora",
+        expected=expected(),
+        observed=observed(provenance_refs=("obs:a", "obs:b")),
+        proofs=skill_proofs(),
+        evidence_refs=["evidence:1", "evidence:2"],
+    )
+    observed_block = document["observed"]
+    assert isinstance(observed_block, dict)
+    assert observed_block["provenance_refs"] == ["obs:a", "obs:b"]
+    assert verify_receipt(document, schema_path=SCHEMA_PATH) == []
+
+
+def test_reason_overflow_is_a_composition_error() -> None:
+    proofs = [proof(f"kind_{index}", status=ProofStatus.UNKNOWN) for index in range(64)]
+    profile = AcceptanceProfile(
+        profile_id="overflow-profile",
+        profile_revision="prof-overflow-v1",
+        policy_revision="policy-v1",
+        required_identity_fields=("artifact_digest",),
+        required_proof_kinds=tuple(f"kind_{index}" for index in range(64)),
+    )
+    with pytest.raises(ValueError, match="reason codes"):
+        compose_receipt(
+            acceptance_id="acceptance-overflow",
+            profile=profile,
+            target_environment_class="workstation",
+            target_deployment_identity="deployment-fedora-1",
+            target_identity=None,
+            expected=expected(),
+            observed=observed(artifact_digest=None),
+            proofs=proofs,
+            evidence_refs=["evidence:1"],
+        )
 
 
 def test_evidence_set_digest_is_bounded_and_typed() -> None:
