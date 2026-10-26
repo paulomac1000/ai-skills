@@ -109,7 +109,8 @@
           "status": {"enum": ["proven", "failed", "unknown", "unsupported"]},
           "authority": {"type": "string", "minLength": 1, "maxLength": 256},
           "evidence_ref": {"type": ["string", "null"], "minLength": 1, "maxLength": 2048},
-          "runtime_generation": {"type": ["string", "null"], "minLength": 1, "maxLength": 256}
+          "runtime_generation": {"type": ["string", "null"], "minLength": 1, "maxLength": 256},
+          "runtime_id": {"type": ["string", "null"], "minLength": 1, "maxLength": 256}
         },
         "allOf": [
           {
@@ -145,11 +146,16 @@
         "source_revision",
         "config_revision",
         "instance_generation",
-        "acceptance_profile_revision",
-        "policy_revision"
+        "acceptance_profile_id",
+        "acceptance_profile_digest",
+        "policy_revision",
+        "deployment_identity"
       ],
       "properties": {
         "runtime_id": {"type": "string", "minLength": 1, "maxLength": 256},
+        "acceptance_profile_id": {"type": "string", "minLength": 1, "maxLength": 256},
+        "acceptance_profile_digest": {"type": "string", "pattern": "^sha256:[0-9a-fA-F]{64}$"},
+        "deployment_identity": {"type": ["string", "null"], "minLength": 1, "maxLength": 256},
         "artifact_digest": {"type": ["string", "null"], "pattern": "^sha256:[0-9a-fA-F]{64}$"},
         "source_revision": {"type": ["string", "null"], "pattern": "^[0-9a-fA-F]{40}$"},
         "config_revision": {"type": ["string", "null"], "minLength": 1, "maxLength": 256},

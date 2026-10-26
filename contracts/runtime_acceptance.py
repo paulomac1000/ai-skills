@@ -252,11 +252,13 @@ class ProofResult:
     authority: EvidenceAuthority
     evidence_ref: str | None = None
     runtime_generation: str | None = None
+    runtime_id: str | None = None
 
     def __post_init__(self) -> None:
         _require_ref(self.kind, "proof kind")
         _optional_bounded(self.evidence_ref, "proof evidence ref", _MAX_REF)
         _optional_bounded(self.runtime_generation, "proof runtime generation", 256)
+        _optional_bounded(self.runtime_id, "proof runtime id", 256)
 
 
 @dataclass(frozen=True)
@@ -272,8 +274,10 @@ class RuntimeAcceptanceDependencies:
     source_revision: str | None
     config_revision: str | None
     instance_generation: str
-    profile_revision: str
+    profile_id: str
+    profile_digest: str
     policy_revision: str
+    deployment_identity: str | None = None
 
     def __post_init__(self) -> None:
         _require_bounded(self.runtime_id, "dependency runtime id", 256)
@@ -281,8 +285,10 @@ class RuntimeAcceptanceDependencies:
         _optional_source_revision(self.source_revision, "dependency source revision")
         _optional_bounded(self.config_revision, "dependency config revision", 256)
         _require_bounded(self.instance_generation, "dependency instance generation", 256)
-        _require_bounded(self.profile_revision, "dependency profile revision", 256)
+        _require_bounded(self.profile_id, "dependency profile id", 256)
+        _require_digest(self.profile_digest, "dependency profile digest")
         _require_bounded(self.policy_revision, "dependency policy revision", 256)
+        _optional_bounded(self.deployment_identity, "dependency deployment identity", 256)
 
 
 def profile_digest(profile: AcceptanceProfile) -> str:
@@ -353,6 +359,14 @@ def evaluate_acceptance(
             unresolved = True
             continue
         if item.status is ProofStatus.PROVEN and profile.bind_proofs_to_generation:
+            if item.runtime_id is None:
+                reasons.append(f"required-proof-{kind}-runtime-unbound")
+                hard_failure = True
+                continue
+            if item.runtime_id != observed.runtime_id:
+                reasons.append(f"required-proof-{kind}-runtime-mismatch")
+                hard_failure = True
+                continue
             if item.runtime_generation is None:
                 reasons.append(f"required-proof-{kind}-generation-unbound")
                 hard_failure = True
@@ -460,15 +474,17 @@ def _parse_utc(value: str) -> datetime:
 
 
 def dependency_snapshot(profile: AcceptanceProfile, observed: ObservedRuntime) -> RuntimeAcceptanceDependencies:
-    """Capture the load-bearing runtime/profile identity for later currentness checks."""
+    """Capture the load-bearing runtime, deployment, and complete profile identity."""
     return RuntimeAcceptanceDependencies(
         runtime_id=observed.runtime_id,
         artifact_digest=observed.artifact_digest,
         source_revision=observed.source_revision,
         config_revision=observed.config_revision,
         instance_generation=observed.instance_generation,
-        profile_revision=profile.profile_revision,
+        profile_id=profile.profile_id,
+        profile_digest=profile_digest(profile),
         policy_revision=profile.policy_revision,
+        deployment_identity=observed.deployment_identity,
     )
 
 
@@ -479,14 +495,20 @@ def derive_currentness(
 
     Every dependency field is examined before deciding: a demonstrable change
     is STALE even when another field's current value is unavailable, because
-    UNKNOWN must never mask a known invalidation.
+    UNKNOWN must never mask a known invalidation. The load-bearing profile
+    identity is the complete canonical profile (id and digest), not a revision
+    label that other profiles may share.
     """
-    if receipt.profile_revision != current.profile_revision or receipt.policy_revision != current.policy_revision:
+    if (
+        receipt.profile_id != current.profile_id
+        or receipt.profile_digest != current.profile_digest
+        or receipt.policy_revision != current.policy_revision
+    ):
         return AcceptanceCurrentness.STALE
     if receipt.runtime_id != current.runtime_id or receipt.instance_generation != current.instance_generation:
         return AcceptanceCurrentness.STALE
     saw_unknown = False
-    for field_name in ("artifact_digest", "source_revision", "config_revision"):
+    for field_name in ("artifact_digest", "source_revision", "config_revision", "deployment_identity"):
         prior = getattr(receipt, field_name)
         now = getattr(current, field_name)
         if prior is None:
@@ -579,6 +601,9 @@ def _require_observation_binding(
         raise ValueError("current observation runtime id disagrees with the supplied current dependencies")
     if current_observation.instance_generation != current_dependencies.instance_generation:
         raise ValueError("current observation generation disagrees with the supplied current dependencies")
+    if current_dependencies.deployment_identity is not None:
+        if current_observation.deployment_identity != current_dependencies.deployment_identity:
+            raise ValueError("current observation deployment identity disagrees with the supplied current dependencies")
     for field_name in ("artifact_digest", "source_revision", "config_revision"):
         if getattr(current_observation, field_name) != getattr(current_dependencies, field_name):
             raise ValueError(f"current observation {field_name} disagrees with the supplied current dependencies")
@@ -719,6 +744,7 @@ def compose_receipt(
                 "authority": item.authority.value,
                 "evidence_ref": item.evidence_ref,
                 "runtime_generation": item.runtime_generation,
+                "runtime_id": item.runtime_id,
             }
             for item in proofs
         ],
@@ -732,8 +758,10 @@ def compose_receipt(
             "source_revision": snapshot.source_revision,
             "config_revision": snapshot.config_revision,
             "instance_generation": snapshot.instance_generation,
-            "acceptance_profile_revision": snapshot.profile_revision,
+            "acceptance_profile_id": snapshot.profile_id,
+            "acceptance_profile_digest": snapshot.profile_digest,
             "policy_revision": snapshot.policy_revision,
+            "deployment_identity": snapshot.deployment_identity,
         },
         "verdict": issued.value,
         "reason_codes": _bounded_reasons(decision.reason_codes),
@@ -771,6 +799,7 @@ def _receipt_proofs(document: Mapping[str, object]) -> list[ReceiptProof]:
             continue
         evidence = item.get("evidence_ref")
         generation = item.get("runtime_generation")
+        runtime_id = item.get("runtime_id")
         required = item.get("required")
         try:
             proofs.append(
@@ -781,6 +810,7 @@ def _receipt_proofs(document: Mapping[str, object]) -> list[ReceiptProof]:
                         authority=EvidenceAuthority(authority),
                         evidence_ref=evidence if isinstance(evidence, str) else None,
                         runtime_generation=generation if isinstance(generation, str) else None,
+                        runtime_id=runtime_id if isinstance(runtime_id, str) else None,
                     ),
                     required=required if isinstance(required, bool) else None,
                 )
@@ -989,8 +1019,10 @@ def verify_receipt(
                 "source_revision": reobserved.source_revision,
                 "config_revision": reobserved.config_revision,
                 "instance_generation": reobserved.instance_generation,
-                "acceptance_profile_revision": profile.profile_revision,
+                "acceptance_profile_id": profile.profile_id,
+                "acceptance_profile_digest": profile_digest(profile),
                 "policy_revision": profile.policy_revision,
+                "deployment_identity": reobserved.deployment_identity,
             }
             for key, value in expected_snapshot.items():
                 if snapshot.get(key) != value:

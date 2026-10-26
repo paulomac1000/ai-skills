@@ -1,5 +1,16 @@
 # Changelog
 
+## 3.32.1 - 2026-10-26
+
+### Fixed
+
+- `runtime_acceptance` closes three acceptance-integrity defects found in post-release review of the 3.32.0 receipt contract. Cross-runtime proof reuse: a required proven proof was bound only to the instance-generation label, so evidence collected on runtime A could accept runtime B whenever the two runtimes shared a generation label; proven required proofs now bind to the observed `runtime_id` as well (schema `proofs[].runtime_id`), and unbound or mismatched runtime bindings are typed rejections. Complete profile currentness: the dependency snapshot carried only the profile revision, so two different profiles sharing a revision adjudicated as current; the snapshot now binds the full canonical profile identity (`acceptance_profile_id` and `acceptance_profile_digest`, schema-required) and any difference is STALE. Deployment-target currentness: `adjudicate_current` ignored the deployment identity, so an acceptance for deployment A stayed green against a fresh observation of deployment B sharing artifact, runtime id, and generation; the snapshot now binds the observed `deployment_identity`, observation binding rejects a disagreeing deployment, and currentness treats a deployment change as STALE.
+- Observation composition converts merged timestamps to UTC before the `Z` suffix, `derive_currentness` never lets an unavailable comparison mask a demonstrable dependency change, generation binding applies only to proven required proofs, trusted verification compares the declared profile id/revision and policy revision with the trusted profile, receipts serialize observation provenance references, composition self-checks against the published schema, and typed reason overflow raises instead of truncating.
+
+### Compatibility
+
+- Receipts composed by 3.32.0 evaluators fail closed under 3.32.1: the receipt schema now requires the runtime and deployment bindings and the complete snapshot identity, and proofs without a runtime binding are typed rejections for binding-required profiles. No silent upgrade path exists by design; recompose receipts with a 3.32.1 evaluator.
+
 ## 3.32.0 - 2026-10-26
 
 ### Added
