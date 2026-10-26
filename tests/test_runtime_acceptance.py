@@ -1162,6 +1162,22 @@ def test_f3_cross_deployment_observation_is_rejected() -> None:
         )
 
 
+def test_f3_unbound_deployment_observation_cannot_substitute_for_bound() -> None:
+    deps_a = dependency_snapshot(
+        SKILL_PROFILE,
+        observed(deployment_identity="deployment-A", observed_at="2026-10-26T10:00:00Z"),
+    )
+    with pytest.raises(ValueError, match="deployment identity"):
+        adjudicate_current(
+            AcceptanceVerdict.ACCEPTED,
+            deps_a,
+            deps_a,
+            now=datetime.fromisoformat("2026-10-26T12:00:00+00:00"),
+            current_observation=observed(deployment_identity=None, observed_at="2026-10-26T11:59:00Z"),
+            max_age_seconds=3600,
+        )
+
+
 def test_f3_cross_deployment_via_stale_semantics() -> None:
     deps_a = dependency_snapshot(
         SKILL_PROFILE,

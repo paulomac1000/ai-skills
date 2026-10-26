@@ -601,11 +601,9 @@ def _require_observation_binding(
         raise ValueError("current observation runtime id disagrees with the supplied current dependencies")
     if current_observation.instance_generation != current_dependencies.instance_generation:
         raise ValueError("current observation generation disagrees with the supplied current dependencies")
-    if (
-        current_dependencies.deployment_identity is not None
-        and current_observation.deployment_identity != current_dependencies.deployment_identity
-    ):
-        raise ValueError("current observation deployment identity disagrees with the supplied current dependencies")
+    if current_dependencies.deployment_identity is not None:
+        if current_observation.deployment_identity != current_dependencies.deployment_identity:
+            raise ValueError("current observation deployment identity disagrees with the supplied current dependencies")
     for field_name in ("artifact_digest", "source_revision", "config_revision"):
         if getattr(current_observation, field_name) != getattr(current_dependencies, field_name):
             raise ValueError(f"current observation {field_name} disagrees with the supplied current dependencies")
