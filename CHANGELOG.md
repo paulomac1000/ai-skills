@@ -1,5 +1,14 @@
 # Changelog
 
+## 3.32.0 - 2026-10-26
+
+### Added
+
+- The repository-level `contracts/` directory gained the provider-neutral `RuntimeAcceptanceReceipt` v1 contract (`runtime-acceptance-receipt.schema.json`) and its evaluator (`runtime_acceptance.py`), resolving issue #97. One bounded receipt composes caller-supplied expected deployment identity with independently observed runtime identity, per-proof obligations, and mechanically derivable staleness. Hard invariants are enforced by the evaluator and tested: an expected artifact digest never manufactures an observed one; artifact version is never silently promoted to a runtime instance generation; a healthy process running the wrong artifact, a failed required readiness or action-class proof, or a required `unknown`/`unsupported` proof can never yield acceptance, while an unsupported optional proof stays an explicit gap that does not block an unrelated profile.
+- Proof evidence keeps typed authority classes (`caller_claim`, `worker_report`, `provider_ack`, `qa_deterministic`, `model_review`, `independent_observer`). An acceptance profile may declare a minimum authority per required proof kind; a proven claim below that floor, or a proven claim without an evidence reference, is a typed rejection rather than an automatic upgrade. Conflicting independent observations of the same target fail closed during composition instead of merging into one pass.
+- Receipts bind their exact evidence input set through an order-insensitive `evidence_set_digest` and a structural `payload_digest`, both re-derivable by `verify_receipt`. Adjudication combines an issued verdict with currentness and expiry into `ACCEPTED`, `REJECTED`, `INCONCLUSIVE`, or `STALE`: a restart, config change, profile or policy revision change, or expired window marks an old acceptance stale, so post-rollback recovery always requires fresh generation-bound evidence. Optional clock provenance preserves source timestamps, offsets, and normalization; a naive source clock can never silently claim exact UTC evidence.
+- Two reference acceptance profiles are regression-tested: `managed-skill-distribution`, where installed-artifact identity plus deterministic helper behavior satisfy the profile without model behavior proof, and `runtime-service`, where source/artifact/config identity, readiness, and action-class observations from an independent observer are load-bearing.
+
 ## 3.31.0 - 2026-10-24
 
 ### Added

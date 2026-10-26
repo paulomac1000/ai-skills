@@ -71,7 +71,19 @@
         "artifact_version": {"type": ["string", "null"], "minLength": 1, "maxLength": 128},
         "config_revision": {"type": ["string", "null"], "minLength": 1, "maxLength": 256},
         "instance_generation": {"type": "string", "minLength": 1, "maxLength": 256},
-        "observed_at": {"type": "string", "format": "date-time"}
+        "observed_at": {"type": "string", "format": "date-time"},
+        "deployment_identity": {"type": ["string", "null"], "minLength": 1, "maxLength": 256},
+        "clock_provenance": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["source_timestamp", "source_offset", "source_clock", "normalization"],
+          "properties": {
+            "source_timestamp": {"type": "string", "minLength": 1, "maxLength": 64},
+            "source_offset": {"type": ["string", "null"], "minLength": 1, "maxLength": 8},
+            "source_clock": {"type": "string", "minLength": 1, "maxLength": 64},
+            "normalization": {"enum": ["exact", "derived", "unknown"]}
+          }
+        }
       }
     },
     "proofs": {
@@ -88,7 +100,16 @@
           "status": {"enum": ["proven", "failed", "unknown", "unsupported"]},
           "authority": {"type": "string", "minLength": 1, "maxLength": 256},
           "evidence_ref": {"type": ["string", "null"], "minLength": 1, "maxLength": 2048}
-        }
+        },
+        "allOf": [
+          {
+            "if": {"properties": {"status": {"const": "proven"}}, "required": ["status"]},
+            "then": {
+              "properties": {"evidence_ref": {"type": "string", "minLength": 1, "maxLength": 2048}},
+              "required": ["evidence_ref"]
+            }
+          }
+        ]
       }
     },
     "inputs": {
