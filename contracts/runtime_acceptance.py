@@ -868,6 +868,8 @@ def verify_receipt(
         observed_source = observed_block.get("source_revision")
         observed_config = observed_block.get("config_revision")
         expected_deployment = expected_block.get("deployment_identity")
+        expected_source = expected_block.get("source_revision")
+        expected_config = expected_block.get("config_revision")
         try:
             reobserved = ObservedRuntime(
                 runtime_identity_ref=str(observed_block.get("runtime_identity_ref", "")),
@@ -881,6 +883,8 @@ def verify_receipt(
             )
             reexpected = ExpectedRuntime(
                 artifact_digest=expected_digest,
+                source_revision=expected_source if isinstance(expected_source, str) else None,
+                config_revision=expected_config if isinstance(expected_config, str) else None,
                 deployment_identity=expected_deployment if isinstance(expected_deployment, str) else None,
             )
             decision = evaluate_acceptance(profile, reexpected, reobserved, _receipt_proofs(document))

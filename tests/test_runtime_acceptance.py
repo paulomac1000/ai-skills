@@ -901,6 +901,22 @@ def test_composed_receipt_passes_full_schema_validation() -> None:
     assert verify_receipt(document, schema_path=SCHEMA_PATH, profile=SKILL_PROFILE) == []
 
 
+def test_verify_reruns_runtime_service_profile_without_false_mismatch() -> None:
+    document = compose_receipt(
+        acceptance_id="acceptance-runtime-service-1",
+        profile=RUNTIME_PROFILE,
+        target_environment_class="server",
+        target_deployment_identity="deployment-fedora-1",
+        target_identity="host:fedora",
+        expected=expected(),
+        observed=observed(),
+        proofs=runtime_proofs(),
+        evidence_refs=["evidence:1", "evidence:2"],
+    )
+    assert document["verdict"] == "accepted"
+    assert verify_receipt(document, schema_path=SCHEMA_PATH, profile=RUNTIME_PROFILE) == []
+
+
 def test_evidence_set_digest_is_bounded_and_typed() -> None:
     with pytest.raises(ValueError, match="at most 64"):
         evidence_set_digest([f"evidence:{index}" for index in range(65)])
