@@ -109,28 +109,37 @@ def proof(
     authority: EvidenceAuthority = EvidenceAuthority.INDEPENDENT_OBSERVER,
     evidence: str | None = "evidence:1",
     runtime_generation: str | None = "generation-42",
+    runtime_id: str | None = "runtime-fedora-1",
 ) -> ProofResult:
     return ProofResult(
-        kind=kind, status=status, authority=authority, evidence_ref=evidence, runtime_generation=runtime_generation
+        kind=kind,
+        status=status,
+        authority=authority,
+        evidence_ref=evidence,
+        runtime_generation=runtime_generation,
+        runtime_id=runtime_id,
     )
 
 
-def skill_proofs(runtime_generation: str | None = "generation-42") -> list[ProofResult]:
+def skill_proofs(
+    runtime_generation: str | None = "generation-42", runtime_id: str | None = "runtime-fedora-1"
+) -> list[ProofResult]:
     return [
-        proof("installed_files", runtime_generation=runtime_generation),
+        proof("installed_files", runtime_generation=runtime_generation, runtime_id=runtime_id),
         proof(
             "deterministic_helper_test",
             authority=EvidenceAuthority.QA_DETERMINISTIC,
             runtime_generation=runtime_generation,
+            runtime_id=runtime_id,
         ),
     ]
 
 
-def runtime_proofs() -> list[ProofResult]:
+def runtime_proofs(runtime_id: str = "runtime-fedora-1") -> list[ProofResult]:
     return [
-        proof("artifact_identity"),
-        proof("readiness"),
-        proof("action_class"),
+        proof("artifact_identity", runtime_id=runtime_id),
+        proof("readiness", runtime_id=runtime_id),
+        proof("action_class", runtime_id=runtime_id),
     ]
 
 
@@ -273,15 +282,24 @@ def test_duplicate_proof_kind_is_rejected() -> None:
 # --- Currentness / staleness -------------------------------------------------
 
 
-def dependencies(runtime_id: str = "runtime-fedora-1", generation: str = "generation-42", config: str = "config-7") -> RuntimeAcceptanceDependencies:
+def dependencies(
+    runtime_id: str = "runtime-fedora-1",
+    generation: str = "generation-42",
+    config: str = "config-7",
+    profile: AcceptanceProfile | None = None,
+    deployment_identity: str | None = "deployment-fedora-1",
+) -> RuntimeAcceptanceDependencies:
+    resolved = profile or SKILL_PROFILE
     return RuntimeAcceptanceDependencies(
         runtime_id=runtime_id,
         artifact_digest=DIGEST_A,
         source_revision=SOURCE_A,
         config_revision=config,
         instance_generation=generation,
-        profile_revision="prof-skill-v1",
-        policy_revision="policy-v1",
+        profile_id=resolved.profile_id,
+        profile_digest=profile_digest(resolved),
+        policy_revision=resolved.policy_revision,
+        deployment_identity=deployment_identity,
     )
 
 
@@ -302,23 +320,37 @@ def test_policy_revision_change_is_stale() -> None:
         source_revision=SOURCE_A,
         config_revision="config-7",
         instance_generation="generation-42",
-        profile_revision="prof-skill-v1",
+        profile_id="managed-skill-distribution",
+        profile_digest=profile_digest(SKILL_PROFILE),
         policy_revision="policy-v2",
     )
     assert derive_currentness(dependencies(), current) is AcceptanceCurrentness.STALE
 
 
 def test_profile_revision_change_is_stale() -> None:
-    current = RuntimeAcceptanceDependencies(
-        runtime_id="runtime-fedora-1",
-        artifact_digest=DIGEST_A,
-        source_revision=SOURCE_A,
-        config_revision="config-7",
-        instance_generation="generation-42",
+    drifted = AcceptanceProfile(
+        profile_id=SKILL_PROFILE.profile_id,
         profile_revision="prof-skill-v2",
-        policy_revision="policy-v1",
+        policy_revision=SKILL_PROFILE.policy_revision,
+        required_identity_fields=SKILL_PROFILE.required_identity_fields,
+        required_proof_kinds=SKILL_PROFILE.required_proof_kinds,
+        minimum_authority=SKILL_PROFILE.minimum_authority,
     )
+    current = dependencies(profile=drifted)
+    assert current.profile_digest != profile_digest(SKILL_PROFILE)
     assert derive_currentness(dependencies(), current) is AcceptanceCurrentness.STALE
+
+
+def test_different_profile_same_revision_is_stale() -> None:
+    other = AcceptanceProfile(
+        profile_id="other-profile",
+        profile_revision=SKILL_PROFILE.profile_revision,
+        policy_revision=SKILL_PROFILE.policy_revision,
+        required_identity_fields=SKILL_PROFILE.required_identity_fields,
+        required_proof_kinds=SKILL_PROFILE.required_proof_kinds,
+        minimum_authority=SKILL_PROFILE.minimum_authority,
+    )
+    assert derive_currentness(dependencies(), dependencies(profile=other)) is AcceptanceCurrentness.STALE
 
 
 def test_missing_current_observation_is_unknown() -> None:
@@ -328,7 +360,8 @@ def test_missing_current_observation_is_unknown() -> None:
         source_revision=SOURCE_A,
         config_revision="config-7",
         instance_generation="generation-42",
-        profile_revision="prof-skill-v1",
+        profile_id="managed-skill-distribution",
+        profile_digest=profile_digest(SKILL_PROFILE),
         policy_revision="policy-v1",
     )
     assert derive_currentness(dependencies(), current) is AcceptanceCurrentness.UNKNOWN
@@ -1006,7 +1039,8 @@ def test_known_stale_dependency_is_not_masked_by_unknown() -> None:
         source_revision=SOURCE_A,
         config_revision="config-9",
         instance_generation="generation-42",
-        profile_revision="prof-skill-v1",
+        profile_id="managed-skill-distribution",
+        profile_digest=profile_digest(SKILL_PROFILE),
         policy_revision="policy-v1",
     )
     assert derive_currentness(receipt_deps, current) is AcceptanceCurrentness.STALE
@@ -1015,6 +1049,147 @@ def test_known_stale_dependency_is_not_masked_by_unknown() -> None:
 def test_runtime_id_change_is_stale() -> None:
     current = dependencies(runtime_id="runtime-fedora-2")
     assert derive_currentness(dependencies(), current) is AcceptanceCurrentness.STALE
+
+
+def test_deployment_identity_change_is_stale() -> None:
+    current = dependencies(deployment_identity="deployment-terminal101")
+    assert derive_currentness(dependencies(), current) is AcceptanceCurrentness.STALE
+
+
+# --- Remediation F1-F3 (#97 closeout) ----------------------------------------
+
+
+def test_f1_cross_runtime_proof_reuse_same_generation_is_rejected() -> None:
+    """Runtime A proof must not accept runtime B when only the generation label matches."""
+    runtime_b = observed(runtime_id="runtime-B", deployment_identity="deployment-B")
+    proofs_from_a = runtime_proofs(runtime_id="runtime-A")
+    decision = evaluate_acceptance(
+        RUNTIME_PROFILE,
+        expected(deployment_identity="deployment-B"),
+        runtime_b,
+        proofs_from_a,
+    )
+    assert decision.verdict is AcceptanceVerdict.REJECTED
+    assert "required-proof-artifact_identity-runtime-mismatch" in decision.reason_codes
+
+
+def test_f1_unbound_runtime_proof_fails_closed() -> None:
+    decision = evaluate_acceptance(
+        RUNTIME_PROFILE,
+        expected(),
+        observed(),
+        runtime_proofs(runtime_id=None),
+    )
+    assert decision.verdict is AcceptanceVerdict.REJECTED
+    assert "required-proof-artifact_identity-runtime-unbound" in decision.reason_codes
+
+
+def test_f1_cross_runtime_reuse_cannot_compose_or_verify() -> None:
+    document = compose_receipt(
+        acceptance_id="f1-end-to-end",
+        profile=RUNTIME_PROFILE,
+        target_environment_class="server",
+        target_deployment_identity="deployment-fedora-1",
+        target_identity="host:fedora",
+        expected=expected(),
+        observed=observed(),
+        proofs=runtime_proofs(runtime_id="runtime-OTHER"),
+        evidence_refs=["evidence:1", "evidence:2", "evidence:3"],
+    )
+    assert document["verdict"] == "rejected"
+    assert verify_receipt(document, schema_path=SCHEMA_PATH, profile=RUNTIME_PROFILE) == []
+
+
+def test_f1_proof_runtime_id_is_serialized_and_rechecked() -> None:
+    document = compose_receipt(
+        acceptance_id="f1-serialization",
+        profile=RUNTIME_PROFILE,
+        target_environment_class="server",
+        target_deployment_identity="deployment-fedora-1",
+        target_identity="host:fedora",
+        expected=expected(),
+        observed=observed(),
+        proofs=runtime_proofs(),
+        evidence_refs=["evidence:1", "evidence:2", "evidence:3"],
+    )
+    proofs_block = document["proofs"]
+    assert isinstance(proofs_block, list)
+    assert all(item["runtime_id"] == "runtime-fedora-1" for item in proofs_block)
+    forged = dict(document)
+    assert isinstance(forged["proofs"], list)
+    forged["proofs"][0]["runtime_id"] = "runtime-OTHER"
+    forged["payload_digest"] = payload_digest(forged)
+    findings = verify_receipt(forged, schema_path=SCHEMA_PATH, profile=RUNTIME_PROFILE)
+    assert any("verdict mismatch" in finding for finding in findings)
+
+
+def test_f2_profile_identity_is_part_of_currentness() -> None:
+    other = AcceptanceProfile(
+        profile_id="other-profile",
+        profile_revision=SKILL_PROFILE.profile_revision,
+        policy_revision=SKILL_PROFILE.policy_revision,
+        required_identity_fields=SKILL_PROFILE.required_identity_fields,
+        required_proof_kinds=("installed_files", "deterministic_helper_test"),
+        minimum_authority=SKILL_PROFILE.minimum_authority,
+    )
+    assert profile_digest(other) != profile_digest(SKILL_PROFILE)
+    fresh = observed(observed_at="2026-10-26T11:59:00Z")
+    outcome = adjudicate_current(
+        AcceptanceVerdict.ACCEPTED,
+        dependency_snapshot(SKILL_PROFILE, observed()),
+        dependency_snapshot(other, fresh),
+        now=datetime.fromisoformat("2026-10-26T12:00:00+00:00"),
+        current_observation=fresh,
+        max_age_seconds=3600,
+    )
+    assert outcome is AcceptanceVerdict.STALE
+
+
+def test_f3_cross_deployment_observation_is_rejected() -> None:
+    deps_a = dependency_snapshot(
+        SKILL_PROFILE,
+        observed(deployment_identity="deployment-A", observed_at="2026-10-26T10:00:00Z"),
+    )
+    fresh_b = observed(deployment_identity="deployment-B", observed_at="2026-10-26T11:59:00Z")
+    with pytest.raises(ValueError, match="deployment identity"):
+        adjudicate_current(
+            AcceptanceVerdict.ACCEPTED,
+            deps_a,
+            deps_a,
+            now=datetime.fromisoformat("2026-10-26T12:00:00+00:00"),
+            current_observation=fresh_b,
+            max_age_seconds=3600,
+        )
+
+
+def test_f3_cross_deployment_via_stale_semantics() -> None:
+    deps_a = dependency_snapshot(
+        SKILL_PROFILE,
+        observed(deployment_identity="deployment-A", observed_at="2026-10-26T10:00:00Z"),
+    )
+    current_b = dependencies(deployment_identity="deployment-B")
+    assert derive_currentness(deps_a, current_b) is AcceptanceCurrentness.STALE
+
+
+def test_f3_unbound_profile_tolerates_absent_deployment_in_binding() -> None:
+    unbound = AcceptanceProfile(
+        profile_id="unbound",
+        profile_revision="prof-unbound-v1",
+        policy_revision="policy-v1",
+        required_identity_fields=("artifact_digest",),
+        required_proof_kinds=("installed_files",),
+        minimum_authority={"installed_files": EvidenceAuthority.INDEPENDENT_OBSERVER},
+        require_target_binding=False,
+    )
+    deps = dependency_snapshot(unbound, observed(deployment_identity=None))
+    adjudicate_current(
+        AcceptanceVerdict.ACCEPTED,
+        deps,
+        deps,
+        now=datetime.fromisoformat("2026-10-26T12:00:00+00:00"),
+        current_observation=observed(deployment_identity=None),
+        max_age_seconds=3600,
+    )
 
 
 def test_generation_binding_applies_only_to_proven_proofs() -> None:
