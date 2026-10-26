@@ -395,7 +395,7 @@ def compose_observations(observations: Sequence[ObservedRuntime]) -> ObservedRun
     config_revision = first.config_revision
     deployment_identity = first.deployment_identity
     clock_provenance = first.clock_provenance
-    provenance: dict[str, None] = {}
+    provenance: dict[str, None] = {first.runtime_identity_ref: None}
     for ref in first.provenance_refs:
         provenance.setdefault(ref)
     latest_at = _parse_utc(first.observed_at)
@@ -425,8 +425,11 @@ def compose_observations(observations: Sequence[ObservedRuntime]) -> ObservedRun
         ):
             raise ValueError("conflicting observation clock_provenance")
         clock_provenance = clock_provenance if clock_provenance is not None else other.clock_provenance
+        provenance.setdefault(other.runtime_identity_ref)
         for ref in other.provenance_refs:
             provenance.setdefault(ref)
+        if len(provenance) > _MAX_REFS:
+            raise ValueError(f"merged provenance references must contain at most {_MAX_REFS} items")
 
     return ObservedRuntime(
         runtime_identity_ref=first.runtime_identity_ref,
@@ -722,9 +725,17 @@ def compose_receipt(
     return document
 
 
-def _receipt_proofs(document: Mapping[str, object]) -> list[ProofResult]:
-    """Re-derive typed proof results from a receipt document; unparseable entries yield [] via caller check."""
-    proofs: list[ProofResult] = []
+@dataclass(frozen=True)
+class ReceiptProof:
+    """A proof re-derived from a receipt document with its serialized required flag."""
+
+    result: ProofResult
+    required: bool | None
+
+
+def _receipt_proofs(document: Mapping[str, object]) -> list[ReceiptProof]:
+    """Re-derive typed proof results from a receipt document with their serialized required flags."""
+    proofs: list[ReceiptProof] = []
     raw = document.get("proofs")
     if not isinstance(raw, list):
         return proofs
@@ -738,14 +749,18 @@ def _receipt_proofs(document: Mapping[str, object]) -> list[ProofResult]:
             continue
         evidence = item.get("evidence_ref")
         generation = item.get("runtime_generation")
+        required = item.get("required")
         try:
             proofs.append(
-                ProofResult(
-                    kind=kind,
-                    status=ProofStatus(status),
-                    authority=EvidenceAuthority(authority),
-                    evidence_ref=evidence if isinstance(evidence, str) else None,
-                    runtime_generation=generation if isinstance(generation, str) else None,
+                ReceiptProof(
+                    result=ProofResult(
+                        kind=kind,
+                        status=ProofStatus(status),
+                        authority=EvidenceAuthority(authority),
+                        evidence_ref=evidence if isinstance(evidence, str) else None,
+                        runtime_generation=generation if isinstance(generation, str) else None,
+                    ),
+                    required=required if isinstance(required, bool) else None,
                 )
             )
         except ValueError:
@@ -837,16 +852,31 @@ def verify_receipt(
     declared_refs: set[str] = set()
     if isinstance(refs_block, Mapping) and isinstance(refs_block.get("evidence_refs"), list):
         declared_refs = {str(ref) for ref in refs_block["evidence_refs"] if isinstance(ref, str)}
-    for item in _receipt_proofs(document):
+    receipt_proofs = _receipt_proofs(document)
+    for receipt_proof in receipt_proofs:
+        item = receipt_proof.result
         if item.evidence_ref is not None and item.evidence_ref not in declared_refs:
             findings.append(f"proofs[{item.kind}].evidence_ref {item.evidence_ref} is outside inputs.evidence_refs")
 
     if profile is not None:
+        for receipt_proof in receipt_proofs:
+            expected_required = receipt_proof.result.kind in profile.required_proof_kinds
+            if receipt_proof.required is not None and receipt_proof.required != expected_required:
+                findings.append(
+                    f"proofs[{receipt_proof.result.kind}].required flag {receipt_proof.required!r} disagrees with "
+                    f"the trusted profile (required={expected_required})"
+                )
         expected_block = document.get("expected")
         observed_block = document.get("observed")
         if not isinstance(expected_block, Mapping) or not isinstance(observed_block, Mapping):
             findings.append("verdict re-evaluation requires expected and observed blocks")
             return findings
+        if profile.require_target_binding:
+            target_block = document.get("target")
+            declared_target = target_block.get("deployment_identity") if isinstance(target_block, Mapping) else None
+            if not isinstance(declared_target, str):
+                findings.append("verdict re-evaluation requires a typed target deployment identity")
+                return findings
         profile_block = document.get("acceptance_profile")
         if not isinstance(profile_block, Mapping) or profile_block.get("digest") != profile_digest(profile):
             declared_digest = profile_block.get("digest") if isinstance(profile_block, Mapping) else None
@@ -857,7 +887,9 @@ def verify_receipt(
             return findings
         observed_generation = observed_block.get("instance_generation")
         observed_deployment = observed_block.get("deployment_identity")
-        if not isinstance(observed_generation, str) or not isinstance(observed_deployment, str):
+        if not isinstance(observed_generation, str) or (
+            profile.require_target_binding and not isinstance(observed_deployment, str)
+        ):
             findings.append("verdict re-evaluation requires typed observed generation and deployment identity")
             return findings
         expected_digest = expected_block.get("artifact_digest")
@@ -879,7 +911,7 @@ def verify_receipt(
                 artifact_digest=observed_digest if isinstance(observed_digest, str) else None,
                 source_revision=observed_source if isinstance(observed_source, str) else None,
                 config_revision=observed_config if isinstance(observed_config, str) else None,
-                deployment_identity=observed_deployment,
+                deployment_identity=observed_deployment if isinstance(observed_deployment, str) else None,
             )
             reexpected = ExpectedRuntime(
                 artifact_digest=expected_digest,
@@ -887,10 +919,22 @@ def verify_receipt(
                 config_revision=expected_config if isinstance(expected_config, str) else None,
                 deployment_identity=expected_deployment if isinstance(expected_deployment, str) else None,
             )
-            decision = evaluate_acceptance(profile, reexpected, reobserved, _receipt_proofs(document))
+            decision = evaluate_acceptance(profile, reexpected, reobserved, [p.result for p in receipt_proofs])
         except ValueError as exc:
             findings.append(f"verdict re-evaluation failed: {exc}")
             return findings
+        if profile.require_target_binding:
+            target_block = document.get("target")
+            declared_target = target_block.get("deployment_identity") if isinstance(target_block, Mapping) else None
+            for label, value in (
+                ("expected", reexpected.deployment_identity),
+                ("observed", reobserved.deployment_identity),
+            ):
+                if value != declared_target:
+                    findings.append(
+                        f"target.deployment_identity mismatch: declared {declared_target!r}, "
+                        f"{label} deployment identity {value!r}"
+                    )
         issued = document.get("verdict")
         if issued != decision.verdict.value:
             findings.append(

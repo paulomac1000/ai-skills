@@ -730,7 +730,7 @@ def test_compose_observations_preserves_provenance_refs() -> None:
     first = observed(provenance_refs=("obs:a",))
     second = observed(artifact_digest=None, observed_at=LATER_AT, provenance_refs=("obs:b",))
     merged = compose_observations([first, second])
-    assert set(merged.provenance_refs) == {"obs:a", "obs:b"}
+    assert set(merged.provenance_refs) == {"runtime-identity:fedora-1", "obs:a", "obs:b"}
 
 
 def test_adjudicate_requires_timezone_aware_now() -> None:
@@ -915,6 +915,73 @@ def test_verify_reruns_runtime_service_profile_without_false_mismatch() -> None:
     )
     assert document["verdict"] == "accepted"
     assert verify_receipt(document, schema_path=SCHEMA_PATH, profile=RUNTIME_PROFILE) == []
+
+
+def test_tampered_receipt_target_is_detected_by_verify() -> None:
+    document = compose_receipt(
+        acceptance_id="acceptance-tamper-target",
+        profile=SKILL_PROFILE,
+        target_environment_class="workstation",
+        target_deployment_identity="deployment-fedora-1",
+        target_identity="host:fedora",
+        expected=expected(),
+        observed=observed(),
+        proofs=skill_proofs(),
+        evidence_refs=["evidence:1", "evidence:2"],
+    )
+    target_block = document["target"]
+    assert isinstance(target_block, dict)
+    target_block["deployment_identity"] = "deployment-production-9"
+    document["payload_digest"] = payload_digest(document)
+    findings = verify_receipt(document, schema_path=SCHEMA_PATH, profile=SKILL_PROFILE)
+    assert any("target.deployment_identity mismatch" in finding for finding in findings)
+
+
+def test_tampered_required_flag_is_detected_by_verify() -> None:
+    document = composed_document()
+    proofs_block = document["proofs"]
+    assert isinstance(proofs_block, list)
+    proofs_block[1]["required"] = False
+    document["payload_digest"] = payload_digest(document)
+    findings = verify_receipt(document, schema_path=SCHEMA_PATH, profile=SKILL_PROFILE)
+    assert any("required flag" in finding for finding in findings)
+
+
+def test_compose_observations_keeps_every_source_identity_reference() -> None:
+    merged = compose_observations(
+        [
+            observed(artifact_digest=None),
+            observed(
+                artifact_digest=DIGEST_A, observed_at=LATER_AT, runtime_identity_ref="runtime-identity:observer-b"
+            ),
+        ]
+    )
+    assert set(merged.provenance_refs) >= {"runtime-identity:fedora-1", "runtime-identity:observer-b"}
+
+
+def test_verify_tolerates_missing_deployment_identity_for_unbinding_profiles() -> None:
+    profile = AcceptanceProfile(
+        profile_id="unbound-targets",
+        profile_revision="prof-unbound-v1",
+        policy_revision="policy-v1",
+        required_identity_fields=("artifact_digest",),
+        required_proof_kinds=("installed_files",),
+        minimum_authority={"installed_files": EvidenceAuthority.INDEPENDENT_OBSERVER},
+        require_target_binding=False,
+    )
+    document = compose_receipt(
+        acceptance_id="acceptance-unbound-1",
+        profile=profile,
+        target_environment_class="workstation",
+        target_deployment_identity="target-unspecified",
+        target_identity=None,
+        expected=expected(deployment_identity=None),
+        observed=observed(deployment_identity=None),
+        proofs=skill_proofs(),
+        evidence_refs=["evidence:1", "evidence:2"],
+    )
+    assert document["verdict"] == "accepted"
+    assert verify_receipt(document, schema_path=SCHEMA_PATH, profile=profile) == []
 
 
 def test_evidence_set_digest_is_bounded_and_typed() -> None:
