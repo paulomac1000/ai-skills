@@ -26,6 +26,7 @@ from contracts.runtime_acceptance import (
     ProofStatus,
     RuntimeAcceptanceDependencies,
     adjudicate,
+    adjudicate_current,
     authority_satisfies,
     compose_observations,
     compose_receipt,
@@ -780,6 +781,67 @@ def test_fresh_current_observation_adjudicates_accepted() -> None:
         max_age_seconds=3600,
     )
     assert outcome is AcceptanceVerdict.ACCEPTED
+
+
+def test_authoritative_adjudication_requires_observation_and_window() -> None:
+    now = datetime.fromisoformat("2026-10-26T12:00:00+00:00")
+    with pytest.raises(TypeError):
+        adjudicate_current(
+            AcceptanceVerdict.ACCEPTED,
+            dependencies(),
+            dependencies(),
+            now=now,
+        )
+    with pytest.raises(ValueError, match="freshness window"):
+        adjudicate_current(
+            AcceptanceVerdict.ACCEPTED,
+            dependencies(),
+            dependencies(),
+            now=now,
+            current_observation=observed(),
+            max_age_seconds=0,
+        )
+    with pytest.raises(ValueError, match="clock-skew"):
+        adjudicate_current(
+            AcceptanceVerdict.ACCEPTED,
+            dependencies(),
+            dependencies(),
+            now=now,
+            current_observation=observed(observed_at="2026-10-26T13:00:00Z"),
+            max_age_seconds=3600,
+        )
+
+
+def test_authoritative_adjudication_detects_missing_fresh_evidence() -> None:
+    now = datetime.fromisoformat("2026-10-26T12:00:00+00:00")
+    outcome = adjudicate_current(
+        AcceptanceVerdict.ACCEPTED,
+        dependencies(),
+        dependencies(),
+        now=now,
+        current_observation=observed(observed_at="2026-10-20T12:00:00Z"),
+        max_age_seconds=3600,
+    )
+    assert outcome is AcceptanceVerdict.STALE
+    fresh = adjudicate_current(
+        AcceptanceVerdict.ACCEPTED,
+        dependencies(),
+        dependencies(),
+        now=now,
+        current_observation=observed(observed_at="2026-10-26T11:30:00Z"),
+        max_age_seconds=3600,
+    )
+    assert fresh is AcceptanceVerdict.ACCEPTED
+    skewed = adjudicate_current(
+        AcceptanceVerdict.ACCEPTED,
+        dependencies(),
+        dependencies(),
+        now=now,
+        current_observation=observed(observed_at="2026-10-26T12:00:10Z"),
+        max_age_seconds=3600,
+        clock_skew_seconds=60,
+    )
+    assert skewed is AcceptanceVerdict.ACCEPTED
 
 
 def test_compose_rejects_schema_invalid_inputs() -> None:

@@ -496,22 +496,17 @@ def adjudicate(
     current_observation: ObservedRuntime | None = None,
     max_age_seconds: float | None = None,
 ) -> AcceptanceVerdict:
-    """Combine the issued verdict with currentness and expiry into one bounded outcome.
+    """Dependency-only currentness comparison.
 
-    The current dependencies are caller-trusted values; when
-    ``current_observation`` is supplied they must be bound to it — the
-    observation's generation and known identity fields must agree, and with
-    ``max_age_seconds`` an observation older than the freshness window yields
-    STALE instead of a replayed acceptance.
+    This helper is NOT authoritative currentness evidence: with no current
+    observation or no freshness window it compares detached dependency values
+    only. Acceptance-gate decisions must use :func:`adjudicate_current`, which
+    requires fresh generation-bound observation evidence.
     """
     if now.tzinfo is None:
         raise ValueError("adjudicate now must be timezone-aware")
     if current_observation is not None:
-        if current_observation.instance_generation != current_dependencies.instance_generation:
-            raise ValueError("current observation generation disagrees with the supplied current dependencies")
-        for field_name in ("artifact_digest", "source_revision", "config_revision"):
-            if getattr(current_observation, field_name) != getattr(current_dependencies, field_name):
-                raise ValueError(f"current observation {field_name} disagrees with the supplied current dependencies")
+        _require_observation_binding(current_observation, current_dependencies)
     if issued_verdict is not AcceptanceVerdict.ACCEPTED:
         return issued_verdict
     if expires_at is not None and now >= _parse_utc(expires_at):
@@ -520,6 +515,63 @@ def adjudicate(
         observed = _parse_utc(current_observation.observed_at)
         if (now - observed).total_seconds() > max_age_seconds:
             return AcceptanceVerdict.STALE
+    return _currentness_verdict(receipt_dependencies, current_dependencies)
+
+
+def adjudicate_current(
+    issued_verdict: AcceptanceVerdict,
+    receipt_dependencies: RuntimeAcceptanceDependencies,
+    current_dependencies: RuntimeAcceptanceDependencies,
+    *,
+    now: datetime,
+    current_observation: ObservedRuntime,
+    max_age_seconds: float,
+    clock_skew_seconds: float = 0.0,
+    expires_at: str | None = None,
+) -> AcceptanceVerdict:
+    """Authoritative currentness adjudication bound to fresh observation evidence.
+
+    Requires a real current observation (generation and identity fields must
+    agree with the supplied current dependencies), a positive freshness
+    window, and rejects future-dated observations beyond the declared
+    clock-skew tolerance. Missing or over-aged current evidence yields
+    INCONCLUSIVE or STALE instead of a replayed acceptance.
+    """
+    if now.tzinfo is None:
+        raise ValueError("adjudicate now must be timezone-aware")
+    if not max_age_seconds > 0:
+        raise ValueError("the freshness window must be positive")
+    if clock_skew_seconds < 0:
+        raise ValueError("the clock-skew tolerance must not be negative")
+    _require_observation_binding(current_observation, current_dependencies)
+    observed_at = _parse_utc(current_observation.observed_at)
+    age_seconds = (now - observed_at).total_seconds()
+    if age_seconds < -clock_skew_seconds:
+        raise ValueError("current observation is future-dated beyond the clock-skew tolerance")
+    if issued_verdict is not AcceptanceVerdict.ACCEPTED:
+        return issued_verdict
+    if expires_at is not None and now >= _parse_utc(expires_at):
+        return AcceptanceVerdict.STALE
+    if age_seconds > max_age_seconds:
+        return AcceptanceVerdict.STALE
+    return _currentness_verdict(receipt_dependencies, current_dependencies)
+
+
+def _require_observation_binding(
+    current_observation: ObservedRuntime,
+    current_dependencies: RuntimeAcceptanceDependencies,
+) -> None:
+    if current_observation.instance_generation != current_dependencies.instance_generation:
+        raise ValueError("current observation generation disagrees with the supplied current dependencies")
+    for field_name in ("artifact_digest", "source_revision", "config_revision"):
+        if getattr(current_observation, field_name) != getattr(current_dependencies, field_name):
+            raise ValueError(f"current observation {field_name} disagrees with the supplied current dependencies")
+
+
+def _currentness_verdict(
+    receipt_dependencies: RuntimeAcceptanceDependencies,
+    current_dependencies: RuntimeAcceptanceDependencies,
+) -> AcceptanceVerdict:
     currentness = derive_currentness(receipt_dependencies, current_dependencies)
     if currentness is AcceptanceCurrentness.STALE:
         return AcceptanceVerdict.STALE
