@@ -1066,9 +1066,11 @@ def compose_receipt(
         "expires_at": expires_at,
     }
     # Composition must never emit a document the canonical reader refuses to
-    # load: the serialized size shares the reader's bounded input limit, and
-    # unencodable producer strings are rejected as composition errors rather
-    # than surfacing as raw UnicodeEncodeError.
+    # load: the serialized size shares the reader's bounded input limit. The
+    # digest field is part of the serialized payload, so a same-length
+    # placeholder is inserted before measuring; ``payload_digest`` ignores the
+    # field's value, so the placeholder cannot change the canonical digest.
+    document["payload_digest"] = "sha256:" + "0" * 64
     try:
         serialized_size = len(json.dumps(document, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
     except UnicodeEncodeError as exc:

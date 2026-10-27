@@ -1466,6 +1466,91 @@ def test_composition_refuses_payload_beyond_reader_limit() -> None:
         )
 
 
+_DIGEST_FIELD_OVERHEAD = len(',"payload_digest":"sha256:' + "0" * 64 + '"')  # 91
+
+
+def _edge_body(evidence_refs: Sequence[str]) -> dict[str, object]:
+    body = compose_baseline(issued=rr.ReviewVerdict.NEEDS_FIXES)
+    del body["payload_digest"]
+    body["evidence_refs"] = list(evidence_refs)
+    return body
+
+
+def test_size_limit_measures_final_serialized_payload(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The digest field itself counts: a receipt whose pre-digest serialization
+    fits the limit but whose final serialization exceeds it must be refused."""
+    evidence = ["e:" + "x" * 40]
+    body = _edge_body(evidence)
+    pre_digest_size = len(json.dumps(body, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
+    final_size = pre_digest_size + _DIGEST_FIELD_OVERHEAD
+    assert pre_digest_size <= rr._MAX_INPUT_BYTES
+    # Simulate the bug window on a small limit: pre-digest fits, final does not.
+    monkeypatch.setattr(rr, "_MAX_INPUT_BYTES", final_size - 1)
+    with pytest.raises(ValueError, match="reader limit"):
+        rr.compose_receipt(
+            review_id="review-93",
+            review_generation=2,
+            subject=baseline_subject(),
+            producer=baseline_producer(),
+            independence=baseline_independence(),
+            policy_binding=baseline_policy_binding(),
+            criteria=baseline_criteria(),
+            coverage=baseline_coverage(),
+            provider_operation=baseline_operation(),
+            findings=baseline_ledger(),
+            issued_verdict=rr.ReviewVerdict.NEEDS_FIXES,
+            evidence_refs=evidence,
+            reviewed_at=REVIEWED_AT,
+        )
+
+
+def test_size_limit_at_exact_boundary_is_admissible(monkeypatch: pytest.MonkeyPatch) -> None:
+    evidence = ["e:" + "x" * 10]
+    body = _edge_body(evidence)
+    pre_digest_size = len(json.dumps(body, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
+    final_size = pre_digest_size + _DIGEST_FIELD_OVERHEAD
+    monkeypatch.setattr(rr, "_MAX_INPUT_BYTES", final_size)
+    document = rr.compose_receipt(
+        review_id="review-93",
+        review_generation=2,
+        subject=baseline_subject(),
+        producer=baseline_producer(),
+        independence=baseline_independence(),
+        policy_binding=baseline_policy_binding(),
+        criteria=baseline_criteria(),
+        coverage=baseline_coverage(),
+        provider_operation=baseline_operation(),
+        findings=baseline_ledger(),
+        issued_verdict=rr.ReviewVerdict.NEEDS_FIXES,
+        evidence_refs=evidence,
+        reviewed_at=REVIEWED_AT,
+    )
+    serialized = json.dumps(document, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    assert len(serialized) == final_size <= rr._MAX_INPUT_BYTES
+    assert rr.verify_receipt(document, schema_path=SCHEMA_PATH) == []
+
+
+def test_composed_receipt_is_readable_by_official_cli(tmp_path: Path) -> None:
+    document = compose_baseline()
+    receipt = tmp_path / "receipt.json"
+    receipt.write_text(json.dumps(document), encoding="utf-8")
+    completed = subprocess_run_cli(receipt)
+    assert completed.returncode == 0
+    assert "findings: 0" in completed.stdout
+
+
+def subprocess_run_cli(receipt: Path):
+    import subprocess
+    import sys
+
+    return subprocess.run(
+        [sys.executable, str(Path(__file__).resolve().parents[1] / "contracts" / "review_receipt.py"), str(receipt)],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+
+
 # ---------------------------------------------------------------------------
 # F10: unknown currentness on non-green
 # ---------------------------------------------------------------------------
