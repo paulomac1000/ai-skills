@@ -846,11 +846,17 @@ def review_admission(
         gate_verdict = gate.verdict if gate is not None else ReviewVerdict.BLOCKED
         reasons = tuple(dict.fromkeys((*structural_findings, *policy_findings, *gate_reasons)))
         return AdmissionDecision(AdmissionOutcome.NON_GREEN, gate_verdict, Currentness.UNKNOWN, reasons)
+    # Early rejection paths still report mechanically derived currentness: a
+    # non-green decision must never certify freshness it did not evaluate,
+    # and the derivation is a pure identity comparison available here.
+    early_currentness = derive_currentness(
+        dependencies_from_parts(receipt_subject, receipt_policy), current_dependencies
+    )
     if document.get("verdict") != ReviewVerdict.APPROVE.value:
         return AdmissionDecision(
             AdmissionOutcome.NON_GREEN,
             gate.verdict,
-            Currentness.CURRENT,
+            early_currentness,
             (f"issued-verdict-{document.get('verdict')!r}-not-green",),
         )
     # Independent-authority qualification: the receipt's attested declaration is
@@ -864,7 +870,7 @@ def review_admission(
             return AdmissionDecision(
                 AdmissionOutcome.NON_GREEN,
                 gate.verdict,
-                Currentness.CURRENT,
+                early_currentness,
                 ("independence-authority-unqualified",),
             )
         authority_reasons: list[str] = []
@@ -888,7 +894,7 @@ def review_admission(
             authority_reasons.append("independence-authority-operation-mismatch")
         if authority_reasons:
             return AdmissionDecision(
-                AdmissionOutcome.NON_GREEN, gate.verdict, Currentness.CURRENT, tuple(authority_reasons)
+                AdmissionOutcome.NON_GREEN, gate.verdict, early_currentness, tuple(authority_reasons)
             )
     expires_at = document.get("expires_at")
     try:
@@ -906,7 +912,7 @@ def review_admission(
         return AdmissionDecision(
             AdmissionOutcome.NON_GREEN,
             gate.verdict,
-            Currentness.CURRENT,
+            early_currentness,
             ("provider-completed-at-future",),
         )
     receipt_dependencies = dependencies_from_parts(receipt_subject, receipt_policy)
@@ -1059,12 +1065,17 @@ def compose_receipt(
         "reviewed_at": reviewed_at,
         "expires_at": expires_at,
     }
-    document["payload_digest"] = payload_digest(document)
     # Composition must never emit a document the canonical reader refuses to
-    # load: the serialized size shares the reader's bounded input limit.
-    serialized_size = len(json.dumps(document, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
+    # load: the serialized size shares the reader's bounded input limit, and
+    # unencodable producer strings are rejected as composition errors rather
+    # than surfacing as raw UnicodeEncodeError.
+    try:
+        serialized_size = len(json.dumps(document, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
+    except UnicodeEncodeError as exc:
+        raise ValueError("receipt contains values that cannot be encoded as UTF-8 for canonical digesting") from exc
     if serialized_size > _MAX_INPUT_BYTES:
         raise ValueError(f"serialized receipt exceeds the {_MAX_INPUT_BYTES}-byte reader limit: {serialized_size}")
+    document["payload_digest"] = payload_digest(document)
     integrity = verify_receipt(document, schema_path=Path(__file__).with_name("review-receipt.schema.json"))
     if integrity:
         raise ValueError(f"composed receipt failed schema or integrity verification: {'; '.join(integrity)}")
@@ -1280,6 +1291,17 @@ def verify_receipt(
         findings.append("unsupported receipt schema version")
     if document.get("format") != RECEIPT_FORMAT:
         findings.append("unsupported receipt format")
+
+    # Canonical digesting requires strict UTF-8 encoding; decoded JSON may
+    # legally carry lone surrogates that schema validation accepts but
+    # ``ensure_ascii=False`` serialization rejects. Malformed external
+    # evidence must produce a bounded finding, never an encoding exception,
+    # and diagnostics never embed the offending value.
+    try:
+        json.dumps(document, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    except (UnicodeEncodeError, TypeError, ValueError):
+        findings.append("receipt contains values that cannot be encoded as UTF-8 for canonical digesting")
+        return findings
 
     declared_payload = document.get("payload_digest")
     if not isinstance(declared_payload, str):

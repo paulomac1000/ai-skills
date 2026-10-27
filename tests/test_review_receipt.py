@@ -1616,3 +1616,138 @@ def test_late_previous_generation_result_cannot_legalize_changed_candidate() -> 
     assert rr.verify_receipt(document, schema_path=SCHEMA_PATH) == []
     decision = admit(document, current=baseline_current(candidate=C2))
     assert decision.outcome is rr.AdmissionOutcome.NOT_CURRENT
+
+
+# ---------------------------------------------------------------------------
+# Review round 3 (Codex): Unicode serialization + early-reject currentness
+# ---------------------------------------------------------------------------
+
+
+def _document_with_lone_surrogate() -> dict[str, object]:
+    document = compose_baseline()
+    document["producer"]["reviewer_identity"] = json.loads('"\\ud800"')
+    document["payload_digest"] = "sha256:" + "0" * 64
+    return document
+
+
+def test_lone_high_surrogate_is_non_green_not_raised() -> None:
+    document = _document_with_lone_surrogate()
+    findings = rr.verify_receipt(document, schema_path=SCHEMA_PATH)
+    assert findings
+    assert all("cannot be encoded" in reason for reason in findings)
+    decision = rr.review_admission(
+        document,
+        policy=baseline_policy(),
+        current_dependencies=baseline_current(),
+        now=NOW,
+        independence_authority=None,
+    )
+    assert decision.outcome is rr.AdmissionOutcome.NON_GREEN
+
+
+def test_lone_low_surrogate_in_nested_evidence_is_non_green() -> None:
+    document = compose_baseline()
+    document["evidence_refs"] = [json.loads('"bundle:\\udfff"')]
+    document["payload_digest"] = "sha256:" + "0" * 64
+    findings = rr.verify_receipt(document, schema_path=None)
+    assert any("cannot be encoded" in reason for reason in findings)
+    with pytest.raises(ValueError, match="cannot be encoded"):
+        rr.compose_receipt(
+            review_id="review-surrogate",
+            review_generation=1,
+            subject=baseline_subject(),
+            producer=rr.ReviewProducer(
+                reviewer_kind=rr.ReviewerKind.MODEL,
+                reviewer_identity=json.loads('"reviewer-\\ud800"'),
+            ),
+            independence=baseline_independence(),
+            policy_binding=baseline_policy_binding(),
+            criteria=baseline_criteria(),
+            coverage=baseline_coverage(),
+            provider_operation=baseline_operation(),
+            findings=baseline_ledger(),
+            issued_verdict=rr.ReviewVerdict.NEEDS_FIXES,
+            evidence_refs=(),
+            reviewed_at=REVIEWED_AT,
+        )
+
+
+def test_valid_unicode_and_ascii_baselines_still_compose_and_verify() -> None:
+    document = compose_baseline()
+    document["producer"]["reviewer_identity"] = "recenzent-ąęśżźćó- reviews 📝"
+    document["payload_digest"] = rr.payload_digest(document)
+    assert rr.verify_receipt(document, schema_path=SCHEMA_PATH) == []
+
+
+def test_diagnostic_findings_do_not_embed_invalid_text() -> None:
+    document = _document_with_lone_surrogate()
+    findings = rr.verify_receipt(document, schema_path=None)
+    for reason in findings:
+        assert "\ud800" not in reason
+
+
+@pytest.mark.parametrize("authority", [None, "mismatch"])
+def test_early_rejection_with_changed_candidate_reports_stale(authority: str | None) -> None:
+    document = compose_baseline()
+    if authority is None:
+        qualification = None
+    else:
+        qualification = rr.IndependenceAuthorityQualification(
+            reviewer_identity="someone-else",
+            authority=rr.AttestationAuthority.ORCHESTRATOR_ATTESTED,
+            candidate_sha=C1,
+            source_ref="dispatch:op-1",
+        )
+    decision = rr.review_admission(
+        document,
+        policy=baseline_policy(),
+        current_dependencies=baseline_current(candidate=C2),
+        now=NOW,
+        independence_authority=qualification,
+    )
+    assert decision.outcome is rr.AdmissionOutcome.NON_GREEN
+    assert decision.currentness is rr.Currentness.STALE
+
+
+def test_early_rejection_with_exact_candidate_reports_current() -> None:
+    document = compose_baseline()
+    decision = rr.review_admission(
+        document,
+        policy=baseline_policy(),
+        current_dependencies=baseline_current(),
+        now=NOW,
+        independence_authority=None,
+    )
+    assert decision.outcome is rr.AdmissionOutcome.NON_GREEN
+    assert decision.currentness is rr.Currentness.CURRENT
+
+
+def test_future_completion_with_changed_candidate_reports_stale() -> None:
+    document = compose_baseline()
+    document["provider_operation"]["completed_at"] = "2026-10-28T00:00:00Z"
+    document["payload_digest"] = rr.payload_digest(document)
+    decision = rr.review_admission(
+        document,
+        policy=baseline_policy(),
+        current_dependencies=baseline_current(candidate=C2),
+        now=NOW,
+        independence_authority=default_qualification(document),
+    )
+    assert decision.outcome is rr.AdmissionOutcome.NON_GREEN
+    assert decision.currentness is rr.Currentness.STALE
+
+
+def test_non_approve_issued_verdict_with_changed_candidate_reports_stale() -> None:
+    document = compose_baseline(issued=rr.ReviewVerdict.NEEDS_FIXES)
+    decision = rr.review_admission(
+        document,
+        policy=baseline_policy(),
+        current_dependencies=baseline_current(candidate=C2),
+        now=NOW,
+        independence_authority=default_qualification(document),
+    )
+    assert decision.outcome is rr.AdmissionOutcome.NON_GREEN
+    # The issued needs_fixes verdict trips the policy verdict-mismatch finding,
+    # so this path returns before identity derivation; either way it must never
+    # certify CURRENT for a candidate it did not compare.
+    assert decision.currentness is not rr.Currentness.CURRENT
