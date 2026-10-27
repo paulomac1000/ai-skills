@@ -42,6 +42,8 @@ _TERMINAL_BLOCKED_STATES = frozenset(
 )
 _NON_TERMINAL_STATES = frozenset({"requested", "accepted", "running", "ack_unknown"})
 _FULL_ACCESS_MODES = frozenset({"connected_repo", "exact_bundle"})
+_WAIVER_AUTHORITIES = frozenset({"implementer", "policy", "independent"})
+_EVIDENCE_SELECTION_AUTHORITIES = frozenset({"parent", "reviewer", "implementer", "independent", "unknown"})
 
 
 class ReviewerKind(StrEnum):
@@ -341,7 +343,10 @@ class ReviewCoverage:
             raise ValueError("coverage omitted areas must be unique and bounded")
         for area in self.omitted_areas:
             _require_ref(area, "coverage omitted area")
-        _require_bounded(self.evidence_selection_authority, "coverage evidence-selection authority", 64)
+        if self.evidence_selection_authority not in _EVIDENCE_SELECTION_AUTHORITIES:
+            raise ValueError(
+                f"coverage evidence-selection authority {self.evidence_selection_authority!r} is unsupported"
+            )
 
 
 @dataclass(frozen=True)
@@ -387,6 +392,8 @@ class FindingRecord:
         _optional_source_revision(self.resolved_by_revision, "finding resolved-by revision")
         _optional_bounded(self.waiver_ref, "finding waiver ref", _MAX_REF)
         _optional_bounded(self.waiver_authority, "finding waiver authority", 64)
+        if self.waiver_authority is not None and self.waiver_authority not in _WAIVER_AUTHORITIES:
+            raise ValueError(f"finding {self.finding_id} has unsupported waiver authority {self.waiver_authority!r}")
         if len(set(self.evidence_refs)) != len(self.evidence_refs) or len(self.evidence_refs) > _MAX_REFS:
             raise ValueError(f"finding {self.finding_id} evidence refs must be unique and bounded")
         for ref in self.evidence_refs:
@@ -396,8 +403,8 @@ class FindingRecord:
         if self.state is FindingState.WAIVED_BY_AUTHORITY:
             if not self.waiver_ref:
                 raise ValueError(f"finding {self.finding_id} waived_by_authority requires a waiver reference")
-            if self.waiver_authority == "implementer":
-                raise ValueError(f"finding {self.finding_id} cannot be waived by the implementer")
+            if self.waiver_authority not in ("policy", "independent"):
+                raise ValueError(f"finding {self.finding_id} requires policy or independent waiver authority")
 
 
 @dataclass(frozen=True)
@@ -498,6 +505,40 @@ def policy_digest(policy: ReviewPolicy) -> str:
 
 
 @dataclass(frozen=True)
+class IndependenceAuthorityQualification:
+    """Trusted-side evidence that the reviewer's independence was attested by an
+    authority outside the receipt bytes.
+
+    The receipt's own attestation fields are caller-controlled content: a
+    payload digest binds that content without identifying its issuer. A
+    floor above ``self_declared`` is therefore satisfiable only when the
+    trusted policy holder supplies this qualification from its own boundary
+    (dispatch records, provider operation logs) — a caller-constructed
+    qualification is exactly as untrusted as the receipt itself and cannot
+    upgrade admission. Admission binds the qualification to the receipt by
+    reviewer identity, candidate SHA, attestation authority, and provider
+    operation reference.
+    """
+
+    reviewer_identity: str
+    authority: AttestationAuthority
+    candidate_sha: str
+    source_ref: str
+    provider_operation_ref: str | None = None
+
+    def __post_init__(self) -> None:
+        _require_bounded(self.reviewer_identity, "qualification reviewer identity", _MAX_IDS)
+        if self.authority not in (
+            AttestationAuthority.ORCHESTRATOR_ATTESTED,
+            AttestationAuthority.INDEPENDENT_AUTHORITY,
+        ):
+            raise ValueError("qualification authority must be orchestrator_attested or independent_authority")
+        _require_source_revision(self.candidate_sha, "qualification candidate sha")
+        _require_ref(self.source_ref, "qualification source ref")
+        _optional_bounded(self.provider_operation_ref, "qualification provider operation ref", 512)
+
+
+@dataclass(frozen=True)
 class GateDecision:
     """Policy-derived verdict; the receipt's issued verdict is never authoritative alone."""
 
@@ -540,9 +581,16 @@ def evaluate_review(
         by_id[criterion.id] = criterion
 
     blocking_open: list[str] = []
+    open_majors: list[str] = []
     for finding in findings.items:
         if finding.severity is FindingSeverity.BLOCKER and finding.state is FindingState.OPEN:
             blocking_open.append(finding.finding_id)
+        if (
+            policy.require_resolved_findings
+            and finding.severity is FindingSeverity.MAJOR
+            and finding.state is FindingState.OPEN
+        ):
+            open_majors.append(finding.finding_id)
         if (
             finding.state is FindingState.RESOLVED_BY_CANDIDATE
             and finding.resolved_by_revision != subject.candidate_sha
@@ -550,6 +598,8 @@ def evaluate_review(
             definitive.append(f"finding-{finding.finding_id}-resolved-by-foreign-revision")
         if finding.state is FindingState.WAIVED_BY_AUTHORITY and finding.waiver_authority == "implementer":
             definitive.append(f"finding-{finding.finding_id}-waiver-authority-implementer")
+    if open_majors:
+        gaps.extend(f"unresolved-major-finding:{finding_id}" for finding_id in open_majors)
 
     for criterion_id in policy.required_criteria:
         outcome = by_id.get(criterion_id)
@@ -565,6 +615,19 @@ def evaluate_review(
         elif outcome.verdict is CriterionVerdict.NOT_APPLICABLE and not policy.allow_required_not_applicable:
             gaps.append(f"required-criterion-{criterion_id}-not-applicable-disallowed")
 
+    # The policy-required list is a minimum: criteria the receipt itself declares
+    # required are evaluated on their own outcomes and can never be lowered away,
+    # while only the trusted policy can authorize a required NOT_APPLICABLE.
+    for criterion in criteria:
+        if not criterion.required or criterion.id in policy.required_criteria:
+            continue
+        if criterion.verdict is CriterionVerdict.FAIL:
+            definitive.append(f"required-criterion-{criterion.id}-failed")
+        elif criterion.verdict is CriterionVerdict.UNKNOWN:
+            gaps.append(f"required-criterion-{criterion.id}-unknown")
+        elif criterion.verdict is CriterionVerdict.NOT_APPLICABLE and not policy.allow_required_not_applicable:
+            gaps.append(f"required-criterion-{criterion.id}-not-applicable-disallowed")
+
     if policy.require_full_input:
         if coverage.access_mode not in _FULL_ACCESS_MODES:
             gaps.append(f"coverage-access-mode-{coverage.access_mode.value}")
@@ -572,6 +635,10 @@ def evaluate_review(
             gaps.append(f"coverage-context-{coverage.required_context_complete.value}")
         if coverage.evidence_selection_authority == "implementer":
             gaps.append("coverage-selection-authority-implementer")
+        if coverage.reviewed_through_sha is None:
+            gaps.append("coverage-reviewed-through-missing")
+        elif coverage.reviewed_through_sha != subject.candidate_sha:
+            definitive.append("coverage-reviewed-through-mismatch")
     for path in policy.required_changed_files:
         if path not in coverage.changed_files:
             gaps.append(f"coverage-changed-file-missing:{path}")
@@ -673,8 +740,11 @@ def derive_currentness(receipt: ReviewDependencies, current: ReviewDependencies)
 
     Every dependency field is examined before deciding: a demonstrable change
     is STALE even when another current value is unavailable, because UNKNOWN
-    must never mask a known invalidation. Candidate tree identity is not a
-    dependency: equal trees never transfer an approval across commit SHAs.
+    must never mask a known invalidation. A receipt that omits a binding its
+    current counterpart supplies can never be CURRENT: the approval never
+    covered that identity axis, so the receipt is stale rather than silently
+    transferring across it. Candidate tree identity is not a dependency:
+    equal trees never transfer an approval across commit SHAs.
     """
     if receipt.candidate_sha != current.candidate_sha or receipt.repository != current.repository:
         return Currentness.STALE
@@ -685,6 +755,8 @@ def derive_currentness(receipt: ReviewDependencies, current: ReviewDependencies)
         prior = getattr(receipt, field_name)
         now = getattr(current, field_name)
         if prior is None:
+            if now is not None:
+                return Currentness.STALE
             continue
         if now is None:
             saw_unknown = True
@@ -703,24 +775,33 @@ class AdmissionDecision:
     reason_codes: tuple[str, ...]
 
 
+_BUNDLED_SCHEMA_PATH = Path(__file__).with_name("review-receipt.schema.json")
+
+
 def review_admission(
     document: Mapping[str, object],
     *,
     policy: ReviewPolicy,
     current_dependencies: ReviewDependencies,
     now: datetime,
-    schema_path: Path | None = None,
+    independence_authority: IndependenceAuthorityQualification | None = None,
 ) -> AdmissionDecision:
-    """Authoritative admission path: verify, derive the gate, then currentness.
+    """Authoritative admission path: schema verification, gate, authority, currentness.
 
-    Requires timezone-aware ``now``. Any structural, integrity, semantic, or
+    The authoritative entrypoint always validates against the published
+    schema; structural-only interpretation never admits a receipt. Requires
+    timezone-aware ``now``. Any structural, integrity, semantic, or
     policy-verification finding yields ``NON_GREEN`` before currentness is
     even considered, so a forged or stale-but-consistent receipt can never
-    become green through a currentness shortcut.
+    become green through a currentness shortcut. When the trusted policy
+    floors independence above ``self_declared``, the receipt's own attested
+    declaration is necessary but never sufficient: the trusted caller must
+    inject an :class:`IndependenceAuthorityQualification` from outside the
+    receipt bytes or admission stays non-green.
     """
     if now.tzinfo is None:
         raise ValueError("review admission now must be timezone-aware")
-    structural_findings = verify_receipt(document, schema_path=schema_path, policy=None)
+    structural_findings = verify_receipt(document, schema_path=_BUNDLED_SCHEMA_PATH, policy=None)
     parts = _parts_from_document(document)
     gate: GateDecision | None = None
     if parts is not None:
@@ -764,7 +845,7 @@ def review_admission(
         gate_reasons = gate.reason_codes if gate is not None else ()
         gate_verdict = gate.verdict if gate is not None else ReviewVerdict.BLOCKED
         reasons = tuple(dict.fromkeys((*structural_findings, *policy_findings, *gate_reasons)))
-        return AdmissionDecision(AdmissionOutcome.NON_GREEN, gate_verdict, Currentness.CURRENT, reasons)
+        return AdmissionDecision(AdmissionOutcome.NON_GREEN, gate_verdict, Currentness.UNKNOWN, reasons)
     if document.get("verdict") != ReviewVerdict.APPROVE.value:
         return AdmissionDecision(
             AdmissionOutcome.NON_GREEN,
@@ -772,9 +853,60 @@ def review_admission(
             Currentness.CURRENT,
             (f"issued-verdict-{document.get('verdict')!r}-not-green",),
         )
+    # Independent-authority qualification: the receipt's attested declaration is
+    # caller-controlled content; a floor above self_declared requires trusted
+    # evidence from outside the receipt, bound to this receipt's identities.
+    if policy.require_independence and policy.minimum_independence_authority in (
+        AttestationAuthority.ORCHESTRATOR_ATTESTED,
+        AttestationAuthority.INDEPENDENT_AUTHORITY,
+    ):
+        if independence_authority is None:
+            return AdmissionDecision(
+                AdmissionOutcome.NON_GREEN,
+                gate.verdict,
+                Currentness.CURRENT,
+                ("independence-authority-unqualified",),
+            )
+        authority_reasons: list[str] = []
+        if independence_authority.reviewer_identity != receipt_producer.reviewer_identity:
+            authority_reasons.append("independence-authority-reviewer-mismatch")
+        if independence_authority.candidate_sha != receipt_subject.candidate_sha:
+            authority_reasons.append("independence-authority-candidate-mismatch")
+        if not attestation_satisfies(independence_authority.authority, policy.minimum_independence_authority):
+            authority_reasons.append("independence-authority-insufficient")
+        if receipt_independence.attestation.authority is AttestationAuthority.SELF_DECLARED or (
+            receipt_independence.attestation.authority is AttestationAuthority.NONE
+        ):
+            authority_reasons.append("independence-attestation-contradicts-qualification")
+        if (
+            independence_authority.provider_operation_ref is not None
+            and operation.operation_ref is not None
+            and independence_authority.provider_operation_ref != operation.operation_ref
+        ):
+            authority_reasons.append("independence-authority-operation-mismatch")
+        if authority_reasons:
+            return AdmissionDecision(
+                AdmissionOutcome.NON_GREEN, gate.verdict, Currentness.CURRENT, tuple(authority_reasons)
+            )
     expires_at = document.get("expires_at")
-    if isinstance(expires_at, str) and now >= _parse_utc(expires_at):
+    try:
+        expired = isinstance(expires_at, str) and now >= _parse_utc(expires_at)
+    except ValueError:
+        return AdmissionDecision(
+            AdmissionOutcome.NON_GREEN,
+            gate.verdict,
+            Currentness.UNKNOWN,
+            ("receipt-expires-at-invalid",),
+        )
+    if expired:
         return AdmissionDecision(AdmissionOutcome.NOT_CURRENT, gate.verdict, Currentness.STALE, ("receipt-expired",))
+    if operation.completed_at is not None and _parse_utc(operation.completed_at) > now:
+        return AdmissionDecision(
+            AdmissionOutcome.NON_GREEN,
+            gate.verdict,
+            Currentness.CURRENT,
+            ("provider-completed-at-future",),
+        )
     receipt_dependencies = dependencies_from_parts(receipt_subject, receipt_policy)
     currentness = derive_currentness(receipt_dependencies, current_dependencies)
     if currentness is Currentness.STALE:
@@ -926,6 +1058,11 @@ def compose_receipt(
         "expires_at": expires_at,
     }
     document["payload_digest"] = payload_digest(document)
+    # Composition must never emit a document the canonical reader refuses to
+    # load: the serialized size shares the reader's bounded input limit.
+    serialized_size = len(json.dumps(document, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
+    if serialized_size > _MAX_INPUT_BYTES:
+        raise ValueError(f"serialized receipt exceeds the {_MAX_INPUT_BYTES}-byte reader limit: {serialized_size}")
     integrity = verify_receipt(document, schema_path=Path(__file__).with_name("review-receipt.schema.json"))
     if integrity:
         raise ValueError(f"composed receipt failed schema or integrity verification: {'; '.join(integrity)}")
@@ -1025,18 +1162,22 @@ def _parts_from_document(
                 return None
             assert isinstance(raw, Mapping)
             verdict = CriterionVerdict(raw["verdict"])
+            raw_finding_refs = raw.get("finding_refs", [])
+            raw_criterion_evidence = raw.get("evidence_refs", [])
+            if not isinstance(raw_finding_refs, list) or not isinstance(raw_criterion_evidence, list):
+                return None
             criteria.append(
                 CriterionOutcome(
                     id=str(raw["id"]),
                     required=bool(raw["required"]),
                     verdict=verdict,
                     applicability_basis=_opt_str(raw.get("applicability_basis")),
-                    finding_refs=tuple(str(ref) for ref in raw.get("finding_refs", ())),
-                    evidence_refs=tuple(str(ref) for ref in raw.get("evidence_refs", ())),
+                    finding_refs=tuple(str(ref) for ref in raw_finding_refs),
+                    evidence_refs=tuple(str(ref) for ref in raw_criterion_evidence),
                 )
             )
-        raw_changed = coverage_block.get("changed_files", ())
-        raw_omitted = coverage_block.get("omitted_areas", ())
+        raw_changed = coverage_block.get("changed_files", [])
+        raw_omitted = coverage_block.get("omitted_areas", [])
         if not isinstance(raw_changed, list) or not isinstance(raw_omitted, list):
             return None
         coverage = ReviewCoverage(
@@ -1058,7 +1199,7 @@ def _parts_from_document(
             ),
         )
         records: list[FindingRecord] = []
-        raw_items = findings_block.get("items", ())
+        raw_items = findings_block.get("items", [])
         if not isinstance(raw_items, list):
             return None
         for raw in raw_items:
@@ -1067,6 +1208,9 @@ def _parts_from_document(
             assert isinstance(raw, Mapping)
             generation = raw.get("generation")
             first_seen = raw.get("first_seen_generation")
+            raw_evidence = raw.get("evidence_refs", [])
+            if not isinstance(raw_evidence, list):
+                return None
             records.append(
                 FindingRecord(
                     finding_id=str(raw["finding_id"]),
@@ -1080,7 +1224,7 @@ def _parts_from_document(
                     resolved_by_revision=_opt_str(raw.get("resolved_by_revision")),
                     waiver_ref=_opt_str(raw.get("waiver_ref")),
                     waiver_authority=_opt_str(raw.get("waiver_authority")),
-                    evidence_refs=tuple(str(ref) for ref in raw.get("evidence_refs", ())),
+                    evidence_refs=tuple(str(ref) for ref in raw_evidence),
                 )
             )
         ledger = FindingLedger(items=tuple(records))
@@ -1136,16 +1280,46 @@ def verify_receipt(
         findings.append("unsupported receipt format")
 
     declared_payload = document.get("payload_digest")
-    if isinstance(declared_payload, str):
+    if not isinstance(declared_payload, str):
+        findings.append("payload_digest missing or not a string")
+    else:
         recomputed_payload = payload_digest(dict(document))
         if recomputed_payload != declared_payload:
             findings.append(f"payload_digest mismatch: declared {declared_payload}, recomputed {recomputed_payload}")
+
+    for timestamp_field in ("reviewed_at", "expires_at"):
+        timestamp_value = document.get(timestamp_field)
+        if timestamp_value is not None and not isinstance(timestamp_value, str):
+            findings.append(f"{timestamp_field} must be a string or null")
+        elif isinstance(timestamp_value, str):
+            try:
+                _parse_utc(timestamp_value)
+            except ValueError as exc:
+                findings.append(f"{timestamp_field}: {exc}")
 
     parts = _parts_from_document(document)
     if parts is None:
         findings.append("receipt semantic re-derivation failed: malformed receipt shape")
         return findings
     subject, _producer, _independence, _policy_binding, criteria, coverage, operation, ledger, issued = parts
+
+    declared_ledger_digest = document.get("findings")
+    declared_ledger = (
+        declared_ledger_digest.get("ledger_digest") if isinstance(declared_ledger_digest, Mapping) else None
+    )
+    recomputed_ledger = finding_ledger_digest(ledger.items)
+    if declared_ledger != recomputed_ledger:
+        findings.append(
+            f"findings.ledger_digest does not match the finding items: declared {declared_ledger!r}, "
+            f"recomputed {recomputed_ledger}"
+        )
+    for operation_field in ("submitted_at", "completed_at"):
+        operation_value = getattr(operation, operation_field)
+        if operation_value is not None:
+            try:
+                _parse_utc(operation_value)
+            except ValueError as exc:
+                findings.append(f"provider_operation.{operation_field}: {exc}")
 
     criterion_ids = [item.id for item in criteria]
     if len(set(criterion_ids)) != len(criterion_ids):

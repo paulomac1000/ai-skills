@@ -170,17 +170,42 @@ def baseline_current(
     )
 
 
+def default_qualification(
+    document: dict[str, object],
+    authority: rr.AttestationAuthority = rr.AttestationAuthority.ORCHESTRATOR_ATTESTED,
+) -> rr.IndependenceAuthorityQualification:
+    subject = document["subject"]
+    producer = document["producer"]
+    operation = document["provider_operation"]
+    assert isinstance(subject, dict) and isinstance(producer, dict) and isinstance(operation, dict)
+    operation_ref = operation.get("operation_ref")
+    return rr.IndependenceAuthorityQualification(
+        reviewer_identity=str(producer["reviewer_identity"]),
+        authority=authority,
+        candidate_sha=str(subject["candidate_sha"]),
+        source_ref="dispatch:op-1",
+        provider_operation_ref=str(operation_ref) if operation_ref else None,
+    )
+
+
 def admit(
     document: dict[str, object],
     policy: rr.ReviewPolicy | None = None,
     current: rr.ReviewDependencies | None = None,
+    *,
+    independence_authority: rr.IndependenceAuthorityQualification | None | str = "auto",
 ):
+    if isinstance(independence_authority, str):
+        assert independence_authority == "auto"
+        qualification: rr.IndependenceAuthorityQualification | None = default_qualification(document)
+    else:
+        qualification = independence_authority
     return rr.review_admission(
         document,
         policy=policy or baseline_policy(),
         current_dependencies=current or baseline_current(),
         now=NOW,
-        schema_path=SCHEMA_PATH,
+        independence_authority=qualification,
     )
 
 
@@ -573,7 +598,7 @@ def test_open_blocker_prevents_approval() -> None:
 
 
 def test_implementer_waiver_is_refused() -> None:
-    with pytest.raises(ValueError, match="implementer"):
+    with pytest.raises(ValueError, match="policy or independent"):
         rr.FindingRecord(
             finding_id="F1",
             severity=rr.FindingSeverity.BLOCKER,
@@ -1055,3 +1080,519 @@ def test_admission_requires_timezone_aware_now() -> None:
             current_dependencies=baseline_current(),
             now=datetime(2026, 10, 27, 12, 0),
         )
+
+
+# ---------------------------------------------------------------------------
+# F01: admission boundary / schema enforcement
+# ---------------------------------------------------------------------------
+
+
+def test_admission_always_validates_published_schema() -> None:
+    document = compose_baseline()
+    document["criteria"][0]["verdict"] = 42
+    document["payload_digest"] = rr.payload_digest(document)
+    decision = rr.review_admission(
+        document,
+        policy=baseline_policy(),
+        current_dependencies=baseline_current(),
+        now=NOW,
+        independence_authority=default_qualification(document),
+    )
+    assert decision.outcome is rr.AdmissionOutcome.NON_GREEN
+
+
+def test_missing_payload_digest_is_non_green() -> None:
+    document = compose_baseline()
+    del document["payload_digest"]
+    decision = admit(document)
+    assert decision.outcome is rr.AdmissionOutcome.NON_GREEN
+    structural = rr.verify_receipt(document, schema_path=None)
+    assert "payload_digest missing or not a string" in structural
+
+
+def test_invalid_expires_at_is_non_green_not_raised() -> None:
+    document = compose_baseline()
+    document["expires_at"] = "not-a-date"
+    document["payload_digest"] = rr.payload_digest(document)
+    decision = admit(document)
+    assert decision.outcome is rr.AdmissionOutcome.NON_GREEN
+    assert any("expires_at" in reason for reason in decision.reason_codes)
+
+
+def test_unparseable_timestamps_are_findings() -> None:
+    document = compose_baseline()
+    document["reviewed_at"] = "27/10/2026"
+    document["payload_digest"] = rr.payload_digest(document)
+    findings = rr.verify_receipt(document, schema_path=SCHEMA_PATH)
+    assert any("reviewed_at" in reason for reason in findings)
+    document = compose_baseline()
+    document["provider_operation"]["completed_at"] = "yesterday"
+    document["payload_digest"] = rr.payload_digest(document)
+    decision = admit(document)
+    assert decision.outcome is rr.AdmissionOutcome.NON_GREEN
+    assert any("malformed receipt shape" in reason for reason in decision.reason_codes)
+
+
+def test_garbage_payload_is_non_green_without_crash() -> None:
+    decision = rr.review_admission(
+        {"format": "ai-skills-review", "schema_version": 1},
+        policy=baseline_policy(),
+        current_dependencies=baseline_current(),
+        now=NOW,
+    )
+    assert decision.outcome is rr.AdmissionOutcome.NON_GREEN
+
+
+# ---------------------------------------------------------------------------
+# F02: nullable dependency bypass
+# ---------------------------------------------------------------------------
+
+
+def test_missing_base_binding_with_known_current_base_is_stale() -> None:
+    subject = rr.ReviewSubject(
+        repository="paulomac1000/ai-skills",
+        candidate_sha=C1,
+        base_sha=None,
+        input_manifest_digest=MANIFEST,
+    )
+    document = rr.compose_receipt(
+        review_id="review-nobase",
+        review_generation=1,
+        subject=subject,
+        producer=baseline_producer(),
+        independence=baseline_independence(),
+        policy_binding=baseline_policy_binding(),
+        criteria=baseline_criteria(),
+        coverage=baseline_coverage(),
+        provider_operation=baseline_operation(),
+        findings=baseline_ledger(),
+        issued_verdict=rr.ReviewVerdict.APPROVE,
+        evidence_refs=("diff:bundle-1",),
+        reviewed_at=REVIEWED_AT,
+    )
+    decision = admit(document)
+    assert decision.outcome is rr.AdmissionOutcome.NOT_CURRENT
+    assert decision.currentness is rr.Currentness.STALE
+
+
+@pytest.mark.parametrize("field", ["rubric_digest", "plan_digest", "input_manifest_digest", "base_sha"])
+def test_each_unbound_axis_with_known_current_is_stale(field: str) -> None:
+    fields: dict[str, str | None] = {
+        "repository": "paulomac1000/ai-skills",
+        "candidate_sha": C1,
+        "policy_revision": "review-policy/7",
+        "rubric_digest": RUBRIC,
+        "plan_digest": PLAN,
+        "input_manifest_digest": MANIFEST,
+        "base_sha": BASE,
+    }
+    fields[field] = None
+    unbound = rr.ReviewDependencies(**fields)
+    assert rr.derive_currentness(unbound, baseline_current()) is rr.Currentness.STALE
+
+
+def test_both_missing_binding_stays_current() -> None:
+    unbound = rr.ReviewDependencies(
+        repository="paulomac1000/ai-skills",
+        candidate_sha=C1,
+        policy_revision="review-policy/7",
+        rubric_digest=None,
+        plan_digest=None,
+        input_manifest_digest=None,
+        base_sha=None,
+    )
+    current = rr.ReviewDependencies(
+        repository="paulomac1000/ai-skills",
+        candidate_sha=C1,
+        policy_revision="review-policy/7",
+        rubric_digest=None,
+        plan_digest=None,
+        input_manifest_digest=None,
+        base_sha=None,
+    )
+    assert rr.derive_currentness(unbound, current) is rr.Currentness.CURRENT
+
+
+# ---------------------------------------------------------------------------
+# F03: reviewed-through coverage
+# ---------------------------------------------------------------------------
+
+
+def test_null_reviewed_through_sha_is_not_green() -> None:
+    document = compose_baseline()
+    document["coverage"]["reviewed_through_sha"] = None
+    document["payload_digest"] = rr.payload_digest(document)
+    decision = admit(document)
+    assert decision.outcome is rr.AdmissionOutcome.NON_GREEN
+    assert "coverage-reviewed-through-missing" in decision.reason_codes
+
+
+@pytest.mark.parametrize("foreign", [C2, "0" * 40])
+def test_non_candidate_reviewed_through_sha_is_blocked(foreign: str) -> None:
+    document = compose_baseline()
+    document["coverage"]["reviewed_through_sha"] = foreign
+    document["payload_digest"] = rr.payload_digest(document)
+    decision = admit(document)
+    assert decision.outcome is rr.AdmissionOutcome.NON_GREEN
+    assert "coverage-reviewed-through-mismatch" in decision.reason_codes
+
+
+# ---------------------------------------------------------------------------
+# F04: required criteria union
+# ---------------------------------------------------------------------------
+
+
+def test_receipt_declared_required_unknown_criterion_gates() -> None:
+    document = compose_baseline()
+    document["criteria"].append({"id": "security.secrets", "required": True, "verdict": "unknown"})
+    document["payload_digest"] = rr.payload_digest(document)
+    decision = admit(document)
+    assert decision.outcome is rr.AdmissionOutcome.NON_GREEN
+    assert "required-criterion-security.secrets-unknown" in decision.reason_codes
+
+
+def test_receipt_declared_required_fail_criterion_blocks() -> None:
+    document = compose_baseline()
+    document["criteria"].append({"id": "security.secrets", "required": True, "verdict": "fail"})
+    document["payload_digest"] = rr.payload_digest(document)
+    decision = admit(document)
+    assert decision.outcome is rr.AdmissionOutcome.NON_GREEN
+    assert decision.gate_verdict is rr.ReviewVerdict.BLOCKED
+    assert "required-criterion-security.secrets-failed" in decision.reason_codes
+
+
+def test_receipt_declared_required_not_applicable_needs_policy_consent() -> None:
+    document = compose_baseline()
+    document["criteria"].append(
+        {
+            "id": "security.secrets",
+            "required": True,
+            "verdict": "not_applicable",
+            "applicability_basis": "no secrets surface in changed files",
+        }
+    )
+    document["payload_digest"] = rr.payload_digest(document)
+    refused = admit(document)
+    assert refused.outcome is rr.AdmissionOutcome.NON_GREEN
+    assert "required-criterion-security.secrets-not-applicable-disallowed" in refused.reason_codes
+    allowed = admit(document, policy=baseline_policy(allow_required_not_applicable=True))
+    assert allowed.outcome is rr.AdmissionOutcome.GREEN
+
+
+# ---------------------------------------------------------------------------
+# F05: typed authority enums
+# ---------------------------------------------------------------------------
+
+
+def test_case_variant_waiver_authority_is_refused() -> None:
+    with pytest.raises(ValueError, match="unsupported waiver authority"):
+        rr.FindingRecord(
+            finding_id="F1",
+            severity=rr.FindingSeverity.BLOCKER,
+            state=rr.FindingState.WAIVED_BY_AUTHORITY,
+            generation=2,
+            waiver_ref="policy-waiver:42",
+            waiver_authority="Implementer",
+        )
+
+
+def test_self_waiver_authority_is_refused() -> None:
+    with pytest.raises(ValueError, match="unsupported waiver authority"):
+        rr.FindingRecord(
+            finding_id="F1",
+            severity=rr.FindingSeverity.BLOCKER,
+            state=rr.FindingState.WAIVED_BY_AUTHORITY,
+            generation=2,
+            waiver_ref="chat://self",
+            waiver_authority="self",
+        )
+
+
+def test_unknown_evidence_selection_authority_is_refused() -> None:
+    with pytest.raises(ValueError, match="evidence-selection authority"):
+        rr.ReviewCoverage(
+            access_mode=rr.AccessMode.EXACT_BUNDLE,
+            reviewed_through_sha=C1,
+            required_context_complete=rr.CoverageState.COMPLETE,
+            evidence_selection_authority="operator",
+        )
+
+
+# ---------------------------------------------------------------------------
+# F06: require_resolved_findings semantics
+# ---------------------------------------------------------------------------
+
+
+def _document_with_open_finding(severity: str) -> dict[str, object]:
+    document = compose_baseline()
+    document["findings"]["items"] = [
+        {"finding_id": "F9", "severity": severity, "state": "open", "generation": 2},
+    ]
+    document["findings"]["ledger_digest"] = rr.finding_ledger_digest(
+        (
+            rr.FindingRecord(
+                finding_id="F9",
+                severity=rr.FindingSeverity(severity),
+                state=rr.FindingState.OPEN,
+                generation=2,
+            ),
+        )
+    )
+    document["payload_digest"] = rr.payload_digest(document)
+    return document
+
+
+def test_open_major_gates_when_policy_requires_resolved_findings() -> None:
+    decision = admit(_document_with_open_finding("major"))
+    assert decision.outcome is rr.AdmissionOutcome.NON_GREEN
+    assert "unresolved-major-finding:F9" in decision.reason_codes
+
+
+def test_open_major_admissible_when_policy_disables_requirement() -> None:
+    document = _document_with_open_finding("major")
+    decision = admit(document, policy=baseline_policy(require_resolved_findings=False))
+    assert decision.outcome is rr.AdmissionOutcome.GREEN
+
+
+def test_open_blocker_still_gates_when_policy_disables_requirement() -> None:
+    document = _document_with_open_finding("blocker")
+    decision = admit(document, policy=baseline_policy(require_resolved_findings=False))
+    assert decision.outcome is rr.AdmissionOutcome.NON_GREEN
+    assert "blocking-finding-open:F9" in decision.reason_codes
+
+
+def test_policy_digest_changes_with_resolved_findings_flag() -> None:
+    assert rr.policy_digest(baseline_policy()) != rr.policy_digest(baseline_policy(require_resolved_findings=False))
+
+
+# ---------------------------------------------------------------------------
+# F07: finding ledger integrity
+# ---------------------------------------------------------------------------
+
+
+def test_tampered_findings_with_stale_ledger_digest_are_non_green() -> None:
+    document = compose_baseline()
+    document["findings"]["items"] = [
+        {"finding_id": "F1", "severity": "minor", "state": "open", "generation": 2},
+    ]
+    document["payload_digest"] = rr.payload_digest(document)
+    decision = admit(document)
+    assert decision.outcome is rr.AdmissionOutcome.NON_GREEN
+    assert any("findings.ledger_digest does not match" in reason for reason in decision.reason_codes)
+
+
+def test_zero_ledger_digest_with_consistent_payload_is_non_green() -> None:
+    document = compose_baseline()
+    document["findings"]["ledger_digest"] = "sha256:" + "0" * 64
+    document["payload_digest"] = rr.payload_digest(document)
+    decision = admit(document)
+    assert decision.outcome is rr.AdmissionOutcome.NON_GREEN
+    assert any("findings.ledger_digest does not match" in reason for reason in decision.reason_codes)
+
+
+# ---------------------------------------------------------------------------
+# F08: optional array parity
+# ---------------------------------------------------------------------------
+
+
+def test_omitted_optional_arrays_are_schema_conformant() -> None:
+    document = compose_baseline()
+    del document["coverage"]["changed_files"]
+    del document["coverage"]["omitted_areas"]
+    document["findings"]["items"] = []
+    document["findings"]["ledger_digest"] = rr.finding_ledger_digest(())
+    document["payload_digest"] = rr.payload_digest(document)
+    assert rr.verify_receipt(document, schema_path=SCHEMA_PATH) == []
+    policy = baseline_policy(required_changed_files=())
+    assert admit(document, policy=policy).outcome is rr.AdmissionOutcome.GREEN
+
+
+def test_omitted_changed_files_still_gates_under_required_files_policy() -> None:
+    document = compose_baseline()
+    del document["coverage"]["changed_files"]
+    del document["coverage"]["omitted_areas"]
+    document["payload_digest"] = rr.payload_digest(document)
+    decision = admit(document)
+    assert decision.outcome is rr.AdmissionOutcome.NON_GREEN
+    assert "coverage-changed-file-missing:contracts/review_receipt.py" in decision.reason_codes
+
+
+def test_non_list_optional_array_is_malformed() -> None:
+    document = compose_baseline()
+    document["coverage"]["omitted_areas"] = "skills/other"
+    document["payload_digest"] = rr.payload_digest(document)
+    decision = admit(document)
+    assert decision.outcome is rr.AdmissionOutcome.NON_GREEN
+    structural = rr.verify_receipt(document, schema_path=None)
+    assert any("malformed receipt shape" in reason for reason in structural)
+
+
+# ---------------------------------------------------------------------------
+# F09: payload size consistency
+# ---------------------------------------------------------------------------
+
+
+def test_composition_refuses_payload_beyond_reader_limit() -> None:
+    long_refs = tuple(f"evidence:{index}:" + "x" * 2000 for index in range(64))
+    findings = rr.FindingLedger(
+        items=tuple(
+            rr.FindingRecord(
+                finding_id=f"F{index}",
+                severity=rr.FindingSeverity.MINOR,
+                state=rr.FindingState.NON_BLOCKING,
+                generation=2,
+                evidence_refs=long_refs,
+            )
+            for index in range(10)
+        )
+    )
+    with pytest.raises(ValueError, match="reader limit"):
+        rr.compose_receipt(
+            review_id="review-huge",
+            review_generation=2,
+            subject=baseline_subject(),
+            producer=baseline_producer(),
+            independence=baseline_independence(),
+            policy_binding=baseline_policy_binding(),
+            criteria=baseline_criteria(),
+            coverage=baseline_coverage(),
+            provider_operation=baseline_operation(),
+            findings=findings,
+            issued_verdict=rr.ReviewVerdict.NEEDS_FIXES,
+            evidence_refs=(),
+            reviewed_at=REVIEWED_AT,
+        )
+
+
+# ---------------------------------------------------------------------------
+# F10: unknown currentness on non-green
+# ---------------------------------------------------------------------------
+
+
+def test_non_green_reports_unknown_currentness() -> None:
+    document = compose_baseline()
+    document["criteria"][0]["verdict"] = "unknown"
+    document["payload_digest"] = rr.payload_digest(document)
+    decision = admit(document)
+    assert decision.outcome is rr.AdmissionOutcome.NON_GREEN
+    assert decision.currentness is rr.Currentness.UNKNOWN
+
+
+# ---------------------------------------------------------------------------
+# F11: authenticity of independent authority
+# ---------------------------------------------------------------------------
+
+
+def _forged_authority_document() -> dict[str, object]:
+    """Syntactically perfect, digest-consistent receipt with fabricated attestation."""
+    document = compose_baseline()
+    document["independence"]["attestation"]["authority"] = "orchestrator_attested"
+    document["independence"]["attestation"]["evidence_ref"] = "dispatch:fabricated-op"
+    document["payload_digest"] = rr.payload_digest(document)
+    return document
+
+
+def test_forged_attestation_without_qualification_is_not_green() -> None:
+    document = _forged_authority_document()
+    decision = admit(document, independence_authority=None)
+    assert decision.outcome is rr.AdmissionOutcome.NON_GREEN
+    assert "independence-authority-unqualified" in decision.reason_codes
+    # The gate derived from the receipt's own components approves; the block is
+    # admission-authority-level: nobody outside the receipt attested the claim.
+    assert decision.gate_verdict is rr.ReviewVerdict.APPROVE
+
+
+def test_qualification_must_bind_reviewer_identity() -> None:
+    document = _forged_authority_document()
+    qualification = rr.IndependenceAuthorityQualification(
+        reviewer_identity="someone-else",
+        authority=rr.AttestationAuthority.INDEPENDENT_AUTHORITY,
+        candidate_sha=C1,
+        source_ref="dispatch:op-1",
+    )
+    decision = admit(document, independence_authority=qualification)
+    assert decision.outcome is rr.AdmissionOutcome.NON_GREEN
+    assert "independence-authority-reviewer-mismatch" in decision.reason_codes
+
+
+def test_qualification_must_bind_candidate() -> None:
+    document = _forged_authority_document()
+    qualification = rr.IndependenceAuthorityQualification(
+        reviewer_identity="chatgpt-pr-validation",
+        authority=rr.AttestationAuthority.INDEPENDENT_AUTHORITY,
+        candidate_sha=C2,
+        source_ref="dispatch:op-1",
+    )
+    decision = admit(document, independence_authority=qualification)
+    assert decision.outcome is rr.AdmissionOutcome.NON_GREEN
+    assert "independence-authority-candidate-mismatch" in decision.reason_codes
+
+
+def test_qualification_below_policy_floor_is_insufficient() -> None:
+    document = _forged_authority_document()
+    decision = admit(
+        document,
+        policy=baseline_policy(minimum_independence_authority=rr.AttestationAuthority.INDEPENDENT_AUTHORITY),
+        independence_authority=default_qualification(document, rr.AttestationAuthority.ORCHESTRATOR_ATTESTED),
+    )
+    assert decision.outcome is rr.AdmissionOutcome.NON_GREEN
+    assert any(
+        "attestation-insufficient" in reason or "authority-insufficient" in reason for reason in decision.reason_codes
+    )
+
+
+def test_self_declared_receipt_contradicts_orchestrator_qualification() -> None:
+    document = compose_baseline()
+    document["independence"]["attestation"]["authority"] = "self_declared"
+    document["payload_digest"] = rr.payload_digest(document)
+    decision = admit(document)
+    assert decision.outcome is rr.AdmissionOutcome.NON_GREEN
+    assert any(
+        "independence-attestation-insufficient" in reason or "contradicts-qualification" in reason
+        for reason in decision.reason_codes
+    )
+
+
+def test_qualified_authority_admits_and_self_floor_needs_no_qualification() -> None:
+    document = _forged_authority_document()
+    assert admit(document).outcome is rr.AdmissionOutcome.GREEN
+    low_floor = baseline_policy(
+        require_independence=True,
+        minimum_independence_authority=rr.AttestationAuthority.SELF_DECLARED,
+    )
+    assert admit(document, policy=low_floor, independence_authority=None).outcome is rr.AdmissionOutcome.GREEN
+
+
+def test_qualification_operation_mismatch_is_detected() -> None:
+    document = _forged_authority_document()
+    qualification = rr.IndependenceAuthorityQualification(
+        reviewer_identity="chatgpt-pr-validation",
+        authority=rr.AttestationAuthority.ORCHESTRATOR_ATTESTED,
+        candidate_sha=C1,
+        source_ref="dispatch:op-1",
+        provider_operation_ref="provider-job-999",
+    )
+    decision = admit(document, independence_authority=qualification)
+    assert decision.outcome is rr.AdmissionOutcome.NON_GREEN
+    assert "independence-authority-operation-mismatch" in decision.reason_codes
+
+
+# ---------------------------------------------------------------------------
+# F12: temporal terminal evidence
+# ---------------------------------------------------------------------------
+
+
+def test_future_completed_at_is_not_green() -> None:
+    document = compose_baseline()
+    document["provider_operation"]["completed_at"] = "2026-10-28T00:00:00Z"
+    document["payload_digest"] = rr.payload_digest(document)
+    decision = admit(document)
+    assert decision.outcome is rr.AdmissionOutcome.NON_GREEN
+    assert "provider-completed-at-future" in decision.reason_codes
+
+
+def test_late_previous_generation_result_cannot_legalize_changed_candidate() -> None:
+    document = compose_baseline(generation=1)
+    assert rr.verify_receipt(document, schema_path=SCHEMA_PATH) == []
+    decision = admit(document, current=baseline_current(candidate=C2))
+    assert decision.outcome is rr.AdmissionOutcome.NOT_CURRENT
