@@ -1,0 +1,251 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/paulomac1000/ai-skills/blob/main/contracts/review-receipt.schema.json",
+  "title": "Review Receipt v1",
+  "description": "Provider-neutral semantic-review evidence receipt (#93): exact candidate binding, reviewer and independence provenance, predeclared criteria outcomes, review-input coverage, provider operation lifecycle, durable finding state, and mechanical freshness.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format",
+    "schema_version",
+    "receipt_kind",
+    "review_id",
+    "review_generation",
+    "subject",
+    "producer",
+    "independence",
+    "policy",
+    "criteria",
+    "coverage",
+    "provider_operation",
+    "findings",
+    "verdict",
+    "evidence_refs",
+    "reviewed_at",
+    "payload_digest"
+  ],
+  "properties": {
+    "format": {"const": "ai-skills-review"},
+    "schema_version": {"const": 1},
+    "receipt_kind": {"const": "review"},
+    "review_id": {"type": "string", "minLength": 1, "maxLength": 256},
+    "review_generation": {"type": "integer", "minimum": 1},
+    "subject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "candidate_sha"],
+      "properties": {
+        "repository": {"type": "string", "minLength": 1, "maxLength": 512},
+        "candidate_sha": {"type": "string", "pattern": "^[0-9a-fA-F]{40}$"},
+        "candidate_tree": {"type": ["string", "null"], "pattern": "^sha256:[0-9a-fA-F]{64}$"},
+        "base_sha": {"type": ["string", "null"], "pattern": "^[0-9a-fA-F]{40}$"},
+        "input_manifest_digest": {"type": ["string", "null"], "pattern": "^sha256:[0-9a-fA-F]{64}$"}
+      }
+    },
+    "producer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reviewer_kind", "reviewer_identity"],
+      "properties": {
+        "reviewer_kind": {"enum": ["human", "model", "bot", "service"]},
+        "reviewer_identity": {"type": "string", "minLength": 1, "maxLength": 256},
+        "provider": {"type": ["string", "null"], "minLength": 1, "maxLength": 256},
+        "model_or_engine": {"type": ["string", "null"], "minLength": 1, "maxLength": 256},
+        "configuration_revision": {"type": ["string", "null"], "minLength": 1, "maxLength": 256},
+        "principal": {"type": ["string", "null"], "minLength": 1, "maxLength": 256}
+      }
+    },
+    "independence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["declared_class", "attestation"],
+      "properties": {
+        "declared_class": {"enum": ["independent", "same_implementer", "same_evidence_producer", "unknown"]},
+        "attestation": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["authority"],
+          "properties": {
+            "authority": {"enum": ["none", "self_declared", "orchestrator_attested", "independent_authority"]},
+            "evidence_ref": {"type": ["string", "null"], "minLength": 1, "maxLength": 2048}
+          }
+        }
+      }
+    },
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["policy_revision"],
+      "properties": {
+        "policy_revision": {"type": "string", "minLength": 1, "maxLength": 256},
+        "rubric_id": {"type": ["string", "null"], "minLength": 1, "maxLength": 256},
+        "rubric_revision": {"type": ["string", "null"], "minLength": 1, "maxLength": 256},
+        "rubric_digest": {"type": ["string", "null"], "pattern": "^sha256:[0-9a-fA-F]{64}$"},
+        "plan_ref": {"type": ["string", "null"], "minLength": 1, "maxLength": 2048},
+        "plan_digest": {"type": ["string", "null"], "pattern": "^sha256:[0-9a-fA-F]{64}$"},
+        "required_scope": {"type": ["string", "null"], "minLength": 1, "maxLength": 512}
+      }
+    },
+    "criteria": {
+      "type": "array",
+      "maxItems": 64,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "required", "verdict"],
+        "properties": {
+          "id": {"type": "string", "minLength": 1, "maxLength": 128},
+          "required": {"type": "boolean"},
+          "verdict": {"enum": ["pass", "fail", "unknown", "not_applicable"]},
+          "applicability_basis": {"type": ["string", "null"], "minLength": 1, "maxLength": 2048},
+          "finding_refs": {
+            "type": "array",
+            "maxItems": 64,
+            "uniqueItems": true,
+            "items": {"type": "string", "minLength": 1, "maxLength": 256}
+          },
+          "evidence_refs": {
+            "type": "array",
+            "maxItems": 64,
+            "uniqueItems": true,
+            "items": {"type": "string", "minLength": 1, "maxLength": 2048}
+          }
+        },
+        "allOf": [
+          {
+            "if": {"properties": {"verdict": {"const": "not_applicable"}}, "required": ["verdict"]},
+            "then": {
+              "properties": {"applicability_basis": {"type": "string", "minLength": 1, "maxLength": 2048}},
+              "required": ["applicability_basis"]
+            }
+          }
+        ]
+      }
+    },
+    "coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["access_mode", "reviewed_through_sha", "required_context_complete"],
+      "properties": {
+        "access_mode": {"enum": ["connected_repo", "exact_bundle", "summary_only", "unknown"]},
+        "reviewed_through_sha": {"type": ["string", "null"], "pattern": "^[0-9a-fA-F]{40}$"},
+        "changed_files": {
+          "type": "array",
+          "maxItems": 512,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1, "maxLength": 2048}
+        },
+        "changed_surface_digest": {"type": ["string", "null"], "pattern": "^sha256:[0-9a-fA-F]{64}$"},
+        "required_context_complete": {"enum": ["complete", "partial", "unknown"]},
+        "omitted_areas": {
+          "type": "array",
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1, "maxLength": 2048}
+        },
+        "evidence_selection_authority": {"enum": ["parent", "reviewer", "implementer", "independent", "unknown"]}
+      }
+    },
+    "provider_operation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state"],
+      "properties": {
+        "operation_ref": {"type": ["string", "null"], "minLength": 1, "maxLength": 512},
+        "state": {
+          "enum": [
+            "requested",
+            "accepted",
+            "running",
+            "completed_with_review",
+            "completed_no_findings",
+            "blocked_quota",
+            "blocked_billing",
+            "blocked_auth",
+            "provider_unavailable",
+            "provider_failed",
+            "cancelled",
+            "ack_unknown"
+          ]
+        },
+        "submitted_at": {"type": ["string", "null"], "format": "date-time"},
+        "completed_at": {"type": ["string", "null"], "format": "date-time"},
+        "observation_coverage": {"enum": ["complete", "partial", "unknown"]}
+      }
+    },
+    "findings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ledger_digest", "items"],
+      "properties": {
+        "ledger_digest": {"type": "string", "pattern": "^sha256:[0-9a-fA-F]{64}$"},
+        "items": {
+          "type": "array",
+          "maxItems": 200,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["finding_id", "severity", "state", "generation"],
+            "properties": {
+              "finding_id": {"type": "string", "minLength": 1, "maxLength": 256},
+              "criterion_ref": {"type": ["string", "null"], "minLength": 1, "maxLength": 128},
+              "severity": {"enum": ["blocker", "major", "minor", "advisory"]},
+              "state": {
+                "enum": [
+                  "open",
+                  "resolved_by_candidate",
+                  "waived_by_authority",
+                  "superseded",
+                  "non_blocking"
+                ]
+              },
+              "first_seen_generation": {"type": ["integer", "null"], "minimum": 1},
+              "generation": {"type": "integer", "minimum": 1},
+              "resolved_by_revision": {"type": ["string", "null"], "pattern": "^[0-9a-fA-F]{40}$"},
+              "waiver_ref": {"type": ["string", "null"], "minLength": 1, "maxLength": 2048},
+              "waiver_authority": {"enum": ["implementer", "policy", "independent", null]},
+              "evidence_refs": {
+                "type": "array",
+                "maxItems": 64,
+                "uniqueItems": true,
+                "items": {"type": "string", "minLength": 1, "maxLength": 2048}
+              }
+            },
+            "allOf": [
+              {
+                "if": {"properties": {"state": {"const": "resolved_by_candidate"}}, "required": ["state"]},
+                "then": {
+                  "properties": {
+                    "resolved_by_revision": {"type": "string", "pattern": "^[0-9a-fA-F]{40}$"}
+                  },
+                  "required": ["resolved_by_revision"]
+                }
+              },
+              {
+                "if": {"properties": {"state": {"const": "waived_by_authority"}}, "required": ["state"]},
+                "then": {
+                  "properties": {
+                    "waiver_ref": {"type": "string", "minLength": 1, "maxLength": 2048},
+                    "waiver_authority": {"enum": ["policy", "independent"]}
+                  },
+                  "required": ["waiver_ref", "waiver_authority"]
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    "verdict": {"enum": ["approve", "needs_fixes", "inconclusive", "blocked"]},
+    "confidence": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
+    "evidence_refs": {
+      "type": "array",
+      "maxItems": 64,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1, "maxLength": 2048}
+    },
+    "reviewed_at": {"type": "string", "format": "date-time"},
+    "expires_at": {"type": ["string", "null"], "format": "date-time"},
+    "payload_digest": {"type": "string", "pattern": "^sha256:[0-9a-fA-F]{64}$"}
+  }
+}
