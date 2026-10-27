@@ -1674,7 +1674,7 @@ def test_lone_low_surrogate_in_nested_evidence_is_non_green() -> None:
 
 def test_valid_unicode_and_ascii_baselines_still_compose_and_verify() -> None:
     document = compose_baseline()
-    document["producer"]["reviewer_identity"] = "recenzent-ąęśżźćó- reviews 📝"
+    document["producer"]["reviewer_identity"] = "reviewer-übersicht-řů-℘-reviews 📝"
     document["payload_digest"] = rr.payload_digest(document)
     assert rr.verify_receipt(document, schema_path=SCHEMA_PATH) == []
 
