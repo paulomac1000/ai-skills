@@ -139,7 +139,6 @@ def baseline_policy(**overrides: object) -> rr.ReviewPolicy:
         "minimum_independence_authority": rr.AttestationAuthority.ORCHESTRATOR_ATTESTED,
         "require_full_input": True,
         "require_terminal_operation": True,
-        "require_review_content": True,
         "require_resolved_findings": True,
         "require_plan_binding": True,
         "expected_rubric_digest": RUBRIC,
@@ -1469,7 +1468,7 @@ def test_composition_refuses_payload_beyond_reader_limit() -> None:
 _DIGEST_FIELD_OVERHEAD = len(',"payload_digest":"sha256:' + "0" * 64 + '"')  # 91
 
 
-def _edge_body(evidence_refs: Sequence[str]) -> dict[str, object]:
+def _edge_body(evidence_refs: list[str]) -> dict[str, object]:
     body = compose_baseline(issued=rr.ReviewVerdict.NEEDS_FIXES)
     del body["payload_digest"]
     body["evidence_refs"] = list(evidence_refs)
@@ -1836,3 +1835,96 @@ def test_non_approve_issued_verdict_with_changed_candidate_reports_stale() -> No
     # so this path returns before identity derivation; either way it must never
     # certify CURRENT for a candidate it did not compare.
     assert decision.currentness is not rr.Currentness.CURRENT
+
+
+# ---------------------------------------------------------------------------
+# Review round 5 (Codex F21 + independent F22)
+# ---------------------------------------------------------------------------
+
+
+def _completed_no_findings_document() -> dict[str, object]:
+    document = compose_baseline()
+    document["provider_operation"]["state"] = "completed_no_findings"
+    document["payload_digest"] = rr.payload_digest(document)
+    return document
+
+
+def test_completed_no_findings_is_non_green_under_default_policy() -> None:
+    decision = admit(_completed_no_findings_document())
+    assert decision.outcome is rr.AdmissionOutcome.NON_GREEN
+    assert any("completed_no_findings" in reason for reason in decision.reason_codes)
+
+
+def test_no_policy_opt_out_exists_for_missing_review_content() -> None:
+    """Issue #93: a provider completion without a review body is NOT_PROVEN,
+    never an inventable substantive review — the gate, structural
+    verification, and admission must agree, with no policy escape hatch."""
+    with pytest.raises((TypeError, ValueError)):
+        rr.ReviewPolicy(
+            policy_id="p",
+            policy_revision="1",
+            require_review_content=False,  # type: ignore[unexpected-keyword]
+        )
+    document = _completed_no_findings_document()
+    policy = rr.ReviewPolicy(
+        policy_id="exact-head-independent-review",
+        policy_revision="review-policy/7",
+        required_criteria=("correctness.behavior", "compat.public_contract", "scope.no_unrelated_mutation"),
+        expected_rubric_digest=RUBRIC,
+        expected_plan_digest=PLAN,
+    )
+    parts = rr._parts_from_document(document)
+    assert parts is not None
+    gate = rr.evaluate_review(policy, *parts[:8], parts[8])
+    assert gate.verdict is not rr.ReviewVerdict.APPROVE
+    assert any("content-missing" in reason for reason in gate.reason_codes)
+    decision = rr.review_admission(
+        document,
+        policy=policy,
+        current_dependencies=baseline_current(),
+        now=NOW,
+        independence_authority=default_qualification(document),
+    )
+    assert decision.outcome is rr.AdmissionOutcome.NON_GREEN
+    assert any("content-missing" in reason or "completed_no_findings" in reason for reason in decision.reason_codes)
+    assert rr.policy_digest(policy) != rr.policy_digest(baseline_policy())
+
+
+def test_completed_with_review_positive_unchanged() -> None:
+    assert admit(compose_baseline()).outcome is rr.AdmissionOutcome.GREEN
+
+
+def test_reviewed_at_after_admission_time_is_non_green() -> None:
+    document = compose_baseline()
+    document["reviewed_at"] = "2026-10-28T00:00:00Z"
+    document["payload_digest"] = rr.payload_digest(document)
+    decision = admit(document)
+    assert decision.outcome is rr.AdmissionOutcome.NON_GREEN
+    assert "receipt-reviewed-at-future" in decision.reason_codes
+
+
+def test_reviewed_at_with_positive_utc_offset_is_valid() -> None:
+    document = compose_baseline()
+    document["reviewed_at"] = "2026-10-27T13:00:00+02:00"  # == 11:00Z, after op 10:05Z, before NOW 12:00Z
+    document["payload_digest"] = rr.payload_digest(document)
+    assert rr.verify_receipt(document, schema_path=SCHEMA_PATH) == []
+    assert admit(document).outcome is rr.AdmissionOutcome.GREEN
+
+
+def test_submitted_after_completed_is_a_finding() -> None:
+    document = compose_baseline()
+    document["provider_operation"]["submitted_at"] = "2026-10-27T11:00:00Z"  # after 10:05Z completion
+    document["payload_digest"] = rr.payload_digest(document)
+    decision = admit(document)
+    assert decision.outcome is rr.AdmissionOutcome.NON_GREEN
+    assert any("submitted_at is after completed_at" in reason for reason in decision.reason_codes)
+    structural = rr.verify_receipt(document, schema_path=None)
+    assert any("submitted_at is after completed_at" in reason for reason in structural)
+
+
+def test_chronology_with_mixed_utc_offsets_remains_valid() -> None:
+    document = compose_baseline()
+    document["provider_operation"]["submitted_at"] = "2026-10-27T06:30:00+02:00"  # 04:30Z
+    document["provider_operation"]["completed_at"] = "2026-10-27T04:30:00-04:00"  # 08:30Z
+    document["payload_digest"] = rr.payload_digest(document)
+    assert rr.verify_receipt(document, schema_path=SCHEMA_PATH) == []

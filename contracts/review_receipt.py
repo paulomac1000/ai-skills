@@ -451,7 +451,14 @@ def payload_digest(document: Mapping[str, object]) -> str:
 
 @dataclass(frozen=True)
 class ReviewPolicy:
-    """Trusted consumer-side gate policy; floors come from the policy holder, never the receipt."""
+    """Trusted consumer-side gate policy; floors come from the policy holder, never the receipt.
+
+    Provider review content is unconditionally required for a green gate
+    (issue #93: a provider completion without a review body is ``NOT_PROVEN``,
+    never an approvable state), so there is deliberately no
+    ``require_review_content`` opt-out — a terminal operation without content
+    can never become invented substantive review, whatever the policy says.
+    """
 
     policy_id: str
     policy_revision: str
@@ -461,7 +468,6 @@ class ReviewPolicy:
     minimum_independence_authority: AttestationAuthority = AttestationAuthority.ORCHESTRATOR_ATTESTED
     require_full_input: bool = True
     require_terminal_operation: bool = True
-    require_review_content: bool = True
     require_resolved_findings: bool = True
     allow_required_not_applicable: bool = False
     require_plan_binding: bool = False
@@ -493,7 +499,6 @@ def policy_digest(policy: ReviewPolicy) -> str:
         "minimum_independence_authority": policy.minimum_independence_authority.value,
         "require_full_input": policy.require_full_input,
         "require_terminal_operation": policy.require_terminal_operation,
-        "require_review_content": policy.require_review_content,
         "require_resolved_findings": policy.require_resolved_findings,
         "allow_required_not_applicable": policy.allow_required_not_applicable,
         "require_plan_binding": policy.require_plan_binding,
@@ -649,7 +654,9 @@ def evaluate_review(
             gaps.append(f"provider-operation-{state.value}-non-terminal")
         elif state in _TERMINAL_BLOCKED_STATES:
             definitive.append(f"provider-operation-{state.value}")
-        elif state is ProviderState.COMPLETED_NO_FINDINGS and policy.require_review_content:
+        elif state is ProviderState.COMPLETED_NO_FINDINGS:
+            # Unconditional (issue #93): a provider completion without a review
+            # body is NOT_PROVEN, never an inventable substantive review.
             gaps.append("provider-operation-completed-no-findings-content-missing")
         if (
             state
@@ -914,6 +921,13 @@ def review_admission(
             gate.verdict,
             early_currentness,
             ("provider-completed-at-future",),
+        )
+    if _parse_utc(str(document.get("reviewed_at"))) > now:
+        return AdmissionDecision(
+            AdmissionOutcome.NON_GREEN,
+            gate.verdict,
+            early_currentness,
+            ("receipt-reviewed-at-future",),
         )
     receipt_dependencies = dependencies_from_parts(receipt_subject, receipt_policy)
     currentness = derive_currentness(receipt_dependencies, current_dependencies)
@@ -1339,13 +1353,12 @@ def verify_receipt(
             f"findings.ledger_digest does not match the finding items: declared {declared_ledger!r}, "
             f"recomputed {recomputed_ledger}"
         )
-    for operation_field in ("submitted_at", "completed_at"):
-        operation_value = getattr(operation, operation_field)
-        if operation_value is not None:
-            try:
-                _parse_utc(operation_value)
-            except ValueError as exc:
-                findings.append(f"provider_operation.{operation_field}: {exc}")
+    # Impossible provider chronology is typed evidence of fabrication, not a
+    # clock quirk: a submitted timestamp after its own completion can never
+    # back a terminal operation.
+    if operation.submitted_at is not None and operation.completed_at is not None:
+        if _parse_utc(operation.submitted_at) > _parse_utc(operation.completed_at):
+            findings.append("provider_operation chronology impossible: submitted_at is after completed_at")
 
     criterion_ids = [item.id for item in criteria]
     if len(set(criterion_ids)) != len(criterion_ids):
