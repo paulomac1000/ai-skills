@@ -183,6 +183,9 @@ def default_qualification(
         authority=authority,
         candidate_sha=str(subject["candidate_sha"]),
         source_ref="dispatch:op-1",
+        # Mirrors the trusted authority flow: the qualification attests the
+        # exact composed receipt bytes, not a reusable job-level claim.
+        receipt_digest=str(document.get("payload_digest") or "sha256:" + "0" * 64),
         provider_operation_ref=str(operation_ref) if operation_ref else None,
     )
 
@@ -1595,6 +1598,7 @@ def test_qualification_must_bind_reviewer_identity() -> None:
         authority=rr.AttestationAuthority.INDEPENDENT_AUTHORITY,
         candidate_sha=C1,
         source_ref="dispatch:op-1",
+        receipt_digest=str(document["payload_digest"]),
     )
     decision = admit(document, independence_authority=qualification)
     assert decision.outcome is rr.AdmissionOutcome.NON_GREEN
@@ -1608,6 +1612,7 @@ def test_qualification_must_bind_candidate() -> None:
         authority=rr.AttestationAuthority.INDEPENDENT_AUTHORITY,
         candidate_sha=C2,
         source_ref="dispatch:op-1",
+        receipt_digest=str(document["payload_digest"]),
     )
     decision = admit(document, independence_authority=qualification)
     assert decision.outcome is rr.AdmissionOutcome.NON_GREEN
@@ -1656,11 +1661,57 @@ def test_qualification_operation_mismatch_is_detected() -> None:
         authority=rr.AttestationAuthority.ORCHESTRATOR_ATTESTED,
         candidate_sha=C1,
         source_ref="dispatch:op-1",
+        receipt_digest=str(document["payload_digest"]),
         provider_operation_ref="provider-job-999",
     )
     decision = admit(document, independence_authority=qualification)
     assert decision.outcome is rr.AdmissionOutcome.NON_GREEN
     assert "independence-authority-operation-mismatch" in decision.reason_codes
+
+
+def test_rewritten_result_bytes_invalidate_qualification() -> None:
+    """F23: a genuine qualification for one provider job cannot back rewritten
+    result bytes — flipping failing criteria to passing (or needs_fixes to
+    approve) and recomputing the payload digest breaks the attested binding."""
+    document = compose_baseline(issued=rr.ReviewVerdict.NEEDS_FIXES)
+    genuine = default_qualification(document)  # attests THESE bytes (needs_fixes content)
+    # Attacker rewrites the result: criteria pass, verdict approve.
+    document["criteria"][0]["verdict"] = "pass"
+    document["verdict"] = "approve"
+    document["payload_digest"] = rr.payload_digest(document)
+    decision = rr.review_admission(
+        document,
+        policy=baseline_policy(),
+        current_dependencies=baseline_current(),
+        now=NOW,
+        independence_authority=genuine,
+    )
+    assert decision.outcome is rr.AdmissionOutcome.NON_GREEN
+    assert "independence-authority-receipt-digest-mismatch" in decision.reason_codes
+
+
+def test_qualification_without_result_binding_is_refused_by_type() -> None:
+    with pytest.raises((TypeError, ValueError)):
+        rr.IndependenceAuthorityQualification(
+            reviewer_identity="chatgpt-pr-validation",
+            authority=rr.AttestationAuthority.ORCHESTRATOR_ATTESTED,
+            candidate_sha=C1,
+            source_ref="dispatch:op-1",
+        )
+
+
+def test_wrong_attested_digest_is_a_mismatch() -> None:
+    document = compose_baseline()
+    qualification = rr.IndependenceAuthorityQualification(
+        reviewer_identity="chatgpt-pr-validation",
+        authority=rr.AttestationAuthority.ORCHESTRATOR_ATTESTED,
+        candidate_sha=C1,
+        source_ref="dispatch:op-1",
+        receipt_digest="sha256:" + "9" * 64,
+    )
+    decision = admit(document, independence_authority=qualification)
+    assert decision.outcome is rr.AdmissionOutcome.NON_GREEN
+    assert "independence-authority-receipt-digest-mismatch" in decision.reason_codes
 
 
 def test_erased_operation_ref_cannot_inherit_qualification_binding() -> None:
@@ -1674,6 +1725,7 @@ def test_erased_operation_ref_cannot_inherit_qualification_binding() -> None:
         authority=rr.AttestationAuthority.ORCHESTRATOR_ATTESTED,
         candidate_sha=C1,
         source_ref="dispatch:op-1",
+        receipt_digest=str(document["payload_digest"]),
         provider_operation_ref="provider-job-123",
     )
     decision = admit(document, independence_authority=external)
@@ -1781,6 +1833,7 @@ def test_early_rejection_with_changed_candidate_reports_stale(authority: str | N
             authority=rr.AttestationAuthority.ORCHESTRATOR_ATTESTED,
             candidate_sha=C1,
             source_ref="dispatch:op-1",
+            receipt_digest=str(document["payload_digest"]),
         )
     decision = rr.review_admission(
         document,

@@ -521,14 +521,21 @@ class IndependenceAuthorityQualification:
     (dispatch records, provider operation logs) — a caller-constructed
     qualification is exactly as untrusted as the receipt itself and cannot
     upgrade admission. Admission binds the qualification to the receipt by
-    reviewer identity, candidate SHA, attestation authority, and provider
-    operation reference.
+    reviewer identity, candidate SHA, attestation authority, provider
+    operation reference, and — critically — the exact ``receipt_digest`` of
+    the attested result bytes: without that binding, a caller holding a
+    genuine qualification for one provider job could rewrite that job's
+    receipt (failing criteria to passing, needs_fixes to approve), recompute
+    the payload digest, and keep the same qualification. The authority must
+    therefore attest the composed receipt's payload digest from its own
+    boundary.
     """
 
     reviewer_identity: str
     authority: AttestationAuthority
     candidate_sha: str
     source_ref: str
+    receipt_digest: str
     provider_operation_ref: str | None = None
 
     def __post_init__(self) -> None:
@@ -540,6 +547,7 @@ class IndependenceAuthorityQualification:
             raise ValueError("qualification authority must be orchestrator_attested or independent_authority")
         _require_source_revision(self.candidate_sha, "qualification candidate sha")
         _require_ref(self.source_ref, "qualification source ref")
+        _require_digest(self.receipt_digest, "qualification receipt digest")
         _optional_bounded(self.provider_operation_ref, "qualification provider operation ref", 512)
 
 
@@ -899,6 +907,12 @@ def review_admission(
             # receipt that names that same job; an erased receipt reference is
             # a mismatch, not a bypass.
             authority_reasons.append("independence-authority-operation-mismatch")
+        declared_payload = document.get("payload_digest")
+        if independence_authority.receipt_digest != declared_payload:
+            # The attested result bytes are this exact payload digest; any
+            # rewrite of criteria, verdicts, or findings invalidates the
+            # qualification instead of inheriting its authority.
+            authority_reasons.append("independence-authority-receipt-digest-mismatch")
         if authority_reasons:
             return AdmissionDecision(
                 AdmissionOutcome.NON_GREEN, gate.verdict, early_currentness, tuple(authority_reasons)
