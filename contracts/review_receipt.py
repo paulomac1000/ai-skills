@@ -880,9 +880,11 @@ def review_admission(
             authority_reasons.append("independence-attestation-contradicts-qualification")
         if (
             independence_authority.provider_operation_ref is not None
-            and operation.operation_ref is not None
             and independence_authority.provider_operation_ref != operation.operation_ref
         ):
+            # A qualification issued for one provider job can only back a
+            # receipt that names that same job; an erased receipt reference is
+            # a mismatch, not a bypass.
             authority_reasons.append("independence-authority-operation-mismatch")
         if authority_reasons:
             return AdmissionDecision(

@@ -1130,7 +1130,9 @@ def test_unparseable_timestamps_are_findings() -> None:
     document["payload_digest"] = rr.payload_digest(document)
     decision = admit(document)
     assert decision.outcome is rr.AdmissionOutcome.NON_GREEN
-    assert any("malformed receipt shape" in reason for reason in decision.reason_codes)
+    # The failure surfaces either as a schema date-time finding (when the
+    # format checker is available) or as a malformed-shape finding otherwise.
+    assert any("completed_at" in reason or "malformed receipt shape" in reason for reason in decision.reason_codes)
 
 
 def test_garbage_payload_is_non_green_without_crash() -> None:
@@ -1573,6 +1575,24 @@ def test_qualification_operation_mismatch_is_detected() -> None:
         provider_operation_ref="provider-job-999",
     )
     decision = admit(document, independence_authority=qualification)
+    assert decision.outcome is rr.AdmissionOutcome.NON_GREEN
+    assert "independence-authority-operation-mismatch" in decision.reason_codes
+
+
+def test_erased_operation_ref_cannot_inherit_qualification_binding() -> None:
+    document = _forged_authority_document()
+    document["provider_operation"]["operation_ref"] = None
+    document["payload_digest"] = rr.payload_digest(document)
+    # The qualification mirrors an external dispatch record for the baseline
+    # operation; deriving it from the receipt bytes would defeat the binding.
+    external = rr.IndependenceAuthorityQualification(
+        reviewer_identity="chatgpt-pr-validation",
+        authority=rr.AttestationAuthority.ORCHESTRATOR_ATTESTED,
+        candidate_sha=C1,
+        source_ref="dispatch:op-1",
+        provider_operation_ref="provider-job-123",
+    )
+    decision = admit(document, independence_authority=external)
     assert decision.outcome is rr.AdmissionOutcome.NON_GREEN
     assert "independence-authority-operation-mismatch" in decision.reason_codes
 
