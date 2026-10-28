@@ -70,6 +70,8 @@ A plan may contain user/system flows, focus areas, analogous implementations, an
 
 The default freshness rule is `plan(C1) is stale for C2`. Base-dependent plans are stale after a material base change. Reuse is allowed only when policy can mechanically establish unchanged load-bearing dependencies; provider UI state or prose is insufficient.
 
+The resulting receipt is evidence, not the plan: the repository-level `contracts/review-receipt.schema.json` contract and `contracts/review_receipt.py` evaluator own the provider-neutral `ReviewReceipt` v1 that records what a reviewer actually examined and concluded for the exact candidate — attested reviewer independence, predeclared per-criterion outcomes, review-input coverage, provider operation lifecycle, durable finding state, and mechanical exact-candidate currentness. Consumers derive the admission gate under their own trusted review policy; a candidate, plan, rubric, policy, base, or input-manifest change invalidates the receipt by default, and the reviewer's aggregate verdict can never raise a gate above its own criterion and finding state. Independence floors above the reviewer's own declaration are satisfiable only through independently qualified authority evidence supplied from the trusted policy boundary, never through the receipt's caller-controlled attestation content alone.
+
 ## Negative space and invariant families
 
 For identity, authority, admission, provenance, parser/schema, state, and recovery boundaries, review the applicable negative space around the invariant instead of only the changed happy path. Select dimensions from the actual risk; do not impose the full matrix on unrelated pure functions.
