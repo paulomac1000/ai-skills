@@ -656,16 +656,22 @@ def evaluate_review(
         if path not in coverage.changed_files:
             gaps.append(f"coverage-changed-file-missing:{path}")
 
+    # Universal provider-state contradictions hold regardless of policy: a
+    # completion without a review body is never substantive review (issue
+    # #93), an unknown acknowledgment proves nothing, and a blocked, failed,
+    # or cancelled operation can never back an approval. The policy flag only
+    # selects whether ordinary non-terminal states must still wait and
+    # whether terminal observation coverage is load-bearing.
+    state = provider_operation.state
+    if state is ProviderState.COMPLETED_NO_FINDINGS:
+        gaps.append("provider-operation-completed-no-findings-content-missing")
+    if state is ProviderState.ACK_UNKNOWN:
+        gaps.append("provider-operation-ack-unknown-proves-nothing")
+    if state in _TERMINAL_BLOCKED_STATES:
+        definitive.append(f"provider-operation-{state.value}")
     if policy.require_terminal_operation:
-        state = provider_operation.state
-        if state in _NON_TERMINAL_STATES:
+        if state in _NON_TERMINAL_STATES - {ProviderState.ACK_UNKNOWN}:
             gaps.append(f"provider-operation-{state.value}-non-terminal")
-        elif state in _TERMINAL_BLOCKED_STATES:
-            definitive.append(f"provider-operation-{state.value}")
-        elif state is ProviderState.COMPLETED_NO_FINDINGS:
-            # Unconditional (issue #93): a provider completion without a review
-            # body is NOT_PROVEN, never an inventable substantive review.
-            gaps.append("provider-operation-completed-no-findings-content-missing")
         if (
             state
             in (

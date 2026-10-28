@@ -796,7 +796,7 @@ def test_ack_unknown_is_represented_and_non_green() -> None:
     document["payload_digest"] = rr.payload_digest(document)
     decision = admit(document)
     assert decision.outcome is rr.AdmissionOutcome.NON_GREEN
-    assert "provider-operation-ack_unknown-non-terminal" in decision.reason_codes
+    assert "provider-operation-ack-unknown-proves-nothing" in decision.reason_codes
     assert any("ack_unknown provider state is a contradiction" in reason for reason in decision.reason_codes)
 
 
@@ -1981,3 +1981,115 @@ def test_chronology_with_mixed_utc_offsets_remains_valid() -> None:
     document["provider_operation"]["completed_at"] = "2026-10-27T04:30:00-04:00"  # 08:30Z
     document["payload_digest"] = rr.payload_digest(document)
     assert rr.verify_receipt(document, schema_path=SCHEMA_PATH) == []
+
+
+# ---------------------------------------------------------------------------
+# Review round 7 (F24): terminal-operation opt-out cannot bypass universal
+# lifecycle contradictions
+# ---------------------------------------------------------------------------
+
+
+def _document_with_provider_state(state: str) -> dict[str, object]:
+    document = compose_baseline()
+    document["provider_operation"]["state"] = state
+    document["payload_digest"] = rr.payload_digest(document)
+    return document
+
+
+def _no_terminal_policy() -> rr.ReviewPolicy:
+    return baseline_policy(require_terminal_operation=False)
+
+
+@pytest.mark.parametrize(
+    ("state", "expected_reason"),
+    [
+        ("completed_no_findings", "provider-operation-completed-no-findings-content-missing"),
+        ("ack_unknown", "provider-operation-ack-unknown-proves-nothing"),
+        ("blocked_quota", "provider-operation-blocked_quota"),
+        ("provider_failed", "provider-operation-provider_failed"),
+    ],
+)
+def test_universal_provider_contradictions_hold_without_terminal_policy(state: str, expected_reason: str) -> None:
+    policy = _no_terminal_policy()
+    document = _document_with_provider_state(state)
+    parts = rr._parts_from_document(document)
+    assert parts is not None
+    gate = rr.evaluate_review(policy, *parts[:8], parts[8])
+    assert gate.verdict is not rr.ReviewVerdict.APPROVE, state
+    assert expected_reason in gate.reason_codes, state
+    decision = rr.review_admission(
+        document,
+        policy=policy,
+        current_dependencies=baseline_current(),
+        now=NOW,
+        independence_authority=default_qualification(document),
+    )
+    assert decision.outcome is rr.AdmissionOutcome.NON_GREEN, state
+    assert expected_reason in decision.reason_codes, state
+
+
+@pytest.mark.parametrize("state", ["completed_no_findings", "ack_unknown", "blocked_quota", "provider_failed"])
+def test_verifier_and_gate_agree_on_universal_contradictions(state: str) -> None:
+    """Gate and verifier must classify the same evidence compatibly under the
+    same policy: whenever structural verification flags an issued-approve
+    contradiction, the gate must not be approving either."""
+    policy = _no_terminal_policy()
+    document = _document_with_provider_state(state)
+    parts = rr._parts_from_document(document)
+    assert parts is not None
+    gate = rr.evaluate_review(policy, *parts[:8], parts[8])
+    policy_findings = rr.verify_receipt(document, schema_path=None, policy=policy)
+    approve_contradictions = [f for f in policy_findings if f.startswith("issued approve")]
+    if approve_contradictions:
+        assert gate.verdict is not rr.ReviewVerdict.APPROVE, (state, gate.verdict)
+    assert gate.verdict is not rr.ReviewVerdict.APPROVE, state
+
+
+def test_terminal_policy_still_requires_waiting_for_nonterminal_states() -> None:
+    document = _document_with_provider_state("running")
+    decision = admit(document)
+    assert decision.outcome is rr.AdmissionOutcome.NON_GREEN
+    assert "provider-operation-running-non-terminal" in decision.reason_codes
+    # Under the opt-out, an ordinary non-terminal state is a policy choice —
+    # but a compose-time approval still cannot be manufactured from it.
+    document_noop = _document_with_provider_state("running")
+    decision_noop = rr.review_admission(
+        document_noop,
+        policy=_no_terminal_policy(),
+        current_dependencies=baseline_current(),
+        now=NOW,
+        independence_authority=default_qualification(document_noop),
+    )
+    assert decision_noop.outcome is rr.AdmissionOutcome.GREEN
+
+
+def test_observation_coverage_stays_policy_scoped() -> None:
+    document = _document_with_provider_state("completed_with_review")
+    document["provider_operation"]["observation_coverage"] = "partial"
+    document["payload_digest"] = rr.payload_digest(document)
+    strict = admit(document)
+    assert strict.outcome is rr.AdmissionOutcome.NON_GREEN
+    assert "provider-observation-coverage-partial" in strict.reason_codes
+    relaxed = rr.review_admission(
+        document,
+        policy=_no_terminal_policy(),
+        current_dependencies=baseline_current(),
+        now=NOW,
+        independence_authority=default_qualification(document),
+    )
+    assert relaxed.outcome is rr.AdmissionOutcome.GREEN
+
+
+def test_completed_with_review_positive_preserved_under_both_policies() -> None:
+    document = compose_baseline()
+    assert admit(document).outcome is rr.AdmissionOutcome.GREEN
+    assert (
+        rr.review_admission(
+            document,
+            policy=_no_terminal_policy(),
+            current_dependencies=baseline_current(),
+            now=NOW,
+            independence_authority=default_qualification(document),
+        ).outcome
+        is rr.AdmissionOutcome.GREEN
+    )
