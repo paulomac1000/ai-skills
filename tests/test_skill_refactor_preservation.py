@@ -219,7 +219,7 @@ def test_real_pilot_tracks_live_normative_sources():
     assert result["behavior"] == "BEHAVIOR_NOT_VERIFIED"
     assert result["baseline_revision"] == "5c656ac0602e35f51cb0ba9b576f8e5af10a54ba"
     assert result["candidate_revision"] == "NOT_VERIFIED"
-    assert result["declared_candidate_version"] == "3.33.0"
+    assert result["declared_candidate_version"] == "3.33.1"
 
 
 def test_content_drift_cannot_pass_a_pinned_pilot(tmp_path):
@@ -390,8 +390,9 @@ def test_pilot_revision_resolves_against_actual_git_history():
     corpus = root / "evals/skills/skill-architect"
     baseline = json.loads((corpus / "refactor-pilot-baseline.json").read_text(encoding="utf-8"))
     ledger = json.loads((corpus / "refactor-pilot-ledger.json").read_text(encoding="utf-8"))
-    import pytest
     import subprocess
+
+    import pytest
 
     # Other CI matrix jobs use shallow checkouts; exact-head fetches BASE_SHA
     # and runs this verification with real immutable Git history.
@@ -529,8 +530,9 @@ def test_candidate_owned_git_cannot_substitute_trusted_baseline(tmp_path):
 
 
 def test_historical_git_resolution_tracks_selected_trusted_skill():
-    import pytest
     import subprocess
+
+    import pytest
 
     root = Path(__file__).resolve().parents[1]
     _require_trusted_main_ancestry(root)
@@ -594,8 +596,9 @@ def test_cli_rejects_non_object_candidate_files_with_typed_exit(tmp_path):
 
 def test_cli_rejects_fifo_and_character_device_before_reading(tmp_path):
     import os
-    import pytest
     import subprocess
+
+    import pytest
 
     if not hasattr(os, "mkfifo"):
         pytest.skip("FIFO unsupported")
@@ -719,6 +722,7 @@ def test_baseline_git_revision_must_be_commit(tmp_path):
     baseline = json.loads((corpus / "refactor-pilot-baseline.json").read_text(encoding="utf-8"))
     ledger = json.loads((corpus / "refactor-pilot-ledger.json").read_text(encoding="utf-8"))
     import subprocess
+
     import pytest
 
     available = subprocess.run(
@@ -743,8 +747,9 @@ def test_baseline_git_revision_must_be_commit(tmp_path):
 
 
 def test_git_provenance_ignores_inherited_repository_overrides(monkeypatch):
-    import pytest
     import subprocess
+
+    import pytest
 
     root = Path(__file__).resolve().parents[1]
     _require_trusted_main_ancestry(root)
@@ -771,8 +776,9 @@ def test_git_provenance_ignores_inherited_repository_overrides(monkeypatch):
 
 
 def test_git_provenance_does_not_resolve_executable_through_inherited_path(tmp_path, monkeypatch):
-    import pytest
     import subprocess
+
+    import pytest
 
     root = Path(__file__).resolve().parents[1]
     _require_trusted_main_ancestry(root)
@@ -1220,6 +1226,7 @@ def test_code_fence_and_comment_routes_do_not_count_as_live_instructions(tmp_pat
 
 def test_unreachable_baseline_git_commit_rejected_when_object_exists(monkeypatch):
     import subprocess
+
     import pytest
 
     root = Path(__file__).resolve().parents[1]

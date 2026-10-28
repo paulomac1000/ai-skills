@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.33.1 - 2026-10-28
+
+### Changed
+
+- Development dependency set updated as one consolidated maintenance release: `ruff` 0.16.10 → 0.17.1 (lint/format behavior), `httpx2` 2.13.1 → 2.16.0 with its transitive `httpcore2` 2.13.1 → 2.16.0 (HTTP client used by tooling and tests), `types-jsonschema` 4.26.0.20260518 → 4.26.0.20261006 (stub freshness for mypy), and `pip-tools` 7.6.1 → 7.6.2 (lock generator). All five platform lock sets were regenerated with the repository generator; the mcp-server-architect skill locks are content-identical. No public contract, schema, evaluator, or skill behavior changed in this release.
+
 ## 3.33.0 - 2026-10-27
 
 ### Added
