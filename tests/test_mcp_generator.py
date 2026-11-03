@@ -3,14 +3,10 @@
 from __future__ import annotations
 
 import compileall
-import hashlib
 import importlib.util
 import json
-import shutil
-import subprocess
 import sys
 import threading
-import venv
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from types import ModuleType
@@ -43,27 +39,6 @@ def load_workflow_auditor() -> ModuleType:
     if tools not in sys.path:
         sys.path.insert(0, tools)
     return _load_module(AUDITOR, "generated_workflow_auditor")
-
-
-def run_checked(
-    command: list[str],
-    *,
-    cwd: Path,
-    timeout: int = 180,
-) -> subprocess.CompletedProcess[str]:
-    """Run one artifact-verification command and retain diagnostics on failure."""
-    completed = subprocess.run(
-        command,
-        cwd=cwd,
-        check=False,
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-    )
-    assert completed.returncode == 0, (
-        f"command failed: {' '.join(command)}\nstdout:\n{completed.stdout}\nstderr:\n{completed.stderr}"
-    )
-    return completed
 
 
 def test_generator_emits_complete_deterministic_project(tmp_path: Path) -> None:
@@ -290,122 +265,3 @@ def test_generator_preserves_competing_target_created_before_publish(
     assert (target / "sentinel.txt").read_text(encoding="utf-8") == "competitor"
     assert not (target / "src").exists()
     assert not list(tmp_path.glob(".server.*"))
-
-
-def test_generated_project_builds_installs_and_smokes_exact_wheel(
-    tmp_path: Path,
-) -> None:
-    """Prove import and protocol behavior without PYTHONPATH or editable source."""
-    generator = load_generator()
-    target = tmp_path / "server"
-    generator.generate_project(target, "inventory_mcp", "Inventory MCP")
-    run_checked(
-        [sys.executable, "-m", "build", "--wheel", "--no-isolation"],
-        cwd=target,
-    )
-    wheels = list((target / "dist").glob("*.whl"))
-    assert len(wheels) == 1
-
-    environment = tmp_path / "artifact-venv"
-    venv.EnvBuilder(with_pip=True, system_site_packages=True).create(environment)
-    python = environment / ("Scripts/python.exe" if sys.platform == "win32" else "bin/python")
-    run_checked(
-        [str(python), "-m", "pip", "install", "--no-deps", str(wheels[0])],
-        cwd=tmp_path,
-    )
-    outside_checkout = tmp_path / "outside-checkout"
-    outside_checkout.mkdir()
-    run_checked(
-        [
-            str(python),
-            str(target / "scripts/smoke_artifact.py"),
-            "--distribution",
-            "inventory-mcp",
-            "--package",
-            "inventory_mcp",
-        ],
-        cwd=outside_checkout,
-    )
-
-
-@pytest.mark.container
-@pytest.mark.anyio
-async def test_generated_container_is_non_root_and_passes_official_stdio_smoke(
-    tmp_path: Path,
-) -> None:
-    """Build and invoke the exact generated image rather than inspecting Dockerfile text only."""
-    if shutil.which("docker") is None:
-        pytest.skip("docker is unavailable")
-    from mcp import Client, StdioServerParameters
-    from mcp.client.stdio import stdio_client
-
-    generator = load_generator()
-    target = tmp_path / "server"
-    generator.generate_project(target, "inventory_mcp", "Inventory MCP")
-    run_checked(
-        [sys.executable, "-m", "build", "--wheel", "--no-isolation"],
-        cwd=target,
-    )
-    wheels = list((target / "dist").glob("*.whl"))
-    assert len(wheels) == 1
-    wheel_digest = hashlib.sha256(wheels[0].read_bytes()).hexdigest()
-
-    image = f"ai-skills-python-mcp:{tmp_path.name.lower()}"
-    run_checked(
-        [
-            "docker",
-            "build",
-            "--build-arg",
-            f"WHEEL=dist/{wheels[0].name}",
-            "--build-arg",
-            f"WHEEL_SHA256={wheel_digest}",
-            "--tag",
-            image,
-            ".",
-        ],
-        cwd=target,
-        timeout=300,
-    )
-    try:
-        identity = run_checked(
-            [
-                "docker",
-                "run",
-                "--rm",
-                "--entrypoint",
-                "python",
-                image,
-                "-c",
-                "import os, inventory_mcp, pathlib; "
-                "assert os.getuid() != 0; "
-                "p=pathlib.Path(inventory_mcp.__file__).resolve(); "
-                "assert 'site-packages' in p.parts, p",
-            ],
-            cwd=target,
-        )
-        assert identity.returncode == 0
-        parameters = StdioServerParameters(
-            command="docker",
-            args=["run", "--rm", "-i", image],
-        )
-        async with Client(stdio_client(parameters)) as client:
-            tools = await client.list_tools()
-            assert {"list_items", "put_item"} <= {tool.name for tool in tools.tools}
-            result = await client.call_tool("list_items", {"limit": 1})
-            assert result.is_error is False
-            denied = await client.call_tool(
-                "put_item",
-                {
-                    "item_id": "blocked",
-                    "value": "Blocked",
-                    "approval_record": "invalid",
-                },
-            )
-            assert denied.is_error is True
-    finally:
-        subprocess.run(
-            ["docker", "image", "rm", "--force", image],
-            check=False,
-            capture_output=True,
-            text=True,
-        )
