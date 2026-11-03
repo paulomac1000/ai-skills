@@ -14,7 +14,7 @@ Use this reference when `audit_agents_md.py` reports the CI/task gate-source bud
 
 ## Canonical policy
 
-The canonical classifier is `tools/agents_md_gate_sources.py`. Its current policy revision is `agents-md-gate-sources-1`. Change that revision whenever classification semantics or the default budget change, and add a regression that distinguishes the old and new behavior.
+The canonical classifier is `tools/agents_md_gate_sources.py`. Its current policy revision is `agents-md-gate-sources-4`. Change that revision whenever classification semantics or the default budget change, and add a regression that distinguishes the old and new behavior.
 
 The budget applies to independently meaningful CI/task entrypoints, not to every file that happens to live under `scripts/` or have a script extension. The classifier counts:
 
@@ -22,11 +22,15 @@ The budget applies to independently meaningful CI/task entrypoints, not to every
 - well-known repository task-runner entrypoints such as `Makefile`, `Justfile`, `Taskfile.*`, `build.sh`, and `build.ps1`;
 - commands in the explicit `bin/` entrypoint namespace;
 - repository-relative command paths referenced by CI or another public task surface, even after they move outside `scripts/` or `bin/`;
+- Python module invocations such as `PYTHONPATH=.agents python -m tools.validator`, resolved against the invocation working directory and declared `PYTHONPATH`, regardless of the module's repository path;
+- independently invoked scripts and module targets reached through a bounded CI/task wrapper chain;
 - Python script-shaped files that expose an explicit `if __name__ == "__main__":` entrypoint.
 
-A `.py`, `.sh`, or `.ps1` suffix alone is not proof of an independently invokable task. Executable filesystem mode alone is also not proof because mode preservation and execution semantics can differ across archives, filesystems, and checkout environments. A helper remains part of discovery inventory but does not consume the entrypoint budget unless public execution evidence makes it an entrypoint.
+A `.py`, `.sh`, or `.ps1` suffix alone is not proof of an independently invokable task. Executable filesystem mode alone is also not proof because mode preservation and execution semantics can differ across archives, filesystems, and checkout environments. A repository-local Python dependency imported by a counted entrypoint is classified as `library`, appears with its importer origin in the source inventory, and is included in the bounded audit read set, but does **not** consume the independent-entrypoint budget unless it has separate invocation evidence. Import discovery is static AST inspection, bounded to four levels and 256 repository files; it never executes candidate code. Ambiguous module resolution, unreadable invoked sources, or exhausted bounds are explicit inventory issues and fail the audit closed rather than silently dropping sources.
 
-Classification is static and fail-conservative about evidence: it never executes repository-controlled files. A command reference is counted only when the referenced path exists in the discovered revision.
+An invocation path outside the repository is never read through the repository root or counted as local code. It is listed as `excluded` only when a matching `actions/checkout` path in the same workflow identifies a pinned external commit, the exact trusted-authority output pair (`steps.authority.outputs.repository` / `steps.authority.outputs.revision`), the reusable-workflow authority pair (`job.workflow_repository` / `job.workflow_sha`), or the exact candidate-input pair (`inputs.candidate_repository` / `inputs.candidate_sha`). Dynamic repository/ref pairs with any other names remain inventory issues and fail closed. External identities remain separate acceptance evidence and must be verified by the owning trust-lock or workflow-identity check. An out-of-root path with no matching declared external checkout is an inventory issue and fails closed.
+
+Classification is static and fail-conservative about evidence: it never executes repository-controlled files. A command reference is counted only when the referenced path exists in the discovered revision. Every path row records its classification, count disposition, reason, and invocation/import origins (source path and line when available).
 
 ## Output and merge gate
 
@@ -36,7 +40,8 @@ The classifier and `audit_agents_md.py` expose:
 - `count`;
 - `limit`;
 - `headroom = limit - count`;
-- every considered path with `classification`, `counted`, and `reason`.
+- every considered path with `classification`, `counted`, `reason`, and `origins`;
+- `issues`, which must be empty for a complete inventory.
 
 The same classifier revision and limit must be used by local validation and hosted/pre-merge validation. A negative headroom is blocking. Zero headroom is allowed but must be visible so that the next true entrypoint cannot become a post-merge surprise.
 
@@ -49,6 +54,12 @@ When the budget is exhausted or a source is classified incorrectly:
 1. Consolidate genuinely separate public tasks behind a smaller stable task surface when that improves the repository interface.
 2. Reclassify a helper only by removing false public-entrypoint evidence and keeping the real entrypoint as its owner. Do not rename or move a true task merely to evade the classifier.
 3. If the existing limit or classification model no longer matches legitimate repository structure, revise the policy deliberately: update the policy revision, documentation, focused regressions, and hosted/local parity evidence together.
+
+## Consumer upgrade and rollback
+
+Consumers pin the immutable ai-skills commit that declares the expected `policy_revision`, run the source inventory on the exact candidate/base revisions, and retain the machine-readable count, limit, headroom, classified paths, origins, and issues. Upgrade only after reviewing the newly included invocation paths and the consumer's exact count.
+
+If the new revision exposes a parser defect (for example, an invocation is mis-resolved), keep acceptance blocked, correct the upstream parser with a fixture, and re-run the exact candidate. A consumer may temporarily restore its previously approved pin only under an explicitly owned rollback decision; that rollback does not satisfy #212 source-coverage acceptance. If the corrected inventory legitimately exceeds the unchanged limit, do not restore a path-blind pin, add exclusions, or raise the limit as a shortcut. Consolidate real public entrypoints or request a separately governed capacity decision, then re-run the exact-SHA consumer audit.
 
 Raising the limit solely to make a new file pass is not a supported remediation.
 
