@@ -1009,6 +1009,7 @@ def evaluate_gate(
     report = currentness if currentness is not None else derive_currentness(graph, CurrentIdentities())
     reasons: list[str] = []
     qualifying: list[str] = []
+    failed: list[str] = []
 
     candidates = [receipt for receipt in graph.receipts.values() if receipt.receipt_kind is requirement.required_kind]
     if requirement.subject_kind is not None:
@@ -1024,6 +1025,14 @@ def evaluate_gate(
         receipt_status = report.receipts[receipt.receipt_id].status
         if receipt_status is not Currentness.CURRENT and requirement.require_current:
             reasons.append(f"NOT_CURRENT:{receipt.receipt_id}:{receipt_status.value}")
+            continue
+        if receipt.disposition is Disposition.FAILED:
+            # A failing receipt on the evaluated subject (for example a
+            # required reviewer finding a defect after another reviewer
+            # approved, or conflicting evidence) blocks the gate; a second
+            # PASS receipt never compensates for it.
+            failed.append(receipt.receipt_id)
+            reasons.append(f"RECEIPT_FAILED:{receipt.receipt_id}")
             continue
         if receipt.disposition is Disposition.NOT_REQUIRED:
             qualifying.append(receipt.receipt_id)
@@ -1048,6 +1057,8 @@ def evaluate_gate(
             seen_principals.add(principal)
         qualifying.append(receipt.receipt_id)
 
+    if failed:
+        return GateDecision(requirement.gate_id, GateState.BLOCKED, tuple(qualifying), tuple(reasons))
     if len(qualifying) >= requirement.distinct_producers:
         return GateDecision(requirement.gate_id, GateState.SATISFIED, tuple(qualifying), ())
     if qualifying:
