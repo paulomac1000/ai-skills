@@ -1,6 +1,6 @@
 schema_version: 1
 name: qa-change-verifier
-version: 3.33.1
+version: 3.34.0
 maturity: stable
 skill_format: ai-skills/v1
 normative_entrypoint: STANDARD.md
@@ -52,6 +52,8 @@ dependencies:
   - contracts/review_receipt.py
   - contracts/diagnostic-egress.schema.json
   - contracts/diagnostic_egress.py
+  - contracts/execution-evidence.schema.json
+  - contracts/autonomous-delivery-policy.schema.json
 deprecation:
   policy: semantic-versioning
   minimum_notice: one-minor-release

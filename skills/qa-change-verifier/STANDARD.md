@@ -147,7 +147,7 @@ Scheduling composes with the existing owners. Evidence truth and freshness remai
 
 ## Composition boundaries
 
-This skill owns software-change acceptance semantics and semantic-review scope planning. It does not own task/session memory, Steward workflow state, ReviewReceipt verdict/independence semantics, cross-system evidence lineage, or delivery-policy selection of when these contracts are mandatory. Those owners consume stable contract/plan identities rather than copying these schemas.
+This skill owns software-change acceptance semantics and semantic-review scope planning. It does not own task/session memory, Steward workflow state, ReviewReceipt verdict/independence semantics, cross-system evidence lineage (#91 `contracts/execution-evidence.schema.json`), or delivery-policy selection of when these contracts are mandatory (#94 `contracts/autonomous-delivery-policy.schema.json`, owned by `ci-cd-architect`). Those owners consume stable contract/plan identities rather than copying these schemas: this skill's risk classes and proof classes are the canonical taxonomy its profiles project, and verification plans stay canonical for evidence scheduling while the delivery policy decides which gates are mandatory.
 
 ## Definition of done
 

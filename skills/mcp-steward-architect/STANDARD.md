@@ -151,6 +151,8 @@ When a Steward may integrate a candidate into a governed repository target, gene
 
 The durable integration operation MUST be reserved before dispatch and reservation consumes the one-shot lease. Timeout or lost acknowledgement enters reconciliation on that same operation and MUST NOT reactivate/replay the lease. Successful reconciliation proves exact candidate-to-integrated revision lineage for the selected strategy; squash/rebase/merge consumers MUST NOT assume candidate SHA equals integrated SHA. See `references/integration-lease.md`.
 
+The resulting integration is projected as a bounded #91 `integration` receipt (`contracts/execution-evidence.schema.json`) carrying candidate/integrated identities, target before/after, strategy, consumed lease/operation refs, and evidence-set digest; the lease profile remains the authority owner and the execution-evidence contract owns broader delivery-lineage correlation. Delivery-policy selection of whether integration is enabled and lease-gated is owned by `ci-cd-architect` (#94), never by this skill.
+
 ## External operations and reconciliation
 
 Before a stateful external operation whose effect can outlive the call, the Steward MUST durably record an operation identity/start intent bound to job/generation/attempt, exact capability contract and target, canonical request digest, non-secret credential slot, and admitted mutation decision.
