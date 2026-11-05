@@ -1037,14 +1037,23 @@ class TestCodexReviewTranchePolicyRegressions:
                     "requires_pr": True,
                     "requires_release": False,
                 },
-                "OPERATOR_ACTION": {"terminal_boundary": "implementation_completed", "requires_operator_grant": True, "risk_profile": "standard"},
+                "OPERATOR_ACTION": {
+                    "terminal_boundary": "implementation_completed",
+                    "requires_operator_grant": True,
+                    "risk_profile": "standard",
+                },
                 "COORDINATION": {"terminal_boundary": "decomposition_required"},
             },
             release={"enabled": False, "rollback_required": True, "deployment_lease_required": True},
         )
         policy, _ = admit_policy(document)
         assert policy is not None
-        spec = WorkSpec(work_kind=WorkKind.IMPLEMENTATION, change_risk=RiskLevel.HIGH, expected_policy_revision="r1", planning_base_sha=BASE)
+        spec = WorkSpec(
+            work_kind=WorkKind.IMPLEMENTATION,
+            change_risk=RiskLevel.HIGH,
+            expected_policy_revision="r1",
+            planning_base_sha=BASE,
+        )
         compiled = compile_gates(policy, spec)
         assert compiled.release_required is True
         graph = build_graph(
@@ -1059,7 +1068,11 @@ class TestCodexReviewTranchePolicyRegressions:
                 receipt(
                     receipt_id="integration-1",
                     receipt_kind="integration",
-                    producer={"system": "github", "principal": "provider", "authority_class": "external_provider_observation"},
+                    producer={
+                        "system": "github",
+                        "principal": "provider",
+                        "authority_class": "external_provider_observation",
+                    },
                     subject={"kind": "integrated_revision", "identity": "integrated-i1", "integrated_sha": I1},
                     mutation_authority={"authority_kind": "integration_lease", "authority_ref": "lease://1"},
                     lineage={
@@ -1076,7 +1089,9 @@ class TestCodexReviewTranchePolicyRegressions:
                 ),
             ]
         )
-        decision = evaluate_delivery(policy, spec, graph, current=CurrentIdentities(candidate_sha=C1, integrated_sha=I1))
+        decision = evaluate_delivery(
+            policy, spec, graph, current=CurrentIdentities(candidate_sha=C1, integrated_sha=I1)
+        )
         assert decision.outcome is not DeliveryDecisionKind.TERMINAL_ACCEPTED
         assert "release" in decision.missing_gates
 
@@ -1090,9 +1105,19 @@ class TestCodexReviewTranchePolicyRegressions:
         )
         graph = build_graph([anonymous])
         reviewers = [
-            ReviewerDescriptor(principal="someone-else", model="m1", organization="o1", account="a1", transport="api", upstream_id="u1", upstream_attested=True)
+            ReviewerDescriptor(
+                principal="someone-else",
+                model="m1",
+                organization="o1",
+                account="a1",
+                transport="api",
+                upstream_id="u1",
+                upstream_attested=True,
+            )
         ]
-        decision = evaluate_delivery(policy, IMPL_SPEC, graph, current=CurrentIdentities(candidate_sha=C1), reviewers=reviewers)
+        decision = evaluate_delivery(
+            policy, IMPL_SPEC, graph, current=CurrentIdentities(candidate_sha=C1), reviewers=reviewers
+        )
         gate = decision.gate_decisions["review"]
         assert not gate.is_green
         assert any(reason.startswith("INDEPENDENCE_UNQUALIFIED") for reason in gate.reasons)
@@ -1113,8 +1138,16 @@ class TestCodexReviewTranchePolicyRegressions:
         document = policy_document(
             work_kinds={
                 "INVESTIGATION": {"terminal_boundary": "evidence_backed_findings", "risk_profile": "quick"},
-                "IMPLEMENTATION": {"terminal_boundary": "runtime_accepted", "requires_pr": True, "requires_release": True},
-                "OPERATOR_ACTION": {"terminal_boundary": "implementation_completed", "requires_operator_grant": True, "risk_profile": "standard"},
+                "IMPLEMENTATION": {
+                    "terminal_boundary": "runtime_accepted",
+                    "requires_pr": True,
+                    "requires_release": True,
+                },
+                "OPERATOR_ACTION": {
+                    "terminal_boundary": "implementation_completed",
+                    "requires_operator_grant": True,
+                    "risk_profile": "standard",
+                },
                 "COORDINATION": {"terminal_boundary": "implementation_completed"},
             }
         )
@@ -1128,8 +1161,17 @@ class TestCodexReviewTranchePolicyRegressions:
         document = policy_document(
             work_kinds={
                 "INVESTIGATION": {"terminal_boundary": "evidence_backed_findings", "risk_profile": "quick"},
-                "IMPLEMENTATION": {"terminal_boundary": "runtime_accepted", "requires_pr": True, "requires_release": True, "risk_profile": "quick"},
-                "OPERATOR_ACTION": {"terminal_boundary": "implementation_completed", "requires_operator_grant": True, "risk_profile": "standard"},
+                "IMPLEMENTATION": {
+                    "terminal_boundary": "runtime_accepted",
+                    "requires_pr": True,
+                    "requires_release": True,
+                    "risk_profile": "quick",
+                },
+                "OPERATOR_ACTION": {
+                    "terminal_boundary": "implementation_completed",
+                    "requires_operator_grant": True,
+                    "risk_profile": "standard",
+                },
                 "COORDINATION": {"terminal_boundary": "decomposition_required"},
             }
         )

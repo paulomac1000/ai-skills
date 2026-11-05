@@ -788,7 +788,9 @@ class TestCodexReviewTrancheRegressions:
             observed_at="2026-11-04T00:00:00Z",
         )
         graph = build_graph([receipt_document])
-        report = derive_currentness(graph, CurrentIdentities(candidate_sha=C1), now=datetime(2026, 11, 4, 13, 0, tzinfo=UTC))
+        report = derive_currentness(
+            graph, CurrentIdentities(candidate_sha=C1), now=datetime(2026, 11, 4, 13, 0, tzinfo=UTC)
+        )
         assert report.receipts["expiring"].status == "STALE"
         assert "EXPIRED" in report.receipts["expiring"].invalidated_by
 
@@ -801,7 +803,9 @@ class TestCodexReviewTrancheRegressions:
             observed_at="2026-11-04T00:00:00Z",
         )
         graph = build_graph([receipt_document])
-        report = derive_currentness(graph, CurrentIdentities(candidate_sha=C1), now=datetime(2026, 11, 4, 13, 0, tzinfo=UTC))
+        report = derive_currentness(
+            graph, CurrentIdentities(candidate_sha=C1), now=datetime(2026, 11, 4, 13, 0, tzinfo=UTC)
+        )
         assert report.receipts["expiring-later"].status == "CURRENT"
 
     def test_declared_deployment_identity_participates_in_currentness(self) -> None:
@@ -820,13 +824,19 @@ class TestCodexReviewTrancheRegressions:
         graph = build_graph([runtime])
         report = derive_currentness(
             graph,
-            CurrentIdentities(runtime_generation=GEN7, artifact_digest="sha256:" + "5" * 64, deployment_identity="deploy-production"),
+            CurrentIdentities(
+                runtime_generation=GEN7, artifact_digest="sha256:" + "5" * 64, deployment_identity="deploy-production"
+            ),
         )
         assert report.receipts["runtime-staging"].status == "STALE"
-        assert any(axis.value == "deployment_identity" for axis in report.receipts["runtime-staging"].stale_dependencies)
+        assert any(
+            axis.value == "deployment_identity" for axis in report.receipts["runtime-staging"].stale_dependencies
+        )
 
     def test_verification_input_staleness_propagates(self) -> None:
-        stale_validation = make_receipt(receipt_id="validation-old", subject={"kind": "candidate_revision", "identity": "c1", "candidate_sha": C1})
+        stale_validation = make_receipt(
+            receipt_id="validation-old", subject={"kind": "candidate_revision", "identity": "c1", "candidate_sha": C1}
+        )
         verification = independent_document(
             inputs={
                 "receipt_refs": ["validation-old"],
@@ -847,3 +857,30 @@ class TestCodexReviewTrancheRegressions:
             subject={"kind": "planning_base", "identity": "brief-1", "planning_base_sha": BASE},
         )
         assert admit_receipt(document).outcome is AdmissionOutcome.ADMITTED
+
+
+class TestRound5Regressions:
+    """Round-5 review findings: input cycles and integrated-source fallback."""
+
+    def test_verification_input_self_reference_is_rejected(self) -> None:
+        self_ref = independent_document(
+            inputs={
+                "receipt_refs": ["iv-1"],
+                "evidence_set_digest": evidence_set_digest(["iv-1"]),
+                "policy_revision": "v1",
+            }
+        )
+        with pytest.raises(ValueError, match="cycle"):
+            build_graph([self_ref])
+
+    def test_integration_without_subject_integrated_sha_binds_lineage_axis(self) -> None:
+        document = integration_document(
+            subject={"kind": "integrated_revision", "identity": "integrated-i1"},
+        )
+        decision = admit_receipt(document)
+        assert decision.outcome is AdmissionOutcome.ADMITTED
+        assert decision.receipt is not None
+        graph = build_graph([document])
+        report = derive_currentness(graph, CurrentIdentities(integrated_sha="f" * 40, candidate_sha=C1))
+        assert report.receipts["int-1"].status == "STALE"
+        assert any(axis.value == "integrated_source" for axis in report.receipts["int-1"].stale_dependencies)

@@ -815,6 +815,9 @@ def _assert_dependency_acyclic(graph: EvidenceGraph) -> None:
         for dependency_id, _kind in graph.receipts[receipt_id].depends_on:
             if dependency_id in graph.receipts:
                 visit(dependency_id, depth + 1)
+        for input_ref in graph.receipts[receipt_id].input_receipt_refs:
+            if input_ref in graph.receipts:
+                visit(input_ref, depth + 1)
         state[receipt_id] = 2
 
     for receipt_id in graph.order:
@@ -907,15 +910,14 @@ def _implicit_dependency_axes(receipt: ReceiptEnvelope) -> Mapping[DependencyKin
         axes[DependencyKind.DEPLOYMENT_IDENTITY] = receipt.subject_deployment_ref
     if receipt.subject_runtime_generation is not None:
         axes[DependencyKind.RUNTIME_GENERATION] = receipt.subject_runtime_generation
-    if (
-        receipt.receipt_kind is ReceiptKind.INTEGRATION
-        and receipt.subject_candidate_sha is None
-        and receipt.lineage is not None
-    ):
+    if receipt.receipt_kind is ReceiptKind.INTEGRATION and receipt.lineage is not None:
         # Integration receipts prove the candidate-to-integrated transition:
-        # the lineage's candidate identity participates in currentness even
-        # when the subject names only the integrated revision.
-        axes[DependencyKind.CANDIDATE_SOURCE] = receipt.lineage.candidate_sha
+        # the lineage identities participate in currentness even when the
+        # subject omits them.
+        if receipt.subject_candidate_sha is None:
+            axes[DependencyKind.CANDIDATE_SOURCE] = receipt.lineage.candidate_sha
+        if receipt.subject_integrated_sha is None:
+            axes[DependencyKind.INTEGRATED_SOURCE] = receipt.lineage.integrated_sha
     if receipt.admitted_work is not None:
         axes[DependencyKind.WORK_CONTRACT] = receipt.admitted_work["contract_digest"]
     elif receipt.governing_contract is not None:
