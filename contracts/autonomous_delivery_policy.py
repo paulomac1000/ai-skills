@@ -855,6 +855,18 @@ def _weakening_transitions(candidate: DeliveryPolicy, trusted: DeliveryPolicy) -
         ]
         if removed_layers:
             weakenings.append(f"risk_profiles.{name.value}.verification_layers removed:{','.join(removed_layers)}")
+    # Execution budgets are trusted policy limits: a candidate may narrow
+    # them but enlarging (or adding convergence headroom) escapes the outer
+    # bound without a governed transition.
+    for budget_key in ("plan_revision_rounds", "repair_rounds", "outer_retry_budget"):
+        trusted_budget = trusted.budgets.get(budget_key, 0)
+        candidate_budget = candidate.budgets.get(budget_key, 0)
+        if candidate_budget > trusted_budget:
+            weakenings.append(f"budgets.{budget_key}:{trusted_budget}->{candidate_budget}")
+    if candidate.review_convergence_max_repair_rounds > trusted.review_convergence_max_repair_rounds:
+        weakenings.append(
+            f"review_convergence.max_repair_rounds:{trusted.review_convergence_max_repair_rounds}->{candidate.review_convergence_max_repair_rounds}"
+        )
     weakenings.extend(
         _matrix_weakenings(_effective_requirements_matrix(trusted), _effective_requirements_matrix(candidate))
     )

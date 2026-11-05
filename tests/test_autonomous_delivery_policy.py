@@ -983,3 +983,30 @@ class TestRound2Regressions:
         decision = resolve_effective_policy(trusted, candidate, None)
         assert decision.outcome == "POLICY_SELF_MODIFICATION_BLOCKED"
         assert any("planning:independent_challenge->none" in weakening for weakening in decision.weakenings)
+
+
+class TestRound3Regressions:
+    """Round-3 review finding: budget enlargement must be classified as weakening."""
+
+    def test_budget_enlargement_without_transition_is_blocked(self) -> None:
+        trusted = load_policy()
+        document = policy_document()
+        document["budgets"] = {"plan_revision_rounds": 3, "repair_rounds": 100, "outer_retry_budget": 100}
+        document["digest"] = policy_digest(document)
+        candidate, _ = admit_policy(document)
+        assert candidate is not None
+        decision = resolve_effective_policy(trusted, candidate, None)
+        assert decision.outcome == "POLICY_SELF_MODIFICATION_BLOCKED"
+        assert any(weakening.startswith("budgets.repair_rounds") for weakening in decision.weakenings)
+        assert any(weakening.startswith("budgets.outer_retry_budget") for weakening in decision.weakenings)
+
+    def test_budget_reduction_remains_permitted(self) -> None:
+        trusted = load_policy()
+        document = policy_document()
+        document["budgets"] = {"plan_revision_rounds": 1, "repair_rounds": 2, "outer_retry_budget": 4}
+        document["digest"] = policy_digest(document)
+        candidate, _ = admit_policy(document)
+        assert candidate is not None
+        decision = resolve_effective_policy(trusted, candidate, None)
+        assert decision.outcome == "CANDIDATE_COMPATIBLE"
+        assert not any(weakening.startswith("budgets.") for weakening in decision.weakenings)
