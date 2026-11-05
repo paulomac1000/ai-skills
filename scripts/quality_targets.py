@@ -60,6 +60,8 @@ TYPE_PATHS = (
     "contracts/mcp_public_contract.py",
     "contracts/runtime_acceptance.py",
     "contracts/review_receipt.py",
+    "contracts/execution_evidence.py",
+    "contracts/autonomous_delivery_policy.py",
     "contracts/render_rule_catalog.py",
     "contracts/rule_applicability.py",
     "contracts/skill_schema_contract.py",

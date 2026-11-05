@@ -1,0 +1,350 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/paulomac1000/ai-skills/blob/main/contracts/execution-evidence.schema.json",
+  "title": "Execution Evidence Contract v1 receipt envelope",
+  "description": "Provider-neutral, bounded, immutable correlation envelope for one delivery-lineage receipt. Structural only: semantic admission, currentness, and gate composition are owned by contracts/execution_evidence.py.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "receipt_id",
+    "receipt_kind",
+    "producer",
+    "subject",
+    "correlation",
+    "policy",
+    "outcome",
+    "evidence_refs",
+    "artifact_refs",
+    "observed_at",
+    "payload_digest"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "receipt_id": {"type": "string", "minLength": 1, "maxLength": 256},
+    "receipt_kind": {
+      "enum": [
+        "capability_admission",
+        "implementation",
+        "validation",
+        "command_execution",
+        "plan_challenge",
+        "review",
+        "work_completion",
+        "independent_verification",
+        "integration_candidate",
+        "integration",
+        "build",
+        "artifact_publication",
+        "deployment",
+        "runtime_acceptance",
+        "rollback",
+        "publication"
+      ]
+    },
+    "producer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["system", "authority_class"],
+      "properties": {
+        "system": {"type": "string", "minLength": 1, "maxLength": 256},
+        "principal": {"type": ["string", "null"], "minLength": 1, "maxLength": 256},
+        "runtime_identity": {"type": ["string", "null"], "minLength": 1, "maxLength": 256},
+        "producer_generation": {"type": ["string", "null"], "minLength": 1, "maxLength": 128},
+        "authority_class": {
+          "enum": [
+            "deterministic_tool",
+            "trusted_validator",
+            "independent_verifier",
+            "review_provider",
+            "worker_report",
+            "agent_attestation",
+            "operator",
+            "external_provider_observation"
+          ]
+        }
+      }
+    },
+    "subject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "identity"],
+      "properties": {
+        "kind": {
+          "enum": [
+            "work_spec",
+            "planning_base",
+            "execution_base",
+            "candidate_revision",
+            "reviewed_revision",
+            "verified_revision",
+            "integration_candidate",
+            "integrated_revision",
+            "artifact",
+            "publication",
+            "deployment_target",
+            "observed_runtime",
+            "terminal_evidence",
+            "criterion",
+            "gate",
+            "repository"
+          ]
+        },
+        "identity": {"type": "string", "minLength": 1, "maxLength": 512},
+        "repository": {"type": ["string", "null"], "minLength": 1, "maxLength": 512},
+        "source_sha": {"type": ["string", "null"], "pattern": "^[0-9a-f]{40}$"},
+        "tree_sha": {"type": ["string", "null"], "pattern": "^[0-9a-f]{40}$"},
+        "candidate_sha": {"type": ["string", "null"], "pattern": "^[0-9a-f]{40}$"},
+        "integrated_sha": {"type": ["string", "null"], "pattern": "^[0-9a-f]{40}$"},
+        "planning_base_sha": {"type": ["string", "null"], "pattern": "^[0-9a-f]{40}$"},
+        "execution_base_sha": {"type": ["string", "null"], "pattern": "^[0-9a-f]{40}$"},
+        "artifact_digest": {"type": ["string", "null"], "pattern": "^sha256:[0-9a-f]{64}$"},
+        "deployment_ref": {"type": ["string", "null"], "minLength": 1, "maxLength": 256},
+        "runtime_generation": {"type": ["string", "null"], "minLength": 1, "maxLength": 128}
+      }
+    },
+    "correlation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["project_id"],
+      "properties": {
+        "project_id": {"type": "string", "minLength": 1, "maxLength": 256},
+        "issue_id": {"type": ["string", "null"], "minLength": 1, "maxLength": 256},
+        "work_package_id": {"type": ["string", "null"], "minLength": 1, "maxLength": 256},
+        "work_package_run_id": {"type": ["string", "null"], "minLength": 1, "maxLength": 256},
+        "execution_generation": {"type": ["string", "null"], "minLength": 1, "maxLength": 128},
+        "attempt_id": {"type": ["string", "null"], "minLength": 1, "maxLength": 128},
+        "namespace": {"type": ["string", "null"], "minLength": 1, "maxLength": 128}
+      }
+    },
+    "governing_contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contract_ref", "contract_digest"],
+      "properties": {
+        "contract_ref": {"type": "string", "minLength": 1, "maxLength": 512},
+        "contract_revision": {"type": ["string", "null"], "minLength": 1, "maxLength": 128},
+        "contract_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+      }
+    },
+    "admitted_work": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contract_ref", "contract_digest"],
+      "properties": {
+        "contract_ref": {"type": "string", "minLength": 1, "maxLength": 512},
+        "contract_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "revision": {"type": ["string", "null"], "minLength": 1, "maxLength": 128}
+      }
+    },
+    "execution_environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["environment_ref"],
+      "properties": {
+        "environment_ref": {"type": "string", "minLength": 1, "maxLength": 512},
+        "environment_generation": {"type": ["string", "null"], "minLength": 1, "maxLength": 128},
+        "tool_surface_generation": {"type": ["string", "null"], "minLength": 1, "maxLength": 128}
+      }
+    },
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["policy_ref"],
+      "properties": {
+        "policy_ref": {"type": "string", "minLength": 1, "maxLength": 512},
+        "policy_revision": {"type": ["string", "null"], "minLength": 1, "maxLength": 128},
+        "policy_digest": {"type": ["string", "null"], "pattern": "^sha256:[0-9a-f]{64}$"}
+      }
+    },
+    "outcome": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["disposition"],
+      "properties": {
+        "disposition": {
+          "enum": ["PASS", "FAILED", "NOT_REQUIRED", "NOT_OBSERVED", "UNKNOWN", "STALE", "INCONCLUSIVE", "RECONCILIATION_REQUIRED"]
+        },
+        "reason_codes": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {"type": "string", "minLength": 1, "maxLength": 128}
+        },
+        "layered_outcome_ref": {"type": ["string", "null"], "minLength": 1, "maxLength": 512}
+      }
+    },
+    "evidence_refs": {
+      "type": "array",
+      "maxItems": 32,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["ref_type", "namespace", "id"],
+        "properties": {
+          "ref_type": {"enum": ["receipt", "evidence", "artifact", "audit", "external"]},
+          "namespace": {"type": "string", "minLength": 1, "maxLength": 128},
+          "id": {"type": "string", "minLength": 1, "maxLength": 512},
+          "digest": {"type": ["string", "null"], "pattern": "^sha256:[0-9a-f]{64}$"}
+        }
+      }
+    },
+    "artifact_refs": {
+      "type": "array",
+      "maxItems": 16,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["namespace", "id", "digest"],
+        "properties": {
+          "namespace": {"type": "string", "minLength": 1, "maxLength": 128},
+          "id": {"type": "string", "minLength": 1, "maxLength": 512},
+          "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+        }
+      }
+    },
+    "depends_on": {
+      "type": "array",
+      "maxItems": 32,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["receipt_id", "dependency_kind"],
+        "properties": {
+          "receipt_id": {"type": "string", "minLength": 1, "maxLength": 256},
+          "dependency_kind": {
+            "enum": [
+              "candidate_source",
+              "base_topology",
+              "source_blob",
+              "review_input",
+              "review_provider",
+              "policy_revision",
+              "work_contract",
+              "verification_corpus",
+              "artifact_digest",
+              "deployment_identity",
+              "runtime_generation",
+              "evidence_set",
+              "planning_base",
+              "execution_environment",
+              "rubric",
+              "integrated_source"
+            ]
+          }
+        }
+      }
+    },
+    "command_evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["argv_digest", "exit_provenance"],
+      "properties": {
+        "argv_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "working_directory": {"type": ["string", "null"], "minLength": 1, "maxLength": 512},
+        "exit_code": {"type": ["integer", "null"], "minimum": -2147483648, "maximum": 2147483647},
+        "exit_provenance": {"enum": ["EXIT_PROVEN", "EXIT_UNPROVEN", "WRAPPER_EXIT_ONLY"]},
+        "report_digest": {"type": ["string", "null"], "pattern": "^sha256:[0-9a-f]{64}$"},
+        "selected_test_ids": {
+          "type": "array",
+          "maxItems": 256,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1, "maxLength": 256}
+        },
+        "runner_identity": {"type": ["string", "null"], "minLength": 1, "maxLength": 256}
+      }
+    },
+    "lineage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["strategy", "candidate_sha", "target_ref", "target_before_sha", "integrated_sha", "lineage_proof_ref"],
+      "properties": {
+        "strategy": {"enum": ["squash", "merge", "rebase", "fast_forward", "other"]},
+        "candidate_sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "target_ref": {"type": "string", "minLength": 1, "maxLength": 256},
+        "target_before_sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "integrated_sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "integrated_tree_sha": {"type": ["string", "null"], "pattern": "^[0-9a-f]{40}$"},
+        "lineage_proof_ref": {"type": "string", "minLength": 1, "maxLength": 512},
+        "lease_ref": {"type": ["string", "null"], "minLength": 1, "maxLength": 512},
+        "operation_ref": {"type": ["string", "null"], "minLength": 1, "maxLength": 512}
+      }
+    },
+    "implementation_provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provenance_state"],
+      "properties": {
+        "provenance_state": {"enum": ["known", "unknown"]},
+        "principal_ref": {"type": ["string", "null"], "minLength": 1, "maxLength": 256},
+        "execution_ref": {"type": ["string", "null"], "minLength": 1, "maxLength": 512},
+        "agent_leg_ref": {"type": ["string", "null"], "minLength": 1, "maxLength": 256},
+        "producer_ref": {"type": ["string", "null"], "minLength": 1, "maxLength": 512}
+      }
+    },
+    "inputs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["receipt_refs", "evidence_set_digest"],
+      "properties": {
+        "receipt_refs": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1, "maxLength": 256}
+        },
+        "evidence_set_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "policy_revision": {"type": ["string", "null"], "minLength": 1, "maxLength": 128}
+      }
+    },
+    "mutation_authority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["authority_kind", "authority_ref"],
+      "properties": {
+        "authority_kind": {
+          "enum": ["ephemeral_mutation_grant", "integration_lease", "publication_lease", "deployment_lease", "operator_override", "other"]
+        },
+        "authority_ref": {"type": "string", "minLength": 1, "maxLength": 512},
+        "authority_revision": {"type": ["string", "null"], "minLength": 1, "maxLength": 128},
+        "admitted_operation_ref": {"type": ["string", "null"], "minLength": 1, "maxLength": 512},
+        "consumption_ref": {"type": ["string", "null"], "minLength": 1, "maxLength": 512}
+      }
+    },
+    "conflict_refs": {
+      "type": "array",
+      "maxItems": 8,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1, "maxLength": 512}
+    },
+    "supersedes_receipt_ref": {"type": ["string", "null"], "minLength": 1, "maxLength": 256},
+    "effective_evidence_revision": {"type": ["string", "null"], "minLength": 1, "maxLength": 128},
+    "observed_at": {"type": "string", "format": "date-time"},
+    "expires_at": {"type": ["string", "null"], "format": "date-time"},
+    "payload_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"receipt_kind": {"const": "command_execution"}}, "required": ["receipt_kind"]},
+      "then": {"required": ["command_evidence"]}
+    },
+    {
+      "if": {"properties": {"receipt_kind": {"const": "integration"}}, "required": ["receipt_kind"]},
+      "then": {"required": ["lineage"]}
+    },
+    {
+      "if": {"properties": {"receipt_kind": {"const": "independent_verification"}}, "required": ["receipt_kind"]},
+      "then": {"required": ["implementation_provenance", "inputs"]}
+    },
+    {
+      "if": {"properties": {"receipt_kind": {"const": "integration_candidate"}}, "required": ["receipt_kind"]},
+      "then": {
+        "properties": {
+          "subject": {"required": ["kind", "identity", "candidate_sha"]}
+        }
+      }
+    }
+  ]
+}

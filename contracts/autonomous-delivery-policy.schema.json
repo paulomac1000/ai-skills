@@ -1,0 +1,275 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/paulomac1000/ai-skills/blob/main/contracts/autonomous-delivery-policy.schema.json",
+  "title": "Autonomous Delivery Policy v1",
+  "description": "Deterministic, provider-neutral delivery policy consumed by CI/CD, Stewards, and autonomous orchestrators. Structural only: trusted-source binding, anti-self-approval, gate compilation, and terminal evaluation are owned by contracts/autonomous_delivery_policy.py. The policy composes #91/#92/#93/#97/#54/#113 contracts and never redefines them.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "policy_id",
+    "revision",
+    "digest",
+    "trust_binding",
+    "autonomy",
+    "work_kinds",
+    "risk_profiles",
+    "planning",
+    "review",
+    "independent_verification",
+    "integration",
+    "release",
+    "budgets",
+    "terminal_boundary"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "policy_id": {"type": "string", "minLength": 1, "maxLength": 256},
+    "revision": {"type": "string", "minLength": 1, "maxLength": 128},
+    "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "trust_binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_ref", "source_digest"],
+      "properties": {
+        "source_ref": {"type": "string", "minLength": 1, "maxLength": 512},
+        "source_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "established_by": {"type": ["string", "null"], "minLength": 1, "maxLength": 256},
+        "established_at": {"type": ["string", "null"], "format": "date-time"}
+      }
+    },
+    "autonomy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["maximum_level"],
+      "properties": {
+        "maximum_level": {"enum": ["implement_only", "integrate", "release"]}
+      }
+    },
+    "work_kinds": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["INVESTIGATION", "IMPLEMENTATION", "OPERATOR_ACTION", "COORDINATION"],
+      "properties": {
+        "INVESTIGATION": {"$ref": "#/$defs/work_kind_rule"},
+        "IMPLEMENTATION": {"$ref": "#/$defs/work_kind_rule"},
+        "OPERATOR_ACTION": {"$ref": "#/$defs/work_kind_rule"},
+        "COORDINATION": {"$ref": "#/$defs/work_kind_rule"}
+      }
+    },
+    "risk_profiles": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["quick", "standard", "deep"],
+      "properties": {
+        "quick": {"$ref": "#/$defs/risk_profile"},
+        "standard": {"$ref": "#/$defs/risk_profile"},
+        "deep": {"$ref": "#/$defs/risk_profile"}
+      }
+    },
+    "planning": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode"],
+      "properties": {
+        "mode": {"enum": ["none", "worker_plan", "independent_challenge"]},
+        "challenge_class": {
+          "type": ["string", "null"],
+          "enum": ["review_provider", "independent_verifier", "deterministic_checker", null]
+        },
+        "max_revision_rounds": {"type": "integer", "minimum": 0, "maximum": 64},
+        "stale_on": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"enum": ["task_brief_change", "planning_base_change", "protected_scope_change", "policy_change"]}
+        }
+      }
+    },
+    "review": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["required"],
+      "properties": {
+        "required": {"type": "boolean"},
+        "reviewer_class": {"type": ["string", "null"], "minLength": 1, "maxLength": 128},
+        "count": {"type": "integer", "minimum": 0, "maximum": 8},
+        "required_dimensions": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"enum": ["model", "organization", "account", "transport", "human"]}
+        },
+        "upstream_attestation_required": {"type": "boolean"},
+        "rubric_ref": {"type": ["string", "null"], "minLength": 1, "maxLength": 512},
+        "stale_on_candidate_change": {"type": "boolean"},
+        "final_exact_head_required": {"type": "boolean"}
+      }
+    },
+    "independent_verification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["required"],
+      "properties": {
+        "required": {"type": "boolean"},
+        "verifier_class": {"type": ["string", "null"], "minLength": 1, "maxLength": 128}
+      }
+    },
+    "integration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled"],
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "integration_lease_required": {"type": "boolean"},
+        "allowed_strategies": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"enum": ["squash", "merge", "rebase", "fast_forward"]}
+        },
+        "base_freshness_policy": {"type": ["string", "null"], "minLength": 1, "maxLength": 128}
+      }
+    },
+    "integrated_acceptance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["required"],
+      "properties": {
+        "required": {"type": "boolean"},
+        "required_before": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"enum": ["release_publication", "deployment"]}
+        }
+      }
+    },
+    "release": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled"],
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "deployment_lease_required": {"type": "boolean"},
+        "target_profile": {"type": ["string", "null"], "minLength": 1, "maxLength": 128},
+        "runtime_acceptance_profile": {"type": ["string", "null"], "minLength": 1, "maxLength": 128},
+        "rollback_required": {"type": "boolean"}
+      }
+    },
+    "mutation_authority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["persistent_repository", "external_service", "destructive"],
+      "properties": {
+        "persistent_repository": {"enum": ["autonomous", "scoped_grant", "human_approval", "forbidden"]},
+        "external_service": {"enum": ["autonomous", "scoped_grant", "human_approval", "forbidden"]},
+        "destructive": {"enum": ["human_approval", "operator_admin_only", "forbidden"]},
+        "integration_authority_contract": {"type": ["string", "null"], "minLength": 1, "maxLength": 128},
+        "publication_authority_contract": {"type": ["string", "null"], "minLength": 1, "maxLength": 128},
+        "deployment_authority_contract": {"type": ["string", "null"], "minLength": 1, "maxLength": 128}
+      }
+    },
+    "review_convergence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["max_repair_rounds", "final_full_review_required"],
+      "properties": {
+        "max_repair_rounds": {"type": "integer", "minimum": 0, "maximum": 64},
+        "max_review_generations": {"type": ["integer", "null"], "minimum": 1, "maximum": 64},
+        "max_novel_finding_rounds": {"type": ["integer", "null"], "minimum": 1, "maximum": 64},
+        "require_plan_revision_on_invariant_failure": {"type": "boolean"},
+        "final_full_review_required": {"type": "boolean"}
+      }
+    },
+    "operator_attention": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [],
+      "properties": {
+        "required_when": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"enum": ["scope_change", "irreversible_action", "business_decision", "credential_action", "policy_exception", "break_glass"]}
+        }
+      }
+    },
+    "trajectory": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode"],
+      "properties": {
+        "mode": {"enum": ["none", "deterministic_limits", "independent_monitor", "hybrid"]},
+        "cumulative_limits": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "repositories_touched": {"type": ["integer", "null"], "minimum": 1, "maximum": 1024},
+            "external_subjects_mutated": {"type": ["integer", "null"], "minimum": 0, "maximum": 1024},
+            "authority_escalations": {"type": ["integer", "null"], "minimum": 0, "maximum": 1024},
+            "deployment_targets": {"type": ["integer", "null"], "minimum": 0, "maximum": 1024}
+          }
+        },
+        "deterministic_denial_stronger": {"const": true}
+      }
+    },
+    "evaluation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [],
+      "properties": {
+        "required_for_runtime_rollout": {"type": "boolean"},
+        "eval_suite_ref": {"type": ["string", "null"], "minLength": 1, "maxLength": 512},
+        "hard_predicate_policy_ref": {"type": ["string", "null"], "minLength": 1, "maxLength": 512}
+      }
+    },
+    "budgets": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repair_rounds", "outer_retry_budget"],
+      "properties": {
+        "plan_revision_rounds": {"type": ["integer", "null"], "minimum": 0, "maximum": 64},
+        "repair_rounds": {"type": "integer", "minimum": 0, "maximum": 64},
+        "outer_retry_budget": {"type": "integer", "minimum": 0, "maximum": 1024},
+        "wall_clock_seconds": {"type": ["integer", "null"], "minimum": 1, "maximum": 31536000}
+      }
+    },
+    "terminal_boundary": {"enum": ["implementation_completed", "integrated", "artifact_accepted", "runtime_accepted"]}
+  },
+  "$defs": {
+    "work_kind_rule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["terminal_boundary"],
+      "properties": {
+        "terminal_boundary": {"enum": ["implementation_completed", "integrated", "artifact_accepted", "runtime_accepted", "evidence_backed_findings", "decomposition_required"]},
+        "requires_pr": {"type": "boolean"},
+        "requires_release": {"type": "boolean"},
+        "requires_operator_grant": {"type": "boolean"},
+        "risk_profile": {"enum": ["quick", "standard", "deep", null]},
+        "planning_mode_override": {"enum": ["none", "worker_plan", "independent_challenge", null]},
+        "review_required_override": {"type": ["boolean", "null"]},
+        "verification_required_override": {"type": ["boolean", "null"]},
+        "integration_enabled_override": {"type": ["boolean", "null"]},
+        "release_enabled_override": {"type": ["boolean", "null"]}
+      }
+    },
+    "risk_profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["maps_risk_level", "verification_layers"],
+      "properties": {
+        "maps_risk_level": {"enum": ["LOW", "MEDIUM", "HIGH"]},
+        "verification_layers": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"enum": ["static", "unit", "integration", "exact_artifact", "real_transport", "external_e2e", "security_review", "post_deploy", "semantic_review"]}
+        },
+        "reviewer_count": {"type": "integer", "minimum": 0, "maximum": 8},
+        "independent_verification_required": {"type": "boolean"},
+        "focus_areas": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1, "maxLength": 128}
+        }
+      }
+    }
+  }
+}

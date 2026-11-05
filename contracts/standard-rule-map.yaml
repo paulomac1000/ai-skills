@@ -59,6 +59,7 @@ skills:
       release-identity-and-artifact-promotion: {rule_ids: [cicd.release.identity, cicd.release.deliverable-closure], primary: true}
       deployment-mutation-authority-and-fencing: {rule_id: cicd.deployment.fenced-lease, primary: true}
       artifact-publication-authority: {rule_id: cicd.publication.exact-lease, primary: true}
+      delivery-policy-semantics: {rule_id: cicd.delivery.policy-gates, primary: true}
       local-quality-gates: {rule_id: cicd.local.bounded, primary: true}
       verification: {rule_id: cicd.verification.recorded, primary: true}
   mcp-server-architect:

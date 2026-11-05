@@ -1,5 +1,5 @@
 schema_version: 1
-catalog_version: 3.33.1
+catalog_version: 3.34.0
 skills:
   afds-doc-writer:
     rules:
@@ -123,6 +123,9 @@ skills:
     - id: cicd.external-gate.deviation
       source: STANDARD.md#external-gate-availability-and-deviation-evidence
       description: External gate availability remains distinct from product verdict; incidents, retry suppression, substitute authority, exact-subject reproduction, and catch-up evidence are explicit and fail closed.
+    - id: cicd.delivery.policy-gates
+      source: STANDARD.md#delivery-policy-semantics
+      description: Autonomous delivery policy compiles deterministic provider-neutral gates from the WorkSpec vocabulary, fails closed on unavailable authorities and candidate self-approval, and derives the terminal boundary from trusted policy.
     - id: cicd.quality.language
       source: STANDARD.md#python-quality
       description: Applicable language quality, typing, test, and coverage gates execute.

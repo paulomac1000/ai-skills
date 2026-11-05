@@ -227,6 +227,14 @@ profiles:
     - repository-junit.xml
     execution_id: repository
   - kind: rule
+    subject: cicd.delivery.policy-gates
+    selectors:
+    - '*test_autonomous_delivery_policy*'
+    - '*test_delivery_policy_integration*'
+    result_files:
+    - repository-junit.xml
+    execution_id: repository
+  - kind: rule
     subject: cicd.quality.language
     selectors:
     - '*test_ci_scripts*'
