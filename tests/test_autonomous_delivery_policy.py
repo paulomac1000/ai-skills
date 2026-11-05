@@ -103,7 +103,14 @@ def policy_document(**overrides: object) -> dict[str, object]:
             },
             "deep": {
                 "maps_risk_level": "HIGH",
-                "verification_layers": ["static", "unit", "integration", "exact_artifact", "security_review", "semantic_review"],
+                "verification_layers": [
+                    "static",
+                    "unit",
+                    "integration",
+                    "exact_artifact",
+                    "security_review",
+                    "semantic_review",
+                ],
                 "reviewer_count": 1,
                 "independent_verification_required": True,
                 "focus_areas": ["auth", "state_machines"],
@@ -184,14 +191,22 @@ def full_implementation_graph(**overrides: object) -> object:
             receipt_kind="independent_verification",
             producer={"system": "verifier", "principal": "verifier-1", "authority_class": "independent_verifier"},
             implementation_provenance={"provenance_state": "known", "principal_ref": "worker-1"},
-            inputs={"receipt_refs": ["validation-1"], "evidence_set_digest": evidence_set_digest(["validation-1"]), "policy_revision": "r1"},
+            inputs={
+                "receipt_refs": ["validation-1"],
+                "evidence_set_digest": evidence_set_digest(["validation-1"]),
+                "policy_revision": "r1",
+            },
         ),
         receipt(
             receipt_id="integration-1",
             receipt_kind="integration",
             producer={"system": "github", "principal": "provider", "authority_class": "external_provider_observation"},
             subject={"kind": "integrated_revision", "identity": "integrated-i1", "integrated_sha": I1},
-            mutation_authority={"authority_kind": "integration_lease", "authority_ref": "lease://1", "consumption_ref": "op://1"},
+            mutation_authority={
+                "authority_kind": "integration_lease",
+                "authority_ref": "lease://1",
+                "consumption_ref": "op://1",
+            },
             lineage={
                 "strategy": "squash",
                 "candidate_sha": C1,
@@ -213,14 +228,28 @@ def full_implementation_graph(**overrides: object) -> object:
         receipt(
             receipt_id="release-1",
             receipt_kind="artifact_publication",
-            producer={"system": "github-releases", "principal": "release-bot", "authority_class": "external_provider_observation"},
-            subject={"kind": "publication", "identity": "ai-skills-3.34.0", "integrated_sha": I1, "artifact_digest": ARTIFACT},
+            producer={
+                "system": "github-releases",
+                "principal": "release-bot",
+                "authority_class": "external_provider_observation",
+            },
+            subject={
+                "kind": "publication",
+                "identity": "ai-skills-3.34.0",
+                "integrated_sha": I1,
+                "artifact_digest": ARTIFACT,
+            },
         ),
         receipt(
             receipt_id="runtime-1",
             receipt_kind="runtime_acceptance",
             producer={"system": "doctor", "principal": "doctor-1", "authority_class": "independent_verifier"},
-            subject={"kind": "observed_runtime", "identity": "runtime-fedora", "runtime_generation": GEN7, "artifact_digest": ARTIFACT},
+            subject={
+                "kind": "observed_runtime",
+                "identity": "runtime-fedora",
+                "runtime_generation": GEN7,
+                "artifact_digest": ARTIFACT,
+            },
         ),
     ]
     documents.extend(overrides)  # type: ignore[arg-type]
@@ -304,13 +333,47 @@ class TestAntiSelfApproval:
 
     WEAKENING_CASES: tuple[tuple[dict[str, object], dict[str, object], str], ...] = (
         ({}, {"review": {"required": False, "count": 0}}, "review.required"),
-        ({"independent_verification": {"required": True}}, {"independent_verification": {"required": False}}, "independent_verification.required"),
-        ({"integration": {"enabled": False, "integration_lease_required": True}}, {"integration": {"enabled": True, "integration_lease_required": True}}, "integration.enabled"),
-        ({}, {"review": {"rubric_ref": "rubric://candidate/weaker", "required": True, "count": 1}}, "review.rubric_ref"),
-        ({"autonomy": {"maximum_level": "implement_only"}}, {"autonomy": {"maximum_level": "release"}}, "autonomy.maximum_level"),
-        ({"release": {"enabled": False, "rollback_required": True, "deployment_lease_required": True}}, {"release": {"enabled": True, "rollback_required": True, "deployment_lease_required": True}}, "release.enabled"),
-        ({"release": {"enabled": True, "rollback_required": True, "deployment_lease_required": True}}, {"release": {"enabled": True, "rollback_required": False, "deployment_lease_required": True}}, "release.rollback_required"),
-        ({"planning": {"mode": "independent_challenge", "challenge_class": "review_provider", "max_revision_rounds": 3}}, {"planning": {"mode": "none"}}, "planning.mode"),
+        (
+            {"independent_verification": {"required": True}},
+            {"independent_verification": {"required": False}},
+            "independent_verification.required",
+        ),
+        (
+            {"integration": {"enabled": False, "integration_lease_required": True}},
+            {"integration": {"enabled": True, "integration_lease_required": True}},
+            "integration.enabled",
+        ),
+        (
+            {},
+            {"review": {"rubric_ref": "rubric://candidate/weaker", "required": True, "count": 1}},
+            "review.rubric_ref",
+        ),
+        (
+            {"autonomy": {"maximum_level": "implement_only"}},
+            {"autonomy": {"maximum_level": "release"}},
+            "autonomy.maximum_level",
+        ),
+        (
+            {"release": {"enabled": False, "rollback_required": True, "deployment_lease_required": True}},
+            {"release": {"enabled": True, "rollback_required": True, "deployment_lease_required": True}},
+            "release.enabled",
+        ),
+        (
+            {"release": {"enabled": True, "rollback_required": True, "deployment_lease_required": True}},
+            {"release": {"enabled": True, "rollback_required": False, "deployment_lease_required": True}},
+            "release.rollback_required",
+        ),
+        (
+            {
+                "planning": {
+                    "mode": "independent_challenge",
+                    "challenge_class": "review_provider",
+                    "max_revision_rounds": 3,
+                }
+            },
+            {"planning": {"mode": "none"}},
+            "planning.mode",
+        ),
     )
 
     @pytest.mark.parametrize(("trusted_overrides", "candidate_overrides", "expected_axis"), list(WEAKENING_CASES))
@@ -385,14 +448,22 @@ class TestDeliveryEvaluation:
         graph = full_implementation_graph()
         reviewers = [
             ReviewerDescriptor(
-                principal="reviewer-1", model="m1", organization="o1", account="acc-1", transport="api", upstream_id="u1", upstream_attested=True
+                principal="reviewer-1",
+                model="m1",
+                organization="o1",
+                account="acc-1",
+                transport="api",
+                upstream_id="u1",
+                upstream_attested=True,
             )
         ]
         decision = evaluate_delivery(
             policy,
             IMPL_SPEC,
             graph,
-            current=CurrentIdentities(candidate_sha=C1, integrated_sha=I1, runtime_generation=GEN7, artifact_digest=ARTIFACT),
+            current=CurrentIdentities(
+                candidate_sha=C1, integrated_sha=I1, runtime_generation=GEN7, artifact_digest=ARTIFACT
+            ),
             reviewers=reviewers,
         )
         assert decision.outcome is DeliveryDecisionKind.TERMINAL_ACCEPTED, decision.reasons
@@ -403,7 +474,14 @@ class TestDeliveryEvaluation:
         # remove the review receipt from a fresh graph
         documents = [document for document in graph.documents.values() if document["receipt_id"] != "review-1"]  # type: ignore[index]
         rebuilt = build_graph(documents)
-        decision = evaluate_delivery(policy, IMPL_SPEC, rebuilt, current=CurrentIdentities(candidate_sha=C1, integrated_sha=I1, runtime_generation=GEN7, artifact_digest=ARTIFACT))
+        decision = evaluate_delivery(
+            policy,
+            IMPL_SPEC,
+            rebuilt,
+            current=CurrentIdentities(
+                candidate_sha=C1, integrated_sha=I1, runtime_generation=GEN7, artifact_digest=ARTIFACT
+            ),
+        )
         assert decision.outcome is DeliveryDecisionKind.WAITING_REQUIRED_EVIDENCE
         assert "review" in decision.missing_gates
 
@@ -435,7 +513,9 @@ class TestDeliveryEvaluation:
             policy,
             IMPL_SPEC,
             graph,
-            current=CurrentIdentities(candidate_sha=C1, integrated_sha=I1, runtime_generation=GEN7, artifact_digest=ARTIFACT),
+            current=CurrentIdentities(
+                candidate_sha=C1, integrated_sha=I1, runtime_generation=GEN7, artifact_digest=ARTIFACT
+            ),
             capabilities=CapabilityReport({"review_provider": "quota"}),
         )
         assert decision.outcome is DeliveryDecisionKind.REQUIRED_CAPABILITY_UNAVAILABLE
@@ -447,7 +527,11 @@ class TestDeliveryEvaluation:
                 receipt(
                     receipt_id="hosted-1",
                     receipt_kind="command_execution",
-                    producer={"system": "github-actions", "principal": "actions", "authority_class": "deterministic_tool"},
+                    producer={
+                        "system": "github-actions",
+                        "principal": "actions",
+                        "authority_class": "deterministic_tool",
+                    },
                     outcome={"disposition": "NOT_OBSERVED", "reason_codes": ["HOSTED_NOT_EXECUTED"]},
                     command_evidence={"argv_digest": "sha256:" + "3" * 64, "exit_provenance": "EXIT_UNPROVEN"},
                 ),
@@ -497,7 +581,14 @@ class TestDeliveryEvaluation:
         graph = full_implementation_graph()
         documents = [document for document in graph.documents.values() if document["receipt_id"] != "runtime-1"]  # type: ignore[index]
         rebuilt = build_graph(documents)
-        decision = evaluate_delivery(policy, IMPL_SPEC, rebuilt, current=CurrentIdentities(candidate_sha=C1, integrated_sha=I1, runtime_generation=GEN7, artifact_digest=ARTIFACT))
+        decision = evaluate_delivery(
+            policy,
+            IMPL_SPEC,
+            rebuilt,
+            current=CurrentIdentities(
+                candidate_sha=C1, integrated_sha=I1, runtime_generation=GEN7, artifact_digest=ARTIFACT
+            ),
+        )
         assert decision.outcome is DeliveryDecisionKind.WAITING_REQUIRED_EVIDENCE
         assert "runtime_acceptance" in decision.missing_gates
 
@@ -558,7 +649,13 @@ class TestPlanGate:
     def test_plan_stale_after_planning_base_change(self) -> None:
         policy = load_policy()
         graph = full_implementation_graph()
-        moved_base = CurrentIdentities(candidate_sha=C1, planning_base_sha="f" * 40, integrated_sha=I1, runtime_generation=GEN7, artifact_digest=ARTIFACT)
+        moved_base = CurrentIdentities(
+            candidate_sha=C1,
+            planning_base_sha="f" * 40,
+            integrated_sha=I1,
+            runtime_generation=GEN7,
+            artifact_digest=ARTIFACT,
+        )
         decision = evaluate_delivery(policy, IMPL_SPEC, graph, current=moved_base)
         assert decision.outcome is DeliveryDecisionKind.PLAN_STALE
 
@@ -570,7 +667,6 @@ class TestPlanGate:
 
     def test_planning_mode_none_needs_no_plan(self) -> None:
         policy = load_policy(planning={"mode": "none"})
-        graph = build_graph([])
         compiled = compile_gates(policy, DOCS_SPEC)
         assert compiled.planning_mode is PlanningMode.NONE
 
@@ -578,33 +674,81 @@ class TestPlanGate:
 class TestReviewerIndependence:
     def test_shared_unattested_upstream_is_not_two_reviewers(self) -> None:
         reviewers = [
-            ReviewerDescriptor(principal="alias-a", model="m1", organization="o1", account="acc-1", transport="api", upstream_id="shared", upstream_attested=False),
-            ReviewerDescriptor(principal="alias-b", model="m1", organization="o1", account="acc-2", transport="api", upstream_id="shared", upstream_attested=False),
+            ReviewerDescriptor(
+                principal="alias-a",
+                model="m1",
+                organization="o1",
+                account="acc-1",
+                transport="api",
+                upstream_id="shared",
+                upstream_attested=False,
+            ),
+            ReviewerDescriptor(
+                principal="alias-b",
+                model="m1",
+                organization="o1",
+                account="acc-2",
+                transport="api",
+                upstream_id="shared",
+                upstream_attested=False,
+            ),
         ]
-        report = evaluate_reviewer_independence(reviewers, ("model", "organization"), upstream_attestation_required=True)
+        report = evaluate_reviewer_independence(
+            reviewers, ("model", "organization"), upstream_attestation_required=True
+        )
         assert report.qualified_count == 0
         assert all(state is ReviewerIndependence.UNATTESTED_UPSTREAM for state in report.per_reviewer.values())
 
     def test_attested_distinct_providers_qualify(self) -> None:
         reviewers = [
-            ReviewerDescriptor(principal="r1", model="m1", organization="o1", account="acc-1", transport="api", upstream_id="u1", upstream_attested=True),
-            ReviewerDescriptor(principal="r2", model="m2", organization="o2", account="acc-2", transport="api", upstream_id="u2", upstream_attested=True),
+            ReviewerDescriptor(
+                principal="r1",
+                model="m1",
+                organization="o1",
+                account="acc-1",
+                transport="api",
+                upstream_id="u1",
+                upstream_attested=True,
+            ),
+            ReviewerDescriptor(
+                principal="r2",
+                model="m2",
+                organization="o2",
+                account="acc-2",
+                transport="api",
+                upstream_id="u2",
+                upstream_attested=True,
+            ),
         ]
-        report = evaluate_reviewer_independence(reviewers, ("model", "organization"), upstream_attestation_required=True)
+        report = evaluate_reviewer_independence(
+            reviewers, ("model", "organization"), upstream_attestation_required=True
+        )
         assert report.qualified_count == 2
 
     def test_unknown_upstream_is_unknown_not_independence(self) -> None:
         reviewers = [
-            ReviewerDescriptor(principal="r1", model="m1", organization="o1", account="acc-1", transport="api", upstream_id=None, upstream_attested=False),
+            ReviewerDescriptor(
+                principal="r1",
+                model="m1",
+                organization="o1",
+                account="acc-1",
+                transport="api",
+                upstream_id=None,
+                upstream_attested=False,
+            ),
         ]
-        report = evaluate_reviewer_independence(reviewers, ("model", "organization"), upstream_attestation_required=True)
+        report = evaluate_reviewer_independence(
+            reviewers, ("model", "organization"), upstream_attestation_required=True
+        )
         assert report.qualified_count == 0
 
 
 class TestBudgets:
     def test_budget_exhaustion_is_typed_not_pass(self) -> None:
         policy = load_policy()
-        decision = evaluate_delivery(policy, IMPL_SPEC, build_graph([]), budget_consumed=BudgetConsumption(repair_rounds=5, outer_retry_used=1))
+        decision = evaluate_delivery(
+            policy, IMPL_SPEC, build_graph([]), budget_consumed=BudgetConsumption(repair_rounds=5, outer_retry_used=1)
+        )
         assert decision.outcome is DeliveryDecisionKind.REPAIR_BUDGET_EXHAUSTED
         assert not decision.is_green
 
@@ -616,10 +760,13 @@ class TestBudgets:
         assert "CHILD_ENLARGED_OUTER_RETRY_BUDGET" in violations
 
     def test_child_may_narrow_budget(self) -> None:
-        assert narrow_budget(
-            child=BudgetConsumption(outer_retry_used=3, repair_rounds=1),
-            parent=BudgetConsumption(outer_retry_used=8, repair_rounds=4),
-        ) == ()
+        assert (
+            narrow_budget(
+                child=BudgetConsumption(outer_retry_used=3, repair_rounds=1),
+                parent=BudgetConsumption(outer_retry_used=8, repair_rounds=4),
+            )
+            == ()
+        )
 
     def test_within_budget_is_clean(self) -> None:
         assert check_budgets(load_policy(), BudgetConsumption(repair_rounds=4, outer_retry_used=8)) == ()
@@ -635,7 +782,9 @@ class TestReceiptAdmissionComposition:
     def test_full_graph_receipts_are_admitted(self) -> None:
         graph = full_implementation_graph()
         assert len(graph.receipts) >= 8
-        assert all(admit_receipt(document).outcome is AdmissionOutcome.ADMITTED for document in graph.documents.values())
+        assert all(
+            admit_receipt(document).outcome is AdmissionOutcome.ADMITTED for document in graph.documents.values()
+        )
 
 
 class TestReviewConvergenceRegressions:
@@ -652,14 +801,22 @@ class TestReviewConvergenceRegressions:
         policy, graph = self._policy_without_plan_receipt()
         reviewers = [
             ReviewerDescriptor(
-                principal="reviewer-1", model="m1", organization="o1", account="acc-1", transport="api", upstream_id="u1", upstream_attested=True
+                principal="reviewer-1",
+                model="m1",
+                organization="o1",
+                account="acc-1",
+                transport="api",
+                upstream_id="u1",
+                upstream_attested=True,
             )
         ]
         decision = evaluate_delivery(
             policy,
             IMPL_SPEC,
             graph,
-            current=CurrentIdentities(candidate_sha=C1, integrated_sha=I1, runtime_generation=GEN7, artifact_digest=ARTIFACT),
+            current=CurrentIdentities(
+                candidate_sha=C1, integrated_sha=I1, runtime_generation=GEN7, artifact_digest=ARTIFACT
+            ),
             reviewers=reviewers,
         )
         assert decision.outcome is not DeliveryDecisionKind.TERMINAL_ACCEPTED
@@ -682,10 +839,28 @@ class TestReviewConvergenceRegressions:
         )
         graph = build_graph([alias_a, alias_b])
         reviewers = [
-            ReviewerDescriptor(principal="alias-a", model="m1", organization="o1", account="a1", transport="api", upstream_id="shared", upstream_attested=False),
-            ReviewerDescriptor(principal="alias-b", model="m1", organization="o1", account="a2", transport="api", upstream_id="shared", upstream_attested=False),
+            ReviewerDescriptor(
+                principal="alias-a",
+                model="m1",
+                organization="o1",
+                account="a1",
+                transport="api",
+                upstream_id="shared",
+                upstream_attested=False,
+            ),
+            ReviewerDescriptor(
+                principal="alias-b",
+                model="m1",
+                organization="o1",
+                account="a2",
+                transport="api",
+                upstream_id="shared",
+                upstream_attested=False,
+            ),
         ]
-        decision = evaluate_delivery(policy, IMPL_SPEC, graph, current=CurrentIdentities(candidate_sha=C1), reviewers=reviewers)
+        decision = evaluate_delivery(
+            policy, IMPL_SPEC, graph, current=CurrentIdentities(candidate_sha=C1), reviewers=reviewers
+        )
         assert decision.gate_decisions["review"].state is not GateState.SATISFIED
         assert any(
             reason.startswith("INDEPENDENCE_UNQUALIFIED") or reason.startswith("INDEPENDENCE_QUALIFIED_COUNT")
@@ -715,7 +890,6 @@ class TestReviewConvergenceRegressions:
     def test_work_kind_override_weakening_is_blocked(self) -> None:
         """Finding 4: per-kind overrides are compared at effective-gate level."""
         trusted = load_policy()
-        candidate = self._candidate(review={"required": True, "count": 1}, work_kinds_weakened=True) if False else None
 
         document = policy_document()
         work_kinds = dict(document["work_kinds"])  # type: ignore[arg-type]
@@ -772,3 +946,40 @@ class TestCurrentnessOrderIndependence:
         assert forward.receipts["dependent"].status == reverse.receipts["dependent"].status
         assert forward.receipts["dependent"].status == "STALE"
         assert sorted(forward.minimum_revalidation) == sorted(reverse.minimum_revalidation)
+
+
+class TestRound2Regressions:
+    """Round-2 review findings: per-kind profile selection and planning override."""
+
+    def test_risk_profile_substitution_is_blocked(self) -> None:
+        """Candidate pins IMPLEMENTATION risk_profile=quick while profiles unchanged."""
+        trusted = load_policy()
+        document = policy_document()
+        work_kinds = dict(document["work_kinds"])  # type: ignore[arg-type]
+        impl = dict(work_kinds["IMPLEMENTATION"])  # type: ignore[index]
+        impl["risk_profile"] = "quick"
+        work_kinds["IMPLEMENTATION"] = impl
+        document["work_kinds"] = work_kinds
+        document["digest"] = policy_digest(document)
+        candidate, _ = admit_policy(document)
+        assert candidate is not None
+        decision = resolve_effective_policy(trusted, candidate, None)
+        assert decision.outcome == "POLICY_SELF_MODIFICATION_BLOCKED"
+        assert any("profile:deep->quick" in weakening for weakening in decision.weakenings)
+
+    def test_work_kind_planning_override_eliminating_challenge_is_blocked(self) -> None:
+        """Candidate sets IMPLEMENTATION planning_mode_override=none under a
+        global independent_challenge policy without a governed transition."""
+        trusted = load_policy()
+        document = policy_document()
+        work_kinds = dict(document["work_kinds"])  # type: ignore[arg-type]
+        impl = dict(work_kinds["IMPLEMENTATION"])  # type: ignore[index]
+        impl["planning_mode_override"] = "none"
+        work_kinds["IMPLEMENTATION"] = impl
+        document["work_kinds"] = work_kinds
+        document["digest"] = policy_digest(document)
+        candidate, _ = admit_policy(document)
+        assert candidate is not None
+        decision = resolve_effective_policy(trusted, candidate, None)
+        assert decision.outcome == "POLICY_SELF_MODIFICATION_BLOCKED"
+        assert any("planning:independent_challenge->none" in weakening for weakening in decision.weakenings)

@@ -631,6 +631,112 @@ def _effective_release_enabled(policy: DeliveryPolicy, rule: WorkKindRule) -> bo
     return rule.release_enabled_override if rule.release_enabled_override is not None else policy.release_enabled
 
 
+_PROFILE_ORDER: dict[RiskProfileName, int] = {
+    RiskProfileName.QUICK: 0,
+    RiskProfileName.STANDARD: 1,
+    RiskProfileName.DEEP: 2,
+}
+
+_PLANNING_ORDER: dict[PlanningMode, int] = {
+    PlanningMode.NONE: 0,
+    PlanningMode.WORKER_PLAN: 1,
+    PlanningMode.INDEPENDENT_CHALLENGE: 2,
+}
+
+
+def _effective_requirements_matrix(policy: DeliveryPolicy) -> set[tuple[str, ...]]:
+    """Effective compiled requirements for every (work kind, change risk).
+
+    The anti-self-approval comparison runs on this matrix rather than on
+    selected top-level fields, so a candidate cannot weaken one work kind's
+    risk-profile selection, planning override, reviewer count, verification
+    layers, or required gates while keeping global flags unchanged.
+    """
+    matrix: set[tuple[str, ...]] = set()
+    for kind in WorkKind:
+        rule = policy.work_kind_rules[kind]
+        for risk in RiskLevel:
+            profile_name = rule.risk_profile or _PROFILE_FOR_RISK[risk]
+            profile = policy.risk_profiles[profile_name]
+            review_required = (
+                rule.review_required_override
+                if rule.review_required_override is not None
+                else (policy.review_required or profile.reviewer_count > 0)
+            )
+            verification_required = (
+                rule.verification_required_override
+                if rule.verification_required_override is not None
+                else (policy.independent_verification_required or profile.independent_verification_required)
+            )
+            planning_mode = rule.planning_mode_override or policy.planning_mode
+            integration_enabled = (
+                rule.integration_enabled_override
+                if rule.integration_enabled_override is not None
+                else policy.integration_enabled
+            )
+            release_enabled = (
+                rule.release_enabled_override if rule.release_enabled_override is not None else policy.release_enabled
+            )
+            matrix.add(
+                (
+                    kind.value,
+                    risk.value,
+                    f"review={review_required}",
+                    f"verification={verification_required}",
+                    f"reviewers={profile.reviewer_count}",
+                    f"indep_verif_profile={profile.independent_verification_required}",
+                    f"layers={','.join(profile.verification_layers)}",
+                    f"planning={planning_mode.value}",
+                    f"profile={profile_name.value}",
+                    f"integration={integration_enabled}",
+                    f"release={release_enabled}",
+                    f"terminal={rule.terminal_boundary.value}",
+                    f"operator_grant={rule.requires_operator_grant}",
+                )
+            )
+    return matrix
+
+
+def _matrix_weakenings(trusted_matrix: set[tuple[str, ...]], candidate_matrix: set[tuple[str, ...]]) -> list[str]:
+    """Classify effective-requirement reductions between two policy matrices."""
+    weakenings: list[str] = []
+    by_key: dict[tuple[str, str], tuple[str, ...]] = {}
+    for entry in candidate_matrix:
+        by_key[(entry[0], entry[1])] = entry
+    for entry in sorted(trusted_matrix):
+        key = (entry[0], entry[1])
+        candidate_entry = by_key.get(key)
+        if candidate_entry is None:
+            weakenings.append(f"matrix.{key[0]}.{key[1]}:entry removed")
+            continue
+        trusted_map = {item.split("=", 1)[0]: item.split("=", 1)[1] for item in entry[2:]}
+        candidate_map = {item.split("=", 1)[0]: item.split("=", 1)[1] for item in candidate_entry[2:]}
+        for field_name, trusted_value in trusted_map.items():
+            candidate_value = candidate_map[field_name]
+            if trusted_value == candidate_value:
+                continue
+            weaker = False
+            if field_name in ("review", "verification", "indep_verif_profile", "operator_grant"):
+                weaker = trusted_value == "True" and candidate_value == "False"
+            elif field_name == "reviewers":
+                weaker = (
+                    candidate_value.isdigit() and trusted_value.isdigit() and int(candidate_value) < int(trusted_value)
+                )
+            elif field_name == "layers":
+                weaker = bool(set(trusted_value.split(",")) - set(candidate_value.split(",")))
+            elif field_name == "planning":
+                weaker = _PLANNING_ORDER[PlanningMode(trusted_value)] > _PLANNING_ORDER[PlanningMode(candidate_value)]
+            elif field_name == "profile":
+                weaker = (
+                    _PROFILE_ORDER[RiskProfileName(candidate_value)] < _PROFILE_ORDER[RiskProfileName(trusted_value)]
+                )
+            elif field_name in ("integration", "release"):
+                weaker = trusted_value == "False" and candidate_value == "True"
+            if weaker:
+                weakenings.append(f"matrix.{key[0]}.{key[1]}.{field_name}:{trusted_value}->{candidate_value}")
+    return weakenings
+
+
 def _weakening_transitions(candidate: DeliveryPolicy, trusted: DeliveryPolicy) -> tuple[str, ...]:
     """Compare *effective* gate requirements, not only top-level fields.
 
@@ -749,6 +855,9 @@ def _weakening_transitions(candidate: DeliveryPolicy, trusted: DeliveryPolicy) -
         ]
         if removed_layers:
             weakenings.append(f"risk_profiles.{name.value}.verification_layers removed:{','.join(removed_layers)}")
+    weakenings.extend(
+        _matrix_weakenings(_effective_requirements_matrix(trusted), _effective_requirements_matrix(candidate))
+    )
     return tuple(weakenings)
 
 
