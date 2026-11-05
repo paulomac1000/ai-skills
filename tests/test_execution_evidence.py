@@ -30,6 +30,7 @@ C2 = "b" * 40
 TREE_SAME = "c" * 40
 I1 = "d" * 40
 BASE = "e" * 40
+GEN7 = "gen-7"
 
 
 def make_receipt(**overrides: object) -> dict[str, object]:
@@ -334,8 +335,18 @@ class TestIntegrationLineage:
                 "integrated_sha": C1,
                 "lineage_proof_ref": "audit://integration/op-2",
             },
+            subject={"kind": "integrated_revision", "identity": "integrated-c1", "integrated_sha": C1},
         )
         assert admit_receipt(document).outcome is AdmissionOutcome.ADMITTED
+
+    def test_subject_integrated_mismatch_is_rejected(self) -> None:
+        """Integration subject must agree with the proven lineage."""
+        document = integration_document(
+            subject={"kind": "integrated_revision", "identity": "integrated-other", "integrated_sha": "9" * 40},
+        )
+        decision = admit_receipt(document)
+        assert decision.outcome is AdmissionOutcome.REJECTED
+        assert "INTEGRATION_SUBJECT_INTEGRATED_MISMATCH" in decision.reasons
 
     def test_integration_requires_consumed_authority_ref(self) -> None:
         document = integration_document()
@@ -751,3 +762,88 @@ class TestVerifyDocument:
         assert evidence(ExitProvenance.EXIT_PROVEN, 1, "sha256:" + "3" * 64).proven_pass() is False
         assert evidence(ExitProvenance.EXIT_PROVEN, 0, None).proven_pass() is False
         assert evidence(ExitProvenance.WRAPPER_EXIT_ONLY, 0, "sha256:" + "3" * 64).proven_pass() is False
+
+
+class TestCodexReviewTrancheRegressions:
+    """Pins the exact-head review tranche findings on the evidence contract."""
+
+    def test_input_evidence_set_digest_mismatch_is_rejected(self) -> None:
+        document = independent_document(
+            inputs={
+                "receipt_refs": ["r-default"],
+                "evidence_set_digest": evidence_set_digest(["different-receipt"]),
+                "policy_revision": "v1",
+            }
+        )
+        decision = admit_receipt(document)
+        assert decision.outcome is AdmissionOutcome.REJECTED
+        assert "INPUT_EVIDENCE_SET_DIGEST_MISMATCH" in decision.reasons
+
+    def test_expired_receipts_are_demoted_to_stale(self) -> None:
+        from datetime import UTC, datetime
+
+        receipt_document = make_receipt(
+            receipt_id="expiring",
+            expires_at="2026-11-04T12:00:00Z",
+            observed_at="2026-11-04T00:00:00Z",
+        )
+        graph = build_graph([receipt_document])
+        report = derive_currentness(graph, CurrentIdentities(candidate_sha=C1), now=datetime(2026, 11, 4, 13, 0, tzinfo=UTC))
+        assert report.receipts["expiring"].status == "STALE"
+        assert "EXPIRED" in report.receipts["expiring"].invalidated_by
+
+    def test_not_yet_expired_receipt_stays_current(self) -> None:
+        from datetime import UTC, datetime
+
+        receipt_document = make_receipt(
+            receipt_id="expiring-later",
+            expires_at="2026-11-05T00:00:00Z",
+            observed_at="2026-11-04T00:00:00Z",
+        )
+        graph = build_graph([receipt_document])
+        report = derive_currentness(graph, CurrentIdentities(candidate_sha=C1), now=datetime(2026, 11, 4, 13, 0, tzinfo=UTC))
+        assert report.receipts["expiring-later"].status == "CURRENT"
+
+    def test_declared_deployment_identity_participates_in_currentness(self) -> None:
+        runtime = make_receipt(
+            receipt_id="runtime-staging",
+            receipt_kind="runtime_acceptance",
+            producer={"system": "doctor", "principal": "doctor-1", "authority_class": "independent_verifier"},
+            subject={
+                "kind": "observed_runtime",
+                "identity": "runtime-staging",
+                "runtime_generation": GEN7,
+                "artifact_digest": "sha256:" + "5" * 64,
+                "deployment_ref": "deploy-staging",
+            },
+        )
+        graph = build_graph([runtime])
+        report = derive_currentness(
+            graph,
+            CurrentIdentities(runtime_generation=GEN7, artifact_digest="sha256:" + "5" * 64, deployment_identity="deploy-production"),
+        )
+        assert report.receipts["runtime-staging"].status == "STALE"
+        assert any(axis.value == "deployment_identity" for axis in report.receipts["runtime-staging"].stale_dependencies)
+
+    def test_verification_input_staleness_propagates(self) -> None:
+        stale_validation = make_receipt(receipt_id="validation-old", subject={"kind": "candidate_revision", "identity": "c1", "candidate_sha": C1})
+        verification = independent_document(
+            inputs={
+                "receipt_refs": ["validation-old"],
+                "evidence_set_digest": evidence_set_digest(["validation-old"]),
+                "policy_revision": "v1",
+            }
+        )
+        graph = build_graph([stale_validation, verification])
+        report = derive_currentness(graph, CurrentIdentities(candidate_sha=C2))
+        assert report.receipts["validation-old"].status == "STALE"
+        assert report.receipts["iv-1"].status == "STALE"
+
+    def test_worker_plan_receipt_is_admissible_at_contract_level(self) -> None:
+        document = make_receipt(
+            receipt_id="plan-worker-ok",
+            receipt_kind="plan_challenge",
+            producer={"system": "worker", "principal": "worker-1", "authority_class": "worker_report"},
+            subject={"kind": "planning_base", "identity": "brief-1", "planning_base_sha": BASE},
+        )
+        assert admit_receipt(document).outcome is AdmissionOutcome.ADMITTED

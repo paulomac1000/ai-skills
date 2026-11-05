@@ -551,7 +551,7 @@ class TestDeliveryEvaluation:
                 receipt(receipt_id="local-1"),
             ]
         )
-        decision = evaluate_delivery(policy, IMPL_SPEC, graph)
+        decision = evaluate_delivery(policy, IMPL_SPEC, graph, current=CurrentIdentities(candidate_sha=C1))
         # The deterministic validation gate may be satisfied by a local
         # authorized run, but the remaining required hosted/integration gates
         # keep the delivery non-terminal.
@@ -571,7 +571,7 @@ class TestDeliveryEvaluation:
                 ),
             ]
         )
-        decision = evaluate_delivery(policy, IMPL_SPEC, graph)
+        decision = evaluate_delivery(policy, IMPL_SPEC, graph, current=CurrentIdentities(candidate_sha=C1))
         assert decision.gate_decisions["validation"].is_green
         assert not decision.gate_decisions["integration"].is_green
         assert decision.outcome is DeliveryDecisionKind.WAITING_REQUIRED_EVIDENCE
@@ -617,15 +617,20 @@ class TestDeliveryEvaluation:
 
 
 class TestPlanGate:
-    def test_worker_reported_challenge_is_rejected_at_admission(self) -> None:
+    def test_worker_reported_challenge_is_rejected_at_the_delivery_gate(self) -> None:
+        """Worker plan receipts are admissible (kind floor is agent-level);
+        the independent-challenge policy floor rejects them at the gate."""
+        policy = load_policy()
         worker_plan = receipt(
             receipt_id="plan-worker",
             receipt_kind="plan_challenge",
             producer={"system": "worker", "principal": "worker-1", "authority_class": "worker_report"},
             subject={"kind": "planning_base", "identity": "brief-1", "planning_base_sha": BASE},
         )
-        with pytest.raises(ValueError, match="AUTHORITY_FLOOR_UNMET"):
-            build_graph([worker_plan])
+        graph = build_graph([worker_plan])
+        decision = evaluate_delivery(policy, IMPL_SPEC, graph)
+        assert not decision.gate_decisions["plan"].is_green
+        assert any(reason.startswith("AUTHORITY_BELOW_FLOOR") for reason in decision.gate_decisions["plan"].reasons)
 
     def test_worker_cannot_self_accept_independent_challenge(self) -> None:
         policy = load_policy()
@@ -1010,3 +1015,125 @@ class TestRound3Regressions:
         decision = resolve_effective_policy(trusted, candidate, None)
         assert decision.outcome == "CANDIDATE_COMPATIBLE"
         assert not any(weakening.startswith("budgets.") for weakening in decision.weakenings)
+
+
+class TestCodexReviewTranchePolicyRegressions:
+    """Pins the exact-head review tranche findings on the policy module."""
+
+    def test_artifact_accepted_boundary_forces_release_gate(self) -> None:
+        document = policy_document(
+            work_kinds={
+                "INVESTIGATION": {
+                    "terminal_boundary": "evidence_backed_findings",
+                    "risk_profile": "quick",
+                    "planning_mode_override": "none",
+                    "review_required_override": False,
+                    "verification_required_override": False,
+                    "integration_enabled_override": False,
+                    "release_enabled_override": False,
+                },
+                "IMPLEMENTATION": {
+                    "terminal_boundary": "artifact_accepted",
+                    "requires_pr": True,
+                    "requires_release": False,
+                },
+                "OPERATOR_ACTION": {"terminal_boundary": "implementation_completed", "requires_operator_grant": True, "risk_profile": "standard"},
+                "COORDINATION": {"terminal_boundary": "decomposition_required"},
+            },
+            release={"enabled": False, "rollback_required": True, "deployment_lease_required": True},
+        )
+        policy, _ = admit_policy(document)
+        assert policy is not None
+        spec = WorkSpec(work_kind=WorkKind.IMPLEMENTATION, change_risk=RiskLevel.HIGH, expected_policy_revision="r1", planning_base_sha=BASE)
+        compiled = compile_gates(policy, spec)
+        assert compiled.release_required is True
+        graph = build_graph(
+            [
+                receipt(receipt_id="validation-1"),
+                receipt(
+                    receipt_id="review-1",
+                    receipt_kind="review",
+                    producer={"system": "chatgpt", "principal": "rev-1", "authority_class": "review_provider"},
+                    subject={"kind": "candidate_revision", "identity": "candidate-c1", "candidate_sha": C1},
+                ),
+                receipt(
+                    receipt_id="integration-1",
+                    receipt_kind="integration",
+                    producer={"system": "github", "principal": "provider", "authority_class": "external_provider_observation"},
+                    subject={"kind": "integrated_revision", "identity": "integrated-i1", "integrated_sha": I1},
+                    mutation_authority={"authority_kind": "integration_lease", "authority_ref": "lease://1"},
+                    lineage={
+                        "strategy": "squash",
+                        "candidate_sha": C1,
+                        "target_ref": "refs/heads/main",
+                        "target_before_sha": BASE,
+                        "integrated_sha": I1,
+                        "integrated_tree_sha": "c" * 40,
+                        "lineage_proof_ref": "audit://op-1",
+                        "lease_ref": "lease://1",
+                        "operation_ref": "op://1",
+                    },
+                ),
+            ]
+        )
+        decision = evaluate_delivery(policy, spec, graph, current=CurrentIdentities(candidate_sha=C1, integrated_sha=I1))
+        assert decision.outcome is not DeliveryDecisionKind.TERMINAL_ACCEPTED
+        assert "release" in decision.missing_gates
+
+    def test_unprincipaled_review_receipt_blocked_under_independence(self) -> None:
+        policy = load_policy()
+        anonymous = receipt(
+            receipt_id="review-anon",
+            receipt_kind="review",
+            producer={"system": "mystery", "authority_class": "review_provider"},
+            subject={"kind": "candidate_revision", "identity": "candidate-c1", "candidate_sha": C1},
+        )
+        graph = build_graph([anonymous])
+        reviewers = [
+            ReviewerDescriptor(principal="someone-else", model="m1", organization="o1", account="a1", transport="api", upstream_id="u1", upstream_attested=True)
+        ]
+        decision = evaluate_delivery(policy, IMPL_SPEC, graph, current=CurrentIdentities(candidate_sha=C1), reviewers=reviewers)
+        gate = decision.gate_decisions["review"]
+        assert not gate.is_green
+        assert any(reason.startswith("INDEPENDENCE_UNQUALIFIED") for reason in gate.reasons)
+
+    def test_unbound_validation_receipt_cannot_authorize_candidate(self) -> None:
+        policy = load_policy(planning={"mode": "none"})
+        unbound = receipt(
+            receipt_id="validation-repo",
+            subject={"kind": "repository", "identity": "paulomac1000/ai-skills"},
+        )
+        graph = build_graph([unbound])
+        decision = evaluate_delivery(policy, IMPL_SPEC, graph, current=CurrentIdentities(candidate_sha=C1))
+        gate = decision.gate_decisions["validation"]
+        assert not gate.is_green
+        assert any(reason.startswith("MISSING_IDENTITY_AXIS") for reason in gate.reasons)
+
+    def test_coordination_boundary_override_cannot_complete_atomically(self) -> None:
+        document = policy_document(
+            work_kinds={
+                "INVESTIGATION": {"terminal_boundary": "evidence_backed_findings", "risk_profile": "quick"},
+                "IMPLEMENTATION": {"terminal_boundary": "runtime_accepted", "requires_pr": True, "requires_release": True},
+                "OPERATOR_ACTION": {"terminal_boundary": "implementation_completed", "requires_operator_grant": True, "risk_profile": "standard"},
+                "COORDINATION": {"terminal_boundary": "implementation_completed"},
+            }
+        )
+        policy, _ = admit_policy(document)
+        assert policy is not None
+        spec = WorkSpec(work_kind=WorkKind.COORDINATION, change_risk=RiskLevel.LOW, expected_policy_revision="r1")
+        compiled = compile_gates(policy, spec)
+        assert compiled.decomposition_required is True
+
+    def test_lighter_profile_override_is_rejected_at_compilation(self) -> None:
+        document = policy_document(
+            work_kinds={
+                "INVESTIGATION": {"terminal_boundary": "evidence_backed_findings", "risk_profile": "quick"},
+                "IMPLEMENTATION": {"terminal_boundary": "runtime_accepted", "requires_pr": True, "requires_release": True, "risk_profile": "quick"},
+                "OPERATOR_ACTION": {"terminal_boundary": "implementation_completed", "requires_operator_grant": True, "risk_profile": "standard"},
+                "COORDINATION": {"terminal_boundary": "decomposition_required"},
+            }
+        )
+        policy, _ = admit_policy(document)
+        assert policy is not None
+        with pytest.raises(ValueError, match="lighter than the risk-derived minimum"):
+            compile_gates(policy, IMPL_SPEC)

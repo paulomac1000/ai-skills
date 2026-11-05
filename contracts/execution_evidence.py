@@ -272,7 +272,7 @@ AUTHORITY_FLOOR_FOR_KIND: Mapping[ReceiptKind, AuthorityClass] = {
     ReceiptKind.IMPLEMENTATION: AuthorityClass.AGENT_ATTESTATION,
     ReceiptKind.VALIDATION: AuthorityClass.DETERMINISTIC_TOOL,
     ReceiptKind.COMMAND_EXECUTION: AuthorityClass.DETERMINISTIC_TOOL,
-    ReceiptKind.PLAN_CHALLENGE: AuthorityClass.REVIEW_PROVIDER,
+    ReceiptKind.PLAN_CHALLENGE: AuthorityClass.AGENT_ATTESTATION,
     ReceiptKind.REVIEW: AuthorityClass.REVIEW_PROVIDER,
     ReceiptKind.WORK_COMPLETION: AuthorityClass.AGENT_ATTESTATION,
     ReceiptKind.INDEPENDENT_VERIFICATION: AuthorityClass.INDEPENDENT_VERIFIER,
@@ -414,6 +414,22 @@ class IntegrationLineage:
         if self.strategy is MergeStrategy.OTHER and self.operation_ref is None:
             defects.append("INTEGRATION_OPERATION_REF_MISSING")
         return tuple(defects)
+
+    def subject_mismatches(
+        self, subject_candidate_sha: str | None, subject_integrated_sha: str | None
+    ) -> tuple[str, ...]:
+        """Cross-check the evaluated subject identity against the proven lineage.
+
+        An integration receipt whose subject names revisions its own lineage
+        does not prove proves neither identity; such a receipt must not pass
+        admission and its lineage candidate must participate in currentness.
+        """
+        mismatches: list[str] = []
+        if subject_candidate_sha is not None and subject_candidate_sha != self.candidate_sha:
+            mismatches.append("INTEGRATION_SUBJECT_CANDIDATE_MISMATCH")
+        if subject_integrated_sha is not None and subject_integrated_sha != self.integrated_sha:
+            mismatches.append("INTEGRATION_SUBJECT_INTEGRATED_MISMATCH")
+        return tuple(mismatches)
 
 
 @dataclass(frozen=True)
@@ -714,6 +730,7 @@ def admit_receipt(document: Mapping[str, object]) -> AdmissionDecision:
             reasons.append("INTEGRATION_LINEAGE_REQUIRED")
         else:
             reasons.extend(lineage.lineage_defects())
+            reasons.extend(lineage.subject_mismatches(envelope.subject_candidate_sha, envelope.subject_integrated_sha))
         if envelope.mutation_authority is None:
             reasons.append("MUTATION_AUTHORITY_REF_REQUIRED")
 
@@ -722,6 +739,10 @@ def admit_receipt(document: Mapping[str, object]) -> AdmissionDecision:
             reasons.append("IMPLEMENTATION_PROVENANCE_REQUIRED")
         if envelope.input_evidence_set_digest is None or not envelope.input_receipt_refs:
             reasons.append("INPUT_EVIDENCE_SET_REQUIRED")
+        elif envelope.input_evidence_set_digest != evidence_set_digest(envelope.input_receipt_refs):
+            # Contradictory input provenance: the declared evidence-set
+            # digest must equal the digest of the referenced ordered set.
+            reasons.append("INPUT_EVIDENCE_SET_DIGEST_MISMATCH")
 
     if envelope.expires_at is not None and envelope.expires_at < envelope.observed_at:
         reasons.append("EXPIRES_BEFORE_OBSERVED")
@@ -882,8 +903,19 @@ def _implicit_dependency_axes(receipt: ReceiptEnvelope) -> Mapping[DependencyKin
         axes[DependencyKind.INTEGRATED_SOURCE] = receipt.subject_integrated_sha
     if receipt.subject_artifact_digest is not None:
         axes[DependencyKind.ARTIFACT_DIGEST] = receipt.subject_artifact_digest
+    if receipt.subject_deployment_ref is not None:
+        axes[DependencyKind.DEPLOYMENT_IDENTITY] = receipt.subject_deployment_ref
     if receipt.subject_runtime_generation is not None:
         axes[DependencyKind.RUNTIME_GENERATION] = receipt.subject_runtime_generation
+    if (
+        receipt.receipt_kind is ReceiptKind.INTEGRATION
+        and receipt.subject_candidate_sha is None
+        and receipt.lineage is not None
+    ):
+        # Integration receipts prove the candidate-to-integrated transition:
+        # the lineage's candidate identity participates in currentness even
+        # when the subject names only the integrated revision.
+        axes[DependencyKind.CANDIDATE_SOURCE] = receipt.lineage.candidate_sha
     if receipt.admitted_work is not None:
         axes[DependencyKind.WORK_CONTRACT] = receipt.admitted_work["contract_digest"]
     elif receipt.governing_contract is not None:
@@ -891,7 +923,11 @@ def _implicit_dependency_axes(receipt: ReceiptEnvelope) -> Mapping[DependencyKin
     return axes
 
 
-def derive_currentness(graph: EvidenceGraph, current: CurrentIdentities) -> CurrentnessReport:
+def derive_currentness(
+    graph: EvidenceGraph,
+    current: CurrentIdentities,
+    now: datetime | None = None,
+) -> CurrentnessReport:
     """Classify every receipt and derive the minimum revalidation set.
 
     Only receipts whose declared load-bearing dependencies changed become
@@ -900,9 +936,13 @@ def derive_currentness(graph: EvidenceGraph, current: CurrentIdentities) -> Curr
     ``UNKNOWN`` (non-green for proven-currentness gates). Supersession chains
     mark historical receipts ``SUPERSEDED`` while preserving their content.
 
-    Receipts are classified in topological order over in-graph dependencies,
-    so staleness propagation is independent of graph insertion order.
+    Receipts are classified in topological order over in-graph dependencies
+    (including independent-verification input references), so staleness
+    propagation is independent of graph insertion order. Receipts whose
+    ``expires_at`` has passed at ``now`` (default: current UTC time) are
+    demoted to ``STALE`` — expiry is a currentness fact, not a style detail.
     """
+    evaluated_now = now if now is not None else datetime.now(UTC)
     reports: dict[str, ReceiptCurrentness] = {}
 
     def superseded_by_any(receipt_id: str) -> bool:
@@ -923,6 +963,9 @@ def derive_currentness(graph: EvidenceGraph, current: CurrentIdentities) -> Curr
         for dependency_id, _kind in graph.receipts[receipt_id].depends_on:
             if dependency_id in graph.receipts:
                 visit(dependency_id, depth + 1)
+        for input_ref in graph.receipts[receipt_id].input_receipt_refs:
+            if input_ref in graph.receipts:
+                visit(input_ref, depth + 1)
         ordered.append(receipt_id)
 
     for receipt_id in graph.order:
@@ -947,6 +990,18 @@ def derive_currentness(graph: EvidenceGraph, current: CurrentIdentities) -> Curr
                 else:
                     unknown.append(dependency_kind)
 
+        # Independent-verification input references are load-bearing evidence
+        # edges even though callers may not mirror them into depends_on:
+        # verification cannot stay green when its consumed evidence is stale.
+        for input_ref in receipt.input_receipt_refs:
+            upstream_report = reports.get(input_ref)
+            if upstream_report is not None and upstream_report.status is not Currentness.CURRENT:
+                invalidated_by.append(input_ref)
+                if upstream_report.status is Currentness.STALE:
+                    stale.append(DependencyKind.EVIDENCE_SET)
+                else:
+                    unknown.append(DependencyKind.EVIDENCE_SET)
+
         implicit_axes = _implicit_dependency_axes(receipt)
         explicit_kinds = {kind for _dep_id, kind in receipt.depends_on}
         for axis in sorted(set(implicit_axes) | explicit_kinds, key=lambda kind: kind.value):
@@ -967,15 +1022,19 @@ def derive_currentness(graph: EvidenceGraph, current: CurrentIdentities) -> Curr
             # bound set + current None (untracked) -> no claim; bound None +
             # current untracked -> no claim. Untracked axes never demote.
 
+        expired = receipt.expires_at is not None and receipt.expires_at <= evaluated_now
         if superseded_by_any(receipt_id):
             status = Currentness.SUPERSEDED
-        elif stale:
+        elif stale or expired:
             status = Currentness.STALE
         elif unknown:
             status = Currentness.UNKNOWN
         else:
             status = Currentness.CURRENT
             reusable_for.append("declared_subject")
+
+        if expired:
+            invalidated_by.append("EXPIRED")
 
         reports[receipt_id] = ReceiptCurrentness(
             receipt_id=receipt_id,

@@ -512,7 +512,15 @@ def compile_gates(policy: DeliveryPolicy, workspec: WorkSpec) -> CompiledGates:
     never become a second risk-scoring algorithm.
     """
     rule = policy.work_kind_rules[workspec.work_kind]
-    profile_name = rule.risk_profile or _PROFILE_FOR_RISK[workspec.change_risk]
+    # A work-kind profile override may never compile lighter than the
+    # risk-derived minimum: high-risk work cannot select quick.
+    risk_derived = _PROFILE_FOR_RISK[workspec.change_risk]
+    if rule.risk_profile is not None and _PROFILE_ORDER[rule.risk_profile] < _PROFILE_ORDER[risk_derived]:
+        raise ValueError(
+            f"policy work kind {workspec.work_kind.value} selects profile {rule.risk_profile.value}, "
+            f"lighter than the risk-derived minimum {risk_derived.value}"
+        )
+    profile_name = rule.risk_profile or risk_derived
     profile = policy.risk_profiles[profile_name]
     notes: list[str] = []
 
@@ -548,6 +556,10 @@ def compile_gates(policy: DeliveryPolicy, workspec: WorkSpec) -> CompiledGates:
     )
     if workspec.work_kind is not WorkKind.IMPLEMENTATION:
         release_required = rule.requires_release
+    if rule.terminal_boundary is TerminalBoundary.ARTIFACT_ACCEPTED:
+        # An artifact-accepted boundary without artifact-publication evidence
+        # is contradictory: the boundary itself demands the release gate.
+        release_required = True
     release_authorized = (
         release_required and policy.release_enabled and autonomy_rank >= _AUTONOMY_RANK[AutonomyLevel.RELEASE]
     )
@@ -578,8 +590,9 @@ def compile_gates(policy: DeliveryPolicy, workspec: WorkSpec) -> CompiledGates:
         release_authorized=release_authorized,
         integrated_acceptance_required=policy.integrated_acceptance_required and integration_required,
         operator_grant_required=rule.requires_operator_grant or workspec.work_kind is WorkKind.OPERATOR_ACTION,
-        decomposition_required=workspec.work_kind is WorkKind.COORDINATION
-        and rule.terminal_boundary is TerminalBoundary.DECOMPOSITION_REQUIRED,
+        # Coordination never completes as one atomic implementation,
+        # independently of the configured boundary.
+        decomposition_required=workspec.work_kind is WorkKind.COORDINATION,
         terminal_boundary=rule.terminal_boundary,
         verification_layers=profile.verification_layers,
         notes=tuple(notes),
@@ -1178,11 +1191,17 @@ def evaluate_delivery(
             )
         )
     if compiled.validation_required:
+        # Required validation binds the evaluated revision: repository-level
+        # or unbound validation receipts cannot authorize this candidate.
+        validation_axes: tuple[DependencyKind, ...] = (
+            (DependencyKind.CANDIDATE_SOURCE,) if workspec.work_kind is WorkKind.IMPLEMENTATION else ()
+        )
         gate_requirements.append(
             GateRequirement(
                 gate_id="validation",
                 required_kind=ReceiptKind.VALIDATION,
                 authority_floor=AuthorityClass.DETERMINISTIC_TOOL,
+                required_identity_axes=validation_axes,
             )
         )
     if compiled.terminal_boundary in (
@@ -1221,6 +1240,7 @@ def evaluate_delivery(
                 gate_id="integrated_acceptance",
                 required_kind=ReceiptKind.VALIDATION,
                 subject_kind=SubjectKind.INTEGRATED_REVISION,
+                required_identity_axes=(DependencyKind.INTEGRATED_SOURCE,),
             )
         )
     if compiled.release_required:
@@ -1312,16 +1332,15 @@ def evaluate_delivery(
                     for principal, state in independence_report.per_reviewer.items()
                     if state is ReviewerIndependence.QUALIFIED
                 }
-                receipts_by_principal = {
-                    receipt.producer_principal: receipt.receipt_id
-                    for receipt in graph.receipts.values()
-                    if receipt.receipt_kind is ReceiptKind.REVIEW and receipt.producer_principal is not None
-                }
-                unqualified = [
-                    receipt_id
-                    for principal, receipt_id in receipts_by_principal.items()
-                    if principal not in qualified_principals and receipt_id in review_decision.qualifying_receipt_ids
-                ]
+                # Every qualifying review receipt must resolve to a qualified
+                # reviewer descriptor; receipts whose reviewer identity cannot
+                # be established never satisfy the independence requirement.
+                unqualified = []
+                for receipt_id in review_decision.qualifying_receipt_ids:
+                    receipt = graph.receipts[receipt_id]
+                    principal = receipt.producer_principal
+                    if principal is None or principal not in qualified_principals:
+                        unqualified.append(receipt_id)
                 sufficient = independence_report.qualified_count >= compiled.review_count
                 if unqualified or not sufficient:
                     demoted_reasons = list(review_decision.reasons)
