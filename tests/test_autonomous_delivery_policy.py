@@ -32,13 +32,20 @@ from contracts.execution_evidence import (
     AdmissionOutcome,
     AuthorityClass,
     CurrentIdentities,
+    DependencyKind,
+    GateRequirement,
+    GateState,
+    ReceiptKind,
     admit_receipt,
     build_graph,
+    derive_currentness,
+    evaluate_gate,
     evidence_set_digest,
     payload_digest,
 )
 
 C1 = "a" * 40
+C2 = "b" * 40
 I1 = "d" * 40
 BASE = "e" * 40
 GEN7 = "gen-7"
@@ -62,6 +69,7 @@ def policy_document(**overrides: object) -> dict[str, object]:
                 "requires_pr": False,
                 "requires_release": False,
                 "risk_profile": "quick",
+                "planning_mode_override": "none",
                 "review_required_override": False,
                 "verification_required_override": False,
                 "integration_enabled_override": False,
@@ -375,7 +383,18 @@ class TestDeliveryEvaluation:
     def test_full_implementation_chain_reaches_runtime_accepted(self) -> None:
         policy = load_policy()
         graph = full_implementation_graph()
-        decision = evaluate_delivery(policy, IMPL_SPEC, graph, current=CurrentIdentities(candidate_sha=C1, integrated_sha=I1, runtime_generation=GEN7, artifact_digest=ARTIFACT))
+        reviewers = [
+            ReviewerDescriptor(
+                principal="reviewer-1", model="m1", organization="o1", account="acc-1", transport="api", upstream_id="u1", upstream_attested=True
+            )
+        ]
+        decision = evaluate_delivery(
+            policy,
+            IMPL_SPEC,
+            graph,
+            current=CurrentIdentities(candidate_sha=C1, integrated_sha=I1, runtime_generation=GEN7, artifact_digest=ARTIFACT),
+            reviewers=reviewers,
+        )
         assert decision.outcome is DeliveryDecisionKind.TERMINAL_ACCEPTED, decision.reasons
 
     def test_missing_required_review_is_not_terminal(self) -> None:
@@ -617,3 +636,139 @@ class TestReceiptAdmissionComposition:
         graph = full_implementation_graph()
         assert len(graph.receipts) >= 8
         assert all(admit_receipt(document).outcome is AdmissionOutcome.ADMITTED for document in graph.documents.values())
+
+
+class TestReviewConvergenceRegressions:
+    """Regression tests for the exact-SHA review findings (C1 review round)."""
+
+    def _policy_without_plan_receipt(self) -> object:
+        policy = load_policy()
+        graph = full_implementation_graph()
+        documents = [document for document in graph.documents.values() if document["receipt_id"] != "plan-1"]  # type: ignore[index]
+        return policy, build_graph(documents)
+
+    def test_missing_plan_receipt_blocks_terminal_acceptance(self) -> None:
+        """Finding 1: the planning gate participates in missing accounting."""
+        policy, graph = self._policy_without_plan_receipt()
+        reviewers = [
+            ReviewerDescriptor(
+                principal="reviewer-1", model="m1", organization="o1", account="acc-1", transport="api", upstream_id="u1", upstream_attested=True
+            )
+        ]
+        decision = evaluate_delivery(
+            policy,
+            IMPL_SPEC,
+            graph,
+            current=CurrentIdentities(candidate_sha=C1, integrated_sha=I1, runtime_generation=GEN7, artifact_digest=ARTIFACT),
+            reviewers=reviewers,
+        )
+        assert decision.outcome is not DeliveryDecisionKind.TERMINAL_ACCEPTED
+        assert "plan" in decision.missing_gates
+
+    def test_reviewer_independence_enforced_on_review_gate(self) -> None:
+        """Finding 2: distinct principals sharing one unattested upstream never pass."""
+        policy = load_policy()
+        alias_a = receipt(
+            receipt_id="review-a",
+            receipt_kind="review",
+            producer={"system": "chatgpt", "principal": "alias-a", "authority_class": "review_provider"},
+            subject={"kind": "candidate_revision", "identity": "candidate-c1", "candidate_sha": C1},
+        )
+        alias_b = receipt(
+            receipt_id="review-b",
+            receipt_kind="review",
+            producer={"system": "codex", "principal": "alias-b", "authority_class": "review_provider"},
+            subject={"kind": "candidate_revision", "identity": "candidate-c1", "candidate_sha": C1},
+        )
+        graph = build_graph([alias_a, alias_b])
+        reviewers = [
+            ReviewerDescriptor(principal="alias-a", model="m1", organization="o1", account="a1", transport="api", upstream_id="shared", upstream_attested=False),
+            ReviewerDescriptor(principal="alias-b", model="m1", organization="o1", account="a2", transport="api", upstream_id="shared", upstream_attested=False),
+        ]
+        decision = evaluate_delivery(policy, IMPL_SPEC, graph, current=CurrentIdentities(candidate_sha=C1), reviewers=reviewers)
+        assert decision.gate_decisions["review"].state is not GateState.SATISFIED
+        assert any(
+            reason.startswith("INDEPENDENCE_UNQUALIFIED") or reason.startswith("INDEPENDENCE_QUALIFIED_COUNT")
+            for reason in decision.gate_decisions["review"].reasons
+        )
+
+    def test_self_declared_not_required_cannot_satisfy_required_gate(self) -> None:
+        """Finding 3: a receipt's own policy metadata never authorizes an exemption."""
+        not_required = receipt(
+            receipt_id="review-nr",
+            receipt_kind="review",
+            producer={"system": "chatgpt", "principal": "rev-1", "authority_class": "review_provider"},
+            subject={"kind": "candidate_revision", "identity": "candidate-c1", "candidate_sha": C1},
+            outcome={"disposition": "NOT_REQUIRED"},
+            policy={"policy_ref": "policy://p", "policy_revision": "self-declared"},
+        )
+        decision = admit_receipt(not_required)
+        assert decision.outcome is AdmissionOutcome.ADMITTED
+        graph = build_graph([not_required])
+        gate = evaluate_gate(
+            graph,
+            GateRequirement(gate_id="review", required_kind=ReceiptKind.REVIEW),
+        )
+        assert gate.state is not GateState.SATISFIED
+        assert any(reason.startswith("NOT_REQUIRED_UNAUTHORIZED") for reason in gate.reasons)
+
+    def test_work_kind_override_weakening_is_blocked(self) -> None:
+        """Finding 4: per-kind overrides are compared at effective-gate level."""
+        trusted = load_policy()
+        candidate = self._candidate(review={"required": True, "count": 1}, work_kinds_weakened=True) if False else None
+
+        document = policy_document()
+        work_kinds = dict(document["work_kinds"])  # type: ignore[arg-type]
+        impl = dict(work_kinds["IMPLEMENTATION"])  # type: ignore[index]
+        impl["review_required_override"] = False
+        work_kinds["IMPLEMENTATION"] = impl
+        document["work_kinds"] = work_kinds
+        document["digest"] = policy_digest(document)
+        admitted, _ = admit_policy(document)
+        assert admitted is not None
+        decision = resolve_effective_policy(trusted, admitted, None)
+        assert decision.outcome == "POLICY_SELF_MODIFICATION_BLOCKED"
+        assert any(w.startswith("work_kinds.IMPLEMENTATION.review_required") for w in decision.weakenings)
+
+    def test_missing_candidate_binding_cannot_satisfy_exact_head_review(self) -> None:
+        """Finding 6: an unbound review receipt never qualifies for exact-head review."""
+        unbound = receipt(
+            receipt_id="review-unbound",
+            receipt_kind="review",
+            producer={"system": "chatgpt", "principal": "rev-1", "authority_class": "review_provider"},
+            subject={"kind": "candidate_revision", "identity": "some-candidate"},
+        )
+        graph = build_graph([unbound])
+        report = derive_currentness(graph, CurrentIdentities(candidate_sha=C1))
+        gate = evaluate_gate(
+            graph,
+            GateRequirement(
+                gate_id="review",
+                required_kind=ReceiptKind.REVIEW,
+                required_identity_axes=(DependencyKind.CANDIDATE_SOURCE,),
+            ),
+            report,
+        )
+        assert gate.state is not GateState.SATISFIED
+        assert any(reason.startswith("MISSING_IDENTITY_AXIS") for reason in gate.reasons)
+
+
+class TestCurrentnessOrderIndependence:
+    def test_staleness_propagation_is_independent_of_insertion_order(self) -> None:
+        """Finding 5: same graph, same identities, any permutation -> same result."""
+        upstream = receipt(
+            receipt_id="base-validation",
+            subject={"kind": "candidate_revision", "identity": "candidate-c1", "candidate_sha": C1},
+        )
+        dependent = receipt(
+            receipt_id="dependent",
+            depends_on=[{"receipt_id": "base-validation", "dependency_kind": "candidate_source"}],
+            subject={"kind": "candidate_revision", "identity": "candidate-c2", "candidate_sha": C2},
+        )
+        forward = derive_currentness(build_graph([upstream, dependent]), CurrentIdentities(candidate_sha=C2))
+        reverse = derive_currentness(build_graph([dependent, upstream]), CurrentIdentities(candidate_sha=C2))
+        assert forward.receipts["base-validation"].status == "STALE"
+        assert reverse.receipts["base-validation"].status == "STALE"
+        assert forward.receipts["dependent"].status == reverse.receipts["dependent"].status
+        assert forward.receipts["dependent"].status == "STALE"
+        assert sorted(forward.minimum_revalidation) == sorted(reverse.minimum_revalidation)

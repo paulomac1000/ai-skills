@@ -1,0 +1,49 @@
+schema_version: 1
+repository: paulomac1000/ai-skills
+revision: 44d8d01e4c91da28251e819673b85295739b4513
+skills:
+  afds-doc-writer:
+    version: 2.0.0
+    revision: 44d8d01e4c91da28251e819673b85295739b4513
+    normative_entrypoint: skills/afds-doc-writer/STANDARD.md
+    content_digest: sha256:5c74773f366099a235f807a7f664a080bcd5d81d4ec7b9b337bf7c976ab4884d
+  agents-md-architect:
+    version: 2.0.0
+    revision: 44d8d01e4c91da28251e819673b85295739b4513
+    normative_entrypoint: skills/agents-md-architect/STANDARD.md
+    content_digest: sha256:b1c8c7962eea0237c129c4b926e94adbdbbf30449aafd682dcb22ff6c8d5a314
+  changelog-release-architect:
+    version: 2.0.0
+    revision: 44d8d01e4c91da28251e819673b85295739b4513
+    normative_entrypoint: skills/changelog-release-architect/STANDARD.md
+    content_digest: sha256:4412f23f1cc4646a054cbaa264918b00a853b8a619bc47beb385e00ae89554a9
+  ci-cd-architect:
+    version: 2.0.0
+    revision: 44d8d01e4c91da28251e819673b85295739b4513
+    normative_entrypoint: skills/ci-cd-architect/STANDARD.md
+    content_digest: sha256:fa872c655591213ff2dc825a803211b8c74412ac3bced5d9b864faeb0de1d825
+  mcp-gateway-release-verifier:
+    version: 2.0.0
+    revision: 44d8d01e4c91da28251e819673b85295739b4513
+    normative_entrypoint: skills/mcp-gateway-release-verifier/STANDARD.md
+    content_digest: sha256:93c5ca346bf8e3912006c101ba347126b1cd3b6011f47312043ce5555bb5a105
+  mcp-server-architect:
+    version: 2.0.0
+    revision: 44d8d01e4c91da28251e819673b85295739b4513
+    normative_entrypoint: skills/mcp-server-architect/STANDARD.md
+    content_digest: sha256:716dfc80b7f68f37e34f8a1db173f49284cce5f9b71891a71227258c4ed6f807
+  mcp-server-consumer:
+    version: 2.0.0
+    revision: 44d8d01e4c91da28251e819673b85295739b4513
+    normative_entrypoint: skills/mcp-server-consumer/STANDARD.md
+    content_digest: sha256:d5f5eb443d7eeeac87942801016697559a1572909ea94fb967c5cebde689d851
+  qa-change-verifier:
+    version: 2.0.0
+    revision: 44d8d01e4c91da28251e819673b85295739b4513
+    normative_entrypoint: skills/qa-change-verifier/STANDARD.md
+    content_digest: sha256:26c904cb49b6eae68e268b02aecd16790f0793a017917c9571a79befa890c1a3
+  readme-architect:
+    version: 2.0.0
+    revision: 44d8d01e4c91da28251e819673b85295739b4513
+    normative_entrypoint: skills/readme-architect/STANDARD.md
+    content_digest: sha256:bdf3377f2ec63ab36ad69fc33ccd59cd5c9ec4cae6507d706ed7a07bd6992cd4

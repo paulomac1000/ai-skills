@@ -72,6 +72,7 @@ def policy_document(**overrides: object) -> dict[str, object]:
             "INVESTIGATION": {
                 "terminal_boundary": "evidence_backed_findings",
                 "risk_profile": "quick",
+                "planning_mode_override": "none",
                 "review_required_override": False,
                 "verification_required_override": False,
                 "integration_enabled_override": False,

@@ -601,7 +601,43 @@ class PolicyTransition:
     covers_policy_digest: str
 
 
+def _effective_review_required(policy: DeliveryPolicy, rule: WorkKindRule) -> bool:
+    if rule.review_required_override is not None:
+        return rule.review_required_override
+    profile_name = rule.risk_profile
+    profile_reviewers = policy.risk_profiles[profile_name].reviewer_count if profile_name is not None else 0
+    return policy.review_required or profile_reviewers > 0
+
+
+def _effective_verification_required(policy: DeliveryPolicy, rule: WorkKindRule) -> bool:
+    if rule.verification_required_override is not None:
+        return rule.verification_required_override
+    profile_name = rule.risk_profile
+    profile_requires = (
+        policy.risk_profiles[profile_name].independent_verification_required if profile_name is not None else False
+    )
+    return policy.independent_verification_required or profile_requires
+
+
+def _effective_integration_enabled(policy: DeliveryPolicy, rule: WorkKindRule) -> bool:
+    return (
+        rule.integration_enabled_override
+        if rule.integration_enabled_override is not None
+        else policy.integration_enabled
+    )
+
+
+def _effective_release_enabled(policy: DeliveryPolicy, rule: WorkKindRule) -> bool:
+    return rule.release_enabled_override if rule.release_enabled_override is not None else policy.release_enabled
+
+
 def _weakening_transitions(candidate: DeliveryPolicy, trusted: DeliveryPolicy) -> tuple[str, ...]:
+    """Compare *effective* gate requirements, not only top-level fields.
+
+    A candidate that keeps a global flag true while weakening one work kind's
+    override (or a risk profile, or a lease requirement) is still a weakening
+    transition and must fail closed.
+    """
     weakenings: list[str] = []
     if (
         candidate.autonomy_maximum != trusted.autonomy_maximum
@@ -627,6 +663,12 @@ def _weakening_transitions(candidate: DeliveryPolicy, trusted: DeliveryPolicy) -
         weakenings.append("release.enabled:false->true")
     if trusted.rollback_required and not candidate.rollback_required:
         weakenings.append("release.rollback_required:true->false")
+    if trusted.integration_lease_required and not candidate.integration_lease_required:
+        weakenings.append("integration.integration_lease_required:true->false")
+    if trusted.deployment_lease_required and not candidate.deployment_lease_required:
+        weakenings.append("release.deployment_lease_required:true->false")
+    if trusted.integrated_acceptance_required and not candidate.integrated_acceptance_required:
+        weakenings.append("integrated_acceptance.required:true->false")
     if (
         trusted.terminal_boundary in (TerminalBoundary.RUNTIME_ACCEPTED, TerminalBoundary.ARTIFACT_ACCEPTED)
         and candidate.terminal_boundary != trusted.terminal_boundary
@@ -648,6 +690,65 @@ def _weakening_transitions(candidate: DeliveryPolicy, trusted: DeliveryPolicy) -
         and candidate.review_rubric_ref != trusted.review_rubric_ref
     ):
         weakenings.append(f"review.rubric_ref:{trusted.review_rubric_ref}->{candidate.review_rubric_ref}")
+    for dimension in trusted.review_required_dimensions:
+        if dimension not in candidate.review_required_dimensions:
+            weakenings.append(f"review.required_dimensions:{dimension} removed")
+    if trusted.review_upstream_attestation_required and not candidate.review_upstream_attestation_required:
+        weakenings.append("review.upstream_attestation_required:true->false")
+    if trusted.review_final_exact_head_required and not candidate.review_final_exact_head_required:
+        weakenings.append("review.final_exact_head_required:true->false")
+    if trusted.review_stale_on_candidate_change and not candidate.review_stale_on_candidate_change:
+        weakenings.append("review.stale_on_candidate_change:true->false")
+    if (
+        trusted.review_convergence_final_full_review_required
+        and not candidate.review_convergence_final_full_review_required
+    ):
+        weakenings.append("review_convergence.final_full_review_required:true->false")
+    # Effective per-work-kind comparison: overrides and kind rules can weaken
+    # gates even when every global flag is unchanged.
+    for kind in WorkKind:
+        trusted_rule = trusted.work_kind_rules[kind]
+        candidate_rule = candidate.work_kind_rules[kind]
+        if trusted_rule.terminal_boundary != candidate_rule.terminal_boundary:
+            weakenings.append(
+                f"work_kinds.{kind.value}.terminal_boundary:{trusted_rule.terminal_boundary.value}->{candidate_rule.terminal_boundary.value}"
+            )
+        if _effective_review_required(trusted, trusted_rule) and not _effective_review_required(
+            candidate, candidate_rule
+        ):
+            weakenings.append(f"work_kinds.{kind.value}.review_required:true->false")
+        if _effective_verification_required(trusted, trusted_rule) and not _effective_verification_required(
+            candidate, candidate_rule
+        ):
+            weakenings.append(f"work_kinds.{kind.value}.verification_required:true->false")
+        if not _effective_integration_enabled(trusted, trusted_rule) and _effective_integration_enabled(
+            candidate, candidate_rule
+        ):
+            weakenings.append(f"work_kinds.{kind.value}.integration_enabled:false->true")
+        if not _effective_release_enabled(trusted, trusted_rule) and _effective_release_enabled(
+            candidate, candidate_rule
+        ):
+            weakenings.append(f"work_kinds.{kind.value}.release_enabled:false->true")
+        if trusted_rule.requires_operator_grant and not candidate_rule.requires_operator_grant:
+            weakenings.append(f"work_kinds.{kind.value}.requires_operator_grant:true->false")
+    # Effective per-risk-profile comparison.
+    for name in RiskProfileName:
+        trusted_profile = trusted.risk_profiles[name]
+        candidate_profile = candidate.risk_profiles[name]
+        if candidate_profile.reviewer_count < trusted_profile.reviewer_count:
+            weakenings.append(
+                f"risk_profiles.{name.value}.reviewer_count:{trusted_profile.reviewer_count}->{candidate_profile.reviewer_count}"
+            )
+        if (
+            trusted_profile.independent_verification_required
+            and not candidate_profile.independent_verification_required
+        ):
+            weakenings.append(f"risk_profiles.{name.value}.independent_verification_required:true->false")
+        removed_layers = [
+            layer for layer in trusted_profile.verification_layers if layer not in candidate_profile.verification_layers
+        ]
+        if removed_layers:
+            weakenings.append(f"risk_profiles.{name.value}.verification_layers removed:{','.join(removed_layers)}")
     return tuple(weakenings)
 
 
@@ -722,7 +823,6 @@ def evaluate_reviewer_independence(
     """
     per_reviewer: dict[str, ReviewerIndependence] = {}
     upstream_seen: dict[str, str] = {}
-    dimension_values: dict[str, set[str | None]] = {dimension: set() for dimension in required_dimensions}
 
     for reviewer in reviewers:
         if upstream_attestation_required and not reviewer.upstream_attested:
@@ -735,22 +835,35 @@ def evaluate_reviewer_independence(
                 per_reviewer.setdefault(first, ReviewerIndependence.SHARED_UNATTESTED_UPSTREAM)
                 continue
             upstream_seen[reviewer.upstream_id] = reviewer.principal
+        per_reviewer[reviewer.principal] = ReviewerIndependence.QUALIFIED
 
-        collision = False
+    # Required dimensions must actually differ across qualified reviewers:
+    # two attested reviewers with identical model/organization values are a
+    # dimension collision, never two independent authorities.
+    dimension_values: dict[str, dict[str, str]] = {dimension: {} for dimension in required_dimensions}
+    for reviewer in reviewers:
+        if per_reviewer.get(reviewer.principal) is not ReviewerIndependence.QUALIFIED:
+            continue
+        values = {
+            "model": reviewer.model,
+            "organization": reviewer.organization,
+            "account": reviewer.account,
+            "transport": reviewer.transport,
+            "human": reviewer.principal if reviewer.transport == "human" else None,
+        }
         for dimension in required_dimensions:
-            value: str | None = {
-                "model": reviewer.model,
-                "organization": reviewer.organization,
-                "account": reviewer.account,
-                "transport": reviewer.transport,
-                "human": reviewer.principal if reviewer.transport == "human" else None,
-            }.get(dimension)
-            if value is None and dimension != "human":
-                collision = True
-            dimension_values[dimension].add(value)
-        per_reviewer[reviewer.principal] = (
-            ReviewerIndependence.DIMENSION_COLLISION if collision else ReviewerIndependence.QUALIFIED
-        )
+            value = values.get(dimension)
+            if value is None:
+                # A required dimension without provenance is a collision for
+                # this reviewer: it cannot be shown distinct.
+                per_reviewer[reviewer.principal] = ReviewerIndependence.DIMENSION_COLLISION
+            else:
+                previous = dimension_values[dimension].get(value)
+                if previous is not None and previous != reviewer.principal:
+                    per_reviewer[reviewer.principal] = ReviewerIndependence.DIMENSION_COLLISION
+                    per_reviewer[previous] = ReviewerIndependence.DIMENSION_COLLISION
+                else:
+                    dimension_values[dimension][value] = reviewer.principal
 
     qualified = sum(1 for state in per_reviewer.values() if state is ReviewerIndependence.QUALIFIED)
     return ReviewerIndependenceReport(
@@ -854,12 +967,18 @@ def evaluate_delivery(
     capabilities: CapabilityReport | None = None,
     plan_disposition: str | None = None,
     budget_consumed: BudgetConsumption | None = None,
+    reviewers: Sequence[ReviewerDescriptor] | None = None,
 ) -> DeliveryDecision:
     """Evaluate one delivery against the compiled policy gates.
 
     Every required gate is evaluated; earlier green stages never compensate
     for missing or non-green later required stages. The returned decision
     carries the typed outcome, per-gate detail, and the exact missing set.
+
+    ``reviewers`` carries the actual reviewer provenance descriptors when the
+    policy requires independence dimensions or upstream attestation; a
+    required-independence evaluation without them is non-green rather than
+    assumed.
     """
     compiled = compile_gates(policy, workspec)
     reasons: list[str] = []
@@ -923,12 +1042,18 @@ def evaluate_delivery(
                 plan_decision = GateDecision(plan_gate_id, GateState.BLOCKED, (), ("CHALLENGER_NOT_INDEPENDENT",))
 
     gate_requirements: list[GateRequirement] = []
+    review_axes: tuple[DependencyKind, ...] = (
+        (DependencyKind.CANDIDATE_SOURCE,)
+        if (policy.review_stale_on_candidate_change or policy.review_final_exact_head_required)
+        else ()
+    )
     if compiled.review_required:
         gate_requirements.append(
             GateRequirement(
                 gate_id="review",
                 required_kind=ReceiptKind.REVIEW,
                 distinct_producers=compiled.review_count,
+                required_identity_axes=review_axes,
             )
         )
     if compiled.validation_required:
@@ -1004,6 +1129,11 @@ def evaluate_delivery(
 
     gate_decisions: dict[str, GateDecision] = {plan_gate_id: plan_decision}
     missing: list[str] = []
+    # The planning gate participates in the mandatory missing-gate accounting
+    # like every other required gate: a pending or blocked plan keeps the
+    # delivery non-terminal even when all remaining gates are green.
+    if not plan_decision.is_green:
+        missing.append(plan_gate_id)
 
     for requirement in gate_requirements:
         if requirement.gate_id == plan_gate_id:
@@ -1028,6 +1158,66 @@ def evaluate_delivery(
         gate_decisions[requirement.gate_id] = decision
         if not decision.is_green:
             missing.append(requirement.gate_id)
+
+    # Reviewer independence is enforced on the actual reviewer provenance,
+    # not on principal alias count alone. Required dimensions or upstream
+    # attestation make the compiled report load-bearing: without reviewer
+    # input the gate is non-green rather than assumed satisfied.
+    review_decision = gate_decisions.get("review")
+    if review_decision is not None and compiled.review_required:
+        dimensions = policy.review_required_dimensions
+        needs_independence = bool(dimensions) or policy.review_upstream_attestation_required
+        if needs_independence:
+            if reviewers is None:
+                independence_report = None
+            else:
+                independence_report = evaluate_reviewer_independence(
+                    reviewers, dimensions, policy.review_upstream_attestation_required
+                )
+            if independence_report is None:
+                blocked = GateDecision(
+                    "review",
+                    GateState.BLOCKED,
+                    review_decision.qualifying_receipt_ids,
+                    review_decision.reasons + ("INDEPENDENCE_INPUT_MISSING",),
+                )
+                gate_decisions["review"] = blocked
+                if "review" not in missing:
+                    missing.append("review")
+                reasons.append("REVIEW_INDEPENDENCE_INPUT_MISSING")
+            else:
+                qualified_principals = {
+                    principal
+                    for principal, state in independence_report.per_reviewer.items()
+                    if state is ReviewerIndependence.QUALIFIED
+                }
+                receipts_by_principal = {
+                    receipt.producer_principal: receipt.receipt_id
+                    for receipt in graph.receipts.values()
+                    if receipt.receipt_kind is ReceiptKind.REVIEW and receipt.producer_principal is not None
+                }
+                unqualified = [
+                    receipt_id
+                    for principal, receipt_id in receipts_by_principal.items()
+                    if principal not in qualified_principals and receipt_id in review_decision.qualifying_receipt_ids
+                ]
+                sufficient = independence_report.qualified_count >= compiled.review_count
+                if unqualified or not sufficient:
+                    demoted_reasons = list(review_decision.reasons)
+                    if unqualified:
+                        demoted_reasons.append(f"INDEPENDENCE_UNQUALIFIED:{','.join(sorted(unqualified))}")
+                    if not sufficient:
+                        demoted_reasons.append(
+                            f"INDEPENDENCE_QUALIFIED_COUNT:{independence_report.qualified_count}:{compiled.review_count}"
+                        )
+                    gate_decisions["review"] = GateDecision(
+                        "review",
+                        GateState.BLOCKED,
+                        tuple(rid for rid in review_decision.qualifying_receipt_ids if rid not in unqualified),
+                        tuple(demoted_reasons),
+                    )
+                    if "review" not in missing:
+                        missing.append("review")
 
     # Authorization boundaries decided by policy, not evidence volume.
     if compiled.integration_required and not compiled.integration_authorized:

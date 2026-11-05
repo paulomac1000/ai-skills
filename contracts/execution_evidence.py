@@ -33,7 +33,7 @@ import hashlib
 import json
 import sys
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
@@ -860,6 +860,7 @@ class ReceiptCurrentness:
 class CurrentnessReport:
     receipts: Mapping[str, ReceiptCurrentness]
     minimum_revalidation: tuple[str, ...]
+    current: CurrentIdentities = field(default_factory=lambda: CurrentIdentities())
 
 
 def _implicit_dependency_axes(receipt: ReceiptEnvelope) -> Mapping[DependencyKind, str]:
@@ -898,13 +899,36 @@ def derive_currentness(graph: EvidenceGraph, current: CurrentIdentities) -> Curr
     recomputed. A declared axis with unknown current identity classifies as
     ``UNKNOWN`` (non-green for proven-currentness gates). Supersession chains
     mark historical receipts ``SUPERSEDED`` while preserving their content.
+
+    Receipts are classified in topological order over in-graph dependencies,
+    so staleness propagation is independent of graph insertion order.
     """
     reports: dict[str, ReceiptCurrentness] = {}
 
     def superseded_by_any(receipt_id: str) -> bool:
         return any(other.supersedes_receipt_ref == receipt_id for other in graph.receipts.values())
 
+    # Topological order over in-graph dependencies: upstream receipts are
+    # classified before their dependents so staleness propagation is order
+    # independent. The graph is acyclic by construction (build_graph).
+    visited: set[str] = set()
+    ordered: list[str] = []
+
+    def visit(receipt_id: str, depth: int) -> None:
+        if depth > _MAX_GRAPH_DEPTH:
+            raise ValueError("evidence graph dependency depth exceeds the bound")
+        if receipt_id in visited:
+            return
+        visited.add(receipt_id)
+        for dependency_id, _kind in graph.receipts[receipt_id].depends_on:
+            if dependency_id in graph.receipts:
+                visit(dependency_id, depth + 1)
+        ordered.append(receipt_id)
+
     for receipt_id in graph.order:
+        visit(receipt_id, 0)
+
+    for receipt_id in ordered:
         receipt = graph.receipts[receipt_id]
         stale: list[DependencyKind] = []
         unknown: list[DependencyKind] = []
@@ -967,7 +991,7 @@ def derive_currentness(graph: EvidenceGraph, current: CurrentIdentities) -> Curr
         for receipt_id in graph.order
         if reports[receipt_id].status in (Currentness.STALE, Currentness.UNKNOWN)
     )
-    return CurrentnessReport(receipts=reports, minimum_revalidation=minimum_revalidation)
+    return CurrentnessReport(receipts=reports, minimum_revalidation=minimum_revalidation, current=current)
 
 
 @dataclass(frozen=True)
@@ -980,6 +1004,15 @@ class GateRequirement:
     require_current: bool = True
     distinct_producers: int = 1
     independence_required: bool = False
+    # A receipt may only satisfy the gate through NOT_REQUIRED when the
+    # evaluator itself derived the exemption from the trusted policy for this
+    # exact work item; a receipt's own policy metadata is never that
+    # authorization.
+    allow_trusted_not_required: bool = False
+    # Identity axes every qualifying receipt must bind (for example a final
+    # exact-head review must carry the candidate source axis). Missing axis
+    # bindings are non-green even when the axis is untracked.
+    required_identity_axes: tuple[DependencyKind, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -1007,9 +1040,11 @@ def evaluate_gate(
     weaker-authority or worker-reported evidence never satisfies the gate.
     """
     report = currentness if currentness is not None else derive_currentness(graph, CurrentIdentities())
+    implicit_axes_of = _implicit_dependency_axes
     reasons: list[str] = []
     qualifying: list[str] = []
     failed: list[str] = []
+    not_required_seen = False
 
     candidates = [receipt for receipt in graph.receipts.values() if receipt.receipt_kind is requirement.required_kind]
     if requirement.subject_kind is not None:
@@ -1022,6 +1057,19 @@ def evaluate_gate(
 
     seen_principals: set[str] = set()
     for receipt in candidates:
+        axes = implicit_axes_of(receipt)
+        missing_axes = [axis for axis in requirement.required_identity_axes if axis not in axes]
+        if missing_axes:
+            # A required identity axis is not bound by this receipt at all:
+            # it cannot prove exact-subject currentness for the gate.
+            reasons.append(f"MISSING_IDENTITY_AXIS:{receipt.receipt_id}:{','.join(a.value for a in missing_axes)}")
+            continue
+        axis_untracked = [axis for axis in requirement.required_identity_axes if report.current.value_for(axis) is None]
+        if axis_untracked:
+            reasons.append(
+                f"AXIS_CURRENT_IDENTITY_UNTRACKED:{receipt.receipt_id}:{','.join(a.value for a in axis_untracked)}"
+            )
+            continue
         receipt_status = report.receipts[receipt.receipt_id].status
         if receipt_status is not Currentness.CURRENT and requirement.require_current:
             reasons.append(f"NOT_CURRENT:{receipt.receipt_id}:{receipt_status.value}")
@@ -1035,6 +1083,10 @@ def evaluate_gate(
             reasons.append(f"RECEIPT_FAILED:{receipt.receipt_id}")
             continue
         if receipt.disposition is Disposition.NOT_REQUIRED:
+            if not requirement.allow_trusted_not_required:
+                not_required_seen = True
+                reasons.append(f"NOT_REQUIRED_UNAUTHORIZED:{receipt.receipt_id}")
+                continue
             qualifying.append(receipt.receipt_id)
             continue
         if receipt.disposition is not Disposition.PASS:
@@ -1059,6 +1111,8 @@ def evaluate_gate(
 
     if failed:
         return GateDecision(requirement.gate_id, GateState.BLOCKED, tuple(qualifying), tuple(reasons))
+    if not_required_seen and not qualifying:
+        return GateDecision(requirement.gate_id, GateState.BLOCKED, (), tuple(reasons))
     if len(qualifying) >= requirement.distinct_producers:
         return GateDecision(requirement.gate_id, GateState.SATISFIED, tuple(qualifying), ())
     if qualifying:
