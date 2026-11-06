@@ -34,14 +34,11 @@ def test_python_package_main_invocation_counts_main_module(tmp_path: Path) -> No
     main_module = next(source for source in inventory.sources if source.path == ".agents/validator/__main__.py")
     initializer = next(source for source in inventory.sources if source.path == ".agents/validator/__init__.py")
     version_module = next(source for source in inventory.sources if source.path == ".agents/validator/version.py")
-    version_module = next(source for source in inventory.sources if source.path == ".agents/validator/version.py")
     assert main_module.classification == "task_entrypoint"
     assert main_module.counted is True
     assert any("ci.yml" in origin for origin in main_module.origins)
     assert initializer.classification == "library"
     assert initializer.counted is False
-    assert version_module.classification == "library"
-    assert version_module.counted is False
     assert version_module.classification == "library"
     assert version_module.counted is False
     assert not inventory.issues

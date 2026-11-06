@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -142,8 +144,6 @@ def test_policy_revision_is_explicit_and_stable(tmp_path: Path) -> None:
     inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
     assert inventory.policy_revision == GATE_SOURCE_POLICY_REVISION
     policy = ROOT / "skills/agents-md-architect/references/gate-source-budget.md"
-    assert f"`{GATE_SOURCE_POLICY_REVISION}`" in policy.read_text(encoding="utf-8")
-    policy = ROOT / "skills/agents-md-architect/references/gate-source-budget.md"
     text = policy.read_text(encoding="utf-8")
     assert f"`{GATE_SOURCE_POLICY_REVISION}`" in text
     assert "PYTHONPATH=.agents python -m" in text
@@ -185,8 +185,7 @@ def test_module_invocation_with_pythonpath_counts_after_relocation(tmp_path: Pat
     module.parent.mkdir(parents=True)
     sentinel = tmp_path / "candidate-code-was-executed"
     module.write_text(
-        "from pathlib import Path\n"
-        f"Path({str(sentinel)!r}).write_text('executed', encoding='utf-8')\n",
+        f"from pathlib import Path\nPath({str(sentinel)!r}).write_text('executed', encoding='utf-8')\n",
         encoding="utf-8",
     )
     _write_workflow(tmp_path, "PYTHONPATH=.agents python -m tools.validator")
@@ -255,9 +254,7 @@ def test_import_only_helper_stays_uncounted(tmp_path: Path) -> None:
     _write_workflow(tmp_path, "PYTHONPATH=.agents python -m tools.validator")
 
     inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
-    helper_row = next(
-        item for item in inventory.sources if item.path == ".agents/tools/helper.py"
-    )
+    helper_row = next(item for item in inventory.sources if item.path == ".agents/tools/helper.py")
     assert helper_row.classification == "library"
     assert helper_row.counted is False
     assert "imported" in helper_row.reason
@@ -276,9 +273,7 @@ def test_audit_receipt_includes_imported_library_without_counting_it(
     entrypoint.write_text("from tools.helper import VALUE\n", encoding="utf-8")
     _write_workflow(tmp_path, "PYTHONPATH=.agents python -m tools.validator")
 
-    _known, inventory, findings = _known_gate_commands_with_inventory(
-        tmp_path, discover(tmp_path)
-    )
+    _known, inventory, findings = _known_gate_commands_with_inventory(tmp_path, discover(tmp_path))
 
     sources = {item.path: item for item in inventory.sources}
     assert sources[".agents/tools/validator.py"].classification == "task_entrypoint"
@@ -296,13 +291,117 @@ def test_module_invocation_without_matching_file_is_not_fabricated(tmp_path: Pat
     assert inventory.count == 1  # only the CI workflow itself
 
 
+def test_missing_module_under_explicit_repository_pythonpath_is_incomplete(tmp_path: Path) -> None:
+    _write_workflow(tmp_path, "PYTHONPATH=.agents python -m validator")
+
+    inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
+
+    assert inventory.count == 1
+    assert any("not found" in issue and "validator" in issue for issue in inventory.issues)
+
+
+def test_module_symlink_escape_is_incomplete_without_reading_target(tmp_path: Path) -> None:
+    outside = tmp_path.parent / f"{tmp_path.name}-outside-validator.py"
+    sentinel = tmp_path.parent / f"{tmp_path.name}-executed"
+    outside.write_text(
+        f"from pathlib import Path\nPath({str(sentinel)!r}).write_text('executed', encoding='utf-8')\n",
+        encoding="utf-8",
+    )
+    module = tmp_path / ".agents/tools/validator.py"
+    module.parent.mkdir(parents=True)
+    module.symlink_to(outside)
+    _write_workflow(tmp_path, "PYTHONPATH=.agents python -m tools.validator")
+
+    inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
+
+    assert inventory.count == 1
+    assert inventory.issues
+    assert not sentinel.exists()
+
+
+def test_oversized_invoked_source_is_incomplete(tmp_path: Path) -> None:
+    source = tmp_path / "scripts" / "oversized.py"
+    source.parent.mkdir(parents=True)
+    source.write_text("VALUE = 1\n" * 300_000, encoding="utf-8")
+    _write_workflow(tmp_path, "python scripts/oversized.py")
+
+    inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
+
+    assert inventory.count == 2
+    assert any("exceeds" in issue and "oversized.py" in issue for issue in inventory.issues)
+
+
+def test_ambiguous_module_roots_fail_closed(tmp_path: Path) -> None:
+    for root in (".agents", "."):
+        module = tmp_path / root / "tools" / "validator.py"
+        module.parent.mkdir(parents=True, exist_ok=True)
+        module.write_text("VALUE = 1\n", encoding="utf-8")
+    _write_workflow(tmp_path, "PYTHONPATH=.agents:. python -m tools.validator")
+
+    inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
+
+    assert any("ambiguous module resolution" in issue and "validator" in issue for issue in inventory.issues)
+
+
+def test_wrapper_chain_beyond_bound_is_incomplete(tmp_path: Path) -> None:
+    for index in range(5):
+        wrapper = tmp_path / "scripts" / f"wrapper-{index}.sh"
+        wrapper.parent.mkdir(parents=True, exist_ok=True)
+        command = f"bash scripts/wrapper-{index + 1}.sh" if index < 4 else "true"
+        wrapper.write_text(f"#!/bin/sh\n{command}\n", encoding="utf-8")
+    _write_workflow(tmp_path, "bash scripts/wrapper-0.sh")
+
+    inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
+
+    assert any("wrapper depth exceeds" in issue for issue in inventory.issues)
+
+
+def test_duplicate_module_references_count_one_entrypoint(tmp_path: Path) -> None:
+    module = tmp_path / ".agents/tools/validator.py"
+    module.parent.mkdir(parents=True)
+    module.write_text("VALUE = 1\n", encoding="utf-8")
+    _write_workflow(
+        tmp_path,
+        "PYTHONPATH=.agents python -m tools.validator && PYTHONPATH=.agents python -m tools.validator",
+    )
+
+    inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
+
+    assert inventory.count == 2
+    assert sum(source.path == ".agents/tools/validator.py" and source.counted for source in inventory.sources) == 1
+
+
+def test_actual_auditor_cli_reports_relocated_source_overflow(tmp_path: Path) -> None:
+    for index in range(63):
+        _write_script(tmp_path, f"task-{index}.py", "if __name__ == '__main__':\n    pass\n")
+    module = tmp_path / ".agents/tools/validator.py"
+    module.parent.mkdir(parents=True)
+    module.write_text("def main() -> None:\n    pass\n", encoding="utf-8")
+    _write_workflow(tmp_path, "PYTHONPATH=.agents python -m tools.validator")
+
+    completed = subprocess.run(
+        [sys.executable, str(TOOLS / "audit_agents_md.py"), "--format", "json", str(tmp_path)],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+
+    assert completed.returncode == 1
+    report = json.loads(completed.stdout)
+    inventory = report["gate_source_inventory"]
+    assert inventory["count"] == 65
+    assert inventory["headroom"] == -1
+    assert any(finding["code"] == "evidence.too-many-gate-sources" for finding in report["findings"])
+
+
 def test_module_invocation_through_shell_wrapper_is_traced(tmp_path: Path) -> None:
     module = tmp_path / ".agents" / "tools" / "validator.py"
     module.parent.mkdir(parents=True)
     module.write_text("VALUE = 1\n", encoding="utf-8")
     wrapper = tmp_path / ".agents" / "tools" / "run-validator.sh"
     wrapper.write_text(
-        "run afds env PYTHONPATH=.agents \"$PY\" -m tools.validator\n",
+        'run afds env PYTHONPATH=.agents "$PY" -m tools.validator\n',
         encoding="utf-8",
     )
     _write_workflow(tmp_path, "bash .agents/tools/run-validator.sh")
@@ -329,29 +428,19 @@ def test_auditor_budget_cannot_be_evaded_by_relocating_invoked_module(
     _write_workflow(tmp_path, "PYTHONPATH=.agents python -m tools.validator")
 
     discovery = discover(tmp_path)
-    _known, inventory, findings = _known_gate_commands_with_inventory(
-        tmp_path, discovery
-    )
+    _known, inventory, findings = _known_gate_commands_with_inventory(tmp_path, discovery)
 
     assert inventory.count == 65
     assert inventory.headroom == -1
-    module_row = next(
-        item for item in inventory.sources if item.path == ".agents/tools/validator.py"
-    )
+    module_row = next(item for item in inventory.sources if item.path == ".agents/tools/validator.py")
     assert module_row.counted is True
     assert any(
-        finding.code == "evidence.too-many-gate-sources"
-        and "Found 65" in finding.message
-        for finding in findings
+        finding.code == "evidence.too-many-gate-sources" and "Found 65" in finding.message for finding in findings
     )
 
 
 def _write_stack_hassio_migration_fixture(root: Path, *, moved: bool) -> str:
-    task_dir = (
-        root / ".agents" / "tools"
-        if moved
-        else root / "scripts" / "maintenance"
-    )
+    task_dir = root / ".agents" / "tools" if moved else root / "scripts" / "maintenance"
     task_dir.mkdir(parents=True)
     helper = task_dir / "afds_report_output.py"
     helper.write_text("def write_report() -> None:\n    pass\n", encoding="utf-8")
@@ -364,8 +453,7 @@ def _write_stack_hassio_migration_fixture(root: Path, *, moved: bool) -> str:
     )
     if not moved:
         validator.write_text(
-            validator.read_text(encoding="utf-8")
-            + "\nif __name__ == '__main__':\n    write_report()\n",
+            validator.read_text(encoding="utf-8") + "\nif __name__ == '__main__':\n    write_report()\n",
             encoding="utf-8",
         )
     for index in range(63):
@@ -380,11 +468,7 @@ def _write_stack_hassio_migration_fixture(root: Path, *, moved: bool) -> str:
         else "python scripts/maintenance/validate_skill_migration.py --require-baseline"
     )
     _write_workflow(root, invocation)
-    return (
-        ".agents/tools/validate_skill_migration.py"
-        if moved
-        else "scripts/maintenance/validate_skill_migration.py"
-    )
+    return ".agents/tools/validate_skill_migration.py" if moved else "scripts/maintenance/validate_skill_migration.py"
 
 
 def test_stack_hassio_old_and_moved_entrypoints_have_equivalent_coverage(
@@ -397,11 +481,7 @@ def test_stack_hassio_old_and_moved_entrypoints_have_equivalent_coverage(
         validator_path = _write_stack_hassio_migration_fixture(root, moved=moved)
         inventory = classify_gate_sources(root, discover(root), limit=64)
         validator = next(item for item in inventory.sources if item.path == validator_path)
-        helper_path = (
-            ".agents/tools/afds_report_output.py"
-            if moved
-            else "scripts/maintenance/afds_report_output.py"
-        )
+        helper_path = ".agents/tools/afds_report_output.py" if moved else "scripts/maintenance/afds_report_output.py"
         helper = next(item for item in inventory.sources if item.path == helper_path)
         assert validator.classification == "task_entrypoint"
         assert validator.counted is True
@@ -422,15 +502,11 @@ def test_stack_hassio_relocation_cannot_turn_overflow_into_pass(
         root = tmp_path / variant
         moved = variant == "relocated"
         _write_stack_hassio_migration_fixture(root, moved=moved)
-        _known, inventory, findings = _known_gate_commands_with_inventory(
-            root, discover(root)
-        )
+        _known, inventory, findings = _known_gate_commands_with_inventory(root, discover(root))
         assert inventory.count == 65
         assert inventory.headroom == -1
         assert any(
-            finding.code == "evidence.too-many-gate-sources"
-            and "Found 65" in finding.message
-            for finding in findings
+            finding.code == "evidence.too-many-gate-sources" and "Found 65" in finding.message for finding in findings
         )
 
 
@@ -457,9 +533,7 @@ def test_pinned_external_checkout_is_listed_but_not_counted(tmp_path: Path) -> N
     )
 
     inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
-    external = next(
-        item for item in inventory.sources if item.path.startswith("external:paulomac1000/ai-skills@")
-    )
+    external = next(item for item in inventory.sources if item.path.startswith("external:paulomac1000/ai-skills@"))
     assert external.classification == "excluded"
     assert external.counted is False
     assert external.path.endswith("/tools/audit.py")
