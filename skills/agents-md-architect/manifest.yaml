@@ -81,6 +81,7 @@ required:
 - tools/agents_md_python_modules.py
 - tools/agents_md_python_imports.py
 - tools/agents_md_task_source_scan.py
+- tools/agents_md_workflow_contexts.py
 - tools/agents_md_types.py
 - tools/agents_md_parse.py
 - tools/agents_md_completion_evidence.py
