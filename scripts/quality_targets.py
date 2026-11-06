@@ -92,6 +92,7 @@ TYPE_PATHS = (
     "skills/agents-md-architect/tools/agents_md_python_modules.py",
     "skills/agents-md-architect/tools/agents_md_python_imports.py",
     "skills/agents-md-architect/tools/agents_md_task_source_scan.py",
+    "skills/agents-md-architect/tools/agents_md_workflow_contexts.py",
     "skills/agents-md-architect/tools/audit_agents_md.py",
     "skills/agents-md-architect/tools/discover_repository.py",
     "skills/agents-md-architect/tools/runtime_fact_classification.py",

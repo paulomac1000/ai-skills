@@ -62,6 +62,7 @@ def test_agents_tools_are_in_every_policy_critical_target_set() -> None:
         f"{tools}/agents_md_python_modules.py",
         f"{tools}/agents_md_python_imports.py",
         f"{tools}/agents_md_task_source_scan.py",
+        f"{tools}/agents_md_workflow_contexts.py",
         f"{tools}/discover_repository.py",
         f"{tools}/validate_agents_md.py",
     }
