@@ -17,6 +17,8 @@ from agents_md_gate_sources import (  # noqa: E402
     GATE_SOURCE_POLICY_REVISION,
     classify_gate_sources,
 )
+from agents_md_source_io import read_bounded  # noqa: E402
+from agents_md_source_types import MAX_CLASSIFIER_FILE_BYTES  # noqa: E402
 from audit_agents_md import _known_gate_commands_with_inventory  # noqa: E402
 from discover_repository import discover  # noqa: E402
 
@@ -228,6 +230,33 @@ def test_candidate_checkout_working_directory_resolves_against_candidate_root(
     assert any("ci.yml" in origin for origin in row.origins)
 
 
+def test_candidate_checkout_path_prefix_resolves_to_owned_repository_source(tmp_path: Path) -> None:
+    module = tmp_path / ".agents/tools/validator.py"
+    module.parent.mkdir(parents=True)
+    module.write_text("VALUE = 1\n", encoding="utf-8")
+    workflow = tmp_path / ".github/workflows/ci.yml"
+    workflow.parent.mkdir(parents=True)
+    workflow.write_text(
+        "jobs:\n"
+        "  validate:\n"
+        "    runs-on: ubuntu-24.04\n"
+        "    steps:\n"
+        "      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567\n"
+        "        with:\n"
+        "          ref: ${{ github.event.pull_request.head.sha }}\n"
+        "          path: candidate\n"
+        "      - run: python candidate/.agents/tools/validator.py\n",
+        encoding="utf-8",
+    )
+
+    inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
+
+    row = next(source for source in inventory.sources if source.path == ".agents/tools/validator.py")
+    assert row.classification == "task_entrypoint"
+    assert row.counted is True
+    assert not inventory.issues
+
+
 def test_module_invocation_coverage_is_path_independent(tmp_path: Path) -> None:
     """#212 negative: relocating a genuinely invoked module cannot escape coverage."""
     for location, run_line in (
@@ -300,6 +329,81 @@ def test_missing_module_under_explicit_repository_pythonpath_is_incomplete(tmp_p
     assert any("not found" in issue and "validator" in issue for issue in inventory.issues)
 
 
+def test_missing_nested_repository_module_without_pythonpath_is_incomplete(tmp_path: Path) -> None:
+    package = tmp_path / "tools"
+    package.mkdir()
+    (package / "__init__.py").write_text("\n", encoding="utf-8")
+    _write_workflow(tmp_path, "python -m tools.missing_validator")
+
+    inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
+
+    assert inventory.count == 1
+    assert any("not found" in issue and "tools.missing_validator" in issue for issue in inventory.issues)
+
+
+def test_missing_direct_script_path_is_incomplete(tmp_path: Path) -> None:
+    _write_workflow(tmp_path, "python tools/missing_validator.py")
+
+    inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
+
+    assert inventory.count == 1
+    assert any("missing_validator.py" in issue and "not found" in issue for issue in inventory.issues)
+
+
+def test_unmatched_absolute_script_path_is_incomplete(tmp_path: Path) -> None:
+    _write_workflow(tmp_path, "python /opt/validator.py")
+
+    inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
+
+    assert inventory.count == 1
+    assert any("outside repository" in issue or "escapes repository" in issue for issue in inventory.issues)
+
+
+@pytest.mark.parametrize(
+    "launcher",
+    [
+        "./.venv/Scripts/python.exe",
+        "${{ runner.os == 'Windows' && './.venv/Scripts/python.exe' || 'python' }}",
+    ],
+)
+def test_generated_virtualenv_interpreter_is_not_misclassified_as_missing_source(tmp_path: Path, launcher: str) -> None:
+    _write_script(tmp_path, "install_locked.py", "def main() -> None:\n    pass\n")
+    _write_workflow(tmp_path, f"{launcher} scripts/install_locked.py")
+
+    inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
+
+    assert inventory.count == 2
+    assert not inventory.issues
+    assert any(source.path == "scripts/install_locked.py" and source.counted for source in inventory.sources)
+
+
+def test_root_module_invocation_without_pythonpath_resolves(tmp_path: Path) -> None:
+    (tmp_path / "validator.py").write_text("VALUE = 1\n", encoding="utf-8")
+    _write_workflow(tmp_path, "python -m validator")
+
+    inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
+
+    row = next(source for source in inventory.sources if source.path == "validator.py")
+    assert row.classification == "task_entrypoint"
+    assert row.counted is True
+    assert inventory.count == 2
+
+
+def test_nested_module_invocation_without_pythonpath_resolves(tmp_path: Path) -> None:
+    package = tmp_path / "tools"
+    package.mkdir()
+    (package / "__init__.py").write_text("\n", encoding="utf-8")
+    (package / "validator.py").write_text("VALUE = 1\n", encoding="utf-8")
+    _write_workflow(tmp_path, "python -m tools.validator")
+
+    inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
+
+    row = next(source for source in inventory.sources if source.path == "tools/validator.py")
+    assert row.classification == "task_entrypoint"
+    assert row.counted is True
+    assert inventory.count == 2
+
+
 def test_module_symlink_escape_is_incomplete_without_reading_target(tmp_path: Path) -> None:
     outside = tmp_path.parent / f"{tmp_path.name}-outside-validator.py"
     sentinel = tmp_path.parent / f"{tmp_path.name}-executed"
@@ -319,6 +423,20 @@ def test_module_symlink_escape_is_incomplete_without_reading_target(tmp_path: Pa
     assert not sentinel.exists()
 
 
+def test_symlinked_module_namespace_is_incomplete_without_following_it(tmp_path: Path) -> None:
+    outside = tmp_path.parent / f"{tmp_path.name}-outside-package"
+    outside.mkdir()
+    (outside / "__init__.py").write_text("\n", encoding="utf-8")
+    (outside / "validator.py").write_text("VALUE = 1\n", encoding="utf-8")
+    (tmp_path / "tools").symlink_to(outside, target_is_directory=True)
+    _write_workflow(tmp_path, "python -m tools.validator")
+
+    inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
+
+    assert inventory.count == 1
+    assert any("not found" in issue and "tools.validator" in issue for issue in inventory.issues)
+
+
 def test_oversized_invoked_source_is_incomplete(tmp_path: Path) -> None:
     source = tmp_path / "scripts" / "oversized.py"
     source.parent.mkdir(parents=True)
@@ -328,7 +446,19 @@ def test_oversized_invoked_source_is_incomplete(tmp_path: Path) -> None:
     inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
 
     assert inventory.count == 2
-    assert any("exceeds" in issue and "oversized.py" in issue for issue in inventory.issues)
+    assert any("maximum supported size" in issue and "oversized.py" in issue for issue in inventory.issues)
+
+
+def test_bounded_reader_never_uses_unbounded_read_bytes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    source = tmp_path / "oversized.py"
+    source.write_bytes(b"x" * (MAX_CLASSIFIER_FILE_BYTES + 1))
+
+    def reject_unbounded_read(_path: Path) -> bytes:
+        pytest.fail("bounded source reader called Path.read_bytes")
+
+    monkeypatch.setattr(Path, "read_bytes", reject_unbounded_read)
+    with pytest.raises(ValueError, match="maximum supported size"):
+        read_bounded(tmp_path, "oversized.py")
 
 
 def test_ambiguous_module_roots_fail_closed(tmp_path: Path) -> None:

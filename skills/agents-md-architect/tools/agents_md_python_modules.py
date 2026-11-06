@@ -46,6 +46,29 @@ def resolve_module_paths(
     return tuple(sorted(matches.items()))
 
 
+def _has_repository_module_namespace(
+    module: str,
+    roots: tuple[str, ...],
+    discovered_files: set[str],
+    discovered_symlinks: tuple[str, ...],
+) -> bool:
+    namespace = module.split(".", 1)[0].replace(".", "/")
+    for root in roots:
+        base = posixpath.normpath(posixpath.join(root, namespace))
+        if base == ".." or base.startswith("../") or base.startswith("/"):
+            continue
+        if (
+            f"{base}.py" in discovered_files
+            or any(path.startswith(f"{base}/") for path in discovered_files)
+            or any(
+                link == base or link.startswith(f"{base}/") or base.startswith(f"{link}/")
+                for link in discovered_symlinks
+            )
+        ):
+            return True
+    return False
+
+
 def module_invocation_references(
     source: CommandSource,
     discovery: Discovery,
@@ -115,7 +138,9 @@ def module_invocation_references(
         else:
             matches = ()
             initialized_prefixes = range(0)
-            if any(root != "." for root in roots):
+            if any(root != "." for root in roots) or _has_repository_module_namespace(
+                module, roots, discovered_files, discovery.symlinks
+            ):
                 issues.append(
                     f"invoked module {module!r} not found under declared repository import roots at {source.origin}"
                 )
