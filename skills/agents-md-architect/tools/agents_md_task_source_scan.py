@@ -158,6 +158,12 @@ def collect_task_references(root: Path, discovery: Discovery) -> TaskSourceScan:
                     direct_python.setdefault(candidate, []).append(
                         ModuleInvocation(candidate, module_name, roots, origin)
                     )
+                    if depth < MAX_WRAPPER_DEPTH:
+                        pending.append((candidate, depth + 1))
+                    else:
+                        issues.append(
+                            f"Python task-source depth exceeds {MAX_WRAPPER_DEPTH} at {origin} -> {candidate}"
+                        )
                 if suffix in {".sh", ".ps1"}:
                     if depth < MAX_WRAPPER_DEPTH:
                         pending.append((candidate, depth + 1))

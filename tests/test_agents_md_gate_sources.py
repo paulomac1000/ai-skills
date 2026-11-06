@@ -350,6 +350,24 @@ def test_missing_direct_script_path_is_incomplete(tmp_path: Path) -> None:
     assert any("missing_validator.py" in issue and "not found" in issue for issue in inventory.issues)
 
 
+def test_direct_python_wrapper_discovers_nested_task_script(tmp_path: Path) -> None:
+    _write_script(
+        tmp_path,
+        "wrapper.py",
+        "import subprocess\nsubprocess.run(['python3', 'scripts/nested_task.py'], check=True)\n",
+    )
+    _write_script(tmp_path, "nested_task.py")
+    _write_workflow(tmp_path, "python scripts/wrapper.py")
+
+    inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
+
+    row = next(source for source in inventory.sources if source.path == "scripts/nested_task.py")
+    assert row.classification == "task_entrypoint"
+    assert row.counted is True
+    assert row.origins == ("scripts/wrapper.py",)
+    assert not inventory.issues
+
+
 def test_unmatched_absolute_script_path_is_incomplete(tmp_path: Path) -> None:
     _write_workflow(tmp_path, "python /opt/validator.py")
 
