@@ -2,24 +2,29 @@
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
-from agents_md_source_types import MAX_CLASSIFIER_FILE_BYTES, WELL_KNOWN_TASK_RUNNERS
-from discover_repository import Discovery
+TOOLS = Path(__file__).resolve().parent
+REPOSITORY_ROOT = TOOLS.parents[2]
+CONTRACTS = REPOSITORY_ROOT / "contracts"
+for candidate in (TOOLS, CONTRACTS):
+    if str(candidate) not in sys.path:
+        sys.path.insert(0, str(candidate))
+
+from agents_md_source_types import MAX_CLASSIFIER_FILE_BYTES, WELL_KNOWN_TASK_RUNNERS  # noqa: E402
+from confined_io import ConfinedReadError, read_utf8_bounded  # noqa: E402
+from discover_repository import Discovery  # noqa: E402
 
 
 def read_bounded(root: Path, relative: str) -> str:
-    path = root / relative
-    if path.is_symlink():
-        raise ValueError(f"refusing symlink gate source: {relative}")
-    resolved = path.resolve(strict=True)
-    resolved.relative_to(root)
-    if not resolved.is_file():
-        raise ValueError(f"gate source is not a regular file: {relative}")
-    data = resolved.read_bytes()
-    if len(data) > MAX_CLASSIFIER_FILE_BYTES:
-        raise ValueError(f"gate source exceeds {MAX_CLASSIFIER_FILE_BYTES} bytes: {relative}")
-    return data.decode("utf-8")
+    try:
+        text, _byte_count = read_utf8_bounded(root / relative, root, MAX_CLASSIFIER_FILE_BYTES)
+    except ConfinedReadError as error:
+        if error.code == "input.too-large":
+            raise ValueError(f"Input exceeds the classifier size limit: {error.message}") from error
+        raise ValueError(f"symlink-safe confined read failed: {error.message}") from error
+    return text
 
 
 def public_task_surfaces(discovery: Discovery) -> set[str]:
