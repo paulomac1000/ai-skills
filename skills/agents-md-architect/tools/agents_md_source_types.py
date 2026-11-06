@@ -9,7 +9,7 @@ from typing import Literal
 Classification = Literal["ci_entrypoint", "task_entrypoint", "helper", "library", "generated", "excluded"]
 ExternalCheckoutKind = Literal["pinned_revision", "trusted_lock", "candidate_input", "workflow_authority"]
 
-GATE_SOURCE_POLICY_REVISION = "agents-md-gate-sources-4"
+GATE_SOURCE_POLICY_REVISION = "agents-md-gate-sources-5"
 MAX_CLASSIFIER_FILE_BYTES = 2 * 1024 * 1024
 MAX_WRAPPER_DEPTH = 4
 MAX_IMPORT_DEPTH = 4
@@ -68,12 +68,26 @@ class ExternalCheckout:
 
 
 @dataclass(frozen=True)
+class CheckoutContext:
+    job_id: str
+    step_index: int
+    aliases: tuple[tuple[str, ExternalCheckout | None], ...]
+    unresolved_aliases: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class CommandSource:
     path: str
     working_directory: str
     command: str
     origin: str
-    repository_aliases: tuple[str, ...] = ()
+    checkout_context: CheckoutContext | None = None
+
+
+@dataclass(frozen=True)
+class WorkflowCommandScan:
+    commands: tuple[CommandSource, ...]
+    issues: tuple[str, ...]
 
 
 @dataclass(frozen=True)

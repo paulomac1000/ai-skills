@@ -2,16 +2,11 @@
 
 from __future__ import annotations
 
-import posixpath
-import re
 from collections import deque
 from pathlib import Path
 
 from agents_md_checkout_sources import (
-    external_checkout_path,
-    normalize_checkout_working_directory,
-    pinned_external_checkout_aliases,
-    same_repository_checkout_aliases,
+    resolve_checkout_source_path,
 )
 from agents_md_completion_evidence import public_task_invocations
 from agents_md_python_evidence import _extract_python_invocations
@@ -20,7 +15,7 @@ from agents_md_python_modules import (
     module_invocation_references,
     module_name_for_path,
 )
-from agents_md_shell_evidence import _extract_gate_invocations, _extract_yaml_command_evidence
+from agents_md_shell_evidence import _extract_gate_invocations
 from agents_md_source_io import command_origin, public_task_surfaces, read_bounded
 from agents_md_source_types import (
     COMMAND_PATH_REFERENCE,
@@ -30,47 +25,39 @@ from agents_md_source_types import (
     CommandSource,
     ModuleInvocation,
     TaskSourceScan,
+    WorkflowCommandScan,
 )
+from agents_md_workflow_contexts import github_workflow_command_scan
 from discover_repository import Discovery
 
-GITHUB_PYTHON_LAUNCHER = re.compile(
-    r"""\$\{\{\s*runner\.os\s*==\s*['\"]Windows['\"]\s*&&\s*['\"](?:\./)?\.venv/Scripts/python\.exe['\"]\s*\|\|\s*['\"]python['\"]\s*\}\}"""
-)
-GITHUB_PYTHON_TAIL = re.compile(r"^python\s+['\"]\}\}['\"]\s+(?P<argv>.+)$")
 
-
-def _commands_from_surface(relative: str, text: str) -> tuple[CommandSource, ...]:
+def _commands_from_surface(
+    relative: str,
+    text: str,
+    parent: CommandSource | None = None,
+) -> WorkflowCommandScan:
     """Extract actual command surfaces using repository-owned static parsers."""
     suffix = Path(relative).suffix.casefold()
     if relative.startswith(".github/workflows/") and suffix in {".yml", ".yaml"}:
-        aliases = same_repository_checkout_aliases(relative, text)
-        launcher_match = GITHUB_PYTHON_LAUNCHER.search(text)
-        sources: list[CommandSource] = []
-        for working_directory, command in sorted(_extract_yaml_command_evidence(relative, text)):
-            normalized = GITHUB_PYTHON_LAUNCHER.sub("python", command)
-            origin_command = command
-            if launcher_match is not None:
-                normalized = GITHUB_PYTHON_TAIL.sub(r"python \g<argv>", normalized)
-                if normalized != command:
-                    origin_command = launcher_match.group(0)
-            sources.append(
-                CommandSource(
-                    relative,
-                    normalize_checkout_working_directory(working_directory, aliases),
-                    normalized,
-                    command_origin(relative, text, origin_command),
-                    aliases,
-                )
-            )
-        return tuple(sources)
+        return github_workflow_command_scan(relative, text)
     if suffix == ".py":
         commands = _extract_python_invocations(text)
     elif suffix in {".sh", ".ps1"} or Path(relative).name in WELL_KNOWN_TASK_RUNNERS:
         commands = _extract_gate_invocations(relative, text)
     else:
         commands = public_task_invocations(relative, text)
-    return tuple(
-        CommandSource(relative, ".", command, command_origin(relative, text, command)) for command in sorted(commands)
+    return WorkflowCommandScan(
+        tuple(
+            CommandSource(
+                relative,
+                parent.working_directory if parent is not None else ".",
+                command,
+                command_origin(relative, text, command),
+                parent.checkout_context if parent is not None else None,
+            )
+            for command in sorted(commands)
+        ),
+        (),
     )
 
 
@@ -81,13 +68,16 @@ def collect_task_references(root: Path, discovery: Discovery) -> TaskSourceScan:
     package_initializers: dict[str, list[ModuleInvocation]] = {}
     external_sources: dict[str, set[str]] = {}
     issues: list[str] = []
-    pending = deque((surface, 0) for surface in sorted(public_task_surfaces(discovery)))
-    scanned: set[str] = set()
+    pending: deque[tuple[str, int, CommandSource | None]] = deque(
+        (surface, 0, None) for surface in sorted(public_task_surfaces(discovery))
+    )
+    scanned: set[tuple[str, CommandSource | None]] = set()
     discovered_files = set(discovery.files)
 
     while pending:
-        relative, depth = pending.popleft()
-        if relative in scanned:
+        relative, depth, parent = pending.popleft()
+        scan_key = (relative, parent)
+        if scan_key in scanned:
             continue
         if len(scanned) >= MAX_RELATED_SOURCE_FILES:
             issues.append(
@@ -95,27 +85,29 @@ def collect_task_references(root: Path, discovery: Discovery) -> TaskSourceScan:
                 f"next source {relative!r} remains unclassified"
             )
             break
-        scanned.add(relative)
+        scanned.add(scan_key)
         try:
             text = read_bounded(root, relative)
         except (OSError, UnicodeError, ValueError) as error:
             issues.append(f"cannot inspect task source {relative!r}: {error}")
             continue
-        external_checkouts, checkout_issues = pinned_external_checkout_aliases(relative, text)
-        issues.extend(checkout_issues)
-
-        for command_source in _commands_from_surface(relative, text):
+        command_scan = _commands_from_surface(relative, text, parent)
+        issues.extend(command_scan.issues)
+        for command_source in command_scan.commands:
             origin = command_source.origin
             raw_candidates = {match.group("path") for match in COMMAND_PATH_REFERENCE.finditer(command_source.command)}
             for raw_path in sorted(raw_candidates):
+                candidate, external_path, checkout_issue = resolve_checkout_source_path(command_source, raw_path)
+                if checkout_issue is not None:
+                    issues.append(checkout_issue)
+                    continue
+                if external_path is not None:
+                    external_sources.setdefault(external_path, set()).add(origin)
+                    continue
+                if candidate is None:
+                    issues.append(f"task path ownership is unresolved at {origin}: {raw_path}")
+                    continue
                 raw_candidate = raw_path.removeprefix("./")
-                checkout_alias = next(
-                    (alias for alias in command_source.repository_aliases if raw_candidate.startswith(f"{alias}/")),
-                    None,
-                )
-                if checkout_alias is not None:
-                    raw_candidate = raw_candidate[len(checkout_alias) + 1 :]
-                candidate = posixpath.normpath(posixpath.join(command_source.working_directory, raw_candidate))
                 suffix = Path(raw_candidate).suffix.casefold()
                 source_like = suffix in {".py", ".sh", ".ps1", ".rb"} or candidate.startswith(
                     ("scripts/", "bin/", "tools/", ".agents/tools/")
@@ -123,30 +115,10 @@ def collect_task_references(root: Path, discovery: Discovery) -> TaskSourceScan:
                 if not source_like:
                     continue
                 if candidate == ".." or candidate.startswith("../") or candidate.startswith("/"):
-                    external_alias = next(
-                        (alias for alias in external_checkouts if candidate.startswith(f"../{alias}/")),
-                        None,
-                    )
-                    if external_alias is not None:
-                        checkout = external_checkouts[external_alias]
-                        suffix = candidate[len(f"../{external_alias}/") :]
-                        external_path = external_checkout_path(checkout, external_alias, suffix)
-                        external_sources.setdefault(external_path, set()).add(origin)
-                    else:
-                        issues.append(f"task path escapes repository without a pinned external checkout at {origin}")
+                    issues.append(f"task path escapes repository without a pinned external checkout at {origin}")
                     continue
                 if candidate not in discovered_files:
-                    external_alias = next(
-                        (alias for alias in external_checkouts if candidate.startswith(f"{alias}/")),
-                        None,
-                    )
-                    if external_alias is not None:
-                        checkout = external_checkouts[external_alias]
-                        suffix = candidate[len(f"{external_alias}/") :]
-                        external_path = external_checkout_path(checkout, external_alias, suffix)
-                        external_sources.setdefault(external_path, set()).add(origin)
-                    else:
-                        issues.append(f"referenced task path not found in repository at {origin}: {raw_candidate}")
+                    issues.append(f"referenced task path not found in repository at {origin}: {raw_candidate}")
                     continue
                 references.setdefault(candidate, set()).add(origin)
                 if suffix == ".py":
@@ -159,14 +131,14 @@ def collect_task_references(root: Path, discovery: Discovery) -> TaskSourceScan:
                         ModuleInvocation(candidate, module_name, roots, origin)
                     )
                     if depth < MAX_WRAPPER_DEPTH:
-                        pending.append((candidate, depth + 1))
+                        pending.append((candidate, depth + 1, command_source))
                     else:
                         issues.append(
                             f"Python task-source depth exceeds {MAX_WRAPPER_DEPTH} at {origin} -> {candidate}"
                         )
                 if suffix in {".sh", ".ps1"}:
                     if depth < MAX_WRAPPER_DEPTH:
-                        pending.append((candidate, depth + 1))
+                        pending.append((candidate, depth + 1, command_source))
                     else:
                         issues.append(f"wrapper depth exceeds {MAX_WRAPPER_DEPTH} at {origin} -> {candidate}")
 
@@ -180,7 +152,7 @@ def collect_task_references(root: Path, discovery: Discovery) -> TaskSourceScan:
                 references.setdefault(candidate, set()).update(invocation.origin for invocation in invocations)
                 module_invocations.setdefault(candidate, []).extend(invocations)
                 if depth < MAX_WRAPPER_DEPTH:
-                    pending.append((candidate, depth + 1))
+                    pending.append((candidate, depth + 1, command_source))
                 else:
                     issues.append(
                         f"module wrapper depth exceeds {MAX_WRAPPER_DEPTH} at {command_source.origin} -> {candidate}"

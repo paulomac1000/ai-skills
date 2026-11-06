@@ -688,6 +688,300 @@ def test_pinned_external_checkout_is_listed_but_not_counted(tmp_path: Path) -> N
     assert not inventory.issues
 
 
+def test_checkout_alias_is_scoped_to_each_workflow_job(tmp_path: Path) -> None:
+    source = tmp_path / "scripts/check.py"
+    source.parent.mkdir(parents=True)
+    source.write_text("VALUE = 1\n", encoding="utf-8")
+    workflow = tmp_path / ".github/workflows/ci.yml"
+    workflow.parent.mkdir(parents=True)
+    workflow.write_text(
+        "jobs:\n"
+        "  candidate:\n"
+        "    runs-on: ubuntu-24.04\n"
+        "    steps:\n"
+        "      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567\n"
+        "        with:\n"
+        "          path: candidate\n"
+        "      - run: python candidate/scripts/check.py\n"
+        "  external:\n"
+        "    runs-on: ubuntu-24.04\n"
+        "    steps:\n"
+        "      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567\n"
+        "        with:\n"
+        "          repository: example/validator\n"
+        "          ref: 0123456789abcdef0123456789abcdef01234567\n"
+        "          path: candidate\n"
+        "      - run: python candidate/scripts/check.py\n",
+        encoding="utf-8",
+    )
+
+    inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
+
+    sources = {source.path: source for source in inventory.sources}
+    local = sources["scripts/check.py"]
+    external = sources["external:example/validator@0123456789abcdef0123456789abcdef01234567/scripts/check.py"]
+    assert local.classification == "task_entrypoint"
+    assert local.counted is True
+    assert local.origins == (".github/workflows/ci.yml:8",)
+    assert external.classification == "excluded"
+    assert external.counted is False
+    assert external.origins == (".github/workflows/ci.yml:17",)
+    assert not inventory.issues
+    _, audit_inventory, findings = _known_gate_commands_with_inventory(tmp_path, discover(tmp_path))
+    assert audit_inventory.sources == inventory.sources
+    assert not any(finding.code == "evidence.incomplete-gate-source-inventory" for finding in findings)
+
+
+def test_mixed_candidate_and_authority_checkouts_are_scoped_in_one_job(tmp_path: Path) -> None:
+    candidate_script = tmp_path / "scripts/check.py"
+    candidate_script.parent.mkdir(parents=True)
+    candidate_script.write_text("VALUE = 1\n", encoding="utf-8")
+    workflow = tmp_path / ".github/workflows/ci.yml"
+    workflow.parent.mkdir(parents=True)
+    workflow.write_text(
+        "jobs:\n"
+        "  verify:\n"
+        "    runs-on: ubuntu-24.04\n"
+        "    steps:\n"
+        "      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567\n"
+        "        with:\n"
+        "          path: candidate\n"
+        "      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567\n"
+        "        with:\n"
+        "          repository: example/authority\n"
+        "          ref: 0123456789abcdef0123456789abcdef01234567\n"
+        "          path: authority\n"
+        "      - run: python candidate/scripts/check.py && python authority/tools/audit.py\n",
+        encoding="utf-8",
+    )
+
+    inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
+
+    sources = {source.path: source for source in inventory.sources}
+    local = sources["scripts/check.py"]
+    external = sources["external:example/authority@0123456789abcdef0123456789abcdef01234567/tools/audit.py"]
+    assert local.classification == "task_entrypoint"
+    assert local.counted is True
+    assert external.classification == "excluded"
+    assert external.counted is False
+    assert not inventory.issues
+
+
+def test_checkout_alias_replacement_follows_step_order_within_job(tmp_path: Path) -> None:
+    for name in ("before.py", "after_external.py", "after_local.py"):
+        _write_script(tmp_path, name)
+    workflow = tmp_path / ".github/workflows/ci.yml"
+    workflow.parent.mkdir(parents=True)
+    workflow.write_text(
+        "jobs:\n"
+        "  verify:\n"
+        "    runs-on: ubuntu-24.04\n"
+        "    steps:\n"
+        "      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567\n"
+        "        with:\n"
+        "          path: candidate\n"
+        "      - run: python candidate/scripts/before.py\n"
+        "      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567\n"
+        "        with:\n"
+        "          repository: example/authority\n"
+        "          ref: 0123456789abcdef0123456789abcdef01234567\n"
+        "          path: candidate\n"
+        "      - run: python candidate/scripts/after_external.py\n"
+        "      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567\n"
+        "        with:\n"
+        "          path: candidate\n"
+        "      - run: python candidate/scripts/after_local.py\n",
+        encoding="utf-8",
+    )
+
+    inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
+
+    sources = {source.path: source for source in inventory.sources}
+    assert sources["scripts/before.py"].counted is True
+    assert (
+        sources[
+            "external:example/authority@0123456789abcdef0123456789abcdef01234567/scripts/after_external.py"
+        ].classification
+        == "excluded"
+    )
+    assert sources["scripts/after_local.py"].counted is True
+    assert not inventory.issues
+
+
+def test_known_same_repository_workflow_revisions_are_local_checkout_sources(tmp_path: Path) -> None:
+    _write_script(tmp_path, "check.py")
+    workflow = tmp_path / ".github" / "workflows" / "ci.yml"
+    workflow.parent.mkdir(parents=True)
+    workflow.write_text(
+        "jobs:\n"
+        "  pull-request:\n"
+        "    runs-on: ubuntu-24.04\n"
+        "    steps:\n"
+        "      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567\n"
+        "        with:\n"
+        "          ref: ${{ github.event.pull_request.head.sha || github.sha }}\n"
+        "      - run: python scripts/check.py\n"
+        "  release:\n"
+        "    runs-on: ubuntu-24.04\n"
+        "    steps:\n"
+        "      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567\n"
+        "        with:\n"
+        "          ref: ${{ github.event.workflow_run.head_sha }}\n"
+        "      - run: python scripts/check.py\n",
+        encoding="utf-8",
+    )
+
+    inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
+
+    row = next(source for source in inventory.sources if source.path == "scripts/check.py")
+    assert row.classification == "task_entrypoint"
+    assert row.counted is True
+    assert len(row.origins) == 2
+    assert not inventory.issues
+
+
+def test_matrix_runner_default_shell_preserves_simple_command_source_evidence(tmp_path: Path) -> None:
+    _write_script(tmp_path, "check.py")
+    workflow = tmp_path / ".github" / "workflows" / "ci.yml"
+    workflow.parent.mkdir(parents=True)
+    workflow.write_text(
+        "jobs:\n"
+        "  verify:\n"
+        "    strategy:\n"
+        "      matrix:\n"
+        "        os: [ubuntu-24.04, windows-2025]\n"
+        "    runs-on: ${{ matrix.os }}\n"
+        "    steps:\n"
+        "      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567\n"
+        "        with:\n"
+        "          ref: ${{ github.event.pull_request.head.sha || github.sha }}\n"
+        "      - run: python scripts/check.py\n",
+        encoding="utf-8",
+    )
+
+    inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
+
+    row = next(source for source in inventory.sources if source.path == "scripts/check.py")
+    assert row.classification == "task_entrypoint"
+    assert row.counted is True
+    assert not inventory.issues
+
+
+def test_workflow_env_alias_resolves_known_same_repository_checkout_revision(tmp_path: Path) -> None:
+    _write_script(tmp_path, "check.py")
+    workflow = tmp_path / ".github" / "workflows" / "ci.yml"
+    workflow.parent.mkdir(parents=True)
+    workflow.write_text(
+        "env:\n"
+        "  CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}\n"
+        "jobs:\n"
+        "  verify:\n"
+        "    runs-on: ubuntu-24.04\n"
+        "    steps:\n"
+        "      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567\n"
+        "        with:\n"
+        "          ref: ${{ env.CANDIDATE_SHA }}\n"
+        "          path: candidate\n"
+        "      - run: python candidate/scripts/check.py\n",
+        encoding="utf-8",
+    )
+
+    inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
+
+    row = next(source for source in inventory.sources if source.path == "scripts/check.py")
+    assert row.classification == "task_entrypoint"
+    assert row.counted is True
+    assert not inventory.issues
+
+
+@pytest.mark.parametrize("scope", ["job", "step"])
+def test_nearer_job_or_step_environment_resolves_checkout_revision(scope: str, tmp_path: Path) -> None:
+    _write_script(tmp_path, "check.py")
+    workflow = tmp_path / ".github" / "workflows" / "ci.yml"
+    workflow.parent.mkdir(parents=True)
+    job_binding = (
+        "    env:\n      CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}\n"
+        if scope == "job"
+        else ""
+    )
+    step_binding = "        env:\n          CANDIDATE_SHA: ${{ github.sha }}\n" if scope == "step" else ""
+    workflow.write_text(
+        "env:\n"
+        "  CANDIDATE_SHA: ${{ inputs.untrusted_sha }}\n"
+        "jobs:\n"
+        "  verify:\n"
+        "    runs-on: ubuntu-24.04\n"
+        f"{job_binding}"
+        "    steps:\n"
+        "      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567\n"
+        f"{step_binding}"
+        "        with:\n"
+        "          ref: ${{ env.CANDIDATE_SHA }}\n"
+        "          path: candidate\n"
+        "      - run: python candidate/scripts/check.py\n",
+        encoding="utf-8",
+    )
+
+    inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
+
+    row = next(source for source in inventory.sources if source.path == "scripts/check.py")
+    assert row.classification == "task_entrypoint"
+    assert row.counted is True
+    assert not inventory.issues
+
+
+def test_unknown_nearer_environment_override_does_not_inherit_allowed_checkout_ref(tmp_path: Path) -> None:
+    _write_script(tmp_path, "check.py")
+    workflow = tmp_path / ".github" / "workflows" / "ci.yml"
+    workflow.parent.mkdir(parents=True)
+    workflow.write_text(
+        "env:\n"
+        "  CANDIDATE_SHA: ${{ github.sha }}\n"
+        "jobs:\n"
+        "  verify:\n"
+        "    runs-on: ubuntu-24.04\n"
+        "    env:\n"
+        "      CANDIDATE_SHA: ${{ steps.resolve.outputs.revision }}\n"
+        "    steps:\n"
+        "      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567\n"
+        "        with:\n"
+        "          ref: ${{ env.CANDIDATE_SHA }}\n"
+        "          path: candidate\n"
+        "      - run: python candidate/scripts/check.py\n",
+        encoding="utf-8",
+    )
+
+    inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
+
+    assert any("same-repository checkout revision is unresolved" in issue for issue in inventory.issues)
+    row = next(source for source in inventory.sources if source.path == "scripts/check.py")
+    assert row.classification == "helper"
+    assert row.counted is False
+
+
+def test_explicit_unsupported_workflow_shell_fails_closed_for_source_commands(tmp_path: Path) -> None:
+    _write_script(tmp_path, "check.py")
+    workflow = tmp_path / ".github" / "workflows" / "ci.yml"
+    workflow.parent.mkdir(parents=True)
+    workflow.write_text(
+        "jobs:\n"
+        "  verify:\n"
+        "    runs-on: ubuntu-24.04\n"
+        "    steps:\n"
+        "      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567\n"
+        "      - shell: cmd\n"
+        "        run: python scripts/check.py\n",
+        encoding="utf-8",
+    )
+
+    inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
+
+    assert any("workflow shell is unsupported" in issue for issue in inventory.issues)
+    row = next(source for source in inventory.sources if source.path == "scripts/check.py")
+    assert row.classification == "helper"
+    assert row.counted is False
+
+
 def test_trusted_lock_checkout_is_explicit_external_source(tmp_path: Path) -> None:
     workflow = tmp_path / ".github" / "workflows" / "ci.yml"
     workflow.parent.mkdir(parents=True)
