@@ -8,10 +8,10 @@ import json
 import subprocess
 import sys
 import tomllib
-
-import pytest
 from pathlib import Path
 from typing import Any
+
+import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 TARGETS_PATH = ROOT / "scripts/quality_targets.py"
@@ -56,6 +56,12 @@ def test_agents_tools_are_in_every_policy_critical_target_set() -> None:
 
     entrypoints = {
         f"{tools}/audit_agents_md.py",
+        f"{tools}/agents_md_source_types.py",
+        f"{tools}/agents_md_source_io.py",
+        f"{tools}/agents_md_checkout_sources.py",
+        f"{tools}/agents_md_python_modules.py",
+        f"{tools}/agents_md_python_imports.py",
+        f"{tools}/agents_md_task_source_scan.py",
         f"{tools}/discover_repository.py",
         f"{tools}/validate_agents_md.py",
     }
