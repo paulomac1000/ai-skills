@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import posixpath
+import re
 from collections import deque
 from pathlib import Path
 
@@ -32,21 +33,36 @@ from agents_md_source_types import (
 )
 from discover_repository import Discovery
 
+GITHUB_PYTHON_LAUNCHER = re.compile(
+    r"""\$\{\{\s*runner\.os\s*==\s*['\"]Windows['\"]\s*&&\s*['\"](?:\./)?\.venv/Scripts/python\.exe['\"]\s*\|\|\s*['\"]python['\"]\s*\}\}"""
+)
+GITHUB_PYTHON_TAIL = re.compile(r"^python\s+['\"]\}\}['\"]\s+(?P<argv>.+)$")
+
 
 def _commands_from_surface(relative: str, text: str) -> tuple[CommandSource, ...]:
     """Extract actual command surfaces using repository-owned static parsers."""
     suffix = Path(relative).suffix.casefold()
     if relative.startswith(".github/workflows/") and suffix in {".yml", ".yaml"}:
         aliases = same_repository_checkout_aliases(relative, text)
-        return tuple(
-            CommandSource(
-                relative,
-                normalize_checkout_working_directory(working_directory, aliases),
-                command,
-                command_origin(relative, text, command),
+        launcher_match = GITHUB_PYTHON_LAUNCHER.search(text)
+        sources: list[CommandSource] = []
+        for working_directory, command in sorted(_extract_yaml_command_evidence(relative, text)):
+            normalized = GITHUB_PYTHON_LAUNCHER.sub("python", command)
+            origin_command = command
+            if launcher_match is not None:
+                normalized = GITHUB_PYTHON_TAIL.sub(r"python \g<argv>", normalized)
+                if normalized != command:
+                    origin_command = launcher_match.group(0)
+            sources.append(
+                CommandSource(
+                    relative,
+                    normalize_checkout_working_directory(working_directory, aliases),
+                    normalized,
+                    command_origin(relative, text, origin_command),
+                    aliases,
+                )
             )
-            for working_directory, command in sorted(_extract_yaml_command_evidence(relative, text))
-        )
+        return tuple(sources)
     if suffix == ".py":
         commands = _extract_python_invocations(text)
     elif suffix in {".sh", ".ps1"} or Path(relative).name in WELL_KNOWN_TASK_RUNNERS:
@@ -90,9 +106,22 @@ def collect_task_references(root: Path, discovery: Discovery) -> TaskSourceScan:
 
         for command_source in _commands_from_surface(relative, text):
             origin = command_source.origin
-            for match in COMMAND_PATH_REFERENCE.finditer(command_source.command):
-                raw_candidate = match.group("path").removeprefix("./")
+            raw_candidates = {match.group("path") for match in COMMAND_PATH_REFERENCE.finditer(command_source.command)}
+            for raw_path in sorted(raw_candidates):
+                raw_candidate = raw_path.removeprefix("./")
+                checkout_alias = next(
+                    (alias for alias in command_source.repository_aliases if raw_candidate.startswith(f"{alias}/")),
+                    None,
+                )
+                if checkout_alias is not None:
+                    raw_candidate = raw_candidate[len(checkout_alias) + 1 :]
                 candidate = posixpath.normpath(posixpath.join(command_source.working_directory, raw_candidate))
+                suffix = Path(raw_candidate).suffix.casefold()
+                source_like = suffix in {".py", ".sh", ".ps1", ".rb"} or candidate.startswith(
+                    ("scripts/", "bin/", "tools/", ".agents/tools/")
+                )
+                if not source_like:
+                    continue
                 if candidate == ".." or candidate.startswith("../") or candidate.startswith("/"):
                     external_alias = next(
                         (alias for alias in external_checkouts if candidate.startswith(f"../{alias}/")),
@@ -116,9 +145,11 @@ def collect_task_references(root: Path, discovery: Discovery) -> TaskSourceScan:
                         suffix = candidate[len(f"{external_alias}/") :]
                         external_path = external_checkout_path(checkout, external_alias, suffix)
                         external_sources.setdefault(external_path, set()).add(origin)
+                    else:
+                        issues.append(f"referenced task path not found in repository at {origin}: {raw_candidate}")
                     continue
                 references.setdefault(candidate, set()).add(origin)
-                if Path(candidate).suffix.casefold() == ".py":
+                if suffix == ".py":
                     roots = invocation_roots_for_script(candidate, command_source)
                     module_name = next(
                         (found for prefix in roots if (found := module_name_for_path(candidate, prefix))),
@@ -127,7 +158,7 @@ def collect_task_references(root: Path, discovery: Discovery) -> TaskSourceScan:
                     direct_python.setdefault(candidate, []).append(
                         ModuleInvocation(candidate, module_name, roots, origin)
                     )
-                if Path(candidate).suffix.casefold() in {".sh", ".ps1"}:
+                if suffix in {".sh", ".ps1"}:
                     if depth < MAX_WRAPPER_DEPTH:
                         pending.append((candidate, depth + 1))
                     else:

@@ -17,8 +17,8 @@ MAX_RELATED_SOURCE_FILES = 256
 
 MAIN_GUARD = re.compile(r"""(?m)^\s*if\s+__name__\s*==\s*['"]__main__['"]\s*:""")
 COMMAND_PATH_REFERENCE = re.compile(
-    r"""(?:(?:python(?:3)?|bash|sh|pwsh|powershell)\s+|\./)"""
-    r"""(?P<path>[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)+(?:\.(?:py|sh|ps1|rb))?)"""
+    r"""(?:(?:python(?:3)?|bash|sh|pwsh|powershell)\s+|(?:\./)?\.venv/(?:Scripts/python\.exe|bin/python)\s+|\./)"""
+    r"""(?P<path>(?:[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)+|/(?:[A-Za-z0-9_.-]+/)*[A-Za-z0-9_.-]+|[A-Za-z0-9_.-]+\.(?:py|sh|ps1|rb)))"""
 )
 
 WELL_KNOWN_TASK_RUNNERS = {
@@ -73,6 +73,7 @@ class CommandSource:
     working_directory: str
     command: str
     origin: str
+    repository_aliases: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
