@@ -9,6 +9,7 @@
 ### Changed
 
 - Gate-source receipts expose per-source origins and inventory issues while retaining the 64-entrypoint limit. Moving a genuinely invoked validator cannot make an over-budget consumer pass by path alone.
+- GitHub workflow checkout ownership is now bound to the ordered steps of each job, including exact same-repository event refs and scoped environment overrides. Reused checkout aliases no longer cross-contaminate jobs; ambiguous refs or runner-default shells remain explicit inventory findings.
 
 ## 3.34.0 - 2026-11-04
 
