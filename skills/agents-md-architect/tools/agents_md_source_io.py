@@ -18,6 +18,7 @@ from discover_repository import Discovery  # noqa: E402
 
 
 def read_bounded(root: Path, relative: str) -> str:
+    """Read one repository-relative source under the classifier byte limit."""
     try:
         text, _byte_count = read_utf8_bounded(root / relative, root, MAX_CLASSIFIER_FILE_BYTES)
     except ConfinedReadError as error:
@@ -28,6 +29,7 @@ def read_bounded(root: Path, relative: str) -> str:
 
 
 def public_task_surfaces(discovery: Discovery) -> set[str]:
+    """Select CI, task-runner, and Python/Node manifest command surfaces."""
     surfaces = set(discovery.ci_files)
     surfaces.update(path for path in discovery.task_runners if Path(path).name in WELL_KNOWN_TASK_RUNNERS)
     surfaces.update(path for path in discovery.manifests if Path(path).name in {"package.json", "pyproject.toml"})
@@ -35,6 +37,7 @@ def public_task_surfaces(discovery: Discovery) -> set[str]:
 
 
 def command_origin(relative: str, text: str, command: str) -> str:
+    """Return the first source line containing a parsed command."""
     for line_number, line in enumerate(text.splitlines(), start=1):
         if command.strip() and command.strip() in line:
             return f"{relative}:{line_number}"
@@ -42,6 +45,7 @@ def command_origin(relative: str, text: str, command: str) -> str:
 
 
 def is_executable_shebang_script(root: Path, relative: str) -> bool:
+    """Recognize an executable shebang script only within the scripts namespace."""
     if not relative.startswith("scripts/"):
         return False
     path = root / relative
