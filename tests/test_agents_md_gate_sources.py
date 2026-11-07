@@ -422,6 +422,7 @@ def test_nested_module_invocation_without_pythonpath_resolves(tmp_path: Path) ->
     assert inventory.count == 2
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows symlink creation may require elevated privileges")
 def test_module_symlink_escape_is_incomplete_without_reading_target(tmp_path: Path) -> None:
     outside = tmp_path.parent / f"{tmp_path.name}-outside-validator.py"
     sentinel = tmp_path.parent / f"{tmp_path.name}-executed"
@@ -441,6 +442,7 @@ def test_module_symlink_escape_is_incomplete_without_reading_target(tmp_path: Pa
     assert not sentinel.exists()
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows symlink creation may require elevated privileges")
 def test_symlinked_module_namespace_is_incomplete_without_following_it(tmp_path: Path) -> None:
     outside = tmp_path.parent / f"{tmp_path.name}-outside-package"
     outside.mkdir()
