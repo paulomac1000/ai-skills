@@ -9,15 +9,18 @@ from typing import Literal
 Classification = Literal["ci_entrypoint", "task_entrypoint", "helper", "library", "generated", "excluded"]
 ExternalCheckoutKind = Literal["pinned_revision", "trusted_lock", "candidate_input", "workflow_authority"]
 
-GATE_SOURCE_POLICY_REVISION = "agents-md-gate-sources-5"
+GATE_SOURCE_POLICY_REVISION = "agents-md-gate-sources-6"
 MAX_CLASSIFIER_FILE_BYTES = 2 * 1024 * 1024
 MAX_WRAPPER_DEPTH = 4
 MAX_IMPORT_DEPTH = 4
 MAX_RELATED_SOURCE_FILES = 256
+MAX_IMPORT_CONTEXTS = 1024
 
 MAIN_GUARD = re.compile(r"""(?m)^\s*if\s+__name__\s*==\s*['"]__main__['"]\s*:""")
 COMMAND_PATH_REFERENCE = re.compile(
-    r"""(?:(?:python(?:3)?|bash|sh|pwsh|powershell)\s+|(?:\./)?\.venv/(?:Scripts/python\.exe|bin/python)\s+|\./)"""
+    r"""(?:(?:python(?:\d+(?:\.\d+)*)?(?:\.exe)?|(?:\./)?\.venv/(?:Scripts/python(?:\d+(?:\.\d+)*)?\.exe|bin/python(?:\d+(?:\.\d+)*)))"""
+    r"""(?:\s+(?:-(?:b|B|d|E|h|i|I|OO|O|P|q|s|S|u|v|V|x)(?:=\S+)?|-X(?:\s+|=)\S+|-W(?:\s+|=)\S+|--check-hash-based-pycs(?:\s+|=)\S+))*\s+|"""
+    r"""(?:bash|sh|pwsh|powershell)\s+|\./)"""
     r"""(?P<path>(?:[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)+|/(?:[A-Za-z0-9_.-]+/)*[A-Za-z0-9_.-]+|[A-Za-z0-9_.-]+\.(?:py|sh|ps1|rb)))"""
 )
 
@@ -73,6 +76,7 @@ class CheckoutContext:
     step_index: int
     aliases: tuple[tuple[str, ExternalCheckout | None], ...]
     unresolved_aliases: tuple[str, ...]
+    workspace_working_directory: str
 
 
 @dataclass(frozen=True)
@@ -82,6 +86,7 @@ class CommandSource:
     command: str
     origin: str
     checkout_context: CheckoutContext | None = None
+    pythonpath: str | None = None
 
 
 @dataclass(frozen=True)
@@ -94,6 +99,7 @@ class WorkflowCommandScan:
 class TaskSourceScan:
     references: dict[str, tuple[str, ...]]
     module_invocations: dict[str, tuple[ModuleInvocation, ...]]
+    unresolved_module_candidates: dict[str, tuple[str, ...]]
     direct_python: dict[str, tuple[ModuleInvocation, ...]]
     package_initializers: dict[str, tuple[ModuleInvocation, ...]]
     external_sources: dict[str, tuple[str, ...]]

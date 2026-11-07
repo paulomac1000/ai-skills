@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections import deque
+from dataclasses import replace
 from pathlib import Path
 
 from agents_md_checkout_sources import (
@@ -22,6 +23,7 @@ from agents_md_source_types import (
     MAX_RELATED_SOURCE_FILES,
     MAX_WRAPPER_DEPTH,
     WELL_KNOWN_TASK_RUNNERS,
+    CheckoutContext,
     CommandSource,
     ModuleInvocation,
     TaskSourceScan,
@@ -54,6 +56,7 @@ def _commands_from_surface(
                 command,
                 command_origin(relative, text, command),
                 parent.checkout_context if parent is not None else None,
+                parent.pythonpath if parent is not None else None,
             )
             for command in sorted(commands)
         ),
@@ -62,8 +65,10 @@ def _commands_from_surface(
 
 
 def collect_task_references(root: Path, discovery: Discovery) -> TaskSourceScan:
+    """Collect bounded task references and merge equivalent execution-context scans."""
     references: dict[str, set[str]] = {}
     module_invocations: dict[str, list[ModuleInvocation]] = {}
+    unresolved_module_candidates: dict[str, set[str]] = {}
     direct_python: dict[str, list[ModuleInvocation]] = {}
     package_initializers: dict[str, list[ModuleInvocation]] = {}
     external_sources: dict[str, set[str]] = {}
@@ -71,12 +76,18 @@ def collect_task_references(root: Path, discovery: Discovery) -> TaskSourceScan:
     pending: deque[tuple[str, int, CommandSource | None]] = deque(
         (surface, 0, None) for surface in sorted(public_task_surfaces(discovery))
     )
-    scanned: set[tuple[str, CommandSource | None]] = set()
+    scanned: set[tuple[str, tuple[str, CheckoutContext | None, str | None] | None]] = set()
     discovered_files = set(discovery.files)
 
     while pending:
         relative, depth, parent = pending.popleft()
-        scan_key = (relative, parent)
+        scan_context: tuple[str, CheckoutContext | None, str | None] | None = None
+        if parent is not None:
+            checkout_context = parent.checkout_context
+            if checkout_context is not None:
+                checkout_context = replace(checkout_context, step_index=0)
+            scan_context = (parent.working_directory, checkout_context, parent.pythonpath)
+        scan_key = (relative, scan_context)
         if scan_key in scanned:
             continue
         if len(scanned) >= MAX_RELATED_SOURCE_FILES:
@@ -122,7 +133,9 @@ def collect_task_references(root: Path, discovery: Discovery) -> TaskSourceScan:
                     continue
                 references.setdefault(candidate, set()).add(origin)
                 if suffix == ".py":
-                    roots = invocation_roots_for_script(candidate, command_source)
+                    roots, pythonpath_issue = invocation_roots_for_script(candidate, command_source)
+                    if pythonpath_issue is not None:
+                        issues.append(pythonpath_issue)
                     module_name = next(
                         (found for prefix in roots if (found := module_name_for_path(candidate, prefix))),
                         Path(candidate).stem,
@@ -142,10 +155,12 @@ def collect_task_references(root: Path, discovery: Discovery) -> TaskSourceScan:
                     else:
                         issues.append(f"wrapper depth exceeds {MAX_WRAPPER_DEPTH} at {origin} -> {candidate}")
 
-            module_references, module_initializers, module_issues = module_invocation_references(
+            module_references, module_initializers, module_issues, possible_module_paths = module_invocation_references(
                 command_source, discovery
             )
             issues.extend(module_issues)
+            for candidate in possible_module_paths:
+                unresolved_module_candidates.setdefault(candidate, set()).add(command_source.origin)
             for candidate, invocations in module_initializers.items():
                 package_initializers.setdefault(candidate, []).extend(invocations)
             for candidate, invocations in module_references.items():
@@ -161,6 +176,9 @@ def collect_task_references(root: Path, discovery: Discovery) -> TaskSourceScan:
     return TaskSourceScan(
         references={path: tuple(sorted(origins)) for path, origins in references.items()},
         module_invocations={path: tuple(values) for path, values in module_invocations.items()},
+        unresolved_module_candidates={
+            path: tuple(sorted(origins)) for path, origins in unresolved_module_candidates.items()
+        },
         direct_python={path: tuple(values) for path, values in direct_python.items()},
         package_initializers={path: tuple(values) for path, values in package_initializers.items()},
         external_sources={path: tuple(sorted(origins)) for path, origins in external_sources.items()},

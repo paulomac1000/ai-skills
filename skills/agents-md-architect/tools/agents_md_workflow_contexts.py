@@ -27,7 +27,7 @@ from agents_md_source_types import (
     ExternalCheckout,
     WorkflowCommandScan,
 )
-from yaml.nodes import MappingNode, ScalarNode, SequenceNode
+from yaml.nodes import MappingNode, Node, ScalarNode, SequenceNode
 
 GITHUB_PYTHON_LAUNCHER = re.compile(
     r"""\$\{\{\s*runner\.os\s*==\s*['\"]Windows['\"]\s*&&\s*['\"](?:\./)?\.venv/Scripts/python\.exe['\"]\s*\|\|\s*['\"]python['\"]\s*\}\}"""
@@ -36,7 +36,8 @@ GITHUB_PYTHON_TAIL = re.compile(r"^python\s+['\"]\}\}['\"]\s+(?P<argv>.+)$")
 GITHUB_ENV_REFERENCE = re.compile(r"^\$\{\{\s*env\.([A-Za-z_][A-Za-z0-9_]*)\s*\}\}$")
 
 
-def _resolve_environment_reference(value: str | None, scopes: tuple[object, ...]) -> str | None:
+def _resolve_environment_reference(value: str | None, scopes: tuple[Node | None, ...]) -> str | None:
+    """Resolve one supported GitHub env expression using the nearest scope value."""
     if value is None:
         return None
     match = GITHUB_ENV_REFERENCE.fullmatch(value.strip())
@@ -57,6 +58,23 @@ def _resolve_environment_reference(value: str | None, scopes: tuple[object, ...]
                 found = True
                 break
     return resolved if found else value
+
+
+def _workflow_environment_value(name: str, scopes: tuple[Node | None, ...]) -> str | None:
+    """Resolve one effective scalar environment value using workflow-to-step precedence."""
+    value: str | None = None
+    found = False
+    for scope in scopes:
+        if not isinstance(scope, MappingNode):
+            continue
+        for key_node, value_node in scope.value:
+            if isinstance(key_node, ScalarNode) and key_node.value == name:
+                if not isinstance(value_node, ScalarNode):
+                    return f"${{{{ unresolved env.{name} }}}}"
+                value = _resolve_environment_reference(value_node.value, scopes)
+                found = True
+                break
+    return value if found else None
 
 
 def github_workflow_command_scan(
@@ -102,6 +120,11 @@ def github_workflow_command_scan(
         for step_index, step in enumerate(steps.value):
             if not isinstance(step, MappingNode) or _github_condition_is_statically_false(step):
                 continue
+            environment_scopes = (
+                _mapping_value(root, "env"),
+                _mapping_value(job, "env"),
+                _mapping_value(step, "env"),
+            )
             uses = _scalar_value(_mapping_value(step, "uses"))
             if isinstance(uses, str) and uses.split("@", 1)[0] == "actions/checkout":
                 options = _mapping_value(step, "with")
@@ -110,11 +133,7 @@ def github_workflow_command_scan(
                     _scalar_value(_mapping_value(options, "repository")),
                     _resolve_environment_reference(
                         _scalar_value(_mapping_value(options, "ref")),
-                        (
-                            _mapping_value(root, "env"),
-                            _mapping_value(job, "env"),
-                            _mapping_value(step, "env"),
-                        ),
+                        environment_scopes,
                     ),
                     _scalar_value(_mapping_value(options, "path")),
                 )
@@ -173,6 +192,7 @@ def github_workflow_command_scan(
             if not invocations:
                 continue
 
+            workspace_working_directory = working_directory
             local_aliases = tuple(alias for alias, owner in checkouts.items() if owner is None and alias != ".")
             working_directory = normalize_checkout_working_directory(working_directory, local_aliases)
             checkout_context = CheckoutContext(
@@ -180,13 +200,17 @@ def github_workflow_command_scan(
                 step_index,
                 tuple(sorted(checkouts.items())),
                 tuple(sorted(unresolved_aliases)),
+                workspace_working_directory,
             )
+            pythonpath = _workflow_environment_value("PYTHONPATH", environment_scopes)
             line = run_node.start_mark.line + 1 if isinstance(run_node, ScalarNode) else 0
             origin = f"{relative}:{line}" if line else relative
             for command in sorted(invocations):
                 normalized = GITHUB_PYTHON_LAUNCHER.sub("python", command)
                 if has_python_launcher:
                     normalized = GITHUB_PYTHON_TAIL.sub(r"python \g<argv>", normalized)
-                commands.append(CommandSource(relative, working_directory, normalized, origin, checkout_context))
+                commands.append(
+                    CommandSource(relative, working_directory, normalized, origin, checkout_context, pythonpath)
+                )
 
     return WorkflowCommandScan(tuple(commands), tuple(sorted(set(issues))))

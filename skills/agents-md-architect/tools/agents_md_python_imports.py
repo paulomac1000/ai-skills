@@ -9,7 +9,13 @@ from pathlib import Path
 
 from agents_md_python_modules import resolve_module_paths
 from agents_md_source_io import read_bounded
-from agents_md_source_types import MAX_IMPORT_DEPTH, MAX_RELATED_SOURCE_FILES, ModuleInvocation, TaskSourceScan
+from agents_md_source_types import (
+    MAX_IMPORT_CONTEXTS,
+    MAX_IMPORT_DEPTH,
+    MAX_RELATED_SOURCE_FILES,
+    ModuleInvocation,
+    TaskSourceScan,
+)
 from discover_repository import Discovery
 
 
@@ -57,6 +63,7 @@ def collect_imported_libraries(
     ]
     pending = deque((invocation, 0) for invocation in initial)
     visited: set[tuple[str, str, tuple[str, ...]]] = set()
+    visited_files: set[str] = set()
     for path, invocations in task_sources.package_initializers.items():
         imported_origins.setdefault(path, set()).update(invocation.origin for invocation in invocations)
 
@@ -65,13 +72,20 @@ def collect_imported_libraries(
         context_key = (invocation.path, invocation.module, invocation.import_roots)
         if context_key in visited:
             continue
-        visited.add(context_key)
-        if len(visited) > MAX_RELATED_SOURCE_FILES:
+        if len(visited) >= MAX_IMPORT_CONTEXTS:
             issues.append(
-                f"Python import inventory exceeds {MAX_RELATED_SOURCE_FILES} modules; "
+                f"Python import inventory exceeds {MAX_IMPORT_CONTEXTS} contexts; "
                 f"dependency chain at {invocation.origin} remains unclassified"
             )
             break
+        if invocation.path not in visited_files and len(visited_files) >= MAX_RELATED_SOURCE_FILES:
+            issues.append(
+                f"Python import inventory exceeds {MAX_RELATED_SOURCE_FILES} distinct files; "
+                f"dependency chain at {invocation.origin} remains unclassified"
+            )
+            break
+        visited.add(context_key)
+        visited_files.add(invocation.path)
         if depth > MAX_IMPORT_DEPTH:
             issues.append(f"Python import depth exceeds {MAX_IMPORT_DEPTH} at {invocation.path}")
             continue

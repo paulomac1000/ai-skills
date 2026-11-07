@@ -43,6 +43,7 @@ def classify_gate_sources(
     candidates = set(discovery.ci_files)
     candidates.update(discovery.task_runners)
     candidates.update(task_scan.references)
+    candidates.update(task_scan.unresolved_module_candidates)
     candidates.update(imported_libraries)
     candidates.update(task_scan.external_sources)
     entrypoint_paths = set(task_scan.references)
@@ -66,6 +67,7 @@ def classify_gate_sources(
         path = Path(relative)
         origins = set(task_scan.references.get(relative, ()))
         origins.update(imported_libraries.get(relative, ()))
+        origins.update(task_scan.unresolved_module_candidates.get(relative, ()))
         origin_rows = tuple(sorted(origins))
         if relative in discovery.ci_files:
             rows.append(
@@ -86,6 +88,17 @@ def classify_gate_sources(
                     True,
                     "well-known repository task-runner entrypoint",
                     origin_rows or ("well-known repository task-runner entrypoint",),
+                )
+            )
+            continue
+        if relative in task_scan.unresolved_module_candidates:
+            rows.append(
+                GateSource(
+                    relative,
+                    "helper",
+                    False,
+                    "possible Python module target retained for inspection; unresolved PYTHONPATH cannot establish invocation",
+                    origin_rows,
                 )
             )
             continue
@@ -192,7 +205,7 @@ def classify_gate_sources(
         )
 
     count = sum(row.counted for row in rows)
-    issues = tuple(sorted(set((*task_scan.issues, *import_issues))))
+    issues = tuple(sorted(set((*discovery.issues, *task_scan.issues, *import_issues))))
     return GateSourceInventory(policy_revision, limit, count, limit - count, tuple(rows), issues)
 
 
