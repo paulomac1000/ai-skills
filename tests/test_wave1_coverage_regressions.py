@@ -30,6 +30,7 @@ def _load(name: str, path: Path) -> ModuleType:
 PARITY = _load("wave1_coverage_parity", CI_TOOLS / "check_local_ci_parity.py")
 CORPUS = _load("wave1_coverage_corpus", CI_TOOLS / "check_test_corpus.py")
 GATES = _load("wave1_coverage_gate_sources", AGENT_TOOLS / "agents_md_gate_sources.py")
+SOURCE_IO = sys.modules["agents_md_source_io"]
 DISCOVERY = _load("wave1_coverage_discovery", AGENT_TOOLS / "discover_repository.py")
 
 
@@ -432,7 +433,7 @@ def test_gate_source_bounded_reader_and_executable_shebang_edges(
         assert GATES._is_executable_shebang_script(tmp_path, "scripts/run.sh") is False
 
     with monkeypatch.context() as patch:
-        patch.setattr(GATES, "MAX_CLASSIFIER_FILE_BYTES", 1)
+        patch.setattr(SOURCE_IO, "MAX_CLASSIFIER_FILE_BYTES", 1)
         with pytest.raises(ValueError, match="exceeds"):
             GATES._read_bounded(tmp_path, "scripts/run.sh")
 

@@ -1,5 +1,16 @@
 # Changelog
 
+## 3.35.0 - Unreleased
+
+### Added
+
+- The AGENTS.md gate-source inventory now resolves directly invoked Python modules, package `__main__.py` targets, declared `PYTHONPATH`, workflow working directories, and bounded wrapper chains independently of source location. Imported repository helpers remain visible as uncounted library evidence with source-qualified origins; incomplete or ambiguous discovery is explicit and blocks a complete audit.
+
+### Changed
+
+- Gate-source receipts expose per-source origins and inventory issues while retaining the 64-entrypoint limit. Moving a genuinely invoked validator cannot make an over-budget consumer pass by path alone.
+- Gate-source policy revision 6 preserves checkout ownership through original working-directory and alias resolution, rejects dynamic checkout paths and workspace escapes, resolves Python modules and direct-script imports with workflow/job/step `PYTHONPATH` and interpreter options, counts distinct imported files separately from bounded import contexts, and deduplicates equivalent wrapper scans while retaining origins. Unresolved source ownership or exhausted scan bounds remain blocking inventory findings.
+
 ## 3.34.0 - 2026-11-04
 
 ### Added

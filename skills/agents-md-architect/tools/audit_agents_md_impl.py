@@ -25,6 +25,7 @@ from agents_md_completion_evidence import (  # noqa: E402
     completion_command_rules,
     public_task_invocations,
 )
+from agents_md_gate_sources import classify_gate_sources  # noqa: E402
 from agents_md_parse import (  # noqa: E402
     LIST_ITEM,
     _blockquote_depth_and_content,
@@ -1142,23 +1143,40 @@ def _executed_source_evidence(relative: str, text: str) -> set[CommandEvidence]:
 
 
 def _known_gate_commands(root: Path, discovery: Discovery) -> tuple[KnownCommands, list[AuditFinding]]:
-    gate_sources = tuple(sorted(set((*discovery.ci_files, *discovery.task_runners))))
+    inventory = classify_gate_sources(root, discovery, limit=MAX_GATE_FILES)
+    gate_sources = {source.path for source in inventory.sources if source.counted}
+    evidence_sources = gate_sources | set(discovery.ci_files) | set(discovery.task_runners)
     public_sources = _public_source_files(discovery)
-    sources = tuple(sorted(set((*gate_sources, *public_sources))))
+    audit_sources = {source.path for source in inventory.sources if source.classification != "excluded"}
+    sources = tuple(sorted(audit_sources | set(public_sources)))
     findings: list[AuditFinding] = []
     public_commands = set(_entrypoint_invocations(discovery))
     executed_commands: set[CommandEvidence] = set()
-    if len(sources) > MAX_GATE_FILES:
+    findings.extend(
+        AuditFinding(
+            root.as_posix(),
+            "error",
+            "evidence.incomplete-gate-source-inventory",
+            1,
+            issue,
+        )
+        for issue in inventory.issues
+    )
+    if inventory.count > inventory.limit:
+        counted = [item.path for item in inventory.sources if item.counted]
+        preview = ", ".join(counted[:12])
+        suffix = "" if len(counted) <= 12 else f", ... (+{len(counted) - 12} more)"
         findings.append(
             AuditFinding(
                 root.as_posix(),
                 "error",
                 "evidence.too-many-gate-sources",
                 1,
-                f"Found {len(sources)} CI/task sources; maximum supported count is {MAX_GATE_FILES}.",
+                f"Found {inventory.count} classified CI/task entrypoints; "
+                f"limit {inventory.limit}; headroom {inventory.headroom}. "
+                f"Counted: {preview}{suffix}",
             )
         )
-        return KnownCommands(frozenset(public_commands), frozenset()), findings
 
     total_bytes = 0
     for relative in sources:
@@ -1185,10 +1203,14 @@ def _known_gate_commands(root: Path, discovery: Discovery) -> tuple[KnownCommand
             if syntax_error is not None:
                 findings.append(AuditFinding(relative, "error", "evidence.invalid-yaml", 1, syntax_error))
                 continue
-        public_commands.update(
-            _parse_many(public_task_invocations(relative, text), _source_working_directory(relative))
-        )
-        if relative in gate_sources:
+        if relative in evidence_sources or relative in public_sources:
+            public_commands.update(
+                _parse_many(
+                    public_task_invocations(relative, text),
+                    _source_working_directory(relative),
+                )
+            )
+        if relative in evidence_sources:
             executed_commands.update(_executed_source_evidence(relative, text))
     return KnownCommands(frozenset(public_commands), frozenset(executed_commands)), findings
 

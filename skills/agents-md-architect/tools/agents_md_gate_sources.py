@@ -5,98 +5,28 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
-from dataclasses import asdict, dataclass
+from dataclasses import asdict
 from pathlib import Path
-from typing import Literal
 
+from agents_md_python_imports import collect_imported_libraries
+from agents_md_source_io import is_executable_shebang_script, read_bounded
+from agents_md_source_types import (
+    GATE_SOURCE_POLICY_REVISION,
+    MAIN_GUARD,
+    WELL_KNOWN_TASK_RUNNERS,
+    GateSource,
+    GateSourceInventory,
+    TaskSourceScan,
+)
+from agents_md_task_source_scan import collect_task_references
 from agents_md_types import MAX_GATE_FILES
 from discover_repository import Discovery, discover
 
-Classification = Literal["ci_entrypoint", "task_entrypoint", "helper", "library", "generated", "excluded"]
+__all__ = ["GATE_SOURCE_POLICY_REVISION", "GateSource", "GateSourceInventory", "classify_gate_sources"]
 
-GATE_SOURCE_POLICY_REVISION = "agents-md-gate-sources-1"
-MAIN_GUARD = re.compile(r"""(?m)^\s*if\s+__name__\s*==\s*['"]__main__['"]\s*:""")
-COMMAND_PATH_REFERENCE = re.compile(
-    r"""(?:(?:python(?:3)?|bash|sh|pwsh|powershell)\s+|\./)"""
-    r"""(?P<path>[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)+(?:\.(?:py|sh|ps1|rb))?)"""
-)
-MAX_CLASSIFIER_FILE_BYTES = 2 * 1024 * 1024
-
-WELL_KNOWN_TASK_RUNNERS = {
-    "Makefile",
-    "makefile",
-    "Justfile",
-    "justfile",
-    "Taskfile.yml",
-    "Taskfile.yaml",
-    "build.sh",
-    "build.ps1",
-}
-
-
-@dataclass(frozen=True)
-class GateSource:
-    path: str
-    classification: Classification
-    counted: bool
-    reason: str
-
-
-@dataclass(frozen=True)
-class GateSourceInventory:
-    policy_revision: str
-    limit: int
-    count: int
-    headroom: int
-    sources: tuple[GateSource, ...]
-
-
-def _read_bounded(root: Path, relative: str) -> str:
-    path = root / relative
-    if path.is_symlink():
-        raise ValueError(f"refusing symlink gate source: {relative}")
-    resolved = path.resolve(strict=True)
-    resolved.relative_to(root)
-    if not resolved.is_file():
-        raise ValueError(f"gate source is not a regular file: {relative}")
-    data = resolved.read_bytes()
-    if len(data) > MAX_CLASSIFIER_FILE_BYTES:
-        raise ValueError(f"gate source exceeds {MAX_CLASSIFIER_FILE_BYTES} bytes: {relative}")
-    return data.decode("utf-8")
-
-
-def _public_task_surfaces(discovery: Discovery) -> set[str]:
-    surfaces = set(discovery.ci_files)
-    surfaces.update(path for path in discovery.task_runners if Path(path).name in WELL_KNOWN_TASK_RUNNERS)
-    surfaces.update(path for path in discovery.manifests if Path(path).name in {"package.json", "pyproject.toml"})
-    return surfaces
-
-
-def _referenced_task_paths(root: Path, discovery: Discovery) -> set[str]:
-    references: set[str] = set()
-    for relative in sorted(_public_task_surfaces(discovery)):
-        try:
-            text = _read_bounded(root, relative)
-        except (OSError, UnicodeError, ValueError):
-            continue
-        for match in COMMAND_PATH_REFERENCE.finditer(text):
-            candidate = match.group("path").lstrip("./")
-            if candidate in discovery.files:
-                references.add(candidate)
-    return references
-
-
-def _is_executable_shebang_script(root: Path, relative: str) -> bool:
-    if not relative.startswith("scripts/"):
-        return False
-    path = root / relative
-    try:
-        if path.is_symlink() or path.stat().st_mode & 0o111 == 0:
-            return False
-        return _read_bounded(root, relative).startswith("#!")
-    except (OSError, UnicodeError, ValueError):
-        return False
+# Retain the tested private facade while implementation lives in bounded helpers.
+_is_executable_shebang_script = is_executable_shebang_script
+_read_bounded = read_bounded
 
 
 def classify_gate_sources(
@@ -106,56 +36,130 @@ def classify_gate_sources(
     limit: int = MAX_GATE_FILES,
     policy_revision: str = GATE_SOURCE_POLICY_REVISION,
 ) -> GateSourceInventory:
-    """Classify discovered CI/task-shaped sources without counting helpers as entrypoints."""
+    """Classify entrypoints and bounded imported sources without executing them."""
     safe_root = Path(discovery.root)
-    references = _referenced_task_paths(safe_root, discovery)
+    task_scan: TaskSourceScan = collect_task_references(safe_root, discovery)
+    imported_libraries, import_issues = collect_imported_libraries(safe_root, discovery, task_scan)
     candidates = set(discovery.ci_files)
     candidates.update(discovery.task_runners)
-    candidates.update(references)
+    candidates.update(task_scan.references)
+    candidates.update(task_scan.unresolved_module_candidates)
+    candidates.update(imported_libraries)
+    candidates.update(task_scan.external_sources)
+    entrypoint_paths = set(task_scan.references)
     rows: list[GateSource] = []
 
     for relative in sorted(candidates):
-        path = Path(relative)
-        if relative in discovery.ci_files:
-            rows.append(GateSource(relative, "ci_entrypoint", True, "discovered CI workflow/configuration"))
+        external_origins = task_scan.external_sources.get(relative)
+        if external_origins is not None:
+            rows.append(
+                GateSource(
+                    relative,
+                    "excluded",
+                    False,
+                    "external checkout identity is recorded for separate validation; "
+                    "content is not read or counted as repository-local code",
+                    external_origins,
+                )
+            )
             continue
 
-        name = path.name
-        if name in WELL_KNOWN_TASK_RUNNERS:
-            rows.append(GateSource(relative, "task_entrypoint", True, "well-known repository task-runner entrypoint"))
+        path = Path(relative)
+        origins = set(task_scan.references.get(relative, ()))
+        origins.update(imported_libraries.get(relative, ()))
+        origins.update(task_scan.unresolved_module_candidates.get(relative, ()))
+        origin_rows = tuple(sorted(origins))
+        if relative in discovery.ci_files:
+            rows.append(
+                GateSource(
+                    relative,
+                    "ci_entrypoint",
+                    True,
+                    "discovered CI workflow/configuration",
+                    origin_rows or ("discovered CI workflow/configuration",),
+                )
+            )
+            continue
+        if path.name in WELL_KNOWN_TASK_RUNNERS:
+            rows.append(
+                GateSource(
+                    relative,
+                    "task_entrypoint",
+                    True,
+                    "well-known repository task-runner entrypoint",
+                    origin_rows or ("well-known repository task-runner entrypoint",),
+                )
+            )
+            continue
+        if relative in task_scan.unresolved_module_candidates:
+            rows.append(
+                GateSource(
+                    relative,
+                    "helper",
+                    False,
+                    "possible Python module target retained for inspection; unresolved PYTHONPATH cannot establish invocation",
+                    origin_rows,
+                )
+            )
             continue
         if relative.startswith("bin/"):
             rows.append(
-                GateSource(relative, "task_entrypoint", True, "bin/ is an explicit command entrypoint namespace")
+                GateSource(
+                    relative,
+                    "task_entrypoint",
+                    True,
+                    "bin/ is an explicit command entrypoint namespace",
+                    origin_rows or ("explicit bin/ entrypoint namespace",),
+                )
             )
             continue
-        if relative in references:
+        if relative in task_scan.module_invocations:
+            rows.append(
+                GateSource(
+                    relative,
+                    "task_entrypoint",
+                    True,
+                    "invoked as a Python module by a public repository task surface",
+                    origin_rows,
+                )
+            )
+            continue
+        if relative in entrypoint_paths:
             rows.append(
                 GateSource(
                     relative,
                     "task_entrypoint",
                     True,
                     "referenced by CI or another public repository task surface",
+                    origin_rows,
                 )
             )
             continue
-        if _is_executable_shebang_script(safe_root, relative):
+        if is_executable_shebang_script(safe_root, relative):
             rows.append(
                 GateSource(
                     relative,
                     "task_entrypoint",
                     True,
                     "executable scripts/ file has a shebang and is independently runnable",
+                    origin_rows or ("executable scripts/ shebang",),
                 )
             )
             continue
 
-        suffix = path.suffix.casefold()
-        if suffix == ".py":
+        if path.suffix.casefold() == ".py":
             try:
-                text = _read_bounded(safe_root, relative)
+                text = read_bounded(safe_root, relative)
             except (OSError, UnicodeError, ValueError) as error:
-                rows.append(GateSource(relative, "helper", False, f"could not prove independent entrypoint: {error}"))
+                rows.append(
+                    GateSource(
+                        relative,
+                        "helper",
+                        False,
+                        f"could not prove independent entrypoint: {error}",
+                        origin_rows,
+                    )
+                )
                 continue
             if MAIN_GUARD.search(text):
                 rows.append(
@@ -164,6 +168,18 @@ def classify_gate_sources(
                         "task_entrypoint",
                         True,
                         "Python module exposes an explicit __main__ entrypoint",
+                        origin_rows or ("explicit Python __main__ guard",),
+                    )
+                )
+            elif relative in imported_libraries:
+                importers = ", ".join(origin_rows[:5])
+                rows.append(
+                    GateSource(
+                        relative,
+                        "library",
+                        False,
+                        f"imported by a counted task entrypoint; not independently invoked: {importers}",
+                        origin_rows,
                     )
                 )
             else:
@@ -173,6 +189,7 @@ def classify_gate_sources(
                         "helper",
                         False,
                         "script-shaped file has no independent entrypoint evidence",
+                        origin_rows,
                     )
                 )
             continue
@@ -183,17 +200,13 @@ def classify_gate_sources(
                 "helper",
                 False,
                 "script-shaped file has no independent entrypoint evidence",
+                origin_rows,
             )
         )
 
-    count = sum(1 for row in rows if row.counted)
-    return GateSourceInventory(
-        policy_revision=policy_revision,
-        limit=limit,
-        count=count,
-        headroom=limit - count,
-        sources=tuple(rows),
-    )
+    count = sum(row.counted for row in rows)
+    issues = tuple(sorted(set((*discovery.issues, *task_scan.issues, *import_issues))))
+    return GateSourceInventory(policy_revision, limit, count, limit - count, tuple(rows), issues)
 
 
 def main() -> int:
@@ -207,12 +220,9 @@ def main() -> int:
     except (OSError, UnicodeError, ValueError) as error:
         print(json.dumps({"verdict": "fail", "error": str(error)}, sort_keys=True))
         return 2
-    payload = {
-        **asdict(inventory),
-        "verdict": "pass" if inventory.count <= inventory.limit else "fail",
-    }
-    print(json.dumps(payload, indent=2, sort_keys=True))
-    return 0 if inventory.count <= inventory.limit else 1
+    complete = inventory.count <= inventory.limit and not inventory.issues
+    print(json.dumps({**asdict(inventory), "verdict": "pass" if complete else "fail"}, indent=2, sort_keys=True))
+    return 0 if complete else 1
 
 
 if __name__ == "__main__":

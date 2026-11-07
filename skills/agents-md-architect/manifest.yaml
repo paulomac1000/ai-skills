@@ -1,6 +1,6 @@
 schema_version: 1
 name: agents-md-architect
-version: 3.34.0
+version: 3.35.0
 maturity: stable
 skill_format: ai-skills/v1
 normative_entrypoint: STANDARD.md
@@ -75,6 +75,13 @@ required:
 - tools/audit_agents_md.py
 - tools/audit_agents_md_impl.py
 - tools/agents_md_gate_sources.py
+- tools/agents_md_source_types.py
+- tools/agents_md_source_io.py
+- tools/agents_md_checkout_sources.py
+- tools/agents_md_python_modules.py
+- tools/agents_md_python_imports.py
+- tools/agents_md_task_source_scan.py
+- tools/agents_md_workflow_contexts.py
 - tools/agents_md_types.py
 - tools/agents_md_parse.py
 - tools/agents_md_completion_evidence.py
