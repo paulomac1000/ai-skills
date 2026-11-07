@@ -9,7 +9,7 @@
 ### Changed
 
 - Gate-source receipts expose per-source origins and inventory issues while retaining the 64-entrypoint limit. Moving a genuinely invoked validator cannot make an over-budget consumer pass by path alone.
-- GitHub workflow checkout ownership is now bound to the ordered steps of each job, including exact same-repository event refs and scoped environment overrides. Reused checkout aliases no longer cross-contaminate jobs; ambiguous refs or runner-default shells remain explicit inventory findings.
+- Gate-source policy revision 6 preserves checkout ownership through original working-directory and alias resolution, rejects dynamic checkout paths and workspace escapes, resolves Python modules and direct-script imports with workflow/job/step `PYTHONPATH` and interpreter options, counts distinct imported files separately from bounded import contexts, and deduplicates equivalent wrapper scans while retaining origins. Unresolved source ownership or exhausted scan bounds remain blocking inventory findings.
 
 ## 3.34.0 - 2026-11-04
 
