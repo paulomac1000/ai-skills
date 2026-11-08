@@ -87,7 +87,7 @@ def pythonpath_roots(
         normalized = posixpath.normpath(posixpath.join(pythonpath_base, prefix))
         if normalized == ".." or normalized.startswith("../"):
             return (), f"PYTHONPATH escapes the repository at {value!r}", ()
-        roots[(normalized, False)] = ImportRoot(normalized)
+        roots[(normalized, workspace_root)] = ImportRoot(normalized, workspace_root)
 
     for root in default:
         roots.setdefault((root, False), ImportRoot(root))

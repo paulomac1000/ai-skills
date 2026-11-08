@@ -260,3 +260,46 @@ def test_command_local_pythonpath_reaches_wrapper_children(tmp_path: Path) -> No
     assert row.classification == "task_entrypoint"
     assert row.counted is True
     assert not inventory.issues
+
+
+def test_suffixed_github_workspace_pythonpath_keeps_external_vendor_ownership(tmp_path: Path) -> None:
+    (tmp_path / "candidate" / "vendor" / "helper.py").parent.mkdir(parents=True)
+    (tmp_path / "candidate" / "vendor" / "helper.py").write_text("VALUE = 1\n", encoding="utf-8")
+    (tmp_path / "candidate").mkdir(exist_ok=True)
+    vendor = tmp_path / "vendor" / "helper.py"
+    vendor.parent.mkdir(parents=True)
+    vendor.write_text("EXTERNAL = 1\n", encoding="utf-8")
+    workflow = tmp_path / ".github" / "workflows" / "ci.yml"
+    workflow.parent.mkdir(parents=True)
+    workflow.write_text(
+        "jobs:\n"
+        "  verify:\n"
+        "    runs-on: ubuntu-24.04\n"
+        "    steps:\n"
+        "      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567\n"
+        "      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567\n"
+        "        with:\n"
+        "          path: candidate\n"
+        "      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567\n"
+        "        with:\n"
+        "          repository: example/vendor\n"
+        "          ref: abcdef0123456789abcdef0123456789abcdef01\n"
+        "          path: vendor\n"
+        "      - name: Invoke workspace vendor module\n"
+        "        working-directory: candidate\n"
+        "        env:\n"
+        "          PYTHONPATH: $GITHUB_WORKSPACE/vendor\n"
+        "        run: python -m helper\n",
+        encoding="utf-8",
+    )
+
+    inventory = classify_gate_sources(tmp_path, discover(tmp_path), limit=64)
+
+    assert not any(source.path == "vendor/helper.py" and source.counted for source in inventory.sources)
+    assert not any(source.path == "candidate/vendor/helper.py" and source.counted for source in inventory.sources)
+    assert any(
+        source.path == "external:example/vendor@abcdef0123456789abcdef0123456789abcdef01/helper.py"
+        and source.classification == "excluded"
+        for source in inventory.sources
+    )
+    assert not inventory.issues
